@@ -76,17 +76,25 @@ impl Box {
     }
 
     pub fn hit_test(&self, position: point::Logical) -> Option<ui::Id> {
+        self.hit_test_where(position, |_| true)
+    }
+
+    pub fn hit_test_where(
+        &self,
+        position: point::Logical,
+        accepts: impl Copy + Fn(ui::Id) -> bool,
+    ) -> Option<ui::Id> {
         if !contains(self.rect, position) {
             return None;
         }
 
         for child in self.children.iter().rev() {
-            if let Some(id) = child.hit_test(position) {
+            if let Some(id) = child.hit_test_where(position, accepts) {
                 return Some(id);
             }
         }
 
-        Some(self.id)
+        accepts(self.id).then_some(self.id)
     }
 
     pub fn find(&self, id: ui::Id) -> Option<&Box> {

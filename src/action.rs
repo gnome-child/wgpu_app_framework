@@ -80,6 +80,14 @@ pub struct Context {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    Target(ui::Id),
+    Focused,
+    Hovered,
+    Window,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
     Pointer,
     Programmatic,
@@ -104,8 +112,18 @@ impl Registry {
         self.actions.get(&id)
     }
 
-    pub fn set_state(&mut self, id: Id, context: Context, state: State) {
+    pub fn set_state(&mut self, id: Id, context: Context, state: State) -> bool {
+        if self.states.get(&(id, context)) == Some(&state) {
+            return false;
+        }
+
         self.states.insert((id, context), state);
+        true
+    }
+
+    pub fn clear_context_states(&mut self, window: window::Id) {
+        self.states
+            .retain(|(_, context), _| context.window != window || context.target.is_none());
     }
 
     pub fn state(&self, id: Id, context: Context) -> State {
@@ -201,5 +219,42 @@ mod tests {
         registry.set_state(SELECT_ALL, context, State::disabled());
 
         assert!(!registry.can_invoke(SELECT_ALL, context));
+    }
+
+    #[test]
+    fn clearing_context_states_keeps_window_fallback() {
+        let mut registry = Registry::new();
+        let window = window::Id::new(1);
+
+        registry.register(Action::new(SELECT_ALL, "Select All"));
+        registry.set_state(
+            SELECT_ALL,
+            Context {
+                window,
+                target: None,
+            },
+            State::disabled(),
+        );
+        registry.set_state(
+            SELECT_ALL,
+            Context {
+                window,
+                target: Some(TEXT_BOX),
+            },
+            State::active(),
+        );
+
+        registry.clear_context_states(window);
+
+        assert_eq!(
+            registry.state(
+                SELECT_ALL,
+                Context {
+                    window,
+                    target: Some(TEXT_BOX),
+                }
+            ),
+            State::disabled()
+        );
     }
 }

@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 
-use crate::geometry::{Rect, area, point};
+pub mod control;
+mod layouting;
+mod painting;
+
+use crate::geometry::{area, point};
 use crate::{action, layout, paint, window};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -73,6 +77,7 @@ pub struct Node {
     pub id: Id,
     pub layout: Layout,
     pub style: Style,
+    pub interactivity: Interactivity,
     pub action: Option<action::Id>,
     pub children: Vec<Node>,
 }
@@ -87,8 +92,25 @@ pub struct Layout {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Style {
     pub background: Option<paint::Color>,
+    pub hover_background: Option<paint::Color>,
+    pub focus_background: Option<paint::Color>,
+    pub active_background: Option<paint::Color>,
     pub disabled_background: Option<paint::Color>,
     pub padding: layout::Insets,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Interactivity {
+    pub hit_test: bool,
+    pub focusable: bool,
+    pub actionable: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Interaction {
+    pub hovered: Option<Id>,
+    pub focused: Option<Id>,
+    pub pressed: Option<Id>,
 }
 
 impl Tree {
@@ -113,9 +135,7 @@ impl Tree {
     }
 
     pub fn layout(&self, area: area::Logical) -> Option<layout::Box> {
-        self.root
-            .as_ref()
-            .map(|root| layout_node(root, point::logical(0.0, 0.0), area))
+        self.root.as_ref().map(|root| layouting::tree(root, area))
     }
 
     pub fn actions(&self) -> HashMap<Id, action::Id> {
@@ -128,15 +148,26 @@ impl Tree {
         actions
     }
 
+    pub fn interactivity(&self) -> HashMap<Id, Interactivity> {
+        let mut interactivity = HashMap::new();
+
+        if let Some(root) = self.root.as_ref() {
+            collect_interactivity(root, &mut interactivity);
+        }
+
+        interactivity
+    }
+
     pub fn paint(
         &self,
         layout: &layout::Box,
         actions: &action::Registry,
         window: window::Id,
+        interaction: Interaction,
         scene: &mut paint::Scene,
     ) {
         if let Some(root) = self.root.as_ref() {
-            paint_node(root, layout, actions, window, scene);
+            painting::tree(root, layout, actions, window, interaction, scene);
         }
     }
 }
@@ -153,6 +184,7 @@ impl Node {
             id,
             layout: Layout::default(),
             style: Style::default(),
+            interactivity: Interactivity::default(),
             action: None,
             children: Vec::new(),
         }
@@ -187,6 +219,21 @@ impl Node {
         self
     }
 
+    pub fn with_hover_background(mut self, color: paint::Color) -> Self {
+        self.style.hover_background = Some(color);
+        self
+    }
+
+    pub fn with_focus_background(mut self, color: paint::Color) -> Self {
+        self.style.focus_background = Some(color);
+        self
+    }
+
+    pub fn with_active_background(mut self, color: paint::Color) -> Self {
+        self.style.active_background = Some(color);
+        self
+    }
+
     pub fn with_disabled_background(mut self, color: paint::Color) -> Self {
         self.style.disabled_background = Some(color);
         self
@@ -199,6 +246,26 @@ impl Node {
 
     pub fn with_action(mut self, action: action::Id) -> Self {
         self.action = Some(action);
+        self
+    }
+
+    pub fn with_interactivity(mut self, interactivity: Interactivity) -> Self {
+        self.interactivity = interactivity;
+        self
+    }
+
+    pub fn hit_testable(mut self, hit_test: bool) -> Self {
+        self.interactivity.hit_test = hit_test;
+        self
+    }
+
+    pub fn focusable(mut self, focusable: bool) -> Self {
+        self.interactivity.focusable = focusable;
+        self
+    }
+
+    pub fn actionable(mut self, actionable: bool) -> Self {
+        self.interactivity.actionable = actionable;
         self
     }
 
@@ -232,9 +299,32 @@ impl Default for Style {
     fn default() -> Self {
         Self {
             background: None,
+            hover_background: None,
+            focus_background: None,
+            active_background: None,
             disabled_background: None,
             padding: layout::Insets::ZERO,
         }
+    }
+}
+
+impl Interactivity {
+    pub const NONE: Self = Self {
+        hit_test: false,
+        focusable: false,
+        actionable: false,
+    };
+
+    pub const CONTROL: Self = Self {
+        hit_test: true,
+        focusable: true,
+        actionable: true,
+    };
+}
+
+impl Default for Interactivity {
+    fn default() -> Self {
+        Self::NONE
     }
 }
 
@@ -248,185 +338,11 @@ fn collect_actions(node: &Node, actions: &mut HashMap<Id, action::Id>) {
     }
 }
 
-fn layout_node(node: &Node, origin: point::Logical, available: area::Logical) -> layout::Box {
-    let width = resolve_size(node.layout.width, available.width());
-    let height = resolve_size(node.layout.height, available.height());
-    let rect = Rect::new(origin, area::logical(width, height));
-    let padding = node.style.padding;
-    let content_origin = point::logical(origin.x() + padding.left, origin.y() + padding.top);
-    let content_area = area::logical(
-        (width - padding.horizontal()).max(0.0),
-        (height - padding.vertical()).max(0.0),
-    );
-    let children = match node.layout.direction {
-        Some(layout::Axis::Vertical) => {
-            layout_vertical_children(node, content_origin, content_area)
-        }
-        Some(layout::Axis::Horizontal) => {
-            layout_horizontal_children(node, content_origin, content_area)
-        }
-        None => node
-            .children
-            .iter()
-            .map(|child| layout_node(child, content_origin, content_area))
-            .collect(),
-    };
-
-    layout::Box::new(node.id, rect, children)
-}
-
-fn resolve_size(size: layout::Size, available: f32) -> f32 {
-    match size {
-        layout::Size::Fit => 0.0,
-        layout::Size::Fill => available.max(0.0),
-        layout::Size::Fixed(value) => value.max(0.0),
-    }
-}
-
-fn layout_vertical_children(
-    node: &Node,
-    origin: point::Logical,
-    available: area::Logical,
-) -> Vec<layout::Box> {
-    let fixed_height: f32 = node
-        .children
-        .iter()
-        .map(|child| match child.layout.height {
-            layout::Size::Fixed(value) => value.max(0.0),
-            _ => 0.0,
-        })
-        .sum();
-    let fill_count = node
-        .children
-        .iter()
-        .filter(|child| !matches!(child.layout.height, layout::Size::Fixed(_)))
-        .count();
-    let fill_height = if fill_count == 0 {
-        0.0
-    } else {
-        ((available.height() - fixed_height).max(0.0)) / fill_count as f32
-    };
-    let mut y = origin.y();
-    let mut children = Vec::with_capacity(node.children.len());
+fn collect_interactivity(node: &Node, interactivity: &mut HashMap<Id, Interactivity>) {
+    interactivity.insert(node.id, node.interactivity);
 
     for child in &node.children {
-        let height = match child.layout.height {
-            layout::Size::Fixed(value) => value.max(0.0),
-            _ => fill_height,
-        };
-        let child_area = area::logical(resolve_size(child.layout.width, available.width()), height);
-        children.push(layout_node(
-            child,
-            point::logical(origin.x(), y),
-            child_area,
-        ));
-        y += height;
-    }
-
-    children
-}
-
-fn layout_horizontal_children(
-    node: &Node,
-    origin: point::Logical,
-    available: area::Logical,
-) -> Vec<layout::Box> {
-    let fixed_width: f32 = node
-        .children
-        .iter()
-        .map(|child| match child.layout.width {
-            layout::Size::Fixed(value) => value.max(0.0),
-            _ => 0.0,
-        })
-        .sum();
-    let fill_count = node
-        .children
-        .iter()
-        .filter(|child| !matches!(child.layout.width, layout::Size::Fixed(_)))
-        .count();
-    let fill_width = if fill_count == 0 {
-        0.0
-    } else {
-        ((available.width() - fixed_width).max(0.0)) / fill_count as f32
-    };
-    let mut x = origin.x();
-    let mut children = Vec::with_capacity(node.children.len());
-
-    for child in &node.children {
-        let width = match child.layout.width {
-            layout::Size::Fixed(value) => value.max(0.0),
-            _ => fill_width,
-        };
-        let child_area =
-            area::logical(width, resolve_size(child.layout.height, available.height()));
-        children.push(layout_node(
-            child,
-            point::logical(x, origin.y()),
-            child_area,
-        ));
-        x += width;
-    }
-
-    children
-}
-
-fn paint_node(
-    node: &Node,
-    layout: &layout::Box,
-    actions: &action::Registry,
-    window: window::Id,
-    scene: &mut paint::Scene,
-) {
-    if let Some(background) = resolved_background(node, actions, window) {
-        scene.push_quad(paint::Quad {
-            rect: layout.rect,
-            style: paint::Style {
-                fill: Some(paint::Fill::Brush(paint::Brush::Solid(background))),
-                stroke: None,
-                tint: None,
-            },
-        });
-    }
-
-    for (child, child_layout) in node.children.iter().zip(&layout.children) {
-        paint_node(child, child_layout, actions, window, scene);
-    }
-}
-
-fn resolved_background(
-    node: &Node,
-    actions: &action::Registry,
-    window: window::Id,
-) -> Option<paint::Color> {
-    let background = node.style.background?;
-
-    if let Some(action) = node.action {
-        let state = actions.state(
-            action,
-            action::Context {
-                window,
-                target: Some(node.id),
-            },
-        );
-
-        if !state.enabled {
-            return Some(
-                node.style
-                    .disabled_background
-                    .unwrap_or_else(|| dim(background)),
-            );
-        }
-    }
-
-    Some(background)
-}
-
-fn dim(color: paint::Color) -> paint::Color {
-    paint::Color {
-        r: color.r * 0.45,
-        g: color.g * 0.45,
-        b: color.b * 0.45,
-        a: color.a,
+        collect_interactivity(child, interactivity);
     }
 }
 
@@ -490,14 +406,50 @@ mod tests {
     #[test]
     fn deepest_hit_test_target_is_returned() {
         let root = Node::container(ROOT, layout::Axis::Vertical)
-            .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(20.0)))
-            .with_child(Node::leaf(B));
+            .with_child(
+                Node::leaf(A)
+                    .with_size(layout::Size::Fill, layout::Size::Fixed(20.0))
+                    .hit_testable(true),
+            )
+            .with_child(Node::leaf(B).hit_testable(true));
 
         let mut tree = Tree::new();
         tree.set_root(root);
         let layout = layout(&tree);
 
-        assert_eq!(layout.hit_test(point::logical(5.0, 25.0)), Some(B));
+        let interactivity = tree.interactivity();
+
+        assert_eq!(
+            layout.hit_test_where(point::logical(5.0, 25.0), |id| interactivity
+                .get(&id)
+                .is_some_and(|interactivity| interactivity.hit_test)),
+            Some(B)
+        );
+    }
+
+    #[test]
+    fn passive_parent_does_not_become_hit_target() {
+        let root = Node::container(ROOT, layout::Axis::Vertical).with_child(
+            control::button(A, CLICK).with_size(layout::Size::Fill, layout::Size::Fixed(20.0)),
+        );
+        let mut tree = Tree::new();
+
+        tree.set_root(root);
+        let layout = layout(&tree);
+        let interactivity = tree.interactivity();
+
+        assert_eq!(
+            layout.hit_test_where(point::logical(90.0, 70.0), |id| interactivity
+                .get(&id)
+                .is_some_and(|interactivity| interactivity.hit_test)),
+            None
+        );
+        assert_eq!(
+            layout.hit_test_where(point::logical(5.0, 5.0), |id| interactivity
+                .get(&id)
+                .is_some_and(|interactivity| interactivity.hit_test)),
+            Some(A)
+        );
     }
 
     #[test]
@@ -511,7 +463,13 @@ mod tests {
 
         tree.set_root(root);
         let layout = layout(&tree);
-        tree.paint(&layout, &registry, window::Id::new(1), &mut scene);
+        tree.paint(
+            &layout,
+            &registry,
+            window::Id::new(1),
+            Interaction::default(),
+            &mut scene,
+        );
 
         assert_eq!(scene.quads().len(), 2);
         assert_eq!(scene.quads()[0].rect, layout.rect);
@@ -540,11 +498,124 @@ mod tests {
         );
         tree.set_root(root);
         let layout = layout(&tree);
-        tree.paint(&layout, &registry, window, &mut scene);
+        tree.paint(
+            &layout,
+            &registry,
+            window,
+            Interaction::default(),
+            &mut scene,
+        );
 
         assert_eq!(
             scene.quads()[0].style.fill,
             Some(paint::Fill::Brush(paint::Brush::Solid(paint::Color::BLACK)))
+        );
+    }
+
+    #[test]
+    fn control_hover_state_chooses_hover_background() {
+        let root = control::button(A, CLICK);
+        let mut tree = Tree::new();
+        let mut scene = paint::Scene::new();
+        let mut registry = action::Registry::new();
+        let window = window::Id::new(1);
+
+        registry.register(action::Action::new(CLICK, "Click"));
+        tree.set_root(root.clone());
+        let layout = layout(&tree);
+        tree.paint(
+            &layout,
+            &registry,
+            window,
+            Interaction {
+                hovered: Some(A),
+                focused: None,
+                pressed: None,
+            },
+            &mut scene,
+        );
+
+        assert_eq!(
+            scene.quads()[0].style.fill,
+            Some(paint::Fill::Brush(paint::Brush::Solid(
+                root.style
+                    .hover_background
+                    .expect("control has hover color")
+            )))
+        );
+    }
+
+    #[test]
+    fn control_focus_state_chooses_focus_background() {
+        let root = control::button(A, CLICK);
+        let mut tree = Tree::new();
+        let mut scene = paint::Scene::new();
+        let mut registry = action::Registry::new();
+        let window = window::Id::new(1);
+
+        registry.register(action::Action::new(CLICK, "Click"));
+        tree.set_root(root.clone());
+        let layout = layout(&tree);
+        tree.paint(
+            &layout,
+            &registry,
+            window,
+            Interaction {
+                hovered: Some(B),
+                focused: Some(A),
+                pressed: None,
+            },
+            &mut scene,
+        );
+
+        assert_eq!(
+            scene.quads()[0].style.fill,
+            Some(paint::Fill::Brush(paint::Brush::Solid(
+                root.style
+                    .focus_background
+                    .expect("control has focus color")
+            )))
+        );
+    }
+
+    #[test]
+    fn control_active_state_chooses_active_background() {
+        let root = control::button(A, CLICK);
+        let mut tree = Tree::new();
+        let mut scene = paint::Scene::new();
+        let mut registry = action::Registry::new();
+        let window = window::Id::new(1);
+
+        registry.register(action::Action::new(CLICK, "Click"));
+        registry.set_state(
+            CLICK,
+            action::Context {
+                window,
+                target: Some(A),
+            },
+            action::State::active(),
+        );
+        tree.set_root(root.clone());
+        let layout = layout(&tree);
+        tree.paint(
+            &layout,
+            &registry,
+            window,
+            Interaction {
+                hovered: Some(A),
+                focused: Some(A),
+                pressed: None,
+            },
+            &mut scene,
+        );
+
+        assert_eq!(
+            scene.quads()[0].style.fill,
+            Some(paint::Fill::Brush(paint::Brush::Solid(
+                root.style
+                    .active_background
+                    .expect("control has active color")
+            )))
         );
     }
 }

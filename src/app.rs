@@ -1,3 +1,5 @@
+mod state;
+
 use std::collections::{HashMap, VecDeque};
 
 use thiserror::Error;
@@ -7,8 +9,9 @@ use winit::{
     event_loop::{ActiveEventLoop, EventLoop},
 };
 
+use crate::app::state::{WindowState, action_invocation_event, resolve_action_target};
 use crate::geometry::{area, point};
-use crate::{Action, action, layout, native, paint, render, ui, window};
+use crate::{Action, action, native, paint, render, ui, window};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -54,6 +57,7 @@ pub struct Context<'a> {
     next_window_id: &'a mut u64,
     actions: &'a mut action::Registry,
     pending_events: &'a mut VecDeque<(window::Id, ui::Event)>,
+    redraw_on_action_state_change: bool,
     event_loop: &'a ActiveEventLoop,
 }
 
@@ -142,16 +146,20 @@ impl Context<'_> {
         context: action::Context,
         state: action::State,
     ) {
-        self.actions.set_state(action, context, state);
+        if self.actions.set_state(action, context, state) && self.redraw_on_action_state_change {
+            self.request_redraw(context.window);
+        }
     }
 
     pub fn action_state(&self, action: action::Id, context: action::Context) -> action::State {
-        self.actions
-            .state(action, self.resolve_action_context(context))
+        self.actions.state(
+            action,
+            self.resolve_action_context(context.window, context.target),
+        )
     }
 
     pub fn invoke_action(&mut self, action: action::Id, context: action::Context) {
-        let context = self.resolve_action_context(context);
+        let context = self.resolve_action_context(context.window, context.target);
 
         if !self.actions.can_invoke(action, context) {
             return;
@@ -179,90 +187,21 @@ impl Context<'_> {
             .and_then(|state| state.focused)
     }
 
-    fn resolve_action_context(&self, context: action::Context) -> action::Context {
-        if context.target.is_some() {
-            return context;
+    pub fn resolve_action_context(
+        &self,
+        window: window::Id,
+        requested_target: Option<ui::Id>,
+    ) -> action::Context {
+        if requested_target.is_some() {
+            return action::Context {
+                window,
+                target: requested_target,
+            };
         }
 
-        let target = self
-            .window_states
-            .get(&context.window)
-            .and_then(|state| state.focused.or(state.hovered));
+        let target = resolve_action_target(self.window_states.get(&window), requested_target);
 
-        action::Context { target, ..context }
-    }
-}
-
-#[derive(Debug, Default)]
-struct WindowState {
-    hovered: Option<ui::Id>,
-    focused: Option<ui::Id>,
-    pressed: Option<ui::Id>,
-    cursor_position: Option<point::Logical>,
-    layout: Option<layout::Box>,
-    actions: HashMap<ui::Id, action::Id>,
-}
-
-impl WindowState {
-    fn hit_test(&self, position: point::Logical) -> Option<ui::Id> {
-        self.layout
-            .as_ref()
-            .and_then(|layout| layout.hit_test(position))
-    }
-
-    fn set_hovered(&mut self, target: Option<ui::Id>) -> Vec<ui::Event> {
-        if self.hovered == target {
-            return Vec::new();
-        }
-
-        let old = self.hovered;
-        self.hovered = target;
-        let mut events = Vec::new();
-
-        if let Some(target) = old {
-            events.push(ui::Event::PointerLeft { target });
-        }
-
-        if let Some(target) = target {
-            events.push(ui::Event::PointerEntered { target });
-        }
-
-        events
-    }
-
-    fn pointer_down(
-        &mut self,
-        position: point::Logical,
-        target: Option<ui::Id>,
-        button: ui::Button,
-    ) -> ui::Event {
-        self.focused = target;
-        self.pressed = target;
-
-        ui::Event::PointerDown {
-            position,
-            target,
-            button,
-        }
-    }
-
-    fn pointer_up(
-        &mut self,
-        position: point::Logical,
-        target: Option<ui::Id>,
-        button: ui::Button,
-    ) -> (ui::Event, Option<ui::Id>) {
-        let pressed = self.pressed.take();
-        let invoke = if pressed == target { target } else { None };
-
-        (
-            ui::Event::PointerUp {
-                position,
-                target,
-                button,
-            },
-            invoke,
-        )
+        action::Context { window, target }
     }
 }
 
@@ -337,6 +276,7 @@ impl<A: Application> Runtime<A> {
                     next_window_id: &mut self.next_window_id,
                     actions: &mut self.actions,
                     pending_events: &mut pending_events,
+                    redraw_on_action_state_change: true,
                     event_loop,
                 };
 
@@ -355,6 +295,8 @@ impl<A: Application> Runtime<A> {
         let mut tree = ui::Tree::new();
         let mut pending_events = VecDeque::new();
 
+        self.actions.clear_context_states(window);
+
         {
             let mut cx = Context {
                 render_context,
@@ -365,6 +307,7 @@ impl<A: Application> Runtime<A> {
                 next_window_id: &mut self.next_window_id,
                 actions: &mut self.actions,
                 pending_events: &mut pending_events,
+                redraw_on_action_state_change: false,
                 event_loop,
             };
 
@@ -376,13 +319,21 @@ impl<A: Application> Runtime<A> {
         };
         let logical_area = native_window.canvas().logical_area();
         let mut scene = paint::Scene::new();
+        let state = self.window_states.entry(window).or_default();
+        state.actions = tree.actions();
+        state.interactivity = tree.interactivity();
 
         if let Some(layout) = tree.layout(logical_area) {
-            let state = self.window_states.entry(window).or_default();
-            state.actions = tree.actions();
+            let interaction = ui::Interaction {
+                hovered: state.hovered,
+                focused: state.focused,
+                pressed: state.pressed,
+            };
             state.layout = Some(layout.clone());
 
-            tree.paint(&layout, &self.actions, window, &mut scene);
+            tree.paint(&layout, &self.actions, window, interaction, &mut scene);
+        } else {
+            state.layout = None;
         }
 
         let Some(native_window) = self.windows.get_mut(&window) else {
@@ -553,6 +504,7 @@ impl<A: Application> ApplicationHandler for Runtime<A> {
             next_window_id: &mut self.next_window_id,
             actions: &mut self.actions,
             pending_events: &mut pending_events,
+            redraw_on_action_state_change: true,
             event_loop,
         };
 
@@ -652,132 +604,5 @@ fn pointer_button(button: MouseButton) -> Option<ui::Button> {
         MouseButton::Middle => Some(ui::Button::Middle),
         MouseButton::Back | MouseButton::Forward => None,
         MouseButton::Other(value) => Some(ui::Button::Other(value)),
-    }
-}
-
-fn action_invocation_event(
-    registry: &action::Registry,
-    bindings: &HashMap<ui::Id, action::Id>,
-    window: window::Id,
-    target: ui::Id,
-    source: action::Source,
-) -> Option<ui::Event> {
-    let action = *bindings.get(&target)?;
-    let context = action::Context {
-        window,
-        target: Some(target),
-    };
-
-    if !registry.can_invoke(action, context) {
-        return None;
-    }
-
-    Some(ui::Event::ActionInvoked {
-        action,
-        source,
-        context,
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::geometry::Rect;
-
-    const ROOT: ui::Id = ui::Id::new("root");
-    const CHILD: ui::Id = ui::Id::new("child");
-    const CLICK: action::Id = action::Id::new("click");
-
-    #[test]
-    fn hover_changes_emit_leave_then_enter() {
-        let mut state = WindowState {
-            hovered: Some(ROOT),
-            ..WindowState::default()
-        };
-
-        let events = state.set_hovered(Some(CHILD));
-
-        assert_eq!(
-            events,
-            vec![
-                ui::Event::PointerLeft { target: ROOT },
-                ui::Event::PointerEntered { target: CHILD }
-            ]
-        );
-    }
-
-    #[test]
-    fn pointer_down_updates_focused_element() {
-        let mut state = WindowState::default();
-
-        let event = state.pointer_down(point::logical(1.0, 2.0), Some(CHILD), ui::Button::Left);
-
-        assert_eq!(state.focused, Some(CHILD));
-        assert_eq!(state.pressed, Some(CHILD));
-        assert_eq!(
-            event,
-            ui::Event::PointerDown {
-                position: point::logical(1.0, 2.0),
-                target: Some(CHILD),
-                button: ui::Button::Left
-            }
-        );
-    }
-
-    #[test]
-    fn pointer_release_over_pressed_action_emits_contextual_action() {
-        let window = window::Id::new(1);
-        let mut state = WindowState {
-            layout: Some(layout::Box::new(
-                CHILD,
-                Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
-                Vec::new(),
-            )),
-            actions: HashMap::from([(CHILD, CLICK)]),
-            ..WindowState::default()
-        };
-        let mut registry = action::Registry::new();
-
-        registry.register(Action::new(CLICK, "Click"));
-        state.pointer_down(point::logical(1.0, 1.0), Some(CHILD), ui::Button::Left);
-        let (_, target) = state.pointer_up(point::logical(1.0, 1.0), Some(CHILD), ui::Button::Left);
-        let event = action_invocation_event(
-            &registry,
-            &state.actions,
-            window,
-            target.expect("release should target pressed element"),
-            action::Source::Pointer,
-        );
-
-        assert_eq!(
-            event,
-            Some(ui::Event::ActionInvoked {
-                action: CLICK,
-                source: action::Source::Pointer,
-                context: action::Context {
-                    window,
-                    target: Some(CHILD)
-                }
-            })
-        );
-    }
-
-    #[test]
-    fn disabled_action_bound_node_does_not_invoke() {
-        let window = window::Id::new(1);
-        let context = action::Context {
-            window,
-            target: Some(CHILD),
-        };
-        let mut registry = action::Registry::new();
-        let bindings = HashMap::from([(CHILD, CLICK)]);
-
-        registry.register(Action::new(CLICK, "Click"));
-        registry.set_state(CLICK, context, action::State::disabled());
-
-        assert_eq!(
-            action_invocation_event(&registry, &bindings, window, CHILD, action::Source::Pointer),
-            None
-        );
     }
 }
