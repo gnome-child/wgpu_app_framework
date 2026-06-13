@@ -1,5 +1,6 @@
 use crate::paint;
 use crate::render;
+use wgpu::util::DeviceExt;
 
 pub struct Renderer {
     quad_pipeline: wgpu::RenderPipeline,
@@ -85,21 +86,37 @@ impl Renderer {
         &mut self,
         render_context: &render::Context,
         canvas: &mut render::Canvas,
-        quads: &[paint::Quad],
+        scene: &paint::Scene,
     ) -> render::Result<render::frame::Status> {
         let mut vertex_buf = Vec::new();
-        for quad in quads {
+        for quad in scene.quads() {
             push_quad_vertices(&mut vertex_buf, canvas, quad);
         }
 
-        log::info!("got {} vertices", vertex_buf.len());
+        let vertex_count = vertex_buf.len() as u32;
+        let vertex_buffer =
+            if vertex_buf.is_empty() {
+                None
+            } else {
+                Some(render_context.device().create_buffer_init(
+                    &wgpu::util::BufferInitDescriptor {
+                        label: Some("Quad Vertex Buffer"),
+                        contents: bytemuck::cast_slice(&vertex_buf),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    },
+                ))
+            };
 
-        let clear_color = canvas.color();
+        let clear_color = scene
+            .clear_color()
+            .map(render::color_to_wgpu)
+            .unwrap_or_else(|| canvas.color());
+        let quad_pipeline = &self.quad_pipeline;
 
-        canvas.draw(render_context, |encoder, frame| {
+        canvas.draw(render_context, move |encoder, frame| {
             let view = frame.create_view();
 
-            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Main Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -115,6 +132,12 @@ impl Renderer {
                 timestamp_writes: None,
                 multiview_mask: None,
             });
+
+            if let Some(vertex_buffer) = vertex_buffer.as_ref() {
+                pass.set_pipeline(quad_pipeline);
+                pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                pass.draw(0..vertex_count, 0..1);
+            }
         })
     }
 }
@@ -129,17 +152,37 @@ fn push_quad_vertices(
     };
 
     let paint::Fill::Brush(brush) = fill else {
+        log::debug!("skipping unsupported non-brush quad fill");
         return;
     };
 
     let paint::Brush::Solid(color) = brush else {
+        log::debug!("skipping unsupported non-solid quad brush");
         return;
     };
 
     let rect = quad.rect;
+
+    if quad.style.stroke.is_some() {
+        log::debug!("skipping unsupported quad stroke");
+    }
+
+    if quad.style.tint.is_some() {
+        log::debug!("skipping unsupported quad tint");
+    }
+
+    if rect.radius != crate::geometry::rect::Radius::none() {
+        log::debug!("skipping unsupported quad radius");
+    }
+
     let origin = rect.origin;
     let area = rect.area;
     let canvas_area = canvas.logical_area();
+
+    if canvas_area.width() <= 0.0 || canvas_area.height() <= 0.0 {
+        log::debug!("skipping quad draw for zero-size canvas");
+        return;
+    }
 
     let x0 = origin.x();
     let y0 = origin.y();

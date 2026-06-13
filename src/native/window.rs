@@ -1,18 +1,14 @@
 use std::sync::Arc;
 
-use winit::{event::WindowEvent, event_loop::ActiveEventLoop, window::WindowAttributes};
+use winit::{event_loop::ActiveEventLoop, window::WindowAttributes};
 
-pub use winit::window::WindowId as Id;
-
-use crate::geometry::Rect;
 use crate::geometry::area;
-use crate::geometry::point;
-use crate::geometry::rect;
 use crate::native;
-use crate::paint;
 use crate::render;
+use crate::window;
 
 pub type Handle = Arc<winit::window::Window>;
+pub type Id = window::Id;
 
 pub struct Window {
     handle: Handle,
@@ -20,8 +16,8 @@ pub struct Window {
 }
 
 pub struct Options {
-    pub title: &'static str,
-    pub outer_area: area::Physical,
+    pub title: String,
+    pub inner_area: area::Physical,
     pub canvas_color: wgpu::Color,
 }
 
@@ -29,7 +25,6 @@ impl Window {
     pub fn new(
         options: Options,
         render_context: &render::Context,
-        renderer: &mut render::Renderer,
         event_loop: &ActiveEventLoop,
     ) -> native::Result<Self> {
         let mut window_attributes = WindowAttributes::default()
@@ -37,13 +32,13 @@ impl Window {
             .with_visible(false);
 
         window_attributes = window_attributes.with_inner_size(winit::dpi::PhysicalSize::new(
-            options.outer_area.width(),
-            options.outer_area.height(),
+            options.inner_area.width(),
+            options.inner_area.height(),
         ));
 
         let handle = Arc::new(event_loop.create_window(window_attributes)?);
 
-        let mut canvas = render::Canvas::new(
+        let canvas = render::Canvas::new(
             render::canvas::Options {
                 area: area::physical(handle.inner_size().width, handle.inner_size().height),
                 scale_factor: handle.scale_factor() as f32,
@@ -52,20 +47,6 @@ impl Window {
             render_context,
             handle.clone(),
         )?;
-
-        use render::frame::Status::*;
-
-        match renderer.clear(render_context, &mut canvas)? {
-            Presented => {
-                handle.set_visible(true);
-            }
-
-            Skipped(reason) => {
-                log::warn!("initial frame was skipped: {:#?}", reason);
-
-                handle.set_visible(true);
-            }
-        }
 
         Ok(Self { handle, canvas })
     }
@@ -113,79 +94,12 @@ impl Window {
         &mut self.canvas
     }
 
-    pub fn handle_event(
+    pub fn resize(
         &mut self,
         render_context: &render::Context,
-        renderer: &mut render::Renderer,
-        event_loop: &ActiveEventLoop,
-        event: WindowEvent,
-    ) -> native::Result<()> {
-        use winit::event::WindowEvent::*;
-
-        match event {
-            CloseRequested => event_loop.exit(),
-
-            Resized(size) => {
-                self.canvas.resize(
-                    render_context,
-                    area::physical(size.width, size.height),
-                    self.handle.scale_factor() as f32,
-                );
-
-                self.handle.request_redraw();
-            }
-
-            ScaleFactorChanged { scale_factor, .. } => {
-                let inner_size = self.handle.inner_size();
-
-                self.canvas.resize(
-                    render_context,
-                    area::physical(inner_size.width, inner_size.height),
-                    scale_factor as f32,
-                );
-
-                self.handle.request_redraw();
-            }
-
-            RedrawRequested => {
-                let quad = paint::Quad {
-                    rect: Rect {
-                        origin: point::logical(0.0, 0.0),
-                        area: self.canvas.logical_area(),
-                        radius: rect::Radius::none(),
-                    },
-                    style: paint::Style {
-                        fill: Some(paint::Fill::Brush(paint::Brush::Solid(paint::Color::RED))),
-                        stroke: None,
-                        tint: None,
-                    },
-                };
-
-                use render::frame::Status::*;
-                match renderer.draw(render_context, &mut self.canvas, &[quad])? {
-                    Presented => {}
-
-                    Skipped(reason) => {
-                        log::warn!("clear pass was skipped: {:#?}", reason);
-                        self.handle.request_redraw();
-                    }
-                }
-
-                // TODO: actually render things
-                // use render::frame::Status::*;
-                // match renderer.clear(render_context, &mut self.canvas)? {
-                //     Presented => {}
-
-                //     Skipped(reason) => {
-                //         log::warn!("clear pass was skipped: {:#?}", reason);
-
-                //         self.handle.request_redraw();
-                //     }
-                // }
-            }
-            _ => {}
-        }
-
-        Ok(())
+        area: area::Physical,
+        scale_factor: f32,
+    ) {
+        self.canvas.resize(render_context, area, scale_factor);
     }
 }

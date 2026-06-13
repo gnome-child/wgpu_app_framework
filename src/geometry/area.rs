@@ -83,3 +83,29 @@ impl Logical {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn physical_area_converts_to_logical_area() {
+        let area = physical(300, 150).to_logical(1.5);
+
+        assert_eq!(area, logical(200.0, 100.0));
+    }
+
+    #[test]
+    fn logical_area_converts_to_rounded_physical_area() {
+        let area = logical(10.4, 20.6).to_physical(2.0);
+
+        assert_eq!(area, physical(21, 41));
+    }
+
+    #[test]
+    fn physical_area_clamps_to_minimum_surface_size() {
+        let area = physical(0, 2).clamp_min(1);
+
+        assert_eq!(area, physical(1, 2));
+    }
+}

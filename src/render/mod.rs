@@ -13,6 +13,15 @@ pub mod primitive;
 pub mod renderer;
 pub mod surface;
 
+pub(crate) fn color_to_wgpu(color: crate::paint::Color) -> wgpu::Color {
+    wgpu::Color {
+        r: color.r as f64,
+        g: color.g as f64,
+        b: color.b as f64,
+        a: color.a as f64,
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Error)]

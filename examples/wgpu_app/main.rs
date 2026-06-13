@@ -1,84 +1,53 @@
-use wgpu_l3::{native, render};
-use winit::{
-    application::ApplicationHandler,
-    event::WindowEvent,
-    event_loop::{ActiveEventLoop, EventLoop},
+use wgpu_l3::{
+    app,
+    geometry::{Rect, area, point, rect},
+    paint, window,
 };
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> app::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
 
-    let event_loop = EventLoop::new()?;
-    let mut app = App::default();
-
-    event_loop.run_app(&mut app)?;
-
-    Ok(())
+    app::run(App::default())
 }
 
 #[derive(Default)]
 struct App {
-    render_context: Option<render::Context>,
-    renderer: Option<render::Renderer>,
-    window: Option<native::Window>,
+    window: Option<window::Id>,
 }
 
-impl ApplicationHandler for App {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window.is_some() {
-            return;
-        }
+impl app::Application for App {
+    fn started(&mut self, cx: &mut app::Context<'_>) {
+        let window = cx.open_window(window::Options {
+            title: "wgpu_l3".to_owned(),
+            inner_area: area::physical(512, 512),
+            canvas_color: paint::Color::BLACK,
+        });
 
-        let render_context = pollster::block_on(render::Context::new(render::context::Options {
-            device_label: "wgpu_l3 device",
-            backends: wgpu::Backends::all(),
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            force_fallback_adapter: false,
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-        }))
-        .expect("failed to create render context");
-
-        let window = native::Window::new(
-            native::window::Options {
-                title: "window",
-                outer_area: wgpu_l3::geometry::area::physical(512, 512),
-                canvas_color: wgpu::Color::RED,
-            },
-            &render_context,
-            &mut self.renderer,
-            event_loop,
-        )
-        .expect("failed to open window");
-
-        let mut renderer =
-            render::Renderer::new(&render_context, window.canvas().surface().config().format);
-
-        self.render_context = Some(render_context);
-        self.renderer = Some(renderer);
         self.window = Some(window);
     }
 
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        window_id: winit::window::WindowId,
-        event: WindowEvent,
-    ) {
-        let (Some(render_context), Some(window), Some(renderer)) = (
-            self.render_context.as_ref(),
-            self.window.as_mut(),
-            self.renderer.as_mut(),
-        ) else {
-            return;
-        };
-
-        if window.id() != window_id {
+    fn redraw(&mut self, cx: &mut app::Context<'_>, window: window::Id, scene: &mut paint::Scene) {
+        if Some(window) != self.window {
             return;
         }
 
-        window
-            .handle_event(render_context, renderer, event_loop, event)
-            .expect("failed to handle window event");
+        scene.clear(paint::Color::BLACK);
+
+        let Some(area) = cx.window_logical_area(window) else {
+            return;
+        };
+
+        scene.push_quad(paint::Quad {
+            rect: Rect {
+                origin: point::logical(0.0, 0.0),
+                area,
+                radius: rect::Radius::none(),
+            },
+            style: paint::Style {
+                fill: Some(paint::Fill::Brush(paint::Brush::Solid(paint::Color::RED))),
+                stroke: None,
+                tint: None,
+            },
+        });
     }
 }
