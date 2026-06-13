@@ -81,6 +81,14 @@ pub struct Color {
 }
 
 impl Color {
+    pub const fn rgb(r: f32, g: f32, b: f32) -> Self {
+        Self { r, g, b, a: 1.0 }
+    }
+
+    pub const fn rgba(r: f32, g: f32, b: f32, a: f32) -> Self {
+        Self { r, g, b, a }
+    }
+
     pub const BLACK: Self = Self {
         r: 0.0,
         g: 0.0,

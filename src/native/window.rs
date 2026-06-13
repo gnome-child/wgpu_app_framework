@@ -11,6 +11,7 @@ pub type Handle = Arc<winit::window::Window>;
 pub type Id = window::Id;
 
 pub struct Window {
+    id: Id,
     handle: Handle,
     canvas: render::Canvas,
 }
@@ -23,6 +24,7 @@ pub struct Options {
 
 impl Window {
     pub fn new(
+        id: Id,
         options: Options,
         render_context: &render::Context,
         event_loop: &ActiveEventLoop,
@@ -48,10 +50,14 @@ impl Window {
             handle.clone(),
         )?;
 
-        Ok(Self { handle, canvas })
+        Ok(Self { id, handle, canvas })
     }
 
     pub fn id(&self) -> Id {
+        self.id
+    }
+
+    pub fn raw_id(&self) -> winit::window::WindowId {
         self.handle.id()
     }
 
