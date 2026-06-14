@@ -345,4 +345,26 @@ mod tests {
             None
         );
     }
+
+    #[test]
+    fn busy_action_bound_node_does_not_invoke() {
+        let window = window::Id::new(1);
+        let context = action::Context::path(window, path(CHILD));
+        let mut registry = action::Registry::<()>::new();
+        let bindings = HashMap::from([(path(CHILD), CLICK)]);
+
+        registry.register(Action::new(CLICK, "Click"));
+        registry.set_busy(CLICK, context, true);
+
+        assert_eq!(
+            action_invocation(
+                &registry,
+                &bindings,
+                window,
+                path(CHILD),
+                action::Source::Pointer
+            ),
+            None
+        );
+    }
 }

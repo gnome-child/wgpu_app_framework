@@ -26,8 +26,10 @@ pub struct Style {
     hover_background: Option<paint::Color>,
     focus_background: Option<paint::Color>,
     active_background: Option<paint::Color>,
+    busy_background: Option<paint::Color>,
     disabled_background: Option<paint::Color>,
     label_color: Option<paint::Color>,
+    busy_label_color: Option<paint::Color>,
     disabled_label_color: Option<paint::Color>,
     padding: layout::Insets,
 }
@@ -130,6 +132,11 @@ impl Node {
         self
     }
 
+    pub fn with_busy_background(mut self, color: paint::Color) -> Self {
+        self.style.busy_background = Some(color);
+        self
+    }
+
     pub fn with_disabled_background(mut self, color: paint::Color) -> Self {
         self.style.disabled_background = Some(color);
         self
@@ -137,6 +144,11 @@ impl Node {
 
     pub fn with_label_color(mut self, color: paint::Color) -> Self {
         self.style.label_color = Some(color);
+        self
+    }
+
+    pub fn with_busy_label_color(mut self, color: paint::Color) -> Self {
+        self.style.busy_label_color = Some(color);
         self
     }
 
@@ -250,12 +262,20 @@ impl Style {
         self.active_background
     }
 
+    pub fn busy_background(self) -> Option<paint::Color> {
+        self.busy_background
+    }
+
     pub fn disabled_background(self) -> Option<paint::Color> {
         self.disabled_background
     }
 
     pub fn label_color(self) -> Option<paint::Color> {
         self.label_color
+    }
+
+    pub fn busy_label_color(self) -> Option<paint::Color> {
+        self.busy_label_color
     }
 
     pub fn disabled_label_color(self) -> Option<paint::Color> {
@@ -274,8 +294,10 @@ impl Default for Style {
             hover_background: None,
             focus_background: None,
             active_background: None,
+            busy_background: None,
             disabled_background: None,
             label_color: None,
+            busy_label_color: None,
             disabled_label_color: None,
             padding: layout::Insets::ZERO,
         }

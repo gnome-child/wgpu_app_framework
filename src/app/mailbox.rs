@@ -6,6 +6,10 @@ use crate::{action, event};
 pub enum Message<T> {
     Event(event::Event<T>),
     RunAction(action::Invocation),
+    TaskCompleted {
+        invocation: action::Invocation,
+        event: T,
+    },
 }
 
 #[derive(Debug)]
@@ -126,5 +130,31 @@ mod tests {
         assert_eq!(mailbox.pop(), Some(Message::Event(event::Event::App(1))));
         assert_eq!(mailbox.pop(), Some(Message::Event(event::Event::App(2))));
         assert_eq!(mailbox.pop(), None);
+    }
+
+    #[test]
+    fn task_completion_messages_share_fifo_order() {
+        let mut mailbox = Mailbox::new();
+        let window = window::Id::new(1);
+        let invocation = action::Invocation::new(
+            CLICK,
+            action::Source::Programmatic,
+            action::Context::window(window),
+        );
+
+        mailbox.push_app(1);
+        mailbox.push_message(Message::TaskCompleted {
+            invocation: invocation.clone(),
+            event: 2,
+        });
+
+        assert_eq!(mailbox.pop(), Some(Message::Event(event::Event::App(1))));
+        assert_eq!(
+            mailbox.pop(),
+            Some(Message::TaskCompleted {
+                invocation,
+                event: 2
+            })
+        );
     }
 }

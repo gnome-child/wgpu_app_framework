@@ -55,6 +55,10 @@ fn resolved_background<T>(
     if let Some(action) = node.action() {
         let state = actions.state(action, action::Context::path(window, layout.path().clone()));
 
+        if state.is_busy() {
+            return Some(style.busy_background().unwrap_or(background));
+        }
+
         if !state.is_enabled() {
             return Some(
                 style
@@ -90,6 +94,14 @@ fn resolved_label<T>(
 
     if let Some(action) = node.action() {
         let state = actions.state(action, action::Context::path(window, layout.path().clone()));
+
+        if state.is_busy() {
+            if let Some(color) = style.busy_label_color().or(style.label_color()) {
+                document = document.with_color(color);
+            }
+
+            return Some(document);
+        }
 
         if !state.is_enabled() {
             if let Some(color) = style.disabled_label_color().or(style.label_color()) {

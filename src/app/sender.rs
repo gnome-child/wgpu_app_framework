@@ -1,6 +1,7 @@
 use thiserror::Error;
 use winit::event_loop::EventLoopProxy;
 
+use crate::app::MailboxSender;
 use crate::app::mailbox::Message;
 use crate::event;
 
@@ -16,6 +17,12 @@ pub struct SendError;
 impl<T: Send + 'static> Sender<T> {
     pub fn emit(&self, event: T) -> Result<(), SendError> {
         self.proxy.send_event(message(event)).map_err(|_| SendError)
+    }
+}
+
+impl<T: Send + 'static> MailboxSender<T> for Sender<T> {
+    fn send_message(&self, message: Message<T>) -> Result<(), SendError> {
+        self.proxy.send_event(message).map_err(|_| SendError)
     }
 }
 

@@ -4,6 +4,7 @@ pub mod event;
 pub mod geometry;
 pub mod layout;
 pub mod paint;
+pub mod task;
 pub mod text;
 pub mod ui;
 pub mod window;
@@ -13,3 +14,4 @@ mod render;
 
 pub use action::Action;
 pub use event::Event;
+pub use task::Task;

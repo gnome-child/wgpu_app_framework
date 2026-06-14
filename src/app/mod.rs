@@ -48,6 +48,10 @@ pub trait Application {
     }
 }
 
+trait MailboxSender<T: Send + 'static> {
+    fn send_message(&self, message: Message<T>) -> std::result::Result<(), SendError>;
+}
+
 pub fn run<A: Application>(app: A) -> Result<()> {
     let event_loop =
         winit::event_loop::EventLoop::<Message<A::Event>>::with_user_event().build()?;

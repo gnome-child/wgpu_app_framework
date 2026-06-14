@@ -43,6 +43,32 @@ fn disabled_action_cannot_invoke() {
 }
 
 #[test]
+fn busy_action_cannot_invoke() {
+    let mut registry = Registry::<()>::new();
+    let context = Context::path(window::Id::new(1), ui::Path::from(TEXT_BOX));
+
+    registry.register(Action::new(SELECT_ALL, "Select All"));
+    registry.set_busy(SELECT_ALL, context.clone(), true);
+
+    assert!(registry.state(SELECT_ALL, context.clone()).is_enabled());
+    assert!(registry.state(SELECT_ALL, context.clone()).is_busy());
+    assert!(!registry.can_invoke(SELECT_ALL, context));
+}
+
+#[test]
+fn busy_state_is_distinct_from_active_state() {
+    let state = State::active().with_busy(true);
+
+    assert!(state.is_active());
+    assert!(state.is_busy());
+
+    let state = state.with_active(false);
+
+    assert!(!state.is_active());
+    assert!(state.is_busy());
+}
+
+#[test]
 fn clearing_context_states_keeps_window_fallback() {
     let mut registry = Registry::<()>::new();
     let window = window::Id::new(1);
@@ -100,7 +126,7 @@ fn batched_action_effect_preserves_event_order() {
 }
 
 #[test]
-fn execution_state_is_cleared_after_sync_execution() {
+fn sync_execution_does_not_make_action_active_or_busy() {
     let mut registry = Registry::<()>::new();
     let window = window::Id::new(1);
     let context = Context::path(window, ui::Path::from(TEXT_BOX));
@@ -115,13 +141,31 @@ fn execution_state_is_cleared_after_sync_execution() {
         Some(Effect::None)
     );
 
-    assert!(!registry.state(SELECT_ALL, context).is_active());
+    assert!(!registry.state(SELECT_ALL, context.clone()).is_active());
+    assert!(!registry.state(SELECT_ALL, context).is_busy());
 }
 
 #[test]
-fn state_accessors_expose_enabled_and_active_flags() {
-    let state = State::new(true, false).with_active(true);
+fn window_busy_state_falls_back_to_path_context() {
+    let mut registry = Registry::<()>::new();
+    let window = window::Id::new(1);
+    let path = ui::Path::from(TEXT_BOX);
+
+    registry.register(Action::new(SELECT_ALL, "Select All"));
+    registry.set_busy(SELECT_ALL, Context::window(window), true);
+
+    assert!(
+        registry
+            .state(SELECT_ALL, Context::path(window, path))
+            .is_busy()
+    );
+}
+
+#[test]
+fn state_accessors_expose_enabled_active_and_busy_flags() {
+    let state = State::new(true, false).with_active(true).with_busy(true);
 
     assert!(state.is_enabled());
     assert!(state.is_active());
+    assert!(state.is_busy());
 }

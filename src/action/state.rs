@@ -2,14 +2,19 @@
 pub struct State {
     enabled: bool,
     active: bool,
+    busy: bool,
 }
 
 impl State {
     pub const fn new(enabled: bool, active: bool) -> Self {
-        Self { enabled, active }
+        Self {
+            enabled,
+            active,
+            busy: false,
+        }
     }
 
-    /// An invokable action that is not currently on, selected, or running.
+    /// An allowed action that is not currently on, selected, toggled, or busy.
     pub const fn enabled() -> Self {
         Self::new(true, false)
     }
@@ -19,22 +24,32 @@ impl State {
         Self::new(false, false)
     }
 
-    /// An invokable action that is currently on, selected, or running.
+    /// An allowed action that is currently on, selected, or toggled.
     pub const fn active() -> Self {
         Self::new(true, true)
     }
 
-    /// Whether the action can be invoked in the resolved context.
+    /// An allowed action whose work is currently in flight.
+    pub const fn busy() -> Self {
+        Self::new(true, false).with_busy(true)
+    }
+
+    /// Whether the action is allowed in the resolved context before busy state is considered.
     pub const fn is_enabled(self) -> bool {
         self.enabled
     }
 
-    /// Whether the action is currently on, selected, or running in the resolved context.
+    /// Whether the action is currently on, selected, or toggled in the resolved context.
     ///
     /// Completed or historical work should stay in application state unless it represents a
     /// persistent current state.
     pub const fn is_active(self) -> bool {
         self.active
+    }
+
+    /// Whether action work is currently in flight in the resolved context.
+    pub const fn is_busy(self) -> bool {
+        self.busy
     }
 
     pub const fn with_enabled(mut self, enabled: bool) -> Self {
@@ -47,14 +62,15 @@ impl State {
         self
     }
 
-    fn with_active_overlay(mut self, active: bool) -> Self {
-        self.active |= active;
+    pub const fn with_busy(mut self, busy: bool) -> Self {
+        self.busy = busy;
         self
     }
 }
 
-pub fn with_active_overlay(state: State, active: bool) -> State {
-    state.with_active_overlay(active)
+pub fn with_busy_overlay(mut state: State, busy: bool) -> State {
+    state.busy |= busy;
+    state
 }
 
 impl Default for State {

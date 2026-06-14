@@ -98,6 +98,9 @@ impl<A: Application> Runtime<A> {
                 Message::RunAction(invocation) => {
                     self.run_action(invocation);
                 }
+                Message::TaskCompleted { invocation, event } => {
+                    self.complete_task(invocation, event);
+                }
             }
         }
     }
@@ -106,11 +109,23 @@ impl<A: Application> Runtime<A> {
         let windows = &self.windows;
         let mut request_redraw = |window| windows.request_redraw(window);
 
-        if let Some(effect) =
-            action_executor::execute(&mut self.actions, invocation, &mut request_redraw)
-        {
+        let sender = self.sender.clone();
+        if let Some(effect) = action_executor::execute(
+            &mut self.actions,
+            invocation,
+            |invocation, task| action_executor::spawn_task(invocation, task, sender),
+            &mut request_redraw,
+        ) {
             action_executor::enqueue_effect(&mut self.mailbox, effect);
         }
+    }
+
+    fn complete_task(&mut self, invocation: action::Invocation, event: A::Event) {
+        let windows = &self.windows;
+        let mut request_redraw = |window| windows.request_redraw(window);
+
+        action_executor::complete_task(&mut self.actions, invocation, &mut request_redraw);
+        self.mailbox.push_app(event);
     }
 
     fn redraw_window(&mut self, event_loop: &ActiveEventLoop, window: window::Id) {

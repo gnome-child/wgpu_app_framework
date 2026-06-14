@@ -6,8 +6,10 @@ pub fn panel(id: ui::Id) -> ui::Node {
         .with_hover_background(paint::Color::rgb(0.24, 0.27, 0.32))
         .with_focus_background(paint::Color::rgb(0.16, 0.30, 0.58))
         .with_active_background(paint::Color::rgb(0.12, 0.45, 0.26))
+        .with_busy_background(paint::Color::rgb(0.46, 0.34, 0.10))
         .with_disabled_background(paint::Color::rgb(0.10, 0.10, 0.12))
         .with_label_color(paint::Color::rgb(0.92, 0.94, 0.98))
+        .with_busy_label_color(paint::Color::rgb(1.00, 0.94, 0.78))
         .with_disabled_label_color(paint::Color::rgb(0.42, 0.44, 0.48))
 }
 

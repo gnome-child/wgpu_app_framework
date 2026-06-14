@@ -178,7 +178,7 @@ impl<'a, T> ActionState<'a, T> {
         action: action::Id,
         redraw_on_action_state_change: bool,
     ) -> Self {
-        let state = actions.state(action, action::Context::window(window));
+        let state = actions.configured_state(action, action::Context::window(window));
 
         Self {
             actions,
@@ -199,6 +199,12 @@ impl<'a, T> ActionState<'a, T> {
 
     pub fn active(mut self, active: bool) -> Self {
         self.state = self.state.with_active(active);
+        self.changed = true;
+        self
+    }
+
+    pub fn busy(mut self, busy: bool) -> Self {
+        self.state = self.state.with_busy(busy);
         self.changed = true;
         self
     }

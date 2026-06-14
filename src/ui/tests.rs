@@ -422,6 +422,68 @@ fn control_active_state_chooses_active_background() {
 }
 
 #[test]
+fn control_busy_state_chooses_busy_background_before_active_or_hover() {
+    let root = control::button(A, CLICK);
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    registry.set_state(
+        CLICK,
+        action::Context::path(window, path(A)),
+        action::State::active().with_busy(true),
+    );
+    tree.set_root(root.clone());
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(Some(path(A)), Some(path(A)), None),
+        &mut scene,
+    );
+
+    assert_eq!(
+        quad(&scene, 0).style.fill,
+        Some(paint::Fill::Brush(paint::Brush::Solid(
+            root.style()
+                .busy_background()
+                .expect("control has busy color")
+        )))
+    );
+}
+
+#[test]
+fn busy_button_uses_busy_label_color() {
+    let root = control::labeled_button(A, CLICK, "Working");
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    registry.set_busy(CLICK, action::Context::path(window, path(A)), true);
+    tree.set_root(root.clone());
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::default(),
+        &mut scene,
+    );
+
+    assert_eq!(
+        text(&scene, 1).document.blocks()[0].runs()[0].style().color,
+        root.style()
+            .busy_label_color()
+            .expect("control has busy label color")
+    );
+}
+
+#[test]
 fn enabled_inactive_action_node_uses_base_background() {
     let root = control::button(A, CLICK);
     let mut tree = Tree::new();

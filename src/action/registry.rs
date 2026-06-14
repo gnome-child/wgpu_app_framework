@@ -13,7 +13,7 @@ use super::{definition, state};
 pub struct Registry<T = ()> {
     actions: HashMap<Id, Action<T>>,
     states: HashMap<(Id, Context), State>,
-    executing: HashSet<(Id, Context)>,
+    busy: HashSet<(Id, Context)>,
 }
 
 impl<T> Registry<T> {
@@ -42,34 +42,47 @@ impl<T> Registry<T> {
         self.states.retain(|(_, context), _| {
             context.window_id() != window || matches!(context.scope(), Scope::Window)
         });
-        self.executing.retain(|(_, context)| {
-            context.window_id() != window || matches!(context.scope(), Scope::Window)
-        });
     }
 
     pub fn state(&self, id: Id, context: Context) -> State {
+        state::with_busy_overlay(
+            self.configured_state(id, context.clone()),
+            self.is_busy(id, &context),
+        )
+    }
+
+    pub fn configured_state(&self, id: Id, context: Context) -> State {
         if !self.actions.contains_key(&id) {
             return State::disabled();
         }
 
-        let executing = self.executing.contains(&(id, context.clone()));
         if let Some(state) = self.states.get(&(id, context.clone())) {
-            return state::with_active_overlay(*state, executing);
+            return *state;
         }
 
         if matches!(context.scope(), Scope::Path(_)) {
             let fallback = Context::window(context.window_id());
 
             if let Some(state) = self.states.get(&(id, fallback)) {
-                return state::with_active_overlay(*state, executing);
+                return *state;
             }
         }
 
-        state::with_active_overlay(State::enabled(), executing)
+        State::enabled()
     }
 
     pub fn can_invoke(&self, id: Id, context: Context) -> bool {
-        self.state(id, context).is_enabled()
+        let state = self.state(id, context);
+
+        state.is_enabled() && !state.is_busy()
+    }
+
+    pub fn set_busy(&mut self, id: Id, context: Context, busy: bool) -> bool {
+        if busy {
+            self.busy.insert((id, context))
+        } else {
+            self.busy.remove(&(id, context))
+        }
     }
 
     pub fn execute(&mut self, invocation: Invocation) -> Option<Effect<T>> {
@@ -80,14 +93,23 @@ impl<T> Registry<T> {
             return None;
         }
 
-        self.executing.insert((id, context.clone()));
-        let effect = self
-            .actions
+        self.actions
             .get(&id)
-            .map(|action| definition::invoke(action, invocation));
-        self.executing.remove(&(id, context));
+            .map(|action| definition::invoke(action, invocation))
+    }
 
-        effect
+    fn is_busy(&self, id: Id, context: &Context) -> bool {
+        if self.busy.contains(&(id, context.clone())) {
+            return true;
+        }
+
+        if matches!(context.scope(), Scope::Path(_)) {
+            return self
+                .busy
+                .contains(&(id, Context::window(context.window_id())));
+        }
+
+        false
     }
 }
 
@@ -96,7 +118,7 @@ impl<T> Default for Registry<T> {
         Self {
             actions: HashMap::new(),
             states: HashMap::new(),
-            executing: HashSet::new(),
+            busy: HashSet::new(),
         }
     }
 }
