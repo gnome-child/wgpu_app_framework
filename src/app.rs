@@ -9,7 +9,7 @@ use winit::{
     event_loop::{ActiveEventLoop, EventLoop},
 };
 
-use crate::app::state::{WindowState, action_invocation_event, resolve_action_target};
+use crate::app::state::{WindowState, action_invocation_event, resolve_action_path};
 use crate::geometry::{area, point};
 use crate::{Action, action, native, paint, render, ui, window};
 
@@ -146,27 +146,35 @@ impl Context<'_> {
         context: action::Context,
         state: action::State,
     ) {
+        let window = context.window;
+
         if self.actions.set_state(action, context, state) && self.redraw_on_action_state_change {
-            self.request_redraw(context.window);
+            self.request_redraw(window);
         }
     }
 
-    pub fn action_state(&self, action: action::Id, context: action::Context) -> action::State {
-        self.actions.state(
+    pub fn action(&mut self, window: window::Id, action: action::Id) -> ActionState<'_> {
+        ActionState::new(
+            self.actions,
+            &*self.windows,
+            window,
             action,
-            self.resolve_action_context(context.window, context.target),
+            self.redraw_on_action_state_change,
         )
     }
 
-    pub fn invoke_action(&mut self, action: action::Id, context: action::Context) {
-        let context = self.resolve_action_context(context.window, context.target);
+    pub fn action_state(&self, action: action::Id, context: action::Context) -> action::State {
+        self.actions.state(action, context)
+    }
 
-        if !self.actions.can_invoke(action, context) {
+    pub fn invoke_action(&mut self, action: action::Id, context: action::Context) {
+        if !self.actions.can_invoke(action, context.clone()) {
             return;
         }
 
+        let window = context.window;
         self.pending_events.push_back((
-            context.window,
+            window,
             ui::Event::ActionInvoked {
                 action,
                 source: action::Source::Programmatic,
@@ -175,33 +183,96 @@ impl Context<'_> {
         ));
     }
 
-    pub fn hovered(&self, window: window::Id) -> Option<ui::Id> {
+    pub fn hovered(&self, window: window::Id) -> Option<ui::Path> {
         self.window_states
             .get(&window)
-            .and_then(|state| state.hovered)
+            .and_then(|state| state.hovered.clone())
     }
 
-    pub fn focused(&self, window: window::Id) -> Option<ui::Id> {
+    pub fn focused(&self, window: window::Id) -> Option<ui::Path> {
         self.window_states
             .get(&window)
-            .and_then(|state| state.focused)
+            .and_then(|state| state.focused.clone())
     }
 
     pub fn resolve_action_context(
         &self,
         window: window::Id,
-        requested_target: Option<ui::Id>,
+        requested_scope: Option<action::Scope>,
     ) -> action::Context {
-        if requested_target.is_some() {
-            return action::Context {
-                window,
-                target: requested_target,
-            };
+        if let Some(scope) = requested_scope {
+            return action::Context { window, scope };
         }
 
-        let target = resolve_action_target(self.window_states.get(&window), requested_target);
+        let scope = resolve_action_path(self.window_states.get(&window), None)
+            .map(action::Scope::Path)
+            .unwrap_or(action::Scope::Window);
 
-        action::Context { window, target }
+        action::Context { window, scope }
+    }
+}
+
+pub struct ActionState<'a> {
+    actions: &'a mut action::Registry,
+    windows: &'a HashMap<window::Id, native::Window>,
+    window: window::Id,
+    action: action::Id,
+    state: action::State,
+    changed: bool,
+    redraw_on_action_state_change: bool,
+}
+
+impl<'a> ActionState<'a> {
+    fn new(
+        actions: &'a mut action::Registry,
+        windows: &'a HashMap<window::Id, native::Window>,
+        window: window::Id,
+        action: action::Id,
+        redraw_on_action_state_change: bool,
+    ) -> Self {
+        let state = actions.state(action, action::Context::window(window));
+
+        Self {
+            actions,
+            windows,
+            window,
+            action,
+            state,
+            changed: false,
+            redraw_on_action_state_change,
+        }
+    }
+
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.state.enabled = enabled;
+        self.changed = true;
+        self
+    }
+
+    pub fn active(mut self, active: bool) -> Self {
+        self.state.active = active;
+        self.changed = true;
+        self
+    }
+}
+
+impl Drop for ActionState<'_> {
+    fn drop(&mut self) {
+        if !self.changed {
+            return;
+        }
+
+        let changed = self.actions.set_state(
+            self.action,
+            action::Context::window(self.window),
+            self.state,
+        );
+
+        if changed && self.redraw_on_action_state_change {
+            if let Some(window) = self.windows.get(&self.window) {
+                window.request_redraw();
+            }
+        }
     }
 }
 
@@ -325,9 +396,9 @@ impl<A: Application> Runtime<A> {
 
         if let Some(layout) = tree.layout(logical_area) {
             let interaction = ui::Interaction {
-                hovered: state.hovered,
-                focused: state.focused,
-                pressed: state.pressed,
+                hovered: state.hovered.clone(),
+                focused: state.focused.clone(),
+                pressed: state.pressed.clone(),
             };
             state.layout = Some(layout.clone());
 
@@ -389,7 +460,7 @@ impl<A: Application> Runtime<A> {
             return;
         };
         let target = state.hit_test(position);
-        let hover_events = state.set_hovered(target);
+        let hover_events = state.set_hovered(target.clone());
         state.cursor_position = Some(position);
 
         if !hover_events.is_empty() {

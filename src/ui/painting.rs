@@ -8,7 +8,7 @@ pub(super) fn tree(
     interaction: ui::Interaction,
     scene: &mut paint::Scene,
 ) {
-    node(root, layout, actions, window, interaction, scene);
+    node(root, layout, actions, window, &interaction, scene);
 }
 
 fn node(
@@ -16,10 +16,10 @@ fn node(
     layout: &layout::Box,
     actions: &action::Registry,
     window: window::Id,
-    interaction: ui::Interaction,
+    interaction: &ui::Interaction,
     scene: &mut paint::Scene,
 ) {
-    if let Some(background) = resolved_background(node, actions, window, interaction) {
+    if let Some(background) = resolved_background(node, layout, actions, window, interaction) {
         scene.push_quad(paint::Quad {
             rect: layout.rect,
             style: paint::Style {
@@ -30,7 +30,7 @@ fn node(
         });
     }
 
-    if let Some(document) = resolved_label(node, actions, window) {
+    if let Some(document) = resolved_label(node, layout, actions, window) {
         scene.push_text(paint::Text {
             rect: layout.rect,
             document,
@@ -44,20 +44,15 @@ fn node(
 
 fn resolved_background(
     node: &ui::Node,
+    layout: &layout::Box,
     actions: &action::Registry,
     window: window::Id,
-    interaction: ui::Interaction,
+    interaction: &ui::Interaction,
 ) -> Option<paint::Color> {
     let background = node.style.background?;
 
     if let Some(action) = node.action {
-        let state = actions.state(
-            action,
-            action::Context {
-                window,
-                target: Some(node.id),
-            },
-        );
+        let state = actions.state(action, action::Context::path(window, layout.path.clone()));
 
         if !state.enabled {
             return Some(
@@ -72,11 +67,11 @@ fn resolved_background(
         }
     }
 
-    if interaction.focused == Some(node.id) {
+    if interaction.focused.as_ref() == Some(&layout.path) {
         return Some(node.style.focus_background.unwrap_or(background));
     }
 
-    if interaction.hovered == Some(node.id) {
+    if interaction.hovered.as_ref() == Some(&layout.path) {
         return Some(node.style.hover_background.unwrap_or(background));
     }
 
@@ -85,19 +80,14 @@ fn resolved_background(
 
 fn resolved_label(
     node: &ui::Node,
+    layout: &layout::Box,
     actions: &action::Registry,
     window: window::Id,
 ) -> Option<crate::text::Document> {
     let mut document = node.label.clone()?;
 
     if let Some(action) = node.action {
-        let state = actions.state(
-            action,
-            action::Context {
-                window,
-                target: Some(node.id),
-            },
-        );
+        let state = actions.state(action, action::Context::path(window, layout.path.clone()));
 
         if !state.enabled {
             if let Some(color) = node.style.disabled_label_color.or(node.style.label_color) {

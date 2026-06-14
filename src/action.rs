@@ -40,7 +40,12 @@ impl Id {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct State {
+    /// Whether the action can be invoked in the resolved context.
     pub enabled: bool,
+    /// Whether the action is currently on, selected, or running in the resolved context.
+    ///
+    /// Completed or historical work should stay in application state unless it represents a
+    /// persistent current state.
     pub active: bool,
 }
 
@@ -73,17 +78,31 @@ impl Default for State {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Context {
     pub window: window::Id,
-    pub target: Option<ui::Id>,
+    pub scope: Scope,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+impl Context {
+    pub fn window(window: window::Id) -> Self {
+        Self {
+            window,
+            scope: Scope::Window,
+        }
+    }
+
+    pub fn path(window: window::Id, path: ui::Path) -> Self {
+        Self {
+            window,
+            scope: Scope::Path(path),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Scope {
-    Target(ui::Id),
-    Focused,
-    Hovered,
+    Path(ui::Path),
     Window,
 }
 
@@ -113,7 +132,7 @@ impl Registry {
     }
 
     pub fn set_state(&mut self, id: Id, context: Context, state: State) -> bool {
-        if self.states.get(&(id, context)) == Some(&state) {
+        if self.states.get(&(id, context.clone())) == Some(&state) {
             return false;
         }
 
@@ -123,7 +142,7 @@ impl Registry {
 
     pub fn clear_context_states(&mut self, window: window::Id) {
         self.states
-            .retain(|(_, context), _| context.window != window || context.target.is_none());
+            .retain(|(_, context), _| context.window != window || context.scope == Scope::Window);
     }
 
     pub fn state(&self, id: Id, context: Context) -> State {
@@ -131,14 +150,14 @@ impl Registry {
             return State::disabled();
         }
 
-        if let Some(state) = self.states.get(&(id, context)) {
+        if let Some(state) = self.states.get(&(id, context.clone())) {
             return *state;
         }
 
-        if context.target.is_some() {
+        if matches!(context.scope, Scope::Path(_)) {
             let fallback = Context {
-                target: None,
-                ..context
+                window: context.window,
+                scope: Scope::Window,
             };
 
             if let Some(state) = self.states.get(&(id, fallback)) {
@@ -164,10 +183,7 @@ mod tests {
     #[test]
     fn unregistered_action_is_disabled() {
         let registry = Registry::new();
-        let context = Context {
-            window: window::Id::new(1),
-            target: Some(TEXT_BOX),
-        };
+        let context = Context::path(window::Id::new(1), ui::Path::from(TEXT_BOX));
 
         assert_eq!(registry.state(SELECT_ALL, context), State::disabled());
     }
@@ -178,31 +194,15 @@ mod tests {
         let window = window::Id::new(1);
 
         registry.register(Action::new(SELECT_ALL, "Select All"));
+        registry.set_state(SELECT_ALL, Context::window(window), State::disabled());
         registry.set_state(
             SELECT_ALL,
-            Context {
-                window,
-                target: None,
-            },
-            State::disabled(),
-        );
-        registry.set_state(
-            SELECT_ALL,
-            Context {
-                window,
-                target: Some(TEXT_BOX),
-            },
+            Context::path(window, ui::Path::from(TEXT_BOX)),
             State::active(),
         );
 
         assert_eq!(
-            registry.state(
-                SELECT_ALL,
-                Context {
-                    window,
-                    target: Some(TEXT_BOX),
-                }
-            ),
+            registry.state(SELECT_ALL, Context::path(window, ui::Path::from(TEXT_BOX))),
             State::active()
         );
     }
@@ -210,13 +210,10 @@ mod tests {
     #[test]
     fn disabled_action_cannot_invoke() {
         let mut registry = Registry::new();
-        let context = Context {
-            window: window::Id::new(1),
-            target: Some(TEXT_BOX),
-        };
+        let context = Context::path(window::Id::new(1), ui::Path::from(TEXT_BOX));
 
         registry.register(Action::new(SELECT_ALL, "Select All"));
-        registry.set_state(SELECT_ALL, context, State::disabled());
+        registry.set_state(SELECT_ALL, context.clone(), State::disabled());
 
         assert!(!registry.can_invoke(SELECT_ALL, context));
     }
@@ -227,33 +224,17 @@ mod tests {
         let window = window::Id::new(1);
 
         registry.register(Action::new(SELECT_ALL, "Select All"));
+        registry.set_state(SELECT_ALL, Context::window(window), State::disabled());
         registry.set_state(
             SELECT_ALL,
-            Context {
-                window,
-                target: None,
-            },
-            State::disabled(),
-        );
-        registry.set_state(
-            SELECT_ALL,
-            Context {
-                window,
-                target: Some(TEXT_BOX),
-            },
+            Context::path(window, ui::Path::from(TEXT_BOX)),
             State::active(),
         );
 
         registry.clear_context_states(window);
 
         assert_eq!(
-            registry.state(
-                SELECT_ALL,
-                Context {
-                    window,
-                    target: Some(TEXT_BOX),
-                }
-            ),
+            registry.state(SELECT_ALL, Context::path(window, ui::Path::from(TEXT_BOX))),
             State::disabled()
         );
     }

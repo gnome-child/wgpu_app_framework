@@ -10,6 +10,11 @@ use crate::{action, layout, paint, text, window};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Id(&'static str);
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Path {
+    ids: Vec<Id>,
+}
+
 impl Id {
     pub const fn new(value: &'static str) -> Self {
         Self(value)
@@ -17,6 +22,40 @@ impl Id {
 
     pub const fn as_str(self) -> &'static str {
         self.0
+    }
+}
+
+impl Path {
+    pub fn new(ids: impl Into<Vec<Id>>) -> Self {
+        Self { ids: ids.into() }
+    }
+
+    pub fn root(id: Id) -> Self {
+        Self { ids: vec![id] }
+    }
+
+    pub fn child(&self, id: Id) -> Self {
+        let mut ids = self.ids.clone();
+        ids.push(id);
+        Self { ids }
+    }
+
+    pub fn push(&mut self, id: Id) {
+        self.ids.push(id);
+    }
+
+    pub fn ids(&self) -> &[Id] {
+        &self.ids
+    }
+
+    pub fn leaf(&self) -> Option<Id> {
+        self.ids.last().copied()
+    }
+}
+
+impl From<Id> for Path {
+    fn from(value: Id) -> Self {
+        Self::root(value)
     }
 }
 
@@ -28,7 +67,7 @@ pub enum Button {
     Other(u16),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     Resized {
         area: area::Physical,
@@ -41,22 +80,22 @@ pub enum Event {
     Focused(bool),
     PointerMoved {
         position: point::Logical,
-        target: Option<Id>,
+        target: Option<Path>,
     },
     PointerEntered {
-        target: Id,
+        target: Path,
     },
     PointerLeft {
-        target: Id,
+        target: Path,
     },
     PointerDown {
         position: point::Logical,
-        target: Option<Id>,
+        target: Option<Path>,
         button: Button,
     },
     PointerUp {
         position: point::Logical,
-        target: Option<Id>,
+        target: Option<Path>,
         button: Button,
     },
     ActionInvoked {
@@ -109,11 +148,11 @@ pub struct Interactivity {
     pub actionable: bool,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Interaction {
-    pub hovered: Option<Id>,
-    pub focused: Option<Id>,
-    pub pressed: Option<Id>,
+    pub hovered: Option<Path>,
+    pub focused: Option<Path>,
+    pub pressed: Option<Path>,
 }
 
 impl Tree {
@@ -141,21 +180,21 @@ impl Tree {
         self.root.as_ref().map(|root| layouting::tree(root, area))
     }
 
-    pub fn actions(&self) -> HashMap<Id, action::Id> {
+    pub fn actions(&self) -> HashMap<Path, action::Id> {
         let mut actions = HashMap::new();
 
         if let Some(root) = self.root.as_ref() {
-            collect_actions(root, &mut actions);
+            collect_actions(root, &Path::root(root.id), &mut actions);
         }
 
         actions
     }
 
-    pub fn interactivity(&self) -> HashMap<Id, Interactivity> {
+    pub fn interactivity(&self) -> HashMap<Path, Interactivity> {
         let mut interactivity = HashMap::new();
 
         if let Some(root) = self.root.as_ref() {
-            collect_interactivity(root, &mut interactivity);
+            collect_interactivity(root, &Path::root(root.id), &mut interactivity);
         }
 
         interactivity
@@ -349,21 +388,25 @@ impl Default for Interactivity {
     }
 }
 
-fn collect_actions(node: &Node, actions: &mut HashMap<Id, action::Id>) {
+fn collect_actions(node: &Node, path: &Path, actions: &mut HashMap<Path, action::Id>) {
     if let Some(action) = node.action {
-        actions.insert(node.id, action);
+        actions.insert(path.clone(), action);
     }
 
     for child in &node.children {
-        collect_actions(child, actions);
+        collect_actions(child, &path.child(child.id), actions);
     }
 }
 
-fn collect_interactivity(node: &Node, interactivity: &mut HashMap<Id, Interactivity>) {
-    interactivity.insert(node.id, node.interactivity);
+fn collect_interactivity(
+    node: &Node,
+    path: &Path,
+    interactivity: &mut HashMap<Path, Interactivity>,
+) {
+    interactivity.insert(path.clone(), node.interactivity);
 
     for child in &node.children {
-        collect_interactivity(child, interactivity);
+        collect_interactivity(child, &path.child(child.id), interactivity);
     }
 }
 
@@ -374,11 +417,16 @@ mod tests {
     const ROOT: Id = Id::new("root");
     const A: Id = Id::new("a");
     const B: Id = Id::new("b");
+    const C: Id = Id::new("c");
     const CLICK: action::Id = action::Id::new("click");
 
     fn layout(tree: &Tree) -> layout::Box {
         tree.layout(area::logical(100.0, 80.0))
             .expect("tree should have root")
+    }
+
+    fn path(id: Id) -> Path {
+        Path::from(id)
     }
 
     fn quad(scene: &paint::Scene, index: usize) -> paint::Quad {
@@ -439,6 +487,47 @@ mod tests {
     }
 
     #[test]
+    fn layout_assigns_stable_paths() {
+        let root = Node::container(ROOT, layout::Axis::Vertical)
+            .with_child(Node::container(A, layout::Axis::Vertical).with_child(Node::leaf(B)));
+        let mut tree = Tree::new();
+
+        tree.set_root(root);
+        let layout = layout(&tree);
+
+        assert_eq!(layout.path, Path::new(vec![ROOT]));
+        assert_eq!(layout.children[0].path, Path::new(vec![ROOT, A]));
+        assert_eq!(
+            layout.children[0].children[0].path,
+            Path::new(vec![ROOT, A, B])
+        );
+    }
+
+    #[test]
+    fn duplicate_child_ids_under_different_parents_have_distinct_paths() {
+        let root = Node::container(ROOT, layout::Axis::Vertical)
+            .with_child(Node::container(A, layout::Axis::Vertical).with_child(Node::leaf(C)))
+            .with_child(Node::container(B, layout::Axis::Vertical).with_child(Node::leaf(C)));
+        let mut tree = Tree::new();
+
+        tree.set_root(root);
+        let layout = layout(&tree);
+
+        assert_ne!(
+            layout.children[0].children[0].path,
+            layout.children[1].children[0].path
+        );
+        assert_eq!(
+            layout.children[0].children[0].path,
+            Path::new(vec![ROOT, A, C])
+        );
+        assert_eq!(
+            layout.children[1].children[0].path,
+            Path::new(vec![ROOT, B, C])
+        );
+    }
+
+    #[test]
     fn deepest_hit_test_target_is_returned() {
         let root = Node::container(ROOT, layout::Axis::Vertical)
             .with_child(
@@ -455,10 +544,10 @@ mod tests {
         let interactivity = tree.interactivity();
 
         assert_eq!(
-            layout.hit_test_where(point::logical(5.0, 25.0), |id| interactivity
-                .get(&id)
+            layout.hit_test_where(point::logical(5.0, 25.0), |path| interactivity
+                .get(path)
                 .is_some_and(|interactivity| interactivity.hit_test)),
-            Some(B)
+            Some(Path::new(vec![ROOT, B]))
         );
     }
 
@@ -474,16 +563,16 @@ mod tests {
         let interactivity = tree.interactivity();
 
         assert_eq!(
-            layout.hit_test_where(point::logical(90.0, 70.0), |id| interactivity
-                .get(&id)
+            layout.hit_test_where(point::logical(90.0, 70.0), |path| interactivity
+                .get(path)
                 .is_some_and(|interactivity| interactivity.hit_test)),
             None
         );
         assert_eq!(
-            layout.hit_test_where(point::logical(5.0, 5.0), |id| interactivity
-                .get(&id)
+            layout.hit_test_where(point::logical(5.0, 5.0), |path| interactivity
+                .get(path)
                 .is_some_and(|interactivity| interactivity.hit_test)),
-            Some(A)
+            Some(Path::new(vec![ROOT, A]))
         );
     }
 
@@ -592,10 +681,7 @@ mod tests {
         registry.register(action::Action::new(CLICK, "Click"));
         registry.set_state(
             CLICK,
-            action::Context {
-                window,
-                target: Some(A),
-            },
+            action::Context::path(window, path(A)),
             action::State::disabled(),
         );
         tree.set_root(root);
@@ -625,10 +711,7 @@ mod tests {
         registry.register(action::Action::new(CLICK, "Click"));
         registry.set_state(
             CLICK,
-            action::Context {
-                window,
-                target: Some(A),
-            },
+            action::Context::path(window, path(A)),
             action::State::disabled(),
         );
         tree.set_root(root.clone());
@@ -665,7 +748,7 @@ mod tests {
             &registry,
             window,
             Interaction {
-                hovered: Some(A),
+                hovered: Some(path(A)),
                 focused: None,
                 pressed: None,
             },
@@ -698,8 +781,8 @@ mod tests {
             &registry,
             window,
             Interaction {
-                hovered: Some(B),
-                focused: Some(A),
+                hovered: Some(path(B)),
+                focused: Some(path(A)),
                 pressed: None,
             },
             &mut scene,
@@ -726,10 +809,7 @@ mod tests {
         registry.register(action::Action::new(CLICK, "Click"));
         registry.set_state(
             CLICK,
-            action::Context {
-                window,
-                target: Some(A),
-            },
+            action::Context::path(window, path(A)),
             action::State::active(),
         );
         tree.set_root(root.clone());
@@ -739,8 +819,8 @@ mod tests {
             &registry,
             window,
             Interaction {
-                hovered: Some(A),
-                focused: Some(A),
+                hovered: Some(path(A)),
+                focused: Some(path(A)),
                 pressed: None,
             },
             &mut scene,
@@ -752,6 +832,41 @@ mod tests {
                 root.style
                     .active_background
                     .expect("control has active color")
+            )))
+        );
+    }
+
+    #[test]
+    fn enabled_inactive_action_node_uses_base_background() {
+        let root = control::button(A, CLICK);
+        let mut tree = Tree::new();
+        let mut scene = paint::Scene::new();
+        let mut registry = action::Registry::new();
+        let window = window::Id::new(1);
+
+        registry.register(action::Action::new(CLICK, "Click"));
+        registry.set_state(
+            CLICK,
+            action::Context::path(window, path(A)),
+            action::State {
+                enabled: true,
+                active: false,
+            },
+        );
+        tree.set_root(root.clone());
+        let layout = layout(&tree);
+        tree.paint(
+            &layout,
+            &registry,
+            window,
+            Interaction::default(),
+            &mut scene,
+        );
+
+        assert_eq!(
+            quad(&scene, 0).style.fill,
+            Some(paint::Fill::Brush(paint::Brush::Solid(
+                root.style.background.expect("control has base color")
             )))
         );
     }

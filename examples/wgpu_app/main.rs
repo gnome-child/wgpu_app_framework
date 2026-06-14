@@ -1,9 +1,10 @@
 use wgpu_l3::{Action, action, app, geometry::area, layout, paint, ui, window};
 
-const ACTIVATE_PANEL: action::Id = action::Id::new("activate_panel");
+const PREPARE_WORKSPACE: action::Id = action::Id::new("prepare_workspace");
+const RUN_TASK: action::Id = action::Id::new("run_task");
 const ROOT: ui::Id = ui::Id::new("root");
-const PANEL_A: ui::Id = ui::Id::new("panel_a");
-const PANEL_B: ui::Id = ui::Id::new("panel_b");
+const PREPARE_BUTTON: ui::Id = ui::Id::new("prepare_button");
+const RUN_BUTTON: ui::Id = ui::Id::new("run_button");
 
 fn main() -> app::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
@@ -14,13 +15,14 @@ fn main() -> app::Result<()> {
 #[derive(Default)]
 struct App {
     window: Option<window::Id>,
-    selected: Option<ui::Id>,
-    panel_a_invoked: bool,
+    workspace_ready: bool,
+    run_count: u32,
 }
 
 impl app::Application for App {
     fn started(&mut self, cx: &mut app::Context<'_>) {
-        cx.register_action(Action::new(ACTIVATE_PANEL, "Activate Panel"));
+        cx.register_action(Action::new(PREPARE_WORKSPACE, "Prepare Workspace"));
+        cx.register_action(Action::new(RUN_TASK, "Run Task"));
 
         let window = cx.open_window(window::Options {
             title: "wgpu_l3".to_owned(),
@@ -36,15 +38,18 @@ impl app::Application for App {
             return;
         }
 
-        if let ui::Event::ActionInvoked {
-            action: ACTIVATE_PANEL,
-            context,
-            ..
-        } = event
-        {
-            self.selected = context.target;
-            self.panel_a_invoked |= context.target == Some(PANEL_A);
-            cx.request_redraw(window);
+        if let ui::Event::ActionInvoked { action, .. } = event {
+            match action {
+                PREPARE_WORKSPACE => {
+                    self.workspace_ready = true;
+                    cx.request_redraw(window);
+                }
+                RUN_TASK => {
+                    self.run_count += 1;
+                    cx.request_redraw(window);
+                }
+                _ => {}
+            }
         }
     }
 
@@ -53,41 +58,23 @@ impl app::Application for App {
             return;
         }
 
-        cx.set_action_state(
-            ACTIVATE_PANEL,
-            action::Context {
-                window,
-                target: Some(PANEL_A),
-            },
-            action::State {
-                enabled: true,
-                active: self.selected == Some(PANEL_A),
-            },
-        );
-        cx.set_action_state(
-            ACTIVATE_PANEL,
-            action::Context {
-                window,
-                target: Some(PANEL_B),
-            },
-            action::State {
-                enabled: self.panel_a_invoked,
-                active: self.selected == Some(PANEL_B),
-            },
-        );
+        cx.action(window, PREPARE_WORKSPACE)
+            .enabled(true)
+            .active(self.workspace_ready);
+        cx.action(window, RUN_TASK)
+            .enabled(self.workspace_ready)
+            .active(false);
 
         let root = ui::control::panel(ROOT)
             .with_background(paint::Color::BLACK)
             .with_padding(layout::Insets::splat(16.0))
             .with_child(ui::control::labeled_button(
-                PANEL_A,
-                ACTIVATE_PANEL,
-                "Enable second",
+                PREPARE_BUTTON,
+                PREPARE_WORKSPACE,
+                "Prepare workspace",
             ))
             .with_child(ui::control::labeled_button(
-                PANEL_B,
-                ACTIVATE_PANEL,
-                "Context enabled",
+                RUN_BUTTON, RUN_TASK, "Run task",
             ));
 
         tree.set_root(root);

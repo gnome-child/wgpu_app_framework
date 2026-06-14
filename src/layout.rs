@@ -31,6 +31,7 @@ pub enum Axis {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Box {
     pub id: ui::Id,
+    pub path: ui::Path,
     pub rect: Rect,
     pub children: Vec<Box>,
 }
@@ -72,18 +73,31 @@ impl Insets {
 
 impl Box {
     pub fn new(id: ui::Id, rect: Rect, children: Vec<Box>) -> Self {
-        Self { id, rect, children }
+        Self::with_path(ui::Path::root(id), rect, children)
     }
 
-    pub fn hit_test(&self, position: point::Logical) -> Option<ui::Id> {
+    pub fn with_path(path: ui::Path, rect: Rect, children: Vec<Box>) -> Self {
+        let id = path
+            .leaf()
+            .expect("layout boxes must have at least one path segment");
+
+        Self {
+            id,
+            path,
+            rect,
+            children,
+        }
+    }
+
+    pub fn hit_test(&self, position: point::Logical) -> Option<ui::Path> {
         self.hit_test_where(position, |_| true)
     }
 
     pub fn hit_test_where(
         &self,
         position: point::Logical,
-        accepts: impl Copy + Fn(ui::Id) -> bool,
-    ) -> Option<ui::Id> {
+        accepts: impl Copy + Fn(&ui::Path) -> bool,
+    ) -> Option<ui::Path> {
         if !contains(self.rect, position) {
             return None;
         }
@@ -94,7 +108,7 @@ impl Box {
             }
         }
 
-        accepts(self.id).then_some(self.id)
+        accepts(&self.path).then_some(self.path.clone())
     }
 
     pub fn find(&self, id: ui::Id) -> Option<&Box> {
@@ -103,6 +117,14 @@ impl Box {
         }
 
         self.children.iter().find_map(|child| child.find(id))
+    }
+
+    pub fn find_path(&self, path: &ui::Path) -> Option<&Box> {
+        if &self.path == path {
+            return Some(self);
+        }
+
+        self.children.iter().find_map(|child| child.find_path(path))
     }
 }
 
@@ -136,8 +158,14 @@ mod tests {
             )],
         );
 
-        assert_eq!(layout.hit_test(point::logical(15.0, 15.0)), Some(CHILD));
-        assert_eq!(layout.hit_test(point::logical(90.0, 90.0)), Some(ROOT));
+        assert_eq!(
+            layout.hit_test(point::logical(15.0, 15.0)),
+            Some(ui::Path::from(CHILD))
+        );
+        assert_eq!(
+            layout.hit_test(point::logical(90.0, 90.0)),
+            Some(ui::Path::from(ROOT))
+        );
         assert_eq!(layout.hit_test(point::logical(110.0, 90.0)), None);
     }
 }

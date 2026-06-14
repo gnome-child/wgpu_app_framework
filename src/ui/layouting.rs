@@ -2,10 +2,20 @@ use crate::geometry::{Rect, area, point};
 use crate::{layout, ui};
 
 pub(super) fn tree(root: &ui::Node, area: area::Logical) -> layout::Box {
-    node(root, point::logical(0.0, 0.0), area)
+    node(
+        root,
+        ui::Path::root(root.id),
+        point::logical(0.0, 0.0),
+        area,
+    )
 }
 
-fn node(node: &ui::Node, origin: point::Logical, available: area::Logical) -> layout::Box {
+fn node(
+    node: &ui::Node,
+    path: ui::Path,
+    origin: point::Logical,
+    available: area::Logical,
+) -> layout::Box {
     let width = resolve_size(node.layout.width, available.width());
     let height = resolve_size(node.layout.height, available.height());
     let rect = Rect::new(origin, area::logical(width, height));
@@ -16,16 +26,20 @@ fn node(node: &ui::Node, origin: point::Logical, available: area::Logical) -> la
         (height - padding.vertical()).max(0.0),
     );
     let children = match node.layout.direction {
-        Some(layout::Axis::Vertical) => vertical_children(node, content_origin, content_area),
-        Some(layout::Axis::Horizontal) => horizontal_children(node, content_origin, content_area),
+        Some(layout::Axis::Vertical) => {
+            vertical_children(node, &path, content_origin, content_area)
+        }
+        Some(layout::Axis::Horizontal) => {
+            horizontal_children(node, &path, content_origin, content_area)
+        }
         None => node
             .children
             .iter()
-            .map(|child| self::node(child, content_origin, content_area))
+            .map(|child| self::node(child, path.child(child.id), content_origin, content_area))
             .collect(),
     };
 
-    layout::Box::new(node.id, rect, children)
+    layout::Box::with_path(path, rect, children)
 }
 
 fn resolve_size(size: layout::Size, available: f32) -> f32 {
@@ -38,6 +52,7 @@ fn resolve_size(size: layout::Size, available: f32) -> f32 {
 
 fn vertical_children(
     node: &ui::Node,
+    path: &ui::Path,
     origin: point::Logical,
     available: area::Logical,
 ) -> Vec<layout::Box> {
@@ -68,7 +83,12 @@ fn vertical_children(
             _ => fill_height,
         };
         let child_area = area::logical(resolve_size(child.layout.width, available.width()), height);
-        children.push(self::node(child, point::logical(origin.x(), y), child_area));
+        children.push(self::node(
+            child,
+            path.child(child.id),
+            point::logical(origin.x(), y),
+            child_area,
+        ));
         y += height;
     }
 
@@ -77,6 +97,7 @@ fn vertical_children(
 
 fn horizontal_children(
     node: &ui::Node,
+    path: &ui::Path,
     origin: point::Logical,
     available: area::Logical,
 ) -> Vec<layout::Box> {
@@ -108,7 +129,12 @@ fn horizontal_children(
         };
         let child_area =
             area::logical(width, resolve_size(child.layout.height, available.height()));
-        children.push(self::node(child, point::logical(x, origin.y()), child_area));
+        children.push(self::node(
+            child,
+            path.child(child.id),
+            point::logical(x, origin.y()),
+            child_area,
+        ));
         x += width;
     }
 
