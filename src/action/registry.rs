@@ -5,6 +5,10 @@ use crate::window;
 use super::{Action, Context, Effect, Id, Invocation, Scope, State};
 use super::{definition, state};
 
+/// Stores command definitions and context-scoped command state.
+///
+/// Execution is intentionally synchronous and effect-producing. Runtime scheduling, task
+/// lifecycles, and background work belong above this registry.
 #[derive(Debug)]
 pub struct Registry<T = ()> {
     actions: HashMap<Id, Action<T>>,

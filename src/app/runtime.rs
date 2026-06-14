@@ -6,26 +6,28 @@ use winit::{
     event_loop::ActiveEventLoop,
 };
 
+use crate::app::action_executor;
 use crate::app::context;
+use crate::app::input;
 use crate::app::mailbox::{Mailbox, Message};
+use crate::app::rendering::Driver;
 use crate::app::sender::Sender;
-use crate::app::state::{WindowState, action_invocation};
+use crate::app::state::WindowState;
+use crate::app::view;
+use crate::app::windows::Windows;
 use crate::geometry::{area, point};
-use crate::{action, event, native, paint, render, ui, window};
+use crate::{action, event, ui, window};
 
 use super::{Application, Error};
 
 pub struct Runtime<A: Application> {
     app: A,
-    render_context: Option<render::Context>,
-    renderer: Option<render::Renderer>,
-    windows: HashMap<window::Id, native::Window>,
-    raw_windows: HashMap<winit::window::WindowId, window::Id>,
+    rendering: Driver,
+    windows: Windows,
     window_states: HashMap<window::Id, WindowState>,
     actions: action::Registry<A::Event>,
     mailbox: Mailbox<A::Event>,
     sender: Sender<A::Event>,
-    next_window_id: u64,
     started: bool,
     error: Option<Error>,
 }
@@ -34,15 +36,12 @@ impl<A: Application> Runtime<A> {
     pub fn new(app: A, sender: Sender<A::Event>) -> Self {
         Self {
             app,
-            render_context: None,
-            renderer: None,
-            windows: HashMap::new(),
-            raw_windows: HashMap::new(),
+            rendering: Driver::new(),
+            windows: Windows::new(),
             window_states: HashMap::new(),
             actions: action::Registry::new(),
             mailbox: Mailbox::new(),
             sender,
-            next_window_id: 1,
             started: false,
             error: None,
         }
@@ -55,17 +54,6 @@ impl<A: Application> Runtime<A> {
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: Error) {
         self.error = Some(error);
         event_loop.exit();
-    }
-
-    fn render_options() -> render::context::Options {
-        render::context::Options {
-            device_label: "wgpu_l3 device",
-            backends: wgpu::Backends::all(),
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            force_fallback_adapter: false,
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-        }
     }
 
     fn dispatch_event(&mut self, event_loop: &ActiveEventLoop, event: event::Event<A::Event>) {
@@ -87,24 +75,17 @@ impl<A: Application> Runtime<A> {
     }
 
     fn drain_mailbox(&mut self, event_loop: &ActiveEventLoop) {
-        if self.render_context.is_none() {
+        if !self.rendering.ready() {
             return;
         }
 
         while let Some(message) = self.mailbox.pop() {
             match message {
                 Message::Event(event) => {
-                    let render_context = self
-                        .render_context
-                        .as_ref()
-                        .expect("render context should exist while draining mailbox");
                     let mut cx = context::new(context::Parts {
-                        render_context,
-                        renderer: &mut self.renderer,
+                        rendering: &mut self.rendering,
                         windows: &mut self.windows,
-                        raw_windows: &mut self.raw_windows,
                         window_states: &mut self.window_states,
-                        next_window_id: &mut self.next_window_id,
                         actions: &mut self.actions,
                         mailbox: &mut self.mailbox,
                         sender: self.sender.clone(),
@@ -122,46 +103,20 @@ impl<A: Application> Runtime<A> {
     }
 
     fn run_action(&mut self, invocation: action::Invocation) {
-        let action = invocation.action();
-        let context = invocation.context().clone();
-        let window = context.window_id();
+        let windows = &self.windows;
+        let mut request_redraw = |window| windows.request_redraw(window);
 
-        if !self.actions.can_invoke(action, context) {
-            return;
-        }
-
-        self.request_redraw_if_open(window);
-        let Some(effect) = self.actions.execute(invocation) else {
-            return;
-        };
-        self.request_redraw_if_open(window);
-        self.enqueue_effect(effect);
-    }
-
-    fn enqueue_effect(&mut self, effect: action::Effect<A::Event>) {
-        match effect {
-            action::Effect::None => {}
-            action::Effect::Emit(event) => {
-                self.mailbox.push_app(event);
-            }
-            action::Effect::Batch(events) => {
-                for event in events {
-                    self.mailbox.push_app(event);
-                }
-            }
-        }
-    }
-
-    fn request_redraw_if_open(&self, window: window::Id) {
-        if let Some(window) = self.windows.get(&window) {
-            window.request_redraw();
+        if let Some(effect) =
+            action_executor::execute(&mut self.actions, invocation, &mut request_redraw)
+        {
+            action_executor::enqueue_effect(&mut self.mailbox, effect);
         }
     }
 
     fn redraw_window(&mut self, event_loop: &ActiveEventLoop, window: window::Id) {
-        let Some(render_context) = self.render_context.as_ref() else {
+        if !self.rendering.ready() {
             return;
-        };
+        }
 
         let mut tree = ui::Tree::new();
 
@@ -169,12 +124,9 @@ impl<A: Application> Runtime<A> {
 
         {
             let mut cx = context::new(context::Parts {
-                render_context,
-                renderer: &mut self.renderer,
+                rendering: &mut self.rendering,
                 windows: &mut self.windows,
-                raw_windows: &mut self.raw_windows,
                 window_states: &mut self.window_states,
-                next_window_id: &mut self.next_window_id,
                 actions: &mut self.actions,
                 mailbox: &mut self.mailbox,
                 sender: self.sender.clone(),
@@ -185,44 +137,19 @@ impl<A: Application> Runtime<A> {
             self.app.view(&mut cx, window, &mut tree);
         }
 
-        let Some(native_window) = self.windows.get(&window) else {
+        let Some(native_window) = self.windows.get(window) else {
             return;
         };
         let logical_area = native_window.canvas().logical_area();
-        let mut scene = paint::Scene::new();
         let state = self.window_states.entry(window).or_default();
-        state.actions = tree.actions();
-        state.interactivity = tree.interactivity();
+        let scene = view::compose(window, &tree, state, &self.actions, logical_area);
 
-        if let Some(layout) = tree.layout(logical_area) {
-            let interaction = ui::Interaction::new(
-                state.hovered.clone(),
-                state.focused.clone(),
-                state.pressed.clone(),
-            );
-            state.layout = Some(layout.clone());
-
-            tree.paint(&layout, &self.actions, window, interaction, &mut scene);
-        } else {
-            state.layout = None;
-        }
-
-        let Some(native_window) = self.windows.get_mut(&window) else {
+        let Some(native_window) = self.windows.get_mut(window) else {
             return;
         };
 
-        if self.renderer.is_none() {
-            let format = native_window.canvas().surface().config().format;
-            self.renderer = Some(render::Renderer::new(render_context, format));
-        }
-
-        let renderer = self
-            .renderer
-            .as_mut()
-            .expect("renderer should be initialized before redraw");
-
-        use render::frame::Status::*;
-        match renderer.draw(render_context, native_window.canvas_mut(), &scene) {
+        use crate::render::frame::Status::*;
+        match self.rendering.draw(native_window, &scene) {
             Ok(Presented) => {}
             Ok(Skipped(reason)) => {
                 log::warn!("render pass was skipped: {:#?}", reason);
@@ -237,10 +164,7 @@ impl<A: Application> Runtime<A> {
     }
 
     fn close_window(&mut self, event_loop: &ActiveEventLoop, window: window::Id) {
-        if let Some(native_window) = self.windows.remove(&window) {
-            self.raw_windows.remove(&native_window.raw_id());
-        }
-
+        self.windows.remove(window);
         self.window_states.remove(&window);
 
         if self.windows.is_empty() {
@@ -257,25 +181,13 @@ impl<A: Application> Runtime<A> {
         let Some(state) = self.window_states.get_mut(&window) else {
             return;
         };
-        let target = state.hit_test(position);
-        let hover_events = state.set_hovered(target.clone());
-        state.cursor_position = Some(position);
+        let outcome = input::pointer_moved(state, position);
 
-        if !hover_events.is_empty() {
-            if let Some(window) = self.windows.get(&window) {
-                window.request_redraw();
-            }
+        if outcome.redraw {
+            self.windows.request_redraw(window);
         }
 
-        for event in hover_events {
-            self.dispatch_ui_event(event_loop, window, event);
-        }
-
-        self.dispatch_ui_event(
-            event_loop,
-            window,
-            ui::Event::PointerMoved { position, target },
-        );
+        self.dispatch_ui_events(event_loop, window, outcome.events);
     }
 
     fn pointer_button(
@@ -285,71 +197,56 @@ impl<A: Application> Runtime<A> {
         state: ElementState,
         button: MouseButton,
     ) {
-        let Some(button) = pointer_button(button) else {
+        let Some(button) = input::pointer_button(button) else {
             return;
         };
 
-        match state {
-            ElementState::Pressed => {
-                let Some(window_state) = self.window_states.get_mut(&window) else {
-                    return;
-                };
-                let position = window_state
-                    .cursor_position
-                    .unwrap_or_else(|| point::logical(0.0, 0.0));
-                let target = window_state.hit_test(position);
-                let event = window_state.pointer_down(position, target, button);
+        let position = self
+            .window_states
+            .get(&window)
+            .and_then(|state| state.cursor_position)
+            .unwrap_or_else(|| point::logical(0.0, 0.0));
 
-                if let Some(native_window) = self.windows.get(&window) {
-                    native_window.request_redraw();
-                }
+        let Some(window_state) = self.window_states.get_mut(&window) else {
+            return;
+        };
 
-                self.dispatch_ui_event(event_loop, window, event);
-            }
+        let outcome = match state {
+            ElementState::Pressed => input::pointer_pressed(window_state, position, button),
             ElementState::Released => {
-                let Some(window_state) = self.window_states.get_mut(&window) else {
-                    return;
-                };
-                let position = window_state
-                    .cursor_position
-                    .unwrap_or_else(|| point::logical(0.0, 0.0));
-                let target = window_state.hit_test(position);
-                let (event, invoke_target) = window_state.pointer_up(position, target, button);
-                let actions = window_state.actions.clone();
-
-                self.dispatch_ui_event(event_loop, window, event);
-
-                if let Some(target) = invoke_target {
-                    if let Some(invocation) = action_invocation(
-                        &self.actions,
-                        &actions,
-                        window,
-                        target,
-                        action::Source::Pointer,
-                    ) {
-                        self.dispatch_message(event_loop, Message::RunAction(invocation));
-                    }
-                }
-
-                if let Some(native_window) = self.windows.get(&window) {
-                    native_window.request_redraw();
-                }
+                input::pointer_released(&self.actions, window_state, window, position, button)
             }
+        };
+
+        self.dispatch_ui_events(event_loop, window, outcome.events);
+
+        if let Some(invocation) = outcome.invocation {
+            self.dispatch_message(event_loop, Message::RunAction(invocation));
+        }
+
+        if outcome.redraw {
+            self.windows.request_redraw(window);
+        }
+    }
+
+    fn dispatch_ui_events(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window: window::Id,
+        events: Vec<ui::Event>,
+    ) {
+        for event in events {
+            self.dispatch_ui_event(event_loop, window, event);
         }
     }
 }
 
 impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.render_context.is_none() {
-            match pollster::block_on(render::Context::new(Self::render_options())) {
-                Ok(render_context) => {
-                    self.render_context = Some(render_context);
-                }
-                Err(error) => {
-                    self.fail(event_loop, error.into());
-                    return;
-                }
+        if !self.rendering.ready() {
+            if let Err(error) = self.rendering.initialize() {
+                self.fail(event_loop, error.into());
+                return;
             }
         }
 
@@ -359,17 +256,10 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
 
         self.started = true;
 
-        let Some(render_context) = self.render_context.as_ref() else {
-            return;
-        };
-
         let mut cx = context::new(context::Parts {
-            render_context,
-            renderer: &mut self.renderer,
+            rendering: &mut self.rendering,
             windows: &mut self.windows,
-            raw_windows: &mut self.raw_windows,
             window_states: &mut self.window_states,
-            next_window_id: &mut self.next_window_id,
             actions: &mut self.actions,
             mailbox: &mut self.mailbox,
             sender: self.sender.clone(),
@@ -388,7 +278,7 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
         raw_window: winit::window::WindowId,
         event: WindowEvent,
     ) {
-        let Some(&window) = self.raw_windows.get(&raw_window) else {
+        let Some(window) = self.windows.raw_id(raw_window) else {
             return;
         };
 
@@ -396,22 +286,18 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
             WindowEvent::CloseRequested => {
                 self.dispatch_ui_event(event_loop, window, ui::Event::CloseRequested);
 
-                if self.windows.contains_key(&window) {
+                if self.windows.contains(window) {
                     self.close_window(event_loop, window);
                 }
             }
             WindowEvent::Resized(size) => {
                 let area = area::physical(size.width, size.height);
-                let Some(render_context) = self.render_context.as_ref() else {
-                    return;
-                };
-
-                let Some(native_window) = self.windows.get_mut(&window) else {
+                let Some(native_window) = self.windows.get_mut(window) else {
                     return;
                 };
 
                 let scale_factor = native_window.scale_factor() as f32;
-                native_window.resize(render_context, area, scale_factor);
+                self.rendering.resize(native_window, area, scale_factor);
                 native_window.request_redraw();
 
                 self.dispatch_ui_event(
@@ -421,17 +307,13 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
                 );
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                let Some(render_context) = self.render_context.as_ref() else {
-                    return;
-                };
-
-                let Some(native_window) = self.windows.get_mut(&window) else {
+                let Some(native_window) = self.windows.get_mut(window) else {
                     return;
                 };
 
                 let area = native_window.inner_area();
                 let scale_factor = scale_factor as f32;
-                native_window.resize(render_context, area, scale_factor);
+                self.rendering.resize(native_window, area, scale_factor);
                 native_window.request_redraw();
 
                 self.dispatch_ui_event(
@@ -444,7 +326,7 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
                 self.dispatch_ui_event(event_loop, window, ui::Event::Focused(focused));
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let Some(native_window) = self.windows.get(&window) else {
+                let Some(native_window) = self.windows.get(window) else {
                     return;
                 };
 
@@ -465,15 +347,5 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, message: Message<A::Event>) {
         self.dispatch_message(event_loop, message);
-    }
-}
-
-fn pointer_button(button: MouseButton) -> Option<ui::Button> {
-    match button {
-        MouseButton::Left => Some(ui::Button::Left),
-        MouseButton::Right => Some(ui::Button::Right),
-        MouseButton::Middle => Some(ui::Button::Middle),
-        MouseButton::Back | MouseButton::Forward => None,
-        MouseButton::Other(value) => Some(ui::Button::Other(value)),
     }
 }
