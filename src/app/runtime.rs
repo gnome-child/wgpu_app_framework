@@ -109,6 +109,12 @@ impl<A: Application> Runtime<A> {
     }
 
     fn run_action(&mut self, request: action::Request) {
+        let window = request.target().window_id();
+        let request = self
+            .window_states
+            .get(&window)
+            .map(|state| state.resolve_request(request.clone()))
+            .unwrap_or(request);
         let windows = &self.windows;
         let mut request_redraw = |window| windows.request_redraw(window);
 

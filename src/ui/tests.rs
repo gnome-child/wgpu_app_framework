@@ -266,6 +266,13 @@ fn node_with_action_target_stores_policy() {
 }
 
 #[test]
+fn node_with_responder_stores_handled_action() {
+    let node = Node::leaf(A).with_responder(action::SELECT_ALL);
+
+    assert_eq!(node.responders(), &[action::SELECT_ALL]);
+}
+
+#[test]
 fn tree_collects_action_target_policies() {
     let root = Node::container(ROOT, layout::Axis::Vertical)
         .with_child(control::button(A, CLICK).with_action_target(ActionTarget::Command));
@@ -276,6 +283,20 @@ fn tree_collects_action_target_policies() {
     assert_eq!(
         tree.action_targets().get(&Path::new([ROOT, A])),
         Some(&ActionTarget::Command)
+    );
+}
+
+#[test]
+fn tree_collects_responder_actions_by_path() {
+    let root = Node::container(ROOT, layout::Axis::Vertical)
+        .with_child(Node::leaf(A).with_responder(action::SELECT_ALL));
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+
+    assert_eq!(
+        tree.responders().get(&Path::new([ROOT, A])),
+        Some(&vec![action::SELECT_ALL])
     );
 }
 

@@ -8,6 +8,8 @@ const RUN_TASK: action::Id = action::Id::new("run_task");
 const TOGGLE_PREVIEW: action::Id = action::Id::new("toggle_preview");
 const ROOT: ui::Id = ui::Id::new("root");
 const STATUS_PANEL: ui::Id = ui::Id::new("status_panel");
+const DOCUMENT_PANEL: ui::Id = ui::Id::new("document_panel");
+const SELECT_BUTTON: ui::Id = ui::Id::new("select_button");
 const RUN_BUTTON: ui::Id = ui::Id::new("run_button");
 const PREVIEW_BUTTON: ui::Id = ui::Id::new("preview_button");
 
@@ -23,12 +25,17 @@ struct App {
     workspace_ready: bool,
     preview_enabled: bool,
     run_count: u32,
+    select_count: u32,
 }
 
 enum AppEvent {
     WorkspaceReady,
     RunTaskFinished,
     TogglePreview,
+    SelectAll {
+        target: action::Context,
+        origin: Option<ui::Path>,
+    },
 }
 
 impl app::Application for App {
@@ -43,6 +50,14 @@ impl app::Application for App {
         }));
         cx.register_action(
             Action::new(TOGGLE_PREVIEW, "Toggle Preview").emit(|_| AppEvent::TogglePreview),
+        );
+        cx.register_action(
+            Action::new(action::SELECT_ALL, "Select All")
+                .with_shortcut(action::Shortcut::control('a'))
+                .emit(|invocation| AppEvent::SelectAll {
+                    target: invocation.context().clone(),
+                    origin: invocation.origin().cloned(),
+                }),
         );
 
         let window = cx.open_window(window::Options {
@@ -71,6 +86,7 @@ impl app::Application for App {
         match event {
             AppEvent::WorkspaceReady => {
                 self.workspace_ready = true;
+                cx.set_command_target(window, action::Context::path(window, document_path()));
                 cx.request_redraw(window);
             }
             AppEvent::RunTaskFinished => {
@@ -79,6 +95,11 @@ impl app::Application for App {
             }
             AppEvent::TogglePreview => {
                 self.preview_enabled = !self.preview_enabled;
+                cx.request_redraw(window);
+            }
+            AppEvent::SelectAll { target, origin } => {
+                log::debug!("select all target={target:?} origin={origin:?}");
+                self.select_count += 1;
                 cx.request_redraw(window);
             }
         }
@@ -100,11 +121,20 @@ impl app::Application for App {
         cx.action(window, TOGGLE_PREVIEW)
             .enabled(true)
             .active(self.preview_enabled);
+        cx.action(window, action::SELECT_ALL)
+            .enabled(false)
+            .active(false);
+        cx.set_action_state(
+            action::SELECT_ALL,
+            action::Context::path(window, document_path()),
+            action::State::new(self.workspace_ready, false),
+        );
 
         let status = if self.workspace_ready {
             format!(
-                "Workspace ready - runs: {} - preview {}",
+                "Workspace ready - runs: {} - selections: {} - preview {}",
                 self.run_count,
+                self.select_count,
                 if self.preview_enabled { "on" } else { "off" }
             )
         } else {
@@ -123,6 +153,25 @@ impl app::Application for App {
                     .with_size(layout::Size::Fill, layout::Size::Fixed(96.0))
                     .with_label(label(status)),
             )
+            .with_child(
+                ui::control::panel(DOCUMENT_PANEL)
+                    .with_size(layout::Size::Fill, layout::Size::Fixed(120.0))
+                    .with_interactivity(
+                        ui::Interactivity::NONE
+                            .with_hit_test(true)
+                            .with_focusable(true),
+                    )
+                    .with_responder(action::SELECT_ALL)
+                    .with_label(label(if self.workspace_ready {
+                        "Document command target - Ctrl+A or button selects all"
+                    } else {
+                        "Document loading..."
+                    })),
+            )
+            .with_child(
+                ui::control::labeled_button(SELECT_BUTTON, action::SELECT_ALL, "Select all")
+                    .with_action_target(ui::ActionTarget::Command),
+            )
             .with_child(ui::control::labeled_button(
                 RUN_BUTTON, RUN_TASK, "Run task",
             ))
@@ -134,6 +183,10 @@ impl app::Application for App {
 
         tree.set_root(root);
     }
+}
+
+fn document_path() -> ui::Path {
+    ui::Path::new([ROOT, DOCUMENT_PANEL])
 }
 
 fn label(label: impl Into<String>) -> text::Document {

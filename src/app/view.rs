@@ -13,6 +13,7 @@ pub fn compose<T>(
 
     state.actions = tree.actions();
     state.action_targets = tree.action_targets();
+    state.responders = tree.responders();
     state.interactivity = tree.interactivity();
 
     if let Some(layout) = tree.layout(logical_area) {
@@ -113,6 +114,7 @@ mod tests {
             state.action_targets.get(&ui::Path::new([ROOT, CHILD])),
             Some(&ui::ActionTarget::Origin)
         );
+        assert!(state.responders.is_empty());
         assert!(state.interactivity.contains_key(&ui::Path::from(ROOT)));
         assert_eq!(state.focus_order, vec![ui::Path::new([ROOT, CHILD])]);
         assert_eq!(scene.items().len(), 2);
@@ -135,6 +137,7 @@ mod tests {
         tree.set_root(
             ui::control::panel(ROOT).with_child(
                 ui::control::button(OTHER, CLICK)
+                    .with_responder(CLICK)
                     .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
             ),
         );
@@ -176,5 +179,34 @@ mod tests {
         );
 
         assert_eq!(state.command_target, None);
+    }
+
+    #[test]
+    fn compose_stores_responder_paths() {
+        let window = window::Id::new(1);
+        let mut state = WindowState::default();
+        let registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+
+        tree.set_root(
+            ui::control::panel(ROOT).with_child(
+                ui::Node::leaf(CHILD)
+                    .with_responder(action::SELECT_ALL)
+                    .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
+            ),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &registry,
+            area::logical(100.0, 100.0),
+        );
+
+        assert_eq!(
+            state.responders.get(&ui::Path::new([ROOT, CHILD])),
+            Some(&vec![action::SELECT_ALL])
+        );
     }
 }

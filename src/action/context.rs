@@ -35,6 +35,7 @@ pub struct Invocation {
     action: Id,
     source: Source,
     context: Context,
+    origin: Option<ui::Path>,
 }
 
 impl Context {
@@ -80,6 +81,11 @@ impl Request {
         self
     }
 
+    pub fn with_target(mut self, target: Context) -> Self {
+        self.target = target;
+        self
+    }
+
     pub fn action(&self) -> Id {
         self.action
     }
@@ -103,7 +109,13 @@ impl Invocation {
             action,
             source,
             context,
+            origin: None,
         }
+    }
+
+    pub fn with_origin(mut self, origin: ui::Path) -> Self {
+        self.origin = Some(origin);
+        self
     }
 
     pub fn action(&self) -> Id {
@@ -117,10 +129,19 @@ impl Invocation {
     pub fn context(&self) -> &Context {
         &self.context
     }
+
+    pub fn origin(&self) -> Option<&ui::Path> {
+        self.origin.as_ref()
+    }
 }
 
 impl From<Request> for Invocation {
     fn from(request: Request) -> Self {
-        Self::new(request.action, request.source, request.target)
+        Self {
+            action: request.action,
+            source: request.source,
+            context: request.target,
+            origin: request.origin,
+        }
     }
 }

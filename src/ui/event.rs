@@ -8,6 +8,7 @@ pub enum Key {
     Tab,
     Enter,
     Space,
+    Character(char),
     Other,
 }
 
@@ -91,5 +92,14 @@ impl Modifiers {
 
     pub const fn super_key(self) -> bool {
         self.super_key
+    }
+}
+
+impl Key {
+    pub const fn normalized(self) -> Self {
+        match self {
+            Self::Character(value) => Self::Character(value.to_ascii_lowercase()),
+            value => value,
+        }
     }
 }

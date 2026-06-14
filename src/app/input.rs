@@ -123,6 +123,18 @@ pub fn key(key: &WinitKey) -> ui::Key {
         WinitKey::Named(NamedKey::Tab) => ui::Key::Tab,
         WinitKey::Named(NamedKey::Enter) => ui::Key::Enter,
         WinitKey::Named(NamedKey::Space) => ui::Key::Space,
+        WinitKey::Character(value) => {
+            let mut chars = value.chars();
+            let Some(character) = chars.next() else {
+                return ui::Key::Other;
+            };
+
+            if chars.next().is_none() {
+                ui::Key::Character(character.to_ascii_lowercase())
+            } else {
+                ui::Key::Other
+            }
+        }
         _ => ui::Key::Other,
     }
 }
@@ -166,9 +178,15 @@ pub fn key_pressed<T>(
         _ => {}
     }
 
+    let request = if !repeat {
+        shortcut_request(registry, state, window, key)
+    } else {
+        None
+    };
+
     Outcome {
         events: vec![event],
-        request: None,
+        request,
         redraw,
     }
 }
@@ -272,6 +290,23 @@ fn invokable_focused_path<T>(
     action_request(state, window, target.clone(), action::Source::Keyboard)
         .filter(|request| registry.can_invoke(request.action(), request.target().clone()))
         .map(|_| target)
+}
+
+fn shortcut_request<T>(
+    registry: &action::Registry<T>,
+    state: &WindowState,
+    window: window::Id,
+    key: ui::Key,
+) -> Option<action::Request> {
+    let shortcut = action::Shortcut::new(key.normalized(), state.modifiers);
+    let action = registry.shortcut_action(shortcut)?;
+    let context = state.command_context(window);
+
+    Some(action::Request::new(
+        action,
+        action::Source::Shortcut,
+        context,
+    ))
 }
 
 #[cfg(test)]
@@ -384,6 +419,15 @@ mod tests {
             pointer_button(MouseButton::Other(9)),
             pointer::Button::Other(9)
         );
+    }
+
+    #[test]
+    fn character_keys_are_normalized() {
+        assert_eq!(
+            key(&WinitKey::Character("A".into())),
+            ui::Key::Character('a')
+        );
+        assert_eq!(key(&WinitKey::Character("ab".into())), ui::Key::Other);
     }
 
     #[test]
@@ -601,6 +645,61 @@ mod tests {
                 .with_origin(path(CHILD))
             )
         );
+    }
+
+    #[test]
+    fn shortcut_press_emits_shortcut_request_for_command_target() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let mut state = WindowState {
+            modifiers: ui::Modifiers::new(false, true, false, false),
+            command_target: Some(action::Scope::Path(path(SECOND))),
+            responders: HashMap::from([(path(SECOND), vec![action::SELECT_ALL])]),
+            ..WindowState::default()
+        };
+
+        registry.register(
+            Action::new(action::SELECT_ALL, "Select All")
+                .with_shortcut(action::Shortcut::control('a')),
+        );
+
+        let outcome = key_pressed(
+            &registry,
+            &mut state,
+            window,
+            ui::Key::Character('a'),
+            false,
+        );
+
+        assert_eq!(
+            outcome.request,
+            Some(action::Request::new(
+                action::SELECT_ALL,
+                action::Source::Shortcut,
+                action::Context::path(window, path(SECOND))
+            ))
+        );
+    }
+
+    #[test]
+    fn repeated_shortcut_press_does_not_emit_request() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let mut state = WindowState {
+            modifiers: ui::Modifiers::new(false, true, false, false),
+            command_target: Some(action::Scope::Path(path(SECOND))),
+            responders: HashMap::from([(path(SECOND), vec![action::SELECT_ALL])]),
+            ..WindowState::default()
+        };
+
+        registry.register(
+            Action::new(action::SELECT_ALL, "Select All")
+                .with_shortcut(action::Shortcut::control('a')),
+        );
+
+        let outcome = key_pressed(&registry, &mut state, window, ui::Key::Character('a'), true);
+
+        assert_eq!(outcome.request, None);
     }
 
     #[test]

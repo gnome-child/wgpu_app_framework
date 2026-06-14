@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::window;
 
-use super::{Action, Context, Effect, Id, Invocation, Scope, State};
+use super::{Action, Context, Effect, Id, Invocation, Scope, Shortcut, State};
 use super::{definition, state};
 
 /// Stores command definitions and context-scoped command state.
@@ -27,6 +27,13 @@ impl<T> Registry<T> {
 
     pub fn action(&self, id: Id) -> Option<&Action<T>> {
         self.actions.get(&id)
+    }
+
+    pub fn shortcut_action(&self, shortcut: Shortcut) -> Option<Id> {
+        self.actions
+            .values()
+            .find(|action| action.shortcuts().contains(&shortcut))
+            .map(Action::id)
     }
 
     pub fn set_state(&mut self, id: Id, context: Context, state: State) -> bool {

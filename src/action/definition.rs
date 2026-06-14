@@ -2,11 +2,12 @@ use std::fmt;
 
 use crate::Task;
 
-use super::{Id, Invocation};
+use super::{Id, Invocation, Shortcut};
 
 pub struct Action<T = ()> {
     id: Id,
     label: String,
+    shortcuts: Vec<Shortcut>,
     handler: Box<dyn Fn(Invocation) -> Effect<T>>,
 }
 
@@ -22,6 +23,7 @@ impl<T> Action<T> {
         Self {
             id,
             label: label.into(),
+            shortcuts: Vec::new(),
             handler: Box::new(|_| Effect::None),
         }
     }
@@ -32,6 +34,15 @@ impl<T> Action<T> {
 
     pub fn label(&self) -> &str {
         &self.label
+    }
+
+    pub fn shortcuts(&self) -> &[Shortcut] {
+        &self.shortcuts
+    }
+
+    pub fn with_shortcut(mut self, shortcut: Shortcut) -> Self {
+        self.shortcuts.push(shortcut);
+        self
     }
 
     pub fn on_invoke(mut self, handler: impl Fn(Invocation) -> Effect<T> + 'static) -> Self {
@@ -64,6 +75,7 @@ impl<T> fmt::Debug for Action<T> {
             .debug_struct("Action")
             .field("id", &self.id)
             .field("label", &self.label)
+            .field("shortcuts", &self.shortcuts)
             .finish_non_exhaustive()
     }
 }

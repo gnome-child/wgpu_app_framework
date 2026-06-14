@@ -57,6 +57,16 @@ impl Tree {
         targets
     }
 
+    pub fn responders(&self) -> HashMap<Path, Vec<action::Id>> {
+        let mut responders = HashMap::new();
+
+        if let Some(root) = self.root.as_ref() {
+            collect_responders(root, &Path::root(root.id()), &mut responders);
+        }
+
+        responders
+    }
+
     pub fn interactivity(&self) -> HashMap<Path, Interactivity> {
         let mut interactivity = HashMap::new();
 
@@ -104,6 +114,16 @@ fn collect_action_targets(node: &Node, path: &Path, targets: &mut HashMap<Path, 
 
     for child in node.children() {
         collect_action_targets(child, &path.child(child.id()), targets);
+    }
+}
+
+fn collect_responders(node: &Node, path: &Path, responders: &mut HashMap<Path, Vec<action::Id>>) {
+    if !node.responders().is_empty() {
+        responders.insert(path.clone(), node.responders().to_vec());
+    }
+
+    for child in node.children() {
+        collect_responders(child, &path.child(child.id()), responders);
     }
 }
 

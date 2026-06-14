@@ -171,6 +171,31 @@ fn state_accessors_expose_enabled_active_and_busy_flags() {
 }
 
 #[test]
+fn action_stores_shortcut_bindings() {
+    let shortcut = Shortcut::control('A');
+    let action = Action::<()>::new(SELECT_ALL, "Select All").with_shortcut(shortcut);
+
+    assert_eq!(action.shortcuts(), &[Shortcut::control('a')]);
+    assert!(shortcut.matches(
+        ui::Key::Character('a'),
+        ui::Modifiers::new(false, true, false, false)
+    ));
+}
+
+#[test]
+fn registry_finds_action_for_registered_shortcut() {
+    let mut registry = Registry::<()>::new();
+
+    registry.register(Action::new(SELECT_ALL, "Select All").with_shortcut(Shortcut::control('a')));
+
+    assert_eq!(
+        registry.shortcut_action(Shortcut::control('a')),
+        Some(SELECT_ALL)
+    );
+    assert_eq!(registry.shortcut_action(Shortcut::control('x')), None);
+}
+
+#[test]
 fn request_preserves_activation_source_target_and_origin() {
     let window = window::Id::new(1);
     let path = ui::Path::from(TEXT_BOX);
@@ -194,4 +219,15 @@ fn invocation_is_created_from_validated_request() {
         Invocation::from(request),
         Invocation::new(SELECT_ALL, Source::Programmatic, context)
     );
+}
+
+#[test]
+fn invocation_preserves_request_origin() {
+    let window = window::Id::new(1);
+    let origin = ui::Path::from(TEXT_BOX);
+    let request = Request::new(SELECT_ALL, Source::Shortcut, Context::window(window))
+        .with_origin(origin.clone());
+    let invocation = Invocation::from(request);
+
+    assert_eq!(invocation.origin(), Some(&origin));
 }

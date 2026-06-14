@@ -10,6 +10,7 @@ pub struct Node {
     interactivity: Interactivity,
     action: Option<action::Id>,
     action_target: ActionTarget,
+    responders: Vec<action::Id>,
     label: Option<text::Document>,
     icon: Option<icon::Icon>,
     icon_size: Option<f32>,
@@ -85,6 +86,7 @@ impl Node {
             interactivity: Interactivity::default(),
             action: None,
             action_target: ActionTarget::default(),
+            responders: Vec::new(),
             label: None,
             icon: None,
             icon_size: None,
@@ -122,6 +124,10 @@ impl Node {
 
     pub fn action_target(&self) -> ActionTarget {
         self.action_target
+    }
+
+    pub fn responders(&self) -> &[action::Id] {
+        &self.responders
     }
 
     pub fn label(&self) -> Option<&text::Document> {
@@ -271,6 +277,11 @@ impl Node {
 
     pub fn with_action_target(mut self, target: ActionTarget) -> Self {
         self.action_target = target;
+        self
+    }
+
+    pub fn with_responder(mut self, action: action::Id) -> Self {
+        self.responders.push(action);
         self
     }
 

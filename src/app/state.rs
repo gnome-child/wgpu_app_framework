@@ -16,6 +16,7 @@ pub struct WindowState {
     pub layout: Option<layout::Box>,
     pub actions: HashMap<ui::Path, action::Id>,
     pub action_targets: HashMap<ui::Path, ui::ActionTarget>,
+    pub responders: HashMap<ui::Path, Vec<action::Id>>,
     pub interactivity: HashMap<ui::Path, ui::Interactivity>,
 }
 
@@ -59,6 +60,12 @@ impl WindowState {
         self.action_targets.get(target).copied().unwrap_or_default()
     }
 
+    pub fn has_responder(&self, target: &ui::Path) -> bool {
+        self.responders
+            .get(target)
+            .is_some_and(|actions| !actions.is_empty())
+    }
+
     pub fn set_hovered(&mut self, target: Option<ui::Path>) -> Vec<ui::Event> {
         if self.hovered == target {
             return Vec::new();
@@ -96,6 +103,12 @@ impl WindowState {
                     ui::focus::Visibility::Hidden,
                 )
             });
+        if let Some(path) = target
+            .as_ref()
+            .and_then(|target| self.command_subject_for_path(target))
+        {
+            self.command_target = Some(action::Scope::Path(path));
+        }
         self.pressed = target.clone();
         self.pressed_source = target.as_ref().map(|_| PressSource::Pointer);
 
@@ -162,13 +175,16 @@ impl WindowState {
             return self.clear_focus();
         }
 
-        let focus = Focus::new(path, reason, visibility);
+        let focus = Focus::new(path.clone(), reason, visibility);
 
         if self.focus.as_ref() == Some(&focus) {
             return false;
         }
 
         self.focus = Some(focus);
+        if let Some(path) = self.command_subject_for_path(&path) {
+            self.command_target = Some(action::Scope::Path(path));
+        }
         true
     }
 
@@ -196,6 +212,7 @@ impl WindowState {
         }
 
         resolve_action_path(Some(self), None)
+            .and_then(|path| self.command_subject_for_path(&path))
             .map(|path| action::Context::path(window, path))
             .unwrap_or_else(|| action::Context::window(window))
     }
@@ -229,11 +246,56 @@ impl WindowState {
             return false;
         };
 
-        if self.interactivity.contains_key(path) {
+        if self.has_responder(path) {
             return false;
         }
 
         self.clear_command_target()
+    }
+
+    pub fn resolve_request(&self, request: action::Request) -> action::Request {
+        let action = request.action();
+        let target = request.target().clone();
+        let window = target.window_id();
+        let resolved = match target.scope() {
+            action::Scope::Path(path) => self
+                .handler_for_path(action, path)
+                .map(|path| action::Context::path(window, path))
+                .unwrap_or_else(|| action::Context::window(window)),
+            action::Scope::Window => action::Context::window(window),
+        };
+
+        request.with_target(resolved)
+    }
+
+    fn command_subject_for_path(&self, path: &ui::Path) -> Option<ui::Path> {
+        self.nearest_path(path, |path| self.has_responder(path))
+    }
+
+    fn handler_for_path(&self, action: action::Id, path: &ui::Path) -> Option<ui::Path> {
+        self.nearest_path(path, |path| {
+            self.responders
+                .get(path)
+                .is_some_and(|actions| actions.contains(&action))
+                || (self.actions.get(path) == Some(&action)
+                    && self.action_target(path) == ui::ActionTarget::Origin)
+        })
+    }
+
+    fn nearest_path(
+        &self,
+        path: &ui::Path,
+        matches: impl Fn(&ui::Path) -> bool,
+    ) -> Option<ui::Path> {
+        for length in (1..=path.ids().len()).rev() {
+            let candidate = ui::Path::new(path.ids()[..length].to_vec());
+
+            if matches(&candidate) {
+                return Some(candidate);
+            }
+        }
+
+        None
     }
 }
 
@@ -607,6 +669,48 @@ mod tests {
     }
 
     #[test]
+    fn transient_focus_does_not_replace_command_subject() {
+        let window = window::Id::new(1);
+        let mut state = WindowState {
+            command_target: Some(action::Scope::Path(path(CHILD))),
+            interactivity: HashMap::from([(path(OUTSIDE), ui::Interactivity::CONTROL)]),
+            responders: HashMap::from([(path(CHILD), vec![CLICK])]),
+            ..WindowState::default()
+        };
+
+        assert!(state.set_focus(
+            path(OUTSIDE),
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible
+        ));
+        assert_eq!(
+            state.command_context(window),
+            action::Context::path(window, path(CHILD))
+        );
+    }
+
+    #[test]
+    fn responder_focus_replaces_command_subject() {
+        let window = window::Id::new(1);
+        let mut state = WindowState {
+            command_target: Some(action::Scope::Path(path(ROOT))),
+            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            responders: HashMap::from([(path(ROOT), vec![CLICK]), (path(CHILD), vec![CLICK])]),
+            ..WindowState::default()
+        };
+
+        assert!(state.set_focus(
+            path(CHILD),
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible
+        ));
+        assert_eq!(
+            state.command_context(window),
+            action::Context::path(window, path(CHILD))
+        );
+    }
+
+    #[test]
     fn command_target_falls_back_to_focus_hover_then_window() {
         let window = window::Id::new(1);
         let mut state = WindowState {
@@ -616,6 +720,7 @@ mod tests {
                 ui::focus::Reason::Keyboard,
                 ui::focus::Visibility::Visible,
             )),
+            responders: HashMap::from([(path(ROOT), vec![CLICK]), (path(CHILD), vec![CLICK])]),
             ..WindowState::default()
         };
 
@@ -689,5 +794,92 @@ mod tests {
 
         assert_eq!(request.origin(), Some(&path(ROOT)));
         assert_eq!(request.target(), &action::Context::window(window));
+    }
+
+    #[test]
+    fn responder_resolution_picks_nearest_handler() {
+        let window = window::Id::new(1);
+        let root = path(ROOT);
+        let child = ui::Path::new([ROOT, CHILD]);
+        let outside = ui::Path::new([ROOT, CHILD, OUTSIDE]);
+        let state = WindowState {
+            responders: HashMap::from([(root.clone(), vec![CLICK]), (child.clone(), vec![CLICK])]),
+            ..WindowState::default()
+        };
+        let request = action::Request::new(
+            CLICK,
+            action::Source::Shortcut,
+            action::Context::path(window, outside),
+        );
+
+        assert_eq!(
+            state.resolve_request(request).target(),
+            &action::Context::path(window, child)
+        );
+    }
+
+    #[test]
+    fn responder_resolution_falls_back_to_window_without_handler() {
+        let window = window::Id::new(1);
+        let state = WindowState {
+            responders: HashMap::from([(path(ROOT), vec![action::COPY])]),
+            ..WindowState::default()
+        };
+        let request = action::Request::new(
+            CLICK,
+            action::Source::Shortcut,
+            action::Context::path(window, path(ROOT)),
+        );
+
+        assert_eq!(
+            state.resolve_request(request).target(),
+            &action::Context::window(window)
+        );
+    }
+
+    #[test]
+    fn origin_bound_action_resolves_to_itself() {
+        let window = window::Id::new(1);
+        let state = WindowState {
+            actions: HashMap::from([(path(CHILD), CLICK)]),
+            action_targets: HashMap::from([(path(CHILD), ui::ActionTarget::Origin)]),
+            ..WindowState::default()
+        };
+        let request = action::Request::new(
+            CLICK,
+            action::Source::Pointer,
+            action::Context::path(window, path(CHILD)),
+        )
+        .with_origin(path(CHILD));
+
+        assert_eq!(
+            state.resolve_request(request).target(),
+            &action::Context::path(window, path(CHILD))
+        );
+    }
+
+    #[test]
+    fn disabled_responder_target_blocks_invocation_after_resolution() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let state = WindowState {
+            responders: HashMap::from([(path(CHILD), vec![action::SELECT_ALL])]),
+            ..WindowState::default()
+        };
+        let request = action::Request::new(
+            action::SELECT_ALL,
+            action::Source::Shortcut,
+            action::Context::path(window, path(CHILD)),
+        );
+
+        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        registry.set_state(
+            action::SELECT_ALL,
+            action::Context::path(window, path(CHILD)),
+            action::State::disabled(),
+        );
+        let request = state.resolve_request(request);
+
+        assert!(!registry.can_invoke(request.action(), request.target().clone()));
     }
 }
