@@ -195,10 +195,10 @@ impl Tree {
         interactivity
     }
 
-    pub fn paint(
+    pub fn paint<T>(
         &self,
         layout: &layout::Box,
-        actions: &action::Registry,
+        actions: &action::Registry<T>,
         window: window::Id,
         interaction: Interaction,
         scene: &mut paint::Scene,
@@ -578,7 +578,7 @@ mod tests {
             .with_child(Node::leaf(A).with_background(paint::Color::RED));
         let mut tree = Tree::new();
         let mut scene = paint::Scene::new();
-        let registry = action::Registry::new();
+        let registry = action::Registry::<()>::new();
 
         tree.set_root(root);
         let layout = layout(&tree);
@@ -611,7 +611,7 @@ mod tests {
             .with_child(control::labeled_button(A, CLICK, "Activate"));
         let mut tree = Tree::new();
         let mut scene = paint::Scene::new();
-        let mut registry = action::Registry::new();
+        let mut registry = action::Registry::<()>::new();
         let window = window::Id::new(1);
 
         registry.register(action::Action::new(CLICK, "Click"));
@@ -642,7 +642,7 @@ mod tests {
             .with_child(Node::leaf(B).with_background(paint::Color::RED));
         let mut tree = Tree::new();
         let mut scene = paint::Scene::new();
-        let mut registry = action::Registry::new();
+        let mut registry = action::Registry::<()>::new();
         let window = window::Id::new(1);
 
         registry.register(action::Action::new(CLICK, "Click"));
@@ -670,7 +670,7 @@ mod tests {
             .with_disabled_background(paint::Color::BLACK);
         let mut tree = Tree::new();
         let mut scene = paint::Scene::new();
-        let mut registry = action::Registry::new();
+        let mut registry = action::Registry::<()>::new();
         let window = window::Id::new(1);
 
         registry.register(action::Action::new(CLICK, "Click"));
@@ -700,7 +700,7 @@ mod tests {
         let root = control::labeled_button(A, CLICK, "Disabled");
         let mut tree = Tree::new();
         let mut scene = paint::Scene::new();
-        let mut registry = action::Registry::new();
+        let mut registry = action::Registry::<()>::new();
         let window = window::Id::new(1);
 
         registry.register(action::Action::new(CLICK, "Click"));
@@ -732,7 +732,7 @@ mod tests {
         let root = control::button(A, CLICK);
         let mut tree = Tree::new();
         let mut scene = paint::Scene::new();
-        let mut registry = action::Registry::new();
+        let mut registry = action::Registry::<()>::new();
         let window = window::Id::new(1);
 
         registry.register(action::Action::new(CLICK, "Click"));
@@ -765,7 +765,7 @@ mod tests {
         let root = control::button(A, CLICK);
         let mut tree = Tree::new();
         let mut scene = paint::Scene::new();
-        let mut registry = action::Registry::new();
+        let mut registry = action::Registry::<()>::new();
         let window = window::Id::new(1);
 
         registry.register(action::Action::new(CLICK, "Click"));
@@ -798,7 +798,7 @@ mod tests {
         let root = control::button(A, CLICK);
         let mut tree = Tree::new();
         let mut scene = paint::Scene::new();
-        let mut registry = action::Registry::new();
+        let mut registry = action::Registry::<()>::new();
         let window = window::Id::new(1);
 
         registry.register(action::Action::new(CLICK, "Click"));
@@ -836,7 +836,7 @@ mod tests {
         let root = control::button(A, CLICK);
         let mut tree = Tree::new();
         let mut scene = paint::Scene::new();
-        let mut registry = action::Registry::new();
+        let mut registry = action::Registry::<()>::new();
         let window = window::Id::new(1);
 
         registry.register(action::Action::new(CLICK, "Click"));

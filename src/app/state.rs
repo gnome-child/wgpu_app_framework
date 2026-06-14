@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::geometry::point;
-use crate::{action, event, layout, ui, window};
+use crate::{action, layout, ui, window};
 
 #[derive(Debug, Default)]
 pub(super) struct WindowState {
@@ -99,13 +99,13 @@ impl WindowState {
     }
 }
 
-pub(super) fn action_invocation_event<T>(
-    registry: &action::Registry,
+pub(super) fn action_invocation<T>(
+    registry: &action::Registry<T>,
     bindings: &HashMap<ui::Path, action::Id>,
     window: window::Id,
     target: ui::Path,
     source: action::Source,
-) -> Option<event::Event<T>> {
+) -> Option<action::Invocation> {
     let action = *bindings.get(&target)?;
     let context = action::Context::path(window, target);
 
@@ -113,11 +113,7 @@ pub(super) fn action_invocation_event<T>(
         return None;
     }
 
-    Some(event::Event::ActionInvoked {
-        action,
-        source,
-        context,
-    })
+    Some(action::Invocation::new(action, source, context))
 }
 
 pub(super) fn resolve_action_path(
@@ -297,7 +293,7 @@ mod tests {
             interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
             ..WindowState::default()
         };
-        let mut registry = action::Registry::new();
+        let mut registry = action::Registry::<()>::new();
 
         registry.register(Action::new(CLICK, "Click"));
         state.pointer_down(
@@ -310,7 +306,7 @@ mod tests {
             Some(path(CHILD)),
             ui::Button::Left,
         );
-        let invocation = action_invocation_event::<()>(
+        let invocation = action_invocation(
             &registry,
             &state.actions,
             window,
@@ -320,11 +316,11 @@ mod tests {
 
         assert_eq!(
             invocation,
-            Some(event::Event::ActionInvoked {
-                action: CLICK,
-                source: action::Source::Pointer,
-                context: action::Context::path(window, path(CHILD))
-            })
+            Some(action::Invocation::new(
+                CLICK,
+                action::Source::Pointer,
+                action::Context::path(window, path(CHILD))
+            ))
         );
     }
 
@@ -332,14 +328,14 @@ mod tests {
     fn disabled_action_bound_node_does_not_invoke() {
         let window = window::Id::new(1);
         let context = action::Context::path(window, path(CHILD));
-        let mut registry = action::Registry::new();
+        let mut registry = action::Registry::<()>::new();
         let bindings = HashMap::from([(path(CHILD), CLICK)]);
 
         registry.register(Action::new(CLICK, "Click"));
         registry.set_state(CLICK, context, action::State::disabled());
 
         assert_eq!(
-            action_invocation_event::<()>(
+            action_invocation(
                 &registry,
                 &bindings,
                 window,

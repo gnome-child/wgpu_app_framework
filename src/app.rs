@@ -10,8 +10,8 @@ use winit::{
     event_loop::{ActiveEventLoop, EventLoop},
 };
 
-use crate::app::mailbox::Mailbox;
-use crate::app::state::{WindowState, action_invocation_event, resolve_action_path};
+use crate::app::mailbox::{Mailbox, Message};
+use crate::app::state::{WindowState, action_invocation, resolve_action_path};
 use crate::geometry::{area, point};
 use crate::{Action, action, event, native, paint, render, ui, window};
 
@@ -65,7 +65,7 @@ pub struct Context<'a, T> {
     raw_windows: &'a mut HashMap<winit::window::WindowId, window::Id>,
     window_states: &'a mut HashMap<window::Id, WindowState>,
     next_window_id: &'a mut u64,
-    actions: &'a mut action::Registry,
+    actions: &'a mut action::Registry<T>,
     mailbox: &'a mut Mailbox<T>,
     redraw_on_action_state_change: bool,
     event_loop: &'a ActiveEventLoop,
@@ -146,7 +146,7 @@ impl<T> Context<'_, T> {
         self.windows.get(&window).map(native::Window::inner_area)
     }
 
-    pub fn register_action(&mut self, action: Action) {
+    pub fn register_action(&mut self, action: Action<T>) {
         self.actions.register(action);
     }
 
@@ -163,7 +163,7 @@ impl<T> Context<'_, T> {
         }
     }
 
-    pub fn action(&mut self, window: window::Id, action: action::Id) -> ActionState<'_> {
+    pub fn action(&mut self, window: window::Id, action: action::Id) -> ActionState<'_, T> {
         ActionState::new(
             self.actions,
             &*self.windows,
@@ -182,15 +182,11 @@ impl<T> Context<'_, T> {
     }
 
     pub fn invoke_action(&mut self, action: action::Id, context: action::Context) {
-        if !self.actions.can_invoke(action, context.clone()) {
-            return;
-        }
-
-        self.mailbox.push(event::Event::ActionInvoked {
+        self.mailbox.run_action(action::Invocation::new(
             action,
-            source: action::Source::Programmatic,
+            action::Source::Programmatic,
             context,
-        });
+        ));
     }
 
     pub fn hovered(&self, window: window::Id) -> Option<ui::Path> {
@@ -222,8 +218,8 @@ impl<T> Context<'_, T> {
     }
 }
 
-pub struct ActionState<'a> {
-    actions: &'a mut action::Registry,
+pub struct ActionState<'a, T> {
+    actions: &'a mut action::Registry<T>,
     windows: &'a HashMap<window::Id, native::Window>,
     window: window::Id,
     action: action::Id,
@@ -232,9 +228,9 @@ pub struct ActionState<'a> {
     redraw_on_action_state_change: bool,
 }
 
-impl<'a> ActionState<'a> {
+impl<'a, T> ActionState<'a, T> {
     fn new(
-        actions: &'a mut action::Registry,
+        actions: &'a mut action::Registry<T>,
         windows: &'a HashMap<window::Id, native::Window>,
         window: window::Id,
         action: action::Id,
@@ -266,7 +262,7 @@ impl<'a> ActionState<'a> {
     }
 }
 
-impl Drop for ActionState<'_> {
+impl<T> Drop for ActionState<'_, T> {
     fn drop(&mut self) {
         if !self.changed {
             return;
@@ -293,7 +289,7 @@ struct Runtime<A: Application> {
     windows: HashMap<window::Id, native::Window>,
     raw_windows: HashMap<winit::window::WindowId, window::Id>,
     window_states: HashMap<window::Id, WindowState>,
-    actions: action::Registry,
+    actions: action::Registry<A::Event>,
     mailbox: Mailbox<A::Event>,
     next_window_id: u64,
     started: bool,
@@ -336,7 +332,11 @@ impl<A: Application> Runtime<A> {
 
 impl<A: Application> Runtime<A> {
     fn dispatch_event(&mut self, event_loop: &ActiveEventLoop, event: event::Event<A::Event>) {
-        self.mailbox.push(event);
+        self.dispatch_message(event_loop, Message::Event(event));
+    }
+
+    fn dispatch_message(&mut self, event_loop: &ActiveEventLoop, message: Message<A::Event>) {
+        self.mailbox.push_message(message);
         self.drain_mailbox(event_loop);
     }
 
@@ -354,25 +354,74 @@ impl<A: Application> Runtime<A> {
             return;
         }
 
-        while let Some(event) = self.mailbox.pop() {
-            let render_context = self
-                .render_context
-                .as_ref()
-                .expect("render context should exist while draining mailbox");
-            let mut cx = Context {
-                render_context,
-                renderer: &mut self.renderer,
-                windows: &mut self.windows,
-                raw_windows: &mut self.raw_windows,
-                window_states: &mut self.window_states,
-                next_window_id: &mut self.next_window_id,
-                actions: &mut self.actions,
-                mailbox: &mut self.mailbox,
-                redraw_on_action_state_change: true,
-                event_loop,
-            };
+        while let Some(message) = self.mailbox.pop() {
+            match message {
+                Message::Event(event) => {
+                    let render_context = self
+                        .render_context
+                        .as_ref()
+                        .expect("render context should exist while draining mailbox");
+                    let mut cx = Context {
+                        render_context,
+                        renderer: &mut self.renderer,
+                        windows: &mut self.windows,
+                        raw_windows: &mut self.raw_windows,
+                        window_states: &mut self.window_states,
+                        next_window_id: &mut self.next_window_id,
+                        actions: &mut self.actions,
+                        mailbox: &mut self.mailbox,
+                        redraw_on_action_state_change: true,
+                        event_loop,
+                    };
 
-            self.app.event(&mut cx, event);
+                    self.app.event(&mut cx, event);
+                }
+                Message::RunAction(invocation) => {
+                    self.run_action(invocation);
+                }
+            }
+        }
+    }
+
+    fn run_action(&mut self, invocation: action::Invocation) {
+        let action = invocation.action;
+        let context = invocation.context.clone();
+        let window = context.window;
+
+        if !self.actions.can_invoke(action, context.clone()) {
+            return;
+        }
+
+        self.actions.begin_execution(action, context.clone());
+        self.request_redraw_if_open(window);
+
+        let effect = self
+            .actions
+            .invoke(invocation)
+            .unwrap_or(action::Effect::None);
+
+        self.actions.end_execution(action, &context);
+        self.request_redraw_if_open(window);
+        self.enqueue_effect(effect);
+    }
+
+    fn enqueue_effect(&mut self, effect: action::Effect<A::Event>) {
+        match effect {
+            action::Effect::None => {}
+            action::Effect::Emit(event) => {
+                self.mailbox.push_app(event);
+            }
+            action::Effect::Batch(events) => {
+                for event in events {
+                    self.mailbox.push_app(event);
+                }
+            }
+        }
+    }
+
+    fn request_redraw_if_open(&self, window: window::Id) {
+        if let Some(window) = self.windows.get(&window) {
+            window.request_redraw();
         }
     }
 
@@ -537,14 +586,14 @@ impl<A: Application> Runtime<A> {
                 self.dispatch_ui_event(event_loop, window, event);
 
                 if let Some(target) = invoke_target {
-                    if let Some(event) = action_invocation_event(
+                    if let Some(invocation) = action_invocation(
                         &self.actions,
                         &actions,
                         window,
                         target,
                         action::Source::Pointer,
                     ) {
-                        self.dispatch_event(event_loop, event);
+                        self.dispatch_message(event_loop, Message::RunAction(invocation));
                     }
                 }
 

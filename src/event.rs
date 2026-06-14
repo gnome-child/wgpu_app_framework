@@ -1,15 +1,10 @@
-use crate::{action, ui, window};
+use crate::{ui, window};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event<T> {
     Ui {
         window: window::Id,
         event: ui::Event,
-    },
-    ActionInvoked {
-        action: action::Id,
-        source: action::Source,
-        context: action::Context,
     },
     App(T),
 }

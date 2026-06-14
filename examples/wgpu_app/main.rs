@@ -28,8 +28,11 @@ impl app::Application for App {
     type Event = AppEvent;
 
     fn started(&mut self, cx: &mut app::Context<'_, Self::Event>) {
-        cx.register_action(Action::new(PREPARE_WORKSPACE, "Prepare Workspace"));
-        cx.register_action(Action::new(RUN_TASK, "Run Task"));
+        cx.register_action(
+            Action::new(PREPARE_WORKSPACE, "Prepare Workspace")
+                .emit(|_| AppEvent::PrepareWorkspace),
+        );
+        cx.register_action(Action::new(RUN_TASK, "Run Task").emit(|_| AppEvent::RunTask));
 
         let window = cx.open_window(window::Options {
             title: "wgpu_l3".to_owned(),
@@ -41,31 +44,23 @@ impl app::Application for App {
     }
 
     fn event(&mut self, cx: &mut app::Context<'_, Self::Event>, event: Event<Self::Event>) {
-        match event {
-            Event::ActionInvoked {
-                action, context, ..
-            } if Some(context.window) == self.window => match action {
-                PREPARE_WORKSPACE => cx.emit(AppEvent::PrepareWorkspace),
-                RUN_TASK => cx.emit(AppEvent::RunTask),
-                _ => {}
-            },
-            Event::App(event) => {
-                let Some(window) = self.window else {
-                    return;
-                };
+        let Event::App(event) = event else {
+            return;
+        };
 
-                match event {
-                    AppEvent::PrepareWorkspace => {
-                        self.workspace_ready = true;
-                        cx.request_redraw(window);
-                    }
-                    AppEvent::RunTask => {
-                        self.run_count += 1;
-                        cx.request_redraw(window);
-                    }
-                }
+        let Some(window) = self.window else {
+            return;
+        };
+
+        match event {
+            AppEvent::PrepareWorkspace => {
+                self.workspace_ready = true;
+                cx.request_redraw(window);
             }
-            _ => {}
+            AppEvent::RunTask => {
+                self.run_count += 1;
+                cx.request_redraw(window);
+            }
         }
     }
 

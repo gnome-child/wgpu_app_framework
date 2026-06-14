@@ -1,9 +1,9 @@
 use crate::{action, layout, paint, ui, window};
 
-pub(super) fn tree(
+pub(super) fn tree<T>(
     root: &ui::Node,
     layout: &layout::Box,
-    actions: &action::Registry,
+    actions: &action::Registry<T>,
     window: window::Id,
     interaction: ui::Interaction,
     scene: &mut paint::Scene,
@@ -11,10 +11,10 @@ pub(super) fn tree(
     node(root, layout, actions, window, &interaction, scene);
 }
 
-fn node(
+fn node<T>(
     node: &ui::Node,
     layout: &layout::Box,
-    actions: &action::Registry,
+    actions: &action::Registry<T>,
     window: window::Id,
     interaction: &ui::Interaction,
     scene: &mut paint::Scene,
@@ -42,10 +42,10 @@ fn node(
     }
 }
 
-fn resolved_background(
+fn resolved_background<T>(
     node: &ui::Node,
     layout: &layout::Box,
-    actions: &action::Registry,
+    actions: &action::Registry<T>,
     window: window::Id,
     interaction: &ui::Interaction,
 ) -> Option<paint::Color> {
@@ -78,10 +78,10 @@ fn resolved_background(
     Some(background)
 }
 
-fn resolved_label(
+fn resolved_label<T>(
     node: &ui::Node,
     layout: &layout::Box,
-    actions: &action::Registry,
+    actions: &action::Registry<T>,
     window: window::Id,
 ) -> Option<crate::text::Document> {
     let mut document = node.label.clone()?;
