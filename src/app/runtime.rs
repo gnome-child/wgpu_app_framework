@@ -8,6 +8,7 @@ use winit::{
 
 use crate::app::context;
 use crate::app::mailbox::{Mailbox, Message};
+use crate::app::sender::Sender;
 use crate::app::state::{WindowState, action_invocation};
 use crate::geometry::{area, point};
 use crate::{action, event, native, paint, render, ui, window};
@@ -23,13 +24,14 @@ pub struct Runtime<A: Application> {
     window_states: HashMap<window::Id, WindowState>,
     actions: action::Registry<A::Event>,
     mailbox: Mailbox<A::Event>,
+    sender: Sender<A::Event>,
     next_window_id: u64,
     started: bool,
     error: Option<Error>,
 }
 
 impl<A: Application> Runtime<A> {
-    pub fn new(app: A) -> Self {
+    pub fn new(app: A, sender: Sender<A::Event>) -> Self {
         Self {
             app,
             render_context: None,
@@ -39,6 +41,7 @@ impl<A: Application> Runtime<A> {
             window_states: HashMap::new(),
             actions: action::Registry::new(),
             mailbox: Mailbox::new(),
+            sender,
             next_window_id: 1,
             started: false,
             error: None,
@@ -104,6 +107,7 @@ impl<A: Application> Runtime<A> {
                         next_window_id: &mut self.next_window_id,
                         actions: &mut self.actions,
                         mailbox: &mut self.mailbox,
+                        sender: self.sender.clone(),
                         redraw_on_action_state_change: true,
                         event_loop,
                     });
@@ -173,6 +177,7 @@ impl<A: Application> Runtime<A> {
                 next_window_id: &mut self.next_window_id,
                 actions: &mut self.actions,
                 mailbox: &mut self.mailbox,
+                sender: self.sender.clone(),
                 redraw_on_action_state_change: false,
                 event_loop,
             });
@@ -334,7 +339,7 @@ impl<A: Application> Runtime<A> {
     }
 }
 
-impl<A: Application> ApplicationHandler for Runtime<A> {
+impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.render_context.is_none() {
             match pollster::block_on(render::Context::new(Self::render_options())) {
@@ -367,6 +372,7 @@ impl<A: Application> ApplicationHandler for Runtime<A> {
             next_window_id: &mut self.next_window_id,
             actions: &mut self.actions,
             mailbox: &mut self.mailbox,
+            sender: self.sender.clone(),
             redraw_on_action_state_change: true,
             event_loop,
         });
@@ -455,6 +461,10 @@ impl<A: Application> ApplicationHandler for Runtime<A> {
             }
             _ => {}
         }
+    }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, message: Message<A::Event>) {
+        self.dispatch_message(event_loop, message);
     }
 }
 

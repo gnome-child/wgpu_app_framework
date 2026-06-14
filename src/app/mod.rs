@@ -1,15 +1,16 @@
 mod context;
 mod mailbox;
 mod runtime;
+mod sender;
 mod state;
 
-use thiserror::Error;
-use winit::event_loop::EventLoop;
-
 use crate::{event, native, render, ui, window};
+use thiserror::Error;
 
 pub use context::{ActionState, Context};
+pub use sender::{SendError, Sender};
 
+use mailbox::Message;
 use runtime::Runtime;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -43,8 +44,10 @@ pub trait Application {
 }
 
 pub fn run<A: Application>(app: A) -> Result<()> {
-    let event_loop = EventLoop::new()?;
-    let mut runtime = Runtime::new(app);
+    let event_loop =
+        winit::event_loop::EventLoop::<Message<A::Event>>::with_user_event().build()?;
+    let sender = sender::new(event_loop.create_proxy());
+    let mut runtime = Runtime::new(app, sender);
 
     event_loop.run_app(&mut runtime)?;
 

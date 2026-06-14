@@ -3,13 +3,14 @@ use std::collections::HashMap;
 use winit::event_loop::ActiveEventLoop;
 
 use crate::app::mailbox::Mailbox;
+use crate::app::sender::Sender;
 use crate::app::state::{WindowState, resolve_action_path};
 use crate::geometry::area;
 use crate::{Action, action, native, render, ui, window};
 
 use super::Result;
 
-pub struct Context<'a, T> {
+pub struct Context<'a, T: Send + 'static> {
     render_context: &'a render::Context,
     renderer: &'a mut Option<render::Renderer>,
     windows: &'a mut HashMap<window::Id, native::Window>,
@@ -18,11 +19,12 @@ pub struct Context<'a, T> {
     next_window_id: &'a mut u64,
     actions: &'a mut action::Registry<T>,
     mailbox: &'a mut Mailbox<T>,
+    sender: Sender<T>,
     redraw_on_action_state_change: bool,
     event_loop: &'a ActiveEventLoop,
 }
 
-pub struct Parts<'a, T> {
+pub struct Parts<'a, T: Send + 'static> {
     pub render_context: &'a render::Context,
     pub renderer: &'a mut Option<render::Renderer>,
     pub windows: &'a mut HashMap<window::Id, native::Window>,
@@ -31,11 +33,12 @@ pub struct Parts<'a, T> {
     pub next_window_id: &'a mut u64,
     pub actions: &'a mut action::Registry<T>,
     pub mailbox: &'a mut Mailbox<T>,
+    pub sender: Sender<T>,
     pub redraw_on_action_state_change: bool,
     pub event_loop: &'a ActiveEventLoop,
 }
 
-pub fn new<T>(parts: Parts<'_, T>) -> Context<'_, T> {
+pub fn new<T: Send + 'static>(parts: Parts<'_, T>) -> Context<'_, T> {
     Context {
         render_context: parts.render_context,
         renderer: parts.renderer,
@@ -45,12 +48,13 @@ pub fn new<T>(parts: Parts<'_, T>) -> Context<'_, T> {
         next_window_id: parts.next_window_id,
         actions: parts.actions,
         mailbox: parts.mailbox,
+        sender: parts.sender,
         redraw_on_action_state_change: parts.redraw_on_action_state_change,
         event_loop: parts.event_loop,
     }
 }
 
-impl<T> Context<'_, T> {
+impl<T: Send + 'static> Context<'_, T> {
     pub fn open_window(&mut self, options: window::Options) -> window::Id {
         self.try_open_window(options)
             .expect("failed to open framework window")
@@ -166,6 +170,10 @@ impl<T> Context<'_, T> {
 
     pub fn emit(&mut self, event: T) {
         self.mailbox.push_app(event);
+    }
+
+    pub fn sender(&self) -> Sender<T> {
+        self.sender.clone()
     }
 
     pub fn invoke_action(&mut self, action: action::Id, context: action::Context) {

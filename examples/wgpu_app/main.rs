@@ -15,13 +15,15 @@ fn main() -> app::Result<()> {
 #[derive(Default)]
 struct App {
     window: Option<window::Id>,
+    sender: Option<app::Sender<AppEvent>>,
     workspace_ready: bool,
     run_count: u32,
 }
 
 enum AppEvent {
     PrepareWorkspace,
-    RunTask,
+    RunTaskRequested,
+    RunTaskFinished,
 }
 
 impl app::Application for App {
@@ -32,7 +34,7 @@ impl app::Application for App {
             Action::new(PREPARE_WORKSPACE, "Prepare Workspace")
                 .emit(|_| AppEvent::PrepareWorkspace),
         );
-        cx.register_action(Action::new(RUN_TASK, "Run Task").emit(|_| AppEvent::RunTask));
+        cx.register_action(Action::new(RUN_TASK, "Run Task").emit(|_| AppEvent::RunTaskRequested));
 
         let window = cx.open_window(window::Options {
             title: "wgpu_l3".to_owned(),
@@ -41,6 +43,7 @@ impl app::Application for App {
         });
 
         self.window = Some(window);
+        self.sender = Some(cx.sender());
     }
 
     fn event(&mut self, cx: &mut app::Context<'_, Self::Event>, event: Event<Self::Event>) {
@@ -57,7 +60,12 @@ impl app::Application for App {
                 self.workspace_ready = true;
                 cx.request_redraw(window);
             }
-            AppEvent::RunTask => {
+            AppEvent::RunTaskRequested => {
+                if let Some(sender) = self.sender.clone() {
+                    let _ = sender.emit(AppEvent::RunTaskFinished);
+                }
+            }
+            AppEvent::RunTaskFinished => {
                 self.run_count += 1;
                 cx.request_redraw(window);
             }

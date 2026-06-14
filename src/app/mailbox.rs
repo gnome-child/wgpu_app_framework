@@ -115,4 +115,16 @@ mod tests {
         );
         assert_eq!(mailbox.pop(), Some(Message::Event(event::Event::App(()))));
     }
+
+    #[test]
+    fn user_event_messages_share_fifo_order() {
+        let mut mailbox = Mailbox::new();
+
+        mailbox.push_message(Message::Event(event::Event::App(1)));
+        mailbox.push_app(2);
+
+        assert_eq!(mailbox.pop(), Some(Message::Event(event::Event::App(1))));
+        assert_eq!(mailbox.pop(), Some(Message::Event(event::Event::App(2))));
+        assert_eq!(mailbox.pop(), None);
+    }
 }
