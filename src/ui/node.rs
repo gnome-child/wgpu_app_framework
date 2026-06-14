@@ -23,15 +23,29 @@ pub struct Layout {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Style {
     background: Option<paint::Color>,
+    stroke: Option<paint::Stroke>,
     hover_background: Option<paint::Color>,
     focus_background: Option<paint::Color>,
     active_background: Option<paint::Color>,
     busy_background: Option<paint::Color>,
     disabled_background: Option<paint::Color>,
+    hover_tint: Option<paint::Color>,
+    pressed_tint: Option<paint::Color>,
+    active_tint: Option<paint::Color>,
+    busy_tint: Option<paint::Color>,
+    disabled_tint: Option<paint::Color>,
+    focus_outline: Option<FocusOutline>,
     label_color: Option<paint::Color>,
     busy_label_color: Option<paint::Color>,
     disabled_label_color: Option<paint::Color>,
     padding: layout::Insets,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FocusOutline {
+    brush: paint::Brush,
+    width: f32,
+    offset: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,6 +131,11 @@ impl Node {
         self
     }
 
+    pub fn with_stroke(mut self, stroke: paint::Stroke) -> Self {
+        self.style.stroke = Some(stroke);
+        self
+    }
+
     pub fn with_hover_background(mut self, color: paint::Color) -> Self {
         self.style.hover_background = Some(color);
         self
@@ -139,6 +158,40 @@ impl Node {
 
     pub fn with_disabled_background(mut self, color: paint::Color) -> Self {
         self.style.disabled_background = Some(color);
+        self
+    }
+
+    pub fn with_hover_tint(mut self, color: paint::Color) -> Self {
+        self.style.hover_tint = Some(color);
+        self
+    }
+
+    pub fn with_pressed_tint(mut self, color: paint::Color) -> Self {
+        self.style.pressed_tint = Some(color);
+        self
+    }
+
+    pub fn with_active_tint(mut self, color: paint::Color) -> Self {
+        self.style.active_tint = Some(color);
+        self
+    }
+
+    pub fn with_busy_tint(mut self, color: paint::Color) -> Self {
+        self.style.busy_tint = Some(color);
+        self
+    }
+
+    pub fn with_disabled_tint(mut self, color: paint::Color) -> Self {
+        self.style.disabled_tint = Some(color);
+        self
+    }
+
+    pub fn with_focus_outline(mut self, color: paint::Color, width: f32, offset: f32) -> Self {
+        self.style.focus_outline = Some(FocusOutline {
+            brush: paint::Brush::Solid(color),
+            width,
+            offset,
+        });
         self
     }
 
@@ -250,6 +303,10 @@ impl Style {
         self.background
     }
 
+    pub fn stroke(self) -> Option<paint::Stroke> {
+        self.stroke
+    }
+
     pub fn hover_background(self) -> Option<paint::Color> {
         self.hover_background
     }
@@ -268,6 +325,30 @@ impl Style {
 
     pub fn disabled_background(self) -> Option<paint::Color> {
         self.disabled_background
+    }
+
+    pub fn hover_tint(self) -> Option<paint::Color> {
+        self.hover_tint
+    }
+
+    pub fn pressed_tint(self) -> Option<paint::Color> {
+        self.pressed_tint
+    }
+
+    pub fn active_tint(self) -> Option<paint::Color> {
+        self.active_tint
+    }
+
+    pub fn busy_tint(self) -> Option<paint::Color> {
+        self.busy_tint
+    }
+
+    pub fn disabled_tint(self) -> Option<paint::Color> {
+        self.disabled_tint
+    }
+
+    pub fn focus_outline(self) -> Option<FocusOutline> {
+        self.focus_outline
     }
 
     pub fn label_color(self) -> Option<paint::Color> {
@@ -291,16 +372,37 @@ impl Default for Style {
     fn default() -> Self {
         Self {
             background: None,
+            stroke: None,
             hover_background: None,
             focus_background: None,
             active_background: None,
             busy_background: None,
             disabled_background: None,
+            hover_tint: None,
+            pressed_tint: None,
+            active_tint: None,
+            busy_tint: None,
+            disabled_tint: None,
+            focus_outline: None,
             label_color: None,
             busy_label_color: None,
             disabled_label_color: None,
             padding: layout::Insets::ZERO,
         }
+    }
+}
+
+impl FocusOutline {
+    pub fn brush(self) -> paint::Brush {
+        self.brush
+    }
+
+    pub fn width(self) -> f32 {
+        self.width
+    }
+
+    pub fn offset(self) -> f32 {
+        self.offset
     }
 }
 

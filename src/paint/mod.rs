@@ -33,6 +33,18 @@ impl Scene {
         }
     }
 
+    pub fn push_tint(&mut self, tint: Tint) {
+        self.items.push(Item::Tint(tint));
+    }
+
+    pub fn push_outline(&mut self, outline: Outline) {
+        self.items.push(Item::Outline(outline));
+    }
+
+    pub fn push_backdrop_blur(&mut self, blur: Blur) {
+        self.items.push(Item::BackdropBlur(blur));
+    }
+
     pub fn items(&self) -> &[Item] {
         &self.items
     }
@@ -52,6 +64,9 @@ impl Default for Scene {
 pub enum Item {
     Quad(Quad),
     Text(Text),
+    Tint(Tint),
+    Outline(Outline),
+    BackdropBlur(Blur),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -64,6 +79,26 @@ pub struct Quad {
 pub struct Text {
     pub rect: Rect,
     pub document: text::Document,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Tint {
+    pub rect: Rect,
+    pub color: Color,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Outline {
+    pub rect: Rect,
+    pub brush: Brush,
+    pub width: f32,
+    pub offset: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Blur {
+    pub rect: Rect,
+    pub radius: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -167,9 +202,19 @@ mod tests {
     fn pushed_items_preserve_order() {
         let mut scene = Scene::new();
         let first = solid_quad(1.0);
+        let tint = Tint {
+            rect: Rect::new(point::logical(1.25, 0.0), area::logical(10.0, 10.0)),
+            color: Color::rgba(1.0, 1.0, 1.0, 0.2),
+        };
         let text = Text {
             rect: Rect::new(point::logical(1.5, 0.0), area::logical(10.0, 10.0)),
             document: text::Document::plain("Label"),
+        };
+        let outline = Outline {
+            rect: Rect::new(point::logical(1.75, 0.0), area::logical(10.0, 10.0)),
+            brush: Brush::Solid(Color::BLACK),
+            width: 2.0,
+            offset: 1.0,
         };
         let second = Quad {
             rect: Rect::rounded(
@@ -181,13 +226,34 @@ mod tests {
         };
 
         scene.push_quad(first);
+        scene.push_tint(tint);
         scene.push_text(text.clone());
+        scene.push_outline(outline);
         scene.push_quad(second);
 
         assert_eq!(
             scene.items(),
-            &[Item::Quad(first), Item::Text(text), Item::Quad(second)]
+            &[
+                Item::Quad(first),
+                Item::Tint(tint),
+                Item::Text(text),
+                Item::Outline(outline),
+                Item::Quad(second)
+            ]
         );
+    }
+
+    #[test]
+    fn backdrop_blur_item_is_stored() {
+        let mut scene = Scene::new();
+        let blur = Blur {
+            rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
+            radius: 8.0,
+        };
+
+        scene.push_backdrop_blur(blur);
+
+        assert_eq!(scene.items(), &[Item::BackdropBlur(blur)]);
     }
 
     #[test]

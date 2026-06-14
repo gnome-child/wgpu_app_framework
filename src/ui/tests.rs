@@ -31,6 +31,20 @@ fn text(scene: &paint::Scene, index: usize) -> &paint::Text {
     }
 }
 
+fn tint(scene: &paint::Scene, index: usize) -> paint::Tint {
+    match scene.items().get(index) {
+        Some(paint::Item::Tint(tint)) => *tint,
+        item => panic!("expected tint item at {index}, got {item:?}"),
+    }
+}
+
+fn outline(scene: &paint::Scene, index: usize) -> paint::Outline {
+    match scene.items().get(index) {
+        Some(paint::Item::Outline(outline)) => *outline,
+        item => panic!("expected outline item at {index}, got {item:?}"),
+    }
+}
+
 #[test]
 fn fixed_and_fill_vertical_layout() {
     let mut root = Node::container(ROOT, layout::Axis::Vertical);
@@ -322,15 +336,21 @@ fn disabled_button_uses_disabled_label_color() {
     );
 
     assert_eq!(
-        text(&scene, 1).document.blocks()[0].runs()[0].style().color,
+        text(&scene, 2).document.blocks()[0].runs()[0].style().color,
         root.style()
             .disabled_label_color()
             .expect("control has disabled label color")
     );
+    assert_eq!(
+        tint(&scene, 1).color,
+        root.style()
+            .disabled_tint()
+            .expect("control has disabled tint")
+    );
 }
 
 #[test]
-fn control_hover_state_chooses_hover_background() {
+fn control_hover_state_emits_hover_tint_over_base_background() {
     let root = control::button(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
@@ -351,15 +371,17 @@ fn control_hover_state_chooses_hover_background() {
     assert_eq!(
         quad(&scene, 0).style.fill,
         Some(paint::Fill::Brush(paint::Brush::Solid(
-            root.style()
-                .hover_background()
-                .expect("control has hover color")
+            root.style().background().expect("control has base color")
         )))
+    );
+    assert_eq!(
+        tint(&scene, 1).color,
+        root.style().hover_tint().expect("control has hover tint")
     );
 }
 
 #[test]
-fn control_focus_state_chooses_focus_background() {
+fn control_focus_state_emits_outline_without_changing_fill() {
     let root = control::button(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
@@ -380,15 +402,14 @@ fn control_focus_state_chooses_focus_background() {
     assert_eq!(
         quad(&scene, 0).style.fill,
         Some(paint::Fill::Brush(paint::Brush::Solid(
-            root.style()
-                .focus_background()
-                .expect("control has focus color")
+            root.style().background().expect("control has base color")
         )))
     );
+    assert_eq!(outline(&scene, 1).rect, layout.rect());
 }
 
 #[test]
-fn control_active_state_chooses_active_background() {
+fn control_active_state_emits_active_tint() {
     let root = control::button(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
@@ -414,15 +435,17 @@ fn control_active_state_chooses_active_background() {
     assert_eq!(
         quad(&scene, 0).style.fill,
         Some(paint::Fill::Brush(paint::Brush::Solid(
-            root.style()
-                .active_background()
-                .expect("control has active color")
+            root.style().background().expect("control has base color")
         )))
+    );
+    assert_eq!(
+        tint(&scene, 1).color,
+        root.style().active_tint().expect("control has active tint")
     );
 }
 
 #[test]
-fn control_busy_state_chooses_busy_background_before_active_or_hover() {
+fn control_busy_state_emits_busy_tint_before_active_or_hover() {
     let root = control::button(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
@@ -448,10 +471,12 @@ fn control_busy_state_chooses_busy_background_before_active_or_hover() {
     assert_eq!(
         quad(&scene, 0).style.fill,
         Some(paint::Fill::Brush(paint::Brush::Solid(
-            root.style()
-                .busy_background()
-                .expect("control has busy color")
+            root.style().background().expect("control has base color")
         )))
+    );
+    assert_eq!(
+        tint(&scene, 1).color,
+        root.style().busy_tint().expect("control has busy tint")
     );
 }
 
@@ -476,11 +501,99 @@ fn busy_button_uses_busy_label_color() {
     );
 
     assert_eq!(
-        text(&scene, 1).document.blocks()[0].runs()[0].style().color,
+        text(&scene, 2).document.blocks()[0].runs()[0].style().color,
         root.style()
             .busy_label_color()
             .expect("control has busy label color")
     );
+    assert_eq!(
+        tint(&scene, 1).color,
+        root.style().busy_tint().expect("control has busy tint")
+    );
+}
+
+#[test]
+fn pressed_state_emits_pressed_tint_after_action_states() {
+    let root = control::button(A, CLICK);
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    tree.set_root(root.clone());
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(Some(path(A)), None, Some(path(A))),
+        &mut scene,
+    );
+
+    assert_eq!(
+        tint(&scene, 1).color,
+        root.style()
+            .pressed_tint()
+            .expect("control has pressed tint")
+    );
+}
+
+#[test]
+fn focused_node_emits_overlay_outline_after_tree_content() {
+    let root = control::panel(A).with_child(Node::leaf(B).with_background(paint::Color::RED));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    tree.set_root(root.clone());
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None),
+        &mut scene,
+    );
+
+    assert_eq!(quad(&scene, 0).rect, layout.rect());
+    assert_eq!(quad(&scene, 1).rect, layout.children()[0].rect());
+    assert_eq!(outline(&scene, 2).rect, layout.rect());
+}
+
+#[test]
+fn focused_first_button_outline_is_not_covered_by_second_button() {
+    let root = Node::container(ROOT, layout::Axis::Vertical)
+        .with_child(control::labeled_button(A, CLICK, "Active"))
+        .with_child(Node::leaf(B).with_background(paint::Color::RED));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    registry.set_state(
+        CLICK,
+        action::Context::path(window, Path::new(vec![ROOT, A])),
+        action::State::active(),
+    );
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(Path::new(vec![ROOT, A])), None),
+        &mut scene,
+    );
+
+    assert!(matches!(scene.items()[0], paint::Item::Quad(_)));
+    assert!(matches!(scene.items()[1], paint::Item::Tint(_)));
+    assert!(matches!(scene.items()[2], paint::Item::Text(_)));
+    assert!(matches!(scene.items()[3], paint::Item::Quad(_)));
+    assert!(matches!(scene.items()[4], paint::Item::Outline(_)));
+    assert_eq!(outline(&scene, 4).rect, layout.children()[0].rect());
 }
 
 #[test]

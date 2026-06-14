@@ -8,7 +8,21 @@ pub fn tree<T>(
     interaction: ui::Interaction,
     scene: &mut paint::Scene,
 ) {
-    node(root, layout, actions, window, &interaction, scene);
+    let mut overlays = Vec::new();
+
+    node(
+        root,
+        layout,
+        actions,
+        window,
+        &interaction,
+        scene,
+        &mut overlays,
+    );
+
+    for outline in overlays {
+        scene.push_outline(outline);
+    }
 }
 
 fn node<T>(
@@ -18,15 +32,19 @@ fn node<T>(
     window: window::Id,
     interaction: &ui::Interaction,
     scene: &mut paint::Scene,
+    overlays: &mut Vec<paint::Outline>,
 ) {
-    if let Some(background) = resolved_background(node, layout, actions, window, interaction) {
+    if let Some(style) = resolved_quad_style(node, layout, actions, window, interaction) {
         scene.push_quad(paint::Quad {
             rect: layout.rect(),
-            style: paint::Style {
-                fill: Some(paint::Fill::Brush(paint::Brush::Solid(background))),
-                stroke: None,
-                tint: None,
-            },
+            style,
+        });
+    }
+
+    if let Some(tint) = resolved_tint(node, layout, actions, window, interaction) {
+        scene.push_tint(paint::Tint {
+            rect: layout.rect(),
+            color: tint,
         });
     }
 
@@ -38,8 +56,43 @@ fn node<T>(
     }
 
     for (child, child_layout) in node.children().iter().zip(layout.children()) {
-        self::node(child, child_layout, actions, window, interaction, scene);
+        self::node(
+            child,
+            child_layout,
+            actions,
+            window,
+            interaction,
+            scene,
+            overlays,
+        );
     }
+
+    if let Some(outline) = resolved_focus_outline(node, layout, interaction) {
+        overlays.push(outline);
+    }
+}
+
+fn resolved_quad_style<T>(
+    node: &ui::Node,
+    layout: &layout::Box,
+    actions: &action::Registry<T>,
+    window: window::Id,
+    interaction: &ui::Interaction,
+) -> Option<paint::Style> {
+    let style = node.style();
+    let fill = resolved_background(node, layout, actions, window, interaction)
+        .map(|color| paint::Fill::Brush(paint::Brush::Solid(color)));
+    let stroke = style.stroke();
+
+    if fill.is_none() && stroke.is_none() {
+        return None;
+    }
+
+    Some(paint::Style {
+        fill,
+        stroke,
+        tint: None,
+    })
 }
 
 fn resolved_background<T>(
@@ -50,37 +103,86 @@ fn resolved_background<T>(
     interaction: &ui::Interaction,
 ) -> Option<paint::Color> {
     let style = node.style();
-    let background = style.background()?;
+    let background = style.background();
 
     if let Some(action) = node.action() {
         let state = actions.state(action, action::Context::path(window, layout.path().clone()));
 
         if state.is_busy() {
-            return Some(style.busy_background().unwrap_or(background));
+            return style.busy_background().or(background);
         }
 
         if !state.is_enabled() {
-            return Some(
-                style
-                    .disabled_background()
-                    .unwrap_or_else(|| dim(background)),
-            );
+            return style.disabled_background().or_else(|| background.map(dim));
         }
 
         if state.is_active() {
-            return Some(style.active_background().unwrap_or(background));
+            return style.active_background().or(background);
         }
     }
 
-    if interaction.focused() == Some(layout.path()) {
-        return Some(style.focus_background().unwrap_or(background));
-    }
-
     if interaction.hovered() == Some(layout.path()) {
-        return Some(style.hover_background().unwrap_or(background));
+        return style.hover_background().or(background);
     }
 
-    Some(background)
+    background
+}
+
+fn resolved_tint<T>(
+    node: &ui::Node,
+    layout: &layout::Box,
+    actions: &action::Registry<T>,
+    window: window::Id,
+    interaction: &ui::Interaction,
+) -> Option<paint::Color> {
+    let style = node.style();
+    let pressed = interaction.pressed() == Some(layout.path());
+    let hovered = interaction.hovered() == Some(layout.path());
+
+    if let Some(action) = node.action() {
+        let state = actions.state(action, action::Context::path(window, layout.path().clone()));
+
+        if state.is_busy() {
+            return style.busy_tint();
+        }
+
+        if !state.is_enabled() {
+            return style.disabled_tint();
+        }
+
+        if state.is_active() {
+            return style.active_tint();
+        }
+    }
+
+    if pressed {
+        return style.pressed_tint();
+    }
+
+    if hovered {
+        return style.hover_tint();
+    }
+
+    None
+}
+
+fn resolved_focus_outline(
+    node: &ui::Node,
+    layout: &layout::Box,
+    interaction: &ui::Interaction,
+) -> Option<paint::Outline> {
+    if interaction.focused() != Some(layout.path()) {
+        return None;
+    }
+
+    let outline = node.style().focus_outline()?;
+
+    Some(paint::Outline {
+        rect: layout.rect(),
+        brush: outline.brush(),
+        width: outline.width(),
+        offset: outline.offset(),
+    })
 }
 
 fn resolved_label<T>(

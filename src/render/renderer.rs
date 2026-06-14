@@ -8,7 +8,7 @@ pub struct Renderer {
 }
 
 enum RenderBatch {
-    Quads(render::quad::Batch),
+    Shapes(render::quad::Batch),
     Text { renderer_index: usize },
 }
 
@@ -75,10 +75,11 @@ impl Renderer {
 
         for batch in item_batches {
             match batch {
-                ItemBatch::Quads(quads) => {
-                    if let Some(batch) = render::quad::prepare_batch(render_context, canvas, &quads)
+                ItemBatch::Shapes(shapes) => {
+                    if let Some(batch) =
+                        render::quad::prepare_batch(render_context, canvas, &shapes)
                     {
-                        render_batches.push(RenderBatch::Quads(batch));
+                        render_batches.push(RenderBatch::Shapes(batch));
                     }
                 }
                 ItemBatch::Texts(texts) => {
@@ -124,7 +125,7 @@ impl Renderer {
 
             for batch in &render_batches {
                 match batch {
-                    RenderBatch::Quads(batch) => {
+                    RenderBatch::Shapes(batch) => {
                         pass.set_pipeline(quad_pipeline);
                         pass.set_vertex_buffer(0, batch.vertex_buffer().slice(..));
                         pass.draw(0..batch.vertex_count(), 0..1);
