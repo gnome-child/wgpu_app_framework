@@ -3,6 +3,22 @@ use wgpu::SurfaceTarget;
 use crate::geometry::area;
 use crate::render;
 
+use thiserror::Error;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error(transparent)]
+    Create(#[from] wgpu::CreateSurfaceError),
+
+    #[error("surface could not be configured")]
+    NoSurfaceConfiguration,
+
+    #[error("surface was lost")]
+    Lost,
+}
+
 pub struct Surface {
     inner: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
@@ -14,7 +30,7 @@ impl Surface {
         area: area::Physical,
         render_context: &render::Context,
         target: impl Into<SurfaceTarget<'static>>,
-    ) -> render::Result<Self> {
+    ) -> Result<Self> {
         let inner = render_context.instance().create_surface(target)?;
 
         let Some(mut config) = inner.get_default_config(
@@ -22,7 +38,7 @@ impl Surface {
             area.width().max(1),
             area.height().max(1),
         ) else {
-            return Err(render::Error::ConfigureFailed);
+            return Err(Error::NoSurfaceConfiguration);
         };
 
         let capabilities = inner.get_capabilities(render_context.adapter());
@@ -50,10 +66,6 @@ impl Surface {
         &self.config
     }
 
-    pub fn ready(&self) -> bool {
-        self.ready
-    }
-
     pub fn resize(&mut self, render_context: &render::Context, area: area::Physical) {
         let area = area.clamp_min(1);
 
@@ -66,7 +78,7 @@ impl Surface {
     pub fn acquire_frame(
         &self,
         render_context: &render::Context,
-    ) -> render::Result<render::frame::Outcome> {
+    ) -> Result<render::frame::Outcome> {
         use wgpu::CurrentSurfaceTexture::*;
 
         match self.inner.get_current_texture() {
@@ -94,7 +106,7 @@ impl Surface {
             Validation => Ok(render::frame::Outcome::Skipped(
                 render::frame::Reason::Validation,
             )),
-            Lost => Err(render::Error::SurfaceLost),
+            Lost => Err(Error::Lost),
         }
     }
 
@@ -102,7 +114,7 @@ impl Surface {
         &mut self,
         render_context: &render::Context,
         encode: impl FnOnce(&mut wgpu::CommandEncoder, &render::Frame),
-    ) -> render::Result<render::frame::Status> {
+    ) -> Result<render::frame::Status> {
         let outcome = self.acquire_frame(render_context)?;
 
         use render::frame::Outcome::*;

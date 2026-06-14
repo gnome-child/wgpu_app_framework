@@ -4,40 +4,40 @@ use crate::geometry::point;
 use crate::{action, layout, ui, window};
 
 #[derive(Debug, Default)]
-pub(super) struct WindowState {
-    pub(super) hovered: Option<ui::Path>,
-    pub(super) focused: Option<ui::Path>,
-    pub(super) pressed: Option<ui::Path>,
-    pub(super) cursor_position: Option<point::Logical>,
-    pub(super) layout: Option<layout::Box>,
-    pub(super) actions: HashMap<ui::Path, action::Id>,
-    pub(super) interactivity: HashMap<ui::Path, ui::Interactivity>,
+pub struct WindowState {
+    pub hovered: Option<ui::Path>,
+    pub focused: Option<ui::Path>,
+    pub pressed: Option<ui::Path>,
+    pub cursor_position: Option<point::Logical>,
+    pub layout: Option<layout::Box>,
+    pub actions: HashMap<ui::Path, action::Id>,
+    pub interactivity: HashMap<ui::Path, ui::Interactivity>,
 }
 
 impl WindowState {
-    pub(super) fn hit_test(&self, position: point::Logical) -> Option<ui::Path> {
+    pub fn hit_test(&self, position: point::Logical) -> Option<ui::Path> {
         self.layout.as_ref().and_then(|layout| {
             layout.hit_test_where(position, |path| {
                 self.interactivity
                     .get(path)
-                    .is_some_and(|interactivity| interactivity.hit_test)
+                    .is_some_and(|interactivity| interactivity.hit_test())
             })
         })
     }
 
-    pub(super) fn is_focusable(&self, target: &ui::Path) -> bool {
+    pub fn is_focusable(&self, target: &ui::Path) -> bool {
         self.interactivity
             .get(target)
-            .is_some_and(|interactivity| interactivity.focusable)
+            .is_some_and(|interactivity| interactivity.focusable())
     }
 
-    pub(super) fn is_actionable(&self, target: &ui::Path) -> bool {
+    pub fn is_actionable(&self, target: &ui::Path) -> bool {
         self.interactivity
             .get(target)
-            .is_some_and(|interactivity| interactivity.actionable)
+            .is_some_and(|interactivity| interactivity.actionable())
     }
 
-    pub(super) fn set_hovered(&mut self, target: Option<ui::Path>) -> Vec<ui::Event> {
+    pub fn set_hovered(&mut self, target: Option<ui::Path>) -> Vec<ui::Event> {
         if self.hovered == target {
             return Vec::new();
         }
@@ -57,7 +57,7 @@ impl WindowState {
         events
     }
 
-    pub(super) fn pointer_down(
+    pub fn pointer_down(
         &mut self,
         position: point::Logical,
         target: Option<ui::Path>,
@@ -73,7 +73,7 @@ impl WindowState {
         }
     }
 
-    pub(super) fn pointer_up(
+    pub fn pointer_up(
         &mut self,
         position: point::Logical,
         target: Option<ui::Path>,
@@ -99,7 +99,7 @@ impl WindowState {
     }
 }
 
-pub(super) fn action_invocation<T>(
+pub fn action_invocation<T>(
     registry: &action::Registry<T>,
     bindings: &HashMap<ui::Path, action::Id>,
     window: window::Id,
@@ -116,7 +116,7 @@ pub(super) fn action_invocation<T>(
     Some(action::Invocation::new(action, source, context))
 }
 
-pub(super) fn resolve_action_path(
+pub fn resolve_action_path(
     state: Option<&WindowState>,
     requested_path: Option<ui::Path>,
 ) -> Option<ui::Path> {

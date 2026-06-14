@@ -3,40 +3,40 @@ use std::collections::VecDeque;
 use crate::{action, event};
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) enum Message<T> {
+pub enum Message<T> {
     Event(event::Event<T>),
     RunAction(action::Invocation),
 }
 
 #[derive(Debug)]
-pub(super) struct Mailbox<T> {
+pub struct Mailbox<T> {
     events: VecDeque<Message<T>>,
 }
 
 impl<T> Mailbox<T> {
-    pub(super) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             events: VecDeque::new(),
         }
     }
 
-    pub(super) fn push(&mut self, event: event::Event<T>) {
+    pub fn push(&mut self, event: event::Event<T>) {
         self.push_message(Message::Event(event));
     }
 
-    pub(super) fn push_message(&mut self, message: Message<T>) {
+    pub fn push_message(&mut self, message: Message<T>) {
         self.events.push_back(message);
     }
 
-    pub(super) fn run_action(&mut self, invocation: action::Invocation) {
+    pub fn run_action(&mut self, invocation: action::Invocation) {
         self.push_message(Message::RunAction(invocation));
     }
 
-    pub(super) fn push_app(&mut self, event: T) {
+    pub fn push_app(&mut self, event: T) {
         self.push(event::Event::App(event));
     }
 
-    pub(super) fn pop(&mut self) -> Option<Message<T>> {
+    pub fn pop(&mut self) -> Option<Message<T>> {
         self.events.pop_front()
     }
 }

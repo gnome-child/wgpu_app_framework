@@ -30,10 +30,10 @@ pub enum Axis {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Box {
-    pub id: ui::Id,
-    pub path: ui::Path,
-    pub rect: Rect,
-    pub children: Vec<Box>,
+    id: ui::Id,
+    path: ui::Path,
+    rect: Rect,
+    children: Vec<Box>,
 }
 
 impl Constraints {
@@ -91,6 +91,22 @@ impl Box {
 
     pub fn hit_test(&self, position: point::Logical) -> Option<ui::Path> {
         self.hit_test_where(position, |_| true)
+    }
+
+    pub fn id(&self) -> ui::Id {
+        self.id
+    }
+
+    pub fn path(&self) -> &ui::Path {
+        &self.path
+    }
+
+    pub fn rect(&self) -> Rect {
+        self.rect
+    }
+
+    pub fn children(&self) -> &[Box] {
+        &self.children
     }
 
     pub fn hit_test_where(

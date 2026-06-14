@@ -1,4 +1,15 @@
+use thiserror::Error;
+
 use crate::render;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error(transparent)]
+    RequestAdapter(#[from] wgpu::RequestAdapterError),
+
+    #[error(transparent)]
+    RequestDevice(#[from] wgpu::RequestDeviceError),
+}
 
 pub struct Context {
     device: wgpu::Device,
@@ -32,7 +43,8 @@ impl Context {
                 compatible_surface: None,
                 force_fallback_adapter: options.force_fallback_adapter,
             })
-            .await?;
+            .await
+            .map_err(Error::from)?;
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -43,7 +55,8 @@ impl Context {
                 memory_hints: Default::default(),
                 trace: wgpu::Trace::Off,
             })
-            .await?;
+            .await
+            .map_err(Error::from)?;
 
         Ok(Self {
             instance,

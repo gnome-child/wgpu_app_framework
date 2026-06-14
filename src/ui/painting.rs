@@ -1,6 +1,6 @@
 use crate::{action, layout, paint, ui, window};
 
-pub(super) fn tree<T>(
+pub fn tree<T>(
     root: &ui::Node,
     layout: &layout::Box,
     actions: &action::Registry<T>,
@@ -21,7 +21,7 @@ fn node<T>(
 ) {
     if let Some(background) = resolved_background(node, layout, actions, window, interaction) {
         scene.push_quad(paint::Quad {
-            rect: layout.rect,
+            rect: layout.rect(),
             style: paint::Style {
                 fill: Some(paint::Fill::Brush(paint::Brush::Solid(background))),
                 stroke: None,
@@ -32,12 +32,12 @@ fn node<T>(
 
     if let Some(document) = resolved_label(node, layout, actions, window) {
         scene.push_text(paint::Text {
-            rect: layout.rect,
+            rect: layout.rect(),
             document,
         });
     }
 
-    for (child, child_layout) in node.children.iter().zip(&layout.children) {
+    for (child, child_layout) in node.children().iter().zip(layout.children()) {
         self::node(child, child_layout, actions, window, interaction, scene);
     }
 }
@@ -49,30 +49,31 @@ fn resolved_background<T>(
     window: window::Id,
     interaction: &ui::Interaction,
 ) -> Option<paint::Color> {
-    let background = node.style.background?;
+    let style = node.style();
+    let background = style.background()?;
 
-    if let Some(action) = node.action {
-        let state = actions.state(action, action::Context::path(window, layout.path.clone()));
+    if let Some(action) = node.action() {
+        let state = actions.state(action, action::Context::path(window, layout.path().clone()));
 
-        if !state.enabled {
+        if !state.is_enabled() {
             return Some(
-                node.style
-                    .disabled_background
+                style
+                    .disabled_background()
                     .unwrap_or_else(|| dim(background)),
             );
         }
 
-        if state.active {
-            return Some(node.style.active_background.unwrap_or(background));
+        if state.is_active() {
+            return Some(style.active_background().unwrap_or(background));
         }
     }
 
-    if interaction.focused.as_ref() == Some(&layout.path) {
-        return Some(node.style.focus_background.unwrap_or(background));
+    if interaction.focused() == Some(layout.path()) {
+        return Some(style.focus_background().unwrap_or(background));
     }
 
-    if interaction.hovered.as_ref() == Some(&layout.path) {
-        return Some(node.style.hover_background.unwrap_or(background));
+    if interaction.hovered() == Some(layout.path()) {
+        return Some(style.hover_background().unwrap_or(background));
     }
 
     Some(background)
@@ -84,13 +85,14 @@ fn resolved_label<T>(
     actions: &action::Registry<T>,
     window: window::Id,
 ) -> Option<crate::text::Document> {
-    let mut document = node.label.clone()?;
+    let style = node.style();
+    let mut document = node.label().cloned()?;
 
-    if let Some(action) = node.action {
-        let state = actions.state(action, action::Context::path(window, layout.path.clone()));
+    if let Some(action) = node.action() {
+        let state = actions.state(action, action::Context::path(window, layout.path().clone()));
 
-        if !state.enabled {
-            if let Some(color) = node.style.disabled_label_color.or(node.style.label_color) {
+        if !state.is_enabled() {
+            if let Some(color) = style.disabled_label_color().or(style.label_color()) {
                 document = document.with_color(color);
             }
 
@@ -98,7 +100,7 @@ fn resolved_label<T>(
         }
     }
 
-    if let Some(color) = node.style.label_color {
+    if let Some(color) = style.label_color() {
         document = document.with_color(color);
     }
 

@@ -40,10 +40,6 @@ impl Canvas {
         &self.surface
     }
 
-    pub fn surface_mut(&mut self) -> &mut render::Surface {
-        &mut self.surface
-    }
-
     pub fn physical_area(&self) -> area::Physical {
         self.physical_area
     }
@@ -77,6 +73,6 @@ impl Canvas {
         render_context: &render::Context,
         encode: impl FnOnce(&mut wgpu::CommandEncoder, &render::Frame),
     ) -> render::Result<render::frame::Status> {
-        self.surface.render(render_context, encode)
+        Ok(self.surface.render(render_context, encode)?)
     }
 }
