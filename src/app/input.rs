@@ -653,7 +653,7 @@ mod tests {
         let mut registry = action::Registry::<()>::new();
         let mut state = WindowState {
             modifiers: ui::Modifiers::new(false, true, false, false),
-            command_target: Some(action::Scope::Path(path(SECOND))),
+            command_subject: Some(action::Scope::Path(path(SECOND))),
             responders: HashMap::from([(path(SECOND), vec![action::SELECT_ALL])]),
             ..WindowState::default()
         };
@@ -682,12 +682,53 @@ mod tests {
     }
 
     #[test]
+    fn shortcut_and_command_button_use_same_automatic_subject() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let mut state = WindowState {
+            focus: Some(crate::app::state::Focus::new(
+                path(SECOND),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            modifiers: ui::Modifiers::new(false, true, false, false),
+            responders: HashMap::from([(path(SECOND), vec![action::SELECT_ALL])]),
+            actions: HashMap::from([(path(CHILD), action::SELECT_ALL)]),
+            action_targets: HashMap::from([(path(CHILD), ui::ActionTarget::Command)]),
+            ..WindowState::default()
+        };
+
+        registry.register(
+            Action::new(action::SELECT_ALL, "Select All")
+                .with_shortcut(action::Shortcut::control('a')),
+        );
+
+        let shortcut = key_pressed(
+            &registry,
+            &mut state,
+            window,
+            ui::Key::Character('a'),
+            false,
+        )
+        .request
+        .expect("shortcut should request the action");
+        let button = action_request(&state, window, path(CHILD), action::Source::Pointer)
+            .expect("command button should request the action");
+
+        assert_eq!(shortcut.target(), button.target());
+        assert_eq!(
+            shortcut.target(),
+            &action::Context::path(window, path(SECOND))
+        );
+    }
+
+    #[test]
     fn repeated_shortcut_press_does_not_emit_request() {
         let window = window::Id::new(1);
         let mut registry = action::Registry::<()>::new();
         let mut state = WindowState {
             modifiers: ui::Modifiers::new(false, true, false, false),
-            command_target: Some(action::Scope::Path(path(SECOND))),
+            command_subject: Some(action::Scope::Path(path(SECOND))),
             responders: HashMap::from([(path(SECOND), vec![action::SELECT_ALL])]),
             ..WindowState::default()
         };
@@ -709,7 +750,7 @@ mod tests {
         let mut state = WindowState {
             pressed: Some(path(CHILD)),
             pressed_source: Some(PressSource::Pointer),
-            command_target: Some(action::Scope::Path(path(SECOND))),
+            command_subject: Some(action::Scope::Path(path(SECOND))),
             actions: HashMap::from([(path(CHILD), CLICK)]),
             action_targets: HashMap::from([(path(CHILD), ui::ActionTarget::Command)]),
             interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
@@ -757,7 +798,7 @@ mod tests {
                 ui::focus::Reason::Keyboard,
                 ui::focus::Visibility::Visible,
             )),
-            command_target: Some(action::Scope::Path(path(SECOND))),
+            command_subject: Some(action::Scope::Path(path(SECOND))),
             actions: HashMap::from([(path(CHILD), CLICK)]),
             action_targets: HashMap::from([(path(CHILD), ui::ActionTarget::Window)]),
             interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),

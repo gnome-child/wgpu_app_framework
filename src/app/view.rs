@@ -14,12 +14,14 @@ pub fn compose<T>(
     state.actions = tree.actions();
     state.action_targets = tree.action_targets();
     state.responders = tree.responders();
+    state.command_scopes = tree.command_scopes();
     state.interactivity = tree.interactivity();
 
     if let Some(layout) = tree.layout(logical_area) {
         state.focus_order = focus_order(&layout, &state.interactivity);
         state.clear_stale_focus();
         state.clear_stale_command_target();
+        state.update_command_scope_captures(window);
         let command_target = state.command_context(window);
 
         let interaction = ui::Interaction::new(
@@ -28,7 +30,8 @@ pub fn compose<T>(
             state.pressed.clone(),
         )
         .with_focus_visibility(state.focus_visibility())
-        .with_command_target(command_target);
+        .with_command_target(command_target)
+        .with_command_scope_captures(state.command_scope_captures.clone());
         state.layout = Some(layout.clone());
 
         tree.paint(&layout, actions, window, interaction, &mut scene);
@@ -37,6 +40,8 @@ pub fn compose<T>(
         state.focus_order.clear();
         state.clear_focus();
         state.clear_command_target();
+        state.command_scopes.clear();
+        state.command_scope_captures.clear();
     }
 
     scene
@@ -157,7 +162,7 @@ mod tests {
     fn compose_clears_stale_command_target_after_tree_rebuild() {
         let window = window::Id::new(1);
         let mut state = WindowState {
-            command_target: Some(action::Scope::Path(ui::Path::new([ROOT, CHILD]))),
+            command_subject: Some(action::Scope::Path(ui::Path::new([ROOT, CHILD]))),
             ..WindowState::default()
         };
         let registry = action::Registry::<()>::new();
@@ -178,7 +183,7 @@ mod tests {
             area::logical(100.0, 100.0),
         );
 
-        assert_eq!(state.command_target, None);
+        assert_eq!(state.command_subject, None);
     }
 
     #[test]
@@ -208,5 +213,73 @@ mod tests {
             state.responders.get(&ui::Path::new([ROOT, CHILD])),
             Some(&vec![action::SELECT_ALL])
         );
+    }
+
+    #[test]
+    fn compose_captures_inherited_command_subject_for_scope() {
+        let window = window::Id::new(1);
+        let subject = ui::Path::new([ROOT, CHILD]);
+        let scope = ui::Path::new([ROOT, OTHER]);
+        let mut state = WindowState {
+            command_subject: Some(action::Scope::Path(subject.clone())),
+            ..WindowState::default()
+        };
+        let registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+
+        tree.set_root(
+            ui::control::panel(ROOT)
+                .with_child(
+                    ui::Node::leaf(CHILD)
+                        .with_responder(action::SELECT_ALL)
+                        .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
+                )
+                .with_child(
+                    ui::control::panel(OTHER)
+                        .with_command_scope()
+                        .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
+                ),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &registry,
+            area::logical(100.0, 100.0),
+        );
+
+        assert_eq!(
+            state.command_scope_captures.get(&scope),
+            Some(&action::Context::path(window, subject))
+        );
+    }
+
+    #[test]
+    fn compose_clears_stale_scope_captures() {
+        let window = window::Id::new(1);
+        let scope = ui::Path::new([ROOT, OTHER]);
+        let subject = ui::Path::new([ROOT, CHILD]);
+        let mut state = WindowState {
+            command_scope_captures: std::collections::HashMap::from([(
+                scope,
+                action::Context::path(window, subject),
+            )]),
+            ..WindowState::default()
+        };
+        let registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+
+        tree.set_root(ui::control::panel(ROOT));
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &registry,
+            area::logical(100.0, 100.0),
+        );
+
+        assert!(state.command_scope_captures.is_empty());
     }
 }

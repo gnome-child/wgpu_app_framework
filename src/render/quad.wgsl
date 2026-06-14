@@ -69,6 +69,28 @@ fn coverage(sdf: f32) -> f32 {
 
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    if in.params.x > 1.5 {
+        let caster_distance = rounded_rect_sdf(
+            in.local_position,
+            in.outer_rect,
+            in.outer_radius,
+        );
+        let cutout_alpha = coverage(rounded_rect_sdf(
+            in.local_position,
+            in.inner_rect,
+            in.inner_radius,
+        ));
+        let penumbra = max(in.params.y, max(fwidth(caster_distance), 0.0001));
+        let alpha = (1.0 - smoothstep(-penumbra * 0.5, penumbra * 0.5, caster_distance)) *
+            (1.0 - cutout_alpha);
+
+        if alpha <= 0.0 {
+            discard;
+        }
+
+        return vec4<f32>(in.color.rgb, in.color.a * alpha);
+    }
+
     let outer_alpha = coverage(rounded_rect_sdf(
         in.local_position,
         in.outer_rect,

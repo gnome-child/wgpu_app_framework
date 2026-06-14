@@ -42,6 +42,10 @@ impl Path {
     pub fn leaf(&self) -> Option<Id> {
         self.ids.last().copied()
     }
+
+    pub fn is_descendant_of(&self, ancestor: &Self) -> bool {
+        self.ids.starts_with(ancestor.ids())
+    }
 }
 
 impl From<Id> for Path {

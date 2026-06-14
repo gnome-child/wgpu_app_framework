@@ -5,7 +5,7 @@ pub fn tree<T>(
     layout: &layout::Box,
     actions: &action::Registry<T>,
     window: window::Id,
-    interaction: ui::Interaction,
+    interaction: &ui::Interaction,
     scene: &mut paint::Scene,
 ) {
     let mut overlays = Vec::new();
@@ -15,7 +15,7 @@ pub fn tree<T>(
         layout,
         actions,
         window,
-        &interaction,
+        interaction,
         scene,
         &mut overlays,
     );
@@ -37,6 +37,10 @@ fn node<T>(
     let visual = visual_state(node, layout, actions, window, interaction);
 
     let rect = styled_rect(node, layout);
+
+    if let Some(shadow) = resolved_shadow(node, rect) {
+        scene.push_shadow(shadow);
+    }
 
     if let Some(style) = resolved_quad_style(node, layout, interaction, &visual) {
         scene.push_quad(paint::Quad { rect, style });
@@ -191,6 +195,10 @@ fn action_context(
             .command_target()
             .cloned()
             .unwrap_or_else(|| action::Context::window(window)),
+        ui::ActionTarget::Captured => interaction
+            .captured_command_target(layout.path())
+            .cloned()
+            .unwrap_or_else(|| action::Context::window(window)),
         ui::ActionTarget::Window => action::Context::window(window),
     }
 }
@@ -244,6 +252,18 @@ fn resolved_focus_outline(
         brush: outline.brush(),
         width: outline.width(),
         offset: outline.offset(),
+    })
+}
+
+fn resolved_shadow(node: &ui::Node, rect: crate::geometry::Rect) -> Option<paint::Shadow> {
+    let shadow = node.style().shadow()?;
+
+    Some(paint::Shadow {
+        rect,
+        color: shadow.color(),
+        blur: shadow.blur(),
+        spread: shadow.spread(),
+        offset: shadow.offset(),
     })
 }
 

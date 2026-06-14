@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::*;
 use crate::geometry::{Rect, area, point, rect};
 use crate::{action, icon, layout, paint, text, window};
@@ -49,6 +51,13 @@ fn outline(scene: &paint::Scene, index: usize) -> paint::Outline {
     match scene.items().get(index) {
         Some(paint::Item::Outline(outline)) => *outline,
         item => panic!("expected outline item at {index}, got {item:?}"),
+    }
+}
+
+fn shadow(scene: &paint::Scene, index: usize) -> paint::Shadow {
+    match scene.items().get(index) {
+        Some(paint::Item::Shadow(shadow)) => *shadow,
+        item => panic!("expected shadow item at {index}, got {item:?}"),
     }
 }
 
@@ -127,6 +136,40 @@ fn layout_assigns_stable_paths() {
     assert_eq!(
         layout.children()[0].children()[0].path(),
         &Path::new(vec![ROOT, A, B])
+    );
+}
+
+#[test]
+fn popup_layout_is_topmost_for_hit_testing() {
+    let mut tree = Tree::new();
+    tree.set_root(
+        Node::container(ROOT, layout::Axis::Vertical)
+            .with_child(Node::leaf(A).with_interactivity(Interactivity::CONTROL)),
+    );
+    tree.push_popup(Popup::new(
+        Rect::new(point::logical(0.0, 0.0), area::logical(40.0, 40.0)),
+        Node::leaf(B).with_interactivity(Interactivity::CONTROL),
+    ));
+    let layout = layout(&tree);
+
+    assert_eq!(
+        layout.hit_test_where(point::logical(10.0, 10.0), |_| true),
+        Some(Path::new([ROOT, B]))
+    );
+}
+
+#[test]
+fn tree_collects_popup_interactivity_with_root_prefixed_path() {
+    let mut tree = Tree::new();
+    tree.set_root(Node::leaf(ROOT));
+    tree.push_popup(Popup::new(
+        Rect::new(point::logical(0.0, 0.0), area::logical(40.0, 40.0)),
+        Node::leaf(B).with_interactivity(Interactivity::CONTROL),
+    ));
+
+    assert_eq!(
+        tree.interactivity().get(&Path::new([ROOT, B])),
+        Some(&Interactivity::CONTROL)
     );
 }
 
@@ -298,6 +341,24 @@ fn tree_collects_responder_actions_by_path() {
         tree.responders().get(&Path::new([ROOT, A])),
         Some(&vec![action::SELECT_ALL])
     );
+}
+
+#[test]
+fn node_with_command_scope_marks_scope_boundary() {
+    let node = Node::leaf(A).with_command_scope();
+
+    assert!(node.is_command_scope());
+}
+
+#[test]
+fn tree_collects_command_scope_paths() {
+    let root = Node::container(ROOT, layout::Axis::Vertical)
+        .with_child(Node::leaf(A).with_command_scope());
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+
+    assert_eq!(tree.command_scopes(), vec![Path::new([ROOT, A])]);
 }
 
 #[test]
@@ -662,6 +723,44 @@ fn window_target_widget_visuals_derive_from_window_state() {
 }
 
 #[test]
+fn captured_target_widget_visuals_derive_from_scope_capture() {
+    let root = Node::container(ROOT, layout::Axis::Vertical)
+        .with_command_scope()
+        .with_child(control::button(A, CLICK).with_action_target(ActionTarget::Captured));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    registry.set_state(
+        CLICK,
+        action::Context::path(window, path(B)),
+        action::State::active(),
+    );
+    tree.set_root(root.clone());
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::default().with_command_scope_captures(HashMap::from([(
+            path(ROOT),
+            action::Context::path(window, path(B)),
+        )])),
+        &mut scene,
+    );
+
+    assert_eq!(
+        tint(&scene, 1).color,
+        root.children()[0]
+            .style()
+            .active_tint()
+            .expect("control has active tint")
+    );
+}
+
+#[test]
 fn active_hovered_control_emits_active_then_hover_tint() {
     let root = control::button(A, CLICK);
     let mut tree = Tree::new();
@@ -922,6 +1021,42 @@ fn focused_node_emits_overlay_outline_after_tree_content() {
     assert_eq!(quad(&scene, 0).rect, layout.rect());
     assert_eq!(quad(&scene, 1).rect, layout.children()[0].rect());
     assert_eq!(outline(&scene, 2).rect, layout.rect());
+}
+
+#[test]
+fn popup_shadow_renders_before_popup_panel_fill() {
+    let popup_rect = Rect::new(point::logical(10.0, 10.0), area::logical(40.0, 40.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    tree.set_root(Node::leaf(ROOT).with_background(paint::Color::BLACK));
+    tree.push_popup(Popup::new(
+        popup_rect,
+        Node::leaf(B)
+            .with_background(paint::Color::RED)
+            .with_shadow(
+                paint::Color::rgba(0.0, 0.0, 0.0, 0.35),
+                18.0,
+                1.0,
+                point::logical(0.0, 6.0),
+            ),
+    ));
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::default(),
+        &mut scene,
+    );
+
+    assert!(matches!(scene.items()[0], paint::Item::Quad(_)));
+    assert!(matches!(scene.items()[1], paint::Item::Shadow(_)));
+    assert!(matches!(scene.items()[2], paint::Item::Quad(_)));
+    assert_eq!(shadow(&scene, 1).rect, popup_rect);
+    assert_eq!(quad(&scene, 2).rect, popup_rect);
 }
 
 #[test]

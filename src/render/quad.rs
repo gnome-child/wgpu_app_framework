@@ -103,6 +103,7 @@ struct AnalyticShape {
     outer_radius: crate::geometry::rect::ResolvedRadius,
     inner: Option<AnalyticInner>,
     color: paint::Color,
+    blur: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +111,7 @@ enum AnalyticShapeKind {
     Fill,
     InternalRing,
     ExternalRing,
+    Shadow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -120,11 +122,13 @@ struct AnalyticInner {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct PreparedShape {
+    kind: AnalyticShapeKind,
     raster_rect: Rect,
     outer_rect: Rect,
     outer_radius: crate::geometry::rect::ResolvedRadius,
     inner: Option<AnalyticInner>,
     color: paint::Color,
+    blur: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -203,6 +207,7 @@ fn push_shape_vertices(
 fn analytic_shapes_for_shape(shape: &batch::Shape<'_>) -> Vec<AnalyticShape> {
     match shape {
         batch::Shape::Quad(quad) => analytic_shapes_for_quad(quad),
+        batch::Shape::Shadow(shadow) => analytic_shapes_for_shadow(shadow),
         batch::Shape::Tint(tint) => analytic_shapes_for_tint(tint),
         batch::Shape::Outline(outline) => analytic_shapes_for_outline(outline),
         batch::Shape::BackdropBlur(blur) => {
@@ -248,6 +253,10 @@ fn analytic_shapes_for_tint(tint: &paint::Tint) -> Vec<AnalyticShape> {
     vec![fill_shape(tint.rect, tint.color)]
 }
 
+fn analytic_shapes_for_shadow(shadow: &paint::Shadow) -> Vec<AnalyticShape> {
+    shadow_shape(shadow).into_iter().collect()
+}
+
 fn analytic_shapes_for_outline(outline: &paint::Outline) -> Vec<AnalyticShape> {
     let Some(color) = solid_color(outline.brush) else {
         return Vec::new();
@@ -287,7 +296,10 @@ fn push_analytic_shape_vertices(
         None => ([0.0, 0.0, -1.0, -1.0], [0.0; 4], 0.0),
     };
     let color = shape.color.to_array();
-    let params = [mode, 0.0, 0.0, 0.0];
+    let params = match shape.kind {
+        AnalyticShapeKind::Shadow => [2.0, shape.blur, 0.0, 0.0],
+        _ => [mode, 0.0, 0.0, 0.0],
+    };
 
     let mut push = |x: f32, y: f32| {
         buffer.push(render::primitive::Vertex {
@@ -315,6 +327,7 @@ fn prepare_shape(shape: AnalyticShape, pixel_geometry: PixelGeometry) -> Option<
         AnalyticShapeKind::Fill => prepare_fill_shape(shape, pixel_geometry),
         AnalyticShapeKind::InternalRing => prepare_internal_ring_shape(shape, pixel_geometry),
         AnalyticShapeKind::ExternalRing => prepare_external_ring_shape(shape, pixel_geometry),
+        AnalyticShapeKind::Shadow => prepare_shadow_shape(shape, pixel_geometry),
     }
 }
 
@@ -326,11 +339,13 @@ fn prepare_fill_shape(
     let raster_rect = expand_rect(outer_rect, pixel_geometry.logical_pixel());
 
     Some(PreparedShape {
+        kind: shape.kind,
         raster_rect,
         outer_rect,
         outer_radius: outer_rect.radius.resolve(outer_rect.area),
         inner: None,
         color: shape.color,
+        blur: shape.blur,
     })
 }
 
@@ -351,11 +366,13 @@ fn prepare_internal_ring_shape(
     let raster_rect = expand_rect(outer_rect, pixel_geometry.logical_pixel());
 
     Some(PreparedShape {
+        kind: shape.kind,
         raster_rect,
         outer_rect,
         outer_radius,
         inner: Some(inner),
         color: shape.color,
+        blur: shape.blur,
     })
 }
 
@@ -372,6 +389,7 @@ fn prepare_external_ring_shape(
     let raster_rect = expand_rect(outer_rect, pixel_geometry.logical_pixel());
 
     Some(PreparedShape {
+        kind: shape.kind,
         raster_rect,
         outer_rect,
         outer_radius,
@@ -380,6 +398,34 @@ fn prepare_external_ring_shape(
             radius: inner_radius,
         }),
         color: shape.color,
+        blur: shape.blur,
+    })
+}
+
+fn prepare_shadow_shape(
+    shape: AnalyticShape,
+    pixel_geometry: PixelGeometry,
+) -> Option<PreparedShape> {
+    let inner = shape.inner?;
+    let outer_rect = pixel_geometry.snap_rect(shape.outer_rect);
+    let inner_rect = pixel_geometry.snap_rect(inner.rect);
+    let blur = pixel_geometry.snap_distance(shape.blur);
+    let raster_rect = union_rects(
+        expand_rect(outer_rect, blur + pixel_geometry.logical_pixel()),
+        expand_rect(inner_rect, pixel_geometry.logical_pixel()),
+    );
+
+    Some(PreparedShape {
+        kind: shape.kind,
+        raster_rect,
+        outer_rect,
+        outer_radius: shape.outer_radius,
+        inner: Some(AnalyticInner {
+            rect: inner_rect,
+            radius: inner.radius,
+        }),
+        color: shape.color,
+        blur,
     })
 }
 
@@ -390,6 +436,7 @@ fn fill_shape(rect: Rect, color: paint::Color) -> AnalyticShape {
         outer_radius: rect.radius.resolve(rect.area),
         inner: None,
         color,
+        blur: 0.0,
     }
 }
 
@@ -413,6 +460,30 @@ fn internal_stroke_shape(rect: Rect, width: f32, color: paint::Color) -> Option<
             radius: shrink_radius(outer_radius, width),
         }),
         color,
+        blur: 0.0,
+    })
+}
+
+fn shadow_shape(shadow: &paint::Shadow) -> Option<AnalyticShape> {
+    if shadow.color.a <= 0.0 {
+        return None;
+    }
+
+    let rect = shadow.rect;
+    let spread = shadow.spread.max(0.0);
+    let base_radius = rect.radius.resolve(rect.area);
+    let caster_rect = offset_rect(expand_rect(rect, spread), shadow.offset);
+
+    Some(AnalyticShape {
+        kind: AnalyticShapeKind::Shadow,
+        outer_rect: caster_rect,
+        outer_radius: expand_radius(base_radius, spread),
+        inner: Some(AnalyticInner {
+            rect,
+            radius: base_radius,
+        }),
+        color: shadow.color,
+        blur: shadow.blur.max(0.0),
     })
 }
 
@@ -439,6 +510,7 @@ fn external_outline_shape(
             radius: expand_radius(base_radius, offset),
         }),
         color,
+        blur: 0.0,
     })
 }
 
@@ -480,6 +552,28 @@ fn expand_rect(rect: Rect, amount: f32) -> Rect {
             rect.area.width() + amount * 2.0,
             rect.area.height() + amount * 2.0,
         ),
+    )
+}
+
+fn offset_rect(rect: Rect, offset: point::Logical) -> Rect {
+    Rect::rounded(
+        point::logical(rect.origin.x() + offset.x(), rect.origin.y() + offset.y()),
+        rect.area,
+        rect.radius,
+    )
+}
+
+fn union_rects(a: Rect, b: Rect) -> Rect {
+    let (a_left, a_top, a_right, a_bottom) = edges(a);
+    let (b_left, b_top, b_right, b_bottom) = edges(b);
+    let left = a_left.min(b_left);
+    let top = a_top.min(b_top);
+    let right = a_right.max(b_right);
+    let bottom = a_bottom.max(b_bottom);
+
+    Rect::new(
+        point::logical(left, top),
+        area::logical(right - left, bottom - top),
     )
 }
 
@@ -588,6 +682,10 @@ mod tests {
     }
 
     fn vertex_count_for_shape(shape: AnalyticShape) -> usize {
+        vertices_for_shape(shape).len()
+    }
+
+    fn vertices_for_shape(shape: AnalyticShape) -> Vec<render::primitive::Vertex> {
         let mut vertices = Vec::new();
 
         push_analytic_shape_vertices(
@@ -597,7 +695,7 @@ mod tests {
             shape,
         );
 
-        vertices.len()
+        vertices
     }
 
     fn prepared_shape(shape: AnalyticShape, scale_factor: f32) -> PreparedShape {
@@ -717,6 +815,63 @@ mod tests {
         assert_eq!(shapes.len(), 1);
         assert_eq!(shapes[0].outer_rect, rect());
         assert_eq!(shapes[0].color, paint::Color::rgba(1.0, 1.0, 1.0, 0.25));
+    }
+
+    #[test]
+    fn shadow_lowers_to_caster_with_owner_cutout() {
+        let shadow = paint::Shadow {
+            rect: Rect::rounded(
+                rect().origin,
+                rect().area,
+                crate::geometry::rect::Radius::splat(1.0),
+            ),
+            color: paint::Color::rgba(0.0, 0.0, 0.0, 0.35),
+            blur: 18.0,
+            spread: 2.0,
+            offset: point::logical(0.0, 6.0),
+        };
+        let shapes = analytic_shapes_for_shadow(&shadow);
+        let inner = shapes[0].inner.expect("shadow should cut out owner");
+
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(shapes[0].kind, AnalyticShapeKind::Shadow);
+        assert_eq!(rect_bounds(shapes[0].outer_rect), (8.0, 24.0, 52.0, 58.0));
+        assert_eq!(inner.rect, shadow.rect);
+        assert_eq!(inner.radius, shadow.rect.radius.resolve(shadow.rect.area));
+        assert_eq!(shapes[0].blur, 18.0);
+    }
+
+    #[test]
+    fn shadow_raster_bounds_include_blur_and_cutout_metadata() {
+        let shadow = paint::Shadow {
+            rect: rect(),
+            color: paint::Color::rgba(0.0, 0.0, 0.0, 0.35),
+            blur: 10.0,
+            spread: 2.0,
+            offset: point::logical(0.0, 6.0),
+        };
+        let shape = analytic_shapes_for_shadow(&shadow)[0];
+        let prepared = prepared_shape(shape, 1.0);
+        let inner = prepared.inner.expect("shadow should keep cutout metadata");
+
+        assert_eq!(rect_bounds(prepared.outer_rect), (8.0, 24.0, 52.0, 58.0));
+        assert_eq!(rect_bounds(inner.rect), rect_bounds(rect()));
+        assert_eq!(rect_bounds(prepared.raster_rect), (-3.0, 13.0, 63.0, 69.0));
+    }
+
+    #[test]
+    fn shadow_vertices_use_shadow_shader_mode() {
+        let shadow = paint::Shadow {
+            rect: rect(),
+            color: paint::Color::rgba(0.0, 0.0, 0.0, 0.35),
+            blur: 10.0,
+            spread: 2.0,
+            offset: point::logical(0.0, 6.0),
+        };
+        let vertices = vertices_for_shape(analytic_shapes_for_shadow(&shadow)[0]);
+
+        assert_eq!(vertices.len(), 6);
+        assert_eq!(vertices[0].params, [2.0, 10.0, 0.0, 0.0]);
     }
 
     #[test]

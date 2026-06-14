@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use crate::geometry::point;
 use crate::{action, layout, pointer, ui, window};
 
+use super::command;
+
 #[derive(Debug, Default)]
 pub struct WindowState {
     pub hovered: Option<ui::Path>,
@@ -11,12 +13,14 @@ pub struct WindowState {
     pub pressed_source: Option<PressSource>,
     pub modifiers: ui::Modifiers,
     pub focus_order: Vec<ui::Path>,
-    pub command_target: Option<action::Scope>,
+    pub command_subject: Option<action::Scope>,
     pub pointer: pointer::Pointer,
     pub layout: Option<layout::Box>,
     pub actions: HashMap<ui::Path, action::Id>,
     pub action_targets: HashMap<ui::Path, ui::ActionTarget>,
     pub responders: HashMap<ui::Path, Vec<action::Id>>,
+    pub command_scopes: Vec<ui::Path>,
+    pub command_scope_captures: HashMap<ui::Path, action::Context>,
     pub interactivity: HashMap<ui::Path, ui::Interactivity>,
 }
 
@@ -103,11 +107,8 @@ impl WindowState {
                     ui::focus::Visibility::Hidden,
                 )
             });
-        if let Some(path) = target
-            .as_ref()
-            .and_then(|target| self.command_subject_for_path(target))
-        {
-            self.command_target = Some(action::Scope::Path(path));
+        if let Some(target) = target.as_ref() {
+            command::set_subject_from_path(self, target);
         }
         self.pressed = target.clone();
         self.pressed_source = target.as_ref().map(|_| PressSource::Pointer);
@@ -177,14 +178,12 @@ impl WindowState {
 
         let focus = Focus::new(path.clone(), reason, visibility);
 
+        let subject_changed = command::set_subject_from_path(self, &path);
         if self.focus.as_ref() == Some(&focus) {
-            return false;
+            return subject_changed;
         }
 
         self.focus = Some(focus);
-        if let Some(path) = self.command_subject_for_path(&path) {
-            self.command_target = Some(action::Scope::Path(path));
-        }
         true
     }
 
@@ -207,95 +206,31 @@ impl WindowState {
     }
 
     pub fn command_context(&self, window: window::Id) -> action::Context {
-        if let Some(scope) = self.command_target.clone() {
-            return action::Context::with_scope(window, scope);
-        }
-
-        resolve_action_path(Some(self), None)
-            .and_then(|path| self.command_subject_for_path(&path))
-            .map(|path| action::Context::path(window, path))
-            .unwrap_or_else(|| action::Context::window(window))
+        command::context(self, window)
     }
 
     pub fn action_context_for_path(&self, window: window::Id, path: &ui::Path) -> action::Context {
-        match self.action_target(path) {
-            ui::ActionTarget::Origin => action::Context::path(window, path.clone()),
-            ui::ActionTarget::Command => self.command_context(window),
-            ui::ActionTarget::Window => action::Context::window(window),
-        }
+        command::context_for_path(self, window, path)
     }
 
     pub fn set_command_target(&mut self, context: action::Context) -> bool {
-        let scope = Some(context.scope().clone());
-        if self.command_target == scope {
-            return false;
-        }
-
-        self.command_target = scope;
-        true
+        command::set_subject(self, context)
     }
 
     pub fn clear_command_target(&mut self) -> bool {
-        let changed = self.command_target.is_some();
-        self.command_target = None;
-        changed
+        command::clear_subject(self)
     }
 
     pub fn clear_stale_command_target(&mut self) -> bool {
-        let Some(action::Scope::Path(path)) = self.command_target.as_ref() else {
-            return false;
-        };
+        command::clear_stale_subject(self)
+    }
 
-        if self.has_responder(path) {
-            return false;
-        }
-
-        self.clear_command_target()
+    pub fn update_command_scope_captures(&mut self, window: window::Id) {
+        command::update_scope_captures(self, window);
     }
 
     pub fn resolve_request(&self, request: action::Request) -> action::Request {
-        let action = request.action();
-        let target = request.target().clone();
-        let window = target.window_id();
-        let resolved = match target.scope() {
-            action::Scope::Path(path) => self
-                .handler_for_path(action, path)
-                .map(|path| action::Context::path(window, path))
-                .unwrap_or_else(|| action::Context::window(window)),
-            action::Scope::Window => action::Context::window(window),
-        };
-
-        request.with_target(resolved)
-    }
-
-    fn command_subject_for_path(&self, path: &ui::Path) -> Option<ui::Path> {
-        self.nearest_path(path, |path| self.has_responder(path))
-    }
-
-    fn handler_for_path(&self, action: action::Id, path: &ui::Path) -> Option<ui::Path> {
-        self.nearest_path(path, |path| {
-            self.responders
-                .get(path)
-                .is_some_and(|actions| actions.contains(&action))
-                || (self.actions.get(path) == Some(&action)
-                    && self.action_target(path) == ui::ActionTarget::Origin)
-        })
-    }
-
-    fn nearest_path(
-        &self,
-        path: &ui::Path,
-        matches: impl Fn(&ui::Path) -> bool,
-    ) -> Option<ui::Path> {
-        for length in (1..=path.ids().len()).rev() {
-            let candidate = ui::Path::new(path.ids()[..length].to_vec());
-
-            if matches(&candidate) {
-                return Some(candidate);
-            }
-        }
-
-        None
+        command::resolve_request(self, request)
     }
 }
 
@@ -327,14 +262,6 @@ pub fn action_request(
     let context = state.action_context_for_path(window, &origin);
 
     Some(action::Request::new(action, source, context).with_origin(origin))
-}
-
-pub fn resolve_action_path(
-    state: Option<&WindowState>,
-    requested_path: Option<ui::Path>,
-) -> Option<ui::Path> {
-    requested_path
-        .or_else(|| state.and_then(|state| state.focused_path().or_else(|| state.hovered.clone())))
 }
 
 #[cfg(test)]
@@ -523,38 +450,6 @@ mod tests {
     }
 
     #[test]
-    fn focused_context_wins_over_hovered_context() {
-        let state = WindowState {
-            hovered: Some(path(ROOT)),
-            focus: Some(Focus::new(
-                path(CHILD),
-                ui::focus::Reason::Keyboard,
-                ui::focus::Visibility::Visible,
-            )),
-            ..WindowState::default()
-        };
-
-        assert_eq!(resolve_action_path(Some(&state), None), Some(path(CHILD)));
-    }
-
-    #[test]
-    fn requested_context_wins_over_ambient_focus() {
-        let state = WindowState {
-            focus: Some(Focus::new(
-                path(CHILD),
-                ui::focus::Reason::Keyboard,
-                ui::focus::Visibility::Visible,
-            )),
-            ..WindowState::default()
-        };
-
-        assert_eq!(
-            resolve_action_path(Some(&state), Some(path(ROOT))),
-            Some(path(ROOT))
-        );
-    }
-
-    #[test]
     fn pointer_release_over_pressed_action_emits_contextual_request() {
         let window = window::Id::new(1);
         let mut state = WindowState {
@@ -647,7 +542,7 @@ mod tests {
     fn command_target_survives_focus_changes() {
         let window = window::Id::new(1);
         let mut state = WindowState {
-            command_target: Some(action::Scope::Path(path(CHILD))),
+            command_subject: Some(action::Scope::Path(path(CHILD))),
             focus: Some(Focus::new(
                 path(ROOT),
                 ui::focus::Reason::Keyboard,
@@ -672,7 +567,7 @@ mod tests {
     fn transient_focus_does_not_replace_command_subject() {
         let window = window::Id::new(1);
         let mut state = WindowState {
-            command_target: Some(action::Scope::Path(path(CHILD))),
+            command_subject: Some(action::Scope::Path(path(CHILD))),
             interactivity: HashMap::from([(path(OUTSIDE), ui::Interactivity::CONTROL)]),
             responders: HashMap::from([(path(CHILD), vec![CLICK])]),
             ..WindowState::default()
@@ -693,7 +588,7 @@ mod tests {
     fn responder_focus_replaces_command_subject() {
         let window = window::Id::new(1);
         let mut state = WindowState {
-            command_target: Some(action::Scope::Path(path(ROOT))),
+            command_subject: Some(action::Scope::Path(path(ROOT))),
             interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
             responders: HashMap::from([(path(ROOT), vec![CLICK]), (path(CHILD), vec![CLICK])]),
             ..WindowState::default()
@@ -711,7 +606,53 @@ mod tests {
     }
 
     #[test]
-    fn command_target_falls_back_to_focus_hover_then_window() {
+    fn focused_responder_automatically_becomes_command_subject() {
+        let window = window::Id::new(1);
+        let mut state = WindowState {
+            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            responders: HashMap::from([(path(CHILD), vec![CLICK])]),
+            ..WindowState::default()
+        };
+
+        assert!(state.set_focus(
+            path(CHILD),
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible
+        ));
+        assert_eq!(
+            state.command_context(window),
+            action::Context::path(window, path(CHILD))
+        );
+    }
+
+    #[test]
+    fn refocusing_same_responder_restores_cleared_command_subject() {
+        let window = window::Id::new(1);
+        let mut state = WindowState {
+            focus: Some(Focus::new(
+                path(CHILD),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            responders: HashMap::from([(path(CHILD), vec![CLICK])]),
+            ..WindowState::default()
+        };
+
+        assert_eq!(state.command_subject, None);
+        assert!(state.set_focus(
+            path(CHILD),
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible
+        ));
+        assert_eq!(
+            state.command_context(window),
+            action::Context::path(window, path(CHILD))
+        );
+    }
+
+    #[test]
+    fn command_subject_falls_back_to_focus_then_window() {
         let window = window::Id::new(1);
         let mut state = WindowState {
             hovered: Some(path(ROOT)),
@@ -732,10 +673,19 @@ mod tests {
         state.focus = None;
         assert_eq!(
             state.command_context(window),
-            action::Context::path(window, path(ROOT))
+            action::Context::window(window)
         );
+    }
 
-        state.hovered = None;
+    #[test]
+    fn hover_alone_does_not_become_command_subject() {
+        let window = window::Id::new(1);
+        let state = WindowState {
+            hovered: Some(path(ROOT)),
+            responders: HashMap::from([(path(ROOT), vec![CLICK])]),
+            ..WindowState::default()
+        };
+
         assert_eq!(
             state.command_context(window),
             action::Context::window(window)
@@ -746,13 +696,13 @@ mod tests {
     fn stale_command_target_is_cleared_when_path_disappears() {
         let window = window::Id::new(1);
         let mut state = WindowState {
-            command_target: Some(action::Scope::Path(path(CHILD))),
+            command_subject: Some(action::Scope::Path(path(CHILD))),
             interactivity: HashMap::from([(path(ROOT), ui::Interactivity::CONTROL)]),
             ..WindowState::default()
         };
 
         assert!(state.clear_stale_command_target());
-        assert_eq!(state.command_target, None);
+        assert_eq!(state.command_subject, None);
         assert_eq!(
             state.command_context(window),
             action::Context::window(window)
@@ -763,7 +713,7 @@ mod tests {
     fn command_target_policy_resolves_stored_target() {
         let window = window::Id::new(1);
         let state = WindowState {
-            command_target: Some(action::Scope::Path(path(CHILD))),
+            command_subject: Some(action::Scope::Path(path(CHILD))),
             actions: HashMap::from([(path(ROOT), CLICK)]),
             action_targets: HashMap::from([(path(ROOT), ui::ActionTarget::Command)]),
             ..WindowState::default()
@@ -780,10 +730,25 @@ mod tests {
     }
 
     #[test]
+    fn command_target_policy_resolves_window_without_subject() {
+        let window = window::Id::new(1);
+        let state = WindowState {
+            actions: HashMap::from([(path(ROOT), CLICK)]),
+            action_targets: HashMap::from([(path(ROOT), ui::ActionTarget::Command)]),
+            ..WindowState::default()
+        };
+
+        let request = action_request(&state, window, path(ROOT), action::Source::Pointer)
+            .expect("command-target action should produce request");
+
+        assert_eq!(request.target(), &action::Context::window(window));
+    }
+
+    #[test]
     fn window_target_policy_resolves_window_context() {
         let window = window::Id::new(1);
         let state = WindowState {
-            command_target: Some(action::Scope::Path(path(CHILD))),
+            command_subject: Some(action::Scope::Path(path(CHILD))),
             actions: HashMap::from([(path(ROOT), CLICK)]),
             action_targets: HashMap::from([(path(ROOT), ui::ActionTarget::Window)]),
             ..WindowState::default()
@@ -794,6 +759,52 @@ mod tests {
 
         assert_eq!(request.origin(), Some(&path(ROOT)));
         assert_eq!(request.target(), &action::Context::window(window));
+    }
+
+    #[test]
+    fn captured_target_policy_resolves_nearest_scope_capture() {
+        let window = window::Id::new(1);
+        let scope = path(ROOT);
+        let origin = ui::Path::new([ROOT, CHILD]);
+        let subject = path(OUTSIDE);
+        let state = WindowState {
+            actions: HashMap::from([(origin.clone(), CLICK)]),
+            action_targets: HashMap::from([(origin.clone(), ui::ActionTarget::Captured)]),
+            command_scope_captures: HashMap::from([(
+                scope,
+                action::Context::path(window, subject.clone()),
+            )]),
+            ..WindowState::default()
+        };
+
+        let request = action_request(&state, window, origin, action::Source::Pointer)
+            .expect("captured-target action should produce request");
+
+        assert_eq!(request.target(), &action::Context::path(window, subject));
+    }
+
+    #[test]
+    fn local_responder_inside_scope_becomes_command_target() {
+        let window = window::Id::new(1);
+        let local = ui::Path::new([ROOT, CHILD]);
+        let button = ui::Path::new([ROOT, OUTSIDE]);
+        let mut state = WindowState {
+            interactivity: HashMap::from([(local.clone(), ui::Interactivity::CONTROL)]),
+            responders: HashMap::from([(local.clone(), vec![CLICK])]),
+            actions: HashMap::from([(button.clone(), CLICK)]),
+            action_targets: HashMap::from([(button.clone(), ui::ActionTarget::Command)]),
+            ..WindowState::default()
+        };
+
+        assert!(state.set_focus(
+            local.clone(),
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible
+        ));
+        let request = action_request(&state, window, button, action::Source::Pointer)
+            .expect("command-target action should produce request");
+
+        assert_eq!(request.target(), &action::Context::path(window, local));
     }
 
     #[test]

@@ -13,6 +13,7 @@ pub enum Glyph<'a> {
 
 pub enum Shape<'a> {
     Quad(&'a paint::Quad),
+    Shadow(&'a paint::Shadow),
     Tint(&'a paint::Tint),
     Outline(&'a paint::Outline),
     BackdropBlur(&'a paint::Blur),
@@ -26,6 +27,7 @@ pub fn item_batches(items: &[paint::Item]) -> Vec<ItemBatch<'_>> {
             paint::Item::Quad(quad) => push_shape(&mut batches, Shape::Quad(quad)),
             paint::Item::Text(text) => push_glyph(&mut batches, Glyph::Text(text)),
             paint::Item::Icon(icon) => push_glyph(&mut batches, Glyph::Icon(icon)),
+            paint::Item::Shadow(shadow) => push_shape(&mut batches, Shape::Shadow(shadow)),
             paint::Item::Tint(tint) => push_shape(&mut batches, Shape::Tint(tint)),
             paint::Item::Outline(outline) => push_shape(&mut batches, Shape::Outline(outline)),
             paint::Item::BackdropBlur(blur) => push_shape(&mut batches, Shape::BackdropBlur(blur)),
@@ -96,6 +98,16 @@ mod tests {
         }
     }
 
+    fn shadow(x: f32) -> paint::Shadow {
+        paint::Shadow {
+            rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
+            color: paint::Color::rgba(0.0, 0.0, 0.0, 0.35),
+            blur: 16.0,
+            spread: 1.0,
+            offset: point::logical(0.0, 4.0),
+        }
+    }
+
     fn kinds(batches: &[ItemBatch<'_>]) -> Vec<Kind> {
         batches
             .iter()
@@ -110,6 +122,7 @@ mod tests {
     fn item_batches_preserve_mixed_render_order() {
         let items = vec![
             paint::Item::Quad(solid_quad(0.0)),
+            paint::Item::Shadow(shadow(0.5)),
             paint::Item::Tint(tint(1.0)),
             paint::Item::Text(label(2.0)),
             paint::Item::Icon(icon(2.5)),
@@ -118,7 +131,7 @@ mod tests {
 
         assert_eq!(
             kinds(&item_batches(&items)),
-            vec![Kind::Shapes(2), Kind::Glyphs(2), Kind::Shapes(1)]
+            vec![Kind::Shapes(3), Kind::Glyphs(2), Kind::Shapes(1)]
         );
     }
 

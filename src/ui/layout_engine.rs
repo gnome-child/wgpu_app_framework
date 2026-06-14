@@ -10,6 +10,10 @@ pub fn tree(root: &ui::Node, area: area::Logical) -> layout::Box {
     )
 }
 
+pub fn subtree_at(root: &ui::Node, path: ui::Path, rect: Rect) -> layout::Box {
+    node(root, path, rect.origin, rect.area)
+}
+
 fn node(
     node: &ui::Node,
     path: ui::Path,

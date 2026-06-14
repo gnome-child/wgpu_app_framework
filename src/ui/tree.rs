@@ -3,16 +3,20 @@ use std::collections::HashMap;
 use crate::geometry::area;
 use crate::{action, layout, paint, window};
 
-use super::{ActionTarget, Interaction, Interactivity, Node, Path, layout_engine, painting};
+use super::{ActionTarget, Interaction, Interactivity, Node, Path, Popup, layout_engine, painting};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tree {
     root: Option<Node>,
+    popups: Vec<Popup>,
 }
 
 impl Tree {
     pub fn new() -> Self {
-        Self { root: None }
+        Self {
+            root: None,
+            popups: Vec::new(),
+        }
     }
 
     pub fn set_root(&mut self, root: Node) {
@@ -27,14 +31,40 @@ impl Tree {
         self.root.as_mut()
     }
 
+    pub fn push_popup(&mut self, popup: Popup) {
+        self.popups.push(popup);
+    }
+
+    pub fn clear_popups(&mut self) {
+        self.popups.clear();
+    }
+
+    pub fn popups(&self) -> &[Popup] {
+        &self.popups
+    }
+
     pub fn is_empty(&self) -> bool {
         self.root.is_none()
     }
 
     pub fn layout(&self, area: area::Logical) -> Option<layout::Box> {
-        self.root
-            .as_ref()
-            .map(|root| layout_engine::tree(root, area))
+        let root = self.root.as_ref()?;
+        let root_layout = layout_engine::tree(root, area);
+        if self.popups.is_empty() {
+            return Some(root_layout);
+        }
+
+        let mut children = root_layout.children().to_vec();
+        let root_path = root_layout.path().clone();
+        for popup in &self.popups {
+            children.push(layout_engine::subtree_at(
+                popup.root(),
+                root_path.child(popup.root().id()),
+                popup.rect(),
+            ));
+        }
+
+        Some(root_layout.with_children(children))
     }
 
     pub fn actions(&self) -> HashMap<Path, action::Id> {
@@ -42,6 +72,13 @@ impl Tree {
 
         if let Some(root) = self.root.as_ref() {
             collect_actions(root, &Path::root(root.id()), &mut actions);
+            for popup in &self.popups {
+                collect_actions(
+                    popup.root(),
+                    &Path::root(root.id()).child(popup.root().id()),
+                    &mut actions,
+                );
+            }
         }
 
         actions
@@ -52,6 +89,13 @@ impl Tree {
 
         if let Some(root) = self.root.as_ref() {
             collect_action_targets(root, &Path::root(root.id()), &mut targets);
+            for popup in &self.popups {
+                collect_action_targets(
+                    popup.root(),
+                    &Path::root(root.id()).child(popup.root().id()),
+                    &mut targets,
+                );
+            }
         }
 
         targets
@@ -62,9 +106,33 @@ impl Tree {
 
         if let Some(root) = self.root.as_ref() {
             collect_responders(root, &Path::root(root.id()), &mut responders);
+            for popup in &self.popups {
+                collect_responders(
+                    popup.root(),
+                    &Path::root(root.id()).child(popup.root().id()),
+                    &mut responders,
+                );
+            }
         }
 
         responders
+    }
+
+    pub fn command_scopes(&self) -> Vec<Path> {
+        let mut scopes = Vec::new();
+
+        if let Some(root) = self.root.as_ref() {
+            collect_command_scopes(root, &Path::root(root.id()), &mut scopes);
+            for popup in &self.popups {
+                collect_command_scopes(
+                    popup.root(),
+                    &Path::root(root.id()).child(popup.root().id()),
+                    &mut scopes,
+                );
+            }
+        }
+
+        scopes
     }
 
     pub fn interactivity(&self) -> HashMap<Path, Interactivity> {
@@ -72,6 +140,13 @@ impl Tree {
 
         if let Some(root) = self.root.as_ref() {
             collect_interactivity(root, &Path::root(root.id()), &mut interactivity);
+            for popup in &self.popups {
+                collect_interactivity(
+                    popup.root(),
+                    &Path::root(root.id()).child(popup.root().id()),
+                    &mut interactivity,
+                );
+            }
         }
 
         interactivity
@@ -86,7 +161,20 @@ impl Tree {
         scene: &mut paint::Scene,
     ) {
         if let Some(root) = self.root.as_ref() {
-            painting::tree(root, layout, actions, window, interaction, scene);
+            painting::tree(root, layout, actions, window, &interaction, scene);
+            for popup in &self.popups {
+                let path = layout.path().child(popup.root().id());
+                if let Some(popup_layout) = layout.find_path(&path) {
+                    painting::tree(
+                        popup.root(),
+                        popup_layout,
+                        actions,
+                        window,
+                        &interaction,
+                        scene,
+                    );
+                }
+            }
         }
     }
 }
@@ -124,6 +212,16 @@ fn collect_responders(node: &Node, path: &Path, responders: &mut HashMap<Path, V
 
     for child in node.children() {
         collect_responders(child, &path.child(child.id()), responders);
+    }
+}
+
+fn collect_command_scopes(node: &Node, path: &Path, scopes: &mut Vec<Path>) {
+    if node.is_command_scope() {
+        scopes.push(path.clone());
+    }
+
+    for child in node.children() {
+        collect_command_scopes(child, &path.child(child.id()), scopes);
     }
 }
 

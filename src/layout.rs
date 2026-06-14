@@ -109,6 +109,11 @@ impl Box {
         &self.children
     }
 
+    pub fn with_children(mut self, children: Vec<Box>) -> Self {
+        self.children = children;
+        self
+    }
+
     pub fn hit_test_where(
         &self,
         position: point::Logical,

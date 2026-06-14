@@ -1,4 +1,4 @@
-use crate::geometry::Rect;
+use crate::geometry::{Rect, point};
 use crate::icon;
 use crate::text;
 
@@ -38,6 +38,10 @@ impl Scene {
         self.items.push(Item::Icon(icon));
     }
 
+    pub fn push_shadow(&mut self, shadow: Shadow) {
+        self.items.push(Item::Shadow(shadow));
+    }
+
     pub fn push_tint(&mut self, tint: Tint) {
         self.items.push(Item::Tint(tint));
     }
@@ -70,6 +74,7 @@ pub enum Item {
     Quad(Quad),
     Text(Text),
     Icon(Icon),
+    Shadow(Shadow),
     Tint(Tint),
     Outline(Outline),
     BackdropBlur(Blur),
@@ -93,6 +98,15 @@ pub struct Icon {
     pub icon: icon::Icon,
     pub color: Color,
     pub size: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Shadow {
+    pub rect: Rect,
+    pub color: Color,
+    pub blur: f32,
+    pub spread: f32,
+    pub offset: point::Logical,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -231,6 +245,13 @@ mod tests {
             color: Color::BLACK,
             size: 16.0,
         };
+        let shadow = Shadow {
+            rect: Rect::new(point::logical(1.7, 0.0), area::logical(10.0, 10.0)),
+            color: Color::rgba(0.0, 0.0, 0.0, 0.35),
+            blur: 16.0,
+            spread: 1.0,
+            offset: point::logical(0.0, 4.0),
+        };
         let outline = Outline {
             rect: Rect::new(point::logical(1.75, 0.0), area::logical(10.0, 10.0)),
             brush: Brush::Solid(Color::BLACK),
@@ -250,6 +271,7 @@ mod tests {
         scene.push_tint(tint);
         scene.push_icon(icon);
         scene.push_text(text.clone());
+        scene.push_shadow(shadow);
         scene.push_outline(outline);
         scene.push_quad(second);
 
@@ -260,10 +282,31 @@ mod tests {
                 Item::Tint(tint),
                 Item::Icon(icon),
                 Item::Text(text),
+                Item::Shadow(shadow),
                 Item::Outline(outline),
                 Item::Quad(second)
             ]
         );
+    }
+
+    #[test]
+    fn shadow_item_preserves_shape_and_cutout_data() {
+        let mut scene = Scene::new();
+        let shadow = Shadow {
+            rect: Rect::rounded(
+                point::logical(0.0, 0.0),
+                area::logical(20.0, 10.0),
+                rect::Radius::splat(1.0),
+            ),
+            color: Color::rgba(0.0, 0.0, 0.0, 0.3),
+            blur: 18.0,
+            spread: 1.0,
+            offset: point::logical(0.0, 6.0),
+        };
+
+        scene.push_shadow(shadow);
+
+        assert_eq!(scene.items(), &[Item::Shadow(shadow)]);
     }
 
     #[test]

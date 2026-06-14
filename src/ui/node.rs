@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{action, geometry, icon, layout, paint, text};
 
 use super::{Id, Path, focus};
@@ -11,6 +13,7 @@ pub struct Node {
     action: Option<action::Id>,
     action_target: ActionTarget,
     responders: Vec<action::Id>,
+    command_scope: bool,
     label: Option<text::Document>,
     icon: Option<icon::Icon>,
     icon_size: Option<f32>,
@@ -29,6 +32,7 @@ pub struct Style {
     background: Option<paint::Color>,
     radius: geometry::rect::Radius,
     stroke: Option<paint::Stroke>,
+    shadow: Option<Shadow>,
     hover_background: Option<paint::Color>,
     focus_background: Option<paint::Color>,
     active_background: Option<paint::Color>,
@@ -53,6 +57,14 @@ pub struct FocusOutline {
     offset: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Shadow {
+    color: paint::Color,
+    blur: f32,
+    spread: f32,
+    offset: geometry::point::Logical,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Interactivity {
     hit_test: bool,
@@ -65,6 +77,7 @@ pub enum ActionTarget {
     #[default]
     Origin,
     Command,
+    Captured,
     Window,
 }
 
@@ -75,6 +88,7 @@ pub struct Interaction {
     focus_visibility: focus::Visibility,
     pressed: Option<Path>,
     command_target: Option<action::Context>,
+    command_scope_captures: HashMap<Path, action::Context>,
 }
 
 impl Node {
@@ -87,6 +101,7 @@ impl Node {
             action: None,
             action_target: ActionTarget::default(),
             responders: Vec::new(),
+            command_scope: false,
             label: None,
             icon: None,
             icon_size: None,
@@ -128,6 +143,10 @@ impl Node {
 
     pub fn responders(&self) -> &[action::Id] {
         &self.responders
+    }
+
+    pub fn is_command_scope(&self) -> bool {
+        self.command_scope
     }
 
     pub fn label(&self) -> Option<&text::Document> {
@@ -173,6 +192,22 @@ impl Node {
 
     pub fn with_stroke(mut self, stroke: paint::Stroke) -> Self {
         self.style.stroke = Some(stroke);
+        self
+    }
+
+    pub fn with_shadow(
+        mut self,
+        color: paint::Color,
+        blur: f32,
+        spread: f32,
+        offset: geometry::point::Logical,
+    ) -> Self {
+        self.style.shadow = Some(Shadow {
+            color,
+            blur,
+            spread,
+            offset,
+        });
         self
     }
 
@@ -285,6 +320,11 @@ impl Node {
         self
     }
 
+    pub fn with_command_scope(mut self) -> Self {
+        self.command_scope = true;
+        self
+    }
+
     pub fn with_interactivity(mut self, interactivity: Interactivity) -> Self {
         self.interactivity = interactivity;
         self
@@ -371,6 +411,10 @@ impl Style {
         self.stroke
     }
 
+    pub fn shadow(self) -> Option<Shadow> {
+        self.shadow
+    }
+
     pub fn hover_background(self) -> Option<paint::Color> {
         self.hover_background
     }
@@ -438,6 +482,7 @@ impl Default for Style {
             background: None,
             radius: geometry::rect::Radius::none(),
             stroke: None,
+            shadow: None,
             hover_background: None,
             focus_background: None,
             active_background: None,
@@ -454,6 +499,24 @@ impl Default for Style {
             disabled_label_color: None,
             padding: layout::Insets::ZERO,
         }
+    }
+}
+
+impl Shadow {
+    pub fn color(self) -> paint::Color {
+        self.color
+    }
+
+    pub fn blur(self) -> f32 {
+        self.blur
+    }
+
+    pub fn spread(self) -> f32 {
+        self.spread
+    }
+
+    pub fn offset(self) -> geometry::point::Logical {
+        self.offset
     }
 }
 
@@ -526,6 +589,7 @@ impl Interaction {
             focus_visibility: focus::Visibility::Visible,
             pressed,
             command_target: None,
+            command_scope_captures: HashMap::new(),
         }
     }
 
@@ -536,6 +600,11 @@ impl Interaction {
 
     pub fn with_command_target(mut self, target: action::Context) -> Self {
         self.command_target = Some(target);
+        self
+    }
+
+    pub fn with_command_scope_captures(mut self, captures: HashMap<Path, action::Context>) -> Self {
+        self.command_scope_captures = captures;
         self
     }
 
@@ -557,5 +626,17 @@ impl Interaction {
 
     pub fn command_target(&self) -> Option<&action::Context> {
         self.command_target.as_ref()
+    }
+
+    pub fn captured_command_target(&self, path: &Path) -> Option<&action::Context> {
+        for length in (1..=path.ids().len()).rev() {
+            let candidate = Path::new(path.ids()[..length].to_vec());
+
+            if let Some(context) = self.command_scope_captures.get(&candidate) {
+                return Some(context);
+            }
+        }
+
+        None
     }
 }
