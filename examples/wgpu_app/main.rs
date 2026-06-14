@@ -1,4 +1,4 @@
-use wgpu_l3::{Action, action, app, geometry::area, layout, paint, ui, window};
+use wgpu_l3::{Action, Event, action, app, geometry::area, layout, paint, ui, window};
 
 const PREPARE_WORKSPACE: action::Id = action::Id::new("prepare_workspace");
 const RUN_TASK: action::Id = action::Id::new("run_task");
@@ -19,8 +19,15 @@ struct App {
     run_count: u32,
 }
 
+enum AppEvent {
+    PrepareWorkspace,
+    RunTask,
+}
+
 impl app::Application for App {
-    fn started(&mut self, cx: &mut app::Context<'_>) {
+    type Event = AppEvent;
+
+    fn started(&mut self, cx: &mut app::Context<'_, Self::Event>) {
         cx.register_action(Action::new(PREPARE_WORKSPACE, "Prepare Workspace"));
         cx.register_action(Action::new(RUN_TASK, "Run Task"));
 
@@ -33,27 +40,41 @@ impl app::Application for App {
         self.window = Some(window);
     }
 
-    fn event(&mut self, cx: &mut app::Context<'_>, window: window::Id, event: ui::Event) {
-        if Some(window) != self.window {
-            return;
-        }
-
-        if let ui::Event::ActionInvoked { action, .. } = event {
-            match action {
-                PREPARE_WORKSPACE => {
-                    self.workspace_ready = true;
-                    cx.request_redraw(window);
-                }
-                RUN_TASK => {
-                    self.run_count += 1;
-                    cx.request_redraw(window);
-                }
+    fn event(&mut self, cx: &mut app::Context<'_, Self::Event>, event: Event<Self::Event>) {
+        match event {
+            Event::ActionInvoked {
+                action, context, ..
+            } if Some(context.window) == self.window => match action {
+                PREPARE_WORKSPACE => cx.emit(AppEvent::PrepareWorkspace),
+                RUN_TASK => cx.emit(AppEvent::RunTask),
                 _ => {}
+            },
+            Event::App(event) => {
+                let Some(window) = self.window else {
+                    return;
+                };
+
+                match event {
+                    AppEvent::PrepareWorkspace => {
+                        self.workspace_ready = true;
+                        cx.request_redraw(window);
+                    }
+                    AppEvent::RunTask => {
+                        self.run_count += 1;
+                        cx.request_redraw(window);
+                    }
+                }
             }
+            _ => {}
         }
     }
 
-    fn view(&mut self, cx: &mut app::Context<'_>, window: window::Id, tree: &mut ui::Tree) {
+    fn view(
+        &mut self,
+        cx: &mut app::Context<'_, Self::Event>,
+        window: window::Id,
+        tree: &mut ui::Tree,
+    ) {
         if Some(window) != self.window {
             return;
         }

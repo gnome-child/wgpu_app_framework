@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::geometry::point;
-use crate::{action, layout, ui, window};
+use crate::{action, event, layout, ui, window};
 
 #[derive(Debug, Default)]
 pub(super) struct WindowState {
@@ -99,13 +99,13 @@ impl WindowState {
     }
 }
 
-pub(super) fn action_invocation_event(
+pub(super) fn action_invocation_event<T>(
     registry: &action::Registry,
     bindings: &HashMap<ui::Path, action::Id>,
     window: window::Id,
     target: ui::Path,
     source: action::Source,
-) -> Option<ui::Event> {
+) -> Option<event::Event<T>> {
     let action = *bindings.get(&target)?;
     let context = action::Context::path(window, target);
 
@@ -113,7 +113,7 @@ pub(super) fn action_invocation_event(
         return None;
     }
 
-    Some(ui::Event::ActionInvoked {
+    Some(event::Event::ActionInvoked {
         action,
         source,
         context,
@@ -310,7 +310,7 @@ mod tests {
             Some(path(CHILD)),
             ui::Button::Left,
         );
-        let event = action_invocation_event(
+        let invocation = action_invocation_event::<()>(
             &registry,
             &state.actions,
             window,
@@ -319,8 +319,8 @@ mod tests {
         );
 
         assert_eq!(
-            event,
-            Some(ui::Event::ActionInvoked {
+            invocation,
+            Some(event::Event::ActionInvoked {
                 action: CLICK,
                 source: action::Source::Pointer,
                 context: action::Context::path(window, path(CHILD))
@@ -339,7 +339,7 @@ mod tests {
         registry.set_state(CLICK, context, action::State::disabled());
 
         assert_eq!(
-            action_invocation_event(
+            action_invocation_event::<()>(
                 &registry,
                 &bindings,
                 window,

@@ -98,11 +98,6 @@ pub enum Event {
         target: Option<Path>,
         button: Button,
     },
-    ActionInvoked {
-        action: action::Id,
-        source: action::Source,
-        context: action::Context,
-    },
     Ignored,
 }
 

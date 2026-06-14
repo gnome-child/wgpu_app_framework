@@ -1,5 +1,6 @@
 pub mod action;
 pub mod app;
+pub mod event;
 pub mod geometry;
 pub mod layout;
 pub mod native;
@@ -10,3 +11,4 @@ pub mod ui;
 pub mod window;
 
 pub use action::Action;
+pub use event::Event;

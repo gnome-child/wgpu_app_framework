@@ -1,6 +1,7 @@
+mod mailbox;
 mod state;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use thiserror::Error;
 use winit::{
@@ -9,9 +10,10 @@ use winit::{
     event_loop::{ActiveEventLoop, EventLoop},
 };
 
+use crate::app::mailbox::Mailbox;
 use crate::app::state::{WindowState, action_invocation_event, resolve_action_path};
 use crate::geometry::{area, point};
-use crate::{Action, action, native, paint, render, ui, window};
+use crate::{Action, action, event, native, paint, render, ui, window};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -28,11 +30,19 @@ pub enum Error {
 }
 
 pub trait Application {
-    fn started(&mut self, _cx: &mut Context<'_>) {}
+    type Event: Send + 'static;
 
-    fn event(&mut self, _cx: &mut Context<'_>, _window: window::Id, _event: ui::Event) {}
+    fn started(&mut self, _cx: &mut Context<'_, Self::Event>) {}
 
-    fn view(&mut self, _cx: &mut Context<'_>, _window: window::Id, _tree: &mut ui::Tree) {}
+    fn event(&mut self, _cx: &mut Context<'_, Self::Event>, _event: event::Event<Self::Event>) {}
+
+    fn view(
+        &mut self,
+        _cx: &mut Context<'_, Self::Event>,
+        _window: window::Id,
+        _tree: &mut ui::Tree,
+    ) {
+    }
 }
 
 pub fn run<A: Application>(app: A) -> Result<()> {
@@ -48,7 +58,7 @@ pub fn run<A: Application>(app: A) -> Result<()> {
     Ok(())
 }
 
-pub struct Context<'a> {
+pub struct Context<'a, T> {
     render_context: &'a render::Context,
     renderer: &'a mut Option<render::Renderer>,
     windows: &'a mut HashMap<window::Id, native::Window>,
@@ -56,12 +66,12 @@ pub struct Context<'a> {
     window_states: &'a mut HashMap<window::Id, WindowState>,
     next_window_id: &'a mut u64,
     actions: &'a mut action::Registry,
-    pending_events: &'a mut VecDeque<(window::Id, ui::Event)>,
+    mailbox: &'a mut Mailbox<T>,
     redraw_on_action_state_change: bool,
     event_loop: &'a ActiveEventLoop,
 }
 
-impl Context<'_> {
+impl<T> Context<'_, T> {
     pub fn open_window(&mut self, options: window::Options) -> window::Id {
         self.try_open_window(options)
             .expect("failed to open framework window")
@@ -167,20 +177,20 @@ impl Context<'_> {
         self.actions.state(action, context)
     }
 
+    pub fn emit(&mut self, event: T) {
+        self.mailbox.push_app(event);
+    }
+
     pub fn invoke_action(&mut self, action: action::Id, context: action::Context) {
         if !self.actions.can_invoke(action, context.clone()) {
             return;
         }
 
-        let window = context.window;
-        self.pending_events.push_back((
-            window,
-            ui::Event::ActionInvoked {
-                action,
-                source: action::Source::Programmatic,
-                context,
-            },
-        ));
+        self.mailbox.push(event::Event::ActionInvoked {
+            action,
+            source: action::Source::Programmatic,
+            context,
+        });
     }
 
     pub fn hovered(&self, window: window::Id) -> Option<ui::Path> {
@@ -276,7 +286,7 @@ impl Drop for ActionState<'_> {
     }
 }
 
-struct Runtime<A> {
+struct Runtime<A: Application> {
     app: A,
     render_context: Option<render::Context>,
     renderer: Option<render::Renderer>,
@@ -284,12 +294,13 @@ struct Runtime<A> {
     raw_windows: HashMap<winit::window::WindowId, window::Id>,
     window_states: HashMap<window::Id, WindowState>,
     actions: action::Registry,
+    mailbox: Mailbox<A::Event>,
     next_window_id: u64,
     started: bool,
     error: Option<Error>,
 }
 
-impl<A> Runtime<A> {
+impl<A: Application> Runtime<A> {
     fn new(app: A) -> Self {
         Self {
             app,
@@ -299,6 +310,7 @@ impl<A> Runtime<A> {
             raw_windows: HashMap::new(),
             window_states: HashMap::new(),
             actions: action::Registry::new(),
+            mailbox: Mailbox::new(),
             next_window_id: 1,
             started: false,
             error: None,
@@ -323,38 +335,44 @@ impl<A> Runtime<A> {
 }
 
 impl<A: Application> Runtime<A> {
-    fn dispatch_event(
+    fn dispatch_event(&mut self, event_loop: &ActiveEventLoop, event: event::Event<A::Event>) {
+        self.mailbox.push(event);
+        self.drain_mailbox(event_loop);
+    }
+
+    fn dispatch_ui_event(
         &mut self,
         event_loop: &ActiveEventLoop,
         window: window::Id,
         event: ui::Event,
     ) {
-        let mut queue = VecDeque::from([(window, event)]);
+        self.dispatch_event(event_loop, event::Event::Ui { window, event });
+    }
 
-        while let Some((window, event)) = queue.pop_front() {
-            let Some(render_context) = self.render_context.as_ref() else {
-                return;
+    fn drain_mailbox(&mut self, event_loop: &ActiveEventLoop) {
+        if self.render_context.is_none() {
+            return;
+        }
+
+        while let Some(event) = self.mailbox.pop() {
+            let render_context = self
+                .render_context
+                .as_ref()
+                .expect("render context should exist while draining mailbox");
+            let mut cx = Context {
+                render_context,
+                renderer: &mut self.renderer,
+                windows: &mut self.windows,
+                raw_windows: &mut self.raw_windows,
+                window_states: &mut self.window_states,
+                next_window_id: &mut self.next_window_id,
+                actions: &mut self.actions,
+                mailbox: &mut self.mailbox,
+                redraw_on_action_state_change: true,
+                event_loop,
             };
-            let mut pending_events = VecDeque::new();
 
-            {
-                let mut cx = Context {
-                    render_context,
-                    renderer: &mut self.renderer,
-                    windows: &mut self.windows,
-                    raw_windows: &mut self.raw_windows,
-                    window_states: &mut self.window_states,
-                    next_window_id: &mut self.next_window_id,
-                    actions: &mut self.actions,
-                    pending_events: &mut pending_events,
-                    redraw_on_action_state_change: true,
-                    event_loop,
-                };
-
-                self.app.event(&mut cx, window, event);
-            }
-
-            queue.extend(pending_events);
+            self.app.event(&mut cx, event);
         }
     }
 
@@ -364,7 +382,6 @@ impl<A: Application> Runtime<A> {
         };
 
         let mut tree = ui::Tree::new();
-        let mut pending_events = VecDeque::new();
 
         self.actions.clear_context_states(window);
 
@@ -377,7 +394,7 @@ impl<A: Application> Runtime<A> {
                 window_states: &mut self.window_states,
                 next_window_id: &mut self.next_window_id,
                 actions: &mut self.actions,
-                pending_events: &mut pending_events,
+                mailbox: &mut self.mailbox,
                 redraw_on_action_state_change: false,
                 event_loop,
             };
@@ -433,9 +450,7 @@ impl<A: Application> Runtime<A> {
             }
         }
 
-        for (window, event) in pending_events {
-            self.dispatch_event(event_loop, window, event);
-        }
+        self.drain_mailbox(event_loop);
     }
 
     fn close_window(&mut self, event_loop: &ActiveEventLoop, window: window::Id) {
@@ -470,10 +485,10 @@ impl<A: Application> Runtime<A> {
         }
 
         for event in hover_events {
-            self.dispatch_event(event_loop, window, event);
+            self.dispatch_ui_event(event_loop, window, event);
         }
 
-        self.dispatch_event(
+        self.dispatch_ui_event(
             event_loop,
             window,
             ui::Event::PointerMoved { position, target },
@@ -506,7 +521,7 @@ impl<A: Application> Runtime<A> {
                     native_window.request_redraw();
                 }
 
-                self.dispatch_event(event_loop, window, event);
+                self.dispatch_ui_event(event_loop, window, event);
             }
             ElementState::Released => {
                 let Some(window_state) = self.window_states.get_mut(&window) else {
@@ -519,7 +534,7 @@ impl<A: Application> Runtime<A> {
                 let (event, invoke_target) = window_state.pointer_up(position, target, button);
                 let actions = window_state.actions.clone();
 
-                self.dispatch_event(event_loop, window, event);
+                self.dispatch_ui_event(event_loop, window, event);
 
                 if let Some(target) = invoke_target {
                     if let Some(event) = action_invocation_event(
@@ -529,7 +544,7 @@ impl<A: Application> Runtime<A> {
                         target,
                         action::Source::Pointer,
                     ) {
-                        self.dispatch_event(event_loop, window, event);
+                        self.dispatch_event(event_loop, event);
                     }
                 }
 
@@ -565,7 +580,6 @@ impl<A: Application> ApplicationHandler for Runtime<A> {
             return;
         };
 
-        let mut pending_events = VecDeque::new();
         let mut cx = Context {
             render_context,
             renderer: &mut self.renderer,
@@ -574,16 +588,14 @@ impl<A: Application> ApplicationHandler for Runtime<A> {
             window_states: &mut self.window_states,
             next_window_id: &mut self.next_window_id,
             actions: &mut self.actions,
-            pending_events: &mut pending_events,
+            mailbox: &mut self.mailbox,
             redraw_on_action_state_change: true,
             event_loop,
         };
 
         self.app.started(&mut cx);
 
-        for (window, event) in pending_events {
-            self.dispatch_event(event_loop, window, event);
-        }
+        self.drain_mailbox(event_loop);
     }
 
     fn window_event(
@@ -598,7 +610,7 @@ impl<A: Application> ApplicationHandler for Runtime<A> {
 
         match event {
             WindowEvent::CloseRequested => {
-                self.dispatch_event(event_loop, window, ui::Event::CloseRequested);
+                self.dispatch_ui_event(event_loop, window, ui::Event::CloseRequested);
 
                 if self.windows.contains_key(&window) {
                     self.close_window(event_loop, window);
@@ -618,7 +630,7 @@ impl<A: Application> ApplicationHandler for Runtime<A> {
                 native_window.resize(render_context, area, scale_factor);
                 native_window.request_redraw();
 
-                self.dispatch_event(
+                self.dispatch_ui_event(
                     event_loop,
                     window,
                     ui::Event::Resized { area, scale_factor },
@@ -638,14 +650,14 @@ impl<A: Application> ApplicationHandler for Runtime<A> {
                 native_window.resize(render_context, area, scale_factor);
                 native_window.request_redraw();
 
-                self.dispatch_event(
+                self.dispatch_ui_event(
                     event_loop,
                     window,
                     ui::Event::ScaleFactorChanged { scale_factor },
                 );
             }
             WindowEvent::Focused(focused) => {
-                self.dispatch_event(event_loop, window, ui::Event::Focused(focused));
+                self.dispatch_ui_event(event_loop, window, ui::Event::Focused(focused));
             }
             WindowEvent::CursorMoved { position, .. } => {
                 let Some(native_window) = self.windows.get(&window) else {
