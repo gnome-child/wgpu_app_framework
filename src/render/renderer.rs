@@ -62,7 +62,7 @@ impl Renderer {
         let item_batches = item_batches(scene.items());
         let text_batch_count = item_batches
             .iter()
-            .filter(|batch| matches!(batch, ItemBatch::Texts(_)))
+            .filter(|batch| matches!(batch, ItemBatch::Glyphs(_)))
             .count();
 
         if text_batch_count > 0 {
@@ -82,12 +82,12 @@ impl Renderer {
                         render_batches.push(RenderBatch::Shapes(batch));
                     }
                 }
-                ItemBatch::Texts(texts) => {
+                ItemBatch::Glyphs(glyphs) => {
                     if self.text_renderer.prepare_batch(
                         render_context,
                         canvas,
                         text_renderer_index,
-                        &texts,
+                        &glyphs,
                     )? {
                         render_batches.push(RenderBatch::Text {
                             renderer_index: text_renderer_index,

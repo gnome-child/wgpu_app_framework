@@ -2,7 +2,13 @@ use crate::paint;
 
 pub enum ItemBatch<'a> {
     Shapes(Vec<Shape<'a>>),
-    Texts(Vec<&'a paint::Text>),
+    Glyphs(Vec<Glyph<'a>>),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Glyph<'a> {
+    Text(&'a paint::Text),
+    Icon(&'a paint::Icon),
 }
 
 pub enum Shape<'a> {
@@ -18,10 +24,8 @@ pub fn item_batches(items: &[paint::Item]) -> Vec<ItemBatch<'_>> {
     for item in items {
         match item {
             paint::Item::Quad(quad) => push_shape(&mut batches, Shape::Quad(quad)),
-            paint::Item::Text(text) => match batches.last_mut() {
-                Some(ItemBatch::Texts(texts)) => texts.push(text),
-                _ => batches.push(ItemBatch::Texts(vec![text])),
-            },
+            paint::Item::Text(text) => push_glyph(&mut batches, Glyph::Text(text)),
+            paint::Item::Icon(icon) => push_glyph(&mut batches, Glyph::Icon(icon)),
             paint::Item::Tint(tint) => push_shape(&mut batches, Shape::Tint(tint)),
             paint::Item::Outline(outline) => push_shape(&mut batches, Shape::Outline(outline)),
             paint::Item::BackdropBlur(blur) => push_shape(&mut batches, Shape::BackdropBlur(blur)),
@@ -38,17 +42,24 @@ fn push_shape<'a>(batches: &mut Vec<ItemBatch<'a>>, shape: Shape<'a>) {
     }
 }
 
+fn push_glyph<'a>(batches: &mut Vec<ItemBatch<'a>>, glyph: Glyph<'a>) {
+    match batches.last_mut() {
+        Some(ItemBatch::Glyphs(glyphs)) => glyphs.push(glyph),
+        _ => batches.push(ItemBatch::Glyphs(vec![glyph])),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::geometry::{Rect, area, point};
-    use crate::{paint, text};
+    use crate::{icon, paint, text};
 
     use super::*;
 
     #[derive(Debug, PartialEq, Eq)]
     enum Kind {
         Shapes(usize),
-        Texts(usize),
+        Glyphs(usize),
     }
 
     fn solid_quad(x: f32) -> paint::Quad {
@@ -69,6 +80,15 @@ mod tests {
         }
     }
 
+    fn icon(x: f32) -> paint::Icon {
+        paint::Icon {
+            rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
+            icon: icon::Icon::phosphor(icon::Id::new("check")),
+            color: paint::Color::BLACK,
+            size: 16.0,
+        }
+    }
+
     fn tint(x: f32) -> paint::Tint {
         paint::Tint {
             rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
@@ -81,7 +101,7 @@ mod tests {
             .iter()
             .map(|batch| match batch {
                 ItemBatch::Shapes(shapes) => Kind::Shapes(shapes.len()),
-                ItemBatch::Texts(texts) => Kind::Texts(texts.len()),
+                ItemBatch::Glyphs(glyphs) => Kind::Glyphs(glyphs.len()),
             })
             .collect()
     }
@@ -92,13 +112,25 @@ mod tests {
             paint::Item::Quad(solid_quad(0.0)),
             paint::Item::Tint(tint(1.0)),
             paint::Item::Text(label(2.0)),
+            paint::Item::Icon(icon(2.5)),
             paint::Item::Quad(solid_quad(3.0)),
         ];
 
         assert_eq!(
             kinds(&item_batches(&items)),
-            vec![Kind::Shapes(2), Kind::Texts(1), Kind::Shapes(1)]
+            vec![Kind::Shapes(2), Kind::Glyphs(2), Kind::Shapes(1)]
         );
+    }
+
+    #[test]
+    fn contiguous_text_and_icon_items_share_glyph_batch() {
+        let items = vec![
+            paint::Item::Text(label(0.0)),
+            paint::Item::Icon(icon(1.0)),
+            paint::Item::Text(label(2.0)),
+        ];
+
+        assert_eq!(kinds(&item_batches(&items)), vec![Kind::Glyphs(3)]);
     }
 
     #[test]

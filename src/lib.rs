@@ -2,6 +2,7 @@ pub mod action;
 pub mod app;
 pub mod event;
 pub mod geometry;
+pub mod icon;
 pub mod layout;
 pub mod paint;
 pub mod pointer;
@@ -15,4 +16,5 @@ mod render;
 
 pub use action::Action;
 pub use event::Event;
+pub use icon::Icon;
 pub use task::Task;

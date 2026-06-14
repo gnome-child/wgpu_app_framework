@@ -1,4 +1,4 @@
-use crate::{action, geometry, layout, paint, text};
+use crate::{action, geometry, icon, layout, paint, text};
 
 use super::{Id, Path, focus};
 
@@ -10,6 +10,8 @@ pub struct Node {
     interactivity: Interactivity,
     action: Option<action::Id>,
     label: Option<text::Document>,
+    icon: Option<icon::Icon>,
+    icon_size: Option<f32>,
     children: Vec<Node>,
 }
 
@@ -73,6 +75,8 @@ impl Node {
             interactivity: Interactivity::default(),
             action: None,
             label: None,
+            icon: None,
+            icon_size: None,
             children: Vec::new(),
         }
     }
@@ -107,6 +111,14 @@ impl Node {
 
     pub fn label(&self) -> Option<&text::Document> {
         self.label.as_ref()
+    }
+
+    pub fn icon(&self) -> Option<icon::Icon> {
+        self.icon
+    }
+
+    pub fn icon_size(&self) -> Option<f32> {
+        self.icon_size
     }
 
     pub fn children(&self) -> &[Node] {
@@ -224,6 +236,16 @@ impl Node {
 
     pub fn with_label(mut self, label: text::Document) -> Self {
         self.label = Some(label);
+        self
+    }
+
+    pub fn with_icon(mut self, icon: icon::Icon) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    pub fn with_icon_size(mut self, size: f32) -> Self {
+        self.icon_size = Some(size);
         self
     }
 

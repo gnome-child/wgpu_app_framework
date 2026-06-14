@@ -1,4 +1,5 @@
 use crate::geometry::Rect;
+use crate::icon;
 use crate::text;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,6 +34,10 @@ impl Scene {
         }
     }
 
+    pub fn push_icon(&mut self, icon: Icon) {
+        self.items.push(Item::Icon(icon));
+    }
+
     pub fn push_tint(&mut self, tint: Tint) {
         self.items.push(Item::Tint(tint));
     }
@@ -64,6 +69,7 @@ impl Default for Scene {
 pub enum Item {
     Quad(Quad),
     Text(Text),
+    Icon(Icon),
     Tint(Tint),
     Outline(Outline),
     BackdropBlur(Blur),
@@ -79,6 +85,14 @@ pub struct Quad {
 pub struct Text {
     pub rect: Rect,
     pub document: text::Document,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Icon {
+    pub rect: Rect,
+    pub icon: icon::Icon,
+    pub color: Color,
+    pub size: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -165,6 +179,7 @@ impl Color {
 #[cfg(test)]
 mod tests {
     use crate::geometry::{area, point, rect};
+    use crate::icon;
 
     use super::*;
 
@@ -210,6 +225,12 @@ mod tests {
             rect: Rect::new(point::logical(1.5, 0.0), area::logical(10.0, 10.0)),
             document: text::Document::plain("Label"),
         };
+        let icon = Icon {
+            rect: Rect::new(point::logical(1.6, 0.0), area::logical(10.0, 10.0)),
+            icon: icon::Icon::phosphor(icon::Id::new("check")),
+            color: Color::BLACK,
+            size: 16.0,
+        };
         let outline = Outline {
             rect: Rect::new(point::logical(1.75, 0.0), area::logical(10.0, 10.0)),
             brush: Brush::Solid(Color::BLACK),
@@ -227,6 +248,7 @@ mod tests {
 
         scene.push_quad(first);
         scene.push_tint(tint);
+        scene.push_icon(icon);
         scene.push_text(text.clone());
         scene.push_outline(outline);
         scene.push_quad(second);
@@ -236,6 +258,7 @@ mod tests {
             &[
                 Item::Quad(first),
                 Item::Tint(tint),
+                Item::Icon(icon),
                 Item::Text(text),
                 Item::Outline(outline),
                 Item::Quad(second)

@@ -1,4 +1,4 @@
-use crate::{action, geometry, layout, paint, text, ui};
+use crate::{action, geometry, icon, layout, paint, text, ui};
 
 pub fn panel(id: ui::Id) -> ui::Node {
     ui::Node::container(id, layout::Axis::Vertical)
@@ -31,4 +31,8 @@ pub fn labeled_button(id: ui::Id, action: action::Id, label: impl Into<String>) 
     block.push_run(text::Run::new(label, text::Style::default()));
 
     button(id, action).with_label(text::Document::from_block(block))
+}
+
+pub fn icon_button(id: ui::Id, action: action::Id, icon: icon::Icon) -> ui::Node {
+    button(id, action).with_icon(icon).with_icon_size(32.0)
 }

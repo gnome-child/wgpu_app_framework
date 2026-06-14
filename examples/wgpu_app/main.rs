@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use wgpu_l3::{Action, Event, Task, action, app, geometry::area, layout, paint, text, ui, window};
+use wgpu_l3::{
+    Action, Event, Icon, Task, action, app, geometry::area, icon, layout, paint, text, ui, window,
+};
 
 const RUN_TASK: action::Id = action::Id::new("run_task");
 const TOGGLE_PREVIEW: action::Id = action::Id::new("toggle_preview");
@@ -108,6 +110,11 @@ impl app::Application for App {
         } else {
             "Loading workspace...".to_owned()
         };
+        let preview_icon = if self.preview_enabled {
+            Icon::phosphor(icon::Id::new("eye"))
+        } else {
+            Icon::phosphor(icon::Id::new("eye-slash"))
+        };
         let root = ui::control::panel(ROOT)
             .with_background(paint::Color::BLACK)
             .with_padding(layout::Insets::splat(16.0))
@@ -119,10 +126,10 @@ impl app::Application for App {
             .with_child(ui::control::labeled_button(
                 RUN_BUTTON, RUN_TASK, "Run task",
             ))
-            .with_child(ui::control::labeled_button(
+            .with_child(ui::control::icon_button(
                 PREVIEW_BUTTON,
                 TOGGLE_PREVIEW,
-                "Preview",
+                preview_icon,
             ));
 
         tree.set_root(root);

@@ -46,6 +46,10 @@ fn node<T>(
         scene.push_tint(paint::Tint { rect, color: tint });
     }
 
+    if let Some(icon) = resolved_icon(node, layout, &visual) {
+        scene.push_icon(icon);
+    }
+
     if let Some(document) = resolved_label(node, &visual) {
         scene.push_text(paint::Text {
             rect: layout.rect(),
@@ -252,6 +256,42 @@ fn resolved_label(node: &ui::Node, visual: &VisualState) -> Option<crate::text::
     }
 
     Some(document)
+}
+
+fn resolved_icon(
+    node: &ui::Node,
+    layout: &layout::Box,
+    visual: &VisualState,
+) -> Option<paint::Icon> {
+    let icon = node.icon()?;
+
+    Some(paint::Icon {
+        rect: layout.rect(),
+        icon,
+        color: resolved_icon_color(node, visual),
+        size: node.icon_size().unwrap_or(24.0),
+    })
+}
+
+fn resolved_icon_color(node: &ui::Node, visual: &VisualState) -> paint::Color {
+    let style = node.style();
+    let fallback = crate::text::Style::default().color;
+
+    if visual.busy {
+        return style
+            .busy_label_color()
+            .or(style.label_color())
+            .unwrap_or(fallback);
+    }
+
+    if !visual.enabled {
+        return style
+            .disabled_label_color()
+            .or(style.label_color())
+            .unwrap_or(fallback);
+    }
+
+    style.label_color().unwrap_or(fallback)
 }
 
 fn normalized(value: bool) -> f32 {

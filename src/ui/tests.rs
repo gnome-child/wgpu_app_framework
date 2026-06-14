@@ -1,6 +1,6 @@
 use super::*;
 use crate::geometry::{Rect, area, point, rect};
-use crate::{action, layout, paint, text, window};
+use crate::{action, icon, layout, paint, text, window};
 
 const ROOT: Id = Id::new("root");
 const A: Id = Id::new("a");
@@ -31,6 +31,13 @@ fn text(scene: &paint::Scene, index: usize) -> &paint::Text {
     }
 }
 
+fn icon_item(scene: &paint::Scene, index: usize) -> paint::Icon {
+    match scene.items().get(index) {
+        Some(paint::Item::Icon(icon)) => *icon,
+        item => panic!("expected icon item at {index}, got {item:?}"),
+    }
+}
+
 fn tint(scene: &paint::Scene, index: usize) -> paint::Tint {
     match scene.items().get(index) {
         Some(paint::Item::Tint(tint)) => *tint,
@@ -48,6 +55,10 @@ fn outline(scene: &paint::Scene, index: usize) -> paint::Outline {
 fn assert_same_bounds(actual: Rect, expected: Rect) {
     assert_eq!(actual.origin, expected.origin);
     assert_eq!(actual.area, expected.area);
+}
+
+fn check_icon() -> icon::Icon {
+    icon::Icon::phosphor(icon::Id::new("check"))
 }
 
 #[test]
@@ -226,6 +237,25 @@ fn labeled_button_stores_label_document() {
 }
 
 #[test]
+fn node_with_icon_stores_icon_data() {
+    let node = Node::leaf(A).with_icon(check_icon()).with_icon_size(18.0);
+
+    assert_eq!(node.icon(), Some(check_icon()));
+    assert_eq!(node.icon_size(), Some(18.0));
+}
+
+#[test]
+fn icon_button_is_action_bound_control() {
+    let button = control::icon_button(A, CLICK, check_icon());
+
+    assert_eq!(button.action(), Some(CLICK));
+    assert_eq!(button.icon(), Some(check_icon()));
+    assert!(button.interactivity().hit_test());
+    assert!(button.interactivity().focusable());
+    assert!(button.interactivity().actionable());
+}
+
+#[test]
 fn node_radius_is_emitted_on_paint_quad() {
     let root = Node::leaf(A)
         .with_background(paint::Color::RED)
@@ -374,6 +404,38 @@ fn disabled_button_uses_disabled_label_color() {
         root.style()
             .disabled_tint()
             .expect("control has disabled tint")
+    );
+}
+
+#[test]
+fn disabled_icon_button_uses_disabled_label_color() {
+    let root = control::icon_button(A, CLICK, check_icon());
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    registry.set_state(
+        CLICK,
+        action::Context::path(window, path(A)),
+        action::State::disabled(),
+    );
+    tree.set_root(root.clone());
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::default(),
+        &mut scene,
+    );
+
+    assert_eq!(
+        icon_item(&scene, 2).color,
+        root.style()
+            .disabled_label_color()
+            .expect("control has disabled label color")
     );
 }
 
@@ -680,6 +742,34 @@ fn busy_button_uses_busy_label_color() {
 }
 
 #[test]
+fn busy_icon_button_uses_busy_label_color() {
+    let root = control::icon_button(A, CLICK, check_icon());
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    registry.set_busy(CLICK, action::Context::path(window, path(A)), true);
+    tree.set_root(root.clone());
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::default(),
+        &mut scene,
+    );
+
+    assert_eq!(
+        icon_item(&scene, 2).color,
+        root.style()
+            .busy_label_color()
+            .expect("control has busy label color")
+    );
+}
+
+#[test]
 fn pressed_state_emits_pressed_tint_after_action_states() {
     let root = control::button(A, CLICK);
     let mut tree = Tree::new();
@@ -727,6 +817,36 @@ fn focused_node_emits_overlay_outline_after_tree_content() {
     assert_eq!(quad(&scene, 0).rect, layout.rect());
     assert_eq!(quad(&scene, 1).rect, layout.children()[0].rect());
     assert_eq!(outline(&scene, 2).rect, layout.rect());
+}
+
+#[test]
+fn icon_paint_is_emitted_after_tints_before_focus_outline() {
+    let root = control::icon_button(A, CLICK, check_icon());
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    registry.set_state(
+        CLICK,
+        action::Context::path(window, path(A)),
+        action::State::active(),
+    );
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None),
+        &mut scene,
+    );
+
+    assert!(matches!(scene.items()[0], paint::Item::Quad(_)));
+    assert!(matches!(scene.items()[1], paint::Item::Tint(_)));
+    assert!(matches!(scene.items()[2], paint::Item::Icon(_)));
+    assert!(matches!(scene.items()[3], paint::Item::Outline(_)));
 }
 
 #[test]

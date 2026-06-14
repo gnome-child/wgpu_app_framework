@@ -1,5 +1,9 @@
+use std::sync::Arc;
+
+use crate::icon;
 use crate::paint;
 use crate::render;
+use crate::render::batch;
 use crate::text;
 
 use thiserror::Error;
@@ -46,7 +50,7 @@ impl TextRenderer {
             viewport,
             atlas,
             renderers: Vec::new(),
-            font_system: glyphon::FontSystem::new(),
+            font_system: font_system(),
             swash_cache: glyphon::SwashCache::new(),
         }
     }
@@ -66,18 +70,23 @@ impl TextRenderer {
         render_context: &render::Context,
         canvas: &render::Canvas,
         renderer_index: usize,
-        texts: &[&paint::Text],
+        glyphs: &[batch::Glyph<'_>],
     ) -> Result<bool> {
-        if texts.is_empty() {
+        if glyphs.is_empty() {
             return Ok(false);
         }
 
         let scale_factor = canvas.scale_factor();
-        let mut prepared = Vec::with_capacity(texts.len());
+        let mut prepared = Vec::with_capacity(glyphs.len());
 
-        for text in texts {
-            if let Some(text) = prepare_text(&mut self.font_system, text, scale_factor) {
-                prepared.push(text);
+        for glyph in glyphs {
+            let glyph = match glyph {
+                batch::Glyph::Text(text) => prepare_text(&mut self.font_system, text, scale_factor),
+                batch::Glyph::Icon(icon) => prepare_icon(&mut self.font_system, icon, scale_factor),
+            };
+
+            if let Some(glyph) = glyph {
+                prepared.push(glyph);
             }
         }
 
@@ -141,6 +150,20 @@ impl TextRenderer {
     }
 }
 
+fn font_system() -> glyphon::FontSystem {
+    let mut font_system = glyphon::FontSystem::new();
+
+    for font in iconflow::fonts() {
+        font_system
+            .db_mut()
+            .load_font_source(glyphon::fontdb::Source::Binary(Arc::new(
+                font.bytes.to_vec(),
+            )));
+    }
+
+    font_system
+}
+
 fn prepare_text(
     font_system: &mut glyphon::FontSystem,
     text: &paint::Text,
@@ -199,12 +222,73 @@ fn prepare_text(
     })
 }
 
+fn prepare_icon(
+    font_system: &mut glyphon::FontSystem,
+    icon: &paint::Icon,
+    scale_factor: f32,
+) -> Option<PreparedText> {
+    let Some(glyph) = icon.icon.glyph() else {
+        log::debug!("skipping missing icon glyph: {:?}", icon.icon);
+        return None;
+    };
+    let Some(character) = glyph.character() else {
+        log::debug!("skipping invalid icon codepoint: {:?}", glyph);
+        return None;
+    };
+
+    let font_size = icon.size.max(1.0);
+    let line_height = font_size;
+    let mut buffer = glyphon::Buffer::new(font_system, glyphon::Metrics::relative(font_size, 1.0));
+    let width = icon.rect.area.width().max(0.0);
+    let height = icon.rect.area.height().max(0.0);
+    let buffer_height = height.min(line_height);
+    let attrs = attrs_for_icon(glyph, font_size, icon.color);
+    let text = character.to_string();
+
+    buffer.set_size(font_system, Some(width), Some(buffer_height));
+    buffer.set_rich_text(
+        font_system,
+        vec![(text.as_str(), attrs.clone())],
+        &attrs,
+        glyphon::Shaping::Basic,
+        Some(glyphon::cosmic_text::Align::Center),
+    );
+    buffer.shape_until_scroll(font_system, false);
+
+    let clip_left = icon.rect.origin.x() * scale_factor;
+    let clip_top = icon.rect.origin.y() * scale_factor;
+    let clip_right = clip_left + width * scale_factor;
+    let clip_bottom = clip_top + height * scale_factor;
+    let left = clip_left;
+    let top = (icon.rect.origin.y() + (height - buffer_height).max(0.0) * 0.5) * scale_factor;
+
+    Some(PreparedText {
+        buffer,
+        left,
+        top,
+        bounds: glyphon::TextBounds {
+            left: clip_left.floor() as i32,
+            top: clip_top.floor() as i32,
+            right: clip_right.ceil() as i32,
+            bottom: clip_bottom.ceil() as i32,
+        },
+        default_color: color(icon.color),
+    })
+}
+
 fn attrs_for_style(style: text::Style) -> glyphon::Attrs<'static> {
     glyphon::Attrs::new()
         .family(glyphon::Family::SansSerif)
         .weight(weight(style.weight))
         .color(color(style.color))
         .metrics(glyphon::Metrics::relative(style.size.max(1.0), 1.25))
+}
+
+fn attrs_for_icon(glyph: icon::Glyph, size: f32, color: paint::Color) -> glyphon::Attrs<'static> {
+    glyphon::Attrs::new()
+        .family(glyphon::Family::Name(glyph.family()))
+        .color(self::color(color))
+        .metrics(glyphon::Metrics::relative(size.max(1.0), 1.0))
 }
 
 fn align(align: text::Align) -> glyphon::cosmic_text::Align {
