@@ -1,16 +1,17 @@
 use crate::geometry::Rect;
+use crate::text;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scene {
     clear_color: Option<Color>,
-    quads: Vec<Quad>,
+    items: Vec<Item>,
 }
 
 impl Scene {
     pub fn new() -> Self {
         Self {
             clear_color: None,
-            quads: Vec::new(),
+            items: Vec::new(),
         }
     }
 
@@ -23,15 +24,21 @@ impl Scene {
     }
 
     pub fn push_quad(&mut self, quad: Quad) {
-        self.quads.push(quad);
+        self.items.push(Item::Quad(quad));
     }
 
-    pub fn quads(&self) -> &[Quad] {
-        &self.quads
+    pub fn push_text(&mut self, text: Text) {
+        if !text.document.is_empty() {
+            self.items.push(Item::Text(text));
+        }
+    }
+
+    pub fn items(&self) -> &[Item] {
+        &self.items
     }
 
     pub fn is_empty(&self) -> bool {
-        self.clear_color.is_none() && self.quads.is_empty()
+        self.clear_color.is_none() && self.items.is_empty()
     }
 }
 
@@ -41,10 +48,22 @@ impl Default for Scene {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Item {
+    Quad(Quad),
+    Text(Text),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Quad {
     pub rect: Rect,
     pub style: Style,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Text {
+    pub rect: Rect,
+    pub document: text::Document,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -131,7 +150,7 @@ mod tests {
 
         assert!(scene.is_empty());
         assert_eq!(scene.clear_color(), None);
-        assert!(scene.quads().is_empty());
+        assert!(scene.items().is_empty());
     }
 
     #[test]
@@ -145,9 +164,13 @@ mod tests {
     }
 
     #[test]
-    fn pushed_quads_preserve_order() {
+    fn pushed_items_preserve_order() {
         let mut scene = Scene::new();
         let first = solid_quad(1.0);
+        let text = Text {
+            rect: Rect::new(point::logical(1.5, 0.0), area::logical(10.0, 10.0)),
+            document: text::Document::plain("Label"),
+        };
         let second = Quad {
             rect: Rect::rounded(
                 point::logical(2.0, 0.0),
@@ -158,8 +181,25 @@ mod tests {
         };
 
         scene.push_quad(first);
+        scene.push_text(text.clone());
         scene.push_quad(second);
 
-        assert_eq!(scene.quads(), &[first, second]);
+        assert_eq!(
+            scene.items(),
+            &[Item::Quad(first), Item::Text(text), Item::Quad(second)]
+        );
+    }
+
+    #[test]
+    fn empty_text_is_not_pushed() {
+        let mut scene = Scene::new();
+
+        scene.push_text(Text {
+            rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
+            document: text::Document::plain(""),
+        });
+
+        assert!(scene.items().is_empty());
+        assert!(scene.is_empty());
     }
 }

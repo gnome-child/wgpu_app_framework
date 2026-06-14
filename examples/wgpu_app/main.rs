@@ -79,8 +79,16 @@ impl app::Application for App {
         let root = ui::control::panel(ROOT)
             .with_background(paint::Color::BLACK)
             .with_padding(layout::Insets::splat(16.0))
-            .with_child(ui::control::button(PANEL_A, ACTIVATE_PANEL))
-            .with_child(ui::control::button(PANEL_B, ACTIVATE_PANEL));
+            .with_child(ui::control::labeled_button(
+                PANEL_A,
+                ACTIVATE_PANEL,
+                "Enable second",
+            ))
+            .with_child(ui::control::labeled_button(
+                PANEL_B,
+                ACTIVATE_PANEL,
+                "Context enabled",
+            ));
 
         tree.set_root(root);
     }

@@ -30,6 +30,13 @@ fn node(
         });
     }
 
+    if let Some(document) = resolved_label(node, actions, window) {
+        scene.push_text(paint::Text {
+            rect: layout.rect,
+            document,
+        });
+    }
+
     for (child, child_layout) in node.children.iter().zip(&layout.children) {
         self::node(child, child_layout, actions, window, interaction, scene);
     }
@@ -74,6 +81,38 @@ fn resolved_background(
     }
 
     Some(background)
+}
+
+fn resolved_label(
+    node: &ui::Node,
+    actions: &action::Registry,
+    window: window::Id,
+) -> Option<crate::text::Document> {
+    let mut document = node.label.clone()?;
+
+    if let Some(action) = node.action {
+        let state = actions.state(
+            action,
+            action::Context {
+                window,
+                target: Some(node.id),
+            },
+        );
+
+        if !state.enabled {
+            if let Some(color) = node.style.disabled_label_color.or(node.style.label_color) {
+                document = document.with_color(color);
+            }
+
+            return Some(document);
+        }
+    }
+
+    if let Some(color) = node.style.label_color {
+        document = document.with_color(color);
+    }
+
+    Some(document)
 }
 
 fn dim(color: paint::Color) -> paint::Color {

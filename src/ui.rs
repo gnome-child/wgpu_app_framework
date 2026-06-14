@@ -5,7 +5,7 @@ mod layouting;
 mod painting;
 
 use crate::geometry::{area, point};
-use crate::{action, layout, paint, window};
+use crate::{action, layout, paint, text, window};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Id(&'static str);
@@ -79,6 +79,7 @@ pub struct Node {
     pub style: Style,
     pub interactivity: Interactivity,
     pub action: Option<action::Id>,
+    pub label: Option<text::Document>,
     pub children: Vec<Node>,
 }
 
@@ -96,6 +97,8 @@ pub struct Style {
     pub focus_background: Option<paint::Color>,
     pub active_background: Option<paint::Color>,
     pub disabled_background: Option<paint::Color>,
+    pub label_color: Option<paint::Color>,
+    pub disabled_label_color: Option<paint::Color>,
     pub padding: layout::Insets,
 }
 
@@ -186,6 +189,7 @@ impl Node {
             style: Style::default(),
             interactivity: Interactivity::default(),
             action: None,
+            label: None,
             children: Vec::new(),
         }
     }
@@ -239,8 +243,23 @@ impl Node {
         self
     }
 
+    pub fn with_label_color(mut self, color: paint::Color) -> Self {
+        self.style.label_color = Some(color);
+        self
+    }
+
+    pub fn with_disabled_label_color(mut self, color: paint::Color) -> Self {
+        self.style.disabled_label_color = Some(color);
+        self
+    }
+
     pub fn with_padding(mut self, padding: layout::Insets) -> Self {
         self.style.padding = padding;
+        self
+    }
+
+    pub fn with_label(mut self, label: text::Document) -> Self {
+        self.label = Some(label);
         self
     }
 
@@ -303,6 +322,8 @@ impl Default for Style {
             focus_background: None,
             active_background: None,
             disabled_background: None,
+            label_color: None,
+            disabled_label_color: None,
             padding: layout::Insets::ZERO,
         }
     }
@@ -358,6 +379,20 @@ mod tests {
     fn layout(tree: &Tree) -> layout::Box {
         tree.layout(area::logical(100.0, 80.0))
             .expect("tree should have root")
+    }
+
+    fn quad(scene: &paint::Scene, index: usize) -> paint::Quad {
+        match scene.items().get(index) {
+            Some(paint::Item::Quad(quad)) => *quad,
+            item => panic!("expected quad item at {index}, got {item:?}"),
+        }
+    }
+
+    fn text(scene: &paint::Scene, index: usize) -> &paint::Text {
+        match scene.items().get(index) {
+            Some(paint::Item::Text(text)) => text,
+            item => panic!("expected text item at {index}, got {item:?}"),
+        }
     }
 
     #[test]
@@ -471,9 +506,76 @@ mod tests {
             &mut scene,
         );
 
-        assert_eq!(scene.quads().len(), 2);
-        assert_eq!(scene.quads()[0].rect, layout.rect);
-        assert_eq!(scene.quads()[1].rect, layout.children[0].rect);
+        assert_eq!(scene.items().len(), 2);
+        assert_eq!(quad(&scene, 0).rect, layout.rect);
+        assert_eq!(quad(&scene, 1).rect, layout.children[0].rect);
+    }
+
+    #[test]
+    fn labeled_button_stores_label_document() {
+        let button = control::labeled_button(A, CLICK, "Activate");
+
+        let label = button.label.expect("button should have a label");
+        assert_eq!(label.blocks()[0].align(), text::Align::Center);
+        assert_eq!(label.blocks()[0].runs()[0].text(), "Activate");
+    }
+
+    #[test]
+    fn tree_paint_emits_label_after_node_background() {
+        let root = Node::container(ROOT, layout::Axis::Vertical)
+            .with_background(paint::Color::BLACK)
+            .with_child(control::labeled_button(A, CLICK, "Activate"));
+        let mut tree = Tree::new();
+        let mut scene = paint::Scene::new();
+        let mut registry = action::Registry::new();
+        let window = window::Id::new(1);
+
+        registry.register(action::Action::new(CLICK, "Click"));
+        tree.set_root(root);
+        let layout = layout(&tree);
+        tree.paint(
+            &layout,
+            &registry,
+            window,
+            Interaction::default(),
+            &mut scene,
+        );
+
+        assert_eq!(scene.items().len(), 3);
+        assert_eq!(quad(&scene, 0).rect, layout.rect);
+        assert_eq!(quad(&scene, 1).rect, layout.children[0].rect);
+        assert_eq!(text(&scene, 2).rect, layout.children[0].rect);
+        assert_eq!(
+            text(&scene, 2).document.blocks()[0].runs()[0].text(),
+            "Activate"
+        );
+    }
+
+    #[test]
+    fn later_sibling_quad_renders_after_button_label() {
+        let root = Node::container(ROOT, layout::Axis::Vertical)
+            .with_child(control::labeled_button(A, CLICK, "Activate"))
+            .with_child(Node::leaf(B).with_background(paint::Color::RED));
+        let mut tree = Tree::new();
+        let mut scene = paint::Scene::new();
+        let mut registry = action::Registry::new();
+        let window = window::Id::new(1);
+
+        registry.register(action::Action::new(CLICK, "Click"));
+        tree.set_root(root);
+        let layout = layout(&tree);
+        tree.paint(
+            &layout,
+            &registry,
+            window,
+            Interaction::default(),
+            &mut scene,
+        );
+
+        assert_eq!(scene.items().len(), 3);
+        assert_eq!(quad(&scene, 0).rect, layout.children[0].rect);
+        assert_eq!(text(&scene, 1).rect, layout.children[0].rect);
+        assert_eq!(quad(&scene, 2).rect, layout.children[1].rect);
     }
 
     #[test]
@@ -507,8 +609,43 @@ mod tests {
         );
 
         assert_eq!(
-            scene.quads()[0].style.fill,
+            quad(&scene, 0).style.fill,
             Some(paint::Fill::Brush(paint::Brush::Solid(paint::Color::BLACK)))
+        );
+    }
+
+    #[test]
+    fn disabled_button_uses_disabled_label_color() {
+        let root = control::labeled_button(A, CLICK, "Disabled");
+        let mut tree = Tree::new();
+        let mut scene = paint::Scene::new();
+        let mut registry = action::Registry::new();
+        let window = window::Id::new(1);
+
+        registry.register(action::Action::new(CLICK, "Click"));
+        registry.set_state(
+            CLICK,
+            action::Context {
+                window,
+                target: Some(A),
+            },
+            action::State::disabled(),
+        );
+        tree.set_root(root.clone());
+        let layout = layout(&tree);
+        tree.paint(
+            &layout,
+            &registry,
+            window,
+            Interaction::default(),
+            &mut scene,
+        );
+
+        assert_eq!(
+            text(&scene, 1).document.blocks()[0].runs()[0].style().color,
+            root.style
+                .disabled_label_color
+                .expect("control has disabled label color")
         );
     }
 
@@ -536,7 +673,7 @@ mod tests {
         );
 
         assert_eq!(
-            scene.quads()[0].style.fill,
+            quad(&scene, 0).style.fill,
             Some(paint::Fill::Brush(paint::Brush::Solid(
                 root.style
                     .hover_background
@@ -569,7 +706,7 @@ mod tests {
         );
 
         assert_eq!(
-            scene.quads()[0].style.fill,
+            quad(&scene, 0).style.fill,
             Some(paint::Fill::Brush(paint::Brush::Solid(
                 root.style
                     .focus_background
@@ -610,7 +747,7 @@ mod tests {
         );
 
         assert_eq!(
-            scene.quads()[0].style.fill,
+            quad(&scene, 0).style.fill,
             Some(paint::Fill::Brush(paint::Brush::Solid(
                 root.style
                     .active_background

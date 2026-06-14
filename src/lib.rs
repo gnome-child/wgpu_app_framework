@@ -5,6 +5,7 @@ pub mod layout;
 pub mod native;
 pub mod paint;
 pub mod render;
+pub mod text;
 pub mod ui;
 pub mod window;
 

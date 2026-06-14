@@ -40,4 +40,10 @@ pub enum Error {
 
     #[error("surface was lost")]
     SurfaceLost,
+
+    #[error(transparent)]
+    TextPrepare(#[from] glyphon::PrepareError),
+
+    #[error(transparent)]
+    TextRender(#[from] glyphon::RenderError),
 }
