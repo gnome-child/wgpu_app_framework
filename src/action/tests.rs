@@ -169,3 +169,29 @@ fn state_accessors_expose_enabled_active_and_busy_flags() {
     assert!(state.is_active());
     assert!(state.is_busy());
 }
+
+#[test]
+fn request_preserves_activation_source_target_and_origin() {
+    let window = window::Id::new(1);
+    let path = ui::Path::from(TEXT_BOX);
+    let context = Context::path(window, path.clone());
+    let request =
+        Request::new(SELECT_ALL, Source::Shortcut, context.clone()).with_origin(path.clone());
+
+    assert_eq!(request.action(), SELECT_ALL);
+    assert_eq!(request.source(), Source::Shortcut);
+    assert_eq!(request.target(), &context);
+    assert_eq!(request.origin(), Some(&path));
+}
+
+#[test]
+fn invocation_is_created_from_validated_request() {
+    let window = window::Id::new(1);
+    let context = Context::window(window);
+    let request = Request::new(SELECT_ALL, Source::Programmatic, context.clone());
+
+    assert_eq!(
+        Invocation::from(request),
+        Invocation::new(SELECT_ALL, Source::Programmatic, context)
+    );
+}

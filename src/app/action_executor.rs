@@ -7,18 +7,19 @@ use crate::{action, window};
 
 pub fn execute<T: Send + 'static>(
     actions: &mut action::Registry<T>,
-    invocation: action::Invocation,
+    request: action::Request,
     spawn: impl FnOnce(action::Invocation, crate::Task<T>),
     request_redraw: &mut impl FnMut(window::Id),
 ) -> Option<action::Effect<T>> {
-    let action = invocation.action();
-    let context = invocation.context().clone();
+    let action = request.action();
+    let context = request.target().clone();
     let window = context.window_id();
 
     if !actions.can_invoke(action, context.clone()) {
         return None;
     }
 
+    let invocation = action::Invocation::from(request);
     let effect = actions.execute(invocation.clone())?;
 
     if let action::Effect::Task(task) = effect {
@@ -91,7 +92,7 @@ mod tests {
 
         let effect = execute(
             &mut registry,
-            action::Invocation::new(WORK, action::Source::Programmatic, context),
+            action::Request::new(WORK, action::Source::Programmatic, context),
             |_, _| panic!("disabled action should not spawn a task"),
             &mut |window| redraws.push(window),
         );
@@ -111,7 +112,7 @@ mod tests {
         registry.register(crate::Action::new(WORK, "Work").emit(|_| 7));
         let effect = execute(
             &mut registry,
-            action::Invocation::new(WORK, action::Source::Programmatic, context),
+            action::Request::new(WORK, action::Source::Programmatic, context),
             |_, _| panic!("sync action should not spawn a task"),
             &mut |window| redraws.push(window),
         );
@@ -128,6 +129,7 @@ mod tests {
         let context = action::Context::window(window);
         let invocation =
             action::Invocation::new(WORK, action::Source::Programmatic, context.clone());
+        let request = action::Request::new(WORK, action::Source::Programmatic, context.clone());
         let mut registry = action::Registry::<i32>::new();
         let mut redraws = Vec::new();
         let mut completed = None;
@@ -137,7 +139,7 @@ mod tests {
 
         let effect = execute(
             &mut registry,
-            invocation.clone(),
+            request,
             |invocation, task| completed = Some((invocation, task.run())),
             &mut |window| redraws.push(window),
         );

@@ -4,7 +4,7 @@ mod id;
 mod registry;
 mod state;
 
-pub use context::{Context, Invocation, Scope, Source};
+pub use context::{Context, Invocation, Request, Scope, Source};
 pub use definition::{Action, Effect};
 pub use id::Id;
 pub use registry::Registry;

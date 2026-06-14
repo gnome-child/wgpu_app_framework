@@ -95,8 +95,8 @@ impl<A: Application> Runtime<A> {
 
                     self.app.event(&mut cx, event);
                 }
-                Message::RunAction(invocation) => {
-                    self.run_action(invocation);
+                Message::RunAction(request) => {
+                    self.run_action(request);
                 }
                 Message::ActionTaskCompleted { invocation, event } => {
                     self.complete_action_task(invocation, event);
@@ -108,14 +108,14 @@ impl<A: Application> Runtime<A> {
         }
     }
 
-    fn run_action(&mut self, invocation: action::Invocation) {
+    fn run_action(&mut self, request: action::Request) {
         let windows = &self.windows;
         let mut request_redraw = |window| windows.request_redraw(window);
 
         let sender = self.sender.clone();
         if let Some(effect) = action_executor::execute(
             &mut self.actions,
-            invocation,
+            request,
             |invocation, task| action_executor::spawn_task(invocation, task, sender),
             &mut request_redraw,
         ) {
@@ -240,8 +240,8 @@ impl<A: Application> Runtime<A> {
 
         self.dispatch_ui_events(event_loop, window, outcome.events);
 
-        if let Some(invocation) = outcome.invocation {
-            self.dispatch_message(event_loop, Message::RunAction(invocation));
+        if let Some(request) = outcome.request {
+            self.dispatch_message(event_loop, Message::RunAction(request));
         }
 
         if outcome.redraw {
@@ -277,8 +277,8 @@ impl<A: Application> Runtime<A> {
 
         self.dispatch_ui_events(event_loop, window, outcome.events);
 
-        if let Some(invocation) = outcome.invocation {
-            self.dispatch_message(event_loop, Message::RunAction(invocation));
+        if let Some(request) = outcome.request {
+            self.dispatch_message(event_loop, Message::RunAction(request));
         }
 
         if outcome.redraw {

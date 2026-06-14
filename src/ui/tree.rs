@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::geometry::area;
 use crate::{action, layout, paint, window};
 
-use super::{Interaction, Interactivity, Node, Path, layout_engine, painting};
+use super::{ActionTarget, Interaction, Interactivity, Node, Path, layout_engine, painting};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tree {
@@ -47,6 +47,16 @@ impl Tree {
         actions
     }
 
+    pub fn action_targets(&self) -> HashMap<Path, ActionTarget> {
+        let mut targets = HashMap::new();
+
+        if let Some(root) = self.root.as_ref() {
+            collect_action_targets(root, &Path::root(root.id()), &mut targets);
+        }
+
+        targets
+    }
+
     pub fn interactivity(&self) -> HashMap<Path, Interactivity> {
         let mut interactivity = HashMap::new();
 
@@ -84,6 +94,16 @@ fn collect_actions(node: &Node, path: &Path, actions: &mut HashMap<Path, action:
 
     for child in node.children() {
         collect_actions(child, &path.child(child.id()), actions);
+    }
+}
+
+fn collect_action_targets(node: &Node, path: &Path, targets: &mut HashMap<Path, ActionTarget>) {
+    if node.action().is_some() {
+        targets.insert(path.clone(), node.action_target());
+    }
+
+    for child in node.children() {
+        collect_action_targets(child, &path.child(child.id()), targets);
     }
 }
 

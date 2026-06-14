@@ -3,14 +3,14 @@ use winit::{
     keyboard::{Key as WinitKey, ModifiersState, NamedKey},
 };
 
-use crate::app::state::{PressSource, WindowState, action_invocation};
+use crate::app::state::{PressSource, WindowState, action_request};
 use crate::geometry::point;
 use crate::{action, pointer, ui, window};
 
 #[derive(Debug, Default)]
 pub struct Outcome {
     pub events: Vec<ui::Event>,
-    pub invocation: Option<action::Invocation>,
+    pub request: Option<action::Request>,
     pub redraw: bool,
 }
 
@@ -32,7 +32,7 @@ pub fn pointer_moved(state: &mut WindowState, position: point::Logical) -> Outco
 
     Outcome {
         events,
-        invocation: None,
+        request: None,
         redraw,
     }
 }
@@ -51,7 +51,7 @@ pub fn pointer_pressed(
 
     Outcome {
         events: vec![event],
-        invocation: None,
+        request: None,
         redraw: true,
     }
 }
@@ -69,19 +69,13 @@ pub fn pointer_released<T>(
     });
     let target = state.hit_test(position);
     let (event, invoke_target) = state.pointer_up(position, state.pointer.delta(), target, button);
-    let invocation = invoke_target.and_then(|target| {
-        action_invocation(
-            registry,
-            &state.actions,
-            window,
-            target,
-            action::Source::Pointer,
-        )
-    });
+    let request = invoke_target
+        .and_then(|target| action_request(state, window, target, action::Source::Pointer))
+        .filter(|request| registry.can_invoke(request.action(), request.target().clone()));
 
     Outcome {
         events: vec![event],
-        invocation,
+        request,
         redraw: true,
     }
 }
@@ -111,7 +105,7 @@ pub fn pointer_left(state: &mut WindowState) -> Outcome {
     Outcome {
         redraw: !events.is_empty() || cleared_pressed,
         events,
-        invocation: None,
+        request: None,
     }
 }
 
@@ -174,7 +168,7 @@ pub fn key_pressed<T>(
 
     Outcome {
         events: vec![event],
-        invocation: None,
+        request: None,
         redraw,
     }
 }
@@ -192,7 +186,7 @@ pub fn key_released<T>(
         target: target.clone(),
     };
     let mut redraw = false;
-    let mut invocation = None;
+    let mut request = None;
 
     if matches!(key, ui::Key::Enter | ui::Key::Space)
         && state.pressed_source == Some(PressSource::Keyboard)
@@ -202,21 +196,15 @@ pub fn key_released<T>(
         redraw = pressed.is_some();
 
         if pressed == target {
-            invocation = target.and_then(|target| {
-                action_invocation(
-                    registry,
-                    &state.actions,
-                    window,
-                    target,
-                    action::Source::Keyboard,
-                )
-            });
+            request = target
+                .and_then(|target| action_request(state, window, target, action::Source::Keyboard))
+                .filter(|request| registry.can_invoke(request.action(), request.target().clone()));
         }
     }
 
     Outcome {
         events: vec![event],
-        invocation,
+        request,
         redraw,
     }
 }
@@ -272,7 +260,7 @@ fn can_focus<T>(
         return true;
     };
 
-    registry.can_invoke(*action, action::Context::path(window, path.clone()))
+    registry.can_invoke(*action, state.action_context_for_path(window, path))
 }
 
 fn invokable_focused_path<T>(
@@ -281,14 +269,9 @@ fn invokable_focused_path<T>(
     window: window::Id,
 ) -> Option<ui::Path> {
     let target = state.focused_path()?;
-    action_invocation(
-        registry,
-        &state.actions,
-        window,
-        target.clone(),
-        action::Source::Keyboard,
-    )
-    .map(|_| target)
+    action_request(state, window, target.clone(), action::Source::Keyboard)
+        .filter(|request| registry.can_invoke(request.action(), request.target().clone()))
+        .map(|_| target)
 }
 
 #[cfg(test)]
@@ -341,7 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn released_control_returns_contextual_action_invocation() {
+    fn released_control_returns_contextual_action_request() {
         let window = window::Id::new(1);
         let mut registry = action::Registry::<()>::new();
         let mut state = WindowState {
@@ -371,12 +354,15 @@ mod tests {
         );
 
         assert_eq!(
-            outcome.invocation,
-            Some(action::Invocation::new(
-                CLICK,
-                action::Source::Pointer,
-                action::Context::path(window, path(CHILD))
-            ))
+            outcome.request,
+            Some(
+                action::Request::new(
+                    CLICK,
+                    action::Source::Pointer,
+                    action::Context::path(window, path(CHILD))
+                )
+                .with_origin(path(CHILD))
+            )
         );
         assert!(!state.pointer.primary_down());
     }
@@ -605,12 +591,94 @@ mod tests {
         assert_eq!(state.pressed, None);
         assert_eq!(state.pressed_source, None);
         assert_eq!(
-            released.invocation,
-            Some(action::Invocation::new(
-                CLICK,
-                action::Source::Keyboard,
-                action::Context::path(window, path(CHILD))
-            ))
+            released.request,
+            Some(
+                action::Request::new(
+                    CLICK,
+                    action::Source::Keyboard,
+                    action::Context::path(window, path(CHILD))
+                )
+                .with_origin(path(CHILD))
+            )
+        );
+    }
+
+    #[test]
+    fn command_target_control_uses_stored_command_target() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let mut state = WindowState {
+            pressed: Some(path(CHILD)),
+            pressed_source: Some(PressSource::Pointer),
+            command_target: Some(action::Scope::Path(path(SECOND))),
+            actions: HashMap::from([(path(CHILD), CLICK)]),
+            action_targets: HashMap::from([(path(CHILD), ui::ActionTarget::Command)]),
+            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            ..WindowState::default()
+        };
+
+        state.layout = Some(crate::layout::Box::new(
+            CHILD,
+            crate::geometry::Rect::new(
+                point::logical(0.0, 0.0),
+                crate::geometry::area::logical(10.0, 10.0),
+            ),
+            Vec::new(),
+        ));
+        registry.register(Action::new(CLICK, "Click"));
+
+        let outcome = pointer_released(
+            &registry,
+            &mut state,
+            window,
+            point::logical(1.0, 1.0),
+            pointer::Button::Primary,
+        );
+
+        assert_eq!(
+            outcome.request,
+            Some(
+                action::Request::new(
+                    CLICK,
+                    action::Source::Pointer,
+                    action::Context::path(window, path(SECOND))
+                )
+                .with_origin(path(CHILD))
+            )
+        );
+    }
+
+    #[test]
+    fn window_target_control_uses_window_context() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let mut state = WindowState {
+            focus: Some(crate::app::state::Focus::new(
+                path(CHILD),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            command_target: Some(action::Scope::Path(path(SECOND))),
+            actions: HashMap::from([(path(CHILD), CLICK)]),
+            action_targets: HashMap::from([(path(CHILD), ui::ActionTarget::Window)]),
+            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            ..WindowState::default()
+        };
+
+        registry.register(Action::new(CLICK, "Click"));
+        key_pressed(&registry, &mut state, window, ui::Key::Space, false);
+        let outcome = key_released(&registry, &mut state, window, ui::Key::Space);
+
+        assert_eq!(
+            outcome.request,
+            Some(
+                action::Request::new(
+                    CLICK,
+                    action::Source::Keyboard,
+                    action::Context::window(window)
+                )
+                .with_origin(path(CHILD))
+            )
         );
     }
 }

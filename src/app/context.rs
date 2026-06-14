@@ -3,7 +3,7 @@ use winit::event_loop::ActiveEventLoop;
 use crate::app::mailbox::Mailbox;
 use crate::app::rendering;
 use crate::app::sender::Sender;
-use crate::app::state::{WindowState, resolve_action_path};
+use crate::app::state::WindowState;
 use crate::app::task_runner;
 use crate::app::windows::Windows;
 use crate::geometry::area;
@@ -129,11 +129,42 @@ impl<T: Send + 'static> Context<'_, T> {
     }
 
     pub fn invoke_action(&mut self, action: action::Id, context: action::Context) {
-        self.mailbox.run_action(action::Invocation::new(
+        self.mailbox.run_action(action::Request::new(
             action,
             action::Source::Programmatic,
             context,
         ));
+    }
+
+    pub fn command_target(&self, window: window::Id) -> action::Context {
+        self.window_states
+            .get(&window)
+            .map(|state| state.command_context(window))
+            .unwrap_or_else(|| action::Context::window(window))
+    }
+
+    pub fn set_command_target(&mut self, window: window::Id, context: action::Context) {
+        if context.window_id() != window {
+            return;
+        }
+
+        let Some(state) = self.window_states.get_mut(&window) else {
+            return;
+        };
+
+        if state.set_command_target(context) {
+            self.request_redraw(window);
+        }
+    }
+
+    pub fn clear_command_target(&mut self, window: window::Id) {
+        let Some(state) = self.window_states.get_mut(&window) else {
+            return;
+        };
+
+        if state.clear_command_target() {
+            self.request_redraw(window);
+        }
     }
 
     pub fn hovered(&self, window: window::Id) -> Option<ui::Path> {
@@ -177,11 +208,7 @@ impl<T: Send + 'static> Context<'_, T> {
             return action::Context::with_scope(window, scope);
         }
 
-        let scope = resolve_action_path(self.window_states.get(&window), None)
-            .map(action::Scope::Path)
-            .unwrap_or(action::Scope::Window);
-
-        action::Context::with_scope(window, scope)
+        self.command_target(window)
     }
 }
 

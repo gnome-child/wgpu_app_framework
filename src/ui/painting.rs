@@ -155,7 +155,7 @@ fn visual_state<T>(
 ) -> VisualState {
     let action_state = node
         .action()
-        .map(|action| actions.state(action, action::Context::path(window, layout.path().clone())))
+        .map(|action| actions.state(action, action_context(node, layout, window, interaction)))
         .unwrap_or_default();
     let enabled = action_state.is_enabled();
     let busy = action_state.is_busy();
@@ -176,6 +176,22 @@ fn visual_state<T>(
             hover: normalized(interactive && hovered),
             press: normalized(interactive && pressed),
         },
+    }
+}
+
+fn action_context(
+    node: &ui::Node,
+    layout: &layout::Box,
+    window: window::Id,
+    interaction: &ui::Interaction,
+) -> action::Context {
+    match node.action_target() {
+        ui::ActionTarget::Origin => action::Context::path(window, layout.path().clone()),
+        ui::ActionTarget::Command => interaction
+            .command_target()
+            .cloned()
+            .unwrap_or_else(|| action::Context::window(window)),
+        ui::ActionTarget::Window => action::Context::window(window),
     }
 }
 

@@ -249,10 +249,34 @@ fn icon_button_is_action_bound_control() {
     let button = control::icon_button(A, CLICK, check_icon());
 
     assert_eq!(button.action(), Some(CLICK));
+    assert_eq!(button.action_target(), ActionTarget::Origin);
     assert_eq!(button.icon(), Some(check_icon()));
     assert!(button.interactivity().hit_test());
     assert!(button.interactivity().focusable());
     assert!(button.interactivity().actionable());
+}
+
+#[test]
+fn node_with_action_target_stores_policy() {
+    let node = Node::leaf(A)
+        .with_action(CLICK)
+        .with_action_target(ActionTarget::Command);
+
+    assert_eq!(node.action_target(), ActionTarget::Command);
+}
+
+#[test]
+fn tree_collects_action_target_policies() {
+    let root = Node::container(ROOT, layout::Axis::Vertical)
+        .with_child(control::button(A, CLICK).with_action_target(ActionTarget::Command));
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+
+    assert_eq!(
+        tree.action_targets().get(&Path::new([ROOT, A])),
+        Some(&ActionTarget::Command)
+    );
 }
 
 #[test]
@@ -554,6 +578,66 @@ fn active_state_renders_independently_from_focus_visibility() {
         root.style().active_tint().expect("control has active tint")
     );
     assert_eq!(scene.items().len(), 2);
+}
+
+#[test]
+fn command_target_widget_visuals_derive_from_command_target_state() {
+    let root = control::button(A, CLICK).with_action_target(ActionTarget::Command);
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    registry.set_state(
+        CLICK,
+        action::Context::path(window, path(B)),
+        action::State::active(),
+    );
+    tree.set_root(root.clone());
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::default().with_command_target(action::Context::path(window, path(B))),
+        &mut scene,
+    );
+
+    assert_eq!(
+        tint(&scene, 1).color,
+        root.style().active_tint().expect("control has active tint")
+    );
+}
+
+#[test]
+fn window_target_widget_visuals_derive_from_window_state() {
+    let root = control::button(A, CLICK).with_action_target(ActionTarget::Window);
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    registry.set_state(
+        CLICK,
+        action::Context::window(window),
+        action::State::active(),
+    );
+    tree.set_root(root.clone());
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::default(),
+        &mut scene,
+    );
+
+    assert_eq!(
+        tint(&scene, 1).color,
+        root.style().active_tint().expect("control has active tint")
+    );
 }
 
 #[test]

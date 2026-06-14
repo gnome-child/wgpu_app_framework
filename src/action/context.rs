@@ -19,6 +19,15 @@ pub enum Source {
     Pointer,
     Keyboard,
     Programmatic,
+    Shortcut,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Request {
+    action: Id,
+    source: Source,
+    target: Context,
+    origin: Option<ui::Path>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,6 +65,38 @@ impl Context {
     }
 }
 
+impl Request {
+    pub fn new(action: Id, source: Source, target: Context) -> Self {
+        Self {
+            action,
+            source,
+            target,
+            origin: None,
+        }
+    }
+
+    pub fn with_origin(mut self, origin: ui::Path) -> Self {
+        self.origin = Some(origin);
+        self
+    }
+
+    pub fn action(&self) -> Id {
+        self.action
+    }
+
+    pub fn source(&self) -> Source {
+        self.source
+    }
+
+    pub fn target(&self) -> &Context {
+        &self.target
+    }
+
+    pub fn origin(&self) -> Option<&ui::Path> {
+        self.origin.as_ref()
+    }
+}
+
 impl Invocation {
     pub fn new(action: Id, source: Source, context: Context) -> Self {
         Self {
@@ -75,5 +116,11 @@ impl Invocation {
 
     pub fn context(&self) -> &Context {
         &self.context
+    }
+}
+
+impl From<Request> for Invocation {
+    fn from(request: Request) -> Self {
+        Self::new(request.action, request.source, request.target)
     }
 }

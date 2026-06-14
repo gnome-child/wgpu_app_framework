@@ -5,7 +5,7 @@ use crate::{action, event};
 #[derive(Debug, Clone, PartialEq)]
 pub enum Message<T> {
     Event(event::Event<T>),
-    RunAction(action::Invocation),
+    RunAction(action::Request),
     ActionTaskCompleted {
         invocation: action::Invocation,
         event: T,
@@ -33,8 +33,8 @@ impl<T> Mailbox<T> {
         self.events.push_back(message);
     }
 
-    pub fn run_action(&mut self, invocation: action::Invocation) {
-        self.push_message(Message::RunAction(invocation));
+    pub fn run_action(&mut self, request: action::Request) {
+        self.push_message(Message::RunAction(request));
     }
 
     pub fn push_app(&mut self, event: T) {
@@ -65,7 +65,7 @@ mod tests {
         let window = window::Id::new(1);
 
         mailbox.push_app(1);
-        mailbox.run_action(action::Invocation::new(
+        mailbox.run_action(action::Request::new(
             CLICK,
             action::Source::Programmatic,
             action::Context::window(window),
@@ -74,7 +74,7 @@ mod tests {
         assert_eq!(mailbox.pop(), Some(Message::Event(event::Event::App(1))));
         assert_eq!(
             mailbox.pop(),
-            Some(Message::RunAction(action::Invocation::new(
+            Some(Message::RunAction(action::Request::new(
                 CLICK,
                 action::Source::Programmatic,
                 action::Context::window(window),
@@ -103,7 +103,7 @@ mod tests {
         let mut mailbox = Mailbox::<()>::new();
         let window = window::Id::new(1);
 
-        mailbox.run_action(action::Invocation::new(
+        mailbox.run_action(action::Request::new(
             CLICK,
             action::Source::Pointer,
             action::Context::window(window),
@@ -112,7 +112,7 @@ mod tests {
 
         assert_eq!(
             mailbox.pop(),
-            Some(Message::RunAction(action::Invocation::new(
+            Some(Message::RunAction(action::Request::new(
                 CLICK,
                 action::Source::Pointer,
                 action::Context::window(window),

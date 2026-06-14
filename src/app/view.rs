@@ -12,18 +12,22 @@ pub fn compose<T>(
     let mut scene = paint::Scene::new();
 
     state.actions = tree.actions();
+    state.action_targets = tree.action_targets();
     state.interactivity = tree.interactivity();
 
     if let Some(layout) = tree.layout(logical_area) {
         state.focus_order = focus_order(&layout, &state.interactivity);
         state.clear_stale_focus();
+        state.clear_stale_command_target();
+        let command_target = state.command_context(window);
 
         let interaction = ui::Interaction::new(
             state.hovered.clone(),
             state.focused_path(),
             state.pressed.clone(),
         )
-        .with_focus_visibility(state.focus_visibility());
+        .with_focus_visibility(state.focus_visibility())
+        .with_command_target(command_target);
         state.layout = Some(layout.clone());
 
         tree.paint(&layout, actions, window, interaction, &mut scene);
@@ -31,6 +35,7 @@ pub fn compose<T>(
         state.layout = None;
         state.focus_order.clear();
         state.clear_focus();
+        state.clear_command_target();
     }
 
     scene
@@ -104,6 +109,10 @@ mod tests {
             state.actions.get(&ui::Path::new([ROOT, CHILD])),
             Some(&CLICK)
         );
+        assert_eq!(
+            state.action_targets.get(&ui::Path::new([ROOT, CHILD])),
+            Some(&ui::ActionTarget::Origin)
+        );
         assert!(state.interactivity.contains_key(&ui::Path::from(ROOT)));
         assert_eq!(state.focus_order, vec![ui::Path::new([ROOT, CHILD])]);
         assert_eq!(scene.items().len(), 2);
@@ -139,5 +148,33 @@ mod tests {
         );
 
         assert_eq!(state.focused_path(), None);
+    }
+
+    #[test]
+    fn compose_clears_stale_command_target_after_tree_rebuild() {
+        let window = window::Id::new(1);
+        let mut state = WindowState {
+            command_target: Some(action::Scope::Path(ui::Path::new([ROOT, CHILD]))),
+            ..WindowState::default()
+        };
+        let registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+
+        tree.set_root(
+            ui::control::panel(ROOT).with_child(
+                ui::control::button(OTHER, CLICK)
+                    .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
+            ),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &registry,
+            area::logical(100.0, 100.0),
+        );
+
+        assert_eq!(state.command_target, None);
     }
 }

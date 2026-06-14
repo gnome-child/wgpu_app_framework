@@ -9,6 +9,7 @@ pub struct Node {
     style: Style,
     interactivity: Interactivity,
     action: Option<action::Id>,
+    action_target: ActionTarget,
     label: Option<text::Document>,
     icon: Option<icon::Icon>,
     icon_size: Option<f32>,
@@ -58,12 +59,21 @@ pub struct Interactivity {
     actionable: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ActionTarget {
+    #[default]
+    Origin,
+    Command,
+    Window,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Interaction {
     hovered: Option<Path>,
     focused: Option<Path>,
     focus_visibility: focus::Visibility,
     pressed: Option<Path>,
+    command_target: Option<action::Context>,
 }
 
 impl Node {
@@ -74,6 +84,7 @@ impl Node {
             style: Style::default(),
             interactivity: Interactivity::default(),
             action: None,
+            action_target: ActionTarget::default(),
             label: None,
             icon: None,
             icon_size: None,
@@ -107,6 +118,10 @@ impl Node {
 
     pub fn action(&self) -> Option<action::Id> {
         self.action
+    }
+
+    pub fn action_target(&self) -> ActionTarget {
+        self.action_target
     }
 
     pub fn label(&self) -> Option<&text::Document> {
@@ -251,6 +266,11 @@ impl Node {
 
     pub fn with_action(mut self, action: action::Id) -> Self {
         self.action = Some(action);
+        self
+    }
+
+    pub fn with_action_target(mut self, target: ActionTarget) -> Self {
+        self.action_target = target;
         self
     }
 
@@ -494,11 +514,17 @@ impl Interaction {
             focused,
             focus_visibility: focus::Visibility::Visible,
             pressed,
+            command_target: None,
         }
     }
 
     pub fn with_focus_visibility(mut self, visibility: focus::Visibility) -> Self {
         self.focus_visibility = visibility;
+        self
+    }
+
+    pub fn with_command_target(mut self, target: action::Context) -> Self {
+        self.command_target = Some(target);
         self
     }
 
@@ -516,5 +542,9 @@ impl Interaction {
 
     pub fn pressed(&self) -> Option<&Path> {
         self.pressed.as_ref()
+    }
+
+    pub fn command_target(&self) -> Option<&action::Context> {
+        self.command_target.as_ref()
     }
 }

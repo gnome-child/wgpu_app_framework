@@ -11,9 +11,11 @@ pub struct WindowState {
     pub pressed_source: Option<PressSource>,
     pub modifiers: ui::Modifiers,
     pub focus_order: Vec<ui::Path>,
+    pub command_target: Option<action::Scope>,
     pub pointer: pointer::Pointer,
     pub layout: Option<layout::Box>,
     pub actions: HashMap<ui::Path, action::Id>,
+    pub action_targets: HashMap<ui::Path, ui::ActionTarget>,
     pub interactivity: HashMap<ui::Path, ui::Interactivity>,
 }
 
@@ -51,6 +53,10 @@ impl WindowState {
         self.interactivity
             .get(target)
             .is_some_and(|interactivity| interactivity.actionable())
+    }
+
+    pub fn action_target(&self, target: &ui::Path) -> ui::ActionTarget {
+        self.action_targets.get(target).copied().unwrap_or_default()
     }
 
     pub fn set_hovered(&mut self, target: Option<ui::Path>) -> Vec<ui::Event> {
@@ -183,6 +189,52 @@ impl WindowState {
 
         self.clear_focus()
     }
+
+    pub fn command_context(&self, window: window::Id) -> action::Context {
+        if let Some(scope) = self.command_target.clone() {
+            return action::Context::with_scope(window, scope);
+        }
+
+        resolve_action_path(Some(self), None)
+            .map(|path| action::Context::path(window, path))
+            .unwrap_or_else(|| action::Context::window(window))
+    }
+
+    pub fn action_context_for_path(&self, window: window::Id, path: &ui::Path) -> action::Context {
+        match self.action_target(path) {
+            ui::ActionTarget::Origin => action::Context::path(window, path.clone()),
+            ui::ActionTarget::Command => self.command_context(window),
+            ui::ActionTarget::Window => action::Context::window(window),
+        }
+    }
+
+    pub fn set_command_target(&mut self, context: action::Context) -> bool {
+        let scope = Some(context.scope().clone());
+        if self.command_target == scope {
+            return false;
+        }
+
+        self.command_target = scope;
+        true
+    }
+
+    pub fn clear_command_target(&mut self) -> bool {
+        let changed = self.command_target.is_some();
+        self.command_target = None;
+        changed
+    }
+
+    pub fn clear_stale_command_target(&mut self) -> bool {
+        let Some(action::Scope::Path(path)) = self.command_target.as_ref() else {
+            return false;
+        };
+
+        if self.interactivity.contains_key(path) {
+            return false;
+        }
+
+        self.clear_command_target()
+    }
 }
 
 impl Focus {
@@ -203,21 +255,16 @@ impl Focus {
     }
 }
 
-pub fn action_invocation<T>(
-    registry: &action::Registry<T>,
-    bindings: &HashMap<ui::Path, action::Id>,
+pub fn action_request(
+    state: &WindowState,
     window: window::Id,
-    target: ui::Path,
+    origin: ui::Path,
     source: action::Source,
-) -> Option<action::Invocation> {
-    let action = *bindings.get(&target)?;
-    let context = action::Context::path(window, target);
+) -> Option<action::Request> {
+    let action = *state.actions.get(&origin)?;
+    let context = state.action_context_for_path(window, &origin);
 
-    if !registry.can_invoke(action, context.clone()) {
-        return None;
-    }
-
-    Some(action::Invocation::new(action, source, context))
+    Some(action::Request::new(action, source, context).with_origin(origin))
 }
 
 pub fn resolve_action_path(
@@ -446,7 +493,7 @@ mod tests {
     }
 
     #[test]
-    fn pointer_release_over_pressed_action_emits_contextual_action() {
+    fn pointer_release_over_pressed_action_emits_contextual_request() {
         let window = window::Id::new(1);
         let mut state = WindowState {
             layout: Some(layout::Box::new(
@@ -473,21 +520,24 @@ mod tests {
             Some(path(CHILD)),
             pointer::Button::Primary,
         );
-        let invocation = action_invocation(
-            &registry,
-            &state.actions,
+        let request = action_request(
+            &state,
             window,
             target.expect("release should target pressed element"),
             action::Source::Pointer,
-        );
+        )
+        .filter(|request| registry.can_invoke(request.action(), request.target().clone()));
 
         assert_eq!(
-            invocation,
-            Some(action::Invocation::new(
-                CLICK,
-                action::Source::Pointer,
-                action::Context::path(window, path(CHILD))
-            ))
+            request,
+            Some(
+                action::Request::new(
+                    CLICK,
+                    action::Source::Pointer,
+                    action::Context::path(window, path(CHILD))
+                )
+                .with_origin(path(CHILD))
+            )
         );
     }
 
@@ -496,19 +546,17 @@ mod tests {
         let window = window::Id::new(1);
         let context = action::Context::path(window, path(CHILD));
         let mut registry = action::Registry::<()>::new();
-        let bindings = HashMap::from([(path(CHILD), CLICK)]);
+        let state = WindowState {
+            actions: HashMap::from([(path(CHILD), CLICK)]),
+            ..WindowState::default()
+        };
 
         registry.register(Action::new(CLICK, "Click"));
         registry.set_state(CLICK, context, action::State::disabled());
 
         assert_eq!(
-            action_invocation(
-                &registry,
-                &bindings,
-                window,
-                path(CHILD),
-                action::Source::Pointer
-            ),
+            action_request(&state, window, path(CHILD), action::Source::Pointer)
+                .filter(|request| registry.can_invoke(request.action(), request.target().clone())),
             None
         );
     }
@@ -518,20 +566,128 @@ mod tests {
         let window = window::Id::new(1);
         let context = action::Context::path(window, path(CHILD));
         let mut registry = action::Registry::<()>::new();
-        let bindings = HashMap::from([(path(CHILD), CLICK)]);
+        let state = WindowState {
+            actions: HashMap::from([(path(CHILD), CLICK)]),
+            ..WindowState::default()
+        };
 
         registry.register(Action::new(CLICK, "Click"));
         registry.set_busy(CLICK, context, true);
 
         assert_eq!(
-            action_invocation(
-                &registry,
-                &bindings,
-                window,
-                path(CHILD),
-                action::Source::Pointer
-            ),
+            action_request(&state, window, path(CHILD), action::Source::Pointer)
+                .filter(|request| registry.can_invoke(request.action(), request.target().clone())),
             None
         );
+    }
+
+    #[test]
+    fn command_target_survives_focus_changes() {
+        let window = window::Id::new(1);
+        let mut state = WindowState {
+            command_target: Some(action::Scope::Path(path(CHILD))),
+            focus: Some(Focus::new(
+                path(ROOT),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            interactivity: HashMap::from([(path(OUTSIDE), ui::Interactivity::CONTROL)]),
+            ..WindowState::default()
+        };
+
+        assert!(state.set_focus(
+            path(OUTSIDE),
+            ui::focus::Reason::Programmatic,
+            ui::focus::Visibility::Hidden
+        ));
+        assert_eq!(
+            state.command_context(window),
+            action::Context::path(window, path(CHILD))
+        );
+    }
+
+    #[test]
+    fn command_target_falls_back_to_focus_hover_then_window() {
+        let window = window::Id::new(1);
+        let mut state = WindowState {
+            hovered: Some(path(ROOT)),
+            focus: Some(Focus::new(
+                path(CHILD),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            ..WindowState::default()
+        };
+
+        assert_eq!(
+            state.command_context(window),
+            action::Context::path(window, path(CHILD))
+        );
+
+        state.focus = None;
+        assert_eq!(
+            state.command_context(window),
+            action::Context::path(window, path(ROOT))
+        );
+
+        state.hovered = None;
+        assert_eq!(
+            state.command_context(window),
+            action::Context::window(window)
+        );
+    }
+
+    #[test]
+    fn stale_command_target_is_cleared_when_path_disappears() {
+        let window = window::Id::new(1);
+        let mut state = WindowState {
+            command_target: Some(action::Scope::Path(path(CHILD))),
+            interactivity: HashMap::from([(path(ROOT), ui::Interactivity::CONTROL)]),
+            ..WindowState::default()
+        };
+
+        assert!(state.clear_stale_command_target());
+        assert_eq!(state.command_target, None);
+        assert_eq!(
+            state.command_context(window),
+            action::Context::window(window)
+        );
+    }
+
+    #[test]
+    fn command_target_policy_resolves_stored_target() {
+        let window = window::Id::new(1);
+        let state = WindowState {
+            command_target: Some(action::Scope::Path(path(CHILD))),
+            actions: HashMap::from([(path(ROOT), CLICK)]),
+            action_targets: HashMap::from([(path(ROOT), ui::ActionTarget::Command)]),
+            ..WindowState::default()
+        };
+
+        let request = action_request(&state, window, path(ROOT), action::Source::Pointer)
+            .expect("command-target action should produce request");
+
+        assert_eq!(request.origin(), Some(&path(ROOT)));
+        assert_eq!(
+            request.target(),
+            &action::Context::path(window, path(CHILD))
+        );
+    }
+
+    #[test]
+    fn window_target_policy_resolves_window_context() {
+        let window = window::Id::new(1);
+        let state = WindowState {
+            command_target: Some(action::Scope::Path(path(CHILD))),
+            actions: HashMap::from([(path(ROOT), CLICK)]),
+            action_targets: HashMap::from([(path(ROOT), ui::ActionTarget::Window)]),
+            ..WindowState::default()
+        };
+
+        let request = action_request(&state, window, path(ROOT), action::Source::Pointer)
+            .expect("window-target action should produce request");
+
+        assert_eq!(request.origin(), Some(&path(ROOT)));
+        assert_eq!(request.target(), &action::Context::window(window));
     }
 }

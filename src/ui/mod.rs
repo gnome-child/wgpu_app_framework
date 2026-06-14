@@ -10,7 +10,7 @@ mod tree;
 
 pub use event::{Event, Key, Modifiers};
 pub use id::{Id, Path};
-pub use node::{Interaction, Interactivity, Layout, Node, Style};
+pub use node::{ActionTarget, Interaction, Interactivity, Layout, Node, Style};
 pub use tree::Tree;
 
 #[cfg(test)]
