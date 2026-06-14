@@ -1,4 +1,4 @@
-use crate::{action, layout, paint, text};
+use crate::{action, geometry, layout, paint, text};
 
 use super::{Id, Path, focus};
 
@@ -23,6 +23,7 @@ pub struct Layout {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Style {
     background: Option<paint::Color>,
+    radius: geometry::rect::Radius,
     stroke: Option<paint::Stroke>,
     hover_background: Option<paint::Color>,
     focus_background: Option<paint::Color>,
@@ -129,6 +130,11 @@ impl Node {
 
     pub fn with_background(mut self, color: paint::Color) -> Self {
         self.style.background = Some(color);
+        self
+    }
+
+    pub fn with_radius(mut self, radius: geometry::rect::Radius) -> Self {
+        self.style.radius = radius;
         self
     }
 
@@ -304,6 +310,10 @@ impl Style {
         self.background
     }
 
+    pub fn radius(self) -> geometry::rect::Radius {
+        self.radius
+    }
+
     pub fn stroke(self) -> Option<paint::Stroke> {
         self.stroke
     }
@@ -373,6 +383,7 @@ impl Default for Style {
     fn default() -> Self {
         Self {
             background: None,
+            radius: geometry::rect::Radius::none(),
             stroke: None,
             hover_background: None,
             focus_background: None,

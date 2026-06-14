@@ -1,4 +1,4 @@
-use crate::{action, layout, paint, text, ui};
+use crate::{action, geometry, layout, paint, text, ui};
 
 pub fn panel(id: ui::Id) -> ui::Node {
     ui::Node::container(id, layout::Axis::Vertical)
@@ -22,6 +22,7 @@ pub fn button(id: ui::Id, action: action::Id) -> ui::Node {
     panel(id)
         .with_action(action)
         .with_interactivity(ui::Interactivity::CONTROL)
+        .with_radius(geometry::rect::Radius::splat(1.0))
         .with_size(layout::Size::Fill, layout::Size::Fixed(160.0))
 }
 

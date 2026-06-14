@@ -36,18 +36,14 @@ fn node<T>(
 ) {
     let visual = visual_state(node, layout, actions, window, interaction);
 
+    let rect = styled_rect(node, layout);
+
     if let Some(style) = resolved_quad_style(node, layout, interaction, &visual) {
-        scene.push_quad(paint::Quad {
-            rect: layout.rect(),
-            style,
-        });
+        scene.push_quad(paint::Quad { rect, style });
     }
 
     for tint in resolved_tints(node, &visual) {
-        scene.push_tint(paint::Tint {
-            rect: layout.rect(),
-            color: tint,
-        });
+        scene.push_tint(paint::Tint { rect, color: tint });
     }
 
     if let Some(document) = resolved_label(node, &visual) {
@@ -69,9 +65,15 @@ fn node<T>(
         );
     }
 
-    if let Some(outline) = resolved_focus_outline(node, layout, visual) {
+    if let Some(outline) = resolved_focus_outline(node, rect, visual) {
         overlays.push(outline);
     }
+}
+
+fn styled_rect(node: &ui::Node, layout: &layout::Box) -> crate::geometry::Rect {
+    let rect = layout.rect();
+
+    crate::geometry::Rect::rounded(rect.origin, rect.area, node.style().radius())
 }
 
 fn resolved_quad_style(
@@ -208,7 +210,7 @@ fn push_optional(values: &mut Vec<paint::Color>, value: Option<paint::Color>) {
 
 fn resolved_focus_outline(
     node: &ui::Node,
-    layout: &layout::Box,
+    rect: crate::geometry::Rect,
     visual: VisualState,
 ) -> Option<paint::Outline> {
     if !visual.focus_visible {
@@ -218,7 +220,7 @@ fn resolved_focus_outline(
     let outline = node.style().focus_outline()?;
 
     Some(paint::Outline {
-        rect: layout.rect(),
+        rect,
         brush: outline.brush(),
         width: outline.width(),
         offset: outline.offset(),

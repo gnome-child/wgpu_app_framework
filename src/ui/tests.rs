@@ -1,5 +1,5 @@
 use super::*;
-use crate::geometry::{area, point};
+use crate::geometry::{Rect, area, point, rect};
 use crate::{action, layout, paint, text, window};
 
 const ROOT: Id = Id::new("root");
@@ -43,6 +43,11 @@ fn outline(scene: &paint::Scene, index: usize) -> paint::Outline {
         Some(paint::Item::Outline(outline)) => *outline,
         item => panic!("expected outline item at {index}, got {item:?}"),
     }
+}
+
+fn assert_same_bounds(actual: Rect, expected: Rect) {
+    assert_eq!(actual.origin, expected.origin);
+    assert_eq!(actual.area, expected.area);
 }
 
 #[test]
@@ -221,6 +226,29 @@ fn labeled_button_stores_label_document() {
 }
 
 #[test]
+fn node_radius_is_emitted_on_paint_quad() {
+    let root = Node::leaf(A)
+        .with_background(paint::Color::RED)
+        .with_radius(rect::Radius::splat(1.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, None, None),
+        &mut scene,
+    );
+
+    assert_eq!(quad(&scene, 0).rect.radius, rect::Radius::splat(1.0));
+}
+
+#[test]
 fn tree_paint_emits_label_after_node_background() {
     let root = Node::container(ROOT, layout::Axis::Vertical)
         .with_background(paint::Color::BLACK)
@@ -243,7 +271,7 @@ fn tree_paint_emits_label_after_node_background() {
 
     assert_eq!(scene.items().len(), 3);
     assert_eq!(quad(&scene, 0).rect, layout.rect());
-    assert_eq!(quad(&scene, 1).rect, layout.children()[0].rect());
+    assert_same_bounds(quad(&scene, 1).rect, layout.children()[0].rect());
     assert_eq!(text(&scene, 2).rect, layout.children()[0].rect());
     assert_eq!(
         text(&scene, 2).document.blocks()[0].runs()[0].text(),
@@ -273,7 +301,7 @@ fn later_sibling_quad_renders_after_button_label() {
     );
 
     assert_eq!(scene.items().len(), 3);
-    assert_eq!(quad(&scene, 0).rect, layout.children()[0].rect());
+    assert_same_bounds(quad(&scene, 0).rect, layout.children()[0].rect());
     assert_eq!(text(&scene, 1).rect, layout.children()[0].rect());
     assert_eq!(quad(&scene, 2).rect, layout.children()[1].rect());
 }
@@ -378,6 +406,8 @@ fn control_hover_state_emits_hover_tint_over_base_background() {
         tint(&scene, 1).color,
         root.style().hover_tint().expect("control has hover tint")
     );
+    assert_same_bounds(tint(&scene, 1).rect, layout.rect());
+    assert_eq!(tint(&scene, 1).rect.radius, root.style().radius());
 }
 
 #[test]
@@ -405,7 +435,8 @@ fn control_focus_state_emits_outline_without_changing_fill() {
             root.style().background().expect("control has base color")
         )))
     );
-    assert_eq!(outline(&scene, 1).rect, layout.rect());
+    assert_same_bounds(outline(&scene, 1).rect, layout.rect());
+    assert_eq!(outline(&scene, 1).rect.radius, root.style().radius());
 }
 
 #[test]
@@ -578,7 +609,8 @@ fn busy_control_emits_busy_tint_and_suppresses_hover_press() {
         tint(&scene, 2).color,
         root.style().busy_tint().expect("control has busy tint")
     );
-    assert_eq!(outline(&scene, 3).rect, layout.rect());
+    assert_same_bounds(outline(&scene, 3).rect, layout.rect());
+    assert_eq!(outline(&scene, 3).rect.radius, root.style().radius());
     assert_eq!(scene.items().len(), 4);
 }
 
@@ -728,7 +760,8 @@ fn focused_first_button_outline_is_not_covered_by_second_button() {
     assert!(matches!(scene.items()[2], paint::Item::Text(_)));
     assert!(matches!(scene.items()[3], paint::Item::Quad(_)));
     assert!(matches!(scene.items()[4], paint::Item::Outline(_)));
-    assert_eq!(outline(&scene, 4).rect, layout.children()[0].rect());
+    assert_same_bounds(outline(&scene, 4).rect, layout.children()[0].rect());
+    assert_eq!(outline(&scene, 4).rect.radius, rect::Radius::splat(1.0));
 }
 
 #[test]

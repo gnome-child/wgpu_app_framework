@@ -257,6 +257,23 @@ mod tests {
     }
 
     #[test]
+    fn backdrop_blur_preserves_rounded_rect_shape() {
+        let mut scene = Scene::new();
+        let blur = Blur {
+            rect: Rect::rounded(
+                point::logical(0.0, 0.0),
+                area::logical(20.0, 10.0),
+                rect::Radius::splat(1.0),
+            ),
+            radius: 8.0,
+        };
+
+        scene.push_backdrop_blur(blur);
+
+        assert_eq!(scene.items(), &[Item::BackdropBlur(blur)]);
+    }
+
+    #[test]
     fn empty_text_is_not_pushed() {
         let mut scene = Scene::new();
 
