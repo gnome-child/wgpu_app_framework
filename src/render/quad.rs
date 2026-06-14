@@ -98,10 +98,18 @@ pub fn prepare_batch(
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct AnalyticShape {
+    kind: AnalyticShapeKind,
     outer_rect: Rect,
     outer_radius: crate::geometry::rect::ResolvedRadius,
     inner: Option<AnalyticInner>,
     color: paint::Color,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AnalyticShapeKind {
+    Fill,
+    InternalRing,
+    ExternalRing,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -110,12 +118,77 @@ struct AnalyticInner {
     radius: crate::geometry::rect::ResolvedRadius,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PreparedShape {
+    raster_rect: Rect,
+    outer_rect: Rect,
+    outer_radius: crate::geometry::rect::ResolvedRadius,
+    inner: Option<AnalyticInner>,
+    color: paint::Color,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PixelGeometry {
+    scale_factor: f32,
+    logical_pixel: f32,
+}
+
+impl PixelGeometry {
+    fn new(scale_factor: f32) -> Self {
+        let scale_factor = scale_factor.max(0.0001);
+
+        Self {
+            scale_factor,
+            logical_pixel: 1.0 / scale_factor,
+        }
+    }
+
+    fn logical_pixel(self) -> f32 {
+        self.logical_pixel
+    }
+
+    fn snap_distance(self, distance: f32) -> f32 {
+        if distance <= 0.0 {
+            return 0.0;
+        }
+
+        (distance * self.scale_factor).round().max(1.0) / self.scale_factor
+    }
+
+    fn snap_rect(self, rect: Rect) -> Rect {
+        let (left, top, right, bottom) = edges(rect);
+        let left = self.snap_position(left);
+        let top = self.snap_position(top);
+        let mut right = self.snap_position(right);
+        let mut bottom = self.snap_position(bottom);
+
+        if right <= left {
+            right = left + self.logical_pixel;
+        }
+
+        if bottom <= top {
+            bottom = top + self.logical_pixel;
+        }
+
+        Rect::rounded(
+            point::logical(left, top),
+            area::logical(right - left, bottom - top),
+            rect.radius,
+        )
+    }
+
+    fn snap_position(self, position: f32) -> f32 {
+        (position * self.scale_factor).round() / self.scale_factor
+    }
+}
+
 fn push_shape_vertices(
     buffer: &mut Vec<render::primitive::Vertex>,
     canvas: &render::Canvas,
     shape: &batch::Shape<'_>,
 ) {
     let canvas_area = canvas.logical_area();
+    let pixel_geometry = PixelGeometry::new(canvas.scale_factor());
 
     if canvas_area.width() <= 0.0 || canvas_area.height() <= 0.0 {
         log::debug!("skipping shape draw for zero-size canvas");
@@ -123,7 +196,7 @@ fn push_shape_vertices(
     }
 
     for shape in analytic_shapes_for_shape(shape) {
-        push_analytic_shape_vertices(buffer, canvas_area, shape);
+        push_analytic_shape_vertices(buffer, canvas_area, pixel_geometry, shape);
     }
 }
 
@@ -188,6 +261,7 @@ fn analytic_shapes_for_outline(outline: &paint::Outline) -> Vec<AnalyticShape> {
 fn push_analytic_shape_vertices(
     buffer: &mut Vec<render::primitive::Vertex>,
     canvas_area: area::Logical,
+    pixel_geometry: PixelGeometry,
     shape: AnalyticShape,
 ) {
     let to_clip = |x: f32, y: f32| -> [f32; 2] {
@@ -201,7 +275,11 @@ fn push_analytic_shape_vertices(
         return;
     }
 
-    let (x0, y0, x1, y1) = edges(shape.outer_rect);
+    let Some(shape) = prepare_shape(shape, pixel_geometry) else {
+        return;
+    };
+
+    let (x0, y0, x1, y1) = edges(shape.raster_rect);
     let outer_rect = rect_data(shape.outer_rect);
     let outer_radius = radius_data(shape.outer_radius);
     let (inner_rect, inner_radius, mode) = match shape.inner {
@@ -232,8 +310,82 @@ fn push_analytic_shape_vertices(
     push(x1, y0);
 }
 
+fn prepare_shape(shape: AnalyticShape, pixel_geometry: PixelGeometry) -> Option<PreparedShape> {
+    match shape.kind {
+        AnalyticShapeKind::Fill => prepare_fill_shape(shape, pixel_geometry),
+        AnalyticShapeKind::InternalRing => prepare_internal_ring_shape(shape, pixel_geometry),
+        AnalyticShapeKind::ExternalRing => prepare_external_ring_shape(shape, pixel_geometry),
+    }
+}
+
+fn prepare_fill_shape(
+    shape: AnalyticShape,
+    pixel_geometry: PixelGeometry,
+) -> Option<PreparedShape> {
+    let outer_rect = pixel_geometry.snap_rect(shape.outer_rect);
+    let raster_rect = expand_rect(outer_rect, pixel_geometry.logical_pixel());
+
+    Some(PreparedShape {
+        raster_rect,
+        outer_rect,
+        outer_radius: outer_rect.radius.resolve(outer_rect.area),
+        inner: None,
+        color: shape.color,
+    })
+}
+
+fn prepare_internal_ring_shape(
+    shape: AnalyticShape,
+    pixel_geometry: PixelGeometry,
+) -> Option<PreparedShape> {
+    let outer_rect = pixel_geometry.snap_rect(shape.outer_rect);
+    let width = pixel_geometry.snap_distance(ring_width(shape)?);
+    let Some(inner_rect) = inset_rect(outer_rect, width) else {
+        return prepare_fill_shape(fill_shape(outer_rect, shape.color), pixel_geometry);
+    };
+    let outer_radius = outer_rect.radius.resolve(outer_rect.area);
+    let inner = AnalyticInner {
+        rect: inner_rect,
+        radius: shrink_radius(outer_radius, width),
+    };
+    let raster_rect = expand_rect(outer_rect, pixel_geometry.logical_pixel());
+
+    Some(PreparedShape {
+        raster_rect,
+        outer_rect,
+        outer_radius,
+        inner: Some(inner),
+        color: shape.color,
+    })
+}
+
+fn prepare_external_ring_shape(
+    shape: AnalyticShape,
+    pixel_geometry: PixelGeometry,
+) -> Option<PreparedShape> {
+    let inner = shape.inner?;
+    let width = pixel_geometry.snap_distance(ring_width(shape)?);
+    let inner_rect = pixel_geometry.snap_rect(inner.rect);
+    let outer_rect = expand_rect(inner_rect, width);
+    let inner_radius = inner.radius;
+    let outer_radius = expand_radius(inner_radius, width);
+    let raster_rect = expand_rect(outer_rect, pixel_geometry.logical_pixel());
+
+    Some(PreparedShape {
+        raster_rect,
+        outer_rect,
+        outer_radius,
+        inner: Some(AnalyticInner {
+            rect: inner_rect,
+            radius: inner_radius,
+        }),
+        color: shape.color,
+    })
+}
+
 fn fill_shape(rect: Rect, color: paint::Color) -> AnalyticShape {
     AnalyticShape {
+        kind: AnalyticShapeKind::Fill,
         outer_rect: rect,
         outer_radius: rect.radius.resolve(rect.area),
         inner: None,
@@ -253,6 +405,7 @@ fn internal_stroke_shape(rect: Rect, width: f32, color: paint::Color) -> Option<
     };
 
     Some(AnalyticShape {
+        kind: AnalyticShapeKind::InternalRing,
         outer_rect: rect,
         outer_radius,
         inner: Some(AnalyticInner {
@@ -278,6 +431,7 @@ fn external_outline_shape(
     let inner_rect = expand_rect(rect, offset);
     let outer_rect = expand_rect(rect, offset + width);
     Some(AnalyticShape {
+        kind: AnalyticShapeKind::ExternalRing,
         outer_rect,
         outer_radius: expand_radius(base_radius, offset + width),
         inner: Some(AnalyticInner {
@@ -286,6 +440,23 @@ fn external_outline_shape(
         }),
         color,
     })
+}
+
+fn ring_width(shape: AnalyticShape) -> Option<f32> {
+    let inner = shape.inner?;
+    let (outer_left, outer_top, outer_right, outer_bottom) = edges(shape.outer_rect);
+    let (inner_left, inner_top, inner_right, inner_bottom) = edges(inner.rect);
+    let widths = [
+        inner_left - outer_left,
+        inner_top - outer_top,
+        outer_right - inner_right,
+        outer_bottom - inner_bottom,
+    ];
+
+    widths
+        .into_iter()
+        .filter(|width| *width > 0.0)
+        .min_by(|a, b| a.total_cmp(b))
 }
 
 fn inset_rect(rect: Rect, inset: f32) -> Option<Rect> {
@@ -419,9 +590,18 @@ mod tests {
     fn vertex_count_for_shape(shape: AnalyticShape) -> usize {
         let mut vertices = Vec::new();
 
-        push_analytic_shape_vertices(&mut vertices, area::logical(100.0, 100.0), shape);
+        push_analytic_shape_vertices(
+            &mut vertices,
+            area::logical(100.0, 100.0),
+            PixelGeometry::new(1.0),
+            shape,
+        );
 
         vertices.len()
+    }
+
+    fn prepared_shape(shape: AnalyticShape, scale_factor: f32) -> PreparedShape {
+        prepare_shape(shape, PixelGeometry::new(scale_factor)).expect("shape should prepare")
     }
 
     fn bounds(shapes: &[AnalyticShape]) -> (f32, f32, f32, f32) {
@@ -445,6 +625,10 @@ mod tests {
         )
     }
 
+    fn rect_bounds(rect: Rect) -> (f32, f32, f32, f32) {
+        edges(rect)
+    }
+
     #[test]
     fn fill_only_quad_lowers_to_one_analytic_shape() {
         let quad = quad(style(Some(solid(paint::Color::RED)), None, None));
@@ -456,6 +640,40 @@ mod tests {
         assert_eq!(shapes[0].inner, None);
         assert_eq!(shapes[0].color, paint::Color::RED);
         assert_eq!(vertex_count_for_shape(shapes[0]), 6);
+    }
+
+    #[test]
+    fn fill_raster_bounds_expand_by_one_physical_pixel() {
+        let shape = fill_shape(rect(), paint::Color::RED);
+        let prepared = prepared_shape(shape, 1.0);
+
+        assert_eq!(shape.outer_rect, rect());
+        assert_eq!(prepared.outer_rect, rect());
+        assert_eq!(rect_bounds(prepared.raster_rect), (9.0, 19.0, 51.0, 51.0));
+    }
+
+    #[test]
+    fn scale_factor_controls_logical_aa_expansion() {
+        let shape = fill_shape(rect(), paint::Color::RED);
+        let prepared = prepared_shape(shape, 2.0);
+
+        assert_eq!(prepared.outer_rect, rect());
+        assert_eq!(rect_bounds(prepared.raster_rect), (9.5, 19.5, 50.5, 50.5));
+    }
+
+    #[test]
+    fn snapped_rect_edges_round_through_physical_coordinates() {
+        let rect = Rect::new(point::logical(10.2, 20.3), area::logical(40.4, 30.8));
+        let snapped = PixelGeometry::new(2.0).snap_rect(rect);
+
+        assert_eq!(rect_bounds(snapped), (10.0, 20.5, 50.5, 51.0));
+    }
+
+    #[test]
+    fn positive_distances_snap_to_at_least_one_physical_pixel() {
+        assert_eq!(PixelGeometry::new(1.0).snap_distance(0.2), 1.0);
+        assert_eq!(PixelGeometry::new(2.0).snap_distance(0.2), 0.5);
+        assert_eq!(PixelGeometry::new(2.0).snap_distance(2.2), 2.0);
     }
 
     #[test]
@@ -474,6 +692,20 @@ mod tests {
     }
 
     #[test]
+    fn internal_stroke_shape_metadata_survives_raster_expansion() {
+        let shape = internal_stroke_shape(rect(), 2.0, paint::Color::BLACK).unwrap();
+        let prepared = prepared_shape(shape, 1.0);
+        let inner = prepared.inner.expect("stroke should stay a ring");
+
+        assert_eq!(rect_bounds(prepared.raster_rect), (9.0, 19.0, 51.0, 51.0));
+        assert_eq!(prepared.outer_rect, rect());
+        assert_eq!(
+            inner.rect,
+            Rect::new(point::logical(12.0, 22.0), area::logical(36.0, 26.0))
+        );
+    }
+
+    #[test]
     fn tint_only_quad_lowers_to_one_overlay_shape() {
         let quad = quad(style(
             None,
@@ -485,6 +717,20 @@ mod tests {
         assert_eq!(shapes.len(), 1);
         assert_eq!(shapes[0].outer_rect, rect());
         assert_eq!(shapes[0].color, paint::Color::rgba(1.0, 1.0, 1.0, 0.25));
+    }
+
+    #[test]
+    fn tint_raster_bounds_expand_while_shape_bounds_stay_exact() {
+        let tint = paint::Tint {
+            rect: rect(),
+            color: paint::Color::rgba(1.0, 1.0, 1.0, 0.25),
+        };
+        let shape = analytic_shapes_for_tint(&tint)[0];
+        let prepared = prepared_shape(shape, 1.0);
+
+        assert_eq!(shape.outer_rect, tint.rect);
+        assert_eq!(prepared.outer_rect, tint.rect);
+        assert_eq!(rect_bounds(prepared.raster_rect), (9.0, 19.0, 51.0, 51.0));
     }
 
     #[test]
@@ -542,6 +788,49 @@ mod tests {
         assert_eq!(bounds(&shapes), (4.0, 14.0, 96.0, 56.0));
         assert_eq!(shapes[0].outer_radius.top_left, 21.0);
         assert_eq!(inner.radius.top_left, 17.0);
+    }
+
+    #[test]
+    fn rounded_outline_raster_bounds_include_outline_and_aa_fringe() {
+        let rect = Rect::rounded(
+            point::logical(10.0, 20.0),
+            area::logical(80.0, 30.0),
+            crate::geometry::rect::Radius::splat(1.0),
+        );
+        let outline = paint::Outline {
+            rect,
+            brush: paint::Brush::Solid(paint::Color::RED),
+            width: 4.0,
+            offset: 2.0,
+        };
+        let shape = analytic_shapes_for_outline(&outline)[0];
+        let prepared = prepared_shape(shape, 1.0);
+        let inner = prepared.inner.expect("outline should stay a ring");
+
+        assert_eq!(rect_bounds(prepared.outer_rect), (4.0, 14.0, 96.0, 56.0));
+        assert_eq!(rect_bounds(prepared.raster_rect), (3.0, 13.0, 97.0, 57.0));
+        assert_eq!(prepared.outer_radius.top_left, 21.0);
+        assert_eq!(inner.radius.top_left, 17.0);
+    }
+
+    #[test]
+    fn outline_shape_metadata_survives_raster_expansion() {
+        let outline = paint::Outline {
+            rect: rect(),
+            brush: paint::Brush::Solid(paint::Color::RED),
+            width: 2.0,
+            offset: 3.0,
+        };
+        let shape = analytic_shapes_for_outline(&outline)[0];
+        let prepared = prepared_shape(shape, 1.0);
+        let inner = prepared.inner.expect("outline should stay a ring");
+
+        assert_eq!(rect_bounds(prepared.outer_rect), (5.0, 15.0, 55.0, 55.0));
+        assert_eq!(rect_bounds(prepared.raster_rect), (4.0, 14.0, 56.0, 56.0));
+        assert_eq!(
+            inner.rect,
+            Rect::new(point::logical(7.0, 17.0), area::logical(46.0, 36.0))
+        );
     }
 
     #[test]
