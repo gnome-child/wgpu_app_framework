@@ -5,7 +5,7 @@ use winit::{
 
 use crate::app::state::{PressSource, WindowState, action_invocation};
 use crate::geometry::point;
-use crate::{action, ui, window};
+use crate::{action, pointer, ui, window};
 
 #[derive(Debug, Default)]
 pub struct Outcome {
@@ -15,13 +15,20 @@ pub struct Outcome {
 }
 
 pub fn pointer_moved(state: &mut WindowState, position: point::Logical) -> Outcome {
+    state
+        .pointer
+        .handle_event(pointer::Event::Moved { position });
+    let delta = state.pointer.delta();
     let target = state.hit_test(position);
     let hover_events = state.set_hovered(target.clone());
-    state.cursor_position = Some(position);
 
     let redraw = !hover_events.is_empty();
     let mut events = hover_events;
-    events.push(ui::Event::PointerMoved { position, target });
+    events.push(ui::Event::PointerMoved {
+        position,
+        delta,
+        target,
+    });
 
     Outcome {
         events,
@@ -33,10 +40,14 @@ pub fn pointer_moved(state: &mut WindowState, position: point::Logical) -> Outco
 pub fn pointer_pressed(
     state: &mut WindowState,
     position: point::Logical,
-    button: ui::Button,
+    button: pointer::Button,
 ) -> Outcome {
+    state.pointer.handle_event(pointer::Event::Button {
+        button,
+        pressed: true,
+    });
     let target = state.hit_test(position);
-    let event = state.pointer_down(position, target, button);
+    let event = state.pointer_down(position, state.pointer.delta(), target, button);
 
     Outcome {
         events: vec![event],
@@ -50,10 +61,14 @@ pub fn pointer_released<T>(
     state: &mut WindowState,
     window: window::Id,
     position: point::Logical,
-    button: ui::Button,
+    button: pointer::Button,
 ) -> Outcome {
+    state.pointer.handle_event(pointer::Event::Button {
+        button,
+        pressed: false,
+    });
     let target = state.hit_test(position);
-    let (event, invoke_target) = state.pointer_up(position, target, button);
+    let (event, invoke_target) = state.pointer_up(position, state.pointer.delta(), target, button);
     let invocation = invoke_target.and_then(|target| {
         action_invocation(
             registry,
@@ -71,13 +86,32 @@ pub fn pointer_released<T>(
     }
 }
 
-pub fn pointer_button(button: MouseButton) -> Option<ui::Button> {
+pub fn pointer_button(button: MouseButton) -> pointer::Button {
     match button {
-        MouseButton::Left => Some(ui::Button::Left),
-        MouseButton::Right => Some(ui::Button::Right),
-        MouseButton::Middle => Some(ui::Button::Middle),
-        MouseButton::Back | MouseButton::Forward => None,
-        MouseButton::Other(value) => Some(ui::Button::Other(value)),
+        MouseButton::Left => pointer::Button::Primary,
+        MouseButton::Right => pointer::Button::Secondary,
+        MouseButton::Middle => pointer::Button::Middle,
+        MouseButton::Back => pointer::Button::Back,
+        MouseButton::Forward => pointer::Button::Forward,
+        MouseButton::Other(value) => pointer::Button::Other(value),
+    }
+}
+
+pub fn pointer_left(state: &mut WindowState) -> Outcome {
+    state.pointer.handle_event(pointer::Event::Left);
+    let events = state.set_hovered(None);
+    let cleared_pressed = if state.pressed_source == Some(PressSource::Pointer) {
+        state.pressed = None;
+        state.pressed_source = None;
+        true
+    } else {
+        false
+    };
+
+    Outcome {
+        redraw: !events.is_empty() || cleared_pressed,
+        events,
+        invocation: None,
     }
 }
 
@@ -289,9 +323,14 @@ mod tests {
             Vec::new(),
         ));
 
-        let outcome = pointer_pressed(&mut state, point::logical(1.0, 1.0), ui::Button::Left);
+        let outcome = pointer_pressed(
+            &mut state,
+            point::logical(1.0, 1.0),
+            pointer::Button::Primary,
+        );
 
         assert!(outcome.redraw);
+        assert!(state.pointer.primary_down());
         assert_eq!(state.focused_path(), Some(path(CHILD)));
         assert_eq!(
             state.focus.as_ref().map(|focus| focus.reason),
@@ -328,7 +367,7 @@ mod tests {
             &mut state,
             window,
             point::logical(1.0, 1.0),
-            ui::Button::Left,
+            pointer::Button::Primary,
         );
 
         assert_eq!(
@@ -339,6 +378,122 @@ mod tests {
                 action::Context::path(window, path(CHILD))
             ))
         );
+        assert!(!state.pointer.primary_down());
+    }
+
+    #[test]
+    fn winit_mouse_buttons_map_to_pointer_buttons() {
+        assert_eq!(pointer_button(MouseButton::Left), pointer::Button::Primary);
+        assert_eq!(
+            pointer_button(MouseButton::Right),
+            pointer::Button::Secondary
+        );
+        assert_eq!(pointer_button(MouseButton::Middle), pointer::Button::Middle);
+        assert_eq!(pointer_button(MouseButton::Back), pointer::Button::Back);
+        assert_eq!(
+            pointer_button(MouseButton::Forward),
+            pointer::Button::Forward
+        );
+        assert_eq!(
+            pointer_button(MouseButton::Other(9)),
+            pointer::Button::Other(9)
+        );
+    }
+
+    #[test]
+    fn pointer_movement_uses_pointer_delta_and_hover_order() {
+        let mut state = WindowState {
+            hovered: Some(path(CHILD)),
+            interactivity: HashMap::from([(path(SECOND), ui::Interactivity::CONTROL)]),
+            ..WindowState::default()
+        };
+        state.layout = Some(crate::layout::Box::new(
+            SECOND,
+            crate::geometry::Rect::new(
+                point::logical(0.0, 0.0),
+                crate::geometry::area::logical(20.0, 20.0),
+            ),
+            Vec::new(),
+        ));
+        let entered = pointer_moved(&mut state, point::logical(2.0, 3.0));
+
+        assert_eq!(
+            entered.events,
+            vec![
+                ui::Event::PointerLeft {
+                    target: path(CHILD)
+                },
+                ui::Event::PointerEntered {
+                    target: path(SECOND)
+                },
+                ui::Event::PointerMoved {
+                    position: point::logical(2.0, 3.0),
+                    delta: point::logical(0.0, 0.0),
+                    target: Some(path(SECOND)),
+                }
+            ]
+        );
+
+        let outcome = pointer_moved(&mut state, point::logical(5.0, 8.0));
+
+        assert_eq!(state.pointer.position(), Some(point::logical(5.0, 8.0)));
+        assert_eq!(
+            state.pointer.previous_position(),
+            Some(point::logical(2.0, 3.0))
+        );
+        assert_eq!(state.pointer.delta(), point::logical(3.0, 5.0));
+        assert_eq!(
+            outcome.events,
+            vec![ui::Event::PointerMoved {
+                position: point::logical(5.0, 8.0),
+                delta: point::logical(3.0, 5.0),
+                target: Some(path(SECOND)),
+            }]
+        );
+    }
+
+    #[test]
+    fn pointer_left_clears_pointer_and_hover() {
+        let mut state = WindowState {
+            hovered: Some(path(CHILD)),
+            ..WindowState::default()
+        };
+        state.pointer.handle_event(pointer::Event::Moved {
+            position: point::logical(2.0, 3.0),
+        });
+        state.pointer.handle_event(pointer::Event::Button {
+            button: pointer::Button::Primary,
+            pressed: true,
+        });
+
+        let outcome = pointer_left(&mut state);
+
+        assert_eq!(state.pointer.position(), None);
+        assert_eq!(state.pointer.delta(), point::logical(0.0, 0.0));
+        assert!(!state.pointer.primary_down());
+        assert_eq!(state.hovered, None);
+        assert_eq!(
+            outcome.events,
+            vec![ui::Event::PointerLeft {
+                target: path(CHILD)
+            }]
+        );
+        assert!(outcome.redraw);
+    }
+
+    #[test]
+    fn pointer_left_clears_pointer_press_state() {
+        let mut state = WindowState {
+            pressed: Some(path(CHILD)),
+            pressed_source: Some(PressSource::Pointer),
+            ..WindowState::default()
+        };
+
+        let outcome = pointer_left(&mut state);
+
+        assert_eq!(state.pressed, None);
+        assert_eq!(state.pressed_source, None);
+        assert!(outcome.redraw);
     }
 
     #[test]

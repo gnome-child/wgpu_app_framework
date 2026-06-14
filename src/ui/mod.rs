@@ -8,7 +8,7 @@ mod node;
 mod painting;
 mod tree;
 
-pub use event::{Button, Event, Key, Modifiers};
+pub use event::{Event, Key, Modifiers};
 pub use id::{Id, Path};
 pub use node::{Interaction, Interactivity, Layout, Node, Style};
 pub use tree::Tree;

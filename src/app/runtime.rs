@@ -219,14 +219,12 @@ impl<A: Application> Runtime<A> {
         state: ElementState,
         button: MouseButton,
     ) {
-        let Some(button) = input::pointer_button(button) else {
-            return;
-        };
+        let button = input::pointer_button(button);
 
         let position = self
             .window_states
             .get(&window)
-            .and_then(|state| state.cursor_position)
+            .and_then(|state| state.pointer.position())
             .unwrap_or_else(|| point::logical(0.0, 0.0));
 
         let Some(window_state) = self.window_states.get_mut(&window) else {
@@ -393,6 +391,19 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
                     .to_logical(native_window.scale_factor() as f32);
 
                 self.pointer_moved(event_loop, window, position);
+            }
+            WindowEvent::CursorLeft { .. } => {
+                let Some(state) = self.window_states.get_mut(&window) else {
+                    return;
+                };
+
+                let outcome = input::pointer_left(state);
+
+                if outcome.redraw {
+                    self.windows.request_redraw(window);
+                }
+
+                self.dispatch_ui_events(event_loop, window, outcome.events);
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 self.pointer_button(event_loop, window, state, button);

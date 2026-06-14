@@ -21,6 +21,7 @@ mod tests {
             window,
             event: ui::Event::PointerMoved {
                 position: point::logical(1.0, 2.0),
+                delta: point::logical(0.0, 0.0),
                 target: None,
             },
         };
@@ -31,6 +32,7 @@ mod tests {
                 window,
                 event: ui::Event::PointerMoved {
                     position: point::logical(1.0, 2.0),
+                    delta: point::logical(0.0, 0.0),
                     target: None,
                 },
             }

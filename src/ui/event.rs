@@ -1,14 +1,7 @@
 use crate::geometry::{area, point};
+use crate::pointer;
 
 use super::Path;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Button {
-    Left,
-    Right,
-    Middle,
-    Other(u16),
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
@@ -39,6 +32,7 @@ pub enum Event {
     Focused(bool),
     PointerMoved {
         position: point::Logical,
+        delta: point::Logical,
         target: Option<Path>,
     },
     PointerEntered {
@@ -49,13 +43,15 @@ pub enum Event {
     },
     PointerDown {
         position: point::Logical,
+        delta: point::Logical,
         target: Option<Path>,
-        button: Button,
+        button: pointer::Button,
     },
     PointerUp {
         position: point::Logical,
+        delta: point::Logical,
         target: Option<Path>,
-        button: Button,
+        button: pointer::Button,
     },
     KeyDown {
         key: Key,

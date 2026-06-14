@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::geometry::point;
-use crate::{action, layout, ui, window};
+use crate::{action, layout, pointer, ui, window};
 
 #[derive(Debug, Default)]
 pub struct WindowState {
@@ -11,7 +11,7 @@ pub struct WindowState {
     pub pressed_source: Option<PressSource>,
     pub modifiers: ui::Modifiers,
     pub focus_order: Vec<ui::Path>,
-    pub cursor_position: Option<point::Logical>,
+    pub pointer: pointer::Pointer,
     pub layout: Option<layout::Box>,
     pub actions: HashMap<ui::Path, action::Id>,
     pub interactivity: HashMap<ui::Path, ui::Interactivity>,
@@ -76,8 +76,9 @@ impl WindowState {
     pub fn pointer_down(
         &mut self,
         position: point::Logical,
+        delta: point::Logical,
         target: Option<ui::Path>,
-        button: ui::Button,
+        button: pointer::Button,
     ) -> ui::Event {
         self.focus = target
             .clone()
@@ -94,6 +95,7 @@ impl WindowState {
 
         ui::Event::PointerDown {
             position,
+            delta,
             target,
             button,
         }
@@ -102,8 +104,9 @@ impl WindowState {
     pub fn pointer_up(
         &mut self,
         position: point::Logical,
+        delta: point::Logical,
         target: Option<ui::Path>,
-        button: ui::Button,
+        button: pointer::Button,
     ) -> (ui::Event, Option<ui::Path>) {
         let pressed = if self.pressed_source == Some(PressSource::Pointer) {
             self.pressed.take()
@@ -114,7 +117,7 @@ impl WindowState {
             self.pressed_source = None;
         }
         let routed_target = pressed.clone().or(target);
-        let invoke = if button == ui::Button::Left {
+        let invoke = if button == pointer::Button::Primary {
             pressed
         } else {
             None
@@ -124,6 +127,7 @@ impl WindowState {
         (
             ui::Event::PointerUp {
                 position,
+                delta,
                 target: routed_target,
                 button,
             },
@@ -268,8 +272,9 @@ mod tests {
 
         let event = state.pointer_down(
             point::logical(1.0, 2.0),
+            point::logical(0.0, 0.0),
             Some(path(CHILD)),
-            ui::Button::Left,
+            pointer::Button::Primary,
         );
 
         assert_eq!(state.focused_path(), Some(path(CHILD)));
@@ -283,8 +288,9 @@ mod tests {
             event,
             ui::Event::PointerDown {
                 position: point::logical(1.0, 2.0),
+                delta: point::logical(0.0, 0.0),
                 target: Some(path(CHILD)),
-                button: ui::Button::Left
+                button: pointer::Button::Primary
             }
         );
     }
@@ -295,8 +301,9 @@ mod tests {
 
         state.pointer_down(
             point::logical(1.0, 2.0),
+            point::logical(0.0, 0.0),
             Some(path(CHILD)),
-            ui::Button::Left,
+            pointer::Button::Primary,
         );
 
         assert_eq!(state.focused_path(), None);
@@ -352,16 +359,18 @@ mod tests {
 
         let (event, invoke) = state.pointer_up(
             point::logical(50.0, 50.0),
+            point::logical(0.0, 0.0),
             Some(path(OUTSIDE)),
-            ui::Button::Left,
+            pointer::Button::Primary,
         );
 
         assert_eq!(
             event,
             ui::Event::PointerUp {
                 position: point::logical(50.0, 50.0),
+                delta: point::logical(0.0, 0.0),
                 target: Some(path(CHILD)),
-                button: ui::Button::Left
+                button: pointer::Button::Primary
             }
         );
         assert_eq!(invoke, Some(path(CHILD)));
@@ -378,8 +387,9 @@ mod tests {
 
         let (_, invoke) = state.pointer_up(
             point::logical(1.0, 1.0),
+            point::logical(0.0, 0.0),
             Some(path(CHILD)),
-            ui::Button::Right,
+            pointer::Button::Secondary,
         );
 
         assert_eq!(invoke, None);
@@ -395,8 +405,9 @@ mod tests {
 
         let (_, invoke) = state.pointer_up(
             point::logical(1.0, 1.0),
+            point::logical(0.0, 0.0),
             Some(path(CHILD)),
-            ui::Button::Left,
+            pointer::Button::Primary,
         );
 
         assert_eq!(invoke, None);
@@ -452,13 +463,15 @@ mod tests {
         registry.register(Action::new(CLICK, "Click"));
         state.pointer_down(
             point::logical(1.0, 1.0),
+            point::logical(0.0, 0.0),
             Some(path(CHILD)),
-            ui::Button::Left,
+            pointer::Button::Primary,
         );
         let (_, target) = state.pointer_up(
             point::logical(1.0, 1.0),
+            point::logical(0.0, 0.0),
             Some(path(CHILD)),
-            ui::Button::Left,
+            pointer::Button::Primary,
         );
         let invocation = action_invocation(
             &registry,
