@@ -1,6 +1,6 @@
 use crate::app::state::WindowState;
 use crate::geometry::area;
-use crate::{action, paint, ui, window};
+use crate::{action, layout, paint, ui, window};
 
 pub fn compose<T>(
     window: window::Id,
@@ -15,19 +15,51 @@ pub fn compose<T>(
     state.interactivity = tree.interactivity();
 
     if let Some(layout) = tree.layout(logical_area) {
+        state.focus_order = focus_order(&layout, &state.interactivity);
+        state.clear_stale_focus();
+
         let interaction = ui::Interaction::new(
             state.hovered.clone(),
-            state.focused.clone(),
+            state.focused_path(),
             state.pressed.clone(),
-        );
+        )
+        .with_focus_visibility(state.focus_visibility());
         state.layout = Some(layout.clone());
 
         tree.paint(&layout, actions, window, interaction, &mut scene);
     } else {
         state.layout = None;
+        state.focus_order.clear();
+        state.clear_focus();
     }
 
     scene
+}
+
+fn focus_order(
+    layout: &layout::Box,
+    interactivity: &std::collections::HashMap<ui::Path, ui::Interactivity>,
+) -> Vec<ui::Path> {
+    let mut order = Vec::new();
+    collect_focus_order(layout, interactivity, &mut order);
+    order
+}
+
+fn collect_focus_order(
+    layout: &layout::Box,
+    interactivity: &std::collections::HashMap<ui::Path, ui::Interactivity>,
+    order: &mut Vec<ui::Path>,
+) {
+    if interactivity
+        .get(layout.path())
+        .is_some_and(|interactivity| interactivity.focusable())
+    {
+        order.push(layout.path().clone());
+    }
+
+    for child in layout.children() {
+        collect_focus_order(child, interactivity, order);
+    }
 }
 
 #[cfg(test)]
@@ -39,6 +71,7 @@ mod tests {
 
     const ROOT: ui::Id = ui::Id::new("root");
     const CHILD: ui::Id = ui::Id::new("child");
+    const OTHER: ui::Id = ui::Id::new("other");
     const CLICK: action::Id = action::Id::new("click");
 
     #[test]
@@ -72,6 +105,39 @@ mod tests {
             Some(&CLICK)
         );
         assert!(state.interactivity.contains_key(&ui::Path::from(ROOT)));
+        assert_eq!(state.focus_order, vec![ui::Path::new([ROOT, CHILD])]);
         assert_eq!(scene.items().len(), 2);
+    }
+
+    #[test]
+    fn compose_clears_stale_focused_paths_after_tree_rebuild() {
+        let window = window::Id::new(1);
+        let mut state = WindowState {
+            focus: Some(crate::app::state::Focus::new(
+                ui::Path::new([ROOT, CHILD]),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            ..WindowState::default()
+        };
+        let registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+
+        tree.set_root(
+            ui::control::panel(ROOT).with_child(
+                ui::control::button(OTHER, CLICK)
+                    .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
+            ),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &registry,
+            area::logical(100.0, 100.0),
+        );
+
+        assert_eq!(state.focused_path(), None);
     }
 }

@@ -1,6 +1,6 @@
 use crate::{action, layout, paint, text};
 
-use super::{Id, Path};
+use super::{Id, Path, focus};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node {
@@ -59,6 +59,7 @@ pub struct Interactivity {
 pub struct Interaction {
     hovered: Option<Path>,
     focused: Option<Path>,
+    focus_visibility: focus::Visibility,
     pressed: Option<Path>,
 }
 
@@ -458,8 +459,14 @@ impl Interaction {
         Self {
             hovered,
             focused,
+            focus_visibility: focus::Visibility::Visible,
             pressed,
         }
+    }
+
+    pub fn with_focus_visibility(mut self, visibility: focus::Visibility) -> Self {
+        self.focus_visibility = visibility;
+        self
     }
 
     pub fn hovered(&self) -> Option<&Path> {
@@ -468,6 +475,10 @@ impl Interaction {
 
     pub fn focused(&self) -> Option<&Path> {
         self.focused.as_ref()
+    }
+
+    pub fn focus_visibility(&self) -> focus::Visibility {
+        self.focus_visibility
     }
 
     pub fn pressed(&self) -> Option<&Path> {

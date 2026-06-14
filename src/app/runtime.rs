@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, MouseButton, WindowEvent},
+    event::{ElementState, KeyEvent, MouseButton, WindowEvent},
     event_loop::ActiveEventLoop,
 };
 
@@ -251,6 +251,43 @@ impl<A: Application> Runtime<A> {
         }
     }
 
+    fn modifiers_changed(&mut self, window: window::Id, modifiers: winit::event::Modifiers) {
+        let Some(state) = self.window_states.get_mut(&window) else {
+            return;
+        };
+
+        state.modifiers = input::modifiers(modifiers.state());
+    }
+
+    fn keyboard_input(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window: window::Id,
+        event: KeyEvent,
+    ) {
+        let key = input::key(&event.logical_key);
+        let Some(state) = self.window_states.get_mut(&window) else {
+            return;
+        };
+
+        let outcome = match event.state {
+            ElementState::Pressed => {
+                input::key_pressed(&self.actions, state, window, key, event.repeat)
+            }
+            ElementState::Released => input::key_released(&self.actions, state, window, key),
+        };
+
+        self.dispatch_ui_events(event_loop, window, outcome.events);
+
+        if let Some(invocation) = outcome.invocation {
+            self.dispatch_message(event_loop, Message::RunAction(invocation));
+        }
+
+        if outcome.redraw {
+            self.windows.request_redraw(window);
+        }
+    }
+
     fn dispatch_ui_events(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -359,6 +396,16 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 self.pointer_button(event_loop, window, state, button);
+            }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.modifiers_changed(window, modifiers);
+            }
+            WindowEvent::KeyboardInput {
+                event,
+                is_synthetic: false,
+                ..
+            } => {
+                self.keyboard_input(event_loop, window, event);
             }
             WindowEvent::RedrawRequested => {
                 self.redraw_window(event_loop, window);

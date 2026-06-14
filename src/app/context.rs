@@ -145,7 +145,27 @@ impl<T: Send + 'static> Context<'_, T> {
     pub fn focused(&self, window: window::Id) -> Option<ui::Path> {
         self.window_states
             .get(&window)
-            .and_then(|state| state.focused.clone())
+            .and_then(|state| state.focused_path())
+    }
+
+    pub fn focus(&mut self, window: window::Id, path: ui::Path, visibility: ui::focus::Visibility) {
+        let Some(state) = self.window_states.get_mut(&window) else {
+            return;
+        };
+
+        if state.set_focus(path, ui::focus::Reason::Programmatic, visibility) {
+            self.request_redraw(window);
+        }
+    }
+
+    pub fn clear_focus(&mut self, window: window::Id) {
+        let Some(state) = self.window_states.get_mut(&window) else {
+            return;
+        };
+
+        if state.clear_focus() {
+            self.request_redraw(window);
+        }
     }
 
     pub fn resolve_action_context(

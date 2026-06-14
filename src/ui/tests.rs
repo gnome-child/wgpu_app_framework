@@ -409,6 +409,61 @@ fn control_focus_state_emits_outline_without_changing_fill() {
 }
 
 #[test]
+fn hidden_focus_does_not_emit_outline() {
+    let root = control::button(A, CLICK);
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None)
+            .with_focus_visibility(focus::Visibility::Hidden),
+        &mut scene,
+    );
+
+    assert!(matches!(scene.items(), [paint::Item::Quad(_)]));
+}
+
+#[test]
+fn active_state_renders_independently_from_focus_visibility() {
+    let root = control::button(A, CLICK);
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    registry.set_state(
+        CLICK,
+        action::Context::path(window, path(A)),
+        action::State::active(),
+    );
+    tree.set_root(root.clone());
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None)
+            .with_focus_visibility(focus::Visibility::Hidden),
+        &mut scene,
+    );
+
+    assert_eq!(
+        tint(&scene, 1).color,
+        root.style().active_tint().expect("control has active tint")
+    );
+    assert_eq!(scene.items().len(), 2);
+}
+
+#[test]
 fn active_hovered_control_emits_active_then_hover_tint() {
     let root = control::button(A, CLICK);
     let mut tree = Tree::new();

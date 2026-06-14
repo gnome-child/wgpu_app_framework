@@ -3,9 +3,11 @@ use std::time::Duration;
 use wgpu_l3::{Action, Event, Task, action, app, geometry::area, layout, paint, text, ui, window};
 
 const RUN_TASK: action::Id = action::Id::new("run_task");
+const TOGGLE_PREVIEW: action::Id = action::Id::new("toggle_preview");
 const ROOT: ui::Id = ui::Id::new("root");
 const STATUS_PANEL: ui::Id = ui::Id::new("status_panel");
 const RUN_BUTTON: ui::Id = ui::Id::new("run_button");
+const PREVIEW_BUTTON: ui::Id = ui::Id::new("preview_button");
 
 fn main() -> app::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
@@ -17,12 +19,14 @@ fn main() -> app::Result<()> {
 struct App {
     window: Option<window::Id>,
     workspace_ready: bool,
+    preview_enabled: bool,
     run_count: u32,
 }
 
 enum AppEvent {
     WorkspaceReady,
     RunTaskFinished,
+    TogglePreview,
 }
 
 impl app::Application for App {
@@ -35,6 +39,9 @@ impl app::Application for App {
                 AppEvent::RunTaskFinished
             })
         }));
+        cx.register_action(
+            Action::new(TOGGLE_PREVIEW, "Toggle Preview").emit(|_| AppEvent::TogglePreview),
+        );
 
         let window = cx.open_window(window::Options {
             title: "wgpu_l3".to_owned(),
@@ -68,6 +75,10 @@ impl app::Application for App {
                 self.run_count += 1;
                 cx.request_redraw(window);
             }
+            AppEvent::TogglePreview => {
+                self.preview_enabled = !self.preview_enabled;
+                cx.request_redraw(window);
+            }
         }
     }
 
@@ -84,9 +95,16 @@ impl app::Application for App {
         cx.action(window, RUN_TASK)
             .enabled(self.workspace_ready)
             .active(false);
+        cx.action(window, TOGGLE_PREVIEW)
+            .enabled(true)
+            .active(self.preview_enabled);
 
         let status = if self.workspace_ready {
-            format!("Workspace ready - runs: {}", self.run_count)
+            format!(
+                "Workspace ready - runs: {} - preview {}",
+                self.run_count,
+                if self.preview_enabled { "on" } else { "off" }
+            )
         } else {
             "Loading workspace...".to_owned()
         };
@@ -100,6 +118,11 @@ impl app::Application for App {
             )
             .with_child(ui::control::labeled_button(
                 RUN_BUTTON, RUN_TASK, "Run task",
+            ))
+            .with_child(ui::control::labeled_button(
+                PREVIEW_BUTTON,
+                TOGGLE_PREVIEW,
+                "Preview",
             ));
 
         tree.set_root(root);

@@ -6,12 +6,28 @@ use crate::{action, layout, ui, window};
 #[derive(Debug, Default)]
 pub struct WindowState {
     pub hovered: Option<ui::Path>,
-    pub focused: Option<ui::Path>,
+    pub focus: Option<Focus>,
     pub pressed: Option<ui::Path>,
+    pub pressed_source: Option<PressSource>,
+    pub modifiers: ui::Modifiers,
+    pub focus_order: Vec<ui::Path>,
     pub cursor_position: Option<point::Logical>,
     pub layout: Option<layout::Box>,
     pub actions: HashMap<ui::Path, action::Id>,
     pub interactivity: HashMap<ui::Path, ui::Interactivity>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Focus {
+    pub path: ui::Path,
+    pub reason: ui::focus::Reason,
+    pub visibility: ui::focus::Visibility,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PressSource {
+    Pointer,
+    Keyboard,
 }
 
 impl WindowState {
@@ -63,8 +79,18 @@ impl WindowState {
         target: Option<ui::Path>,
         button: ui::Button,
     ) -> ui::Event {
-        self.focused = target.clone().filter(|target| self.is_focusable(target));
+        self.focus = target
+            .clone()
+            .filter(|target| self.is_focusable(target))
+            .map(|path| {
+                Focus::new(
+                    path,
+                    ui::focus::Reason::Pointer,
+                    ui::focus::Visibility::Hidden,
+                )
+            });
         self.pressed = target.clone();
+        self.pressed_source = target.as_ref().map(|_| PressSource::Pointer);
 
         ui::Event::PointerDown {
             position,
@@ -79,7 +105,14 @@ impl WindowState {
         target: Option<ui::Path>,
         button: ui::Button,
     ) -> (ui::Event, Option<ui::Path>) {
-        let pressed = self.pressed.take();
+        let pressed = if self.pressed_source == Some(PressSource::Pointer) {
+            self.pressed.take()
+        } else {
+            None
+        };
+        if self.pressed_source == Some(PressSource::Pointer) {
+            self.pressed_source = None;
+        }
         let routed_target = pressed.clone().or(target);
         let invoke = if button == ui::Button::Left {
             pressed
@@ -96,6 +129,73 @@ impl WindowState {
             },
             invoke,
         )
+    }
+
+    pub fn focused_path(&self) -> Option<ui::Path> {
+        self.focus.as_ref().map(|focus| focus.path.clone())
+    }
+
+    pub fn focus_visibility(&self) -> ui::focus::Visibility {
+        self.focus
+            .as_ref()
+            .map(Focus::visibility)
+            .unwrap_or(ui::focus::Visibility::Hidden)
+    }
+
+    pub fn set_focus(
+        &mut self,
+        path: ui::Path,
+        reason: ui::focus::Reason,
+        visibility: ui::focus::Visibility,
+    ) -> bool {
+        if !self.is_focusable(&path) {
+            return self.clear_focus();
+        }
+
+        let focus = Focus::new(path, reason, visibility);
+
+        if self.focus.as_ref() == Some(&focus) {
+            return false;
+        }
+
+        self.focus = Some(focus);
+        true
+    }
+
+    pub fn clear_focus(&mut self) -> bool {
+        let changed = self.focus.is_some();
+        self.focus = None;
+        changed
+    }
+
+    pub fn clear_stale_focus(&mut self) -> bool {
+        let Some(path) = self.focused_path() else {
+            return false;
+        };
+
+        if self.is_focusable(&path) {
+            return false;
+        }
+
+        self.clear_focus()
+    }
+}
+
+impl Focus {
+    pub fn new(
+        path: ui::Path,
+        reason: ui::focus::Reason,
+        visibility: ui::focus::Visibility,
+    ) -> Self {
+        Self {
+            path,
+            reason,
+            visibility,
+        }
+    }
+
+    pub fn visibility(&self) -> ui::focus::Visibility {
+        self.visibility
     }
 }
 
@@ -121,7 +221,7 @@ pub fn resolve_action_path(
     requested_path: Option<ui::Path>,
 ) -> Option<ui::Path> {
     requested_path
-        .or_else(|| state.and_then(|state| state.focused.clone().or_else(|| state.hovered.clone())))
+        .or_else(|| state.and_then(|state| state.focused_path().or_else(|| state.hovered.clone())))
 }
 
 #[cfg(test)]
@@ -172,7 +272,12 @@ mod tests {
             ui::Button::Left,
         );
 
-        assert_eq!(state.focused, Some(path(CHILD)));
+        assert_eq!(state.focused_path(), Some(path(CHILD)));
+        assert_eq!(
+            state.focus.as_ref().map(|focus| focus.reason),
+            Some(ui::focus::Reason::Pointer)
+        );
+        assert_eq!(state.focus_visibility(), ui::focus::Visibility::Hidden);
         assert_eq!(state.pressed, Some(path(CHILD)));
         assert_eq!(
             event,
@@ -194,14 +299,53 @@ mod tests {
             ui::Button::Left,
         );
 
-        assert_eq!(state.focused, None);
+        assert_eq!(state.focused_path(), None);
         assert_eq!(state.pressed, Some(path(CHILD)));
+    }
+
+    #[test]
+    fn programmatic_focus_can_choose_visible_or_hidden_indication() {
+        let mut state = WindowState {
+            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            ..WindowState::default()
+        };
+
+        assert!(state.set_focus(
+            path(CHILD),
+            ui::focus::Reason::Programmatic,
+            ui::focus::Visibility::Visible,
+        ));
+        assert_eq!(state.focused_path(), Some(path(CHILD)));
+        assert_eq!(state.focus_visibility(), ui::focus::Visibility::Visible);
+
+        assert!(state.set_focus(
+            path(CHILD),
+            ui::focus::Reason::Programmatic,
+            ui::focus::Visibility::Hidden,
+        ));
+        assert_eq!(state.focus_visibility(), ui::focus::Visibility::Hidden);
+    }
+
+    #[test]
+    fn stale_focused_paths_are_cleared_when_not_focusable() {
+        let mut state = WindowState {
+            focus: Some(Focus::new(
+                path(CHILD),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            ..WindowState::default()
+        };
+
+        assert!(state.clear_stale_focus());
+        assert_eq!(state.focused_path(), None);
     }
 
     #[test]
     fn pointer_capture_routes_release_to_pressed_element() {
         let mut state = WindowState {
             pressed: Some(path(CHILD)),
+            pressed_source: Some(PressSource::Pointer),
             interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
             ..WindowState::default()
         };
@@ -227,6 +371,7 @@ mod tests {
     fn non_primary_release_does_not_invoke_action() {
         let mut state = WindowState {
             pressed: Some(path(CHILD)),
+            pressed_source: Some(PressSource::Pointer),
             interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
             ..WindowState::default()
         };
@@ -244,6 +389,7 @@ mod tests {
     fn passive_pressed_element_does_not_invoke_action() {
         let mut state = WindowState {
             pressed: Some(path(CHILD)),
+            pressed_source: Some(PressSource::Pointer),
             ..WindowState::default()
         };
 
@@ -260,7 +406,11 @@ mod tests {
     fn focused_context_wins_over_hovered_context() {
         let state = WindowState {
             hovered: Some(path(ROOT)),
-            focused: Some(path(CHILD)),
+            focus: Some(Focus::new(
+                path(CHILD),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
             ..WindowState::default()
         };
 
@@ -270,7 +420,11 @@ mod tests {
     #[test]
     fn requested_context_wins_over_ambient_focus() {
         let state = WindowState {
-            focused: Some(path(CHILD)),
+            focus: Some(Focus::new(
+                path(CHILD),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
             ..WindowState::default()
         };
 

@@ -129,7 +129,7 @@ struct VisualState {
     enabled: bool,
     busy: bool,
     active: bool,
-    focused: bool,
+    focus_visible: bool,
     position: StatePosition,
 }
 
@@ -158,12 +158,13 @@ fn visual_state<T>(
     let hovered = interaction.hovered() == Some(layout.path());
     let pressed = interaction.pressed() == Some(layout.path());
     let focused = interaction.focused() == Some(layout.path());
+    let focus_visible = focused && interaction.focus_visibility().is_visible();
 
     VisualState {
         enabled,
         busy,
         active,
-        focused,
+        focus_visible,
         position: StatePosition {
             active: normalized(active),
             hover: normalized(interactive && hovered),
@@ -210,7 +211,7 @@ fn resolved_focus_outline(
     layout: &layout::Box,
     visual: VisualState,
 ) -> Option<paint::Outline> {
-    if !visual.focused {
+    if !visual.focus_visible {
         return None;
     }
 
