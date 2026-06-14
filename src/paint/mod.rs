@@ -131,7 +131,7 @@ pub struct Backdrop {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BackdropFilter {
-    Blur { radius: f32 },
+    Blur { amount: f32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -258,7 +258,7 @@ mod tests {
         };
         let backdrop = Backdrop {
             rect: Rect::new(point::logical(1.72, 0.0), area::logical(10.0, 10.0)),
-            filter: BackdropFilter::Blur { radius: 12.0 },
+            filter: BackdropFilter::Blur { amount: 0.5 },
         };
         let outline = Outline {
             rect: Rect::new(point::logical(1.75, 0.0), area::logical(10.0, 10.0)),
@@ -324,7 +324,7 @@ mod tests {
         let mut scene = Scene::new();
         let backdrop = Backdrop {
             rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
-            filter: BackdropFilter::Blur { radius: 8.0 },
+            filter: BackdropFilter::Blur { amount: 0.5 },
         };
 
         scene.push_backdrop(backdrop);
@@ -341,7 +341,7 @@ mod tests {
                 area::logical(20.0, 10.0),
                 rect::Radius::splat(1.0),
             ),
-            filter: BackdropFilter::Blur { radius: 8.0 },
+            filter: BackdropFilter::Blur { amount: 0.5 },
         };
 
         scene.push_backdrop(backdrop);

@@ -107,7 +107,7 @@ impl Renderer {
 
         let quad_pipeline = &self.quad_pipeline;
         let backdrop_renderer = &mut self.backdrop_renderer;
-        let backdrop_target = render::backdrop::Target::new(canvas);
+        let backdrop_target = backdrop_renderer.prepare(render_context, canvas);
         let text_renderer = &self.text_renderer;
         let mut text_render_error = None;
 
@@ -118,7 +118,11 @@ impl Renderer {
             for batch in &render_batches {
                 match batch {
                     RenderBatch::Shapes(batch) => {
-                        let mut pass = begin_main_pass(encoder, &view, clear_color, !initialized);
+                        let Some(composition_view) = backdrop_renderer.composition_view() else {
+                            return;
+                        };
+                        let mut pass =
+                            begin_main_pass(encoder, composition_view, clear_color, !initialized);
                         initialized = true;
                         pass.set_pipeline(quad_pipeline);
                         pass.set_vertex_buffer(0, batch.vertex_buffer().slice(..));
@@ -126,21 +130,18 @@ impl Renderer {
                     }
                     RenderBatch::Backdrop(backdrop) => {
                         if !initialized {
-                            clear_main_pass(encoder, &view, clear_color);
+                            backdrop_renderer.clear_composition(encoder, clear_color);
                             initialized = true;
                         }
 
-                        backdrop_renderer.draw(
-                            render_context,
-                            backdrop_target,
-                            encoder,
-                            frame,
-                            &view,
-                            *backdrop,
-                        );
+                        backdrop_renderer.draw(render_context, backdrop_target, encoder, *backdrop);
                     }
                     RenderBatch::Text { renderer_index } => {
-                        let mut pass = begin_main_pass(encoder, &view, clear_color, !initialized);
+                        let Some(composition_view) = backdrop_renderer.composition_view() else {
+                            return;
+                        };
+                        let mut pass =
+                            begin_main_pass(encoder, composition_view, clear_color, !initialized);
                         initialized = true;
                         if let Err(error) = text_renderer.render(*renderer_index, &mut pass) {
                             text_render_error = Some(error);
@@ -151,8 +152,10 @@ impl Renderer {
             }
 
             if !initialized {
-                clear_main_pass(encoder, &view, clear_color);
+                backdrop_renderer.clear_composition(encoder, clear_color);
             }
+
+            backdrop_renderer.blit_to_view(render_context, encoder, &view, backdrop_target);
         });
 
         if let Some(error) = text_render_error {
@@ -163,14 +166,6 @@ impl Renderer {
 
         status
     }
-}
-
-fn clear_main_pass(
-    encoder: &mut wgpu::CommandEncoder,
-    view: &wgpu::TextureView,
-    clear_color: wgpu::Color,
-) {
-    let _pass = begin_main_pass(encoder, view, clear_color, true);
 }
 
 fn begin_main_pass<'a>(

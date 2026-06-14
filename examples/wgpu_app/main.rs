@@ -230,9 +230,10 @@ impl app::Application for App {
         };
         let popup_panel = ui::control::panel(COMMAND_SCOPE_PANEL)
             .with_command_scope()
-            .with_background(paint::Color::rgba(0.12, 0.13, 0.15, 0.22))
+            .with_backdrop(
+                ui::Backdrop::glass(paint::Color::rgba(0.12, 0.13, 0.15, 0.22)).with_blur(1.0),
+            )
             .with_radius(rect::Radius::splat(0.12))
-            .with_backdrop_blur(40.0)
             .with_stroke(paint::Stroke {
                 brush: paint::Brush::Solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.14)),
                 width: 1.0,

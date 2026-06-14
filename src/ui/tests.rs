@@ -295,6 +295,16 @@ fn node_with_icon_stores_icon_data() {
 }
 
 #[test]
+fn node_with_backdrop_stores_backdrop_data() {
+    let backdrop = Backdrop::new()
+        .with_fill(paint::Color::rgba(0.1, 0.2, 0.3, 0.4))
+        .with_blur(0.5);
+    let node = Node::leaf(A).with_backdrop(backdrop);
+
+    assert_eq!(node.style().backdrop(), Some(backdrop));
+}
+
+#[test]
 fn icon_button_is_action_bound_control() {
     let button = control::icon_button(A, CLICK, check_icon());
 
@@ -1069,8 +1079,11 @@ fn popup_shadow_renders_before_popup_panel_fill() {
 #[test]
 fn backdrop_lowers_before_node_background() {
     let root = Node::leaf(A)
-        .with_backdrop_blur(14.0)
-        .with_background(paint::Color::rgba(1.0, 1.0, 1.0, 0.5))
+        .with_backdrop(
+            Backdrop::new()
+                .with_fill(paint::Color::rgba(1.0, 1.0, 1.0, 0.5))
+                .with_blur(0.5),
+        )
         .with_radius(rect::Radius::splat(0.4));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
@@ -1093,7 +1106,7 @@ fn backdrop_lowers_before_node_background() {
     assert_eq!(backdrop(&scene, 0).rect.radius, root.style().radius());
     assert_eq!(
         backdrop(&scene, 0).filter,
-        paint::BackdropFilter::Blur { radius: 14.0 }
+        paint::BackdropFilter::Blur { amount: 0.5 }
     );
     assert_eq!(
         quad(&scene, 1).style.fill,
@@ -1120,8 +1133,8 @@ fn popup_backdrop_lowers_after_shadow_before_popup_panel_fill() {
         popup_rect,
         Node::leaf(B)
             .with_background(paint::Color::rgba(1.0, 1.0, 1.0, 0.35))
+            .with_backdrop(Backdrop::new().with_blur(0.75))
             .with_radius(rect::Radius::splat(0.5))
-            .with_backdrop_blur(18.0)
             .with_shadow(
                 paint::Color::rgba(0.0, 0.0, 0.0, 0.35),
                 18.0,

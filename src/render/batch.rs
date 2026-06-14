@@ -152,7 +152,7 @@ mod tests {
     fn backdrop_batches_as_own_ordered_operation() {
         let items = vec![paint::Item::Backdrop(paint::Backdrop {
             rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
-            filter: paint::BackdropFilter::Blur { radius: 12.0 },
+            filter: paint::BackdropFilter::Blur { amount: 0.5 },
         })];
 
         assert_eq!(kinds(&item_batches(&items)), vec![Kind::Backdrop]);
@@ -164,7 +164,7 @@ mod tests {
             paint::Item::Quad(solid_quad(0.0)),
             paint::Item::Backdrop(paint::Backdrop {
                 rect: Rect::new(point::logical(1.0, 0.0), area::logical(10.0, 10.0)),
-                filter: paint::BackdropFilter::Blur { radius: 12.0 },
+                filter: paint::BackdropFilter::Blur { amount: 0.5 },
             }),
             paint::Item::Quad(solid_quad(2.0)),
             paint::Item::Text(label(3.0)),

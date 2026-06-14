@@ -7,6 +7,7 @@ use crate::render;
 
 pub struct Renderer {
     blur_pipeline: wgpu::RenderPipeline,
+    blit_pipeline: wgpu::RenderPipeline,
     composite_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -19,18 +20,17 @@ pub struct Target {
     physical_area: area::Physical,
     logical_area: area::Logical,
     scale_factor: f32,
-    surface_usage: wgpu::TextureUsages,
 }
 
 struct Textures {
     area: area::Physical,
-    source: Texture,
+    composition: Texture,
     ping: Texture,
     pong: Texture,
 }
 
 struct Texture {
-    inner: wgpu::Texture,
+    _inner: wgpu::Texture,
     view: wgpu::TextureView,
 }
 
@@ -58,7 +58,8 @@ struct PreparedBackdrop {
     raster_rect: Rect,
     shape_rect: Rect,
     radius: crate::geometry::rect::ResolvedRadius,
-    blur_radius: f32,
+    blur_amount: f32,
+    blur_radius_px: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -68,6 +69,8 @@ struct PixelGeometry {
 }
 
 impl Renderer {
+    const MAX_BLUR_RADIUS_PX: f32 = 96.0;
+
     pub fn new(render_context: &render::Context, format: wgpu::TextureFormat) -> Self {
         let shader = render_context
             .device()
@@ -142,6 +145,34 @@ impl Renderer {
                     multiview_mask: None,
                     cache: None,
                 });
+        let blit_pipeline =
+            render_context
+                .device()
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("Backdrop Blit Pipeline"),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some("vs_fullscreen"),
+                        buffers: &[],
+                        compilation_options: Default::default(),
+                    },
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some("fs_blit"),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: Default::default(),
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                });
         let composite_pipeline =
             render_context
                 .device()
@@ -183,6 +214,7 @@ impl Renderer {
 
         Self {
             blur_pipeline,
+            blit_pipeline,
             composite_pipeline,
             bind_group_layout,
             sampler,
@@ -191,26 +223,51 @@ impl Renderer {
         }
     }
 
+    pub fn prepare(&mut self, render_context: &render::Context, canvas: &render::Canvas) -> Target {
+        let target = Target::new(canvas);
+        self.ensure_textures(render_context, target.physical_area.clamp_min(1));
+        target
+    }
+
+    pub fn composition_view(&self) -> Option<&wgpu::TextureView> {
+        Some(&self.textures.as_ref()?.composition.view)
+    }
+
+    pub fn clear_composition(&self, encoder: &mut wgpu::CommandEncoder, clear_color: wgpu::Color) {
+        let Some(view) = self.composition_view() else {
+            return;
+        };
+        let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Composition Clear Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(clear_color),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
+    }
+
     pub fn draw(
         &mut self,
         render_context: &render::Context,
         target: Target,
         encoder: &mut wgpu::CommandEncoder,
-        frame: &render::Frame,
-        target_view: &wgpu::TextureView,
         backdrop: paint::Backdrop,
     ) {
-        if !target.surface_usage.contains(wgpu::TextureUsages::COPY_SRC) {
-            log::debug!("skipping backdrop because the surface is not copyable");
+        let paint::BackdropFilter::Blur { amount } = backdrop.filter;
+        if amount <= 0.0 {
             return;
         }
 
-        let paint::BackdropFilter::Blur { radius } = backdrop.filter;
-        if radius <= 0.0 {
-            return;
-        }
-
-        let Some(prepared) = prepare_backdrop(backdrop.rect, radius, target.scale_factor) else {
+        let Some(prepared) = prepare_backdrop(backdrop.rect, amount, target.scale_factor) else {
             return;
         };
 
@@ -219,30 +276,10 @@ impl Renderer {
             return;
         };
 
-        encoder.copy_texture_to_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: frame.texture(),
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyTextureInfo {
-                texture: &textures.source.inner,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::Extent3d {
-                width: textures.area.width(),
-                height: textures.area.height(),
-                depth_or_array_layers: 1,
-            },
-        );
-
         self.blur_pass(
             render_context,
             encoder,
-            &textures.source.view,
+            &textures.composition.view,
             &textures.ping.view,
             target,
             prepared,
@@ -261,10 +298,61 @@ impl Renderer {
             render_context,
             encoder,
             &textures.pong.view,
-            target_view,
+            &textures.composition.view,
             target,
             prepared,
         );
+    }
+
+    pub fn blit_to_view(
+        &self,
+        render_context: &render::Context,
+        encoder: &mut wgpu::CommandEncoder,
+        output: &wgpu::TextureView,
+        target: Target,
+    ) {
+        let Some(textures) = self.textures.as_ref() else {
+            return;
+        };
+        let physical_area = target.physical_area.clamp_min(1);
+        let params = Params {
+            texture_size: [physical_area.width() as f32, physical_area.height() as f32],
+            canvas_size: [target.logical_area.width(), target.logical_area.height()],
+            direction_radius: [0.0, 0.0, 0.0, target.scale_factor],
+            rect: [
+                0.0,
+                0.0,
+                target.logical_area.width(),
+                target.logical_area.height(),
+            ],
+            radius: [0.0; 4],
+        };
+        let bind_group = self.bind_group(
+            render_context,
+            &textures.composition.view,
+            params,
+            "Backdrop Blit Bind Group",
+        );
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Backdrop Blit Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: output,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
+
+        pass.set_pipeline(&self.blit_pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.draw(0..3, 0..1);
     }
 
     fn ensure_textures(&mut self, render_context: &render::Context, area: area::Physical) {
@@ -278,7 +366,7 @@ impl Renderer {
 
         self.textures = Some(Textures {
             area,
-            source: self.create_texture(render_context, area, "Backdrop Source Texture"),
+            composition: self.create_texture(render_context, area, "Backdrop Composition Texture"),
             ping: self.create_texture(render_context, area, "Backdrop Ping Texture"),
             pong: self.create_texture(render_context, area, "Backdrop Pong Texture"),
         });
@@ -303,15 +391,14 @@ impl Renderer {
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: self.format,
-                usage: wgpu::TextureUsages::COPY_DST
-                    | wgpu::TextureUsages::RENDER_ATTACHMENT
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                     | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         Texture {
-            inner: texture,
+            _inner: texture,
             view,
         }
     }
@@ -348,7 +435,7 @@ impl Renderer {
 
         pass.set_pipeline(&self.blur_pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
-        pass.draw(0..6, 0..1);
+        pass.draw(0..3, 0..1);
     }
 
     fn composite_pass(
@@ -447,7 +534,7 @@ impl Renderer {
             direction_radius: [
                 direction[0],
                 direction[1],
-                prepared.blur_radius * target.scale_factor,
+                prepared.blur_radius_px,
                 target.scale_factor,
             ],
             rect: rect_data(prepared.shape_rect),
@@ -462,7 +549,6 @@ impl Target {
             physical_area: canvas.physical_area(),
             logical_area: canvas.logical_area(),
             scale_factor: canvas.scale_factor(),
-            surface_usage: canvas.surface().config().usage,
         }
     }
 }
@@ -521,7 +607,7 @@ impl PixelGeometry {
     }
 }
 
-fn prepare_backdrop(rect: Rect, blur_radius: f32, scale_factor: f32) -> Option<PreparedBackdrop> {
+fn prepare_backdrop(rect: Rect, blur_amount: f32, scale_factor: f32) -> Option<PreparedBackdrop> {
     if rect.area.width() <= 0.0 || rect.area.height() <= 0.0 {
         return None;
     }
@@ -529,13 +615,20 @@ fn prepare_backdrop(rect: Rect, blur_radius: f32, scale_factor: f32) -> Option<P
     let pixel_geometry = PixelGeometry::new(scale_factor);
     let shape_rect = pixel_geometry.snap_rect(rect);
     let raster_rect = expand_rect(shape_rect, pixel_geometry.logical_pixel);
+    let blur_amount = blur_amount.clamp(0.0, 1.0);
 
     Some(PreparedBackdrop {
         raster_rect,
         shape_rect,
         radius: shape_rect.radius.resolve(shape_rect.area),
-        blur_radius: blur_radius.max(0.0),
+        blur_amount,
+        blur_radius_px: blur_radius_px(blur_amount, scale_factor),
     })
+}
+
+fn blur_radius_px(amount: f32, scale_factor: f32) -> f32 {
+    (amount.clamp(0.0, 1.0) * Renderer::MAX_BLUR_RADIUS_PX * scale_factor)
+        .clamp(0.0, Renderer::MAX_BLUR_RADIUS_PX)
 }
 
 fn composite_vertices(
@@ -610,11 +703,12 @@ mod tests {
     #[test]
     fn backdrop_shape_snaps_and_raster_bounds_expand_by_one_physical_pixel() {
         let rect = Rect::new(point::logical(10.2, 20.3), area::logical(40.4, 30.8));
-        let prepared = prepare_backdrop(rect, 12.0, 2.0).expect("backdrop should prepare");
+        let prepared = prepare_backdrop(rect, 1.0, 2.0).expect("backdrop should prepare");
 
         assert_eq!(edges(prepared.shape_rect), (10.0, 20.5, 50.5, 51.0));
         assert_eq!(edges(prepared.raster_rect), (9.5, 20.0, 51.0, 51.5));
-        assert_eq!(prepared.blur_radius, 12.0);
+        assert_eq!(prepared.blur_amount, 1.0);
+        assert_eq!(prepared.blur_radius_px, 96.0);
     }
 
     #[test]
@@ -624,7 +718,7 @@ mod tests {
             area::logical(80.0, 30.0),
             crate::geometry::rect::Radius::splat(1.0),
         );
-        let prepared = prepare_backdrop(rect, 18.0, 1.0).expect("backdrop should prepare");
+        let prepared = prepare_backdrop(rect, 1.0, 1.0).expect("backdrop should prepare");
         let vertices = composite_vertices(area::logical(100.0, 100.0), prepared);
 
         assert_eq!(prepared.radius.top_left, 15.0);
@@ -637,6 +731,14 @@ mod tests {
     fn zero_size_backdrops_do_not_prepare() {
         let rect = Rect::new(point::logical(10.0, 20.0), area::logical(0.0, 30.0));
 
-        assert!(prepare_backdrop(rect, 12.0, 1.0).is_none());
+        assert!(prepare_backdrop(rect, 1.0, 1.0).is_none());
+    }
+
+    #[test]
+    fn normalized_blur_amount_maps_to_internal_physical_cap() {
+        assert_eq!(blur_radius_px(-1.0, 1.0), 0.0);
+        assert_eq!(blur_radius_px(0.5, 1.0), 48.0);
+        assert_eq!(blur_radius_px(1.0, 1.0), 96.0);
+        assert_eq!(blur_radius_px(1.0, 2.0), 96.0);
     }
 }

@@ -117,7 +117,10 @@ fn resolved_background(
     visual: &VisualState,
 ) -> Option<paint::Color> {
     let style = node.style();
-    let background = style.background();
+    let background = style
+        .backdrop()
+        .and_then(|backdrop| backdrop.fill())
+        .or(style.background());
 
     if visual.busy {
         return style.busy_background().or(background);
@@ -272,9 +275,11 @@ fn resolved_shadow(node: &ui::Node, rect: crate::geometry::Rect) -> Option<paint
 }
 
 fn resolved_backdrop(node: &ui::Node, rect: crate::geometry::Rect) -> Option<paint::Backdrop> {
+    let amount = node.style().backdrop()?.blur()?;
+
     Some(paint::Backdrop {
         rect,
-        filter: node.style().backdrop_filter()?,
+        filter: paint::BackdropFilter::Blur { amount },
     })
 }
 

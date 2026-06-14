@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{action, geometry, icon, layout, paint, text};
 
-use super::{Id, Path, focus};
+use super::{Backdrop, Id, Path, focus};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node {
@@ -33,7 +33,7 @@ pub struct Style {
     radius: geometry::rect::Radius,
     stroke: Option<paint::Stroke>,
     shadow: Option<Shadow>,
-    backdrop_filter: Option<paint::BackdropFilter>,
+    backdrop: Option<Backdrop>,
     hover_background: Option<paint::Color>,
     focus_background: Option<paint::Color>,
     active_background: Option<paint::Color>,
@@ -212,8 +212,8 @@ impl Node {
         self
     }
 
-    pub fn with_backdrop_blur(mut self, radius: f32) -> Self {
-        self.style.backdrop_filter = Some(paint::BackdropFilter::Blur { radius });
+    pub fn with_backdrop(mut self, backdrop: Backdrop) -> Self {
+        self.style.backdrop = Some(backdrop);
         self
     }
 
@@ -421,8 +421,8 @@ impl Style {
         self.shadow
     }
 
-    pub fn backdrop_filter(self) -> Option<paint::BackdropFilter> {
-        self.backdrop_filter
+    pub fn backdrop(self) -> Option<Backdrop> {
+        self.backdrop
     }
 
     pub fn hover_background(self) -> Option<paint::Color> {
@@ -493,7 +493,7 @@ impl Default for Style {
             radius: geometry::rect::Radius::none(),
             stroke: None,
             shadow: None,
-            backdrop_filter: None,
+            backdrop: None,
             hover_background: None,
             focus_background: None,
             active_background: None,

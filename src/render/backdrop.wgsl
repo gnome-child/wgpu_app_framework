@@ -31,21 +31,15 @@ struct CompositeOut {
 
 @vertex
 fn vs_fullscreen(@builtin(vertex_index) index: u32) -> FullscreenOut {
-    let positions = array<vec2<f32>, 6>(
+    let positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -3.0),
         vec2<f32>(-1.0, 1.0),
-        vec2<f32>(-1.0, -1.0),
-        vec2<f32>(1.0, -1.0),
-        vec2<f32>(-1.0, 1.0),
-        vec2<f32>(1.0, -1.0),
-        vec2<f32>(1.0, 1.0),
+        vec2<f32>(3.0, 1.0),
     );
-    let uvs = array<vec2<f32>, 6>(
+    let uvs = array<vec2<f32>, 3>(
+        vec2<f32>(0.0, 2.0),
         vec2<f32>(0.0, 0.0),
-        vec2<f32>(0.0, 1.0),
-        vec2<f32>(1.0, 1.0),
-        vec2<f32>(0.0, 0.0),
-        vec2<f32>(1.0, 1.0),
-        vec2<f32>(1.0, 0.0),
+        vec2<f32>(2.0, 0.0),
     );
 
     var out: FullscreenOut;
@@ -100,20 +94,40 @@ fn coverage(sdf: f32) -> f32 {
 @fragment
 fn fs_blur(in: FullscreenOut) -> @location(0) vec4<f32> {
     let direction = params.direction_radius.xy;
-    let radius = max(params.direction_radius.z, 0.0);
-    let texel = direction * radius / max(params.texture_size, vec2<f32>(1.0));
-    var color = textureSample(source_texture, source_sampler, in.uv) * 0.227027;
+    let texel = direction / max(params.texture_size, vec2<f32>(1.0));
+    let material_radius_px = clamp(params.direction_radius.z, 0.0, 96.0);
+    let sigma = max(material_radius_px * 0.42, 0.001);
 
-    color += textureSample(source_texture, source_sampler, in.uv + texel * 0.25) * 0.1945946;
-    color += textureSample(source_texture, source_sampler, in.uv - texel * 0.25) * 0.1945946;
-    color += textureSample(source_texture, source_sampler, in.uv + texel * 0.50) * 0.1216216;
-    color += textureSample(source_texture, source_sampler, in.uv - texel * 0.50) * 0.1216216;
-    color += textureSample(source_texture, source_sampler, in.uv + texel * 0.75) * 0.054054;
-    color += textureSample(source_texture, source_sampler, in.uv - texel * 0.75) * 0.054054;
-    color += textureSample(source_texture, source_sampler, in.uv + texel) * 0.016216;
-    color += textureSample(source_texture, source_sampler, in.uv - texel) * 0.016216;
+    var color = textureSample(source_texture, source_sampler, in.uv);
+    var total_weight = 1.0;
 
-    return color;
+    for (var i: i32 = 1; i <= 96; i = i + 2) {
+        let offset_a = f32(i);
+        if offset_a > material_radius_px {
+            break;
+        }
+
+        let offset_b = min(offset_a + 1.0, material_radius_px);
+        let weight_a = exp(-0.5 * (offset_a / sigma) * (offset_a / sigma));
+        let weight_b = select(
+            exp(-0.5 * (offset_b / sigma) * (offset_b / sigma)),
+            0.0,
+            offset_b <= offset_a,
+        );
+        let pair_weight = weight_a + weight_b;
+        let pair_offset = (offset_a * weight_a + offset_b * weight_b) / pair_weight;
+
+        color += textureSample(source_texture, source_sampler, in.uv + texel * pair_offset) * pair_weight;
+        color += textureSample(source_texture, source_sampler, in.uv - texel * pair_offset) * pair_weight;
+        total_weight += pair_weight * 2.0;
+    }
+
+    return color / total_weight;
+}
+
+@fragment
+fn fs_blit(in: FullscreenOut) -> @location(0) vec4<f32> {
+    return textureSample(source_texture, source_sampler, in.uv);
 }
 
 @fragment
