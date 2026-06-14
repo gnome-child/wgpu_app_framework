@@ -409,7 +409,7 @@ fn control_focus_state_emits_outline_without_changing_fill() {
 }
 
 #[test]
-fn control_active_state_emits_active_tint() {
+fn active_hovered_control_emits_active_then_hover_tint() {
     let root = control::button(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
@@ -442,10 +442,51 @@ fn control_active_state_emits_active_tint() {
         tint(&scene, 1).color,
         root.style().active_tint().expect("control has active tint")
     );
+    assert_eq!(
+        tint(&scene, 2).color,
+        root.style().hover_tint().expect("control has hover tint")
+    );
 }
 
 #[test]
-fn control_busy_state_emits_busy_tint_before_active_or_hover() {
+fn active_pressed_control_emits_active_then_pressed_tint() {
+    let root = control::button(A, CLICK);
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    registry.set_state(
+        CLICK,
+        action::Context::path(window, path(A)),
+        action::State::active(),
+    );
+    tree.set_root(root.clone());
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(Some(path(A)), None, Some(path(A))),
+        &mut scene,
+    );
+
+    assert_eq!(
+        tint(&scene, 1).color,
+        root.style().active_tint().expect("control has active tint")
+    );
+    assert_eq!(
+        tint(&scene, 2).color,
+        root.style()
+            .pressed_tint()
+            .expect("control has pressed tint")
+    );
+    assert_eq!(scene.items().len(), 3);
+}
+
+#[test]
+fn busy_control_emits_busy_tint_and_suppresses_hover_press() {
     let root = control::button(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
@@ -464,7 +505,7 @@ fn control_busy_state_emits_busy_tint_before_active_or_hover() {
         &layout,
         &registry,
         window,
-        Interaction::new(Some(path(A)), Some(path(A)), None),
+        Interaction::new(Some(path(A)), Some(path(A)), Some(path(A))),
         &mut scene,
     );
 
@@ -476,8 +517,47 @@ fn control_busy_state_emits_busy_tint_before_active_or_hover() {
     );
     assert_eq!(
         tint(&scene, 1).color,
+        root.style().active_tint().expect("control has active tint")
+    );
+    assert_eq!(
+        tint(&scene, 2).color,
         root.style().busy_tint().expect("control has busy tint")
     );
+    assert_eq!(outline(&scene, 3).rect, layout.rect());
+    assert_eq!(scene.items().len(), 4);
+}
+
+#[test]
+fn disabled_control_emits_disabled_tint_and_suppresses_hover_press() {
+    let root = control::button(A, CLICK);
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    registry.set_state(
+        CLICK,
+        action::Context::path(window, path(A)),
+        action::State::disabled(),
+    );
+    tree.set_root(root.clone());
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(Some(path(A)), None, Some(path(A))),
+        &mut scene,
+    );
+
+    assert_eq!(
+        tint(&scene, 1).color,
+        root.style()
+            .disabled_tint()
+            .expect("control has disabled tint")
+    );
+    assert_eq!(scene.items().len(), 2);
 }
 
 #[test]
