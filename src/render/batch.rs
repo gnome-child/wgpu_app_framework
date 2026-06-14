@@ -2,6 +2,7 @@ use crate::paint;
 
 pub enum ItemBatch<'a> {
     Shapes(Vec<Shape<'a>>),
+    Backdrop(&'a paint::Backdrop),
     Glyphs(Vec<Glyph<'a>>),
 }
 
@@ -16,7 +17,6 @@ pub enum Shape<'a> {
     Shadow(&'a paint::Shadow),
     Tint(&'a paint::Tint),
     Outline(&'a paint::Outline),
-    BackdropBlur(&'a paint::Blur),
 }
 
 pub fn item_batches(items: &[paint::Item]) -> Vec<ItemBatch<'_>> {
@@ -30,7 +30,7 @@ pub fn item_batches(items: &[paint::Item]) -> Vec<ItemBatch<'_>> {
             paint::Item::Shadow(shadow) => push_shape(&mut batches, Shape::Shadow(shadow)),
             paint::Item::Tint(tint) => push_shape(&mut batches, Shape::Tint(tint)),
             paint::Item::Outline(outline) => push_shape(&mut batches, Shape::Outline(outline)),
-            paint::Item::BackdropBlur(blur) => push_shape(&mut batches, Shape::BackdropBlur(blur)),
+            paint::Item::Backdrop(backdrop) => batches.push(ItemBatch::Backdrop(backdrop)),
         }
     }
 
@@ -61,6 +61,7 @@ mod tests {
     #[derive(Debug, PartialEq, Eq)]
     enum Kind {
         Shapes(usize),
+        Backdrop,
         Glyphs(usize),
     }
 
@@ -113,6 +114,7 @@ mod tests {
             .iter()
             .map(|batch| match batch {
                 ItemBatch::Shapes(shapes) => Kind::Shapes(shapes.len()),
+                ItemBatch::Backdrop(_) => Kind::Backdrop,
                 ItemBatch::Glyphs(glyphs) => Kind::Glyphs(glyphs.len()),
             })
             .collect()
@@ -147,12 +149,35 @@ mod tests {
     }
 
     #[test]
-    fn backdrop_blur_batches_as_skipped_shape() {
-        let items = vec![paint::Item::BackdropBlur(paint::Blur {
+    fn backdrop_batches_as_own_ordered_operation() {
+        let items = vec![paint::Item::Backdrop(paint::Backdrop {
             rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
-            radius: 12.0,
+            filter: paint::BackdropFilter::Blur { radius: 12.0 },
         })];
 
-        assert_eq!(kinds(&item_batches(&items)), vec![Kind::Shapes(1)]);
+        assert_eq!(kinds(&item_batches(&items)), vec![Kind::Backdrop]);
+    }
+
+    #[test]
+    fn backdrop_splits_shape_batches_to_preserve_order() {
+        let items = vec![
+            paint::Item::Quad(solid_quad(0.0)),
+            paint::Item::Backdrop(paint::Backdrop {
+                rect: Rect::new(point::logical(1.0, 0.0), area::logical(10.0, 10.0)),
+                filter: paint::BackdropFilter::Blur { radius: 12.0 },
+            }),
+            paint::Item::Quad(solid_quad(2.0)),
+            paint::Item::Text(label(3.0)),
+        ];
+
+        assert_eq!(
+            kinds(&item_batches(&items)),
+            vec![
+                Kind::Shapes(1),
+                Kind::Backdrop,
+                Kind::Shapes(1),
+                Kind::Glyphs(1)
+            ]
+        );
     }
 }

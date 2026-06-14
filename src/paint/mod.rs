@@ -50,8 +50,8 @@ impl Scene {
         self.items.push(Item::Outline(outline));
     }
 
-    pub fn push_backdrop_blur(&mut self, blur: Blur) {
-        self.items.push(Item::BackdropBlur(blur));
+    pub fn push_backdrop(&mut self, backdrop: Backdrop) {
+        self.items.push(Item::Backdrop(backdrop));
     }
 
     pub fn items(&self) -> &[Item] {
@@ -77,7 +77,7 @@ pub enum Item {
     Shadow(Shadow),
     Tint(Tint),
     Outline(Outline),
-    BackdropBlur(Blur),
+    Backdrop(Backdrop),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -124,9 +124,14 @@ pub struct Outline {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Blur {
+pub struct Backdrop {
     pub rect: Rect,
-    pub radius: f32,
+    pub filter: BackdropFilter,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BackdropFilter {
+    Blur { radius: f32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -139,7 +144,6 @@ pub struct Style {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Fill {
     Brush(Brush),
-    Blur,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -252,6 +256,10 @@ mod tests {
             spread: 1.0,
             offset: point::logical(0.0, 4.0),
         };
+        let backdrop = Backdrop {
+            rect: Rect::new(point::logical(1.72, 0.0), area::logical(10.0, 10.0)),
+            filter: BackdropFilter::Blur { radius: 12.0 },
+        };
         let outline = Outline {
             rect: Rect::new(point::logical(1.75, 0.0), area::logical(10.0, 10.0)),
             brush: Brush::Solid(Color::BLACK),
@@ -272,6 +280,7 @@ mod tests {
         scene.push_icon(icon);
         scene.push_text(text.clone());
         scene.push_shadow(shadow);
+        scene.push_backdrop(backdrop);
         scene.push_outline(outline);
         scene.push_quad(second);
 
@@ -283,6 +292,7 @@ mod tests {
                 Item::Icon(icon),
                 Item::Text(text),
                 Item::Shadow(shadow),
+                Item::Backdrop(backdrop),
                 Item::Outline(outline),
                 Item::Quad(second)
             ]
@@ -310,33 +320,33 @@ mod tests {
     }
 
     #[test]
-    fn backdrop_blur_item_is_stored() {
+    fn backdrop_item_is_stored() {
         let mut scene = Scene::new();
-        let blur = Blur {
+        let backdrop = Backdrop {
             rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
-            radius: 8.0,
+            filter: BackdropFilter::Blur { radius: 8.0 },
         };
 
-        scene.push_backdrop_blur(blur);
+        scene.push_backdrop(backdrop);
 
-        assert_eq!(scene.items(), &[Item::BackdropBlur(blur)]);
+        assert_eq!(scene.items(), &[Item::Backdrop(backdrop)]);
     }
 
     #[test]
-    fn backdrop_blur_preserves_rounded_rect_shape() {
+    fn backdrop_preserves_rounded_rect_shape() {
         let mut scene = Scene::new();
-        let blur = Blur {
+        let backdrop = Backdrop {
             rect: Rect::rounded(
                 point::logical(0.0, 0.0),
                 area::logical(20.0, 10.0),
                 rect::Radius::splat(1.0),
             ),
-            radius: 8.0,
+            filter: BackdropFilter::Blur { radius: 8.0 },
         };
 
-        scene.push_backdrop_blur(blur);
+        scene.push_backdrop(backdrop);
 
-        assert_eq!(scene.items(), &[Item::BackdropBlur(blur)]);
+        assert_eq!(scene.items(), &[Item::Backdrop(backdrop)]);
     }
 
     #[test]

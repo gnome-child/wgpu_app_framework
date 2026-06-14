@@ -43,6 +43,12 @@ impl Surface {
 
         let capabilities = inner.get_capabilities(render_context.adapter());
 
+        if capabilities.usages.contains(wgpu::TextureUsages::COPY_SRC) {
+            config.usage |= wgpu::TextureUsages::COPY_SRC;
+        } else {
+            log::debug!("surface does not support COPY_SRC; backdrop blur will be skipped");
+        }
+
         config.present_mode = [
             wgpu::PresentMode::Mailbox,
             wgpu::PresentMode::Immediate,

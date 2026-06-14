@@ -61,6 +61,13 @@ fn shadow(scene: &paint::Scene, index: usize) -> paint::Shadow {
     }
 }
 
+fn backdrop(scene: &paint::Scene, index: usize) -> paint::Backdrop {
+    match scene.items().get(index) {
+        Some(paint::Item::Backdrop(backdrop)) => *backdrop,
+        item => panic!("expected backdrop item at {index}, got {item:?}"),
+    }
+}
+
 fn assert_same_bounds(actual: Rect, expected: Rect) {
     assert_eq!(actual.origin, expected.origin);
     assert_eq!(actual.area, expected.area);
@@ -1057,6 +1064,87 @@ fn popup_shadow_renders_before_popup_panel_fill() {
     assert!(matches!(scene.items()[2], paint::Item::Quad(_)));
     assert_eq!(shadow(&scene, 1).rect, popup_rect);
     assert_eq!(quad(&scene, 2).rect, popup_rect);
+}
+
+#[test]
+fn backdrop_lowers_before_node_background() {
+    let root = Node::leaf(A)
+        .with_backdrop_blur(14.0)
+        .with_background(paint::Color::rgba(1.0, 1.0, 1.0, 0.5))
+        .with_radius(rect::Radius::splat(0.4));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    tree.set_root(root.clone());
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::default(),
+        &mut scene,
+    );
+
+    assert!(matches!(scene.items()[0], paint::Item::Backdrop(_)));
+    assert!(matches!(scene.items()[1], paint::Item::Quad(_)));
+    assert_eq!(backdrop(&scene, 0).rect, quad(&scene, 1).rect);
+    assert_eq!(backdrop(&scene, 0).rect.radius, root.style().radius());
+    assert_eq!(
+        backdrop(&scene, 0).filter,
+        paint::BackdropFilter::Blur { radius: 14.0 }
+    );
+    assert_eq!(
+        quad(&scene, 1).style.fill,
+        Some(paint::Fill::Brush(paint::Brush::Solid(paint::Color::rgba(
+            1.0, 1.0, 1.0, 0.5
+        ))))
+    );
+}
+
+#[test]
+fn popup_backdrop_lowers_after_shadow_before_popup_panel_fill() {
+    let popup_rect = Rect::rounded(
+        point::logical(10.0, 10.0),
+        area::logical(40.0, 40.0),
+        rect::Radius::splat(0.5),
+    );
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    tree.set_root(Node::leaf(ROOT).with_background(paint::Color::BLACK));
+    tree.push_popup(Popup::new(
+        popup_rect,
+        Node::leaf(B)
+            .with_background(paint::Color::rgba(1.0, 1.0, 1.0, 0.35))
+            .with_radius(rect::Radius::splat(0.5))
+            .with_backdrop_blur(18.0)
+            .with_shadow(
+                paint::Color::rgba(0.0, 0.0, 0.0, 0.35),
+                18.0,
+                1.0,
+                point::logical(0.0, 6.0),
+            ),
+    ));
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::default(),
+        &mut scene,
+    );
+
+    assert!(matches!(scene.items()[0], paint::Item::Quad(_)));
+    assert!(matches!(scene.items()[1], paint::Item::Shadow(_)));
+    assert!(matches!(scene.items()[2], paint::Item::Backdrop(_)));
+    assert!(matches!(scene.items()[3], paint::Item::Quad(_)));
+    assert_eq!(shadow(&scene, 1).rect, popup_rect);
+    assert_eq!(backdrop(&scene, 2).rect, popup_rect);
+    assert_eq!(quad(&scene, 3).rect, popup_rect);
 }
 
 #[test]

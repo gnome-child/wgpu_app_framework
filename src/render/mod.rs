@@ -6,6 +6,7 @@ pub use frame::Frame;
 pub use renderer::Renderer;
 pub use surface::Surface;
 
+mod backdrop;
 mod batch;
 pub mod canvas;
 pub mod context;

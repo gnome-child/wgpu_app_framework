@@ -4,11 +4,13 @@ use crate::render::batch::{ItemBatch, item_batches};
 
 pub struct Renderer {
     quad_pipeline: wgpu::RenderPipeline,
+    backdrop_renderer: render::backdrop::Renderer,
     text_renderer: render::text_renderer::TextRenderer,
 }
 
 enum RenderBatch {
     Shapes(render::quad::Batch),
+    Backdrop(paint::Backdrop),
     Text { renderer_index: usize },
 }
 
@@ -16,6 +18,7 @@ impl Renderer {
     pub fn new(render_context: &render::Context, format: wgpu::TextureFormat) -> Self {
         Self {
             quad_pipeline: render::quad::pipeline(render_context, format),
+            backdrop_renderer: render::backdrop::Renderer::new(render_context, format),
             text_renderer: render::text_renderer::TextRenderer::new(render_context, format),
         }
     }
@@ -82,6 +85,9 @@ impl Renderer {
                         render_batches.push(RenderBatch::Shapes(batch));
                     }
                 }
+                ItemBatch::Backdrop(backdrop) => {
+                    render_batches.push(RenderBatch::Backdrop(*backdrop));
+                }
                 ItemBatch::Glyphs(glyphs) => {
                     if self.text_renderer.prepare_batch(
                         render_context,
@@ -100,43 +106,52 @@ impl Renderer {
         }
 
         let quad_pipeline = &self.quad_pipeline;
+        let backdrop_renderer = &mut self.backdrop_renderer;
+        let backdrop_target = render::backdrop::Target::new(canvas);
         let text_renderer = &self.text_renderer;
         let mut text_render_error = None;
 
         let status = canvas.draw(render_context, |encoder, frame| {
             let view = frame.create_view();
-
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Main Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(clear_color),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-                multiview_mask: None,
-            });
+            let mut initialized = false;
 
             for batch in &render_batches {
                 match batch {
                     RenderBatch::Shapes(batch) => {
+                        let mut pass = begin_main_pass(encoder, &view, clear_color, !initialized);
+                        initialized = true;
                         pass.set_pipeline(quad_pipeline);
                         pass.set_vertex_buffer(0, batch.vertex_buffer().slice(..));
                         pass.draw(0..batch.vertex_count(), 0..1);
                     }
+                    RenderBatch::Backdrop(backdrop) => {
+                        if !initialized {
+                            clear_main_pass(encoder, &view, clear_color);
+                            initialized = true;
+                        }
+
+                        backdrop_renderer.draw(
+                            render_context,
+                            backdrop_target,
+                            encoder,
+                            frame,
+                            &view,
+                            *backdrop,
+                        );
+                    }
                     RenderBatch::Text { renderer_index } => {
+                        let mut pass = begin_main_pass(encoder, &view, clear_color, !initialized);
+                        initialized = true;
                         if let Err(error) = text_renderer.render(*renderer_index, &mut pass) {
                             text_render_error = Some(error);
                             break;
                         }
                     }
                 }
+            }
+
+            if !initialized {
+                clear_main_pass(encoder, &view, clear_color);
             }
         });
 
@@ -148,4 +163,40 @@ impl Renderer {
 
         status
     }
+}
+
+fn clear_main_pass(
+    encoder: &mut wgpu::CommandEncoder,
+    view: &wgpu::TextureView,
+    clear_color: wgpu::Color,
+) {
+    let _pass = begin_main_pass(encoder, view, clear_color, true);
+}
+
+fn begin_main_pass<'a>(
+    encoder: &'a mut wgpu::CommandEncoder,
+    view: &'a wgpu::TextureView,
+    clear_color: wgpu::Color,
+    clear: bool,
+) -> wgpu::RenderPass<'a> {
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("Main Render Pass"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view,
+            resolve_target: None,
+            depth_slice: None,
+            ops: wgpu::Operations {
+                load: if clear {
+                    wgpu::LoadOp::Clear(clear_color)
+                } else {
+                    wgpu::LoadOp::Load
+                },
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        occlusion_query_set: None,
+        timestamp_writes: None,
+        multiview_mask: None,
+    })
 }

@@ -210,10 +210,6 @@ fn analytic_shapes_for_shape(shape: &batch::Shape<'_>) -> Vec<AnalyticShape> {
         batch::Shape::Shadow(shadow) => analytic_shapes_for_shadow(shadow),
         batch::Shape::Tint(tint) => analytic_shapes_for_tint(tint),
         batch::Shape::Outline(outline) => analytic_shapes_for_outline(outline),
-        batch::Shape::BackdropBlur(blur) => {
-            log::debug!("skipping unsupported backdrop blur: {blur:?}");
-            Vec::new()
-        }
     }
 }
 
@@ -227,9 +223,6 @@ fn analytic_shapes_for_quad(quad: &paint::Quad) -> Vec<AnalyticShape> {
                 if let Some(color) = solid_color(brush) {
                     shapes.push(fill_shape(rect, color));
                 }
-            }
-            paint::Fill::Blur => {
-                log::debug!("skipping unsupported blur quad fill");
             }
         }
     }
@@ -1047,15 +1040,5 @@ mod tests {
         );
         assert_eq!(shapes[0].outer_radius.top_left, 15.0);
         assert_eq!(inner.radius.top_left, 11.0);
-    }
-
-    #[test]
-    fn backdrop_blur_generates_no_analytic_shapes() {
-        let blur = paint::Blur {
-            rect: rect(),
-            radius: 8.0,
-        };
-
-        assert!(analytic_shapes_for_shape(&batch::Shape::BackdropBlur(&blur)).is_empty());
     }
 }

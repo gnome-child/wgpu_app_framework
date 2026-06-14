@@ -42,6 +42,10 @@ fn node<T>(
         scene.push_shadow(shadow);
     }
 
+    if let Some(backdrop) = resolved_backdrop(node, rect) {
+        scene.push_backdrop(backdrop);
+    }
+
     if let Some(style) = resolved_quad_style(node, layout, interaction, &visual) {
         scene.push_quad(paint::Quad { rect, style });
     }
@@ -264,6 +268,13 @@ fn resolved_shadow(node: &ui::Node, rect: crate::geometry::Rect) -> Option<paint
         blur: shadow.blur(),
         spread: shadow.spread(),
         offset: shadow.offset(),
+    })
+}
+
+fn resolved_backdrop(node: &ui::Node, rect: crate::geometry::Rect) -> Option<paint::Backdrop> {
+    Some(paint::Backdrop {
+        rect,
+        filter: node.style().backdrop_filter()?,
     })
 }
 

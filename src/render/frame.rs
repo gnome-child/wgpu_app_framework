@@ -35,4 +35,8 @@ impl Frame {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default())
     }
+
+    pub fn texture(&self) -> &wgpu::Texture {
+        &self.surface_texture.texture
+    }
 }
