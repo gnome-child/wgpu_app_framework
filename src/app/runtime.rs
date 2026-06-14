@@ -98,8 +98,11 @@ impl<A: Application> Runtime<A> {
                 Message::RunAction(invocation) => {
                     self.run_action(invocation);
                 }
-                Message::TaskCompleted { invocation, event } => {
-                    self.complete_task(invocation, event);
+                Message::ActionTaskCompleted { invocation, event } => {
+                    self.complete_action_task(invocation, event);
+                }
+                Message::AppTaskCompleted(event) => {
+                    self.complete_app_task(event);
                 }
             }
         }
@@ -120,11 +123,15 @@ impl<A: Application> Runtime<A> {
         }
     }
 
-    fn complete_task(&mut self, invocation: action::Invocation, event: A::Event) {
+    fn complete_action_task(&mut self, invocation: action::Invocation, event: A::Event) {
         let windows = &self.windows;
         let mut request_redraw = |window| windows.request_redraw(window);
 
         action_executor::complete_task(&mut self.actions, invocation, &mut request_redraw);
+        self.mailbox.push_app(event);
+    }
+
+    fn complete_app_task(&mut self, event: A::Event) {
         self.mailbox.push_app(event);
     }
 

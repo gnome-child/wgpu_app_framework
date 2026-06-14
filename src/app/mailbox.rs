@@ -6,10 +6,11 @@ use crate::{action, event};
 pub enum Message<T> {
     Event(event::Event<T>),
     RunAction(action::Invocation),
-    TaskCompleted {
+    ActionTaskCompleted {
         invocation: action::Invocation,
         event: T,
     },
+    AppTaskCompleted(T),
 }
 
 #[derive(Debug)]
@@ -133,7 +134,7 @@ mod tests {
     }
 
     #[test]
-    fn task_completion_messages_share_fifo_order() {
+    fn action_task_completion_messages_share_fifo_order() {
         let mut mailbox = Mailbox::new();
         let window = window::Id::new(1);
         let invocation = action::Invocation::new(
@@ -143,7 +144,7 @@ mod tests {
         );
 
         mailbox.push_app(1);
-        mailbox.push_message(Message::TaskCompleted {
+        mailbox.push_message(Message::ActionTaskCompleted {
             invocation: invocation.clone(),
             event: 2,
         });
@@ -151,10 +152,22 @@ mod tests {
         assert_eq!(mailbox.pop(), Some(Message::Event(event::Event::App(1))));
         assert_eq!(
             mailbox.pop(),
-            Some(Message::TaskCompleted {
+            Some(Message::ActionTaskCompleted {
                 invocation,
                 event: 2
             })
         );
+    }
+
+    #[test]
+    fn app_task_completion_messages_share_fifo_order() {
+        let mut mailbox = Mailbox::new();
+
+        mailbox.push_app(1);
+        mailbox.push_message(Message::AppTaskCompleted(2));
+
+        assert_eq!(mailbox.pop(), Some(Message::Event(event::Event::App(1))));
+        assert_eq!(mailbox.pop(), Some(Message::AppTaskCompleted(2)));
+        assert_eq!(mailbox.pop(), None);
     }
 }

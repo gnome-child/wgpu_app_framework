@@ -4,9 +4,10 @@ use crate::app::mailbox::Mailbox;
 use crate::app::rendering;
 use crate::app::sender::Sender;
 use crate::app::state::{WindowState, resolve_action_path};
+use crate::app::task_runner;
 use crate::app::windows::Windows;
 use crate::geometry::area;
-use crate::{Action, action, ui, window};
+use crate::{Action, Task, action, ui, window};
 
 use super::Result;
 
@@ -117,6 +118,10 @@ impl<T: Send + 'static> Context<'_, T> {
 
     pub fn emit(&mut self, event: T) {
         self.mailbox.push_app(event);
+    }
+
+    pub fn spawn(&self, task: Task<T>) {
+        task_runner::spawn(task, self.sender.clone());
     }
 
     pub fn sender(&self) -> Sender<T> {

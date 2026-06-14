@@ -67,7 +67,7 @@ pub fn spawn_task<T: Send + 'static>(
 ) {
     thread::spawn(move || {
         let event = task.run();
-        let _ = sender.send_message(Message::TaskCompleted { invocation, event });
+        let _ = sender.send_message(Message::ActionTaskCompleted { invocation, event });
     });
 }
 

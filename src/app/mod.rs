@@ -6,6 +6,7 @@ mod rendering;
 mod runtime;
 mod sender;
 mod state;
+mod task_runner;
 mod view;
 mod windows;
 

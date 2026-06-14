@@ -1,11 +1,10 @@
 use std::time::Duration;
 
-use wgpu_l3::{Action, Event, Task, action, app, geometry::area, layout, paint, ui, window};
+use wgpu_l3::{Action, Event, Task, action, app, geometry::area, layout, paint, text, ui, window};
 
-const PREPARE_WORKSPACE: action::Id = action::Id::new("prepare_workspace");
 const RUN_TASK: action::Id = action::Id::new("run_task");
 const ROOT: ui::Id = ui::Id::new("root");
-const PREPARE_BUTTON: ui::Id = ui::Id::new("prepare_button");
+const STATUS_PANEL: ui::Id = ui::Id::new("status_panel");
 const RUN_BUTTON: ui::Id = ui::Id::new("run_button");
 
 fn main() -> app::Result<()> {
@@ -22,7 +21,7 @@ struct App {
 }
 
 enum AppEvent {
-    PrepareWorkspace,
+    WorkspaceReady,
     RunTaskFinished,
 }
 
@@ -30,10 +29,6 @@ impl app::Application for App {
     type Event = AppEvent;
 
     fn started(&mut self, cx: &mut app::Context<'_, Self::Event>) {
-        cx.register_action(
-            Action::new(PREPARE_WORKSPACE, "Prepare Workspace")
-                .emit(|_| AppEvent::PrepareWorkspace),
-        );
         cx.register_action(Action::new(RUN_TASK, "Run Task").task(|_| {
             Task::future(async {
                 std::thread::sleep(Duration::from_millis(700));
@@ -48,6 +43,11 @@ impl app::Application for App {
         });
 
         self.window = Some(window);
+
+        cx.spawn(Task::future(async {
+            std::thread::sleep(Duration::from_millis(700));
+            AppEvent::WorkspaceReady
+        }));
     }
 
     fn event(&mut self, cx: &mut app::Context<'_, Self::Event>, event: Event<Self::Event>) {
@@ -60,7 +60,7 @@ impl app::Application for App {
         };
 
         match event {
-            AppEvent::PrepareWorkspace => {
+            AppEvent::WorkspaceReady => {
                 self.workspace_ready = true;
                 cx.request_redraw(window);
             }
@@ -81,25 +81,34 @@ impl app::Application for App {
             return;
         }
 
-        cx.action(window, PREPARE_WORKSPACE)
-            .enabled(true)
-            .active(self.workspace_ready);
         cx.action(window, RUN_TASK)
             .enabled(self.workspace_ready)
             .active(false);
 
+        let status = if self.workspace_ready {
+            format!("Workspace ready - runs: {}", self.run_count)
+        } else {
+            "Loading workspace...".to_owned()
+        };
         let root = ui::control::panel(ROOT)
             .with_background(paint::Color::BLACK)
             .with_padding(layout::Insets::splat(16.0))
-            .with_child(ui::control::labeled_button(
-                PREPARE_BUTTON,
-                PREPARE_WORKSPACE,
-                "Prepare workspace",
-            ))
+            .with_child(
+                ui::control::panel(STATUS_PANEL)
+                    .with_size(layout::Size::Fill, layout::Size::Fixed(96.0))
+                    .with_label(label(status)),
+            )
             .with_child(ui::control::labeled_button(
                 RUN_BUTTON, RUN_TASK, "Run task",
             ));
 
         tree.set_root(root);
     }
+}
+
+fn label(label: impl Into<String>) -> text::Document {
+    let mut block = text::Block::new(text::Align::Center);
+    block.push_run(text::Run::new(label, text::Style::default()));
+
+    text::Document::from_block(block)
 }
