@@ -96,13 +96,19 @@ pub fn prepare_batch(
     })
 }
 
-#[derive(Debug, Clone, PartialEq)]
-struct DynamicSolidMesh {
-    points: Vec<point::Logical>,
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct AnalyticShape {
+    outer_rect: Rect,
+    outer_radius: crate::geometry::rect::ResolvedRadius,
+    inner: Option<AnalyticInner>,
     color: paint::Color,
 }
 
-const CORNER_SEGMENTS: usize = 12;
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct AnalyticInner {
+    rect: Rect,
+    radius: crate::geometry::rect::ResolvedRadius,
+}
 
 fn push_shape_vertices(
     buffer: &mut Vec<render::primitive::Vertex>,
@@ -116,16 +122,16 @@ fn push_shape_vertices(
         return;
     }
 
-    for mesh in solid_meshes_for_shape(shape) {
-        push_mesh_vertices(buffer, canvas_area, &mesh);
+    for shape in analytic_shapes_for_shape(shape) {
+        push_analytic_shape_vertices(buffer, canvas_area, shape);
     }
 }
 
-fn solid_meshes_for_shape(shape: &batch::Shape<'_>) -> Vec<DynamicSolidMesh> {
+fn analytic_shapes_for_shape(shape: &batch::Shape<'_>) -> Vec<AnalyticShape> {
     match shape {
-        batch::Shape::Quad(quad) => solid_meshes_for_quad(quad),
-        batch::Shape::Tint(tint) => solid_meshes_for_tint(tint),
-        batch::Shape::Outline(outline) => solid_meshes_for_outline(outline),
+        batch::Shape::Quad(quad) => analytic_shapes_for_quad(quad),
+        batch::Shape::Tint(tint) => analytic_shapes_for_tint(tint),
+        batch::Shape::Outline(outline) => analytic_shapes_for_outline(outline),
         batch::Shape::BackdropBlur(blur) => {
             log::debug!("skipping unsupported backdrop blur: {blur:?}");
             Vec::new()
@@ -133,15 +139,15 @@ fn solid_meshes_for_shape(shape: &batch::Shape<'_>) -> Vec<DynamicSolidMesh> {
     }
 }
 
-fn solid_meshes_for_quad(quad: &paint::Quad) -> Vec<DynamicSolidMesh> {
+fn analytic_shapes_for_quad(quad: &paint::Quad) -> Vec<AnalyticShape> {
     let rect = quad.rect;
-    let mut meshes = Vec::new();
+    let mut shapes = Vec::new();
 
     if let Some(fill) = quad.style.fill {
         match fill {
             paint::Fill::Brush(brush) => {
                 if let Some(color) = solid_color(brush) {
-                    meshes.push(solid_mesh_for_rect(rect, color));
+                    shapes.push(fill_shape(rect, color));
                 }
             }
             paint::Fill::Blur => {
@@ -152,48 +158,37 @@ fn solid_meshes_for_quad(quad: &paint::Quad) -> Vec<DynamicSolidMesh> {
 
     if let Some(stroke) = quad.style.stroke {
         if let Some(color) = solid_color(stroke.brush) {
-            if rect.radius.resolve(rect.area).is_none() {
-                for rect in internal_stroke_rects(rect, stroke.width) {
-                    meshes.push(solid_mesh_for_rect(rect, color));
-                }
-            } else if let Some(mesh) = rounded_stroke_mesh(rect, stroke.width, color) {
-                meshes.push(mesh);
+            if let Some(shape) = internal_stroke_shape(rect, stroke.width, color) {
+                shapes.push(shape);
             }
         }
     }
 
     if let Some(color) = quad.style.tint {
-        meshes.push(solid_mesh_for_rect(rect, color));
+        shapes.push(fill_shape(rect, color));
     }
 
-    meshes
+    shapes
 }
 
-fn solid_meshes_for_tint(tint: &paint::Tint) -> Vec<DynamicSolidMesh> {
-    vec![solid_mesh_for_rect(tint.rect, tint.color)]
+fn analytic_shapes_for_tint(tint: &paint::Tint) -> Vec<AnalyticShape> {
+    vec![fill_shape(tint.rect, tint.color)]
 }
 
-fn solid_meshes_for_outline(outline: &paint::Outline) -> Vec<DynamicSolidMesh> {
+fn analytic_shapes_for_outline(outline: &paint::Outline) -> Vec<AnalyticShape> {
     let Some(color) = solid_color(outline.brush) else {
         return Vec::new();
     };
 
-    if outline.rect.radius.resolve(outline.rect.area).is_none() {
-        return external_outline_rects(outline.rect, outline.width, outline.offset)
-            .into_iter()
-            .map(|rect| solid_mesh_for_rect(rect, color))
-            .collect();
-    }
-
-    rounded_outline_mesh(outline.rect, outline.width, outline.offset, color)
+    external_outline_shape(outline.rect, outline.width, outline.offset, color)
         .into_iter()
         .collect()
 }
 
-fn push_mesh_vertices(
+fn push_analytic_shape_vertices(
     buffer: &mut Vec<render::primitive::Vertex>,
     canvas_area: area::Logical,
-    mesh: &DynamicSolidMesh,
+    shape: AnalyticShape,
 ) {
     let to_clip = |x: f32, y: f32| -> [f32; 2] {
         [
@@ -202,59 +197,51 @@ fn push_mesh_vertices(
         ]
     };
 
-    let color = mesh.color.to_array();
-
-    buffer.extend(mesh.points.iter().map(|point| render::primitive::Vertex {
-        position: to_clip(point.x(), point.y()),
-        color,
-    }));
-}
-
-fn solid_mesh_for_rect(rect: Rect, color: paint::Color) -> DynamicSolidMesh {
-    let radius = rect.radius.resolve(rect.area);
-    let points = if radius.is_none() {
-        rect_vertices(rect)
-    } else {
-        rounded_fill_vertices(rect, radius)
-    };
-
-    DynamicSolidMesh { points, color }
-}
-
-fn rect_vertices(rect: Rect) -> Vec<point::Logical> {
-    let (x0, y0, x1, y1) = edges(rect);
-
-    vec![
-        point::logical(x0, y0),
-        point::logical(x0, y1),
-        point::logical(x1, y1),
-        point::logical(x0, y0),
-        point::logical(x1, y1),
-        point::logical(x1, y0),
-    ]
-}
-
-fn rounded_fill_vertices(
-    rect: Rect,
-    radius: crate::geometry::rect::ResolvedRadius,
-) -> Vec<point::Logical> {
-    let boundary = rounded_boundary(rect, radius);
-    let (x0, y0, x1, y1) = edges(rect);
-    let center = point::logical((x0 + x1) / 2.0, (y0 + y1) / 2.0);
-    let mut vertices = Vec::with_capacity(boundary.len() * 3);
-
-    for index in 0..boundary.len() {
-        let next = (index + 1) % boundary.len();
-
-        vertices.push(center);
-        vertices.push(boundary[index]);
-        vertices.push(boundary[next]);
+    if shape.outer_rect.area.width() <= 0.0 || shape.outer_rect.area.height() <= 0.0 {
+        return;
     }
 
-    vertices
+    let (x0, y0, x1, y1) = edges(shape.outer_rect);
+    let outer_rect = rect_data(shape.outer_rect);
+    let outer_radius = radius_data(shape.outer_radius);
+    let (inner_rect, inner_radius, mode) = match shape.inner {
+        Some(inner) => (rect_data(inner.rect), radius_data(inner.radius), 1.0),
+        None => ([0.0, 0.0, -1.0, -1.0], [0.0; 4], 0.0),
+    };
+    let color = shape.color.to_array();
+    let params = [mode, 0.0, 0.0, 0.0];
+
+    let mut push = |x: f32, y: f32| {
+        buffer.push(render::primitive::Vertex {
+            position: to_clip(x, y),
+            local_position: [x, y],
+            outer_rect,
+            outer_radius,
+            inner_rect,
+            inner_radius,
+            color,
+            params,
+        });
+    };
+
+    push(x0, y0);
+    push(x0, y1);
+    push(x1, y1);
+    push(x0, y0);
+    push(x1, y1);
+    push(x1, y0);
 }
 
-fn rounded_stroke_mesh(rect: Rect, width: f32, color: paint::Color) -> Option<DynamicSolidMesh> {
+fn fill_shape(rect: Rect, color: paint::Color) -> AnalyticShape {
+    AnalyticShape {
+        outer_rect: rect,
+        outer_radius: rect.radius.resolve(rect.area),
+        inner: None,
+        color,
+    }
+}
+
+fn internal_stroke_shape(rect: Rect, width: f32, color: paint::Color) -> Option<AnalyticShape> {
     let width = clamped_width(rect, width);
     if width <= 0.0 {
         return None;
@@ -262,30 +249,26 @@ fn rounded_stroke_mesh(rect: Rect, width: f32, color: paint::Color) -> Option<Dy
 
     let outer_radius = rect.radius.resolve(rect.area);
     let Some(inner_rect) = inset_rect(rect, width) else {
-        return Some(solid_mesh_for_rect(rect, color));
-    };
-    let inner_radius = crate::geometry::rect::ResolvedRadius {
-        top_left: (outer_radius.top_left - width).max(0.0),
-        top_right: (outer_radius.top_right - width).max(0.0),
-        bottom_left: (outer_radius.bottom_left - width).max(0.0),
-        bottom_right: (outer_radius.bottom_right - width).max(0.0),
+        return Some(fill_shape(rect, color));
     };
 
-    Some(rounded_ring_mesh(
-        rect,
+    Some(AnalyticShape {
+        outer_rect: rect,
         outer_radius,
-        inner_rect,
-        inner_radius,
+        inner: Some(AnalyticInner {
+            rect: inner_rect,
+            radius: shrink_radius(outer_radius, width),
+        }),
         color,
-    ))
+    })
 }
 
-fn rounded_outline_mesh(
+fn external_outline_shape(
     rect: Rect,
     width: f32,
     offset: f32,
     color: paint::Color,
-) -> Option<DynamicSolidMesh> {
+) -> Option<AnalyticShape> {
     if width <= 0.0 {
         return None;
     }
@@ -294,41 +277,15 @@ fn rounded_outline_mesh(
     let base_radius = rect.radius.resolve(rect.area);
     let inner_rect = expand_rect(rect, offset);
     let outer_rect = expand_rect(rect, offset + width);
-    let inner_radius = expand_radius(base_radius, offset);
-    let outer_radius = expand_radius(base_radius, offset + width);
-
-    Some(rounded_ring_mesh(
+    Some(AnalyticShape {
         outer_rect,
-        outer_radius,
-        inner_rect,
-        inner_radius,
+        outer_radius: expand_radius(base_radius, offset + width),
+        inner: Some(AnalyticInner {
+            rect: inner_rect,
+            radius: expand_radius(base_radius, offset),
+        }),
         color,
-    ))
-}
-
-fn rounded_ring_mesh(
-    outer_rect: Rect,
-    outer_radius: crate::geometry::rect::ResolvedRadius,
-    inner_rect: Rect,
-    inner_radius: crate::geometry::rect::ResolvedRadius,
-    color: paint::Color,
-) -> DynamicSolidMesh {
-    let outer = rounded_boundary(outer_rect, outer_radius);
-    let inner = rounded_boundary(inner_rect, inner_radius);
-    let mut points = Vec::with_capacity(outer.len() * 6);
-
-    for index in 0..outer.len() {
-        let next = (index + 1) % outer.len();
-
-        points.push(outer[index]);
-        points.push(inner[index]);
-        points.push(inner[next]);
-        points.push(outer[index]);
-        points.push(inner[next]);
-        points.push(outer[next]);
-    }
-
-    DynamicSolidMesh { points, color }
+    })
 }
 
 fn inset_rect(rect: Rect, inset: f32) -> Option<Rect> {
@@ -371,69 +328,15 @@ fn expand_corner_radius(radius: f32, amount: f32) -> f32 {
     if radius <= 0.0 { 0.0 } else { radius + amount }
 }
 
-fn rounded_boundary(
-    rect: Rect,
+fn shrink_radius(
     radius: crate::geometry::rect::ResolvedRadius,
-) -> Vec<point::Logical> {
-    let (x0, y0, x1, y1) = edges(rect);
-    let mut points = Vec::with_capacity((CORNER_SEGMENTS + 1) * 4);
-
-    push_corner(
-        &mut points,
-        point::logical(x0 + radius.top_left, y0 + radius.top_left),
-        radius.top_left,
-        std::f32::consts::PI,
-        std::f32::consts::PI * 1.5,
-        point::logical(x0, y0),
-    );
-    push_corner(
-        &mut points,
-        point::logical(x1 - radius.top_right, y0 + radius.top_right),
-        radius.top_right,
-        std::f32::consts::PI * 1.5,
-        std::f32::consts::PI * 2.0,
-        point::logical(x1, y0),
-    );
-    push_corner(
-        &mut points,
-        point::logical(x1 - radius.bottom_right, y1 - radius.bottom_right),
-        radius.bottom_right,
-        0.0,
-        std::f32::consts::PI * 0.5,
-        point::logical(x1, y1),
-    );
-    push_corner(
-        &mut points,
-        point::logical(x0 + radius.bottom_left, y1 - radius.bottom_left),
-        radius.bottom_left,
-        std::f32::consts::PI * 0.5,
-        std::f32::consts::PI,
-        point::logical(x0, y1),
-    );
-
-    points
-}
-
-fn push_corner(
-    points: &mut Vec<point::Logical>,
-    center: point::Logical,
-    radius: f32,
-    start_angle: f32,
-    end_angle: f32,
-    fallback: point::Logical,
-) {
-    for segment in 0..=CORNER_SEGMENTS {
-        if radius <= 0.0 {
-            points.push(fallback);
-            continue;
-        }
-
-        let t = segment as f32 / CORNER_SEGMENTS as f32;
-        let angle = start_angle + (end_angle - start_angle) * t;
-        points.push(point::logical(
-            center.x() + angle.cos() * radius,
-            center.y() + angle.sin() * radius,
-        ));
+    amount: f32,
+) -> crate::geometry::rect::ResolvedRadius {
+    crate::geometry::rect::ResolvedRadius {
+        top_left: (radius.top_left - amount).max(0.0),
+        top_right: (radius.top_right - amount).max(0.0),
+        bottom_left: (radius.bottom_left - amount).max(0.0),
+        bottom_right: (radius.bottom_right - amount).max(0.0),
     }
 }
 
@@ -445,60 +348,6 @@ fn solid_color(brush: paint::Brush) -> Option<paint::Color> {
             None
         }
     }
-}
-
-fn internal_stroke_rects(rect: Rect, width: f32) -> Vec<Rect> {
-    let width = clamped_width(rect, width);
-    if width <= 0.0 {
-        return Vec::new();
-    }
-
-    let (x0, y0, x1, y1) = edges(rect);
-    let mut rects = Vec::new();
-
-    push_rect(&mut rects, x0, y0, x1, y0 + width);
-    push_rect(&mut rects, x0, y1 - width, x1, y1);
-    push_rect(&mut rects, x0, y0 + width, x0 + width, y1 - width);
-    push_rect(&mut rects, x1 - width, y0 + width, x1, y1 - width);
-
-    rects
-}
-
-fn external_outline_rects(rect: Rect, width: f32, offset: f32) -> Vec<Rect> {
-    if width <= 0.0 {
-        return Vec::new();
-    }
-
-    let offset = offset.max(0.0);
-    let (x0, y0, x1, y1) = edges(rect);
-    let inner_left = x0 - offset;
-    let inner_top = y0 - offset;
-    let inner_right = x1 + offset;
-    let inner_bottom = y1 + offset;
-    let outer_left = inner_left - width;
-    let outer_top = inner_top - width;
-    let outer_right = inner_right + width;
-    let outer_bottom = inner_bottom + width;
-    let mut rects = Vec::new();
-
-    push_rect(&mut rects, outer_left, outer_top, outer_right, inner_top);
-    push_rect(
-        &mut rects,
-        outer_left,
-        inner_bottom,
-        outer_right,
-        outer_bottom,
-    );
-    push_rect(&mut rects, outer_left, inner_top, inner_left, inner_bottom);
-    push_rect(
-        &mut rects,
-        inner_right,
-        inner_top,
-        outer_right,
-        inner_bottom,
-    );
-
-    rects
 }
 
 fn clamped_width(rect: Rect, width: f32) -> f32 {
@@ -515,15 +364,22 @@ fn edges(rect: Rect) -> (f32, f32, f32, f32) {
     (x0, y0, x0 + rect.area.width(), y0 + rect.area.height())
 }
 
-fn push_rect(rects: &mut Vec<Rect>, left: f32, top: f32, right: f32, bottom: f32) {
-    if right <= left || bottom <= top {
-        return;
-    }
+fn rect_data(rect: Rect) -> [f32; 4] {
+    [
+        rect.origin.x(),
+        rect.origin.y(),
+        rect.area.width(),
+        rect.area.height(),
+    ]
+}
 
-    rects.push(Rect::new(
-        point::logical(left, top),
-        area::logical(right - left, bottom - top),
-    ));
+fn radius_data(radius: crate::geometry::rect::ResolvedRadius) -> [f32; 4] {
+    [
+        radius.top_left,
+        radius.top_right,
+        radius.bottom_right,
+        radius.bottom_left,
+    ]
 }
 
 #[cfg(test)]
@@ -560,73 +416,90 @@ mod tests {
         }
     }
 
-    fn vertex_count_for_quad(quad: &paint::Quad) -> usize {
-        solid_meshes_for_quad(quad)
-            .iter()
-            .map(|mesh| mesh.points.len())
-            .sum()
+    fn vertex_count_for_shape(shape: AnalyticShape) -> usize {
+        let mut vertices = Vec::new();
+
+        push_analytic_shape_vertices(&mut vertices, area::logical(100.0, 100.0), shape);
+
+        vertices.len()
     }
 
-    fn bounds(meshes: &[DynamicSolidMesh]) -> (f32, f32, f32, f32) {
-        meshes.iter().flat_map(|mesh| mesh.points.iter()).fold(
+    fn bounds(shapes: &[AnalyticShape]) -> (f32, f32, f32, f32) {
+        shapes.iter().fold(
             (
                 f32::INFINITY,
                 f32::INFINITY,
                 f32::NEG_INFINITY,
                 f32::NEG_INFINITY,
             ),
-            |bounds, point| {
+            |bounds, shape| {
+                let (x0, y0, x1, y1) = edges(shape.outer_rect);
+
                 (
-                    bounds.0.min(point.x()),
-                    bounds.1.min(point.y()),
-                    bounds.2.max(point.x()),
-                    bounds.3.max(point.y()),
+                    bounds.0.min(x0),
+                    bounds.1.min(y0),
+                    bounds.2.max(x1),
+                    bounds.3.max(y1),
                 )
             },
         )
     }
 
     #[test]
-    fn fill_only_quad_generates_one_rect() {
+    fn fill_only_quad_lowers_to_one_analytic_shape() {
         let quad = quad(style(Some(solid(paint::Color::RED)), None, None));
+        let shapes = analytic_shapes_for_quad(&quad);
 
-        assert_eq!(vertex_count_for_quad(&quad), 6);
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(shapes[0].outer_rect, rect());
+        assert_eq!(shapes[0].outer_radius, rect().radius.resolve(rect().area));
+        assert_eq!(shapes[0].inner, None);
+        assert_eq!(shapes[0].color, paint::Color::RED);
+        assert_eq!(vertex_count_for_shape(shapes[0]), 6);
     }
 
     #[test]
-    fn stroke_only_quad_generates_internal_border_rects() {
+    fn stroke_only_quad_lowers_to_internal_ring() {
         let quad = quad(style(None, Some(stroke(2.0)), None));
-        let meshes = solid_meshes_for_quad(&quad);
+        let shapes = analytic_shapes_for_quad(&quad);
+        let inner = shapes[0].inner.expect("stroke should be a ring");
 
-        assert_eq!(meshes.len(), 4);
-        assert_eq!(vertex_count_for_quad(&quad), 24);
-        assert_eq!(bounds(&meshes), edges(rect()));
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(bounds(&shapes), edges(rect()));
+        assert_eq!(
+            inner.rect,
+            Rect::new(point::logical(12.0, 22.0), area::logical(36.0, 26.0))
+        );
+        assert_eq!(vertex_count_for_shape(shapes[0]), 6);
     }
 
     #[test]
-    fn tint_only_quad_generates_one_overlay_rect() {
+    fn tint_only_quad_lowers_to_one_overlay_shape() {
         let quad = quad(style(
             None,
             None,
             Some(paint::Color::rgba(1.0, 1.0, 1.0, 0.25)),
         ));
+        let shapes = analytic_shapes_for_quad(&quad);
 
-        assert_eq!(vertex_count_for_quad(&quad), 6);
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(shapes[0].outer_rect, rect());
+        assert_eq!(shapes[0].color, paint::Color::rgba(1.0, 1.0, 1.0, 0.25));
     }
 
     #[test]
-    fn fill_stroke_and_tint_quad_preserves_rect_order() {
+    fn fill_stroke_and_tint_quad_preserves_shape_order() {
         let quad = quad(style(
             Some(solid(paint::Color::RED)),
             Some(stroke(2.0)),
             Some(paint::Color::rgba(1.0, 1.0, 1.0, 0.25)),
         ));
-        let meshes = solid_meshes_for_quad(&quad);
+        let shapes = analytic_shapes_for_quad(&quad);
 
-        assert_eq!(meshes.len(), 6);
-        assert_eq!(vertex_count_for_quad(&quad), 36);
-        assert_eq!(meshes[0].color, paint::Color::RED);
-        assert_eq!(meshes[5].color, paint::Color::rgba(1.0, 1.0, 1.0, 0.25));
+        assert_eq!(shapes.len(), 3);
+        assert_eq!(shapes[0].color, paint::Color::RED);
+        assert!(shapes[1].inner.is_some());
+        assert_eq!(shapes[2].color, paint::Color::rgba(1.0, 1.0, 1.0, 0.25));
     }
 
     #[test]
@@ -637,14 +510,19 @@ mod tests {
             width: 2.0,
             offset: 3.0,
         };
-        let meshes = solid_meshes_for_outline(&outline);
+        let shapes = analytic_shapes_for_outline(&outline);
+        let inner = shapes[0].inner.expect("outline should be a ring");
 
-        assert_eq!(meshes.len(), 4);
-        assert_eq!(bounds(&meshes), (5.0, 15.0, 55.0, 55.0));
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(bounds(&shapes), (5.0, 15.0, 55.0, 55.0));
+        assert_eq!(
+            inner.rect,
+            Rect::new(point::logical(7.0, 17.0), area::logical(46.0, 36.0))
+        );
     }
 
     #[test]
-    fn rounded_outline_renders_as_expanded_rounded_ring() {
+    fn rounded_outline_lowers_to_expanded_rounded_ring() {
         let rect = Rect::rounded(
             point::logical(10.0, 20.0),
             area::logical(80.0, 30.0),
@@ -656,21 +534,18 @@ mod tests {
             width: 4.0,
             offset: 2.0,
         };
-        let meshes = solid_meshes_for_outline(&outline);
+        let shapes = analytic_shapes_for_outline(&outline);
+        let inner = shapes[0].inner.expect("outline should be a ring");
 
-        assert_eq!(meshes.len(), 1);
-        assert!(meshes[0].points.len() > 24);
-        assert_eq!(bounds(&meshes), (4.0, 14.0, 96.0, 56.0));
-        assert!(
-            meshes[0]
-                .points
-                .iter()
-                .any(|point| point.x() == 4.0 && point.y() > 14.0 && point.y() < 56.0)
-        );
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(vertex_count_for_shape(shapes[0]), 6);
+        assert_eq!(bounds(&shapes), (4.0, 14.0, 96.0, 56.0));
+        assert_eq!(shapes[0].outer_radius.top_left, 21.0);
+        assert_eq!(inner.radius.top_left, 17.0);
     }
 
     #[test]
-    fn rounded_fill_generates_mesh_inside_rect_bounds() {
+    fn rounded_fill_lowers_to_one_analytic_shape() {
         let quad = paint::Quad {
             rect: Rect::rounded(
                 point::logical(10.0, 20.0),
@@ -679,30 +554,32 @@ mod tests {
             ),
             style: style(Some(solid(paint::Color::RED)), None, None),
         };
-        let meshes = solid_meshes_for_quad(&quad);
+        let shapes = analytic_shapes_for_quad(&quad);
 
-        assert_eq!(meshes.len(), 1);
-        assert!(meshes[0].points.len() > 6);
-        assert_eq!(bounds(&meshes), edges(quad.rect));
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(vertex_count_for_shape(shapes[0]), 6);
+        assert_eq!(bounds(&shapes), edges(quad.rect));
+        assert_eq!(shapes[0].outer_radius.top_left, 20.0);
     }
 
     #[test]
-    fn rounded_tint_uses_same_geometry_as_rounded_fill() {
+    fn rounded_tint_uses_same_shape_as_rounded_fill() {
         let rect = Rect::rounded(
             point::logical(10.0, 20.0),
             area::logical(80.0, 30.0),
             crate::geometry::rect::Radius::splat(1.0),
         );
-        let fill = solid_mesh_for_rect(rect, paint::Color::RED);
+        let fill = fill_shape(rect, paint::Color::RED);
         let tint = paint::Tint {
             rect,
             color: paint::Color::rgba(1.0, 1.0, 1.0, 0.25),
         };
-        let meshes = solid_meshes_for_tint(&tint);
+        let shapes = analytic_shapes_for_tint(&tint);
 
-        assert_eq!(meshes.len(), 1);
-        assert_eq!(meshes[0].points, fill.points);
-        assert_eq!(bounds(&meshes), edges(rect));
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(shapes[0].outer_rect, fill.outer_rect);
+        assert_eq!(shapes[0].outer_radius, fill.outer_radius);
+        assert_eq!(bounds(&shapes), edges(rect));
     }
 
     #[test]
@@ -715,20 +592,26 @@ mod tests {
             ),
             style: style(None, Some(stroke(4.0)), None),
         };
-        let meshes = solid_meshes_for_quad(&quad);
+        let shapes = analytic_shapes_for_quad(&quad);
+        let inner = shapes[0].inner.expect("stroke should be a ring");
 
-        assert_eq!(meshes.len(), 1);
-        assert!(meshes[0].points.len() > 24);
-        assert_eq!(bounds(&meshes), edges(quad.rect));
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(bounds(&shapes), edges(quad.rect));
+        assert_eq!(
+            inner.rect,
+            Rect::new(point::logical(14.0, 24.0), area::logical(72.0, 22.0))
+        );
+        assert_eq!(shapes[0].outer_radius.top_left, 15.0);
+        assert_eq!(inner.radius.top_left, 11.0);
     }
 
     #[test]
-    fn backdrop_blur_generates_no_solid_rects() {
+    fn backdrop_blur_generates_no_analytic_shapes() {
         let blur = paint::Blur {
             rect: rect(),
             radius: 8.0,
         };
 
-        assert!(solid_meshes_for_shape(&batch::Shape::BackdropBlur(&blur)).is_empty());
+        assert!(analytic_shapes_for_shape(&batch::Shape::BackdropBlur(&blur)).is_empty());
     }
 }
