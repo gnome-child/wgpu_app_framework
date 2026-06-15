@@ -187,7 +187,7 @@ impl Theme {
                 label_height: 22.0,
                 menu_bar_height: 28.0,
                 menu_row_height: 22.0,
-                menu_popup_min_width: 176.0,
+                menu_popup_min_width: 112.0,
                 menu_title_min_width: 48.0,
                 menu_title_horizontal_padding: 24.0,
             },
