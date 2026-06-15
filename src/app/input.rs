@@ -424,14 +424,12 @@ fn menu_navigation_intent(
         {
             return Some((target.clone(), ui::Intent::CloseSubmenu));
         }
+        Some(ui::Intent::Action(_))
+            if state.open_submenu.is_some() && state.is_top_menu_popup_path(target) =>
+        {
+            return Some((target.clone(), ui::Intent::CloseSubmenu));
+        }
         _ => {}
-    }
-
-    if state.open_submenu.is_some()
-        && state.is_top_menu_popup_path(target)
-        && !matches!(intent, Some(ui::Intent::OpenSubmenu(_)))
-    {
-        return Some((target.clone(), ui::Intent::CloseSubmenu));
     }
 
     None
@@ -1096,6 +1094,87 @@ mod tests {
         let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
 
         assert_eq!(outcome.intent, Some((row, ui::Intent::CloseSubmenu)));
+    }
+
+    #[test]
+    fn hovering_top_menu_separator_row_closes_open_submenu() {
+        let row = ui::Path::new([widget::MENU_POPUP, CHILD]);
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            open_submenu: Some(PANELS),
+            intents: HashMap::from([(row.clone(), ui::Intent::CloseSubmenu)]),
+            interactivity: HashMap::from([(
+                row.clone(),
+                ui::Interactivity::NONE.with_hit_test(true),
+            )]),
+            ..WindowState::default()
+        };
+        state.layout = Some(crate::layout::Box::with_path(
+            row.clone(),
+            crate::geometry::Rect::new(
+                point::logical(0.0, 0.0),
+                crate::geometry::area::logical(20.0, 20.0),
+            ),
+            Vec::new(),
+        ));
+
+        let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
+
+        assert_eq!(outcome.intent, Some((row, ui::Intent::CloseSubmenu)));
+    }
+
+    #[test]
+    fn hovering_top_menu_popup_background_preserves_open_submenu() {
+        let popup = ui::Path::from(widget::MENU_POPUP);
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            open_submenu: Some(PANELS),
+            interactivity: HashMap::from([(
+                popup.clone(),
+                ui::Interactivity::NONE.with_hit_test(true),
+            )]),
+            ..WindowState::default()
+        };
+        state.layout = Some(crate::layout::Box::with_path(
+            popup,
+            crate::geometry::Rect::new(
+                point::logical(0.0, 0.0),
+                crate::geometry::area::logical(20.0, 20.0),
+            ),
+            Vec::new(),
+        ));
+
+        let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
+
+        assert_eq!(outcome.intent, None);
+        assert_eq!(state.open_submenu, Some(PANELS));
+    }
+
+    #[test]
+    fn hovering_submenu_popup_preserves_open_submenu() {
+        let popup = ui::Path::from(widget::MENU_SUBMENU_POPUP);
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            open_submenu: Some(PANELS),
+            interactivity: HashMap::from([(
+                popup.clone(),
+                ui::Interactivity::NONE.with_hit_test(true),
+            )]),
+            ..WindowState::default()
+        };
+        state.layout = Some(crate::layout::Box::with_path(
+            popup,
+            crate::geometry::Rect::new(
+                point::logical(0.0, 0.0),
+                crate::geometry::area::logical(20.0, 20.0),
+            ),
+            Vec::new(),
+        ));
+
+        let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
+
+        assert_eq!(outcome.intent, None);
+        assert_eq!(state.open_submenu, Some(PANELS));
     }
 
     #[test]
