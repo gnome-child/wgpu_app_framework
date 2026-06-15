@@ -27,6 +27,9 @@ pub struct Layout {
     width: layout::Size,
     height: layout::Size,
     direction: Option<layout::Axis>,
+    gap: f32,
+    align: layout::Align,
+    cross_align: layout::Align,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -200,6 +203,21 @@ impl Node {
 
     pub fn with_direction(mut self, axis: layout::Axis) -> Self {
         self.layout = self.layout.with_direction(axis);
+        self
+    }
+
+    pub fn with_gap(mut self, gap: f32) -> Self {
+        self.layout = self.layout.with_gap(gap);
+        self
+    }
+
+    pub fn with_align(mut self, align: layout::Align) -> Self {
+        self.layout = self.layout.with_align(align);
+        self
+    }
+
+    pub fn with_cross_align(mut self, align: layout::Align) -> Self {
+        self.layout = self.layout.with_cross_align(align);
         self
     }
 
@@ -409,6 +427,9 @@ impl Layout {
             width,
             height,
             direction: None,
+            gap: 0.0,
+            align: layout::Align::Start,
+            cross_align: layout::Align::Stretch,
         }
     }
 
@@ -424,6 +445,18 @@ impl Layout {
         self.direction
     }
 
+    pub const fn gap(self) -> f32 {
+        self.gap
+    }
+
+    pub const fn align(self) -> layout::Align {
+        self.align
+    }
+
+    pub const fn cross_align(self) -> layout::Align {
+        self.cross_align
+    }
+
     pub const fn with_size(mut self, width: layout::Size, height: layout::Size) -> Self {
         self.width = width;
         self.height = height;
@@ -432,6 +465,21 @@ impl Layout {
 
     pub const fn with_direction(mut self, direction: layout::Axis) -> Self {
         self.direction = Some(direction);
+        self
+    }
+
+    pub fn with_gap(mut self, gap: f32) -> Self {
+        self.gap = gap.max(0.0);
+        self
+    }
+
+    pub const fn with_align(mut self, align: layout::Align) -> Self {
+        self.align = align;
+        self
+    }
+
+    pub const fn with_cross_align(mut self, align: layout::Align) -> Self {
+        self.cross_align = align;
         self
     }
 }

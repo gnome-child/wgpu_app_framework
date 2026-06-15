@@ -137,6 +137,155 @@ fn horizontal_layout_distributes_fill_width() {
 }
 
 #[test]
+fn fit_parent_sizes_to_children_padding_and_gap() {
+    let root = Node::container(ROOT, layout::Axis::Vertical)
+        .with_size(layout::Size::Fit, layout::Size::Fit)
+        .with_padding(layout::Insets::splat(5.0))
+        .with_gap(4.0)
+        .with_child(Node::leaf(A).with_size(layout::Size::Fixed(30.0), layout::Size::Fixed(10.0)))
+        .with_child(Node::leaf(B).with_size(layout::Size::Fixed(20.0), layout::Size::Fixed(12.0)));
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+
+    assert_eq!(layout.rect().area, area::logical(40.0, 36.0));
+    assert_eq!(layout.children()[0].rect().origin, point::logical(5.0, 5.0));
+    assert_eq!(
+        layout.children()[1].rect().origin,
+        point::logical(5.0, 19.0)
+    );
+}
+
+#[test]
+fn gap_reduces_remaining_fill_space_without_outer_offsets() {
+    let root = Node::container(ROOT, layout::Axis::Vertical)
+        .with_gap(5.0)
+        .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(20.0)))
+        .with_child(Node::leaf(B));
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+
+    assert_eq!(layout.children()[0].rect().origin, point::logical(0.0, 0.0));
+    assert_eq!(layout.children()[0].rect().area, area::logical(100.0, 20.0));
+    assert_eq!(
+        layout.children()[1].rect().origin,
+        point::logical(0.0, 25.0)
+    );
+    assert_eq!(layout.children()[1].rect().area, area::logical(100.0, 55.0));
+}
+
+#[test]
+fn fixed_sizes_clamp_to_non_negative_and_available_space() {
+    let root = Node::container(ROOT, layout::Axis::Horizontal)
+        .with_child(Node::leaf(A).with_size(layout::Size::Fixed(-10.0), layout::Size::Fixed(-4.0)))
+        .with_child(
+            Node::leaf(B).with_size(layout::Size::Fixed(200.0), layout::Size::Fixed(120.0)),
+        );
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+
+    assert_eq!(layout.children()[0].rect().area, area::logical(0.0, 0.0));
+    assert_eq!(layout.children()[1].rect().area, area::logical(100.0, 80.0));
+}
+
+#[test]
+fn main_axis_alignment_offsets_stack_children() {
+    let root = Node::container(ROOT, layout::Axis::Vertical)
+        .with_align(layout::Align::Center)
+        .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(20.0)));
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+
+    assert_eq!(
+        layout.children()[0].rect().origin,
+        point::logical(0.0, 30.0)
+    );
+}
+
+#[test]
+fn cross_axis_alignment_positions_and_stretches_children() {
+    let centered = Node::container(ROOT, layout::Axis::Vertical)
+        .with_cross_align(layout::Align::Center)
+        .with_child(Node::leaf(A).with_size(layout::Size::Fixed(20.0), layout::Size::Fixed(10.0)));
+    let ended = Node::container(ROOT, layout::Axis::Vertical)
+        .with_cross_align(layout::Align::End)
+        .with_child(Node::leaf(A).with_size(layout::Size::Fixed(20.0), layout::Size::Fixed(10.0)));
+    let stretched = Node::container(ROOT, layout::Axis::Vertical)
+        .with_cross_align(layout::Align::Stretch)
+        .with_child(Node::leaf(A).with_size(layout::Size::Fit, layout::Size::Fixed(10.0)));
+    let mut tree = Tree::new();
+
+    tree.set_root(centered);
+    let centered_layout = layout(&tree);
+    assert_eq!(
+        centered_layout.children()[0].rect().origin,
+        point::logical(40.0, 0.0)
+    );
+    assert_eq!(
+        centered_layout.children()[0].rect().area,
+        area::logical(20.0, 10.0)
+    );
+
+    tree.set_root(ended);
+    let ended_layout = layout(&tree);
+    assert_eq!(
+        ended_layout.children()[0].rect().origin,
+        point::logical(80.0, 0.0)
+    );
+
+    tree.set_root(stretched);
+    let stretched_layout = layout(&tree);
+    assert_eq!(
+        stretched_layout.children()[0].rect().area,
+        area::logical(100.0, 10.0)
+    );
+}
+
+#[test]
+fn text_and_icon_nodes_provide_fit_content_measurements() {
+    let label = Node::leaf(A)
+        .with_size(layout::Size::Fit, layout::Size::Fit)
+        .with_label(text::Document::plain("Hi"));
+    let icon = Node::leaf(B)
+        .with_size(layout::Size::Fit, layout::Size::Fit)
+        .with_icon(check_icon())
+        .with_icon_size(18.0);
+    let mut tree = Tree::new();
+
+    tree.set_root(label);
+    let label_layout = layout(&tree);
+    assert!(label_layout.rect().area.width() > 0.0);
+    assert!(label_layout.rect().area.height() > 0.0);
+
+    tree.set_root(icon);
+    let icon_layout = layout(&tree);
+    assert_eq!(icon_layout.rect().area, area::logical(18.0, 18.0));
+}
+
+#[test]
+fn menu_bar_layout_remains_compact() {
+    let theme = theme::Theme::default_dark();
+    let bar = menu::Bar::new().menu(menu::Menu::new(menu::Id::new("file"), "File"));
+    let mut tree = Tree::new();
+
+    tree.set_root(widget::menu_bar(ROOT, bar));
+    let layout = layout(&tree);
+
+    assert_eq!(
+        layout.rect().area.height(),
+        theme.density().menu_bar_height()
+    );
+    assert!(layout.children()[0].rect().area.width() > 0.0);
+}
+
+#[test]
 fn layout_assigns_stable_paths() {
     let root = Node::container(ROOT, layout::Axis::Vertical)
         .with_child(Node::container(A, layout::Axis::Vertical).with_child(Node::leaf(B)));

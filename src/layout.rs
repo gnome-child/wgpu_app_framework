@@ -28,6 +28,15 @@ pub enum Axis {
     Vertical,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Align {
+    #[default]
+    Start,
+    Center,
+    End,
+    Stretch,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Box {
     id: ui::Id,
@@ -37,11 +46,30 @@ pub struct Box {
 }
 
 impl Constraints {
+    pub fn new(min: area::Logical, max: area::Logical) -> Self {
+        Self { min, max }
+    }
+
+    pub fn loose(max: area::Logical) -> Self {
+        Self {
+            min: area::logical(0.0, 0.0),
+            max,
+        }
+    }
+
     pub fn tight(area: area::Logical) -> Self {
         Self {
             min: area,
             max: area,
         }
+    }
+
+    pub fn min(self) -> area::Logical {
+        self.min
+    }
+
+    pub fn max(self) -> area::Logical {
+        self.max
     }
 }
 
