@@ -26,7 +26,8 @@ pub struct WindowState {
     pub command_scopes: Vec<ui::Path>,
     pub command_scope_captures: HashMap<ui::Path, action::Context>,
     pub interactivity: HashMap<ui::Path, ui::Interactivity>,
-    pub scrollables: HashMap<ui::Path, point::Logical>,
+    pub scrollables: HashMap<ui::Path, ui::ScrollMetrics>,
+    pub scroll_drag: Option<ui::ScrollDrag>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +58,53 @@ impl WindowState {
         self.layout.as_ref().and_then(|layout| {
             layout.hit_test_where(position, |path| self.scrollables.contains_key(path))
         })
+    }
+
+    pub fn scroll_hit(&self, position: point::Logical) -> Option<ui::ScrollHit> {
+        self.scrollables
+            .iter()
+            .filter_map(|(path, metrics)| {
+                metrics
+                    .hit_test(position)
+                    .map(|part| ui::ScrollHit::new(path.clone(), part))
+            })
+            .max_by_key(|hit| hit.target().ids().len())
+    }
+
+    pub fn scroll_metrics(&self, target: &ui::Path) -> Option<ui::ScrollMetrics> {
+        self.scrollables.get(target).copied()
+    }
+
+    pub fn start_scroll_drag(&mut self, hit: &ui::ScrollHit, position: point::Logical) -> bool {
+        let Some(metrics) = self.scroll_metrics(hit.target()) else {
+            return false;
+        };
+
+        let Some((axis, grab_offset)) = scroll_drag_parts(metrics, hit.part(), position) else {
+            return false;
+        };
+
+        self.scroll_drag = Some(ui::ScrollDrag::new(hit.target().clone(), axis, grab_offset));
+        self.pressed = Some(hit.target().clone());
+        self.pressed_source = Some(PressSource::Pointer);
+        true
+    }
+
+    pub fn scroll_drag_offset(
+        &self,
+        position: point::Logical,
+    ) -> Option<(ui::Path, point::Logical)> {
+        let drag = self.scroll_drag.as_ref()?;
+        let metrics = self.scroll_metrics(drag.target())?;
+        let offset = metrics.drag_offset(drag.axis(), position, drag.grab_offset())?;
+
+        Some((drag.target().clone(), offset))
+    }
+
+    pub fn clear_scroll_drag(&mut self) -> bool {
+        let changed = self.scroll_drag.is_some();
+        self.scroll_drag = None;
+        changed
     }
 
     pub fn is_focusable(&self, target: &ui::Path) -> bool {
@@ -343,6 +391,24 @@ impl WindowState {
 
     pub fn resolve_request(&self, request: action::Request) -> action::Request {
         command::resolve_request(self, request)
+    }
+}
+
+fn scroll_drag_parts(
+    metrics: ui::ScrollMetrics,
+    part: ui::ScrollPart,
+    position: point::Logical,
+) -> Option<(ui::ScrollAxis, f32)> {
+    match part {
+        ui::ScrollPart::VerticalThumb if metrics.max_offset().y() > 0.0 => {
+            let thumb = metrics.vertical_thumb()?;
+            Some((ui::ScrollAxis::Vertical, position.y() - thumb.origin.y()))
+        }
+        ui::ScrollPart::HorizontalThumb if metrics.max_offset().x() > 0.0 => {
+            let thumb = metrics.horizontal_thumb()?;
+            Some((ui::ScrollAxis::Horizontal, position.x() - thumb.origin.x()))
+        }
+        _ => None,
     }
 }
 

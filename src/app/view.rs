@@ -53,9 +53,9 @@ pub fn compose<T>(
     state.responders = tree.responders();
     state.command_scopes = tree.command_scopes();
     state.interactivity = tree.interactivity();
-    state.scrollables = tree.scrollables();
 
     if let Some(layout) = tree.layout(logical_area) {
+        state.scrollables = tree.scrollables(&layout);
         state.focus_order = focus_order(&layout, &state.interactivity);
         state.clear_stale_focus();
         state.clear_stale_command_target();
@@ -71,7 +71,8 @@ pub fn compose<T>(
         .with_command_target(command_target)
         .with_command_scope_captures(state.command_scope_captures.clone())
         .with_open_menu(state.open_menu)
-        .with_open_submenu(state.open_submenu);
+        .with_open_submenu(state.open_submenu)
+        .with_pointer_position(state.pointer.position());
         state.layout = Some(layout.clone());
 
         tree.paint(&layout, actions, window, interaction, &mut scene);

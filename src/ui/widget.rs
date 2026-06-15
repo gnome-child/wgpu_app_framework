@@ -29,9 +29,25 @@ pub fn separator_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
 }
 
 pub fn scroll_view(id: ui::Id) -> ui::Node {
+    scroll_view_with_theme(id, &theme::Theme::default_dark())
+}
+
+pub fn scroll_view_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
+    let scroll = theme.scroll();
+
     ui::Node::container(id, layout::Axis::Vertical)
         .clipped()
         .with_scroll_offset(point::logical(0.0, 0.0))
+        .with_scrollbars(ui::Scrollbars::vertical())
+        .with_scroll_style(ui::ScrollStyle::new(
+            scroll.thickness(),
+            scroll.min_thumb_length(),
+            scroll.track(),
+            scroll.thumb(),
+            scroll.thumb_hover_tint(),
+            scroll.thumb_pressed_tint(),
+            scroll.corner(),
+        ))
         .with_size(layout::Size::Fill, layout::Size::Fill)
 }
 

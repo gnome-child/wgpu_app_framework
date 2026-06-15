@@ -9,6 +9,7 @@ mod layout_engine;
 mod node;
 mod painting;
 mod popup;
+mod scroll;
 mod tree;
 
 pub use backdrop::Backdrop;
@@ -16,6 +17,9 @@ pub use event::{Event, Key, Modifiers};
 pub use id::{Id, Path};
 pub use node::{ActionTarget, Intent, Interaction, Interactivity, Layout, Node, Shadow, Style};
 pub use popup::Popup;
+pub use scroll::{
+    ScrollAxis, ScrollDrag, ScrollHit, ScrollMetrics, ScrollPart, ScrollStyle, Scrollbars,
+};
 pub use tree::Tree;
 
 #[cfg(test)]

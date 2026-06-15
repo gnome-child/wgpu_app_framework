@@ -20,6 +20,28 @@ pub fn pointer_moved(state: &mut WindowState, position: point::Logical) -> Outco
         .pointer
         .handle_event(pointer::Event::Moved { position });
     let delta = state.pointer.delta();
+
+    if let Some((target, offset)) = state.scroll_drag_offset(position) {
+        let mut events = vec![ui::Event::PointerMoved {
+            position,
+            delta,
+            target: Some(target.clone()),
+        }];
+        if state
+            .scroll_metrics(&target)
+            .is_some_and(|metrics| metrics.offset() != offset)
+        {
+            events.push(ui::Event::ScrollRequested { target, offset });
+        }
+
+        return Outcome {
+            events,
+            request: None,
+            intent: None,
+            redraw: true,
+        };
+    }
+
     let target = state.hit_test(position);
     let hover_events = state.set_hovered(target.clone());
     let intent = target
@@ -51,6 +73,47 @@ pub fn pointer_pressed(
         button,
         pressed: true,
     });
+
+    if button == pointer::Button::Primary
+        && let Some(hit) = state.scroll_hit(position)
+    {
+        state.dismiss_menu_for_target(Some(hit.target()));
+        let mut events = vec![ui::Event::PointerDown {
+            position,
+            delta: state.pointer.delta(),
+            target: Some(hit.target().clone()),
+            button,
+        }];
+
+        if state.start_scroll_drag(&hit, position) {
+            return Outcome {
+                events,
+                request: None,
+                intent: None,
+                redraw: true,
+            };
+        }
+
+        if let Some(metrics) = state.scroll_metrics(hit.target())
+            && let Some(offset) = metrics.page_offset(hit.part(), position)
+            && offset != metrics.offset()
+        {
+            state.pressed = Some(hit.target().clone());
+            state.pressed_source = Some(PressSource::Pointer);
+            events.push(ui::Event::ScrollRequested {
+                target: hit.target().clone(),
+                offset,
+            });
+        }
+
+        return Outcome {
+            events,
+            request: None,
+            intent: None,
+            redraw: true,
+        };
+    }
+
     let target = state.hit_test(position);
     state.dismiss_menu_for_target(target.as_ref());
     let event = state.pointer_down(position, state.pointer.delta(), target, button);
@@ -74,6 +137,25 @@ pub fn pointer_released<T>(
         button,
         pressed: false,
     });
+
+    if let Some(drag) = state.scroll_drag.clone() {
+        state.clear_scroll_drag();
+        state.pressed = None;
+        state.pressed_source = None;
+
+        return Outcome {
+            events: vec![ui::Event::PointerUp {
+                position,
+                delta: state.pointer.delta(),
+                target: Some(drag.target().clone()),
+                button,
+            }],
+            request: None,
+            intent: None,
+            redraw: true,
+        };
+    }
+
     let target = state.hit_test(position);
     let (event, invoke_target) = state.pointer_up(position, state.pointer.delta(), target, button);
     let intent = invoke_target
@@ -110,6 +192,7 @@ pub fn pointer_button(button: MouseButton) -> pointer::Button {
 pub fn pointer_left(state: &mut WindowState) -> Outcome {
     state.pointer.handle_event(pointer::Event::Left);
     let events = state.set_hovered(None);
+    let cleared_scroll_drag = state.clear_scroll_drag();
     let cleared_pressed = if state.pressed_source == Some(PressSource::Pointer) {
         state.pressed = None;
         state.pressed_source = None;
@@ -119,7 +202,7 @@ pub fn pointer_left(state: &mut WindowState) -> Outcome {
     };
 
     Outcome {
-        redraw: !events.is_empty() || cleared_pressed,
+        redraw: !events.is_empty() || cleared_pressed || cleared_scroll_drag,
         events,
         request: None,
         intent: None,
@@ -131,12 +214,24 @@ pub fn scroll_wheel(
     position: point::Logical,
     delta: point::Logical,
 ) -> Outcome {
+    let target = state.scroll_target(position);
+    let mut events = vec![ui::Event::ScrollWheel {
+        position,
+        delta,
+        target: target.clone(),
+    }];
+
+    if let Some(target) = target
+        && let Some(metrics) = state.scroll_metrics(&target)
+    {
+        let offset = metrics.wheel_offset(delta);
+        if offset != metrics.offset() {
+            events.push(ui::Event::ScrollRequested { target, offset });
+        }
+    }
+
     Outcome {
-        events: vec![ui::Event::ScrollWheel {
-            position,
-            delta,
-            target: state.scroll_target(position),
-        }],
+        events,
         request: None,
         intent: None,
         redraw: false,
@@ -464,6 +559,76 @@ mod tests {
         ui::Path::from(id)
     }
 
+    fn scroll_state(offset: point::Logical) -> WindowState {
+        let mut tree = ui::Tree::new();
+        tree.set_root(
+            ui::widget::scroll_view(CHILD)
+                .with_scroll_offset(offset)
+                .with_size(
+                    crate::layout::Size::Fixed(40.0),
+                    crate::layout::Size::Fixed(40.0),
+                )
+                .with_child(
+                    ui::Node::leaf(SECOND)
+                        .with_size(crate::layout::Size::Fill, crate::layout::Size::Fixed(30.0))
+                        .with_interactivity(ui::Interactivity::NONE.with_hit_test(true)),
+                )
+                .with_child(
+                    ui::Node::leaf(ui::Id::new("third"))
+                        .with_size(crate::layout::Size::Fill, crate::layout::Size::Fixed(30.0))
+                        .with_interactivity(ui::Interactivity::NONE.with_hit_test(true)),
+                )
+                .with_child(
+                    ui::Node::leaf(ui::Id::new("fourth"))
+                        .with_size(crate::layout::Size::Fill, crate::layout::Size::Fixed(30.0))
+                        .with_interactivity(ui::Interactivity::NONE.with_hit_test(true)),
+                ),
+        );
+        let layout = tree
+            .layout(crate::geometry::area::logical(40.0, 40.0))
+            .expect("scroll test tree should layout");
+        let scrollables = tree.scrollables(&layout);
+
+        WindowState {
+            layout: Some(layout),
+            scrollables,
+            ..WindowState::default()
+        }
+    }
+
+    fn non_overflow_scroll_state() -> WindowState {
+        let mut tree = ui::Tree::new();
+        tree.set_root(
+            ui::widget::scroll_view(CHILD)
+                .with_size(
+                    crate::layout::Size::Fixed(40.0),
+                    crate::layout::Size::Fixed(40.0),
+                )
+                .with_child(
+                    ui::Node::leaf(SECOND)
+                        .with_size(crate::layout::Size::Fill, crate::layout::Size::Fixed(20.0))
+                        .with_interactivity(ui::Interactivity::NONE.with_hit_test(true)),
+                ),
+        );
+        let layout = tree
+            .layout(crate::geometry::area::logical(40.0, 40.0))
+            .expect("scroll test tree should layout");
+        let scrollables = tree.scrollables(&layout);
+
+        WindowState {
+            layout: Some(layout),
+            scrollables,
+            ..WindowState::default()
+        }
+    }
+
+    fn requested_offset(events: &[ui::Event]) -> Option<point::Logical> {
+        events.iter().find_map(|event| match event {
+            ui::Event::ScrollRequested { offset, .. } => Some(*offset),
+            _ => None,
+        })
+    }
+
     #[test]
     fn pressed_control_focuses_and_requests_redraw() {
         let mut state = WindowState {
@@ -499,63 +664,100 @@ mod tests {
 
     #[test]
     fn wheel_event_routes_to_scrollable_under_pointer() {
-        let mut state = WindowState {
-            scrollables: HashMap::from([(path(CHILD), point::logical(0.0, 12.0))]),
-            ..WindowState::default()
-        };
-
-        state.layout = Some(crate::layout::Box::new(
-            CHILD,
-            crate::geometry::Rect::new(
-                point::logical(0.0, 0.0),
-                crate::geometry::area::logical(10.0, 10.0),
-            ),
-            Vec::new(),
-        ));
+        let state = scroll_state(point::logical(0.0, 12.0));
 
         let outcome = scroll_wheel(&state, point::logical(1.0, 1.0), point::logical(0.0, -20.0));
 
         assert!(!outcome.redraw);
         assert_eq!(
             outcome.events,
-            vec![ui::Event::ScrollWheel {
-                position: point::logical(1.0, 1.0),
-                delta: point::logical(0.0, -20.0),
-                target: Some(path(CHILD))
-            }]
+            vec![
+                ui::Event::ScrollWheel {
+                    position: point::logical(1.0, 1.0),
+                    delta: point::logical(0.0, -20.0),
+                    target: Some(path(CHILD))
+                },
+                ui::Event::ScrollRequested {
+                    target: path(CHILD),
+                    offset: point::logical(0.0, 32.0)
+                }
+            ]
         );
     }
 
     #[test]
     fn wheel_event_outside_scrollable_has_no_target() {
-        let mut state = WindowState {
-            scrollables: HashMap::from([(path(CHILD), point::logical(0.0, 12.0))]),
-            ..WindowState::default()
-        };
-
-        state.layout = Some(crate::layout::Box::new(
-            CHILD,
-            crate::geometry::Rect::new(
-                point::logical(0.0, 0.0),
-                crate::geometry::area::logical(10.0, 10.0),
-            ),
-            Vec::new(),
-        ));
+        let state = scroll_state(point::logical(0.0, 12.0));
 
         let outcome = scroll_wheel(
             &state,
-            point::logical(20.0, 20.0),
+            point::logical(50.0, 50.0),
             point::logical(0.0, -20.0),
         );
 
         assert_eq!(
             outcome.events,
             vec![ui::Event::ScrollWheel {
-                position: point::logical(20.0, 20.0),
+                position: point::logical(50.0, 50.0),
                 delta: point::logical(0.0, -20.0),
                 target: None
             }]
         );
+    }
+
+    #[test]
+    fn thumb_drag_emits_clamped_scroll_request_and_preserves_capture() {
+        let mut state = scroll_state(point::logical(0.0, 0.0));
+
+        let pressed = pointer_pressed(
+            &mut state,
+            point::logical(35.0, 5.0),
+            pointer::Button::Primary,
+        );
+        assert!(pressed.redraw);
+        assert!(state.scroll_drag.is_some());
+        assert_eq!(state.pressed, Some(path(CHILD)));
+
+        let moved = pointer_moved(&mut state, point::logical(35.0, 20.0));
+        let offset = requested_offset(&moved.events).expect("drag should request scroll");
+
+        assert_eq!(offset.x(), 0.0);
+        assert!((offset.y() - 34.09091).abs() < 0.001);
+        assert!(state.scroll_drag.is_some());
+    }
+
+    #[test]
+    fn scrollbar_track_click_pages_by_one_viewport() {
+        let mut state = scroll_state(point::logical(0.0, 0.0));
+
+        let outcome = pointer_pressed(
+            &mut state,
+            point::logical(35.0, 35.0),
+            pointer::Button::Primary,
+        );
+
+        assert_eq!(
+            requested_offset(&outcome.events),
+            Some(point::logical(0.0, 40.0))
+        );
+        assert!(state.scroll_drag.is_none());
+    }
+
+    #[test]
+    fn non_overflowing_scrollbar_draws_but_ignores_drag_and_track_input() {
+        let mut state = non_overflow_scroll_state();
+
+        let thumb = pointer_pressed(
+            &mut state,
+            point::logical(35.0, 5.0),
+            pointer::Button::Primary,
+        );
+
+        assert!(state.scroll_drag.is_none());
+        assert_eq!(requested_offset(&thumb.events), None);
+
+        let wheel = scroll_wheel(&state, point::logical(1.0, 1.0), point::logical(0.0, -20.0));
+        assert_eq!(requested_offset(&wheel.events), None);
     }
 
     #[test]

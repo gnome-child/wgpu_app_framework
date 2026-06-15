@@ -10,6 +10,7 @@ pub struct Theme {
     control: Control,
     menu: Menu,
     floating_panel: FloatingPanel,
+    scroll: Scroll,
     effects: Effects,
 }
 
@@ -104,6 +105,17 @@ pub struct FloatingPanel {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Scroll {
+    thickness: f32,
+    min_thumb_length: f32,
+    track: paint::Brush,
+    thumb: paint::Brush,
+    thumb_hover_tint: paint::Brush,
+    thumb_pressed_tint: paint::Brush,
+    corner: paint::Brush,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Effects {
     popup_shadow: Shadow,
 }
@@ -128,6 +140,7 @@ impl Theme {
         let accent = srgb8(10, 132, 255);
         let accent_subtle = srgba8(10, 132, 255, 0.24);
         let warning = srgb8(255, 190, 80);
+        let scroll_track = paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.18));
         let popup_shadow = Shadow {
             brush: paint::Brush::linear_gradient(
                 paint::Color::rgba(0.0, 0.0, 0.0, 0.24),
@@ -248,6 +261,15 @@ impl Theme {
                 radius: geometry::rect::Radius::splat(0.10),
                 padding: 6.0,
             },
+            scroll: Scroll {
+                thickness: 10.0,
+                min_thumb_length: 18.0,
+                track: scroll_track,
+                thumb: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.24)),
+                thumb_hover_tint: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.10)),
+                thumb_pressed_tint: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.18)),
+                corner: scroll_track,
+            },
             effects: Effects { popup_shadow },
         }
     }
@@ -282,6 +304,10 @@ impl Theme {
 
     pub fn floating_panel(&self) -> FloatingPanel {
         self.floating_panel
+    }
+
+    pub fn scroll(&self) -> Scroll {
+        self.scroll
     }
 
     pub fn effects(&self) -> Effects {
@@ -543,6 +569,36 @@ impl FloatingPanel {
     }
 }
 
+impl Scroll {
+    pub fn thickness(self) -> f32 {
+        self.thickness
+    }
+
+    pub fn min_thumb_length(self) -> f32 {
+        self.min_thumb_length
+    }
+
+    pub fn track(self) -> paint::Brush {
+        self.track
+    }
+
+    pub fn thumb(self) -> paint::Brush {
+        self.thumb
+    }
+
+    pub fn thumb_hover_tint(self) -> paint::Brush {
+        self.thumb_hover_tint
+    }
+
+    pub fn thumb_pressed_tint(self) -> paint::Brush {
+        self.thumb_pressed_tint
+    }
+
+    pub fn corner(self) -> paint::Brush {
+        self.corner
+    }
+}
+
 impl Effects {
     pub fn popup_shadow(self) -> Shadow {
         self.popup_shadow
@@ -628,6 +684,8 @@ mod tests {
         assert!(theme.control().background().is_visible());
         assert!(theme.floating_panel().backdrop_fill().is_visible());
         assert!(theme.floating_panel().shadow().blur() > 0.0);
+        assert!(theme.scroll().thickness() > 0.0);
+        assert!(theme.scroll().thumb().is_visible());
         assert!(theme.effects().popup_shadow().blur() > 0.0);
     }
 

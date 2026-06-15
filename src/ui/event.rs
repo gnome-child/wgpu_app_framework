@@ -60,6 +60,10 @@ pub enum Event {
         delta: point::Logical,
         target: Option<Path>,
     },
+    ScrollRequested {
+        target: Path,
+        offset: point::Logical,
+    },
     KeyDown {
         key: Key,
         modifiers: Modifiers,

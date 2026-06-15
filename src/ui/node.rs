@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{action, geometry, icon, layout, menu, paint, text};
 
-use super::{Backdrop, Id, Path, focus};
+use super::{Backdrop, Id, Path, ScrollStyle, Scrollbars, focus};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node {
@@ -21,6 +21,8 @@ pub struct Node {
     menu_bar: Option<menu::Bar>,
     clip: bool,
     scroll_offset: Option<geometry::point::Logical>,
+    scrollbars: Scrollbars,
+    scroll_style: ScrollStyle,
     children: Vec<Node>,
 }
 
@@ -97,7 +99,7 @@ pub enum Intent {
     CloseSubmenu,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Interaction {
     hovered: Option<Path>,
     focused: Option<Path>,
@@ -107,6 +109,7 @@ pub struct Interaction {
     command_scope_captures: HashMap<Path, action::Context>,
     open_menu: Option<menu::Id>,
     open_submenu: Option<menu::Id>,
+    pointer_position: Option<geometry::point::Logical>,
 }
 
 impl Node {
@@ -127,6 +130,8 @@ impl Node {
             menu_bar: None,
             clip: false,
             scroll_offset: None,
+            scrollbars: Scrollbars::none(),
+            scroll_style: ScrollStyle::default(),
             children: Vec::new(),
         }
     }
@@ -197,6 +202,14 @@ impl Node {
 
     pub fn scroll_offset(&self) -> Option<geometry::point::Logical> {
         self.scroll_offset
+    }
+
+    pub fn scrollbars(&self) -> Scrollbars {
+        self.scrollbars
+    }
+
+    pub fn scroll_style(&self) -> ScrollStyle {
+        self.scroll_style
     }
 
     pub fn children(&self) -> &[Node] {
@@ -364,6 +377,16 @@ impl Node {
 
     pub fn with_scroll_offset(mut self, offset: geometry::point::Logical) -> Self {
         self.scroll_offset = Some(offset);
+        self
+    }
+
+    pub fn with_scrollbars(mut self, scrollbars: Scrollbars) -> Self {
+        self.scrollbars = scrollbars;
+        self
+    }
+
+    pub fn with_scroll_style(mut self, style: ScrollStyle) -> Self {
+        self.scroll_style = style;
         self
     }
 
@@ -719,6 +742,7 @@ impl Interaction {
             command_scope_captures: HashMap::new(),
             open_menu: None,
             open_submenu: None,
+            pointer_position: None,
         }
     }
 
@@ -744,6 +768,11 @@ impl Interaction {
 
     pub fn with_open_submenu(mut self, menu: Option<menu::Id>) -> Self {
         self.open_submenu = menu;
+        self
+    }
+
+    pub fn with_pointer_position(mut self, position: Option<geometry::point::Logical>) -> Self {
+        self.pointer_position = position;
         self
     }
 
@@ -773,6 +802,10 @@ impl Interaction {
 
     pub fn open_submenu(&self) -> Option<menu::Id> {
         self.open_submenu
+    }
+
+    pub fn pointer_position(&self) -> Option<geometry::point::Logical> {
+        self.pointer_position
     }
 
     pub fn captured_command_target(&self, path: &Path) -> Option<&action::Context> {

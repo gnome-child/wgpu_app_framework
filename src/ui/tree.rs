@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
-use crate::geometry::{area, point};
+use crate::geometry::area;
 use crate::{action, layout, menu, paint, window};
 
 use super::{
     ActionTarget, Intent, Interaction, Interactivity, Node, Path, Popup, layout_engine, painting,
+    scroll,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -181,17 +182,16 @@ impl Tree {
         interactivity
     }
 
-    pub fn scrollables(&self) -> HashMap<Path, point::Logical> {
+    pub fn scrollables(&self, layout: &layout::Box) -> HashMap<Path, scroll::ScrollMetrics> {
         let mut scrollables = HashMap::new();
 
         if let Some(root) = self.root.as_ref() {
-            collect_scrollables(root, &Path::root(root.id()), &mut scrollables);
+            collect_scrollables(root, layout, &mut scrollables);
             for popup in &self.popups {
-                collect_scrollables(
-                    popup.root(),
-                    &Path::root(root.id()).child(popup.root().id()),
-                    &mut scrollables,
-                );
+                let path = Path::root(root.id()).child(popup.root().id());
+                if let Some(popup_layout) = layout.find_path(&path) {
+                    collect_scrollables(popup.root(), popup_layout, &mut scrollables);
+                }
             }
         }
 
@@ -315,12 +315,16 @@ fn collect_interactivity(
     }
 }
 
-fn collect_scrollables(node: &Node, path: &Path, scrollables: &mut HashMap<Path, point::Logical>) {
-    if let Some(offset) = node.scroll_offset() {
-        scrollables.insert(path.clone(), offset);
+fn collect_scrollables(
+    node: &Node,
+    layout: &layout::Box,
+    scrollables: &mut HashMap<Path, scroll::ScrollMetrics>,
+) {
+    if let Some(metrics) = scroll::metrics(node, layout) {
+        scrollables.insert(layout.path().clone(), metrics);
     }
 
-    for child in node.children() {
-        collect_scrollables(child, &path.child(child.id()), scrollables);
+    for (child, child_layout) in node.children().iter().zip(layout.children()) {
+        collect_scrollables(child, child_layout, scrollables);
     }
 }

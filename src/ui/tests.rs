@@ -323,6 +323,156 @@ fn scroll_offset_shifts_child_layout_and_paint_positions() {
 }
 
 #[test]
+fn vertical_scrollbar_reserves_right_gutter() {
+    let root = widget::scroll_view(ROOT)
+        .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(20.0)));
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+    let layout = tree.layout(area::logical(80.0, 60.0)).unwrap();
+
+    assert_eq!(layout.children()[0].rect().area.width(), 70.0);
+}
+
+#[test]
+fn disabled_scrollbar_axis_reserves_no_gutter() {
+    let root = widget::scroll_view(ROOT)
+        .with_scrollbars(Scrollbars::none())
+        .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(20.0)));
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+    let layout = tree.layout(area::logical(80.0, 60.0)).unwrap();
+
+    assert_eq!(layout.children()[0].rect().area.width(), 80.0);
+}
+
+#[test]
+fn horizontal_scrollbar_reserves_bottom_gutter() {
+    let root = widget::scroll_view(ROOT)
+        .with_scrollbars(Scrollbars::horizontal())
+        .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fill));
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+    let layout = tree.layout(area::logical(80.0, 60.0)).unwrap();
+
+    assert_eq!(layout.children()[0].rect().area.height(), 50.0);
+}
+
+#[test]
+fn both_scrollbar_axes_leave_corner_cell_and_trim_tracks() {
+    let root = widget::scroll_view(ROOT)
+        .with_scrollbars(Scrollbars::both())
+        .with_child(Node::leaf(A).with_size(layout::Size::Fixed(30.0), layout::Size::Fixed(30.0)));
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+    let layout = tree.layout(area::logical(80.0, 60.0)).unwrap();
+    let scrollables = tree.scrollables(&layout);
+    let metrics = scrollables.get(&path(ROOT)).expect("scroll metrics");
+
+    assert_eq!(metrics.viewport().area, area::logical(70.0, 50.0));
+    assert_eq!(
+        metrics.vertical_track().map(|rect| rect.area),
+        Some(area::logical(10.0, 50.0))
+    );
+    assert_eq!(
+        metrics.horizontal_track().map(|rect| rect.area),
+        Some(area::logical(70.0, 10.0))
+    );
+    assert_eq!(
+        metrics.corner().map(|rect| (rect.origin, rect.area)),
+        Some((point::logical(70.0, 50.0), area::logical(10.0, 10.0)))
+    );
+}
+
+#[test]
+fn scrollbar_thumb_size_and_position_derive_from_metrics() {
+    let root = widget::scroll_view(ROOT)
+        .with_scroll_offset(point::logical(0.0, 25.0))
+        .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(30.0)))
+        .with_child(Node::leaf(B).with_size(layout::Size::Fill, layout::Size::Fixed(30.0)))
+        .with_child(Node::leaf(C).with_size(layout::Size::Fill, layout::Size::Fixed(30.0)));
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+    let layout = tree.layout(area::logical(40.0, 40.0)).unwrap();
+    let scrollables = tree.scrollables(&layout);
+    let metrics = scrollables.get(&path(ROOT)).expect("scroll metrics");
+    let thumb = metrics.vertical_thumb().expect("vertical thumb");
+
+    assert_eq!(metrics.max_offset(), point::logical(0.0, 50.0));
+    assert_eq!(thumb.area.height(), 18.0);
+    assert_eq!(thumb.origin.y(), 11.0);
+}
+
+#[test]
+fn scroll_view_paints_track_corner_and_thumb_chrome() {
+    let root = widget::scroll_view(ROOT)
+        .with_scrollbars(Scrollbars::both())
+        .with_background(paint::Color::BLACK)
+        .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(30.0)))
+        .with_child(Node::leaf(B).with_size(layout::Size::Fill, layout::Size::Fixed(30.0)));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+
+    tree.set_root(root);
+    let layout = tree.layout(area::logical(80.0, 60.0)).unwrap();
+    tree.paint(
+        &layout,
+        &registry,
+        window::Id::new(1),
+        Interaction::default(),
+        &mut scene,
+    );
+
+    assert!(scene.items().iter().any(|item| {
+        matches!(
+            item,
+            paint::Item::Quad(quad) if quad.rect.origin == point::logical(70.0, 0.0)
+                && quad.rect.area == area::logical(10.0, 50.0)
+        )
+    }));
+    assert!(scene.items().iter().any(|item| {
+        matches!(
+            item,
+            paint::Item::Quad(quad) if quad.rect.origin == point::logical(70.0, 50.0)
+                && quad.rect.area == area::logical(10.0, 10.0)
+        )
+    }));
+}
+
+#[test]
+fn scroll_view_clip_uses_viewport_minus_enabled_gutters() {
+    let root = widget::scroll_view(ROOT)
+        .with_scrollbars(Scrollbars::both())
+        .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(30.0)));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+
+    tree.set_root(root);
+    let layout = tree.layout(area::logical(80.0, 60.0)).unwrap();
+    tree.paint(
+        &layout,
+        &registry,
+        window::Id::new(1),
+        Interaction::default(),
+        &mut scene,
+    );
+
+    assert!(scene.items().iter().any(|item| {
+        matches!(
+            item,
+            paint::Item::Clip(clip) if clip.rect.origin == point::logical(0.0, 0.0)
+                && clip.rect.area == area::logical(70.0, 50.0)
+        )
+    }));
+}
+
+#[test]
 fn layout_assigns_stable_paths() {
     let root = Node::container(ROOT, layout::Axis::Vertical)
         .with_child(Node::container(A, layout::Axis::Vertical).with_child(Node::leaf(B)));
@@ -381,10 +531,20 @@ fn tree_collects_scrollables_with_root_prefixed_path() {
         Rect::new(point::logical(0.0, 0.0), area::logical(40.0, 40.0)),
         widget::scroll_view(B).with_scroll_offset(point::logical(0.0, 12.0)),
     ));
+    let layout = tree.layout(area::logical(100.0, 100.0)).unwrap();
+    let scrollables = tree.scrollables(&layout);
 
     assert_eq!(
-        tree.scrollables().get(&Path::new([ROOT, B])),
-        Some(&point::logical(0.0, 12.0))
+        scrollables
+            .get(&Path::new([ROOT, B]))
+            .map(|metrics| metrics.offset()),
+        Some(point::logical(0.0, 0.0))
+    );
+    assert!(
+        scrollables
+            .get(&Path::new([ROOT, B]))
+            .and_then(|metrics| metrics.vertical_track())
+            .is_some()
     );
 }
 

@@ -1,0 +1,592 @@
+use crate::geometry::{Rect, area, point, rect};
+use crate::{layout, paint};
+
+use super::{Node, Path};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Scrollbars {
+    vertical: bool,
+    horizontal: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollAxis {
+    Vertical,
+    Horizontal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollPart {
+    VerticalThumb,
+    VerticalTrack,
+    HorizontalThumb,
+    HorizontalTrack,
+    Corner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScrollHit {
+    target: Path,
+    part: ScrollPart,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScrollDrag {
+    target: Path,
+    axis: ScrollAxis,
+    grab_offset: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScrollStyle {
+    thickness: f32,
+    min_thumb_length: f32,
+    track: paint::Brush,
+    thumb: paint::Brush,
+    thumb_hover_tint: paint::Brush,
+    thumb_pressed_tint: paint::Brush,
+    corner: paint::Brush,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScrollMetrics {
+    viewport: Rect,
+    content_size: area::Logical,
+    offset: point::Logical,
+    max_offset: point::Logical,
+    vertical_track: Option<Rect>,
+    vertical_thumb: Option<Rect>,
+    horizontal_track: Option<Rect>,
+    horizontal_thumb: Option<Rect>,
+    corner: Option<Rect>,
+    style: ScrollStyle,
+}
+
+impl Scrollbars {
+    pub const fn none() -> Self {
+        Self {
+            vertical: false,
+            horizontal: false,
+        }
+    }
+
+    pub const fn vertical() -> Self {
+        Self {
+            vertical: true,
+            horizontal: false,
+        }
+    }
+
+    pub const fn horizontal() -> Self {
+        Self {
+            vertical: false,
+            horizontal: true,
+        }
+    }
+
+    pub const fn both() -> Self {
+        Self {
+            vertical: true,
+            horizontal: true,
+        }
+    }
+
+    pub const fn vertical_enabled(self) -> bool {
+        self.vertical
+    }
+
+    pub const fn horizontal_enabled(self) -> bool {
+        self.horizontal
+    }
+
+    pub const fn is_enabled(self) -> bool {
+        self.vertical || self.horizontal
+    }
+}
+
+impl ScrollStyle {
+    pub fn new(
+        thickness: f32,
+        min_thumb_length: f32,
+        track: impl Into<paint::Brush>,
+        thumb: impl Into<paint::Brush>,
+        thumb_hover_tint: impl Into<paint::Brush>,
+        thumb_pressed_tint: impl Into<paint::Brush>,
+        corner: impl Into<paint::Brush>,
+    ) -> Self {
+        Self {
+            thickness: thickness.max(0.0),
+            min_thumb_length: min_thumb_length.max(0.0),
+            track: track.into(),
+            thumb: thumb.into(),
+            thumb_hover_tint: thumb_hover_tint.into(),
+            thumb_pressed_tint: thumb_pressed_tint.into(),
+            corner: corner.into(),
+        }
+    }
+
+    pub fn thickness(self) -> f32 {
+        self.thickness
+    }
+
+    pub fn min_thumb_length(self) -> f32 {
+        self.min_thumb_length
+    }
+
+    pub fn track(self) -> paint::Brush {
+        self.track
+    }
+
+    pub fn thumb(self) -> paint::Brush {
+        self.thumb
+    }
+
+    pub fn thumb_hover_tint(self) -> paint::Brush {
+        self.thumb_hover_tint
+    }
+
+    pub fn thumb_pressed_tint(self) -> paint::Brush {
+        self.thumb_pressed_tint
+    }
+
+    pub fn corner(self) -> paint::Brush {
+        self.corner
+    }
+}
+
+impl Default for ScrollStyle {
+    fn default() -> Self {
+        let track = paint::Color::rgba(0.0, 0.0, 0.0, 0.18);
+
+        Self::new(
+            10.0,
+            18.0,
+            track,
+            paint::Color::rgba(1.0, 1.0, 1.0, 0.26),
+            paint::Color::rgba(1.0, 1.0, 1.0, 0.10),
+            paint::Color::rgba(1.0, 1.0, 1.0, 0.18),
+            track,
+        )
+    }
+}
+
+impl ScrollHit {
+    pub fn new(target: Path, part: ScrollPart) -> Self {
+        Self { target, part }
+    }
+
+    pub fn target(&self) -> &Path {
+        &self.target
+    }
+
+    pub fn part(&self) -> ScrollPart {
+        self.part
+    }
+}
+
+impl ScrollDrag {
+    pub fn new(target: Path, axis: ScrollAxis, grab_offset: f32) -> Self {
+        Self {
+            target,
+            axis,
+            grab_offset: grab_offset.max(0.0),
+        }
+    }
+
+    pub fn target(&self) -> &Path {
+        &self.target
+    }
+
+    pub fn axis(&self) -> ScrollAxis {
+        self.axis
+    }
+
+    pub fn grab_offset(&self) -> f32 {
+        self.grab_offset
+    }
+}
+
+impl ScrollMetrics {
+    pub fn viewport(self) -> Rect {
+        self.viewport
+    }
+
+    pub fn content_size(self) -> area::Logical {
+        self.content_size
+    }
+
+    pub fn offset(self) -> point::Logical {
+        self.offset
+    }
+
+    pub fn max_offset(self) -> point::Logical {
+        self.max_offset
+    }
+
+    pub fn vertical_track(self) -> Option<Rect> {
+        self.vertical_track
+    }
+
+    pub fn vertical_thumb(self) -> Option<Rect> {
+        self.vertical_thumb
+    }
+
+    pub fn horizontal_track(self) -> Option<Rect> {
+        self.horizontal_track
+    }
+
+    pub fn horizontal_thumb(self) -> Option<Rect> {
+        self.horizontal_thumb
+    }
+
+    pub fn corner(self) -> Option<Rect> {
+        self.corner
+    }
+
+    pub fn style(self) -> ScrollStyle {
+        self.style
+    }
+
+    pub fn hit_test(self, position: point::Logical) -> Option<ScrollPart> {
+        if self
+            .vertical_thumb
+            .is_some_and(|rect| contains(rect, position))
+        {
+            return Some(ScrollPart::VerticalThumb);
+        }
+
+        if self
+            .horizontal_thumb
+            .is_some_and(|rect| contains(rect, position))
+        {
+            return Some(ScrollPart::HorizontalThumb);
+        }
+
+        if self.corner.is_some_and(|rect| contains(rect, position)) {
+            return Some(ScrollPart::Corner);
+        }
+
+        if self
+            .vertical_track
+            .is_some_and(|rect| contains(rect, position))
+        {
+            return Some(ScrollPart::VerticalTrack);
+        }
+
+        if self
+            .horizontal_track
+            .is_some_and(|rect| contains(rect, position))
+        {
+            return Some(ScrollPart::HorizontalTrack);
+        }
+
+        None
+    }
+
+    pub fn wheel_offset(self, delta: point::Logical) -> point::Logical {
+        self.clamp_offset(point::logical(
+            self.offset.x() - delta.x(),
+            self.offset.y() - delta.y(),
+        ))
+    }
+
+    pub fn page_offset(self, part: ScrollPart, position: point::Logical) -> Option<point::Logical> {
+        match part {
+            ScrollPart::VerticalTrack => {
+                let thumb = self.vertical_thumb?;
+                let direction = if position.y() < thumb.origin.y() {
+                    -1.0
+                } else {
+                    1.0
+                };
+
+                Some(self.clamp_offset(point::logical(
+                    self.offset.x(),
+                    self.offset.y() + self.viewport.area.height() * direction,
+                )))
+            }
+            ScrollPart::HorizontalTrack => {
+                let thumb = self.horizontal_thumb?;
+                let direction = if position.x() < thumb.origin.x() {
+                    -1.0
+                } else {
+                    1.0
+                };
+
+                Some(self.clamp_offset(point::logical(
+                    self.offset.x() + self.viewport.area.width() * direction,
+                    self.offset.y(),
+                )))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn drag_offset(
+        self,
+        axis: ScrollAxis,
+        position: point::Logical,
+        grab_offset: f32,
+    ) -> Option<point::Logical> {
+        match axis {
+            ScrollAxis::Vertical => {
+                let track = self.vertical_track?;
+                let thumb = self.vertical_thumb?;
+                let travel = (track.area.height() - thumb.area.height()).max(0.0);
+                if travel <= 0.0 || self.max_offset.y() <= 0.0 {
+                    return None;
+                }
+
+                let thumb_y = position.y() - grab_offset;
+                let ratio = ((thumb_y - track.origin.y()) / travel).clamp(0.0, 1.0);
+
+                Some(
+                    self.clamp_offset(point::logical(self.offset.x(), self.max_offset.y() * ratio)),
+                )
+            }
+            ScrollAxis::Horizontal => {
+                let track = self.horizontal_track?;
+                let thumb = self.horizontal_thumb?;
+                let travel = (track.area.width() - thumb.area.width()).max(0.0);
+                if travel <= 0.0 || self.max_offset.x() <= 0.0 {
+                    return None;
+                }
+
+                let thumb_x = position.x() - grab_offset;
+                let ratio = ((thumb_x - track.origin.x()) / travel).clamp(0.0, 1.0);
+
+                Some(
+                    self.clamp_offset(point::logical(self.max_offset.x() * ratio, self.offset.y())),
+                )
+            }
+        }
+    }
+
+    pub fn clamp_offset(self, offset: point::Logical) -> point::Logical {
+        point::logical(
+            offset.x().clamp(0.0, self.max_offset.x()),
+            offset.y().clamp(0.0, self.max_offset.y()),
+        )
+    }
+}
+
+pub fn metrics(node: &Node, layout: &layout::Box) -> Option<ScrollMetrics> {
+    let scrollbars = node.scrollbars();
+    if !scrollbars.is_enabled() {
+        return None;
+    }
+
+    let style = node.scroll_style();
+    let viewport = viewport_rect(node, layout.rect());
+    let content_size = content_size(node, layout, viewport);
+    let max_offset = point::logical(
+        (content_size.width() - viewport.area.width()).max(0.0),
+        (content_size.height() - viewport.area.height()).max(0.0),
+    );
+    let offset = node
+        .scroll_offset()
+        .unwrap_or_else(|| point::logical(0.0, 0.0));
+    let offset = point::logical(
+        offset.x().clamp(0.0, max_offset.x()),
+        offset.y().clamp(0.0, max_offset.y()),
+    );
+    let vertical_track = vertical_track(node, layout.rect());
+    let horizontal_track = horizontal_track(node, layout.rect());
+    let vertical_thumb = vertical_track.map(|track| {
+        thumb_rect(
+            track,
+            viewport.area.height(),
+            content_size.height(),
+            offset.y(),
+            max_offset.y(),
+            ScrollAxis::Vertical,
+            style.min_thumb_length(),
+        )
+    });
+    let horizontal_thumb = horizontal_track.map(|track| {
+        thumb_rect(
+            track,
+            viewport.area.width(),
+            content_size.width(),
+            offset.x(),
+            max_offset.x(),
+            ScrollAxis::Horizontal,
+            style.min_thumb_length(),
+        )
+    });
+    let corner = if scrollbars.vertical_enabled() && scrollbars.horizontal_enabled() {
+        let padding = node.style().padding();
+        let thickness = style.thickness();
+        Some(Rect::new(
+            point::logical(
+                layout.rect().origin.x() + layout.rect().area.width() - padding.right - thickness,
+                layout.rect().origin.y() + layout.rect().area.height() - padding.bottom - thickness,
+            ),
+            area::logical(thickness, thickness),
+        ))
+    } else {
+        None
+    };
+
+    Some(ScrollMetrics {
+        viewport,
+        content_size,
+        offset,
+        max_offset,
+        vertical_track,
+        vertical_thumb,
+        horizontal_track,
+        horizontal_thumb,
+        corner,
+        style,
+    })
+}
+
+pub fn viewport_rect(node: &Node, rect: Rect) -> Rect {
+    let padding = node.style().padding();
+    let scrollbars = node.scrollbars();
+    let style = node.scroll_style();
+    let vertical_gutter = if scrollbars.vertical_enabled() {
+        style.thickness()
+    } else {
+        0.0
+    };
+    let horizontal_gutter = if scrollbars.horizontal_enabled() {
+        style.thickness()
+    } else {
+        0.0
+    };
+
+    Rect::rounded(
+        point::logical(
+            rect.origin.x() + padding.left,
+            rect.origin.y() + padding.top,
+        ),
+        area::logical(
+            (rect.area.width() - padding.horizontal() - vertical_gutter).max(0.0),
+            (rect.area.height() - padding.vertical() - horizontal_gutter).max(0.0),
+        ),
+        node.style().radius(),
+    )
+}
+
+fn content_size(node: &Node, layout: &layout::Box, viewport: Rect) -> area::Logical {
+    let offset = node
+        .scroll_offset()
+        .unwrap_or_else(|| point::logical(0.0, 0.0));
+    let mut width = viewport.area.width();
+    let mut height = viewport.area.height();
+
+    for child in layout.children() {
+        width = width.max(
+            child.rect().origin.x() + child.rect().area.width() - viewport.origin.x() + offset.x(),
+        );
+        height = height.max(
+            child.rect().origin.y() + child.rect().area.height() - viewport.origin.y() + offset.y(),
+        );
+    }
+
+    area::logical(width.max(0.0), height.max(0.0))
+}
+
+fn vertical_track(node: &Node, rect: Rect) -> Option<Rect> {
+    if !node.scrollbars().vertical_enabled() {
+        return None;
+    }
+
+    let padding = node.style().padding();
+    let style = node.scroll_style();
+    let horizontal_gutter = if node.scrollbars().horizontal_enabled() {
+        style.thickness()
+    } else {
+        0.0
+    };
+
+    Some(Rect::new(
+        point::logical(
+            rect.origin.x() + rect.area.width() - padding.right - style.thickness(),
+            rect.origin.y() + padding.top,
+        ),
+        area::logical(
+            style.thickness(),
+            (rect.area.height() - padding.vertical() - horizontal_gutter).max(0.0),
+        ),
+    ))
+}
+
+fn horizontal_track(node: &Node, rect: Rect) -> Option<Rect> {
+    if !node.scrollbars().horizontal_enabled() {
+        return None;
+    }
+
+    let padding = node.style().padding();
+    let style = node.scroll_style();
+    let vertical_gutter = if node.scrollbars().vertical_enabled() {
+        style.thickness()
+    } else {
+        0.0
+    };
+
+    Some(Rect::new(
+        point::logical(
+            rect.origin.x() + padding.left,
+            rect.origin.y() + rect.area.height() - padding.bottom - style.thickness(),
+        ),
+        area::logical(
+            (rect.area.width() - padding.horizontal() - vertical_gutter).max(0.0),
+            style.thickness(),
+        ),
+    ))
+}
+
+fn thumb_rect(
+    track: Rect,
+    viewport_length: f32,
+    content_length: f32,
+    offset: f32,
+    max_offset: f32,
+    axis: ScrollAxis,
+    min_thumb_length: f32,
+) -> Rect {
+    let track_length = match axis {
+        ScrollAxis::Vertical => track.area.height(),
+        ScrollAxis::Horizontal => track.area.width(),
+    };
+    let thumb_length = if content_length <= viewport_length || content_length <= 0.0 {
+        track_length
+    } else {
+        (track_length * (viewport_length / content_length))
+            .max(min_thumb_length)
+            .min(track_length)
+    };
+    let travel = (track_length - thumb_length).max(0.0);
+    let position = if max_offset > 0.0 {
+        travel * (offset / max_offset).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+
+    match axis {
+        ScrollAxis::Vertical => Rect::rounded(
+            point::logical(track.origin.x(), track.origin.y() + position),
+            area::logical(track.area.width(), thumb_length),
+            rect::Radius::splat(1.0),
+        ),
+        ScrollAxis::Horizontal => Rect::rounded(
+            point::logical(track.origin.x() + position, track.origin.y()),
+            area::logical(thumb_length, track.area.height()),
+            rect::Radius::splat(1.0),
+        ),
+    }
+}
+
+fn contains(rect: Rect, position: point::Logical) -> bool {
+    let x = position.x();
+    let y = position.y();
+    let left = rect.origin.x();
+    let top = rect.origin.y();
+    let right = left + rect.area.width();
+    let bottom = top + rect.area.height();
+
+    x >= left && x < right && y >= top && y < bottom
+}

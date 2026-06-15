@@ -115,15 +115,9 @@ impl app::Application for App {
         match event {
             Event::Ui {
                 window: event_window,
-                event:
-                    ui::Event::ScrollWheel {
-                        delta,
-                        target: Some(target),
-                        ..
-                    },
+                event: ui::Event::ScrollRequested { target, offset },
             } if event_window == window && target == scroll_path() => {
-                self.document_scroll =
-                    (self.document_scroll - delta.y()).clamp(0.0, document_scroll_max());
+                self.document_scroll = offset.y();
                 cx.request_redraw(window);
             }
             Event::Ui { .. } => {}
@@ -472,14 +466,6 @@ fn scroll_path() -> ui::Path {
     ui::Path::new([ROOT, DOCUMENT_SCROLL])
 }
 
-fn document_scroll_max() -> f32 {
-    let row_count = SCROLL_ROWS.len() as f32;
-    let gaps = (row_count - 1.0).max(0.0) * SCROLL_GAP;
-    let content_height = SCROLL_PADDING * 2.0 + row_count * SCROLL_ROW_HEIGHT + gaps;
-
-    (content_height - SCROLL_VIEW_HEIGHT).max(0.0)
-}
-
 fn local_field_path() -> ui::Path {
     ui::Path::new([ROOT, COMMAND_SCOPE_PANEL, LOCAL_FIELD])
 }
@@ -494,19 +480,4 @@ fn label(label: impl Into<String>, theme: &Theme) -> text::Document {
     ));
 
     text::Document::from_block(block)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scroll_max_allows_last_row_to_fit_in_viewport() {
-        let row_count = SCROLL_ROWS.len() as f32;
-        let last_row_bottom =
-            SCROLL_PADDING + row_count * SCROLL_ROW_HEIGHT + (row_count - 1.0) * SCROLL_GAP;
-
-        assert_eq!(document_scroll_max(), 189.0);
-        assert!(last_row_bottom - document_scroll_max() <= SCROLL_VIEW_HEIGHT - SCROLL_PADDING);
-    }
 }

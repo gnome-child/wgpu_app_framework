@@ -1,6 +1,8 @@
 use crate::geometry::{Rect, area, point};
 use crate::{layout, text, ui};
 
+use super::scroll;
+
 pub fn tree(root: &ui::Node, area: area::Logical) -> layout::Box {
     let constraints = layout::Constraints::loose(area);
     let measured = measure_node(root, constraints);
@@ -147,30 +149,22 @@ fn measure_text(document: &text::Document) -> area::Logical {
 }
 
 fn arrange_node(node: &ui::Node, path: ui::Path, rect: Rect) -> layout::Box {
-    let padding = node.style().padding();
     let scroll_offset = node
         .scroll_offset()
         .unwrap_or_else(|| point::logical(0.0, 0.0));
-    let content_origin = point::logical(
-        rect.origin.x() + padding.left,
-        rect.origin.y() + padding.top,
-    );
+    let viewport = scroll::viewport_rect(node, rect);
     let child_origin = point::logical(
-        content_origin.x() - scroll_offset.x(),
-        content_origin.y() - scroll_offset.y(),
-    );
-    let content_area = area::logical(
-        (rect.area.width() - padding.horizontal()).max(0.0),
-        (rect.area.height() - padding.vertical()).max(0.0),
+        viewport.origin.x() - scroll_offset.x(),
+        viewport.origin.y() - scroll_offset.y(),
     );
     let children = match node.layout().direction() {
         Some(layout::Axis::Vertical) => {
-            arrange_vertical_children(node, &path, child_origin, content_area)
+            arrange_vertical_children(node, &path, child_origin, viewport.area)
         }
         Some(layout::Axis::Horizontal) => {
-            arrange_horizontal_children(node, &path, child_origin, content_area)
+            arrange_horizontal_children(node, &path, child_origin, viewport.area)
         }
-        None => arrange_overlay_children(node, &path, child_origin, content_area),
+        None => arrange_overlay_children(node, &path, child_origin, viewport.area),
     };
 
     layout::Box::with_path(path, rect, children)
