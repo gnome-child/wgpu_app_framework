@@ -62,7 +62,6 @@ pub struct Roundings {
     panel: geometry::rect::Rounding,
     control: geometry::rect::Rounding,
     menu_title: geometry::rect::Rounding,
-    menu_item: geometry::rect::Rounding,
     popup: geometry::rect::Rounding,
 }
 
@@ -196,7 +195,6 @@ impl Theme {
                 panel: geometry::rect::Rounding::fixed(8.0),
                 control: geometry::rect::Rounding::fixed(7.0),
                 menu_title: geometry::rect::Rounding::fixed(6.0),
-                menu_item: geometry::rect::Rounding::fixed(4.0),
                 popup: geometry::rect::Rounding::fixed(10.0),
             },
             control: Control {
@@ -446,10 +444,6 @@ impl Roundings {
 
     pub fn menu_title(self) -> geometry::rect::Rounding {
         self.menu_title
-    }
-
-    pub fn menu_item(self) -> geometry::rect::Rounding {
-        self.menu_item
     }
 
     pub fn popup(self) -> geometry::rect::Rounding {

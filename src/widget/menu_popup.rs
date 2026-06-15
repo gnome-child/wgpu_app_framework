@@ -1,4 +1,4 @@
-use crate::geometry::{Rect, area, point};
+use crate::geometry::{Rect, area, point, rect};
 use crate::{action, icon, layout, menu, paint, text, theme, ui};
 
 use super::{
@@ -59,16 +59,16 @@ pub fn menu_popup<T>(
 ) -> Option<Popup> {
     let theme = theme::Theme::default_dark();
     let anchor = anchor_rect(tree, layout, menu.id(), AnchorKind::TopLevel)?;
-    let metrics = popup_metrics(menu, actions, &theme, measurer);
+    let chrome = popup_chrome(menu, actions, &theme, measurer);
     let popup_rect = popup_rect(
         point::logical(anchor.origin.x(), anchor.origin.y() + anchor.area.height()),
-        metrics,
+        chrome,
         &theme,
     );
 
     Some(Popup::new(
         popup_rect,
-        popup_node(MENU_POPUP, menu, actions, command_target, metrics, &theme),
+        popup_node(MENU_POPUP, menu, actions, command_target, chrome, &theme),
     ))
 }
 
@@ -83,13 +83,13 @@ pub fn submenu_popup<T>(
     let theme = theme::Theme::default_dark();
     let anchor = anchor_rect(tree, layout, menu.id(), AnchorKind::Submenu)?;
     let padding = theme.floating_panel().padding();
-    let metrics = popup_metrics(menu, actions, &theme, measurer);
+    let chrome = popup_chrome(menu, actions, &theme, measurer);
     let popup_rect = popup_rect(
         point::logical(
             anchor.origin.x() + anchor.area.width() + SUBMENU_GAP,
             anchor.origin.y() - padding,
         ),
-        metrics,
+        chrome,
         &theme,
     );
 
@@ -100,16 +100,22 @@ pub fn submenu_popup<T>(
             menu,
             actions,
             command_target,
-            metrics,
+            chrome,
             &theme,
         ),
     ))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct PopupMetrics {
+struct PopupChrome {
     area: area::Logical,
+    body_width: f32,
+    row_count: usize,
     shortcut_width: f32,
+    padding: f32,
+    row_height: f32,
+    glyph_width: f32,
+    row_rounding: rect::Rounding,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,8 +143,8 @@ fn anchor_rect(
         })
 }
 
-fn popup_rect(origin: point::Logical, metrics: PopupMetrics, theme: &theme::Theme) -> Rect {
-    Rect::rounded(origin, metrics.area, theme.floating_panel().rounding())
+fn popup_rect(origin: point::Logical, chrome: PopupChrome, theme: &theme::Theme) -> Rect {
+    Rect::rounded(origin, chrome.area, theme.floating_panel().rounding())
 }
 
 fn popup_node<T>(
@@ -146,14 +152,14 @@ fn popup_node<T>(
     menu: &menu::Menu,
     actions: &action::Registry<T>,
     command_target: &action::Context,
-    metrics: PopupMetrics,
+    chrome: PopupChrome,
     theme: &theme::Theme,
 ) -> ui::Node {
     let mut popup = floating_panel_with_theme(id, theme)
         .with_command_scope()
         .with_size(
-            layout::Size::Fixed(metrics.area.width()),
-            layout::Size::Fixed(metrics.area.height()),
+            layout::Size::Fixed(chrome.area.width()),
+            layout::Size::Fixed(chrome.area.height()),
         );
 
     let mut row = 0;
@@ -163,17 +169,17 @@ fn popup_node<T>(
                 menu::Node::Item(item) => {
                     let id = row_id(row);
                     row += 1;
-                    item_node(id, item, actions, command_target, metrics, theme)
+                    item_node(id, item, actions, command_target, chrome, theme)
                 }
                 menu::Node::Submenu(menu) => {
                     let id = row_id(row);
                     row += 1;
-                    submenu_node(id, menu, actions, command_target, metrics, theme)
+                    submenu_node(id, menu, actions, command_target, chrome, theme)
                 }
                 menu::Node::Separator => {
                     let id = row_id(row);
                     row += 1;
-                    separator_node(id, theme)
+                    separator_node(id, chrome, theme)
                 }
             });
         }
@@ -187,7 +193,7 @@ fn item_node<T>(
     item: &menu::Item,
     actions: &action::Registry<T>,
     command_target: &action::Context,
-    metrics: PopupMetrics,
+    chrome: PopupChrome,
     theme: &theme::Theme,
 ) -> ui::Node {
     let action = item.action();
@@ -202,13 +208,13 @@ fn item_node<T>(
         .then(|| icon::Icon::phosphor(icon::Id::new("check")));
     let shortcut = shortcut_label(action, actions);
 
-    menu_row(id, theme, color)
+    menu_row(id, chrome, theme, color)
         .with_action(action)
         .with_action_target(ui::ActionTarget::Captured)
         .with_child(glyph_cell(
             ROW_GLYPH,
             check,
-            glyph_column_width(theme),
+            chrome.glyph_width,
             color,
             theme,
         ))
@@ -224,14 +230,14 @@ fn item_node<T>(
             ROW_SHORTCUT,
             shortcut.unwrap_or_default(),
             text::Align::End,
-            layout::Size::Fixed(metrics.shortcut_width),
+            layout::Size::Fixed(chrome.shortcut_width),
             color,
             theme,
         ))
         .with_child(glyph_cell(
             ROW_TRAILING,
             None,
-            glyph_column_width(theme),
+            chrome.glyph_width,
             color,
             theme,
         ))
@@ -242,7 +248,7 @@ fn submenu_node<T>(
     menu: &menu::Menu,
     actions: &action::Registry<T>,
     command_target: &action::Context,
-    metrics: PopupMetrics,
+    chrome: PopupChrome,
     theme: &theme::Theme,
 ) -> ui::Node {
     let enabled = menu_can_open(menu, actions, command_target);
@@ -252,11 +258,11 @@ fn submenu_node<T>(
         theme.text().disabled()
     };
     let chevron = enabled.then(|| icon::Icon::phosphor(icon::Id::new("caret-right")));
-    let row = menu_row(id, theme, color)
+    let row = menu_row(id, chrome, theme, color)
         .with_child(glyph_cell(
             ROW_GLYPH,
             None,
-            glyph_column_width(theme),
+            chrome.glyph_width,
             color,
             theme,
         ))
@@ -271,14 +277,14 @@ fn submenu_node<T>(
         .with_child(glyph_cell(
             ROW_SHORTCUT,
             None,
-            metrics.shortcut_width,
+            chrome.shortcut_width,
             color,
             theme,
         ))
         .with_child(glyph_cell(
             ROW_TRAILING,
             chevron,
-            glyph_column_width(theme),
+            chrome.glyph_width,
             color,
             theme,
         ));
@@ -292,7 +298,12 @@ fn submenu_node<T>(
     }
 }
 
-fn menu_row(id: ui::Id, theme: &theme::Theme, color: paint::Color) -> ui::Node {
+fn menu_row(
+    id: ui::Id,
+    chrome: PopupChrome,
+    theme: &theme::Theme,
+    color: paint::Color,
+) -> ui::Node {
     ui::Node::container(id, layout::Axis::Horizontal)
         .with_intent(ui::Intent::CloseSubmenu)
         .with_interactivity(ui::Interactivity::CONTROL)
@@ -303,11 +314,8 @@ fn menu_row(id: ui::Id, theme: &theme::Theme, color: paint::Color) -> ui::Node {
         .with_disabled_tint(theme.menu().row_disabled_tint())
         .with_label_color(color)
         .with_disabled_label_color(theme.text().disabled())
-        .with_rounding(theme.roundings().menu_item())
-        .with_size(
-            layout::Size::Fill,
-            layout::Size::Fixed(theme.density().menu_row_height()),
-        )
+        .with_rounding(chrome.row_rounding)
+        .with_size(layout::Size::Fill, layout::Size::Fixed(chrome.row_height))
 }
 
 fn glyph_cell(
@@ -346,16 +354,13 @@ fn text_cell(
         .with_size(width, layout::Size::Fill)
 }
 
-fn separator_node(id: ui::Id, theme: &theme::Theme) -> ui::Node {
+fn separator_node(id: ui::Id, chrome: PopupChrome, theme: &theme::Theme) -> ui::Node {
     ui::Node::container(id, layout::Axis::Vertical)
         .with_intent(ui::Intent::CloseSubmenu)
         .with_interactivity(ui::Interactivity::NONE.with_hit_test(true))
         .with_align(layout::Align::Center)
         .with_cross_align(layout::Align::Stretch)
-        .with_size(
-            layout::Size::Fill,
-            layout::Size::Fixed(theme.density().menu_row_height()),
-        )
+        .with_size(layout::Size::Fill, layout::Size::Fixed(chrome.row_height))
         .with_child(separator_with_theme(ROW_SEPARATOR, theme).with_size(
             layout::Size::Fill,
             layout::Size::Fixed(SEPARATOR_LINE_HEIGHT),
@@ -398,12 +403,12 @@ fn document(
     text::Document::from_block(block)
 }
 
-fn popup_metrics<T>(
+fn popup_chrome<T>(
     menu: &menu::Menu,
     actions: &action::Registry<T>,
     theme: &theme::Theme,
     measurer: &mut text::Measurer,
-) -> PopupMetrics {
+) -> PopupChrome {
     let mut label_width = 0.0_f32;
     let mut shortcut_width = 0.0_f32;
     let mut row_count = 0_usize;
@@ -425,21 +430,39 @@ fn popup_metrics<T>(
         }
     }
 
-    let padding = theme.floating_panel().padding() * 2.0;
+    let padding = theme.floating_panel().padding();
+    let row_height = theme.density().menu_row_height();
     let glyph_width = glyph_column_width(theme);
     let body_width = glyph_width + label_width + shortcut_width + glyph_width;
-    let body_height = theme.density().menu_row_height() * row_count as f32;
-    let width = (body_width + padding).max(theme.density().menu_popup_min_width());
-    let height = body_height + padding;
+    let body_height = row_height * row_count as f32;
+    let width = (body_width + padding * 2.0).max(theme.density().menu_popup_min_width());
+    let height = body_height + padding * 2.0;
+    let area = area::logical(width, height);
 
-    PopupMetrics {
-        area: area::logical(width, height),
+    PopupChrome {
+        area,
+        body_width,
+        row_count,
         shortcut_width,
+        padding,
+        row_height,
+        glyph_width,
+        row_rounding: row_rounding(theme, area, padding),
     }
 }
 
 fn glyph_column_width(theme: &theme::Theme) -> f32 {
     theme.density().menu_row_height()
+}
+
+fn row_rounding(theme: &theme::Theme, popup_area: area::Logical, padding: f32) -> rect::Rounding {
+    let rounding = theme.floating_panel().rounding().resolve(popup_area);
+    rect::Rounding::new(
+        rect::Radius::fixed((rounding[0] - padding).max(0.0)),
+        rect::Radius::fixed((rounding[1] - padding).max(0.0)),
+        rect::Radius::fixed((rounding[2] - padding).max(0.0)),
+        rect::Radius::fixed((rounding[3] - padding).max(0.0)),
+    )
 }
 
 fn measure_label(
@@ -489,11 +512,11 @@ mod tests {
                 .separator()
                 .action(ACTION_B),
         );
-        let metrics = popup_metrics(&menu, &registry, &theme, &mut measurer);
+        let metrics = popup_chrome(&menu, &registry, &theme, &mut measurer);
 
         assert_eq!(
             metrics.area.height(),
-            theme.density().menu_row_height() * 3.0 + theme.floating_panel().padding() * 2.0
+            metrics.row_height * metrics.row_count as f32 + metrics.padding * 2.0
         );
     }
 
@@ -504,7 +527,7 @@ mod tests {
         let mut measurer = text::Measurer::new();
         let menu = menu::Menu::new(menu::Id::new("test"), "Test")
             .section(menu::Section::new().separator());
-        let metrics = popup_metrics(&menu, &registry, &theme, &mut measurer);
+        let metrics = popup_chrome(&menu, &registry, &theme, &mut measurer);
 
         assert_eq!(metrics.area.width(), theme.density().menu_popup_min_width());
     }
@@ -528,11 +551,65 @@ mod tests {
             crate::Action::new(ACTION_B, "Long").with_shortcut(action::Shortcut::control('a')),
         );
 
-        let short = popup_metrics(&short, &registry, &theme, &mut measurer);
-        let long = popup_metrics(&long, &registry, &theme, &mut measurer);
+        let short = popup_chrome(&short, &registry, &theme, &mut measurer);
+        let long = popup_chrome(&long, &registry, &theme, &mut measurer);
 
         assert!(long.area.width() > short.area.width());
         assert!(long.shortcut_width > 0.0);
+    }
+
+    #[test]
+    fn menu_row_rounding_derives_from_popup_rounding_minus_padding() {
+        let theme = theme::Theme::default_dark();
+        let registry = action::Registry::<()>::new();
+        let mut measurer = text::Measurer::new();
+        let menu = menu::Menu::new(menu::Id::new("test"), "Test").section(
+            menu::Section::new()
+                .action(ACTION_A)
+                .separator()
+                .action(ACTION_B),
+        );
+        let chrome = popup_chrome(&menu, &registry, &theme, &mut measurer);
+        let popup_rounding = theme.floating_panel().rounding().resolve(chrome.area);
+        let row_rounding = chrome
+            .row_rounding
+            .resolve(area::logical(chrome.body_width, chrome.row_height));
+
+        assert_eq!(
+            row_rounding,
+            [
+                (popup_rounding[0] - chrome.padding).max(0.0),
+                (popup_rounding[1] - chrome.padding).max(0.0),
+                (popup_rounding[2] - chrome.padding).max(0.0),
+                (popup_rounding[3] - chrome.padding).max(0.0),
+            ]
+        );
+    }
+
+    #[test]
+    fn menu_row_rounding_clamps_to_zero_when_padding_exceeds_parent_radius() {
+        let theme = theme::Theme::default_dark();
+        let rounding = row_rounding(&theme, area::logical(120.0, 80.0), 20.0)
+            .resolve(area::logical(80.0, 22.0));
+
+        assert_eq!(rounding, [0.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn menu_popup_bottom_empty_space_matches_side_inset() {
+        let theme = theme::Theme::default_dark();
+        let registry = action::Registry::<()>::new();
+        let mut measurer = text::Measurer::new();
+        let menu = menu::Menu::new(menu::Id::new("test"), "Test").section(
+            menu::Section::new()
+                .action(ACTION_A)
+                .separator()
+                .action(ACTION_B),
+        );
+        let chrome = popup_chrome(&menu, &registry, &theme, &mut measurer);
+        let rows_height = chrome.row_height * chrome.row_count as f32;
+
+        assert_eq!(chrome.area.height() - rows_height, chrome.padding * 2.0);
     }
 
     #[test]
@@ -548,9 +625,9 @@ mod tests {
             crate::Action::new(ACTION_A, "Measured").with_shortcut(action::Shortcut::control('m')),
         );
 
-        let first = popup_metrics(&menu, &registry, &theme, &mut measurer);
+        let first = popup_chrome(&menu, &registry, &theme, &mut measurer);
         let uncached = measurer.uncached_measure_count();
-        let second = popup_metrics(&menu, &registry, &theme, &mut measurer);
+        let second = popup_chrome(&menu, &registry, &theme, &mut measurer);
 
         assert_eq!(first, second);
         assert!(uncached > 0);
@@ -568,10 +645,7 @@ mod tests {
             crate::Action::new(ACTION_A, "Select All")
                 .with_shortcut(action::Shortcut::control('a')),
         );
-        let metrics = PopupMetrics {
-            area: area::logical(180.0, 24.0),
-            shortcut_width: 42.0,
-        };
+        let metrics = test_chrome(&theme, 42.0);
         let row = item_node(
             ui::Id::new("row"),
             &item,
@@ -604,31 +678,29 @@ mod tests {
             &item,
             &registry,
             &context,
-            PopupMetrics {
-                area: area::logical(180.0, 24.0),
-                shortcut_width: 0.0,
-            },
+            test_chrome(&theme, 0.0),
             &theme,
         );
 
         assert_eq!(
             row.children()[0].layout().width(),
-            layout::Size::Fixed(theme.density().menu_row_height())
+            layout::Size::Fixed(test_chrome(&theme, 0.0).glyph_width)
         );
         assert_eq!(
             row.children()[3].layout().width(),
-            layout::Size::Fixed(theme.density().menu_row_height())
+            layout::Size::Fixed(test_chrome(&theme, 0.0).glyph_width)
         );
         assert_eq!(
             row.layout().height(),
-            layout::Size::Fixed(theme.density().menu_row_height())
+            layout::Size::Fixed(test_chrome(&theme, 0.0).row_height)
         );
     }
 
     #[test]
     fn menu_separator_row_centers_thin_divider_line() {
         let theme = theme::Theme::default_dark();
-        let row = separator_node(ui::Id::new("separator"), &theme);
+        let chrome = test_chrome(&theme, 0.0);
+        let row = separator_node(ui::Id::new("separator"), chrome, &theme);
         let line = row
             .children()
             .first()
@@ -636,12 +708,31 @@ mod tests {
 
         assert_eq!(
             row.layout().height(),
-            layout::Size::Fixed(theme.density().menu_row_height())
+            layout::Size::Fixed(chrome.row_height)
         );
         assert_eq!(line.layout().height(), layout::Size::Fixed(1.0));
         assert_eq!(row.intent(), Some(ui::Intent::CloseSubmenu));
         assert!(row.interactivity().hit_test());
         assert!(!row.interactivity().focusable());
         assert!(!row.interactivity().actionable());
+    }
+
+    fn test_chrome(theme: &theme::Theme, shortcut_width: f32) -> PopupChrome {
+        let padding = theme.floating_panel().padding();
+        let row_height = theme.density().menu_row_height();
+        let glyph_width = glyph_column_width(theme);
+        let body_width = glyph_width * 2.0 + shortcut_width + 80.0;
+        let area = area::logical(body_width + padding * 2.0, row_height + padding * 2.0);
+
+        PopupChrome {
+            area,
+            body_width,
+            row_count: 1,
+            shortcut_width,
+            padding,
+            row_height,
+            glyph_width,
+            row_rounding: row_rounding(theme, area, padding),
+        }
     }
 }
