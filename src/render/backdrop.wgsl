@@ -3,7 +3,7 @@ struct Params {
     canvas_size: vec2<f32>,
     direction_radius: vec4<f32>,
     rect: vec4<f32>,
-    radius: vec4<f32>,
+    rounding: vec4<f32>,
 };
 
 @group(0) @binding(0) var source_texture: texture_2d<f32>;
@@ -19,14 +19,14 @@ struct CompositeIn {
     @location(0) position: vec2<f32>,
     @location(1) local_position: vec2<f32>,
     @location(2) rect: vec4<f32>,
-    @location(3) radius: vec4<f32>,
+    @location(3) rounding: vec4<f32>,
 };
 
 struct CompositeOut {
     @builtin(position) position: vec4<f32>,
     @location(0) local_position: vec2<f32>,
     @location(1) rect: vec4<f32>,
-    @location(2) radius: vec4<f32>,
+    @location(2) rounding: vec4<f32>,
 };
 
 @vertex
@@ -54,32 +54,32 @@ fn vs_composite(in: CompositeIn) -> CompositeOut {
     out.position = vec4<f32>(in.position, 0.0, 1.0);
     out.local_position = in.local_position;
     out.rect = in.rect;
-    out.radius = in.radius;
+    out.rounding = in.rounding;
     return out;
 }
 
-fn corner_radius(point: vec2<f32>, rect: vec4<f32>, radius: vec4<f32>) -> f32 {
+fn corner_radius(point: vec2<f32>, rect: vec4<f32>, rounding: vec4<f32>) -> f32 {
     let center = rect.xy + rect.zw * 0.5;
 
     if point.x < center.x {
         if point.y < center.y {
-            return radius.x;
+            return rounding.x;
         }
 
-        return radius.w;
+        return rounding.w;
     }
 
     if point.y < center.y {
-        return radius.y;
+        return rounding.y;
     }
 
-    return radius.z;
+    return rounding.z;
 }
 
-fn rounded_rect_sdf(point: vec2<f32>, rect: vec4<f32>, radius: vec4<f32>) -> f32 {
+fn rounded_rect_sdf(point: vec2<f32>, rect: vec4<f32>, rounding: vec4<f32>) -> f32 {
     let size = max(rect.zw, vec2<f32>(0.0));
     let center = rect.xy + size * 0.5;
-    let r = corner_radius(point, rect, radius);
+    let r = corner_radius(point, rect, rounding);
     let q = abs(point - center) - size * 0.5 + vec2<f32>(r);
 
     return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - r;
@@ -132,7 +132,7 @@ fn fs_blit(in: FullscreenOut) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_composite(in: CompositeOut) -> @location(0) vec4<f32> {
-    let alpha = coverage(rounded_rect_sdf(in.local_position, in.rect, in.radius));
+    let alpha = coverage(rounded_rect_sdf(in.local_position, in.rect, in.rounding));
 
     if alpha <= 0.0 {
         discard;

@@ -2,9 +2,9 @@ struct VertexIn {
     @location(0) position: vec2<f32>,
     @location(1) local_position: vec2<f32>,
     @location(2) outer_rect: vec4<f32>,
-    @location(3) outer_radius: vec4<f32>,
+    @location(3) outer_rounding: vec4<f32>,
     @location(4) inner_rect: vec4<f32>,
-    @location(5) inner_radius: vec4<f32>,
+    @location(5) inner_rounding: vec4<f32>,
     @location(6) color: vec4<f32>,
     @location(7) color_to: vec4<f32>,
     @location(8) brush_points: vec4<f32>,
@@ -15,9 +15,9 @@ struct VertexOut {
     @builtin(position) position: vec4<f32>,
     @location(0) local_position: vec2<f32>,
     @location(1) outer_rect: vec4<f32>,
-    @location(2) outer_radius: vec4<f32>,
+    @location(2) outer_rounding: vec4<f32>,
     @location(3) inner_rect: vec4<f32>,
-    @location(4) inner_radius: vec4<f32>,
+    @location(4) inner_rounding: vec4<f32>,
     @location(5) color: vec4<f32>,
     @location(6) color_to: vec4<f32>,
     @location(7) brush_points: vec4<f32>,
@@ -30,9 +30,9 @@ fn vs_main(in: VertexIn) -> VertexOut {
     out.position = vec4<f32>(in.position, 0.0, 1.0);
     out.local_position = in.local_position;
     out.outer_rect = in.outer_rect;
-    out.outer_radius = in.outer_radius;
+    out.outer_rounding = in.outer_rounding;
     out.inner_rect = in.inner_rect;
-    out.inner_radius = in.inner_radius;
+    out.inner_rounding = in.inner_rounding;
     out.color = in.color;
     out.color_to = in.color_to;
     out.brush_points = in.brush_points;
@@ -40,28 +40,28 @@ fn vs_main(in: VertexIn) -> VertexOut {
     return out;
 }
 
-fn corner_radius(point: vec2<f32>, rect: vec4<f32>, radius: vec4<f32>) -> f32 {
+fn corner_radius(point: vec2<f32>, rect: vec4<f32>, rounding: vec4<f32>) -> f32 {
     let center = rect.xy + rect.zw * 0.5;
 
     if point.x < center.x {
         if point.y < center.y {
-            return radius.x;
+            return rounding.x;
         }
 
-        return radius.w;
+        return rounding.w;
     }
 
     if point.y < center.y {
-        return radius.y;
+        return rounding.y;
     }
 
-    return radius.z;
+    return rounding.z;
 }
 
-fn rounded_rect_sdf(point: vec2<f32>, rect: vec4<f32>, radius: vec4<f32>) -> f32 {
+fn rounded_rect_sdf(point: vec2<f32>, rect: vec4<f32>, rounding: vec4<f32>) -> f32 {
     let size = max(rect.zw, vec2<f32>(0.0));
     let center = rect.xy + size * 0.5;
-    let r = corner_radius(point, rect, radius);
+    let r = corner_radius(point, rect, rounding);
     let q = abs(point - center) - size * 0.5 + vec2<f32>(r);
 
     return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - r;
@@ -95,12 +95,12 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         let caster_distance = rounded_rect_sdf(
             in.local_position,
             in.outer_rect,
-            in.outer_radius,
+            in.outer_rounding,
         );
         let cutout_alpha = coverage(rounded_rect_sdf(
             in.local_position,
             in.inner_rect,
-            in.inner_radius,
+            in.inner_rounding,
         ));
         let penumbra = max(in.params.y, max(fwidth(caster_distance), 0.0001));
         let alpha = (1.0 - smoothstep(-penumbra * 0.5, penumbra * 0.5, caster_distance)) *
@@ -116,7 +116,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let outer_alpha = coverage(rounded_rect_sdf(
         in.local_position,
         in.outer_rect,
-        in.outer_radius,
+        in.outer_rounding,
     ));
     var alpha = outer_alpha;
 
@@ -124,7 +124,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         let inner_alpha = coverage(rounded_rect_sdf(
             in.local_position,
             in.inner_rect,
-            in.inner_radius,
+            in.inner_rounding,
         ));
         alpha = alpha * (1.0 - inner_alpha);
     }

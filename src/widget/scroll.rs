@@ -473,7 +473,7 @@ pub fn viewport_rect(node: &ui::Node, rect: Rect) -> Rect {
             (rect.area.width() - padding.horizontal() - vertical_gutter).max(0.0),
             (rect.area.height() - padding.vertical() - horizontal_gutter).max(0.0),
         ),
-        node.style().radius(),
+        node.style().rounding(),
     )
 }
 
@@ -618,12 +618,12 @@ fn thumb_rect(
         Axis::Vertical => Rect::rounded(
             point::logical(track.origin.x(), track.origin.y() + position),
             area::logical(track.area.width(), thumb_length),
-            rect::Radius::splat(1.0),
+            rect::Rounding::relative(1.0),
         ),
         Axis::Horizontal => Rect::rounded(
             point::logical(track.origin.x() + position, track.origin.y()),
             area::logical(thumb_length, track.area.height()),
-            rect::Radius::splat(1.0),
+            rect::Rounding::relative(1.0),
         ),
     }
 }

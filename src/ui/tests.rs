@@ -909,7 +909,7 @@ fn floating_panel_uses_default_glass_material_tokens() {
     assert_eq!(shadow.blur(), floating.shadow().blur());
     assert_eq!(shadow.spread(), floating.shadow().spread());
     assert_eq!(shadow.offset(), floating.shadow().offset());
-    assert_eq!(style.radius(), floating.radius());
+    assert_eq!(style.rounding(), floating.rounding());
     assert_eq!(style.padding(), layout::Insets::splat(floating.padding()));
     assert!(panel.interactivity().hit_test());
     assert!(!panel.interactivity().focusable());
@@ -1042,10 +1042,10 @@ fn tree_collects_command_scope_paths() {
 }
 
 #[test]
-fn node_radius_is_emitted_on_paint_quad() {
+fn node_rounding_is_emitted_on_paint_quad() {
     let root = Node::leaf(A)
         .with_background(paint::Color::RED)
-        .with_radius(rect::Radius::splat(1.0));
+        .with_rounding(rect::Rounding::relative(1.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let registry = action::Registry::<()>::new();
@@ -1061,7 +1061,7 @@ fn node_radius_is_emitted_on_paint_quad() {
         &mut scene,
     );
 
-    assert_eq!(quad(&scene, 0).rect.radius, rect::Radius::splat(1.0));
+    assert_eq!(quad(&scene, 0).rect.rounding, rect::Rounding::relative(1.0));
 }
 
 #[test]
@@ -1345,7 +1345,7 @@ fn control_hover_state_emits_hover_tint_over_base_background() {
         root.style().hover_tint().expect("control has hover tint")
     );
     assert_same_bounds(tint(&scene, 1).rect, layout.rect());
-    assert_eq!(tint(&scene, 1).rect.radius, root.style().radius());
+    assert_eq!(tint(&scene, 1).rect.rounding, root.style().rounding());
 }
 
 #[test]
@@ -1374,7 +1374,7 @@ fn control_focus_state_emits_outline_without_changing_fill() {
         ))
     );
     assert_same_bounds(outline(&scene, 1).rect, layout.rect());
-    assert_eq!(outline(&scene, 1).rect.radius, root.style().radius());
+    assert_eq!(outline(&scene, 1).rect.rounding, root.style().rounding());
 }
 
 #[test]
@@ -1726,7 +1726,7 @@ fn busy_control_emits_busy_tint_and_suppresses_hover_press() {
         root.style().busy_tint().expect("control has busy tint")
     );
     assert_same_bounds(outline(&scene, 3).rect, layout.rect());
-    assert_eq!(outline(&scene, 3).rect.radius, root.style().radius());
+    assert_eq!(outline(&scene, 3).rect.rounding, root.style().rounding());
     assert_eq!(scene.items().len(), 4);
 }
 
@@ -1870,14 +1870,14 @@ fn focused_node_emits_overlay_outline_after_tree_content() {
 
     assert_same_bounds(quad(&scene, 0).rect, layout.rect());
     assert_eq!(
-        quad(&scene, 0).rect.radius,
-        theme::Theme::default_dark().radii().panel()
+        quad(&scene, 0).rect.rounding,
+        theme::Theme::default_dark().roundings().panel()
     );
     assert_eq!(quad(&scene, 1).rect, layout.children()[0].rect());
     assert_same_bounds(outline(&scene, 2).rect, layout.rect());
     assert_eq!(
-        outline(&scene, 2).rect.radius,
-        theme::Theme::default_dark().radii().panel()
+        outline(&scene, 2).rect.rounding,
+        theme::Theme::default_dark().roundings().panel()
     );
 }
 
@@ -1925,7 +1925,7 @@ fn backdrop_lowers_before_node_background() {
                 .with_fill(paint::Color::rgba(1.0, 1.0, 1.0, 0.5))
                 .with_blur(0.5),
         )
-        .with_radius(rect::Radius::splat(0.4));
+        .with_rounding(rect::Rounding::relative(0.4));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let registry = action::Registry::<()>::new();
@@ -1944,7 +1944,7 @@ fn backdrop_lowers_before_node_background() {
     assert!(matches!(scene.items()[0], paint::Item::Backdrop(_)));
     assert!(matches!(scene.items()[1], paint::Item::Quad(_)));
     assert_eq!(backdrop(&scene, 0).rect, quad(&scene, 1).rect);
-    assert_eq!(backdrop(&scene, 0).rect.radius, root.style().radius());
+    assert_eq!(backdrop(&scene, 0).rect.rounding, root.style().rounding());
     assert_eq!(
         backdrop(&scene, 0).filter,
         paint::BackdropFilter::Blur { amount: 0.5 }
@@ -1962,7 +1962,7 @@ fn popup_backdrop_lowers_after_shadow_before_popup_panel_fill() {
     let popup_rect = Rect::rounded(
         point::logical(10.0, 10.0),
         area::logical(40.0, 40.0),
-        rect::Radius::splat(0.5),
+        rect::Rounding::relative(0.5),
     );
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
@@ -1975,7 +1975,7 @@ fn popup_backdrop_lowers_after_shadow_before_popup_panel_fill() {
         Node::leaf(B)
             .with_background(paint::Color::rgba(1.0, 1.0, 1.0, 0.35))
             .with_backdrop(Backdrop::new().with_blur(0.75))
-            .with_radius(rect::Radius::splat(0.5))
+            .with_rounding(rect::Rounding::relative(0.5))
             .with_shadow(
                 paint::Color::rgba(0.0, 0.0, 0.0, 0.35),
                 18.0,
@@ -2064,8 +2064,8 @@ fn focused_first_button_outline_is_not_covered_by_second_button() {
     assert!(matches!(scene.items()[4], paint::Item::Outline(_)));
     assert_same_bounds(outline(&scene, 4).rect, layout.children()[0].rect());
     assert_eq!(
-        outline(&scene, 4).rect.radius,
-        theme::Theme::default_dark().radii().control()
+        outline(&scene, 4).rect.rounding,
+        theme::Theme::default_dark().roundings().control()
     );
 }
 

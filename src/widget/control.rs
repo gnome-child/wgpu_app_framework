@@ -27,7 +27,7 @@ pub fn panel_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
         .with_label_color(theme.text().primary())
         .with_busy_label_color(theme.text().busy())
         .with_disabled_label_color(theme.text().disabled())
-        .with_radius(theme.radii().panel())
+        .with_rounding(theme.roundings().panel())
 }
 
 pub fn floating_panel(id: ui::Id) -> ui::Node {
@@ -49,7 +49,7 @@ pub fn floating_panel_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
             shadow.spread(),
             shadow.offset(),
         )
-        .with_radius(floating.radius())
+        .with_rounding(floating.rounding())
         .with_padding(layout::Insets::splat(floating.padding()))
         .with_label_color(theme.text().primary())
         .with_busy_label_color(theme.text().busy())
@@ -67,7 +67,7 @@ pub fn button_with_theme(id: ui::Id, action: action::Id, theme: &theme::Theme) -
         .with_interactivity(ui::Interactivity::CONTROL)
         .with_background(theme.control().background())
         .with_stroke(theme.control().stroke())
-        .with_radius(theme.radii().control())
+        .with_rounding(theme.roundings().control())
         .with_size(
             layout::Size::Fill,
             layout::Size::Fixed(theme.density().control_height()),

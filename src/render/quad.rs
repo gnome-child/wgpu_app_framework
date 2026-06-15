@@ -100,7 +100,7 @@ pub fn prepare_batch(
 struct AnalyticShape {
     kind: AnalyticShapeKind,
     outer_rect: Rect,
-    outer_radius: crate::geometry::rect::ResolvedRadius,
+    outer_rounding: [f32; 4],
     inner: Option<AnalyticInner>,
     brush: paint::Brush,
     blur: f32,
@@ -117,7 +117,7 @@ enum AnalyticShapeKind {
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct AnalyticInner {
     rect: Rect,
-    radius: crate::geometry::rect::ResolvedRadius,
+    rounding: [f32; 4],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -125,7 +125,7 @@ struct PreparedShape {
     kind: AnalyticShapeKind,
     raster_rect: Rect,
     outer_rect: Rect,
-    outer_radius: crate::geometry::rect::ResolvedRadius,
+    outer_rounding: [f32; 4],
     inner: Option<AnalyticInner>,
     brush: paint::Brush,
     blur: f32,
@@ -185,7 +185,7 @@ impl PixelGeometry {
         Rect::rounded(
             point::logical(left, top),
             area::logical(right - left, bottom - top),
-            rect.radius,
+            rect.rounding,
         )
     }
 
@@ -283,9 +283,9 @@ fn push_analytic_shape_vertices(
 
     let (x0, y0, x1, y1) = edges(shape.raster_rect);
     let outer_rect = rect_data(shape.outer_rect);
-    let outer_radius = radius_data(shape.outer_radius);
-    let (inner_rect, inner_radius, mode) = match shape.inner {
-        Some(inner) => (rect_data(inner.rect), radius_data(inner.radius), 1.0),
+    let outer_rounding = rounding_data(shape.outer_rounding);
+    let (inner_rect, inner_rounding, mode) = match shape.inner {
+        Some(inner) => (rect_data(inner.rect), rounding_data(inner.rounding), 1.0),
         None => ([0.0, 0.0, -1.0, -1.0], [0.0; 4], 0.0),
     };
     let brush = brush_data(shape.brush);
@@ -299,9 +299,9 @@ fn push_analytic_shape_vertices(
             position: to_clip(x, y),
             local_position: [x, y],
             outer_rect,
-            outer_radius,
+            outer_rounding,
             inner_rect,
-            inner_radius,
+            inner_rounding,
             color: brush.from.to_array(),
             color_to: brush.to.to_array(),
             brush_points: brush.points,
@@ -337,7 +337,7 @@ fn prepare_fill_shape(
         kind: shape.kind,
         raster_rect,
         outer_rect,
-        outer_radius: outer_rect.radius.resolve(outer_rect.area),
+        outer_rounding: outer_rect.rounding.resolve(outer_rect.area),
         inner: None,
         brush: shape.brush,
         blur: shape.blur,
@@ -353,10 +353,10 @@ fn prepare_internal_ring_shape(
     let Some(inner_rect) = inset_rect(outer_rect, width) else {
         return prepare_fill_shape(fill_shape(outer_rect, shape.brush), pixel_geometry);
     };
-    let outer_radius = outer_rect.radius.resolve(outer_rect.area);
+    let outer_rounding = outer_rect.rounding.resolve(outer_rect.area);
     let inner = AnalyticInner {
         rect: inner_rect,
-        radius: shrink_radius(outer_radius, width),
+        rounding: shrink_rounding(outer_rounding, width),
     };
     let raster_rect = expand_rect(outer_rect, pixel_geometry.logical_pixel());
 
@@ -364,7 +364,7 @@ fn prepare_internal_ring_shape(
         kind: shape.kind,
         raster_rect,
         outer_rect,
-        outer_radius,
+        outer_rounding,
         inner: Some(inner),
         brush: shape.brush,
         blur: shape.blur,
@@ -379,18 +379,18 @@ fn prepare_external_ring_shape(
     let width = pixel_geometry.snap_distance(ring_width(shape)?);
     let inner_rect = pixel_geometry.snap_rect(inner.rect);
     let outer_rect = expand_rect(inner_rect, width);
-    let inner_radius = inner.radius;
-    let outer_radius = expand_radius(inner_radius, width);
+    let inner_rounding = inner.rounding;
+    let outer_rounding = expand_rounding(inner_rounding, width);
     let raster_rect = expand_rect(outer_rect, pixel_geometry.logical_pixel());
 
     Some(PreparedShape {
         kind: shape.kind,
         raster_rect,
         outer_rect,
-        outer_radius,
+        outer_rounding,
         inner: Some(AnalyticInner {
             rect: inner_rect,
-            radius: inner_radius,
+            rounding: inner_rounding,
         }),
         brush: shape.brush,
         blur: shape.blur,
@@ -414,10 +414,10 @@ fn prepare_shadow_shape(
         kind: shape.kind,
         raster_rect,
         outer_rect,
-        outer_radius: shape.outer_radius,
+        outer_rounding: shape.outer_rounding,
         inner: Some(AnalyticInner {
             rect: inner_rect,
-            radius: inner.radius,
+            rounding: inner.rounding,
         }),
         brush: shape.brush,
         blur,
@@ -428,7 +428,7 @@ fn fill_shape(rect: Rect, brush: paint::Brush) -> AnalyticShape {
     AnalyticShape {
         kind: AnalyticShapeKind::Fill,
         outer_rect: rect,
-        outer_radius: rect.radius.resolve(rect.area),
+        outer_rounding: rect.rounding.resolve(rect.area),
         inner: None,
         brush,
         blur: 0.0,
@@ -441,7 +441,7 @@ fn internal_stroke_shape(rect: Rect, width: f32, brush: paint::Brush) -> Option<
         return None;
     }
 
-    let outer_radius = rect.radius.resolve(rect.area);
+    let outer_rounding = rect.rounding.resolve(rect.area);
     let Some(inner_rect) = inset_rect(rect, width) else {
         return Some(fill_shape(rect, brush));
     };
@@ -449,10 +449,10 @@ fn internal_stroke_shape(rect: Rect, width: f32, brush: paint::Brush) -> Option<
     Some(AnalyticShape {
         kind: AnalyticShapeKind::InternalRing,
         outer_rect: rect,
-        outer_radius,
+        outer_rounding,
         inner: Some(AnalyticInner {
             rect: inner_rect,
-            radius: shrink_radius(outer_radius, width),
+            rounding: shrink_rounding(outer_rounding, width),
         }),
         brush,
         blur: 0.0,
@@ -466,16 +466,16 @@ fn shadow_shape(shadow: &paint::Shadow) -> Option<AnalyticShape> {
 
     let rect = shadow.rect;
     let spread = shadow.spread.max(0.0);
-    let base_radius = rect.radius.resolve(rect.area);
+    let base_rounding = rect.rounding.resolve(rect.area);
     let caster_rect = offset_rect(expand_rect(rect, spread), shadow.offset);
 
     Some(AnalyticShape {
         kind: AnalyticShapeKind::Shadow,
         outer_rect: caster_rect,
-        outer_radius: expand_radius(base_radius, spread),
+        outer_rounding: expand_rounding(base_rounding, spread),
         inner: Some(AnalyticInner {
             rect,
-            radius: base_radius,
+            rounding: base_rounding,
         }),
         brush: shadow.brush,
         blur: shadow.blur.max(0.0),
@@ -493,16 +493,16 @@ fn external_outline_shape(
     }
 
     let offset = offset.max(0.0);
-    let base_radius = rect.radius.resolve(rect.area);
+    let base_rounding = rect.rounding.resolve(rect.area);
     let inner_rect = expand_rect(rect, offset);
     let outer_rect = expand_rect(rect, offset + width);
     Some(AnalyticShape {
         kind: AnalyticShapeKind::ExternalRing,
         outer_rect,
-        outer_radius: expand_radius(base_radius, offset + width),
+        outer_rounding: expand_rounding(base_rounding, offset + width),
         inner: Some(AnalyticInner {
             rect: inner_rect,
-            radius: expand_radius(base_radius, offset),
+            rounding: expand_rounding(base_rounding, offset),
         }),
         brush,
         blur: 0.0,
@@ -554,7 +554,7 @@ fn offset_rect(rect: Rect, offset: point::Logical) -> Rect {
     Rect::rounded(
         point::logical(rect.origin.x() + offset.x(), rect.origin.y() + offset.y()),
         rect.area,
-        rect.radius,
+        rect.rounding,
     )
 }
 
@@ -572,32 +572,30 @@ fn union_rects(a: Rect, b: Rect) -> Rect {
     )
 }
 
-fn expand_radius(
-    radius: crate::geometry::rect::ResolvedRadius,
-    amount: f32,
-) -> crate::geometry::rect::ResolvedRadius {
-    crate::geometry::rect::ResolvedRadius {
-        top_left: expand_corner_radius(radius.top_left, amount),
-        top_right: expand_corner_radius(radius.top_right, amount),
-        bottom_left: expand_corner_radius(radius.bottom_left, amount),
-        bottom_right: expand_corner_radius(radius.bottom_right, amount),
+fn expand_rounding(rounding: [f32; 4], amount: f32) -> [f32; 4] {
+    [
+        expand_corner_radius(rounding[0], amount),
+        expand_corner_radius(rounding[1], amount),
+        expand_corner_radius(rounding[2], amount),
+        expand_corner_radius(rounding[3], amount),
+    ]
+}
+
+fn expand_corner_radius(rounding: f32, amount: f32) -> f32 {
+    if rounding <= 0.0 {
+        0.0
+    } else {
+        rounding + amount
     }
 }
 
-fn expand_corner_radius(radius: f32, amount: f32) -> f32 {
-    if radius <= 0.0 { 0.0 } else { radius + amount }
-}
-
-fn shrink_radius(
-    radius: crate::geometry::rect::ResolvedRadius,
-    amount: f32,
-) -> crate::geometry::rect::ResolvedRadius {
-    crate::geometry::rect::ResolvedRadius {
-        top_left: (radius.top_left - amount).max(0.0),
-        top_right: (radius.top_right - amount).max(0.0),
-        bottom_left: (radius.bottom_left - amount).max(0.0),
-        bottom_right: (radius.bottom_right - amount).max(0.0),
-    }
+fn shrink_rounding(rounding: [f32; 4], amount: f32) -> [f32; 4] {
+    [
+        (rounding[0] - amount).max(0.0),
+        (rounding[1] - amount).max(0.0),
+        (rounding[2] - amount).max(0.0),
+        (rounding[3] - amount).max(0.0),
+    ]
 }
 
 fn brush_data(brush: paint::Brush) -> PreparedBrush {
@@ -645,13 +643,8 @@ fn rect_data(rect: Rect) -> [f32; 4] {
     ]
 }
 
-fn radius_data(radius: crate::geometry::rect::ResolvedRadius) -> [f32; 4] {
-    [
-        radius.top_left,
-        radius.top_right,
-        radius.bottom_right,
-        radius.bottom_left,
-    ]
+fn rounding_data(rounding: [f32; 4]) -> [f32; 4] {
+    rounding
 }
 
 #[cfg(test)]
@@ -807,7 +800,10 @@ mod tests {
 
         assert_eq!(shapes.len(), 1);
         assert_eq!(shapes[0].outer_rect, rect());
-        assert_eq!(shapes[0].outer_radius, rect().radius.resolve(rect().area));
+        assert_eq!(
+            shapes[0].outer_rounding,
+            rect().rounding.resolve(rect().area)
+        );
         assert_eq!(shapes[0].inner, None);
         assert_eq!(shapes[0].brush, paint::Brush::solid(paint::Color::RED));
         assert_eq!(vertex_count_for_shape(shapes[0]), 6);
@@ -900,7 +896,7 @@ mod tests {
             rect: Rect::rounded(
                 rect().origin,
                 rect().area,
-                crate::geometry::rect::Radius::splat(1.0),
+                crate::geometry::rect::Rounding::relative(1.0),
             ),
             brush: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.35)),
             blur: 18.0,
@@ -914,7 +910,10 @@ mod tests {
         assert_eq!(shapes[0].kind, AnalyticShapeKind::Shadow);
         assert_eq!(rect_bounds(shapes[0].outer_rect), (8.0, 24.0, 52.0, 58.0));
         assert_eq!(inner.rect, shadow.rect);
-        assert_eq!(inner.radius, shadow.rect.radius.resolve(shadow.rect.area));
+        assert_eq!(
+            inner.rounding,
+            shadow.rect.rounding.resolve(shadow.rect.area)
+        );
         assert_eq!(shapes[0].blur, 18.0);
     }
 
@@ -1007,7 +1006,7 @@ mod tests {
         let rect = Rect::rounded(
             point::logical(10.0, 20.0),
             area::logical(80.0, 30.0),
-            crate::geometry::rect::Radius::splat(1.0),
+            crate::geometry::rect::Rounding::relative(1.0),
         );
         let outline = paint::Outline {
             rect,
@@ -1021,8 +1020,8 @@ mod tests {
         assert_eq!(shapes.len(), 1);
         assert_eq!(vertex_count_for_shape(shapes[0]), 6);
         assert_eq!(bounds(&shapes), (4.0, 14.0, 96.0, 56.0));
-        assert_eq!(shapes[0].outer_radius.top_left, 21.0);
-        assert_eq!(inner.radius.top_left, 17.0);
+        assert_eq!(shapes[0].outer_rounding[0], 21.0);
+        assert_eq!(inner.rounding[0], 17.0);
     }
 
     #[test]
@@ -1030,7 +1029,7 @@ mod tests {
         let rect = Rect::rounded(
             point::logical(10.0, 20.0),
             area::logical(80.0, 30.0),
-            crate::geometry::rect::Radius::splat(1.0),
+            crate::geometry::rect::Rounding::relative(1.0),
         );
         let outline = paint::Outline {
             rect,
@@ -1044,8 +1043,8 @@ mod tests {
 
         assert_eq!(rect_bounds(prepared.outer_rect), (4.0, 14.0, 96.0, 56.0));
         assert_eq!(rect_bounds(prepared.raster_rect), (3.0, 13.0, 97.0, 57.0));
-        assert_eq!(prepared.outer_radius.top_left, 21.0);
-        assert_eq!(inner.radius.top_left, 17.0);
+        assert_eq!(prepared.outer_rounding[0], 21.0);
+        assert_eq!(inner.rounding[0], 17.0);
     }
 
     #[test]
@@ -1074,7 +1073,7 @@ mod tests {
             rect: Rect::rounded(
                 point::logical(10.0, 20.0),
                 area::logical(40.0, 40.0),
-                crate::geometry::rect::Radius::splat(1.0),
+                crate::geometry::rect::Rounding::relative(1.0),
             ),
             style: style(Some(solid(paint::Color::RED)), None, None),
         };
@@ -1083,7 +1082,7 @@ mod tests {
         assert_eq!(shapes.len(), 1);
         assert_eq!(vertex_count_for_shape(shapes[0]), 6);
         assert_eq!(bounds(&shapes), edges(quad.rect));
-        assert_eq!(shapes[0].outer_radius.top_left, 20.0);
+        assert_eq!(shapes[0].outer_rounding[0], 20.0);
     }
 
     #[test]
@@ -1091,7 +1090,7 @@ mod tests {
         let rect = Rect::rounded(
             point::logical(10.0, 20.0),
             area::logical(80.0, 30.0),
-            crate::geometry::rect::Radius::splat(1.0),
+            crate::geometry::rect::Rounding::relative(1.0),
         );
         let fill = fill_shape(rect, paint::Brush::solid(paint::Color::RED));
         let tint = paint::Tint {
@@ -1102,7 +1101,7 @@ mod tests {
 
         assert_eq!(shapes.len(), 1);
         assert_eq!(shapes[0].outer_rect, fill.outer_rect);
-        assert_eq!(shapes[0].outer_radius, fill.outer_radius);
+        assert_eq!(shapes[0].outer_rounding, fill.outer_rounding);
         assert_eq!(bounds(&shapes), edges(rect));
     }
 
@@ -1112,7 +1111,7 @@ mod tests {
             rect: Rect::rounded(
                 point::logical(10.0, 20.0),
                 area::logical(80.0, 30.0),
-                crate::geometry::rect::Radius::splat(1.0),
+                crate::geometry::rect::Rounding::relative(1.0),
             ),
             style: style(None, Some(stroke(4.0)), None),
         };
@@ -1125,7 +1124,7 @@ mod tests {
             inner.rect,
             Rect::new(point::logical(14.0, 24.0), area::logical(72.0, 22.0))
         );
-        assert_eq!(shapes[0].outer_radius.top_left, 15.0);
-        assert_eq!(inner.radius.top_left, 11.0);
+        assert_eq!(shapes[0].outer_rounding[0], 15.0);
+        assert_eq!(inner.rounding[0], 11.0);
     }
 }

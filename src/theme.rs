@@ -6,7 +6,7 @@ pub struct Theme {
     surfaces: Surfaces,
     text: Text,
     density: Density,
-    radii: Radii,
+    roundings: Roundings,
     control: Control,
     menu: Menu,
     floating_panel: FloatingPanel,
@@ -59,12 +59,12 @@ pub struct Density {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Radii {
-    panel: geometry::rect::Radius,
-    control: geometry::rect::Radius,
-    menu_title: geometry::rect::Radius,
-    menu_item: geometry::rect::Radius,
-    popup: geometry::rect::Radius,
+pub struct Roundings {
+    panel: geometry::rect::Rounding,
+    control: geometry::rect::Rounding,
+    menu_title: geometry::rect::Rounding,
+    menu_item: geometry::rect::Rounding,
+    popup: geometry::rect::Rounding,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -100,7 +100,7 @@ pub struct FloatingPanel {
     backdrop_blur: f32,
     stroke: paint::Stroke,
     shadow: Shadow,
-    radius: geometry::rect::Radius,
+    rounding: geometry::rect::Rounding,
     padding: f32,
 }
 
@@ -194,12 +194,12 @@ impl Theme {
                 menu_title_horizontal_padding: 24.0,
                 menu_title_char_width: 7.0,
             },
-            radii: Radii {
-                panel: geometry::rect::Radius::splat(0.08),
-                control: geometry::rect::Radius::splat(0.22),
-                menu_title: geometry::rect::Radius::splat(0.20),
-                menu_item: geometry::rect::Radius::splat(0.16),
-                popup: geometry::rect::Radius::splat(0.10),
+            roundings: Roundings {
+                panel: geometry::rect::Rounding::fixed(8.0),
+                control: geometry::rect::Rounding::fixed(7.0),
+                menu_title: geometry::rect::Rounding::fixed(6.0),
+                menu_item: geometry::rect::Rounding::fixed(5.0),
+                popup: geometry::rect::Rounding::fixed(10.0),
             },
             control: Control {
                 background: paint::Brush::linear_gradient(
@@ -258,7 +258,7 @@ impl Theme {
                     width: 1.0,
                 },
                 shadow: popup_shadow,
-                radius: geometry::rect::Radius::splat(0.10),
+                rounding: geometry::rect::Rounding::fixed(10.0),
                 padding: 6.0,
             },
             scroll: Scroll {
@@ -290,8 +290,8 @@ impl Theme {
         self.density
     }
 
-    pub fn radii(&self) -> Radii {
-        self.radii
+    pub fn roundings(&self) -> Roundings {
+        self.roundings
     }
 
     pub fn control(&self) -> Control {
@@ -441,24 +441,24 @@ impl Density {
     }
 }
 
-impl Radii {
-    pub fn panel(self) -> geometry::rect::Radius {
+impl Roundings {
+    pub fn panel(self) -> geometry::rect::Rounding {
         self.panel
     }
 
-    pub fn control(self) -> geometry::rect::Radius {
+    pub fn control(self) -> geometry::rect::Rounding {
         self.control
     }
 
-    pub fn menu_title(self) -> geometry::rect::Radius {
+    pub fn menu_title(self) -> geometry::rect::Rounding {
         self.menu_title
     }
 
-    pub fn menu_item(self) -> geometry::rect::Radius {
+    pub fn menu_item(self) -> geometry::rect::Rounding {
         self.menu_item
     }
 
-    pub fn popup(self) -> geometry::rect::Radius {
+    pub fn popup(self) -> geometry::rect::Rounding {
         self.popup
     }
 }
@@ -560,8 +560,8 @@ impl FloatingPanel {
         self.shadow
     }
 
-    pub fn radius(self) -> geometry::rect::Radius {
-        self.radius
+    pub fn rounding(self) -> geometry::rect::Rounding {
+        self.rounding
     }
 
     pub fn padding(self) -> f32 {
@@ -680,7 +680,10 @@ mod tests {
         assert!(theme.surfaces().panel().is_visible());
         assert!(theme.text().primary().a > 0.0);
         assert!(theme.density().control_height() > 0.0);
-        assert_ne!(theme.radii().control(), geometry::rect::Radius::none());
+        assert_ne!(
+            theme.roundings().control(),
+            geometry::rect::Rounding::none()
+        );
         assert!(theme.control().background().is_visible());
         assert!(theme.floating_panel().backdrop_fill().is_visible());
         assert!(theme.floating_panel().shadow().blur() > 0.0);

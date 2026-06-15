@@ -237,7 +237,7 @@ impl app::Application for App {
         let mut scroll_view = widget::scroll_view(DOCUMENT_SCROLL)
             .with_scroll_offset(point::logical(0.0, self.document_scroll))
             .with_background(theme.surfaces().panel())
-            .with_radius(theme.radii().panel())
+            .with_rounding(theme.roundings().panel())
             .with_gap(SCROLL_GAP)
             .with_padding(layout::Insets::splat(SCROLL_PADDING))
             .with_size(layout::Size::Fill, layout::Size::Fixed(SCROLL_VIEW_HEIGHT));

@@ -45,7 +45,7 @@ struct Params {
     canvas_size: [f32; 2],
     direction_radius: [f32; 4],
     rect: [f32; 4],
-    radius: [f32; 4],
+    rounding: [f32; 4],
 }
 
 #[repr(C)]
@@ -54,14 +54,14 @@ struct CompositeVertex {
     position: [f32; 2],
     local_position: [f32; 2],
     rect: [f32; 4],
-    radius: [f32; 4],
+    rounding: [f32; 4],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct PreparedBackdrop {
     raster_rect: Rect,
     shape_rect: Rect,
-    radius: crate::geometry::rect::ResolvedRadius,
+    rounding: [f32; 4],
     blur_amount: f32,
     blur_radius_px: f32,
 }
@@ -367,7 +367,7 @@ impl Renderer {
                 target.logical_area.width(),
                 target.logical_area.height(),
             ],
-            radius: [0.0; 4],
+            rounding: [0.0; 4],
         };
         let bind_group = self.bind_group(
             render_context,
@@ -582,7 +582,7 @@ impl Renderer {
                 target.scale_factor,
             ],
             rect: rect_data(prepared.shape_rect),
-            radius: radius_data(prepared.radius),
+            rounding: rounding_data(prepared.rounding),
         }
     }
 }
@@ -648,7 +648,7 @@ impl PixelGeometry {
         Rect::rounded(
             point::logical(left, top),
             area::logical(right - left, bottom - top),
-            rect.radius,
+            rect.rounding,
         )
     }
 
@@ -683,7 +683,7 @@ fn prepare_clip(rect: Rect, scale_factor: f32) -> Option<PreparedBackdrop> {
     Some(PreparedBackdrop {
         raster_rect,
         shape_rect,
-        radius: shape_rect.radius.resolve(shape_rect.area),
+        rounding: shape_rect.rounding.resolve(shape_rect.area),
         blur_amount: 0.0,
         blur_radius_px: 0.0,
     })
@@ -706,12 +706,12 @@ fn composite_vertices(
     };
     let (x0, y0, x1, y1) = edges(prepared.raster_rect);
     let rect = rect_data(prepared.shape_rect);
-    let radius = radius_data(prepared.radius);
+    let rounding = rounding_data(prepared.rounding);
     let vertex = |x: f32, y: f32| CompositeVertex {
         position: to_clip(x, y),
         local_position: [x, y],
         rect,
-        radius,
+        rounding,
     };
 
     [
@@ -750,13 +750,8 @@ fn rect_data(rect: Rect) -> [f32; 4] {
     ]
 }
 
-fn radius_data(radius: crate::geometry::rect::ResolvedRadius) -> [f32; 4] {
-    [
-        radius.top_left,
-        radius.top_right,
-        radius.bottom_right,
-        radius.bottom_left,
-    ]
+fn rounding_data(rounding: [f32; 4]) -> [f32; 4] {
+    rounding
 }
 
 fn clear_view(
@@ -803,15 +798,15 @@ mod tests {
         let rect = Rect::rounded(
             point::logical(10.0, 20.0),
             area::logical(80.0, 30.0),
-            crate::geometry::rect::Radius::splat(1.0),
+            crate::geometry::rect::Rounding::relative(1.0),
         );
         let prepared = prepare_backdrop(rect, 1.0, 1.0).expect("backdrop should prepare");
         let vertices = composite_vertices(area::logical(100.0, 100.0), prepared);
 
-        assert_eq!(prepared.radius.top_left, 15.0);
+        assert_eq!(prepared.rounding[0], 15.0);
         assert_eq!(vertices.len(), 6);
         assert_eq!(vertices[0].rect, [10.0, 20.0, 80.0, 30.0]);
-        assert_eq!(vertices[0].radius, [15.0, 15.0, 15.0, 15.0]);
+        assert_eq!(vertices[0].rounding, [15.0, 15.0, 15.0, 15.0]);
     }
 
     #[test]
@@ -819,7 +814,7 @@ mod tests {
         let rect = Rect::rounded(
             point::logical(8.0, 12.0),
             area::logical(48.0, 20.0),
-            crate::geometry::rect::Radius::splat(1.0),
+            crate::geometry::rect::Rounding::relative(1.0),
         );
         let prepared = prepare_clip(rect, 1.0).expect("clip should prepare");
         let vertices = composite_vertices(area::logical(100.0, 100.0), prepared);
@@ -827,7 +822,7 @@ mod tests {
         assert_eq!(prepared.blur_amount, 0.0);
         assert_eq!(prepared.blur_radius_px, 0.0);
         assert_eq!(vertices[0].rect, [8.0, 12.0, 48.0, 20.0]);
-        assert_eq!(vertices[0].radius, [10.0, 10.0, 10.0, 10.0]);
+        assert_eq!(vertices[0].rounding, [10.0, 10.0, 10.0, 10.0]);
     }
 
     #[test]

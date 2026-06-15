@@ -418,7 +418,7 @@ mod tests {
                     rect: Rect::rounded(
                         point::logical(2.0, 2.0),
                         area::logical(20.0, 20.0),
-                        rect::Radius::splat(0.5),
+                        rect::Rounding::relative(0.5),
                     ),
                 },
             },
@@ -447,7 +447,7 @@ mod tests {
                     rect: Rect::rounded(
                         point::logical(2.0, 2.0),
                         area::logical(20.0, 20.0),
-                        rect::Radius::splat(0.5),
+                        rect::Rounding::relative(0.5),
                     ),
                 },
             },
@@ -470,13 +470,13 @@ mod tests {
             rect: Rect::rounded(
                 point::logical(4.0, 4.0),
                 area::logical(18.0, 12.0),
-                rect::Radius::splat(1.0),
+                rect::Rounding::relative(1.0),
             ),
         };
         let scissor = clip_scissor(clip.rect, area::physical(100, 80), 1.0)
             .expect("clip should produce scissor");
 
-        assert_eq!(clip.rect.radius.resolve(clip.rect.area).top_left, 6.0);
+        assert_eq!(clip.rect.rounding.resolve(clip.rect.area)[0], 6.0);
         assert_eq!(scissor.x(), 4);
         assert_eq!(scissor.y(), 4);
         assert_eq!(scissor.width(), 18);

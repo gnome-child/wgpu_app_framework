@@ -101,7 +101,7 @@ fn node<T>(
 fn styled_rect(node: &ui::Node, layout: &layout::Box) -> crate::geometry::Rect {
     let rect = layout.rect();
 
-    crate::geometry::Rect::rounded(rect.origin, rect.area, node.style().radius())
+    crate::geometry::Rect::rounded(rect.origin, rect.area, node.style().rounding())
 }
 
 fn resolved_quad_style(

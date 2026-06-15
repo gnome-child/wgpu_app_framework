@@ -143,7 +143,7 @@ fn popup_rect(origin: point::Logical, menu: &menu::Menu, theme: &theme::Theme) -
             theme.density().menu_popup_width(),
             body_height(menu, theme) + theme.floating_panel().padding() * 2.0,
         ),
-        theme.floating_panel().radius(),
+        theme.floating_panel().rounding(),
     )
 }
 
@@ -295,7 +295,7 @@ fn menu_row(id: ui::Id, theme: &theme::Theme, color: paint::Color) -> ui::Node {
         .with_disabled_tint(theme.menu().row_disabled_tint())
         .with_label_color(color)
         .with_disabled_label_color(theme.text().disabled())
-        .with_radius(theme.radii().menu_item())
+        .with_rounding(theme.roundings().menu_item())
         .with_size(
             layout::Size::Fill,
             layout::Size::Fixed(theme.density().menu_row_height()),

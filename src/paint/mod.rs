@@ -431,7 +431,7 @@ mod tests {
             rect: Rect::rounded(
                 point::logical(2.0, 0.0),
                 area::logical(10.0, 10.0),
-                rect::Radius::none(),
+                rect::Rounding::none(),
             ),
             ..solid_quad(2.0)
         };
@@ -471,7 +471,7 @@ mod tests {
             rect: Rect::rounded(
                 point::logical(0.0, 0.0),
                 area::logical(20.0, 10.0),
-                rect::Radius::splat(1.0),
+                rect::Rounding::relative(1.0),
             ),
             brush: Brush::solid(Color::rgba(0.0, 0.0, 0.0, 0.3)),
             blur: 18.0,
@@ -504,7 +504,7 @@ mod tests {
             rect: Rect::rounded(
                 point::logical(0.0, 0.0),
                 area::logical(20.0, 10.0),
-                rect::Radius::splat(1.0),
+                rect::Rounding::relative(1.0),
             ),
             filter: BackdropFilter::Blur { amount: 0.5 },
         };
@@ -521,7 +521,7 @@ mod tests {
             rect: Rect::rounded(
                 point::logical(0.0, 0.0),
                 area::logical(20.0, 10.0),
-                rect::Radius::splat(0.5),
+                rect::Rounding::relative(0.5),
             ),
         };
         let quad = solid_quad(1.0);

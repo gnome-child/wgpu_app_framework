@@ -156,7 +156,7 @@ fn menu_title(menu: &menu::Menu, theme: &theme::Theme) -> ui::Node {
         .with_active_tint(theme.menu().title_active_tint())
         .with_focus_outline(outline.brush(), outline.width(), outline.offset())
         .with_label_color(theme.text().primary())
-        .with_radius(theme.radii().menu_title())
+        .with_rounding(theme.roundings().menu_title())
         .with_size(
             layout::Size::Fixed(menu_title_width(menu.label(), theme)),
             layout::Size::Fill,

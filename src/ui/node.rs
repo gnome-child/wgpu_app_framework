@@ -37,7 +37,7 @@ pub struct Layout {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Style {
     background: Option<paint::Brush>,
-    radius: geometry::rect::Radius,
+    rounding: geometry::rect::Rounding,
     stroke: Option<paint::Stroke>,
     shadow: Option<Shadow>,
     backdrop: Option<Backdrop>,
@@ -240,8 +240,8 @@ impl Node {
         self
     }
 
-    pub fn with_radius(mut self, radius: geometry::rect::Radius) -> Self {
-        self.style.radius = radius;
+    pub fn with_rounding(mut self, rounding: geometry::rect::Rounding) -> Self {
+        self.style.rounding = rounding;
         self
     }
 
@@ -542,8 +542,8 @@ impl Style {
         self.background
     }
 
-    pub fn radius(self) -> geometry::rect::Radius {
-        self.radius
+    pub fn rounding(self) -> geometry::rect::Rounding {
+        self.rounding
     }
 
     pub fn stroke(self) -> Option<paint::Stroke> {
@@ -623,7 +623,7 @@ impl Default for Style {
     fn default() -> Self {
         Self {
             background: None,
-            radius: geometry::rect::Radius::none(),
+            rounding: geometry::rect::Rounding::none(),
             stroke: None,
             shadow: None,
             backdrop: None,
