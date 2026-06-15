@@ -1,9 +1,6 @@
-use crate::geometry::{Rect, area, point, rect};
-use crate::{action, layout, menu, paint, text, ui};
+use crate::geometry::{Rect, area, point};
+use crate::{action, layout, menu, text, theme, ui};
 
-const POPUP_WIDTH: f32 = 240.0;
-const POPUP_PADDING: f32 = 8.0;
-const ROW_HEIGHT: f32 = 30.0;
 const SEPARATOR_HEIGHT: f32 = 1.0;
 
 const ROW_IDS: [ui::Id; 32] = [
@@ -47,17 +44,22 @@ pub fn popup<T>(
     menu: &menu::Menu,
     actions: &action::Registry<T>,
 ) -> Option<ui::Popup> {
+    let theme = theme::Theme::default_dark();
     let anchor = anchor_rect(tree, layout, menu.id())?;
-    let body_height = body_height(menu);
+    let body_height = body_height(menu, &theme);
+    let density = theme.density();
     let popup_rect = Rect::rounded(
         point::logical(anchor.origin.x(), anchor.origin.y() + anchor.area.height()),
-        area::logical(POPUP_WIDTH, body_height + POPUP_PADDING * 2.0),
-        rect::Radius::splat(0.10),
+        area::logical(
+            density.menu_popup_width(),
+            body_height + theme.floating_panel().padding() * 2.0,
+        ),
+        theme.floating_panel().radius(),
     );
 
     Some(ui::Popup::new(
         popup_rect,
-        popup_node(menu, actions, popup_rect.area.height()),
+        popup_node(menu, actions, popup_rect.area.height(), &theme),
     ))
 }
 
@@ -72,36 +74,16 @@ fn anchor_rect(tree: &ui::Tree, layout: &layout::Box, id: menu::Id) -> Option<Re
         })
 }
 
-fn popup_node<T>(menu: &menu::Menu, actions: &action::Registry<T>, height: f32) -> ui::Node {
-    let mut popup = ui::Node::container(ui::widget::MENU_POPUP, layout::Axis::Vertical)
+fn popup_node<T>(
+    menu: &menu::Menu,
+    actions: &action::Registry<T>,
+    height: f32,
+    theme: &theme::Theme,
+) -> ui::Node {
+    let mut popup = ui::control::floating_panel_with_theme(ui::widget::MENU_POPUP, theme)
         .with_command_scope()
-        .with_backdrop(
-            ui::Backdrop::glass(paint::Brush::linear_gradient(
-                paint::Color::rgba(0.10, 0.11, 0.13, 0.36),
-                paint::Color::rgba(0.18, 0.20, 0.26, 0.46),
-            ))
-            .with_blur(0.82),
-        )
-        .with_stroke(paint::Stroke {
-            brush: paint::Brush::linear_gradient(
-                paint::Color::rgba(1.0, 1.0, 1.0, 0.10),
-                paint::Color::rgba(1.0, 1.0, 1.0, 0.24),
-            ),
-            width: 1.0,
-        })
-        .with_shadow(
-            paint::Brush::linear_gradient(
-                paint::Color::rgba(0.0, 0.0, 0.0, 0.20),
-                paint::Color::rgba(0.0, 0.0, 0.0, 0.46),
-            ),
-            18.0,
-            1.0,
-            point::logical(0.0, 7.0),
-        )
-        .with_radius(rect::Radius::splat(0.10))
-        .with_padding(layout::Insets::splat(POPUP_PADDING))
         .with_size(
-            layout::Size::Fixed(POPUP_WIDTH),
+            layout::Size::Fixed(theme.density().menu_popup_width()),
             layout::Size::Fixed(height),
         );
 
@@ -112,12 +94,12 @@ fn popup_node<T>(menu: &menu::Menu, actions: &action::Registry<T>, height: f32) 
                 menu::Node::Item(item) => {
                     let id = row_id(row);
                     row += 1;
-                    item_node(id, item, actions)
+                    item_node(id, item, actions, theme)
                 }
                 menu::Node::Separator => {
                     let id = row_id(row);
                     row += 1;
-                    separator_node(id)
+                    separator_node(id, theme)
                 }
             });
         }
@@ -126,26 +108,33 @@ fn popup_node<T>(menu: &menu::Menu, actions: &action::Registry<T>, height: f32) 
     popup
 }
 
-fn item_node<T>(id: ui::Id, item: &menu::Item, actions: &action::Registry<T>) -> ui::Node {
+fn item_node<T>(
+    id: ui::Id,
+    item: &menu::Item,
+    actions: &action::Registry<T>,
+    theme: &theme::Theme,
+) -> ui::Node {
     let action = item.action();
     ui::Node::leaf(id)
         .with_action(action)
         .with_action_target(ui::ActionTarget::Captured)
         .with_interactivity(ui::Interactivity::CONTROL)
-        .with_label(document(item_label(item, actions)))
-        .with_background(paint::Color::rgba(1.0, 1.0, 1.0, 0.00))
-        .with_hover_tint(paint::Color::rgba(1.0, 1.0, 1.0, 0.10))
-        .with_pressed_tint(paint::Color::rgba(0.0, 0.0, 0.0, 0.18))
-        .with_disabled_tint(paint::Color::rgba(0.0, 0.0, 0.0, 0.30))
-        .with_label_color(paint::Color::rgb(0.91, 0.93, 0.97))
-        .with_disabled_label_color(paint::Color::rgb(0.44, 0.46, 0.50))
-        .with_radius(rect::Radius::splat(0.16))
-        .with_size(layout::Size::Fill, layout::Size::Fixed(ROW_HEIGHT))
+        .with_label(document(item_label(item, actions), theme))
+        .with_background(theme.menu().row_background())
+        .with_hover_tint(theme.menu().row_hover_tint())
+        .with_pressed_tint(theme.menu().row_pressed_tint())
+        .with_disabled_tint(theme.menu().row_disabled_tint())
+        .with_label_color(theme.text().primary())
+        .with_disabled_label_color(theme.text().disabled())
+        .with_radius(theme.radii().menu_item())
+        .with_size(
+            layout::Size::Fill,
+            layout::Size::Fixed(theme.density().menu_row_height()),
+        )
 }
 
-fn separator_node(id: ui::Id) -> ui::Node {
-    ui::widget::separator(id)
-        .with_background(paint::Color::rgba(1.0, 1.0, 1.0, 0.14))
+fn separator_node(id: ui::Id, theme: &theme::Theme) -> ui::Node {
+    ui::widget::separator_with_theme(id, theme)
         .with_size(layout::Size::Fill, layout::Size::Fixed(SEPARATOR_HEIGHT))
 }
 
@@ -171,19 +160,24 @@ fn item_label<T>(item: &menu::Item, actions: &action::Registry<T>) -> String {
     }
 }
 
-fn document(label: impl Into<String>) -> text::Document {
+fn document(label: impl Into<String>, theme: &theme::Theme) -> text::Document {
     let mut block = text::Block::new(text::Align::Center);
-    block.push_run(text::Run::new(label, text::Style::default()));
+    block.push_run(text::Run::new(
+        label,
+        text::Style::default()
+            .with_size(theme.text().menu_size())
+            .with_color(theme.text().primary()),
+    ));
 
     text::Document::from_block(block)
 }
 
-fn body_height(menu: &menu::Menu) -> f32 {
+fn body_height(menu: &menu::Menu, theme: &theme::Theme) -> f32 {
     menu.sections()
         .iter()
         .flat_map(menu::Section::nodes)
         .map(|node| match node {
-            menu::Node::Item(_) => ROW_HEIGHT,
+            menu::Node::Item(_) => theme.density().menu_row_height(),
             menu::Node::Separator => SEPARATOR_HEIGHT,
         })
         .sum()

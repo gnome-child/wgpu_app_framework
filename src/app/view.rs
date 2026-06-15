@@ -338,13 +338,14 @@ mod tests {
                 ),
         );
 
-        compose(
+        let scene = compose(
             window,
             &tree,
             &mut state,
             &registry,
             area::logical(300.0, 180.0),
         );
+        let theme = crate::theme::Theme::default_dark();
 
         let row = ui::Path::new([ROOT, ui::widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
         let scope = ui::Path::new([ROOT, ui::widget::MENU_POPUP]);
@@ -364,6 +365,25 @@ mod tests {
         assert_eq!(
             state.command_scope_captures.get(&scope),
             Some(&action::Context::path(window, ui::Path::new([ROOT, CHILD])))
+        );
+
+        let backdrop_index = scene
+            .items()
+            .iter()
+            .position(|item| matches!(item, paint::Item::Backdrop(_)))
+            .expect("open menu should lower a backdrop item");
+        let paint::Item::Backdrop(backdrop) = &scene.items()[backdrop_index] else {
+            unreachable!();
+        };
+        let paint::BackdropFilter::Blur { amount } = backdrop.filter;
+        assert_eq!(amount, theme.floating_panel().backdrop_blur());
+
+        let paint::Item::Quad(quad) = &scene.items()[backdrop_index + 1] else {
+            panic!("popup material fill should follow popup backdrop");
+        };
+        assert_eq!(
+            quad.style.fill,
+            Some(paint::Fill::Brush(theme.floating_panel().backdrop_fill()))
         );
     }
 }

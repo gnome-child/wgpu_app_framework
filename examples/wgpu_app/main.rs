@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use wgpu_l3::{
-    Action, Event, Icon, Task, action, app,
-    geometry::{Rect, area, point, rect},
+    Action, Event, Icon, Task, Theme, action, app,
+    geometry::{Rect, area, point},
     icon, layout, menu, paint, text, ui, window,
 };
 
@@ -73,10 +73,11 @@ impl app::Application for App {
                 }),
         );
 
+        let theme = Theme::default_dark();
         let window = cx.open_window(window::Options {
             title: "wgpu_l3".to_owned(),
             inner_area: area::physical(512, 560),
-            canvas_color: paint::Color::BLACK,
+            canvas_color: theme.surfaces().canvas(),
         });
 
         self.window = Some(window);
@@ -150,6 +151,8 @@ impl app::Application for App {
             action::State::new(self.workspace_ready, false),
         );
 
+        let theme = Theme::default_dark();
+        let density = theme.density();
         let command_subject = cx.command_target(window);
         let subject_name = context_name(&command_subject);
         let focused_name = cx
@@ -195,36 +198,42 @@ impl app::Application for App {
         let document_is_subject = matches_path(command_subject.scope(), &document_path());
         let local_is_subject = matches_path(command_subject.scope(), &local_field_path());
 
-        let mut document_panel = ui::control::panel(DOCUMENT_PANEL)
-            .with_size(layout::Size::Fill, layout::Size::Fixed(80.0))
-            .with_background(subject_background(document_is_subject))
+        let mut document_panel = ui::control::panel_with_theme(DOCUMENT_PANEL, &theme)
+            .with_size(layout::Size::Fill, layout::Size::Fixed(56.0))
+            .with_background(subject_background(document_is_subject, &theme))
             .with_interactivity(
                 ui::Interactivity::NONE
                     .with_hit_test(true)
                     .with_focusable(true),
             )
             .with_responder(action::SELECT_ALL)
-            .with_label(label(document_label));
+            .with_label(label(document_label, &theme));
         if document_is_subject {
-            document_panel = document_panel.with_stroke(subject_stroke());
+            document_panel = document_panel.with_stroke(subject_stroke(&theme));
         }
 
-        let mut local_field = ui::control::panel(LOCAL_FIELD)
-            .with_size(layout::Size::Fill, layout::Size::Fixed(48.0))
-            .with_background(subject_background(local_is_subject))
+        let mut local_field = ui::control::panel_with_theme(LOCAL_FIELD, &theme)
+            .with_size(
+                layout::Size::Fill,
+                layout::Size::Fixed(density.control_height()),
+            )
+            .with_background(subject_background(local_is_subject, &theme))
             .with_interactivity(
                 ui::Interactivity::NONE
                     .with_hit_test(true)
                     .with_focusable(true),
             )
             .with_responder(action::SELECT_ALL)
-            .with_label(label(if local_is_subject {
-                "Local responder | current subject"
-            } else {
-                "Local responder"
-            }));
+            .with_label(label(
+                if local_is_subject {
+                    "Local responder | current subject"
+                } else {
+                    "Local responder"
+                },
+                &theme,
+            ));
         if local_is_subject {
-            local_field = local_field.with_stroke(subject_stroke());
+            local_field = local_field.with_stroke(subject_stroke(&theme));
         }
 
         let preview_icon = if self.preview_enabled {
@@ -232,97 +241,102 @@ impl app::Application for App {
         } else {
             Icon::phosphor(icon::Id::new("eye-slash"))
         };
-        let popup_panel = ui::control::panel(COMMAND_SCOPE_PANEL)
+        let popup_panel = ui::control::floating_panel_with_theme(COMMAND_SCOPE_PANEL, &theme)
             .with_command_scope()
-            .with_backdrop(
-                ui::Backdrop::glass(paint::Brush::linear_gradient(
-                    paint::Color::rgba(0.12, 0.13, 0.15, 0.20),
-                    paint::Color::rgba(0.20, 0.23, 0.31, 0.34),
-                ))
-                .with_blur(1.0),
-            )
-            .with_radius(rect::Radius::splat(0.12))
-            .with_stroke(paint::Stroke {
-                brush: paint::Brush::linear_gradient(
-                    paint::Color::rgba(1.0, 1.0, 1.0, 0.08),
-                    paint::Color::rgba(1.0, 1.0, 1.0, 0.22),
-                ),
-                width: 1.0,
-            })
-            .with_shadow(
-                paint::Color::rgba(0.0, 0.0, 0.0, 0.36),
-                18.0,
-                1.0,
-                point::logical(0.0, 7.0),
-            )
-            .with_padding(layout::Insets::splat(10.0))
             .with_child(
-                ui::control::panel(ui::Id::new("scope_status"))
-                    .with_size(layout::Size::Fill, layout::Size::Fixed(32.0))
-                    .with_label(label(scope_label)),
+                ui::control::panel_with_theme(ui::Id::new("scope_status"), &theme)
+                    .with_size(
+                        layout::Size::Fill,
+                        layout::Size::Fixed(density.control_height()),
+                    )
+                    .with_label(label(scope_label, &theme)),
             )
             .with_child(local_field)
-            .with_child(showcase_button(
-                ui::control::labeled_button(
+            .with_child(
+                ui::control::labeled_button_with_theme(
                     LOCAL_SELECT_BUTTON,
                     action::SELECT_ALL,
                     "Select current subject",
+                    &theme,
                 )
                 .with_action_target(ui::ActionTarget::Command)
-                .with_size(layout::Size::Fill, layout::Size::Fixed(46.0)),
-                palette::CYAN,
-                palette::VIOLET,
-            ))
-            .with_child(showcase_button(
-                ui::control::labeled_button(
+                .with_size(
+                    layout::Size::Fill,
+                    layout::Size::Fixed(density.control_height()),
+                ),
+            )
+            .with_child(
+                ui::control::labeled_button_with_theme(
                     CAPTURED_SELECT_BUTTON,
                     action::SELECT_ALL,
                     "Select captured subject",
+                    &theme,
                 )
                 .with_action_target(ui::ActionTarget::Captured)
-                .with_size(layout::Size::Fill, layout::Size::Fixed(46.0)),
-                palette::MAGENTA,
-                palette::AMBER,
-            ));
-        let root = ui::control::panel(ROOT)
-            .with_background(paint::Color::BLACK)
-            .with_padding(layout::Insets::splat(16.0))
-            .with_child(ui::widget::menu_bar(MENU_BAR, app_menu()))
+                .with_size(
+                    layout::Size::Fill,
+                    layout::Size::Fixed(density.control_height()),
+                ),
+            );
+        let root = ui::Node::container(ROOT, layout::Axis::Vertical)
+            .with_background(theme.surfaces().app())
+            .with_padding(layout::Insets::splat(density.app_padding()))
+            .with_child(ui::widget::menu_bar_with_theme(
+                MENU_BAR,
+                app_menu(),
+                &theme,
+            ))
             .with_child(
-                ui::control::panel(STATUS_PANEL)
-                    .with_size(layout::Size::Fill, layout::Size::Fixed(64.0))
-                    .with_label(label(status)),
+                ui::control::panel_with_theme(STATUS_PANEL, &theme)
+                    .with_size(layout::Size::Fill, layout::Size::Fixed(44.0))
+                    .with_label(label(status, &theme)),
             )
             .with_child(document_panel)
-            .with_child(showcase_button(
-                ui::control::labeled_button(SELECT_BUTTON, action::SELECT_ALL, "Select subject")
-                    .with_action_target(ui::ActionTarget::Command)
-                    .with_size(layout::Size::Fill, layout::Size::Fixed(48.0)),
-                palette::BLUE,
-                palette::PINK,
-            ))
-            .with_child(showcase_button(
-                ui::control::labeled_button(RUN_BUTTON, RUN_TASK, "Run task")
-                    .with_size(layout::Size::Fill, layout::Size::Fixed(48.0)),
-                palette::GREEN,
-                palette::CYAN,
-            ))
             .with_child(
-                ui::control::panel(ui::Id::new("footer_panel"))
-                    .with_size(layout::Size::Fill, layout::Size::Fixed(36.0))
-                    .with_label(label(footer)),
+                ui::control::labeled_button_with_theme(
+                    SELECT_BUTTON,
+                    action::SELECT_ALL,
+                    "Select subject",
+                    &theme,
+                )
+                .with_action_target(ui::ActionTarget::Command)
+                .with_size(
+                    layout::Size::Fill,
+                    layout::Size::Fixed(density.control_height()),
+                ),
             )
-            .with_child(showcase_button(
-                ui::control::icon_button(PREVIEW_BUTTON, TOGGLE_PREVIEW, preview_icon)
-                    .with_size(layout::Size::Fill, layout::Size::Fixed(40.0)),
-                palette::VIOLET,
-                palette::BLUE,
-            ));
+            .with_child(
+                ui::control::labeled_button_with_theme(RUN_BUTTON, RUN_TASK, "Run task", &theme)
+                    .with_size(
+                        layout::Size::Fill,
+                        layout::Size::Fixed(density.control_height()),
+                    ),
+            )
+            .with_child(
+                ui::control::panel_with_theme(ui::Id::new("footer_panel"), &theme)
+                    .with_size(
+                        layout::Size::Fill,
+                        layout::Size::Fixed(density.control_height()),
+                    )
+                    .with_label(label(footer, &theme)),
+            )
+            .with_child(
+                ui::control::icon_button_with_theme(
+                    PREVIEW_BUTTON,
+                    TOGGLE_PREVIEW,
+                    preview_icon,
+                    &theme,
+                )
+                .with_size(
+                    layout::Size::Fill,
+                    layout::Size::Fixed(density.icon_button_height()),
+                ),
+            );
 
         tree.set_root(root);
         tree.clear_popups();
         tree.push_popup(ui::Popup::new(
-            Rect::new(point::logical(40.0, 294.0), area::logical(432.0, 200.0)),
+            Rect::new(point::logical(36.0, 256.0), area::logical(440.0, 168.0)),
             popup_panel,
         ));
     }
@@ -375,61 +389,22 @@ fn path_name(path: &ui::Path) -> String {
     }
 }
 
-fn subject_background(active: bool) -> paint::Color {
+fn subject_background(active: bool, theme: &Theme) -> paint::Brush {
     if active {
-        paint::Color::rgb(0.16, 0.23, 0.32)
+        paint::Brush::linear_gradient(
+            paint::Color::rgba(0.020, 0.032, 0.055, 0.98),
+            paint::Color::rgba(0.014, 0.023, 0.040, 0.98),
+        )
     } else {
-        paint::Color::rgb(0.18, 0.20, 0.24)
+        theme.surfaces().panel()
     }
 }
 
-fn subject_stroke() -> paint::Stroke {
+fn subject_stroke(theme: &Theme) -> paint::Stroke {
     paint::Stroke {
-        brush: paint::Brush::solid(paint::Color::rgb(0.34, 0.62, 1.0)),
-        width: 2.0,
-    }
-}
-
-fn showcase_button(node: ui::Node, from: paint::Color, to: paint::Color) -> ui::Node {
-    node.with_background(paint::Brush::linear_gradient(
-        from.with_alpha(0.34),
-        to.with_alpha(0.46),
-    ))
-    .with_stroke(paint::Stroke {
-        brush: paint::Brush::linear_gradient(from.with_alpha(0.80), to.with_alpha(0.92)),
+        brush: paint::Brush::solid(theme.palette().accent()),
         width: 1.0,
-    })
-    .with_hover_tint(paint::Brush::linear_gradient(
-        paint::Color::rgba(1.0, 1.0, 1.0, 0.14),
-        to.with_alpha(0.18),
-    ))
-    .with_pressed_tint(paint::Brush::linear_gradient(
-        paint::Color::rgba(0.0, 0.0, 0.0, 0.22),
-        from.with_alpha(0.16),
-    ))
-    .with_active_tint(paint::Brush::linear_gradient(
-        from.with_alpha(0.36),
-        to.with_alpha(0.42),
-    ))
-    .with_busy_tint(paint::Brush::linear_gradient(
-        palette::AMBER.with_alpha(0.58),
-        palette::MAGENTA.with_alpha(0.34),
-    ))
-    .with_disabled_tint(paint::Brush::linear_gradient(
-        paint::Color::rgba(0.0, 0.0, 0.0, 0.48),
-        paint::Color::rgba(0.18, 0.20, 0.24, 0.64),
-    ))
-    .with_focus_outline(
-        paint::Brush::linear_gradient(from.with_alpha(1.0), to.with_alpha(1.0)),
-        2.0,
-        3.0,
-    )
-    .with_shadow(
-        paint::Brush::linear_gradient(from.with_alpha(0.24), to.with_alpha(0.20)),
-        12.0,
-        1.0,
-        point::logical(0.0, 4.0),
-    )
+    }
 }
 
 fn command_scope_path() -> ui::Path {
@@ -444,31 +419,14 @@ fn local_field_path() -> ui::Path {
     ui::Path::new([ROOT, COMMAND_SCOPE_PANEL, LOCAL_FIELD])
 }
 
-fn label(label: impl Into<String>) -> text::Document {
+fn label(label: impl Into<String>, theme: &Theme) -> text::Document {
     let mut block = text::Block::new(text::Align::Center);
-    block.push_run(text::Run::new(label, text::Style::default()));
+    block.push_run(text::Run::new(
+        label,
+        text::Style::default()
+            .with_size(theme.text().body_size())
+            .with_color(theme.text().primary()),
+    ));
 
     text::Document::from_block(block)
-}
-
-trait ColorExt {
-    fn with_alpha(self, alpha: f32) -> Self;
-}
-
-impl ColorExt for paint::Color {
-    fn with_alpha(self, alpha: f32) -> Self {
-        paint::Color::rgba(self.r, self.g, self.b, alpha)
-    }
-}
-
-mod palette {
-    use wgpu_l3::paint;
-
-    pub const BLUE: paint::Color = paint::Color::rgb(0.18, 0.48, 1.0);
-    pub const CYAN: paint::Color = paint::Color::rgb(0.04, 0.78, 0.96);
-    pub const GREEN: paint::Color = paint::Color::rgb(0.08, 0.78, 0.38);
-    pub const VIOLET: paint::Color = paint::Color::rgb(0.58, 0.34, 1.0);
-    pub const PINK: paint::Color = paint::Color::rgb(1.0, 0.24, 0.64);
-    pub const MAGENTA: paint::Color = paint::Color::rgb(0.92, 0.20, 1.0);
-    pub const AMBER: paint::Color = paint::Color::rgb(1.0, 0.66, 0.12);
 }

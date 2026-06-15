@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::*;
 use crate::geometry::{Rect, area, point, rect};
-use crate::{action, icon, layout, menu, paint, text, window};
+use crate::{action, icon, layout, menu, paint, text, theme, window};
 
 const ROOT: Id = Id::new("root");
 const A: Id = Id::new("a");
@@ -324,6 +324,61 @@ fn icon_button_is_action_bound_control() {
 }
 
 #[test]
+fn default_control_builders_match_default_dark_theme_builders() {
+    let theme = theme::Theme::default_dark();
+
+    assert_eq!(control::panel(A), control::panel_with_theme(A, &theme));
+    assert_eq!(
+        control::floating_panel(A),
+        control::floating_panel_with_theme(A, &theme)
+    );
+    assert_eq!(
+        control::button(A, CLICK),
+        control::button_with_theme(A, CLICK, &theme)
+    );
+    assert_eq!(
+        control::labeled_button(A, CLICK, "Activate"),
+        control::labeled_button_with_theme(A, CLICK, "Activate", &theme)
+    );
+    assert_eq!(
+        control::icon_button(A, CLICK, check_icon()),
+        control::icon_button_with_theme(A, CLICK, check_icon(), &theme)
+    );
+}
+
+#[test]
+fn default_button_uses_compact_theme_density() {
+    let button = control::button(A, CLICK);
+
+    assert_eq!(
+        button.layout().height(),
+        layout::Size::Fixed(theme::Theme::default_dark().density().control_height())
+    );
+    assert_ne!(button.layout().height(), layout::Size::Fixed(160.0));
+}
+
+#[test]
+fn floating_panel_uses_default_glass_material_tokens() {
+    let theme = theme::Theme::default_dark();
+    let floating = theme.floating_panel();
+    let panel = control::floating_panel(A);
+    let style = panel.style();
+
+    assert_eq!(
+        style.backdrop(),
+        Some(Backdrop::glass(floating.backdrop_fill()).with_blur(floating.backdrop_blur()))
+    );
+    assert_eq!(style.stroke(), Some(floating.stroke()));
+    let shadow = style.shadow().expect("floating panel has shadow");
+    assert_eq!(shadow.brush(), floating.shadow().brush());
+    assert_eq!(shadow.blur(), floating.shadow().blur());
+    assert_eq!(shadow.spread(), floating.shadow().spread());
+    assert_eq!(shadow.offset(), floating.shadow().offset());
+    assert_eq!(style.radius(), floating.radius());
+    assert_eq!(style.padding(), layout::Insets::splat(floating.padding()));
+}
+
+#[test]
 fn node_with_action_target_stores_policy() {
     let node = Node::leaf(A)
         .with_action(CLICK)
@@ -357,6 +412,25 @@ fn menu_bar_widget_creates_interactive_menu_title_intents() {
     assert!(node.children()[0].interactivity().hit_test());
     assert!(node.children()[0].interactivity().focusable());
     assert!(node.children()[0].interactivity().actionable());
+}
+
+#[test]
+fn default_widget_builders_match_default_dark_theme_builders() {
+    let theme = theme::Theme::default_dark();
+    let bar = menu::Bar::new().menu(menu::Menu::new(menu::Id::new("file"), "File"));
+
+    assert_eq!(
+        widget::label(A, "Status"),
+        widget::label_with_theme(A, "Status", &theme)
+    );
+    assert_eq!(
+        widget::separator(A),
+        widget::separator_with_theme(A, &theme)
+    );
+    assert_eq!(
+        widget::menu_bar(A, bar.clone()),
+        widget::menu_bar_with_theme(A, bar, &theme)
+    );
 }
 
 #[test]
@@ -1176,9 +1250,17 @@ fn focused_node_emits_overlay_outline_after_tree_content() {
         &mut scene,
     );
 
-    assert_eq!(quad(&scene, 0).rect, layout.rect());
+    assert_same_bounds(quad(&scene, 0).rect, layout.rect());
+    assert_eq!(
+        quad(&scene, 0).rect.radius,
+        theme::Theme::default_dark().radii().panel()
+    );
     assert_eq!(quad(&scene, 1).rect, layout.children()[0].rect());
-    assert_eq!(outline(&scene, 2).rect, layout.rect());
+    assert_same_bounds(outline(&scene, 2).rect, layout.rect());
+    assert_eq!(
+        outline(&scene, 2).rect.radius,
+        theme::Theme::default_dark().radii().panel()
+    );
 }
 
 #[test]
@@ -1363,7 +1445,10 @@ fn focused_first_button_outline_is_not_covered_by_second_button() {
     assert!(matches!(scene.items()[3], paint::Item::Quad(_)));
     assert!(matches!(scene.items()[4], paint::Item::Outline(_)));
     assert_same_bounds(outline(&scene, 4).rect, layout.children()[0].rect());
-    assert_eq!(outline(&scene, 4).rect.radius, rect::Radius::splat(1.0));
+    assert_eq!(
+        outline(&scene, 4).rect.radius,
+        theme::Theme::default_dark().radii().control()
+    );
 }
 
 #[test]
