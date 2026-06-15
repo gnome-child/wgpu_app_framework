@@ -187,14 +187,14 @@ impl Theme {
                 label_height: 22.0,
                 menu_bar_height: 28.0,
                 menu_row_height: 22.0,
-                menu_popup_min_width: 112.0,
+                menu_popup_min_width: 192.0,
                 menu_title_min_width: 48.0,
                 menu_title_horizontal_padding: 24.0,
             },
             roundings: Roundings {
                 panel: geometry::rect::Rounding::fixed(8.0),
                 control: geometry::rect::Rounding::fixed(7.0),
-                menu_title: geometry::rect::Rounding::fixed(6.0),
+                menu_title: geometry::rect::Rounding::none(),
                 popup: geometry::rect::Rounding::fixed(10.0),
             },
             control: Control {

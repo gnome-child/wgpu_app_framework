@@ -571,7 +571,7 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_menu_popup_width_tracks_content_instead_of_legacy_wide_floor() {
+    fn ordinary_menu_popup_uses_wider_default_floor_when_content_is_narrow() {
         let theme = theme::Theme::default_dark();
         let registry = action::Registry::<()>::new();
         let mut measurer = text::Measurer::new();
@@ -579,10 +579,9 @@ mod tests {
             menu::Section::new().item(menu::Item::new(ACTION_A).with_label("Toggle Preview")),
         );
         let chrome = popup_chrome(&menu, &registry, &theme, &mut measurer);
-        let expected = (chrome.body_width + chrome.padding * 2.0).ceil();
 
-        assert!(chrome.body_width + chrome.padding * 2.0 > theme.density().menu_popup_min_width());
-        assert_eq!(chrome.area.width(), expected);
+        assert!(chrome.body_width + chrome.padding * 2.0 < theme.density().menu_popup_min_width());
+        assert_eq!(chrome.area.width(), theme.density().menu_popup_min_width());
     }
 
     #[test]
