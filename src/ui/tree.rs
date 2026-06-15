@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::geometry::area;
-use crate::{action, layout, menu, paint, widget, window};
+use crate::{action, layout, menu, paint, text, widget, window};
 
 use super::{
     ActionTarget, Intent, Interaction, Interactivity, Node, Path, layout_engine, painting,
@@ -49,9 +49,13 @@ impl Tree {
         self.root.is_none()
     }
 
-    pub fn layout(&self, area: area::Logical) -> Option<layout::Box> {
+    pub fn layout(
+        &self,
+        area: area::Logical,
+        measurer: &mut text::Measurer,
+    ) -> Option<layout::Box> {
         let root = self.root.as_ref()?;
-        let root_layout = layout_engine::tree(root, area);
+        let root_layout = layout_engine::tree(root, area, measurer);
         if self.popups.is_empty() {
             return Some(root_layout);
         }
@@ -63,6 +67,7 @@ impl Tree {
                 popup.root(),
                 root_path.child(popup.root().id()),
                 popup.rect(),
+                measurer,
             ));
         }
 

@@ -52,10 +52,9 @@ pub struct Density {
     label_height: f32,
     menu_bar_height: f32,
     menu_row_height: f32,
-    menu_popup_width: f32,
+    menu_popup_min_width: f32,
     menu_title_min_width: f32,
     menu_title_horizontal_padding: f32,
-    menu_title_char_width: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -188,17 +187,16 @@ impl Theme {
                 icon_button_height: 32.0,
                 label_height: 22.0,
                 menu_bar_height: 28.0,
-                menu_row_height: 27.0,
-                menu_popup_width: 224.0,
+                menu_row_height: 22.0,
+                menu_popup_min_width: 176.0,
                 menu_title_min_width: 48.0,
                 menu_title_horizontal_padding: 24.0,
-                menu_title_char_width: 7.0,
             },
             roundings: Roundings {
                 panel: geometry::rect::Rounding::fixed(8.0),
                 control: geometry::rect::Rounding::fixed(7.0),
                 menu_title: geometry::rect::Rounding::fixed(6.0),
-                menu_item: geometry::rect::Rounding::fixed(5.0),
+                menu_item: geometry::rect::Rounding::fixed(4.0),
                 popup: geometry::rect::Rounding::fixed(10.0),
             },
             control: Control {
@@ -424,8 +422,8 @@ impl Density {
         self.menu_row_height
     }
 
-    pub fn menu_popup_width(self) -> f32 {
-        self.menu_popup_width
+    pub fn menu_popup_min_width(self) -> f32 {
+        self.menu_popup_min_width
     }
 
     pub fn menu_title_min_width(self) -> f32 {
@@ -434,10 +432,6 @@ impl Density {
 
     pub fn menu_title_horizontal_padding(self) -> f32 {
         self.menu_title_horizontal_padding
-    }
-
-    pub fn menu_title_char_width(self) -> f32 {
-        self.menu_title_char_width
     }
 }
 
@@ -697,8 +691,16 @@ mod tests {
         let density = Theme::default_dark().density();
 
         assert!(density.control_height() <= 34.0);
-        assert!(density.menu_row_height() <= 28.0);
+        assert!(density.menu_row_height() <= 24.0);
         assert!(density.app_padding() <= 12.0);
+    }
+
+    #[test]
+    fn default_menu_rows_are_compact_without_shrinking_text() {
+        let theme = Theme::default_dark();
+
+        assert_eq!(theme.density().menu_row_height(), 22.0);
+        assert_eq!(theme.text().menu_size(), 13.0);
     }
 
     #[test]

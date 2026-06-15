@@ -11,7 +11,13 @@ const C: Id = Id::new("c");
 const CLICK: action::Id = action::Id::new("click");
 
 fn layout(tree: &Tree) -> layout::Box {
-    tree.layout(area::logical(100.0, 80.0))
+    layout_area(tree, area::logical(100.0, 80.0))
+}
+
+fn layout_area(tree: &Tree, area: area::Logical) -> layout::Box {
+    let mut measurer = text::Measurer::new();
+
+    tree.layout(area, &mut measurer)
         .expect("tree should have root")
 }
 
@@ -329,7 +335,7 @@ fn vertical_scrollbar_reserves_right_gutter() {
     let mut tree = Tree::new();
 
     tree.set_root(root);
-    let layout = tree.layout(area::logical(80.0, 60.0)).unwrap();
+    let layout = layout_area(&tree, area::logical(80.0, 60.0));
 
     assert_eq!(layout.children()[0].rect().area.width(), 70.0);
 }
@@ -342,7 +348,7 @@ fn disabled_scrollbar_axis_reserves_no_gutter() {
     let mut tree = Tree::new();
 
     tree.set_root(root);
-    let layout = tree.layout(area::logical(80.0, 60.0)).unwrap();
+    let layout = layout_area(&tree, area::logical(80.0, 60.0));
 
     assert_eq!(layout.children()[0].rect().area.width(), 80.0);
 }
@@ -355,7 +361,7 @@ fn horizontal_scrollbar_reserves_bottom_gutter() {
     let mut tree = Tree::new();
 
     tree.set_root(root);
-    let layout = tree.layout(area::logical(80.0, 60.0)).unwrap();
+    let layout = layout_area(&tree, area::logical(80.0, 60.0));
 
     assert_eq!(layout.children()[0].rect().area.height(), 50.0);
 }
@@ -368,7 +374,7 @@ fn both_scrollbar_axes_leave_corner_cell_and_trim_tracks() {
     let mut tree = Tree::new();
 
     tree.set_root(root);
-    let layout = tree.layout(area::logical(80.0, 60.0)).unwrap();
+    let layout = layout_area(&tree, area::logical(80.0, 60.0));
     let widget_metrics = tree.widget_metrics(&layout);
     let metrics = widget_metrics
         .get(&path(ROOT))
@@ -400,7 +406,7 @@ fn scrollbar_thumb_size_and_position_derive_from_metrics() {
     let mut tree = Tree::new();
 
     tree.set_root(root);
-    let layout = tree.layout(area::logical(40.0, 40.0)).unwrap();
+    let layout = layout_area(&tree, area::logical(40.0, 40.0));
     let widget_metrics = tree.widget_metrics(&layout);
     let metrics = widget_metrics
         .get(&path(ROOT))
@@ -425,7 +431,7 @@ fn scroll_view_paints_track_corner_and_thumb_chrome() {
     let registry = action::Registry::<()>::new();
 
     tree.set_root(root);
-    let layout = tree.layout(area::logical(80.0, 60.0)).unwrap();
+    let layout = layout_area(&tree, area::logical(80.0, 60.0));
     tree.paint(
         &layout,
         &registry,
@@ -461,7 +467,7 @@ fn captured_scrollbar_thumb_stays_visually_pressed_off_thumb() {
     let registry = action::Registry::<()>::new();
 
     tree.set_root(root);
-    let layout = tree.layout(area::logical(40.0, 40.0)).unwrap();
+    let layout = layout_area(&tree, area::logical(40.0, 40.0));
     let metrics = tree
         .widget_metrics(&layout)
         .get(&path(ROOT))
@@ -506,7 +512,7 @@ fn scrollbar_thumb_hover_tint_requires_pointer_hit() {
     let registry = action::Registry::<()>::new();
 
     tree.set_root(root);
-    let layout = tree.layout(area::logical(40.0, 40.0)).unwrap();
+    let layout = layout_area(&tree, area::logical(40.0, 40.0));
     let metrics = tree
         .widget_metrics(&layout)
         .get(&path(ROOT))
@@ -544,7 +550,7 @@ fn scroll_view_clip_uses_viewport_minus_enabled_gutters() {
     let registry = action::Registry::<()>::new();
 
     tree.set_root(root);
-    let layout = tree.layout(area::logical(80.0, 60.0)).unwrap();
+    let layout = layout_area(&tree, area::logical(80.0, 60.0));
     tree.paint(
         &layout,
         &registry,
@@ -649,7 +655,7 @@ fn tree_collects_widget_scroll_metrics_with_root_prefixed_path() {
         Rect::new(point::logical(0.0, 0.0), area::logical(40.0, 40.0)),
         widget::scroll_view(B).with_scroll_offset(point::logical(0.0, 12.0)),
     ));
-    let layout = tree.layout(area::logical(100.0, 100.0)).unwrap();
+    let layout = layout_area(&tree, area::logical(100.0, 100.0));
     let widget_metrics = tree.widget_metrics(&layout);
 
     assert_eq!(

@@ -141,6 +141,7 @@ fn document_with_theme(
 
 fn menu_title(menu: &menu::Menu, theme: &theme::Theme) -> ui::Node {
     let outline = theme.menu().title_focus_outline();
+    let horizontal_padding = theme.density().menu_title_horizontal_padding() * 0.5;
 
     ui::Node::leaf(ui::Id::new(menu.id().as_str()))
         .with_intent(ui::Intent::OpenMenu(menu.id()))
@@ -157,18 +158,13 @@ fn menu_title(menu: &menu::Menu, theme: &theme::Theme) -> ui::Node {
         .with_focus_outline(outline.brush(), outline.width(), outline.offset())
         .with_label_color(theme.text().primary())
         .with_rounding(theme.roundings().menu_title())
-        .with_size(
-            layout::Size::Fixed(menu_title_width(menu.label(), theme)),
-            layout::Size::Fill,
-        )
-}
-
-fn menu_title_width(label: &str, theme: &theme::Theme) -> f32 {
-    let density = theme.density();
-
-    (label.chars().count() as f32 * density.menu_title_char_width()
-        + density.menu_title_horizontal_padding())
-    .max(density.menu_title_min_width())
+        .with_padding(layout::Insets {
+            left: horizontal_padding,
+            top: 0.0,
+            right: horizontal_padding,
+            bottom: 0.0,
+        })
+        .with_size(layout::Size::Fit, layout::Size::Fill)
 }
 
 impl Scroll {
@@ -281,7 +277,7 @@ impl Hit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paint;
+    use crate::{menu, paint};
 
     const ROOT: ui::Id = ui::Id::new("root");
 
@@ -323,5 +319,26 @@ mod tests {
 
         assert_eq!(hit.target(), &target);
         assert_eq!(hit.part(), Part::Scroll(scroll::Part::VerticalThumb));
+    }
+
+    #[test]
+    fn menu_title_width_uses_measured_label_content() {
+        let bar = menu::Bar::new()
+            .menu(menu::Menu::new(menu::Id::new("a"), "A"))
+            .menu(menu::Menu::new(
+                menu::Id::new("workspace_tools"),
+                "Workspace Tools",
+            ));
+        let mut tree = ui::Tree::new();
+        let mut measurer = text::Measurer::new();
+
+        tree.set_root(menu_bar(ROOT, bar));
+        let layout = tree
+            .layout(area::logical(320.0, 28.0), &mut measurer)
+            .expect("menu bar should layout");
+
+        assert!(
+            layout.children()[1].rect().area.width() > layout.children()[0].rect().area.width()
+        );
     }
 }

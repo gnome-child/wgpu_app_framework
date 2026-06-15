@@ -16,7 +16,7 @@ use crate::app::state::WindowState;
 use crate::app::view;
 use crate::app::windows::Windows;
 use crate::geometry::{area, point};
-use crate::{action, event, ui, window};
+use crate::{action, event, text, ui, window};
 
 use super::{Application, Error};
 
@@ -26,6 +26,7 @@ pub struct Runtime<A: Application> {
     windows: Windows,
     window_states: HashMap<window::Id, WindowState>,
     actions: action::Registry<A::Event>,
+    text_measurer: text::Measurer,
     mailbox: Mailbox<A::Event>,
     sender: Sender<A::Event>,
     started: bool,
@@ -40,6 +41,7 @@ impl<A: Application> Runtime<A> {
             windows: Windows::new(),
             window_states: HashMap::new(),
             actions: action::Registry::new(),
+            text_measurer: text::Measurer::new(),
             mailbox: Mailbox::new(),
             sender,
             started: false,
@@ -170,7 +172,14 @@ impl<A: Application> Runtime<A> {
         };
         let logical_area = native_window.canvas().logical_area();
         let state = self.window_states.entry(window).or_default();
-        let scene = view::compose(window, &tree, state, &self.actions, logical_area);
+        let scene = view::compose(
+            window,
+            &tree,
+            state,
+            &self.actions,
+            &mut self.text_measurer,
+            logical_area,
+        );
 
         let Some(native_window) = self.windows.get_mut(window) else {
             return;

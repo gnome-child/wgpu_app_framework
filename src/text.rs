@@ -1,4 +1,5 @@
-use crate::paint;
+use crate::geometry::area;
+use crate::{paint, text_backend};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Document {
@@ -15,6 +16,21 @@ pub struct Block {
 pub struct Run {
     text: String,
     style: Style,
+}
+
+pub struct Measurer {
+    font_system: glyphon::FontSystem,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Measure {
+    max: Option<area::Logical>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Metrics {
+    area: area::Logical,
+    line_count: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -93,6 +109,127 @@ impl From<String> for Document {
 impl From<&str> for Document {
     fn from(value: &str) -> Self {
         Self::plain(value)
+    }
+}
+
+impl Measurer {
+    pub fn new() -> Self {
+        Self {
+            font_system: text_backend::font_system(),
+        }
+    }
+
+    pub fn measure(&mut self, document: &Document, measure: Measure) -> Metrics {
+        if document.is_empty() {
+            return Metrics::empty();
+        }
+
+        let mut width = 0.0_f32;
+        let mut height = 0.0_f32;
+        let mut line_count = 0_usize;
+
+        for block in document.blocks().iter().filter(|block| !block.is_empty()) {
+            let Some(first_style) = block
+                .runs()
+                .iter()
+                .find(|run| !run.is_empty())
+                .map(Run::style)
+            else {
+                continue;
+            };
+            let font_size = first_style.size.max(1.0);
+            let mut buffer = glyphon::Buffer::new(
+                &mut self.font_system,
+                glyphon::Metrics::relative(font_size, 1.25),
+            );
+            let max_width = measure
+                .max()
+                .map(|max| max.width().max(0.0))
+                .filter(|width| width.is_finite());
+            let spans = block
+                .runs()
+                .iter()
+                .filter(|run| !run.is_empty())
+                .map(|run| (run.text(), text_backend::attrs_for_style(run.style())))
+                .collect::<Vec<_>>();
+            let default_attrs = text_backend::attrs_for_style(first_style);
+
+            buffer.set_size(&mut self.font_system, max_width, None);
+            buffer.set_rich_text(
+                &mut self.font_system,
+                spans,
+                &default_attrs,
+                glyphon::Shaping::Advanced,
+                Some(text_backend::align(block.align())),
+            );
+            buffer.shape_until_scroll(&mut self.font_system, false);
+
+            let mut block_height = 0.0_f32;
+            let mut block_lines = 0_usize;
+            for run in buffer.layout_runs() {
+                width = width.max(run.line_w);
+                block_height = block_height.max(run.line_top + run.line_height);
+                block_lines += 1;
+            }
+
+            if block_lines == 0 {
+                block_height = block_height.max(font_size * 1.25);
+                block_lines = 1;
+            }
+
+            height += block_height;
+            line_count += block_lines;
+        }
+
+        Metrics::new(area::logical(width, height), line_count)
+    }
+}
+
+impl Default for Measurer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Measure {
+    pub fn unbounded() -> Self {
+        Self { max: None }
+    }
+
+    pub fn bounded(max: area::Logical) -> Self {
+        Self {
+            max: Some(area::logical(max.width().max(0.0), max.height().max(0.0))),
+        }
+    }
+
+    pub fn max(self) -> Option<area::Logical> {
+        self.max
+    }
+}
+
+impl Metrics {
+    pub fn new(area: area::Logical, line_count: usize) -> Self {
+        Self { area, line_count }
+    }
+
+    pub fn empty() -> Self {
+        Self::new(area::logical(0.0, 0.0), 0)
+    }
+
+    pub fn area(self) -> area::Logical {
+        self.area
+    }
+
+    pub fn width(self) -> f32 {
+        self.area.width()
+    }
+
+    pub fn height(self) -> f32 {
+        self.area.height()
+    }
+
+    pub fn line_count(self) -> usize {
+        self.line_count
     }
 }
 
@@ -220,5 +357,45 @@ mod tests {
             document.blocks()[0].runs()[0].style().color,
             paint::Color::BLACK
         );
+    }
+
+    #[test]
+    fn measurer_returns_non_zero_metrics_for_non_empty_text() {
+        let mut measurer = Measurer::new();
+        let metrics = measurer.measure(&Document::plain("Label"), Measure::unbounded());
+
+        assert!(metrics.width() > 0.0);
+        assert!(metrics.height() > 0.0);
+        assert_eq!(metrics.line_count(), 1);
+    }
+
+    #[test]
+    fn longer_text_measures_wider_than_shorter_text() {
+        let mut measurer = Measurer::new();
+        let short = measurer.measure(&Document::plain("Run"), Measure::unbounded());
+        let long = measurer.measure(&Document::plain("Run workspace task"), Measure::unbounded());
+
+        assert!(long.width() > short.width());
+        assert!(long.height() >= short.height());
+    }
+
+    #[test]
+    fn larger_font_measures_taller_than_smaller_font() {
+        let mut measurer = Measurer::new();
+        let small = Document::from_block({
+            let mut block = Block::new(Align::Start);
+            block.push_run(Run::new("Label", Style::default().with_size(10.0)));
+            block
+        });
+        let large = Document::from_block({
+            let mut block = Block::new(Align::Start);
+            block.push_run(Run::new("Label", Style::default().with_size(24.0)));
+            block
+        });
+
+        let small = measurer.measure(&small, Measure::unbounded());
+        let large = measurer.measure(&large, Measure::unbounded());
+
+        assert!(large.height() > small.height());
     }
 }

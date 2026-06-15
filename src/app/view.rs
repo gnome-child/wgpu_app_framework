@@ -1,12 +1,13 @@
 use crate::app::state::WindowState;
 use crate::geometry::area;
-use crate::{action, layout, paint, ui, widget, window};
+use crate::{action, layout, paint, text, ui, widget, window};
 
 pub fn compose<T>(
     window: window::Id,
     tree: &ui::Tree,
     state: &mut WindowState,
     actions: &action::Registry<T>,
+    measurer: &mut text::Measurer,
     logical_area: area::Logical,
 ) -> paint::Scene {
     let mut scene = paint::Scene::new();
@@ -32,16 +33,29 @@ pub fn compose<T>(
     let command_target = state.command_context(window);
     if let Some(open_menu) = state.open_menu
         && let Some(menu) = state.menus.get(&open_menu)
-        && let Some(base_layout) = tree.layout(logical_area)
-        && let Some(popup) = widget::menu_popup(&tree, &base_layout, menu, actions, &command_target)
+        && let Some(base_layout) = tree.layout(logical_area, measurer)
+        && let Some(popup) = widget::menu_popup(
+            &tree,
+            &base_layout,
+            menu,
+            actions,
+            &command_target,
+            measurer,
+        )
     {
         tree.push_popup(popup);
     }
     if let Some(open_submenu) = state.open_submenu
         && let Some(menu) = state.menus.get(&open_submenu)
-        && let Some(menu_layout) = tree.layout(logical_area)
-        && let Some(popup) =
-            widget::submenu_popup(&tree, &menu_layout, menu, actions, &command_target)
+        && let Some(menu_layout) = tree.layout(logical_area, measurer)
+        && let Some(popup) = widget::submenu_popup(
+            &tree,
+            &menu_layout,
+            menu,
+            actions,
+            &command_target,
+            measurer,
+        )
     {
         tree.push_popup(popup);
     }
@@ -53,7 +67,7 @@ pub fn compose<T>(
     state.command_scopes = tree.command_scopes();
     state.interactivity = tree.interactivity();
 
-    if let Some(layout) = tree.layout(logical_area) {
+    if let Some(layout) = tree.layout(logical_area, measurer) {
         state.widget_metrics = tree.widget_metrics(&layout);
         state.focus_order = focus_order(&layout, &state.interactivity);
         state.clear_stale_focus();
@@ -119,7 +133,7 @@ fn collect_focus_order(
 mod tests {
     use crate::geometry::{area, point};
     use crate::widget;
-    use crate::{Action, layout, menu, paint};
+    use crate::{Action, layout, menu, paint, text};
 
     use super::*;
 
@@ -132,6 +146,18 @@ mod tests {
     const FILE: menu::Id = menu::Id::new("file");
     const VIEW: menu::Id = menu::Id::new("view");
     const PANELS: menu::Id = menu::Id::new("panels");
+
+    fn compose<T>(
+        window: window::Id,
+        tree: &ui::Tree,
+        state: &mut WindowState,
+        actions: &action::Registry<T>,
+        logical_area: area::Logical,
+    ) -> paint::Scene {
+        let mut measurer = text::Measurer::new();
+
+        super::compose(window, tree, state, actions, &mut measurer, logical_area)
+    }
 
     #[test]
     fn compose_updates_state_and_preserves_paint_order() {

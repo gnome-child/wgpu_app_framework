@@ -1,20 +1,29 @@
 use crate::geometry::{Rect, area, point};
 use crate::{layout, text, ui, widget};
 
-pub fn tree(root: &ui::Node, area: area::Logical) -> layout::Box {
+pub fn tree(root: &ui::Node, area: area::Logical, measurer: &mut text::Measurer) -> layout::Box {
     let constraints = layout::Constraints::loose(area);
-    let measured = measure_node(root, constraints);
+    let measured = measure_node(root, constraints, measurer);
     let root_area = resolve_root_area(root.layout(), measured, area);
     let rect = Rect::new(point::logical(0.0, 0.0), root_area);
 
-    arrange_node(root, ui::Path::root(root.id()), rect)
+    arrange_node(root, ui::Path::root(root.id()), rect, measurer)
 }
 
-pub fn subtree_at(root: &ui::Node, path: ui::Path, rect: Rect) -> layout::Box {
-    arrange_node(root, path, rect)
+pub fn subtree_at(
+    root: &ui::Node,
+    path: ui::Path,
+    rect: Rect,
+    measurer: &mut text::Measurer,
+) -> layout::Box {
+    arrange_node(root, path, rect, measurer)
 }
 
-fn measure_node(node: &ui::Node, constraints: layout::Constraints) -> area::Logical {
+fn measure_node(
+    node: &ui::Node,
+    constraints: layout::Constraints,
+    measurer: &mut text::Measurer,
+) -> area::Logical {
     let node_layout = node.layout();
     let max = sanitize_area(constraints.max());
     let padding = node.style().padding();
@@ -22,7 +31,7 @@ fn measure_node(node: &ui::Node, constraints: layout::Constraints) -> area::Logi
         (max.width() - padding.horizontal()).max(0.0),
         (max.height() - padding.vertical()).max(0.0),
     );
-    let content = measure_content(node, content_max);
+    let content = measure_content(node, content_max, measurer);
     let desired = area::logical(
         content.width() + padding.horizontal(),
         content.height() + padding.vertical(),
@@ -44,12 +53,16 @@ fn measure_node(node: &ui::Node, constraints: layout::Constraints) -> area::Logi
     )
 }
 
-fn measure_content(node: &ui::Node, max: area::Logical) -> area::Logical {
+fn measure_content(
+    node: &ui::Node,
+    max: area::Logical,
+    measurer: &mut text::Measurer,
+) -> area::Logical {
     let child_constraints = layout::Constraints::loose(max);
     let child_sizes: Vec<_> = node
         .children()
         .iter()
-        .map(|child| measure_node(child, child_constraints))
+        .map(|child| measure_node(child, child_constraints, measurer))
         .collect();
     let child_content = match node.layout().direction() {
         Some(layout::Axis::Vertical) => measure_vertical_stack(&child_sizes, node.layout().gap()),
@@ -58,7 +71,7 @@ fn measure_content(node: &ui::Node, max: area::Logical) -> area::Logical {
         }
         None => measure_overlay(&child_sizes),
     };
-    let node_content = measure_node_content(node);
+    let node_content = measure_node_content(node, max, measurer);
 
     area::logical(
         child_content
@@ -107,10 +120,18 @@ fn measure_overlay(children: &[area::Logical]) -> area::Logical {
     area::logical(width, height)
 }
 
-fn measure_node_content(node: &ui::Node) -> area::Logical {
+fn measure_node_content(
+    node: &ui::Node,
+    max: area::Logical,
+    measurer: &mut text::Measurer,
+) -> area::Logical {
     let label = node
         .label()
-        .map(measure_text)
+        .map(|document| {
+            measurer
+                .measure(document, text::Measure::bounded(max))
+                .area()
+        })
         .unwrap_or_else(|| area::logical(0.0, 0.0));
     let icon_size = node
         .icon()
@@ -125,28 +146,12 @@ fn measure_node_content(node: &ui::Node) -> area::Logical {
     )
 }
 
-fn measure_text(document: &text::Document) -> area::Logical {
-    let mut width = 0.0_f32;
-    let mut height = 0.0_f32;
-
-    for block in document.blocks() {
-        let mut line_width = 0.0_f32;
-        let mut line_height = 0.0_f32;
-
-        for run in block.runs() {
-            let size = run.style().size.max(0.0);
-            line_width += run.text().chars().count() as f32 * size * 0.6;
-            line_height = line_height.max(size * 1.2);
-        }
-
-        width = width.max(line_width);
-        height += line_height;
-    }
-
-    area::logical(width, height)
-}
-
-fn arrange_node(node: &ui::Node, path: ui::Path, rect: Rect) -> layout::Box {
+fn arrange_node(
+    node: &ui::Node,
+    path: ui::Path,
+    rect: Rect,
+    measurer: &mut text::Measurer,
+) -> layout::Box {
     let scroll_offset = node
         .scroll()
         .map_or_else(|| point::logical(0.0, 0.0), |scroll| scroll.offset());
@@ -157,12 +162,12 @@ fn arrange_node(node: &ui::Node, path: ui::Path, rect: Rect) -> layout::Box {
     );
     let children = match node.layout().direction() {
         Some(layout::Axis::Vertical) => {
-            arrange_vertical_children(node, &path, child_origin, viewport.area)
+            arrange_vertical_children(node, &path, child_origin, viewport.area, measurer)
         }
         Some(layout::Axis::Horizontal) => {
-            arrange_horizontal_children(node, &path, child_origin, viewport.area)
+            arrange_horizontal_children(node, &path, child_origin, viewport.area, measurer)
         }
-        None => arrange_overlay_children(node, &path, child_origin, viewport.area),
+        None => arrange_overlay_children(node, &path, child_origin, viewport.area, measurer),
     };
 
     layout::Box::with_path(path, rect, children)
@@ -173,8 +178,9 @@ fn arrange_vertical_children(
     path: &ui::Path,
     origin: point::Logical,
     available: area::Logical,
+    measurer: &mut text::Measurer,
 ) -> Vec<layout::Box> {
-    let measured = measure_children(node, available);
+    let measured = measure_children(node, available, measurer);
     let gap = node.layout().gap();
     let gap_total = gap_total(gap, node.children().len());
     let fixed_fit_height = node
@@ -214,7 +220,7 @@ fn arrange_vertical_children(
         let x = origin.x() + align_offset(node.layout().cross_align(), available.width(), width);
         let rect = Rect::new(point::logical(x, y), area::logical(width, height));
 
-        children.push(arrange_node(child, path.child(child.id()), rect));
+        children.push(arrange_node(child, path.child(child.id()), rect, measurer));
         y += height + gap;
     }
 
@@ -226,8 +232,9 @@ fn arrange_horizontal_children(
     path: &ui::Path,
     origin: point::Logical,
     available: area::Logical,
+    measurer: &mut text::Measurer,
 ) -> Vec<layout::Box> {
-    let measured = measure_children(node, available);
+    let measured = measure_children(node, available, measurer);
     let gap = node.layout().gap();
     let gap_total = gap_total(gap, node.children().len());
     let fixed_fit_width = node
@@ -267,7 +274,7 @@ fn arrange_horizontal_children(
         let y = origin.y() + align_offset(node.layout().cross_align(), available.height(), height);
         let rect = Rect::new(point::logical(x, y), area::logical(width, height));
 
-        children.push(arrange_node(child, path.child(child.id()), rect));
+        children.push(arrange_node(child, path.child(child.id()), rect, measurer));
         x += width + gap;
     }
 
@@ -279,8 +286,9 @@ fn arrange_overlay_children(
     path: &ui::Path,
     origin: point::Logical,
     available: area::Logical,
+    measurer: &mut text::Measurer,
 ) -> Vec<layout::Box> {
-    measure_children(node, available)
+    measure_children(node, available, measurer)
         .into_iter()
         .zip(node.children())
         .map(|(measured, child)| {
@@ -296,17 +304,21 @@ fn arrange_overlay_children(
                 origin.y() + align_offset(node.layout().cross_align(), available.height(), height);
             let rect = Rect::new(point::logical(x, y), area::logical(width, height));
 
-            arrange_node(child, path.child(child.id()), rect)
+            arrange_node(child, path.child(child.id()), rect, measurer)
         })
         .collect()
 }
 
-fn measure_children(node: &ui::Node, available: area::Logical) -> Vec<area::Logical> {
+fn measure_children(
+    node: &ui::Node,
+    available: area::Logical,
+    measurer: &mut text::Measurer,
+) -> Vec<area::Logical> {
     let constraints = layout::Constraints::loose(available);
 
     node.children()
         .iter()
-        .map(|child| measure_node(child, constraints))
+        .map(|child| measure_node(child, constraints, measurer))
         .collect()
 }
 

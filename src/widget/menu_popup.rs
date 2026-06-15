@@ -5,9 +5,8 @@ use super::{
     MENU_POPUP, MENU_SUBMENU_POPUP, Popup, floating_panel_with_theme, separator_with_theme,
 };
 
-const SEPARATOR_HEIGHT: f32 = 1.0;
+const SEPARATOR_LINE_HEIGHT: f32 = 1.0;
 const ROW_ICON_WIDTH: f32 = 28.0;
-const ROW_SHORTCUT_WIDTH: f32 = 72.0;
 const ROW_TRAILING_WIDTH: f32 = 22.0;
 const SUBMENU_GAP: f32 = 3.0;
 
@@ -15,6 +14,7 @@ const ROW_GLYPH: ui::Id = ui::Id::new("__menu_row_glyph");
 const ROW_LABEL: ui::Id = ui::Id::new("__menu_row_label");
 const ROW_SHORTCUT: ui::Id = ui::Id::new("__menu_row_shortcut");
 const ROW_TRAILING: ui::Id = ui::Id::new("__menu_row_trailing");
+const ROW_SEPARATOR: ui::Id = ui::Id::new("__menu_row_separator");
 
 const ROW_IDS: [ui::Id; 32] = [
     ui::Id::new("__menu_row_00"),
@@ -57,25 +57,20 @@ pub fn menu_popup<T>(
     menu: &menu::Menu,
     actions: &action::Registry<T>,
     command_target: &action::Context,
+    measurer: &mut text::Measurer,
 ) -> Option<Popup> {
     let theme = theme::Theme::default_dark();
     let anchor = anchor_rect(tree, layout, menu.id(), AnchorKind::TopLevel)?;
+    let metrics = popup_metrics(menu, actions, &theme, measurer);
     let popup_rect = popup_rect(
         point::logical(anchor.origin.x(), anchor.origin.y() + anchor.area.height()),
-        menu,
+        metrics,
         &theme,
     );
 
     Some(Popup::new(
         popup_rect,
-        popup_node(
-            MENU_POPUP,
-            menu,
-            actions,
-            command_target,
-            popup_rect.area.height(),
-            &theme,
-        ),
+        popup_node(MENU_POPUP, menu, actions, command_target, metrics, &theme),
     ))
 }
 
@@ -85,16 +80,18 @@ pub fn submenu_popup<T>(
     menu: &menu::Menu,
     actions: &action::Registry<T>,
     command_target: &action::Context,
+    measurer: &mut text::Measurer,
 ) -> Option<Popup> {
     let theme = theme::Theme::default_dark();
     let anchor = anchor_rect(tree, layout, menu.id(), AnchorKind::Submenu)?;
     let padding = theme.floating_panel().padding();
+    let metrics = popup_metrics(menu, actions, &theme, measurer);
     let popup_rect = popup_rect(
         point::logical(
             anchor.origin.x() + anchor.area.width() + SUBMENU_GAP,
             anchor.origin.y() - padding,
         ),
-        menu,
+        metrics,
         &theme,
     );
 
@@ -105,10 +102,16 @@ pub fn submenu_popup<T>(
             menu,
             actions,
             command_target,
-            popup_rect.area.height(),
+            metrics,
             &theme,
         ),
     ))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PopupMetrics {
+    area: area::Logical,
+    shortcut_width: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,15 +139,8 @@ fn anchor_rect(
         })
 }
 
-fn popup_rect(origin: point::Logical, menu: &menu::Menu, theme: &theme::Theme) -> Rect {
-    Rect::rounded(
-        origin,
-        area::logical(
-            theme.density().menu_popup_width(),
-            body_height(menu, theme) + theme.floating_panel().padding() * 2.0,
-        ),
-        theme.floating_panel().rounding(),
-    )
+fn popup_rect(origin: point::Logical, metrics: PopupMetrics, theme: &theme::Theme) -> Rect {
+    Rect::rounded(origin, metrics.area, theme.floating_panel().rounding())
 }
 
 fn popup_node<T>(
@@ -152,14 +148,14 @@ fn popup_node<T>(
     menu: &menu::Menu,
     actions: &action::Registry<T>,
     command_target: &action::Context,
-    height: f32,
+    metrics: PopupMetrics,
     theme: &theme::Theme,
 ) -> ui::Node {
     let mut popup = floating_panel_with_theme(id, theme)
         .with_command_scope()
         .with_size(
-            layout::Size::Fixed(theme.density().menu_popup_width()),
-            layout::Size::Fixed(height),
+            layout::Size::Fixed(metrics.area.width()),
+            layout::Size::Fixed(metrics.area.height()),
         );
 
     let mut row = 0;
@@ -169,12 +165,12 @@ fn popup_node<T>(
                 menu::Node::Item(item) => {
                     let id = row_id(row);
                     row += 1;
-                    item_node(id, item, actions, command_target, theme)
+                    item_node(id, item, actions, command_target, metrics, theme)
                 }
                 menu::Node::Submenu(menu) => {
                     let id = row_id(row);
                     row += 1;
-                    submenu_node(id, menu, actions, command_target, theme)
+                    submenu_node(id, menu, actions, command_target, metrics, theme)
                 }
                 menu::Node::Separator => {
                     let id = row_id(row);
@@ -193,6 +189,7 @@ fn item_node<T>(
     item: &menu::Item,
     actions: &action::Registry<T>,
     command_target: &action::Context,
+    metrics: PopupMetrics,
     theme: &theme::Theme,
 ) -> ui::Node {
     let action = item.action();
@@ -223,7 +220,7 @@ fn item_node<T>(
             ROW_SHORTCUT,
             shortcut.unwrap_or_default(),
             text::Align::End,
-            layout::Size::Fixed(ROW_SHORTCUT_WIDTH),
+            layout::Size::Fixed(metrics.shortcut_width),
             color,
             theme,
         ))
@@ -241,6 +238,7 @@ fn submenu_node<T>(
     menu: &menu::Menu,
     actions: &action::Registry<T>,
     command_target: &action::Context,
+    metrics: PopupMetrics,
     theme: &theme::Theme,
 ) -> ui::Node {
     let enabled = menu_can_open(menu, actions, command_target);
@@ -263,7 +261,7 @@ fn submenu_node<T>(
         .with_child(glyph_cell(
             ROW_SHORTCUT,
             None,
-            ROW_SHORTCUT_WIDTH,
+            metrics.shortcut_width,
             color,
             theme,
         ))
@@ -339,9 +337,19 @@ fn text_cell(
 }
 
 fn separator_node(id: ui::Id, theme: &theme::Theme) -> ui::Node {
-    separator_with_theme(id, theme)
+    ui::Node::container(id, layout::Axis::Vertical)
         .with_intent(ui::Intent::CloseSubmenu)
-        .with_size(layout::Size::Fill, layout::Size::Fixed(SEPARATOR_HEIGHT))
+        .with_interactivity(ui::Interactivity::NONE.with_hit_test(true))
+        .with_align(layout::Align::Center)
+        .with_cross_align(layout::Align::Stretch)
+        .with_size(
+            layout::Size::Fill,
+            layout::Size::Fixed(theme.density().menu_row_height()),
+        )
+        .with_child(separator_with_theme(ROW_SEPARATOR, theme).with_size(
+            layout::Size::Fill,
+            layout::Size::Fixed(SEPARATOR_LINE_HEIGHT),
+        ))
 }
 
 fn item_label<T>(item: &menu::Item, actions: &action::Registry<T>) -> String {
@@ -380,15 +388,56 @@ fn document(
     text::Document::from_block(block)
 }
 
-fn body_height(menu: &menu::Menu, theme: &theme::Theme) -> f32 {
-    menu.sections()
-        .iter()
-        .flat_map(menu::Section::nodes)
-        .map(|node| match node {
-            menu::Node::Item(_) | menu::Node::Submenu(_) => theme.density().menu_row_height(),
-            menu::Node::Separator => SEPARATOR_HEIGHT,
-        })
-        .sum()
+fn popup_metrics<T>(
+    menu: &menu::Menu,
+    actions: &action::Registry<T>,
+    theme: &theme::Theme,
+    measurer: &mut text::Measurer,
+) -> PopupMetrics {
+    let mut label_width = 0.0_f32;
+    let mut shortcut_width = 0.0_f32;
+    let mut row_count = 0_usize;
+
+    for node in menu.sections().iter().flat_map(menu::Section::nodes) {
+        row_count += 1;
+        match node {
+            menu::Node::Item(item) => {
+                label_width =
+                    label_width.max(measure_label(item_label(item, actions), theme, measurer));
+                if let Some(shortcut) = shortcut_label(item.action(), actions) {
+                    shortcut_width = shortcut_width.max(measure_label(shortcut, theme, measurer));
+                }
+            }
+            menu::Node::Submenu(menu) => {
+                label_width = label_width.max(measure_label(menu.label(), theme, measurer));
+            }
+            menu::Node::Separator => {}
+        }
+    }
+
+    let padding = theme.floating_panel().padding() * 2.0;
+    let body_width = ROW_ICON_WIDTH + label_width + shortcut_width + ROW_TRAILING_WIDTH;
+    let body_height = theme.density().menu_row_height() * row_count as f32;
+    let width = (body_width + padding).max(theme.density().menu_popup_min_width());
+    let height = body_height + padding;
+
+    PopupMetrics {
+        area: area::logical(width, height),
+        shortcut_width,
+    }
+}
+
+fn measure_label(
+    label: impl Into<String>,
+    theme: &theme::Theme,
+    measurer: &mut text::Measurer,
+) -> f32 {
+    measurer
+        .measure(
+            &document(label, theme, text::Align::Start, theme.text().primary()),
+            text::Measure::unbounded(),
+        )
+        .width()
 }
 
 fn menu_can_open<T>(
@@ -405,4 +454,89 @@ fn row_id(index: usize) -> ui::Id {
         .get(index)
         .copied()
         .unwrap_or(ui::Id::new("__menu_row_overflow"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ACTION_A: action::Id = action::Id::new("menu_action_a");
+    const ACTION_B: action::Id = action::Id::new("menu_action_b");
+
+    #[test]
+    fn menu_separator_occupies_normal_row_height() {
+        let theme = theme::Theme::default_dark();
+        let registry = action::Registry::<()>::new();
+        let mut measurer = text::Measurer::new();
+        let menu = menu::Menu::new(menu::Id::new("test"), "Test").section(
+            menu::Section::new()
+                .action(ACTION_A)
+                .separator()
+                .action(ACTION_B),
+        );
+        let metrics = popup_metrics(&menu, &registry, &theme, &mut measurer);
+
+        assert_eq!(
+            metrics.area.height(),
+            theme.density().menu_row_height() * 3.0 + theme.floating_panel().padding() * 2.0
+        );
+    }
+
+    #[test]
+    fn menu_popup_width_respects_theme_minimum() {
+        let theme = theme::Theme::default_dark();
+        let registry = action::Registry::<()>::new();
+        let mut measurer = text::Measurer::new();
+        let menu = menu::Menu::new(menu::Id::new("test"), "Test")
+            .section(menu::Section::new().separator());
+        let metrics = popup_metrics(&menu, &registry, &theme, &mut measurer);
+
+        assert_eq!(metrics.area.width(), theme.density().menu_popup_min_width());
+    }
+
+    #[test]
+    fn menu_popup_width_grows_for_long_labels_and_shortcuts() {
+        let theme = theme::Theme::default_dark();
+        let mut registry = action::Registry::<()>::new();
+        let mut measurer = text::Measurer::new();
+        let short = menu::Menu::new(menu::Id::new("short"), "Short")
+            .section(menu::Section::new().action(ACTION_A));
+        let long = menu::Menu::new(menu::Id::new("long"), "Long").section(
+            menu::Section::new().item(
+                menu::Item::new(ACTION_B)
+                    .with_label("Ridiculously Long Menu Item Label With Shortcut"),
+            ),
+        );
+
+        registry.register(crate::Action::new(ACTION_A, "A"));
+        registry.register(
+            crate::Action::new(ACTION_B, "Long").with_shortcut(action::Shortcut::control('a')),
+        );
+
+        let short = popup_metrics(&short, &registry, &theme, &mut measurer);
+        let long = popup_metrics(&long, &registry, &theme, &mut measurer);
+
+        assert!(long.area.width() > short.area.width());
+        assert!(long.shortcut_width > 0.0);
+    }
+
+    #[test]
+    fn menu_separator_row_centers_thin_divider_line() {
+        let theme = theme::Theme::default_dark();
+        let row = separator_node(ui::Id::new("separator"), &theme);
+        let line = row
+            .children()
+            .first()
+            .expect("separator row should own a line");
+
+        assert_eq!(
+            row.layout().height(),
+            layout::Size::Fixed(theme.density().menu_row_height())
+        );
+        assert_eq!(line.layout().height(), layout::Size::Fixed(1.0));
+        assert_eq!(row.intent(), Some(ui::Intent::CloseSubmenu));
+        assert!(row.interactivity().hit_test());
+        assert!(!row.interactivity().focusable());
+        assert!(!row.interactivity().actionable());
+    }
 }

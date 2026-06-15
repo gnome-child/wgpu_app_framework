@@ -1,10 +1,7 @@
-use std::sync::Arc;
-
-use crate::icon;
 use crate::paint;
 use crate::render;
 use crate::render::batch;
-use crate::text;
+use crate::text_backend;
 
 use thiserror::Error;
 
@@ -50,7 +47,7 @@ impl TextRenderer {
             viewport,
             atlas,
             renderers: Vec::new(),
-            font_system: font_system(),
+            font_system: text_backend::font_system(),
             swash_cache: glyphon::SwashCache::new(),
         }
     }
@@ -150,20 +147,6 @@ impl TextRenderer {
     }
 }
 
-fn font_system() -> glyphon::FontSystem {
-    let mut font_system = glyphon::FontSystem::new();
-
-    for font in iconflow::fonts() {
-        font_system
-            .db_mut()
-            .load_font_source(glyphon::fontdb::Source::Binary(Arc::new(
-                font.bytes.to_vec(),
-            )));
-    }
-
-    font_system
-}
-
 fn prepare_text(
     font_system: &mut glyphon::FontSystem,
     text: &paint::Text,
@@ -188,16 +171,16 @@ fn prepare_text(
         .runs()
         .iter()
         .filter(|run| !run.is_empty())
-        .map(|run| (run.text(), attrs_for_style(run.style())))
+        .map(|run| (run.text(), text_backend::attrs_for_style(run.style())))
         .collect::<Vec<_>>();
 
-    let default_attrs = attrs_for_style(first_style);
+    let default_attrs = text_backend::attrs_for_style(first_style);
     buffer.set_rich_text(
         font_system,
         spans,
         &default_attrs,
         glyphon::Shaping::Advanced,
-        Some(align(block.align())),
+        Some(text_backend::align(block.align())),
     );
     buffer.shape_until_scroll(font_system, false);
 
@@ -218,7 +201,7 @@ fn prepare_text(
             right: clip_right.ceil() as i32,
             bottom: clip_bottom.ceil() as i32,
         },
-        default_color: color(first_style.color),
+        default_color: text_backend::color(first_style.color),
     })
 }
 
@@ -242,7 +225,7 @@ fn prepare_icon(
     let width = icon.rect.area.width().max(0.0);
     let height = icon.rect.area.height().max(0.0);
     let buffer_height = height.min(line_height);
-    let attrs = attrs_for_icon(glyph, font_size, icon.color);
+    let attrs = text_backend::attrs_for_icon(glyph, font_size, icon.color);
     let text = character.to_string();
 
     buffer.set_size(font_system, Some(width), Some(buffer_height));
@@ -272,48 +255,6 @@ fn prepare_icon(
             right: clip_right.ceil() as i32,
             bottom: clip_bottom.ceil() as i32,
         },
-        default_color: color(icon.color),
+        default_color: text_backend::color(icon.color),
     })
-}
-
-fn attrs_for_style(style: text::Style) -> glyphon::Attrs<'static> {
-    glyphon::Attrs::new()
-        .family(glyphon::Family::SansSerif)
-        .weight(weight(style.weight))
-        .color(color(style.color))
-        .metrics(glyphon::Metrics::relative(style.size.max(1.0), 1.25))
-}
-
-fn attrs_for_icon(glyph: icon::Glyph, size: f32, color: paint::Color) -> glyphon::Attrs<'static> {
-    glyphon::Attrs::new()
-        .family(glyphon::Family::Name(glyph.family()))
-        .color(self::color(color))
-        .metrics(glyphon::Metrics::relative(size.max(1.0), 1.0))
-}
-
-fn align(align: text::Align) -> glyphon::cosmic_text::Align {
-    match align {
-        text::Align::Start => glyphon::cosmic_text::Align::Left,
-        text::Align::Center => glyphon::cosmic_text::Align::Center,
-        text::Align::End => glyphon::cosmic_text::Align::Right,
-    }
-}
-
-fn weight(weight: text::Weight) -> glyphon::Weight {
-    match weight {
-        text::Weight::Normal => glyphon::Weight::NORMAL,
-        text::Weight::Medium => glyphon::Weight::MEDIUM,
-        text::Weight::Bold => glyphon::Weight::BOLD,
-    }
-}
-
-fn color(color: paint::Color) -> glyphon::Color {
-    let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
-
-    glyphon::Color::rgba(
-        channel(color.r),
-        channel(color.g),
-        channel(color.b),
-        channel(color.a),
-    )
 }
