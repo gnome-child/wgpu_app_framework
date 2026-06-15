@@ -54,6 +54,7 @@ pub fn floating_panel_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
         .with_label_color(theme.text().primary())
         .with_busy_label_color(theme.text().busy())
         .with_disabled_label_color(theme.text().disabled())
+        .with_interactivity(ui::Interactivity::NONE.with_hit_test(true))
 }
 
 pub fn button(id: ui::Id, action: action::Id) -> ui::Node {

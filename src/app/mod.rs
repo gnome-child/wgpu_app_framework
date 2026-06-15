@@ -3,7 +3,6 @@ mod command;
 mod context;
 mod input;
 mod mailbox;
-mod menu_ui;
 mod rendering;
 mod runtime;
 mod sender;

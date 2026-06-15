@@ -221,7 +221,7 @@ impl app::Application for App {
         let document_is_subject = matches_path(command_subject.scope(), &document_path());
         let local_is_subject = matches_path(command_subject.scope(), &local_field_path());
 
-        let mut document_panel = ui::control::panel_with_theme(DOCUMENT_PANEL, &theme)
+        let mut document_panel = widget::panel_with_theme(DOCUMENT_PANEL, &theme)
             .with_size(layout::Size::Fill, layout::Size::Fixed(56.0))
             .with_background(subject_background(document_is_subject, &theme))
             .with_interactivity(
@@ -243,13 +243,13 @@ impl app::Application for App {
             .with_size(layout::Size::Fill, layout::Size::Fixed(SCROLL_VIEW_HEIGHT));
         for (index, id) in SCROLL_ROWS.iter().copied().enumerate() {
             scroll_view.push_child(
-                ui::control::panel_with_theme(id, &theme)
+                widget::panel_with_theme(id, &theme)
                     .with_size(layout::Size::Fill, layout::Size::Fixed(SCROLL_ROW_HEIGHT))
                     .with_label(label(format!("Scrollable row {}", index + 1), &theme)),
             );
         }
 
-        let mut local_field = ui::control::panel_with_theme(LOCAL_FIELD, &theme)
+        let mut local_field = widget::panel_with_theme(LOCAL_FIELD, &theme)
             .with_size(
                 layout::Size::Fill,
                 layout::Size::Fixed(density.control_height()),
@@ -278,10 +278,10 @@ impl app::Application for App {
         } else {
             Icon::phosphor(icon::Id::new("eye-slash"))
         };
-        let popup_panel = ui::control::floating_panel_with_theme(COMMAND_SCOPE_PANEL, &theme)
+        let popup_panel = widget::floating_panel_with_theme(COMMAND_SCOPE_PANEL, &theme)
             .with_command_scope()
             .with_child(
-                ui::control::panel_with_theme(ui::Id::new("scope_status"), &theme)
+                widget::panel_with_theme(ui::Id::new("scope_status"), &theme)
                     .with_size(
                         layout::Size::Fill,
                         layout::Size::Fixed(density.control_height()),
@@ -290,7 +290,7 @@ impl app::Application for App {
             )
             .with_child(local_field)
             .with_child(
-                ui::control::labeled_button_with_theme(
+                widget::labeled_button_with_theme(
                     LOCAL_SELECT_BUTTON,
                     action::SELECT_ALL,
                     "Select current subject",
@@ -303,7 +303,7 @@ impl app::Application for App {
                 ),
             )
             .with_child(
-                ui::control::labeled_button_with_theme(
+                widget::labeled_button_with_theme(
                     CAPTURED_SELECT_BUTTON,
                     action::SELECT_ALL,
                     "Select captured subject",
@@ -320,14 +320,14 @@ impl app::Application for App {
             .with_padding(layout::Insets::splat(density.app_padding()))
             .with_child(widget::menu_bar_with_theme(MENU_BAR, app_menu(), &theme))
             .with_child(
-                ui::control::panel_with_theme(STATUS_PANEL, &theme)
+                widget::panel_with_theme(STATUS_PANEL, &theme)
                     .with_size(layout::Size::Fill, layout::Size::Fixed(44.0))
                     .with_label(label(status, &theme)),
             )
             .with_child(document_panel)
             .with_child(scroll_view)
             .with_child(
-                ui::control::labeled_button_with_theme(
+                widget::labeled_button_with_theme(
                     SELECT_BUTTON,
                     action::SELECT_ALL,
                     "Select subject",
@@ -340,14 +340,14 @@ impl app::Application for App {
                 ),
             )
             .with_child(
-                ui::control::labeled_button_with_theme(RUN_BUTTON, RUN_TASK, "Run task", &theme)
+                widget::labeled_button_with_theme(RUN_BUTTON, RUN_TASK, "Run task", &theme)
                     .with_size(
                         layout::Size::Fill,
                         layout::Size::Fixed(density.control_height()),
                     ),
             )
             .with_child(
-                ui::control::panel_with_theme(ui::Id::new("footer_panel"), &theme)
+                widget::panel_with_theme(ui::Id::new("footer_panel"), &theme)
                     .with_size(
                         layout::Size::Fill,
                         layout::Size::Fixed(density.control_height()),
@@ -355,7 +355,7 @@ impl app::Application for App {
                     .with_label(label(footer, &theme)),
             )
             .with_child(
-                ui::control::icon_button_with_theme(
+                widget::icon_button_with_theme(
                     PREVIEW_BUTTON,
                     TOGGLE_PREVIEW,
                     preview_icon,
@@ -369,7 +369,7 @@ impl app::Application for App {
 
         tree.set_root(root);
         tree.clear_popups();
-        tree.push_popup(ui::Popup::new(
+        tree.push_popup(widget::Popup::new(
             Rect::new(point::logical(36.0, 256.0), area::logical(440.0, 168.0)),
             popup_panel,
         ));

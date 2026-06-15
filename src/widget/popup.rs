@@ -1,15 +1,14 @@
 use crate::geometry::Rect;
-
-use super::Node;
+use crate::ui;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Popup {
     rect: Rect,
-    root: Node,
+    root: ui::Node,
 }
 
 impl Popup {
-    pub fn new(rect: Rect, root: Node) -> Self {
+    pub fn new(rect: Rect, root: ui::Node) -> Self {
         Self { rect, root }
     }
 
@@ -17,7 +16,7 @@ impl Popup {
         self.rect
     }
 
-    pub fn root(&self) -> &Node {
+    pub fn root(&self) -> &ui::Node {
         &self.root
     }
 }

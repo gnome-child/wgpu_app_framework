@@ -91,96 +91,11 @@ fn node<T>(
         scene.pop_clip();
     }
 
-    paint_scrollbars(node, layout, interaction, scene);
+    widget::scroll::paint_chrome(node, layout, interaction, scene);
 
     if let Some(outline) = resolved_focus_outline(node, rect, visual) {
         overlays.push(outline);
     }
-}
-
-fn paint_scrollbars(
-    node: &ui::Node,
-    layout: &layout::Box,
-    interaction: &ui::Interaction,
-    scene: &mut paint::Scene,
-) {
-    let Some(metrics) = widget::scroll::metrics(node, layout) else {
-        return;
-    };
-
-    let style = metrics.style();
-
-    if let Some(track) = metrics.vertical_track() {
-        push_scroll_chrome(scene, track, style.track());
-    }
-
-    if let Some(track) = metrics.horizontal_track() {
-        push_scroll_chrome(scene, track, style.track());
-    }
-
-    if let Some(corner) = metrics.corner() {
-        push_scroll_chrome(scene, corner, style.corner());
-    }
-
-    if let Some(thumb) = metrics.vertical_thumb() {
-        push_scroll_chrome(scene, thumb, style.thumb());
-        push_scroll_thumb_tint(
-            scene,
-            metrics,
-            thumb,
-            widget::scroll::Part::VerticalThumb,
-            interaction.pressed() == Some(layout.path()),
-            interaction,
-        );
-    }
-
-    if let Some(thumb) = metrics.horizontal_thumb() {
-        push_scroll_chrome(scene, thumb, style.thumb());
-        push_scroll_thumb_tint(
-            scene,
-            metrics,
-            thumb,
-            widget::scroll::Part::HorizontalThumb,
-            interaction.pressed() == Some(layout.path()),
-            interaction,
-        );
-    }
-}
-
-fn push_scroll_chrome(scene: &mut paint::Scene, rect: crate::geometry::Rect, brush: paint::Brush) {
-    scene.push_quad(paint::Quad {
-        rect,
-        style: paint::Style {
-            fill: Some(paint::Fill::Brush(brush)),
-            stroke: None,
-            tint: None,
-        },
-    });
-}
-
-fn push_scroll_thumb_tint(
-    scene: &mut paint::Scene,
-    metrics: widget::scroll::Metrics,
-    thumb: crate::geometry::Rect,
-    part: widget::scroll::Part,
-    pressed: bool,
-    interaction: &ui::Interaction,
-) {
-    let Some(position) = interaction.pointer_position() else {
-        return;
-    };
-    if metrics.hit_test(position) != Some(part) {
-        return;
-    }
-
-    let style = metrics.style();
-    let brush = if pressed {
-        style.thumb_pressed_tint()
-    } else {
-        style.thumb_hover_tint()
-    };
-
-    scene.push_tint(paint::Tint { rect: thumb, brush });
 }
 
 fn styled_rect(node: &ui::Node, layout: &layout::Box) -> crate::geometry::Rect {

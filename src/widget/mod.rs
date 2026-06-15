@@ -1,7 +1,18 @@
 pub mod scroll;
 
+mod control;
+mod menu_popup;
+mod popup;
+
 use crate::geometry::{Rect, area, point};
 use crate::{layout, menu, text, theme, ui};
+
+pub use control::{
+    button, button_with_theme, floating_panel, floating_panel_with_theme, icon_button,
+    icon_button_with_theme, labeled_button, labeled_button_with_theme, panel, panel_with_theme,
+};
+pub use menu_popup::{menu_popup, submenu_popup};
+pub use popup::Popup;
 
 pub const MENU_POPUP: ui::Id = ui::Id::new("__menu_popup");
 pub const MENU_SUBMENU_POPUP: ui::Id = ui::Id::new("__menu_submenu_popup");

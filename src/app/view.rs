@@ -1,7 +1,6 @@
-use crate::app::menu_ui;
 use crate::app::state::WindowState;
 use crate::geometry::area;
-use crate::{action, layout, paint, ui, window};
+use crate::{action, layout, paint, ui, widget, window};
 
 pub fn compose<T>(
     window: window::Id,
@@ -34,7 +33,7 @@ pub fn compose<T>(
     if let Some(open_menu) = state.open_menu
         && let Some(menu) = state.menus.get(&open_menu)
         && let Some(base_layout) = tree.layout(logical_area)
-        && let Some(popup) = menu_ui::popup(&tree, &base_layout, menu, actions, &command_target)
+        && let Some(popup) = widget::menu_popup(&tree, &base_layout, menu, actions, &command_target)
     {
         tree.push_popup(popup);
     }
@@ -42,7 +41,7 @@ pub fn compose<T>(
         && let Some(menu) = state.menus.get(&open_submenu)
         && let Some(menu_layout) = tree.layout(logical_area)
         && let Some(popup) =
-            menu_ui::submenu_popup(&tree, &menu_layout, menu, actions, &command_target)
+            widget::submenu_popup(&tree, &menu_layout, menu, actions, &command_target)
     {
         tree.push_popup(popup);
     }
@@ -72,7 +71,8 @@ pub fn compose<T>(
         .with_command_scope_captures(state.command_scope_captures.clone())
         .with_open_menu(state.open_menu)
         .with_open_submenu(state.open_submenu)
-        .with_pointer_position(state.pointer.position());
+        .with_pointer_position(state.pointer.position())
+        .with_pointer_capture(state.pointer_capture.clone());
         state.layout = Some(layout.clone());
 
         tree.paint(&layout, actions, window, interaction, &mut scene);
@@ -117,7 +117,7 @@ fn collect_focus_order(
 
 #[cfg(test)]
 mod tests {
-    use crate::geometry::area;
+    use crate::geometry::{area, point};
     use crate::widget;
     use crate::{Action, layout, menu, paint};
 
@@ -142,10 +142,10 @@ mod tests {
 
         registry.register(Action::new(CLICK, "Click"));
         tree.set_root(
-            ui::control::panel(ROOT)
+            widget::panel(ROOT)
                 .with_background(paint::Color::BLACK)
                 .with_child(
-                    ui::control::button(CHILD, CLICK)
+                    widget::button(CHILD, CLICK)
                         .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
                 ),
         );
@@ -188,8 +188,8 @@ mod tests {
         let mut tree = ui::Tree::new();
 
         tree.set_root(
-            ui::control::panel(ROOT).with_child(
-                ui::control::button(OTHER, CLICK)
+            widget::panel(ROOT).with_child(
+                widget::button(OTHER, CLICK)
                     .with_responder(CLICK)
                     .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
             ),
@@ -217,8 +217,8 @@ mod tests {
         let mut tree = ui::Tree::new();
 
         tree.set_root(
-            ui::control::panel(ROOT).with_child(
-                ui::control::button(OTHER, CLICK)
+            widget::panel(ROOT).with_child(
+                widget::button(OTHER, CLICK)
                     .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
             ),
         );
@@ -242,7 +242,7 @@ mod tests {
         let mut tree = ui::Tree::new();
 
         tree.set_root(
-            ui::control::panel(ROOT).with_child(
+            widget::panel(ROOT).with_child(
                 ui::Node::leaf(CHILD)
                     .with_responder(action::SELECT_ALL)
                     .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
@@ -276,14 +276,14 @@ mod tests {
         let mut tree = ui::Tree::new();
 
         tree.set_root(
-            ui::control::panel(ROOT)
+            widget::panel(ROOT)
                 .with_child(
                     ui::Node::leaf(CHILD)
                         .with_responder(action::SELECT_ALL)
                         .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
                 )
                 .with_child(
-                    ui::control::panel(OTHER)
+                    widget::panel(OTHER)
                         .with_command_scope()
                         .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
                 ),
@@ -318,7 +318,7 @@ mod tests {
         let registry = action::Registry::<()>::new();
         let mut tree = ui::Tree::new();
 
-        tree.set_root(ui::control::panel(ROOT));
+        tree.set_root(widget::panel(ROOT));
 
         compose(
             window,
@@ -349,7 +349,7 @@ mod tests {
             action::State::enabled(),
         );
         tree.set_root(
-            ui::control::panel(ROOT)
+            widget::panel(ROOT)
                 .with_child(widget::menu_bar(
                     MENU_BAR,
                     menu::Bar::new().menu(
@@ -384,6 +384,27 @@ mod tests {
                 .and_then(|layout| layout.find_path(&scope))
                 .is_some()
         );
+        let layout = state.layout.as_ref().expect("layout");
+        let popup_rect = layout
+            .find_path(&scope)
+            .expect("menu popup root layout")
+            .rect();
+        let background_hit = layout.hit_test_where(
+            point::logical(popup_rect.origin.x() + 1.0, popup_rect.origin.y() + 1.0),
+            |path| {
+                state
+                    .interactivity
+                    .get(path)
+                    .is_some_and(|interactivity| interactivity.hit_test())
+            },
+        );
+
+        assert_eq!(background_hit, Some(scope.clone()));
+        assert!(state.interactivity.get(&scope).is_some_and(
+            |interactivity| interactivity.hit_test()
+                && !interactivity.focusable()
+                && !interactivity.actionable()
+        ));
         assert_eq!(state.actions.get(&row), Some(&action::SELECT_ALL));
         assert_eq!(
             state.action_targets.get(&row),
@@ -439,7 +460,7 @@ mod tests {
             action::State::enabled(),
         );
         tree.set_root(
-            ui::control::panel(ROOT)
+            widget::panel(ROOT)
                 .with_child(widget::menu_bar(
                     MENU_BAR,
                     menu::Bar::new().menu(
@@ -492,7 +513,7 @@ mod tests {
             action::State::active(),
         );
         tree.set_root(
-            ui::control::panel(ROOT)
+            widget::panel(ROOT)
                 .with_child(widget::menu_bar(
                     MENU_BAR,
                     menu::Bar::new().menu(
@@ -540,7 +561,7 @@ mod tests {
             action::State::enabled(),
         );
         tree.set_root(
-            ui::control::panel(ROOT)
+            widget::panel(ROOT)
                 .with_child(widget::menu_bar(
                     MENU_BAR,
                     menu::Bar::new().menu(

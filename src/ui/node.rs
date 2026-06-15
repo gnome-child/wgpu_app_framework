@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{action, geometry, icon, layout, menu, paint, text, widget};
+use crate::{action, geometry, icon, layout, menu, paint, pointer, text, widget};
 
 use super::{Backdrop, Id, Path, focus};
 
@@ -108,6 +108,7 @@ pub struct Interaction {
     open_menu: Option<menu::Id>,
     open_submenu: Option<menu::Id>,
     pointer_position: Option<geometry::point::Logical>,
+    pointer_capture: Option<pointer::Capture>,
 }
 
 impl Node {
@@ -736,6 +737,7 @@ impl Interaction {
             open_menu: None,
             open_submenu: None,
             pointer_position: None,
+            pointer_capture: None,
         }
     }
 
@@ -769,6 +771,11 @@ impl Interaction {
         self
     }
 
+    pub fn with_pointer_capture(mut self, capture: Option<pointer::Capture>) -> Self {
+        self.pointer_capture = capture;
+        self
+    }
+
     pub fn hovered(&self) -> Option<&Path> {
         self.hovered.as_ref()
     }
@@ -799,6 +806,10 @@ impl Interaction {
 
     pub fn pointer_position(&self) -> Option<geometry::point::Logical> {
         self.pointer_position
+    }
+
+    pub fn pointer_capture(&self) -> Option<&pointer::Capture> {
+        self.pointer_capture.as_ref()
     }
 
     pub fn captured_command_target(&self, path: &Path) -> Option<&action::Context> {

@@ -4,13 +4,13 @@ use crate::geometry::area;
 use crate::{action, layout, menu, paint, widget, window};
 
 use super::{
-    ActionTarget, Intent, Interaction, Interactivity, Node, Path, Popup, layout_engine, painting,
+    ActionTarget, Intent, Interaction, Interactivity, Node, Path, layout_engine, painting,
 };
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tree {
     root: Option<Node>,
-    popups: Vec<Popup>,
+    popups: Vec<widget::Popup>,
 }
 
 impl Tree {
@@ -33,7 +33,7 @@ impl Tree {
         self.root.as_mut()
     }
 
-    pub fn push_popup(&mut self, popup: Popup) {
+    pub fn push_popup(&mut self, popup: widget::Popup) {
         self.popups.push(popup);
     }
 
@@ -41,7 +41,7 @@ impl Tree {
         self.popups.clear();
     }
 
-    pub fn popups(&self) -> &[Popup] {
+    pub fn popups(&self) -> &[widget::Popup] {
         &self.popups
     }
 

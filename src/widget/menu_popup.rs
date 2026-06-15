@@ -1,5 +1,9 @@
 use crate::geometry::{Rect, area, point};
-use crate::{action, icon, layout, menu, paint, text, theme, ui, widget};
+use crate::{action, icon, layout, menu, paint, text, theme, ui};
+
+use super::{
+    MENU_POPUP, MENU_SUBMENU_POPUP, Popup, floating_panel_with_theme, separator_with_theme,
+};
 
 const SEPARATOR_HEIGHT: f32 = 1.0;
 const ROW_ICON_WIDTH: f32 = 28.0;
@@ -47,13 +51,13 @@ const ROW_IDS: [ui::Id; 32] = [
     ui::Id::new("__menu_row_31"),
 ];
 
-pub fn popup<T>(
+pub fn menu_popup<T>(
     tree: &ui::Tree,
     layout: &layout::Box,
     menu: &menu::Menu,
     actions: &action::Registry<T>,
     command_target: &action::Context,
-) -> Option<ui::Popup> {
+) -> Option<Popup> {
     let theme = theme::Theme::default_dark();
     let anchor = anchor_rect(tree, layout, menu.id(), AnchorKind::TopLevel)?;
     let popup_rect = popup_rect(
@@ -62,10 +66,10 @@ pub fn popup<T>(
         &theme,
     );
 
-    Some(ui::Popup::new(
+    Some(Popup::new(
         popup_rect,
         popup_node(
-            widget::MENU_POPUP,
+            MENU_POPUP,
             menu,
             actions,
             command_target,
@@ -81,7 +85,7 @@ pub fn submenu_popup<T>(
     menu: &menu::Menu,
     actions: &action::Registry<T>,
     command_target: &action::Context,
-) -> Option<ui::Popup> {
+) -> Option<Popup> {
     let theme = theme::Theme::default_dark();
     let anchor = anchor_rect(tree, layout, menu.id(), AnchorKind::Submenu)?;
     let padding = theme.floating_panel().padding();
@@ -94,10 +98,10 @@ pub fn submenu_popup<T>(
         &theme,
     );
 
-    Some(ui::Popup::new(
+    Some(Popup::new(
         popup_rect,
         popup_node(
-            widget::MENU_SUBMENU_POPUP,
+            MENU_SUBMENU_POPUP,
             menu,
             actions,
             command_target,
@@ -151,7 +155,7 @@ fn popup_node<T>(
     height: f32,
     theme: &theme::Theme,
 ) -> ui::Node {
-    let mut popup = ui::control::floating_panel_with_theme(id, theme)
+    let mut popup = floating_panel_with_theme(id, theme)
         .with_command_scope()
         .with_size(
             layout::Size::Fixed(theme.density().menu_popup_width()),
@@ -335,7 +339,7 @@ fn text_cell(
 }
 
 fn separator_node(id: ui::Id, theme: &theme::Theme) -> ui::Node {
-    widget::separator_with_theme(id, theme)
+    separator_with_theme(id, theme)
         .with_intent(ui::Intent::CloseSubmenu)
         .with_size(layout::Size::Fill, layout::Size::Fixed(SEPARATOR_HEIGHT))
 }

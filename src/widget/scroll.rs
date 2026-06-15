@@ -399,6 +399,55 @@ pub fn metrics(node: &ui::Node, layout: &layout::Box) -> Option<Metrics> {
     })
 }
 
+pub fn paint_chrome(
+    node: &ui::Node,
+    layout: &layout::Box,
+    interaction: &ui::Interaction,
+    scene: &mut paint::Scene,
+) {
+    let Some(metrics) = metrics(node, layout) else {
+        return;
+    };
+
+    let style = metrics.style();
+
+    if let Some(track) = metrics.vertical_track() {
+        push_chrome(scene, track, style.track());
+    }
+
+    if let Some(track) = metrics.horizontal_track() {
+        push_chrome(scene, track, style.track());
+    }
+
+    if let Some(corner) = metrics.corner() {
+        push_chrome(scene, corner, style.corner());
+    }
+
+    if let Some(thumb) = metrics.vertical_thumb() {
+        push_chrome(scene, thumb, style.thumb());
+        push_thumb_tint(
+            scene,
+            metrics,
+            layout.path(),
+            thumb,
+            Part::VerticalThumb,
+            interaction,
+        );
+    }
+
+    if let Some(thumb) = metrics.horizontal_thumb() {
+        push_chrome(scene, thumb, style.thumb());
+        push_thumb_tint(
+            scene,
+            metrics,
+            layout.path(),
+            thumb,
+            Part::HorizontalThumb,
+            interaction,
+        );
+    }
+}
+
 pub fn viewport_rect(node: &ui::Node, rect: Rect) -> Rect {
     let padding = node.style().padding();
     let scroll = node.scroll();
@@ -426,6 +475,45 @@ pub fn viewport_rect(node: &ui::Node, rect: Rect) -> Rect {
         ),
         node.style().radius(),
     )
+}
+
+fn push_chrome(scene: &mut paint::Scene, rect: Rect, brush: paint::Brush) {
+    scene.push_quad(paint::Quad {
+        rect,
+        style: paint::Style {
+            fill: Some(paint::Fill::Brush(brush)),
+            stroke: None,
+            tint: None,
+        },
+    });
+}
+
+fn push_thumb_tint(
+    scene: &mut paint::Scene,
+    metrics: Metrics,
+    path: &ui::Path,
+    thumb: Rect,
+    part: Part,
+    interaction: &ui::Interaction,
+) {
+    let captured = interaction.pointer_capture().is_some_and(|capture| {
+        capture.target() == path && capture.part() == super::Part::Scroll(part)
+    });
+    let hovered = interaction
+        .pointer_position()
+        .is_some_and(|position| metrics.hit_test(position) == Some(part));
+
+    let brush = if captured {
+        Some(metrics.style().thumb_pressed_tint())
+    } else if hovered {
+        Some(metrics.style().thumb_hover_tint())
+    } else {
+        None
+    };
+
+    if let Some(brush) = brush {
+        scene.push_tint(paint::Tint { rect: thumb, brush });
+    }
 }
 
 fn content_size(node: &ui::Node, layout: &layout::Box, viewport: Rect) -> area::Logical {

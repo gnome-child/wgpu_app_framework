@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::*;
 use crate::geometry::{Rect, area, point, rect};
-use crate::{action, icon, layout, menu, paint, text, theme, widget, window};
+use crate::{action, icon, layout, menu, paint, pointer, text, theme, widget, window};
 
 const ROOT: Id = Id::new("root");
 const A: Id = Id::new("a");
@@ -451,6 +451,90 @@ fn scroll_view_paints_track_corner_and_thumb_chrome() {
 }
 
 #[test]
+fn captured_scrollbar_thumb_stays_visually_pressed_off_thumb() {
+    let root = widget::scroll_view(ROOT)
+        .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(30.0)))
+        .with_child(Node::leaf(B).with_size(layout::Size::Fill, layout::Size::Fixed(30.0)))
+        .with_child(Node::leaf(C).with_size(layout::Size::Fill, layout::Size::Fixed(30.0)));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+
+    tree.set_root(root);
+    let layout = tree.layout(area::logical(40.0, 40.0)).unwrap();
+    let metrics = tree
+        .widget_metrics(&layout)
+        .get(&path(ROOT))
+        .and_then(|metrics| metrics.scroll())
+        .expect("scroll metrics");
+    let thumb = metrics.vertical_thumb().expect("vertical thumb");
+    let capture = pointer::Capture::new(
+        path(ROOT),
+        widget::Part::Scroll(widget::scroll::Part::VerticalThumb),
+        pointer::Button::Primary,
+        point::logical(35.0, 5.0),
+        point::logical(0.0, 3.0),
+    );
+
+    tree.paint(
+        &layout,
+        &registry,
+        window::Id::new(1),
+        Interaction::default()
+            .with_pointer_position(Some(point::logical(1.0, 1.0)))
+            .with_pointer_capture(Some(capture)),
+        &mut scene,
+    );
+
+    assert!(scene.items().iter().any(|item| {
+        matches!(
+            item,
+            paint::Item::Tint(tint)
+                if tint.rect == thumb && tint.brush == metrics.style().thumb_pressed_tint()
+        )
+    }));
+}
+
+#[test]
+fn scrollbar_thumb_hover_tint_requires_pointer_hit() {
+    let root = widget::scroll_view(ROOT)
+        .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(30.0)))
+        .with_child(Node::leaf(B).with_size(layout::Size::Fill, layout::Size::Fixed(30.0)))
+        .with_child(Node::leaf(C).with_size(layout::Size::Fill, layout::Size::Fixed(30.0)));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+
+    tree.set_root(root);
+    let layout = tree.layout(area::logical(40.0, 40.0)).unwrap();
+    let metrics = tree
+        .widget_metrics(&layout)
+        .get(&path(ROOT))
+        .and_then(|metrics| metrics.scroll())
+        .expect("scroll metrics");
+    let thumb = metrics.vertical_thumb().expect("vertical thumb");
+
+    tree.paint(
+        &layout,
+        &registry,
+        window::Id::new(1),
+        Interaction::default().with_pointer_position(Some(point::logical(
+            thumb.origin.x() + 1.0,
+            thumb.origin.y() + 1.0,
+        ))),
+        &mut scene,
+    );
+
+    assert!(scene.items().iter().any(|item| {
+        matches!(
+            item,
+            paint::Item::Tint(tint)
+                if tint.rect == thumb && tint.brush == metrics.style().thumb_hover_tint()
+        )
+    }));
+}
+
+#[test]
 fn scroll_view_clip_uses_viewport_minus_enabled_gutters() {
     let root = widget::scroll_view(ROOT)
         .with_scroll_bars(widget::scroll::Bars::both())
@@ -502,7 +586,7 @@ fn popup_layout_is_topmost_for_hit_testing() {
         Node::container(ROOT, layout::Axis::Vertical)
             .with_child(Node::leaf(A).with_interactivity(Interactivity::CONTROL)),
     );
-    tree.push_popup(Popup::new(
+    tree.push_popup(widget::Popup::new(
         Rect::new(point::logical(0.0, 0.0), area::logical(40.0, 40.0)),
         Node::leaf(B).with_interactivity(Interactivity::CONTROL),
     ));
@@ -515,10 +599,38 @@ fn popup_layout_is_topmost_for_hit_testing() {
 }
 
 #[test]
+fn floating_panel_root_blocks_hits_without_taking_focus_or_action() {
+    let mut tree = Tree::new();
+    tree.set_root(Node::container(ROOT, layout::Axis::Vertical).with_child(
+        widget::button(A, CLICK).with_size(layout::Size::Fixed(40.0), layout::Size::Fixed(40.0)),
+    ));
+    tree.push_popup(widget::Popup::new(
+        Rect::new(point::logical(0.0, 0.0), area::logical(40.0, 40.0)),
+        widget::floating_panel(B),
+    ));
+    let layout = layout(&tree);
+    let interactivity = tree.interactivity();
+
+    assert_eq!(
+        layout.hit_test_where(point::logical(10.0, 10.0), |path| interactivity
+            .get(path)
+            .is_some_and(|interactivity| interactivity.hit_test())),
+        Some(Path::new([ROOT, B]))
+    );
+
+    let popup_interactivity = interactivity
+        .get(&Path::new([ROOT, B]))
+        .expect("popup root interactivity");
+    assert!(popup_interactivity.hit_test());
+    assert!(!popup_interactivity.focusable());
+    assert!(!popup_interactivity.actionable());
+}
+
+#[test]
 fn tree_collects_popup_interactivity_with_root_prefixed_path() {
     let mut tree = Tree::new();
     tree.set_root(Node::leaf(ROOT));
-    tree.push_popup(Popup::new(
+    tree.push_popup(widget::Popup::new(
         Rect::new(point::logical(0.0, 0.0), area::logical(40.0, 40.0)),
         Node::leaf(B).with_interactivity(Interactivity::CONTROL),
     ));
@@ -533,7 +645,7 @@ fn tree_collects_popup_interactivity_with_root_prefixed_path() {
 fn tree_collects_widget_scroll_metrics_with_root_prefixed_path() {
     let mut tree = Tree::new();
     tree.set_root(Node::leaf(ROOT));
-    tree.push_popup(Popup::new(
+    tree.push_popup(widget::Popup::new(
         Rect::new(point::logical(0.0, 0.0), area::logical(40.0, 40.0)),
         widget::scroll_view(B).with_scroll_offset(point::logical(0.0, 12.0)),
     ));
@@ -607,7 +719,7 @@ fn deepest_hit_test_target_is_returned() {
 #[test]
 fn passive_parent_does_not_become_hit_target() {
     let root = Node::container(ROOT, layout::Axis::Vertical).with_child(
-        control::button(A, CLICK).with_size(layout::Size::Fill, layout::Size::Fixed(20.0)),
+        widget::button(A, CLICK).with_size(layout::Size::Fill, layout::Size::Fixed(20.0)),
     );
     let mut tree = Tree::new();
 
@@ -634,7 +746,7 @@ fn clipped_parent_suppresses_overflow_child_hit_testing() {
     let root = widget::scroll_view(ROOT)
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(20.0))
         .with_child(
-            control::button(A, CLICK).with_size(layout::Size::Fill, layout::Size::Fixed(40.0)),
+            widget::button(A, CLICK).with_size(layout::Size::Fill, layout::Size::Fixed(40.0)),
         );
     let mut tree = Tree::new();
 
@@ -709,7 +821,7 @@ fn clipped_node_wraps_children_in_clip_commands() {
 
 #[test]
 fn labeled_button_stores_label_document() {
-    let button = control::labeled_button(A, CLICK, "Activate");
+    let button = widget::labeled_button(A, CLICK, "Activate");
 
     let label = button.label().expect("button should have a label");
     assert_eq!(label.blocks()[0].align(), text::Align::Center);
@@ -736,7 +848,7 @@ fn node_with_backdrop_stores_backdrop_data() {
 
 #[test]
 fn icon_button_is_action_bound_control() {
-    let button = control::icon_button(A, CLICK, check_icon());
+    let button = widget::icon_button(A, CLICK, check_icon());
 
     assert_eq!(button.action(), Some(CLICK));
     assert_eq!(button.action_target(), ActionTarget::Origin);
@@ -750,28 +862,28 @@ fn icon_button_is_action_bound_control() {
 fn default_control_builders_match_default_dark_theme_builders() {
     let theme = theme::Theme::default_dark();
 
-    assert_eq!(control::panel(A), control::panel_with_theme(A, &theme));
+    assert_eq!(widget::panel(A), widget::panel_with_theme(A, &theme));
     assert_eq!(
-        control::floating_panel(A),
-        control::floating_panel_with_theme(A, &theme)
+        widget::floating_panel(A),
+        widget::floating_panel_with_theme(A, &theme)
     );
     assert_eq!(
-        control::button(A, CLICK),
-        control::button_with_theme(A, CLICK, &theme)
+        widget::button(A, CLICK),
+        widget::button_with_theme(A, CLICK, &theme)
     );
     assert_eq!(
-        control::labeled_button(A, CLICK, "Activate"),
-        control::labeled_button_with_theme(A, CLICK, "Activate", &theme)
+        widget::labeled_button(A, CLICK, "Activate"),
+        widget::labeled_button_with_theme(A, CLICK, "Activate", &theme)
     );
     assert_eq!(
-        control::icon_button(A, CLICK, check_icon()),
-        control::icon_button_with_theme(A, CLICK, check_icon(), &theme)
+        widget::icon_button(A, CLICK, check_icon()),
+        widget::icon_button_with_theme(A, CLICK, check_icon(), &theme)
     );
 }
 
 #[test]
 fn default_button_uses_compact_theme_density() {
-    let button = control::button(A, CLICK);
+    let button = widget::button(A, CLICK);
 
     assert_eq!(
         button.layout().height(),
@@ -784,7 +896,7 @@ fn default_button_uses_compact_theme_density() {
 fn floating_panel_uses_default_glass_material_tokens() {
     let theme = theme::Theme::default_dark();
     let floating = theme.floating_panel();
-    let panel = control::floating_panel(A);
+    let panel = widget::floating_panel(A);
     let style = panel.style();
 
     assert_eq!(
@@ -799,6 +911,9 @@ fn floating_panel_uses_default_glass_material_tokens() {
     assert_eq!(shadow.offset(), floating.shadow().offset());
     assert_eq!(style.radius(), floating.radius());
     assert_eq!(style.padding(), layout::Insets::splat(floating.padding()));
+    assert!(panel.interactivity().hit_test());
+    assert!(!panel.interactivity().focusable());
+    assert!(!panel.interactivity().actionable());
 }
 
 #[test]
@@ -883,7 +998,7 @@ fn node_with_responder_stores_handled_action() {
 #[test]
 fn tree_collects_action_target_policies() {
     let root = Node::container(ROOT, layout::Axis::Vertical)
-        .with_child(control::button(A, CLICK).with_action_target(ActionTarget::Command));
+        .with_child(widget::button(A, CLICK).with_action_target(ActionTarget::Command));
     let mut tree = Tree::new();
 
     tree.set_root(root);
@@ -953,7 +1068,7 @@ fn node_radius_is_emitted_on_paint_quad() {
 fn tree_paint_emits_label_after_node_background() {
     let root = Node::container(ROOT, layout::Axis::Vertical)
         .with_background(paint::Color::BLACK)
-        .with_child(control::labeled_button(A, CLICK, "Activate"));
+        .with_child(widget::labeled_button(A, CLICK, "Activate"));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -983,7 +1098,7 @@ fn tree_paint_emits_label_after_node_background() {
 #[test]
 fn later_sibling_quad_renders_after_button_label() {
     let root = Node::container(ROOT, layout::Axis::Vertical)
-        .with_child(control::labeled_button(A, CLICK, "Activate"))
+        .with_child(widget::labeled_button(A, CLICK, "Activate"))
         .with_child(Node::leaf(B).with_background(paint::Color::RED));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
@@ -1132,7 +1247,7 @@ fn ui_lowering_preserves_gradient_shape_chrome_order() {
 
 #[test]
 fn disabled_button_uses_disabled_label_color() {
-    let root = control::labeled_button(A, CLICK, "Disabled");
+    let root = widget::labeled_button(A, CLICK, "Disabled");
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1170,7 +1285,7 @@ fn disabled_button_uses_disabled_label_color() {
 
 #[test]
 fn disabled_icon_button_uses_disabled_label_color() {
-    let root = control::icon_button(A, CLICK, check_icon());
+    let root = widget::icon_button(A, CLICK, check_icon());
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1202,7 +1317,7 @@ fn disabled_icon_button_uses_disabled_label_color() {
 
 #[test]
 fn control_hover_state_emits_hover_tint_over_base_background() {
-    let root = control::button(A, CLICK);
+    let root = widget::button(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1235,7 +1350,7 @@ fn control_hover_state_emits_hover_tint_over_base_background() {
 
 #[test]
 fn control_focus_state_emits_outline_without_changing_fill() {
-    let root = control::button(A, CLICK);
+    let root = widget::button(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1344,7 +1459,7 @@ fn open_submenu_row_emits_active_tint() {
 
 #[test]
 fn hidden_focus_does_not_emit_outline() {
-    let root = control::button(A, CLICK);
+    let root = widget::button(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1367,7 +1482,7 @@ fn hidden_focus_does_not_emit_outline() {
 
 #[test]
 fn active_state_renders_independently_from_focus_visibility() {
-    let root = control::button(A, CLICK);
+    let root = widget::button(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1399,7 +1514,7 @@ fn active_state_renders_independently_from_focus_visibility() {
 
 #[test]
 fn command_target_widget_visuals_derive_from_command_target_state() {
-    let root = control::button(A, CLICK).with_action_target(ActionTarget::Command);
+    let root = widget::button(A, CLICK).with_action_target(ActionTarget::Command);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1429,7 +1544,7 @@ fn command_target_widget_visuals_derive_from_command_target_state() {
 
 #[test]
 fn window_target_widget_visuals_derive_from_window_state() {
-    let root = control::button(A, CLICK).with_action_target(ActionTarget::Window);
+    let root = widget::button(A, CLICK).with_action_target(ActionTarget::Window);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1461,7 +1576,7 @@ fn window_target_widget_visuals_derive_from_window_state() {
 fn captured_target_widget_visuals_derive_from_scope_capture() {
     let root = Node::container(ROOT, layout::Axis::Vertical)
         .with_command_scope()
-        .with_child(control::button(A, CLICK).with_action_target(ActionTarget::Captured));
+        .with_child(widget::button(A, CLICK).with_action_target(ActionTarget::Captured));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1497,7 +1612,7 @@ fn captured_target_widget_visuals_derive_from_scope_capture() {
 
 #[test]
 fn active_hovered_control_emits_active_then_hover_tint() {
-    let root = control::button(A, CLICK);
+    let root = widget::button(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1537,7 +1652,7 @@ fn active_hovered_control_emits_active_then_hover_tint() {
 
 #[test]
 fn active_pressed_control_emits_active_then_pressed_tint() {
-    let root = control::button(A, CLICK);
+    let root = widget::button(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1574,7 +1689,7 @@ fn active_pressed_control_emits_active_then_pressed_tint() {
 
 #[test]
 fn busy_control_emits_busy_tint_and_suppresses_hover_press() {
-    let root = control::button(A, CLICK);
+    let root = widget::button(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1617,7 +1732,7 @@ fn busy_control_emits_busy_tint_and_suppresses_hover_press() {
 
 #[test]
 fn disabled_control_emits_disabled_tint_and_suppresses_hover_press() {
-    let root = control::button(A, CLICK);
+    let root = widget::button(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1650,7 +1765,7 @@ fn disabled_control_emits_disabled_tint_and_suppresses_hover_press() {
 
 #[test]
 fn busy_button_uses_busy_label_color() {
-    let root = control::labeled_button(A, CLICK, "Working");
+    let root = widget::labeled_button(A, CLICK, "Working");
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1682,7 +1797,7 @@ fn busy_button_uses_busy_label_color() {
 
 #[test]
 fn busy_icon_button_uses_busy_label_color() {
-    let root = control::icon_button(A, CLICK, check_icon());
+    let root = widget::icon_button(A, CLICK, check_icon());
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1710,7 +1825,7 @@ fn busy_icon_button_uses_busy_label_color() {
 
 #[test]
 fn pressed_state_emits_pressed_tint_after_action_states() {
-    let root = control::button(A, CLICK);
+    let root = widget::button(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1737,7 +1852,7 @@ fn pressed_state_emits_pressed_tint_after_action_states() {
 
 #[test]
 fn focused_node_emits_overlay_outline_after_tree_content() {
-    let root = control::panel(A).with_child(Node::leaf(B).with_background(paint::Color::RED));
+    let root = widget::panel(A).with_child(Node::leaf(B).with_background(paint::Color::RED));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let registry = action::Registry::<()>::new();
@@ -1775,7 +1890,7 @@ fn popup_shadow_renders_before_popup_panel_fill() {
     let window = window::Id::new(1);
 
     tree.set_root(Node::leaf(ROOT).with_background(paint::Color::BLACK));
-    tree.push_popup(Popup::new(
+    tree.push_popup(widget::Popup::new(
         popup_rect,
         Node::leaf(B)
             .with_background(paint::Color::RED)
@@ -1855,7 +1970,7 @@ fn popup_backdrop_lowers_after_shadow_before_popup_panel_fill() {
     let window = window::Id::new(1);
 
     tree.set_root(Node::leaf(ROOT).with_background(paint::Color::BLACK));
-    tree.push_popup(Popup::new(
+    tree.push_popup(widget::Popup::new(
         popup_rect,
         Node::leaf(B)
             .with_background(paint::Color::rgba(1.0, 1.0, 1.0, 0.35))
@@ -1888,7 +2003,7 @@ fn popup_backdrop_lowers_after_shadow_before_popup_panel_fill() {
 
 #[test]
 fn icon_paint_is_emitted_after_tints_before_focus_outline() {
-    let root = control::icon_button(A, CLICK, check_icon());
+    let root = widget::icon_button(A, CLICK, check_icon());
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1919,7 +2034,7 @@ fn icon_paint_is_emitted_after_tints_before_focus_outline() {
 #[test]
 fn focused_first_button_outline_is_not_covered_by_second_button() {
     let root = Node::container(ROOT, layout::Axis::Vertical)
-        .with_child(control::labeled_button(A, CLICK, "Active"))
+        .with_child(widget::labeled_button(A, CLICK, "Active"))
         .with_child(Node::leaf(B).with_background(paint::Color::RED));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
@@ -1956,7 +2071,7 @@ fn focused_first_button_outline_is_not_covered_by_second_button() {
 
 #[test]
 fn enabled_inactive_action_node_uses_base_background() {
-    let root = control::button(A, CLICK);
+    let root = widget::button(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
