@@ -31,6 +31,7 @@ pub fn compose<T>(
     }
 
     let command_target = state.command_context(window);
+    let mut menu_popup_inserted = false;
     if let Some(open_menu) = state.open_menu
         && let Some(menu) = state.menus.get(&open_menu)
         && let Some(base_layout) = tree.layout(logical_area, measurer)
@@ -44,8 +45,10 @@ pub fn compose<T>(
         )
     {
         tree.push_popup(popup);
+        menu_popup_inserted = true;
     }
-    if let Some(open_submenu) = state.open_submenu
+    if menu_popup_inserted
+        && let Some(open_submenu) = state.open_submenu
         && let Some(menu) = state.menus.get(&open_submenu)
         && let Some(menu_layout) = tree.layout(logical_area, measurer)
         && let Some(popup) = widget::submenu_popup(

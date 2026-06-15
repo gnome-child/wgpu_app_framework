@@ -1,5 +1,8 @@
 use crate::geometry::area;
 use crate::{paint, text_backend};
+use std::collections::{HashMap, VecDeque};
+
+const MEASURE_CACHE_CAPACITY: usize = 2048;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Document {
@@ -20,6 +23,9 @@ pub struct Run {
 
 pub struct Measurer {
     font_system: glyphon::FontSystem,
+    cache: MeasureCache,
+    #[cfg(test)]
+    uncached_measure_count: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -40,18 +46,50 @@ pub struct Style {
     pub weight: Weight,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Weight {
     Normal,
     Medium,
     Bold,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Align {
     Start,
     Center,
     End,
+}
+
+#[derive(Debug)]
+struct MeasureCache {
+    entries: HashMap<MeasureKey, Metrics>,
+    order: VecDeque<MeasureKey>,
+    capacity: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct MeasureKey {
+    blocks: Vec<BlockKey>,
+    max: Option<BoundsKey>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct BlockKey {
+    align: Align,
+    runs: Vec<RunKey>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct RunKey {
+    text: String,
+    size: u32,
+    weight: Weight,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct BoundsKey {
+    width: u32,
+    height: u32,
 }
 
 impl Document {
@@ -116,12 +154,31 @@ impl Measurer {
     pub fn new() -> Self {
         Self {
             font_system: text_backend::font_system(),
+            cache: MeasureCache::new(MEASURE_CACHE_CAPACITY),
+            #[cfg(test)]
+            uncached_measure_count: 0,
         }
     }
 
     pub fn measure(&mut self, document: &Document, measure: Measure) -> Metrics {
         if document.is_empty() {
             return Metrics::empty();
+        }
+
+        let key = MeasureKey::new(document, measure);
+        if let Some(metrics) = self.cache.get(&key) {
+            return metrics;
+        }
+
+        let metrics = self.measure_uncached(document, measure);
+        self.cache.insert(key, metrics);
+        metrics
+    }
+
+    fn measure_uncached(&mut self, document: &Document, measure: Measure) -> Metrics {
+        #[cfg(test)]
+        {
+            self.uncached_measure_count += 1;
         }
 
         let mut width = 0.0_f32;
@@ -182,6 +239,25 @@ impl Measurer {
         }
 
         Metrics::new(area::logical(width, height), line_count)
+    }
+
+    #[cfg(test)]
+    pub fn uncached_measure_count(&self) -> usize {
+        self.uncached_measure_count
+    }
+
+    #[cfg(test)]
+    pub fn cache_len(&self) -> usize {
+        self.cache.len()
+    }
+
+    #[cfg(test)]
+    fn with_cache_capacity(capacity: usize) -> Self {
+        Self {
+            font_system: text_backend::font_system(),
+            cache: MeasureCache::new(capacity),
+            uncached_measure_count: 0,
+        }
     }
 }
 
@@ -322,6 +398,101 @@ impl Default for Style {
     }
 }
 
+impl MeasureCache {
+    fn new(capacity: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            order: VecDeque::new(),
+            capacity,
+        }
+    }
+
+    fn get(&self, key: &MeasureKey) -> Option<Metrics> {
+        self.entries.get(key).copied()
+    }
+
+    fn insert(&mut self, key: MeasureKey, metrics: Metrics) {
+        if self.capacity == 0 {
+            return;
+        }
+
+        if let Some(entry) = self.entries.get_mut(&key) {
+            *entry = metrics;
+            return;
+        }
+
+        while self.entries.len() >= self.capacity {
+            if let Some(oldest) = self.order.pop_front() {
+                self.entries.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+
+        self.order.push_back(key.clone());
+        self.entries.insert(key, metrics);
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+}
+
+impl MeasureKey {
+    fn new(document: &Document, measure: Measure) -> Self {
+        Self {
+            blocks: document
+                .blocks()
+                .iter()
+                .filter(|block| !block.is_empty())
+                .map(BlockKey::new)
+                .collect(),
+            max: measure.max().map(BoundsKey::new),
+        }
+    }
+}
+
+impl BlockKey {
+    fn new(block: &Block) -> Self {
+        Self {
+            align: block.align(),
+            runs: block.runs().iter().map(RunKey::new).collect(),
+        }
+    }
+}
+
+impl RunKey {
+    fn new(run: &Run) -> Self {
+        let style = run.style();
+
+        Self {
+            text: run.text().to_owned(),
+            size: finite_bits(style.size.max(1.0)),
+            weight: style.weight,
+        }
+    }
+}
+
+impl BoundsKey {
+    fn new(bounds: area::Logical) -> Self {
+        Self {
+            width: finite_bits(bounds.width().max(0.0)),
+            height: finite_bits(bounds.height().max(0.0)),
+        }
+    }
+}
+
+fn finite_bits(value: f32) -> u32 {
+    if value.is_finite() {
+        value.to_bits()
+    } else if value.is_sign_negative() {
+        0.0_f32.to_bits()
+    } else {
+        f32::INFINITY.to_bits()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,5 +568,77 @@ mod tests {
         let large = measurer.measure(&large, Measure::unbounded());
 
         assert!(large.height() > small.height());
+    }
+
+    #[test]
+    fn repeated_measurement_reuses_cached_metrics() {
+        let mut measurer = Measurer::new();
+        let document = Document::plain("Cached Label");
+
+        let first = measurer.measure(&document, Measure::unbounded());
+        let second = measurer.measure(&document, Measure::unbounded());
+
+        assert_eq!(first, second);
+        assert_eq!(measurer.uncached_measure_count(), 1);
+        assert_eq!(measurer.cache_len(), 1);
+    }
+
+    #[test]
+    fn color_only_changes_reuse_cached_metrics() {
+        let mut measurer = Measurer::new();
+        let red = Document::plain("Cached Label").with_color(paint::Color::RED);
+        let black = Document::plain("Cached Label").with_color(paint::Color::BLACK);
+
+        let red = measurer.measure(&red, Measure::unbounded());
+        let black = measurer.measure(&black, Measure::unbounded());
+
+        assert_eq!(red, black);
+        assert_eq!(measurer.uncached_measure_count(), 1);
+    }
+
+    #[test]
+    fn shaping_relevant_document_and_bounds_changes_use_distinct_cache_keys() {
+        let mut measurer = Measurer::new();
+        let base = styled_document("Cached Label", Align::Start, 16.0, Weight::Normal);
+        let text = styled_document("Different Label", Align::Start, 16.0, Weight::Normal);
+        let size = styled_document("Cached Label", Align::Start, 20.0, Weight::Normal);
+        let weight = styled_document("Cached Label", Align::Start, 16.0, Weight::Bold);
+        let align = styled_document("Cached Label", Align::End, 16.0, Weight::Normal);
+
+        measurer.measure(&base, Measure::unbounded());
+        measurer.measure(&text, Measure::unbounded());
+        measurer.measure(&size, Measure::unbounded());
+        measurer.measure(&weight, Measure::unbounded());
+        measurer.measure(&align, Measure::unbounded());
+        measurer.measure(&base, Measure::bounded(area::logical(40.0, 100.0)));
+
+        assert_eq!(measurer.uncached_measure_count(), 6);
+        assert_eq!(measurer.cache_len(), 6);
+    }
+
+    #[test]
+    fn bounded_fifo_cache_evicts_oldest_entries() {
+        let mut measurer = Measurer::with_cache_capacity(2);
+        let first = Document::plain("First");
+        let second = Document::plain("Second");
+        let third = Document::plain("Third");
+
+        measurer.measure(&first, Measure::unbounded());
+        measurer.measure(&second, Measure::unbounded());
+        measurer.measure(&third, Measure::unbounded());
+        measurer.measure(&first, Measure::unbounded());
+
+        assert_eq!(measurer.cache_len(), 2);
+        assert_eq!(measurer.uncached_measure_count(), 4);
+    }
+
+    fn styled_document(text: &str, align: Align, size: f32, weight: Weight) -> Document {
+        let mut block = Block::new(align);
+        block.push_run(Run::new(
+            text,
+            Style::default().with_size(size).with_weight(weight),
+        ));
+
+        Document::from_block(block)
     }
 }

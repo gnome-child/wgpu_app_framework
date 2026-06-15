@@ -536,6 +536,28 @@ mod tests {
     }
 
     #[test]
+    fn menu_popup_metrics_reuse_cached_label_and_shortcut_measurements() {
+        let theme = theme::Theme::default_dark();
+        let mut registry = action::Registry::<()>::new();
+        let mut measurer = text::Measurer::new();
+        let menu = menu::Menu::new(menu::Id::new("test"), "Test").section(
+            menu::Section::new().item(menu::Item::new(ACTION_A).with_label("Measured Menu Item")),
+        );
+
+        registry.register(
+            crate::Action::new(ACTION_A, "Measured").with_shortcut(action::Shortcut::control('m')),
+        );
+
+        let first = popup_metrics(&menu, &registry, &theme, &mut measurer);
+        let uncached = measurer.uncached_measure_count();
+        let second = popup_metrics(&menu, &registry, &theme, &mut measurer);
+
+        assert_eq!(first, second);
+        assert!(uncached > 0);
+        assert_eq!(measurer.uncached_measure_count(), uncached);
+    }
+
+    #[test]
     fn menu_row_text_alignment_uses_left_label_and_right_shortcut() {
         let theme = theme::Theme::default_dark();
         let mut registry = action::Registry::<()>::new();
