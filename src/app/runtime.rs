@@ -316,6 +316,16 @@ impl<A: Application> Runtime<A> {
                     self.windows.request_redraw(window);
                 }
             }
+            ui::Intent::OpenSubmenu(menu) => {
+                if state.open_submenu(menu, &self.actions, window) {
+                    self.windows.request_redraw(window);
+                }
+            }
+            ui::Intent::CloseSubmenu => {
+                if state.close_submenu() {
+                    self.windows.request_redraw(window);
+                }
+            }
         }
     }
 

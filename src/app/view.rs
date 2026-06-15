@@ -20,11 +20,29 @@ pub fn compose<T>(
     {
         state.open_menu = None;
     }
+    if state.open_menu.is_none() {
+        state.open_submenu = None;
+    }
+    if state
+        .open_submenu
+        .is_some_and(|menu| !state.menus.contains_key(&menu))
+    {
+        state.open_submenu = None;
+    }
 
+    let command_target = state.command_context(window);
     if let Some(open_menu) = state.open_menu
         && let Some(menu) = state.menus.get(&open_menu)
         && let Some(base_layout) = tree.layout(logical_area)
-        && let Some(popup) = menu_ui::popup(&tree, &base_layout, menu, actions)
+        && let Some(popup) = menu_ui::popup(&tree, &base_layout, menu, actions, &command_target)
+    {
+        tree.push_popup(popup);
+    }
+    if let Some(open_submenu) = state.open_submenu
+        && let Some(menu) = state.menus.get(&open_submenu)
+        && let Some(menu_layout) = tree.layout(logical_area)
+        && let Some(popup) =
+            menu_ui::submenu_popup(&tree, &menu_layout, menu, actions, &command_target)
     {
         tree.push_popup(popup);
     }
@@ -103,8 +121,11 @@ mod tests {
     const CHILD: ui::Id = ui::Id::new("child");
     const OTHER: ui::Id = ui::Id::new("other");
     const CLICK: action::Id = action::Id::new("click");
+    const TOGGLE: action::Id = action::Id::new("toggle");
     const MENU_BAR: ui::Id = ui::Id::new("menu_bar");
     const FILE: menu::Id = menu::Id::new("file");
+    const VIEW: menu::Id = menu::Id::new("view");
+    const PANELS: menu::Id = menu::Id::new("panels");
 
     #[test]
     fn compose_updates_state_and_preserves_paint_order() {
@@ -384,6 +405,119 @@ mod tests {
         assert_eq!(
             quad.style.fill,
             Some(paint::Fill::Brush(theme.floating_panel().backdrop_fill()))
+        );
+    }
+
+    #[test]
+    fn active_menu_item_lowers_check_glyph() {
+        let window = window::Id::new(1);
+        let subject = ui::Path::new([ROOT, CHILD]);
+        let mut state = WindowState {
+            open_menu: Some(VIEW),
+            command_subject: Some(action::Scope::Path(subject.clone())),
+            ..WindowState::default()
+        };
+        let mut registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+
+        registry.register(Action::new(TOGGLE, "Toggle Preview"));
+        registry.set_state(
+            TOGGLE,
+            action::Context::path(window, subject),
+            action::State::active(),
+        );
+        tree.set_root(
+            ui::control::panel(ROOT)
+                .with_child(ui::widget::menu_bar(
+                    MENU_BAR,
+                    menu::Bar::new().menu(
+                        menu::Menu::new(VIEW, "View")
+                            .section(menu::Section::new().item(menu::Item::new(TOGGLE))),
+                    ),
+                ))
+                .with_child(ui::Node::leaf(CHILD).with_responder(TOGGLE)),
+        );
+
+        let scene = compose(
+            window,
+            &tree,
+            &mut state,
+            &registry,
+            area::logical(300.0, 180.0),
+        );
+
+        assert!(scene.items().iter().any(|item| {
+            matches!(
+                item,
+                paint::Item::Icon(icon)
+                    if icon.icon == crate::Icon::phosphor(crate::icon::Id::new("check"))
+            )
+        }));
+    }
+
+    #[test]
+    fn compose_injects_open_submenu_popup() {
+        let window = window::Id::new(1);
+        let subject = ui::Path::new([ROOT, CHILD]);
+        let mut state = WindowState {
+            open_menu: Some(VIEW),
+            open_submenu: Some(PANELS),
+            command_subject: Some(action::Scope::Path(subject.clone())),
+            ..WindowState::default()
+        };
+        let mut registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+
+        registry.register(Action::new(TOGGLE, "Toggle Preview"));
+        registry.set_state(
+            TOGGLE,
+            action::Context::path(window, subject.clone()),
+            action::State::enabled(),
+        );
+        tree.set_root(
+            ui::control::panel(ROOT)
+                .with_child(ui::widget::menu_bar(
+                    MENU_BAR,
+                    menu::Bar::new().menu(
+                        menu::Menu::new(VIEW, "View").section(
+                            menu::Section::new().submenu(
+                                menu::Menu::new(PANELS, "Panels")
+                                    .section(menu::Section::new().item(menu::Item::new(TOGGLE))),
+                            ),
+                        ),
+                    ),
+                ))
+                .with_child(ui::Node::leaf(CHILD).with_responder(TOGGLE)),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &registry,
+            area::logical(360.0, 220.0),
+        );
+
+        let submenu_popup = ui::Path::new([ROOT, ui::widget::MENU_SUBMENU_POPUP]);
+        let submenu_row = ui::Path::new([
+            ROOT,
+            ui::widget::MENU_SUBMENU_POPUP,
+            ui::Id::new("__menu_row_00"),
+        ]);
+        let top_submenu_row =
+            ui::Path::new([ROOT, ui::widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
+
+        assert!(
+            state
+                .layout
+                .as_ref()
+                .and_then(|layout| layout.find_path(&submenu_popup))
+                .is_some()
+        );
+        assert_eq!(state.actions.get(&submenu_row), Some(&TOGGLE));
+        assert_eq!(
+            state.intent(&top_submenu_row),
+            Some(ui::Intent::OpenSubmenu(PANELS))
         );
     }
 }

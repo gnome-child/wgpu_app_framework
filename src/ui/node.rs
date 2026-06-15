@@ -88,6 +88,8 @@ pub enum ActionTarget {
 pub enum Intent {
     Action(action::Id),
     OpenMenu(menu::Id),
+    OpenSubmenu(menu::Id),
+    CloseSubmenu,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -343,7 +345,7 @@ impl Node {
     pub fn with_intent(mut self, intent: Intent) -> Self {
         self.action = match intent {
             Intent::Action(action) => Some(action),
-            Intent::OpenMenu(_) => None,
+            Intent::OpenMenu(_) | Intent::OpenSubmenu(_) | Intent::CloseSubmenu => None,
         };
         self.intent = Some(intent);
         self

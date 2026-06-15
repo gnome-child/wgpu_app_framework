@@ -24,7 +24,7 @@ pub fn pointer_moved(state: &mut WindowState, position: point::Logical) -> Outco
     let hover_events = state.set_hovered(target.clone());
     let intent = target
         .as_ref()
-        .and_then(|target| hover_switch_menu_intent(state, target));
+        .and_then(|target| hover_menu_intent(state, target));
 
     let redraw = !hover_events.is_empty() || intent.is_some();
     let mut events = hover_events;
@@ -166,6 +166,7 @@ pub fn key_pressed<T>(
 ) -> Outcome {
     let target = state.focused_path();
     let mut redraw = false;
+    let mut intent = None;
 
     let event = ui::Event::KeyDown {
         key,
@@ -179,10 +180,11 @@ pub fn key_pressed<T>(
             let reverse = state.modifiers.shift();
             if let Some(path) = next_focus(registry, state, window, reverse) {
                 redraw |= state.set_focus(
-                    path,
+                    path.clone(),
                     ui::focus::Reason::Keyboard,
                     ui::focus::Visibility::Visible,
                 );
+                intent = focus_menu_intent(state, &path);
             }
         }
         ui::Key::Enter | ui::Key::Space if !repeat => {
@@ -194,7 +196,11 @@ pub fn key_pressed<T>(
             }
         }
         ui::Key::Escape if !repeat => {
-            redraw |= state.close_menu();
+            redraw |= if state.open_submenu.is_some() {
+                state.close_submenu()
+            } else {
+                state.close_menu()
+            };
         }
         _ => {}
     }
@@ -208,7 +214,7 @@ pub fn key_pressed<T>(
     Outcome {
         events: vec![event],
         request,
-        intent: None,
+        intent,
         redraw,
     }
 }
@@ -266,7 +272,10 @@ fn activation_request<T>(
     target: ui::Path,
     source: action::Source,
 ) -> Option<action::Request> {
-    if matches!(state.intent(&target), Some(ui::Intent::OpenMenu(_))) {
+    if matches!(
+        state.intent(&target),
+        Some(ui::Intent::OpenMenu(_) | ui::Intent::OpenSubmenu(_) | ui::Intent::CloseSubmenu)
+    ) {
         return None;
     }
 
@@ -274,17 +283,45 @@ fn activation_request<T>(
         .filter(|request| registry.can_invoke(request.action(), request.target().clone()))
 }
 
-fn hover_switch_menu_intent(
+fn hover_menu_intent(state: &WindowState, target: &ui::Path) -> Option<(ui::Path, ui::Intent)> {
+    menu_navigation_intent(state, target)
+}
+
+fn focus_menu_intent(state: &WindowState, target: &ui::Path) -> Option<(ui::Path, ui::Intent)> {
+    menu_navigation_intent(state, target)
+}
+
+fn menu_navigation_intent(
     state: &WindowState,
     target: &ui::Path,
 ) -> Option<(ui::Path, ui::Intent)> {
-    let open_menu = state.open_menu?;
-    let intent = state.intent(target)?;
+    let intent = state.intent(target);
 
     match intent {
-        ui::Intent::OpenMenu(menu) if menu != open_menu => Some((target.clone(), intent)),
-        _ => None,
+        Some(ui::Intent::OpenMenu(menu)) if state.open_menu.is_some_and(|open| open != menu) => {
+            return Some((target.clone(), ui::Intent::OpenMenu(menu)));
+        }
+        Some(ui::Intent::OpenSubmenu(menu))
+            if state.open_menu.is_some() && state.open_submenu != Some(menu) =>
+        {
+            return Some((target.clone(), ui::Intent::OpenSubmenu(menu)));
+        }
+        Some(ui::Intent::CloseSubmenu)
+            if state.open_submenu.is_some() && state.is_top_menu_popup_path(target) =>
+        {
+            return Some((target.clone(), ui::Intent::CloseSubmenu));
+        }
+        _ => {}
     }
+
+    if state.open_submenu.is_some()
+        && state.is_top_menu_popup_path(target)
+        && !matches!(intent, Some(ui::Intent::OpenSubmenu(_)))
+    {
+        return Some((target.clone(), ui::Intent::CloseSubmenu));
+    }
+
+    None
 }
 
 fn next_focus<T>(
@@ -316,12 +353,26 @@ fn focusable_paths<T>(
     state: &WindowState,
     window: window::Id,
 ) -> Vec<ui::Path> {
-    state
+    let paths = state
         .focus_order
         .iter()
         .filter(|path| can_focus(registry, state, window, path))
         .cloned()
-        .collect()
+        .collect::<Vec<_>>();
+
+    if state.open_menu.is_some() {
+        let menu_paths = paths
+            .iter()
+            .filter(|path| state.is_dropdown_path(path))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        if !menu_paths.is_empty() {
+            return menu_paths;
+        }
+    }
+
+    paths
 }
 
 fn can_focus<T>(
@@ -347,7 +398,10 @@ fn invokable_focused_path<T>(
     window: window::Id,
 ) -> Option<ui::Path> {
     let target = state.focused_path()?;
-    if matches!(state.intent(&target), Some(ui::Intent::OpenMenu(_))) {
+    if matches!(
+        state.intent(&target),
+        Some(ui::Intent::OpenMenu(_) | ui::Intent::OpenSubmenu(_))
+    ) {
         return Some(target);
     }
 
@@ -387,6 +441,7 @@ mod tests {
     const CLICK: action::Id = action::Id::new("click");
     const FILE: menu::Id = menu::Id::new("file");
     const EDIT: menu::Id = menu::Id::new("edit");
+    const PANELS: menu::Id = menu::Id::new("panels");
 
     fn path(id: ui::Id) -> ui::Path {
         ui::Path::from(id)
@@ -593,6 +648,28 @@ mod tests {
     }
 
     #[test]
+    fn escape_closes_submenu_before_top_level_menu() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            open_submenu: Some(PANELS),
+            ..WindowState::default()
+        };
+
+        let first = key_pressed(&registry, &mut state, window, ui::Key::Escape, false);
+
+        assert!(first.redraw);
+        assert_eq!(state.open_menu, Some(FILE));
+        assert_eq!(state.open_submenu, None);
+
+        let second = key_pressed(&registry, &mut state, window, ui::Key::Escape, false);
+
+        assert!(second.redraw);
+        assert_eq!(state.open_menu, None);
+    }
+
+    #[test]
     fn pointer_movement_uses_pointer_delta_and_hover_order() {
         let mut state = WindowState {
             hovered: Some(path(CHILD)),
@@ -691,6 +768,53 @@ mod tests {
 
         assert_eq!(outcome.intent, None);
         assert_eq!(state.open_menu, Some(FILE));
+    }
+
+    #[test]
+    fn hovering_submenu_row_while_menu_is_open_emits_open_submenu_intent() {
+        let row = ui::Path::new([ui::widget::MENU_POPUP, CHILD]);
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            intents: HashMap::from([(row.clone(), ui::Intent::OpenSubmenu(PANELS))]),
+            interactivity: HashMap::from([(row.clone(), ui::Interactivity::CONTROL)]),
+            ..WindowState::default()
+        };
+        state.layout = Some(crate::layout::Box::with_path(
+            row.clone(),
+            crate::geometry::Rect::new(
+                point::logical(0.0, 0.0),
+                crate::geometry::area::logical(20.0, 20.0),
+            ),
+            Vec::new(),
+        ));
+
+        let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
+
+        assert_eq!(outcome.intent, Some((row, ui::Intent::OpenSubmenu(PANELS))));
+    }
+
+    #[test]
+    fn hovering_top_menu_action_row_closes_open_submenu() {
+        let row = ui::Path::new([ui::widget::MENU_POPUP, CHILD]);
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            open_submenu: Some(PANELS),
+            intents: HashMap::from([(row.clone(), ui::Intent::Action(CLICK))]),
+            interactivity: HashMap::from([(row.clone(), ui::Interactivity::CONTROL)]),
+            ..WindowState::default()
+        };
+        state.layout = Some(crate::layout::Box::with_path(
+            row.clone(),
+            crate::geometry::Rect::new(
+                point::logical(0.0, 0.0),
+                crate::geometry::area::logical(20.0, 20.0),
+            ),
+            Vec::new(),
+        ));
+
+        let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
+
+        assert_eq!(outcome.intent, Some((row, ui::Intent::CloseSubmenu)));
     }
 
     #[test]
@@ -837,6 +961,47 @@ mod tests {
         key_pressed(&registry, &mut state, window, ui::Key::Tab, false);
 
         assert_eq!(state.focused_path(), Some(path(SECOND)));
+    }
+
+    #[test]
+    fn tab_focus_is_trapped_to_open_dropdown_rows() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let menu_row = ui::Path::new([ui::widget::MENU_POPUP, CHILD]);
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            focus_order: vec![path(SECOND), menu_row.clone()],
+            interactivity: HashMap::from([
+                (path(SECOND), ui::Interactivity::CONTROL),
+                (menu_row.clone(), ui::Interactivity::CONTROL),
+            ]),
+            ..WindowState::default()
+        };
+
+        key_pressed(&registry, &mut state, window, ui::Key::Tab, false);
+
+        assert_eq!(state.focused_path(), Some(menu_row));
+    }
+
+    #[test]
+    fn focusing_submenu_row_emits_open_submenu_intent() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let menu_row = ui::Path::new([ui::widget::MENU_POPUP, CHILD]);
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            focus_order: vec![menu_row.clone()],
+            intents: HashMap::from([(menu_row.clone(), ui::Intent::OpenSubmenu(PANELS))]),
+            interactivity: HashMap::from([(menu_row.clone(), ui::Interactivity::CONTROL)]),
+            ..WindowState::default()
+        };
+
+        let outcome = key_pressed(&registry, &mut state, window, ui::Key::Tab, false);
+
+        assert_eq!(
+            outcome.intent,
+            Some((menu_row, ui::Intent::OpenSubmenu(PANELS)))
+        );
     }
 
     #[test]

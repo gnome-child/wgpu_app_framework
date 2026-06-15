@@ -1,6 +1,7 @@
 use crate::{layout, menu, text, theme, ui};
 
 pub const MENU_POPUP: ui::Id = ui::Id::new("__menu_popup");
+pub const MENU_SUBMENU_POPUP: ui::Id = ui::Id::new("__menu_submenu_popup");
 
 pub fn label(id: ui::Id, label: impl Into<String>) -> ui::Node {
     label_with_theme(id, label, &theme::Theme::default_dark())

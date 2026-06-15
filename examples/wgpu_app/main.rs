@@ -22,6 +22,7 @@ const PREVIEW_BUTTON: ui::Id = ui::Id::new("preview_button");
 const FILE_MENU: menu::Id = menu::Id::new("file");
 const EDIT_MENU: menu::Id = menu::Id::new("edit");
 const VIEW_MENU: menu::Id = menu::Id::new("view");
+const PANELS_MENU: menu::Id = menu::Id::new("panels");
 
 fn main() -> app::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
@@ -353,8 +354,17 @@ fn app_menu() -> menu::Bar {
                 .section(menu::Section::new().item(menu::Item::new(action::SELECT_ALL))),
         )
         .menu(
-            menu::Menu::new(VIEW_MENU, "View")
-                .section(menu::Section::new().item(menu::Item::new(TOGGLE_PREVIEW))),
+            menu::Menu::new(VIEW_MENU, "View").section(
+                menu::Section::new()
+                    .item(menu::Item::new(TOGGLE_PREVIEW))
+                    .separator()
+                    .submenu(
+                        menu::Menu::new(PANELS_MENU, "Panels").section(
+                            menu::Section::new()
+                                .item(menu::Item::new(TOGGLE_PREVIEW).with_label("Preview Panel")),
+                        ),
+                    ),
+            ),
         )
 }
 

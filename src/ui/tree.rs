@@ -247,12 +247,22 @@ fn collect_intents(node: &Node, path: &Path, intents: &mut HashMap<Path, Intent>
 fn collect_menus(node: &Node, menus: &mut HashMap<menu::Id, menu::Menu>) {
     if let Some(bar) = node.menu_bar() {
         for menu in bar.menus() {
-            menus.insert(menu.id(), menu.clone());
+            collect_menu(menu, menus);
         }
     }
 
     for child in node.children() {
         collect_menus(child, menus);
+    }
+}
+
+fn collect_menu(menu: &menu::Menu, menus: &mut HashMap<menu::Id, menu::Menu>) {
+    menus.insert(menu.id(), menu.clone());
+
+    for node in menu.sections().iter().flat_map(menu::Section::nodes) {
+        if let menu::Node::Submenu(submenu) = node {
+            collect_menu(submenu, menus);
+        }
     }
 }
 

@@ -21,6 +21,7 @@ pub struct WindowState {
     pub intents: HashMap<ui::Path, ui::Intent>,
     pub menus: HashMap<menu::Id, menu::Menu>,
     pub open_menu: Option<menu::Id>,
+    pub open_submenu: Option<menu::Id>,
     pub responders: HashMap<ui::Path, Vec<action::Id>>,
     pub command_scopes: Vec<ui::Path>,
     pub command_scope_captures: HashMap<ui::Path, action::Context>,
@@ -169,8 +170,7 @@ impl WindowState {
         window: window::Id,
     ) -> bool {
         if self.open_menu == Some(id) {
-            self.open_menu = None;
-            return true;
+            return self.close_menu();
         }
 
         let Some(menu) = self.menus.get(&id) else {
@@ -182,12 +182,42 @@ impl WindowState {
         }
 
         self.open_menu = Some(id);
+        self.open_submenu = None;
         true
     }
 
+    pub fn open_submenu<T>(
+        &mut self,
+        id: menu::Id,
+        registry: &action::Registry<T>,
+        window: window::Id,
+    ) -> bool {
+        if self.open_menu.is_none() || self.open_submenu == Some(id) {
+            return false;
+        }
+
+        let Some(menu) = self.menus.get(&id) else {
+            return false;
+        };
+
+        if !self.menu_can_open(menu, registry, window) {
+            return false;
+        }
+
+        self.open_submenu = Some(id);
+        true
+    }
+
+    pub fn close_submenu(&mut self) -> bool {
+        let changed = self.open_submenu.is_some();
+        self.open_submenu = None;
+        changed
+    }
+
     pub fn close_menu(&mut self) -> bool {
-        let changed = self.open_menu.is_some();
+        let changed = self.open_menu.is_some() || self.open_submenu.is_some();
         self.open_menu = None;
+        self.open_submenu = None;
         changed
     }
 
@@ -204,11 +234,30 @@ impl WindowState {
     }
 
     pub fn is_menu_path(&self, path: &ui::Path) -> bool {
-        path.ids().iter().any(|id| *id == ui::widget::MENU_POPUP)
+        self.is_dropdown_path(path)
             || path.ids().iter().enumerate().any(|(index, _)| {
                 let candidate = ui::Path::new(path.ids()[..=index].to_vec());
-                matches!(self.intent(&candidate), Some(ui::Intent::OpenMenu(_)))
+                matches!(
+                    self.intent(&candidate),
+                    Some(ui::Intent::OpenMenu(_) | ui::Intent::OpenSubmenu(_))
+                )
             })
+    }
+
+    pub fn is_dropdown_path(&self, path: &ui::Path) -> bool {
+        path.ids().iter().any(|id| *id == ui::widget::MENU_POPUP)
+            || self.is_submenu_popup_path(path)
+    }
+
+    pub fn is_top_menu_popup_path(&self, path: &ui::Path) -> bool {
+        path.ids().iter().any(|id| *id == ui::widget::MENU_POPUP)
+            && !self.is_submenu_popup_path(path)
+    }
+
+    pub fn is_submenu_popup_path(&self, path: &ui::Path) -> bool {
+        path.ids()
+            .iter()
+            .any(|id| *id == ui::widget::MENU_SUBMENU_POPUP)
     }
 
     pub fn focused_path(&self) -> Option<ui::Path> {
@@ -316,7 +365,9 @@ pub fn action_request(
 ) -> Option<action::Request> {
     let action = match state.intent(&origin) {
         Some(ui::Intent::Action(action)) => action,
-        Some(ui::Intent::OpenMenu(_)) => return None,
+        Some(ui::Intent::OpenMenu(_) | ui::Intent::OpenSubmenu(_) | ui::Intent::CloseSubmenu) => {
+            return None;
+        }
         None => *state.actions.get(&origin)?,
     };
     let context = state.action_context_for_path(window, &origin);
@@ -360,6 +411,7 @@ mod tests {
     const OUTSIDE: ui::Id = ui::Id::new("outside");
     const CLICK: action::Id = action::Id::new("click");
     const FILE: menu::Id = menu::Id::new("file");
+    const PANELS: menu::Id = menu::Id::new("panels");
 
     fn path(id: ui::Id) -> ui::Path {
         ui::Path::from(id)
@@ -655,10 +707,44 @@ mod tests {
 
         assert!(state.toggle_menu(FILE, &registry, window));
         assert_eq!(state.open_menu, Some(FILE));
+        state.open_submenu = Some(PANELS);
         assert!(state.toggle_menu(edit, &registry, window));
         assert_eq!(state.open_menu, Some(edit));
+        assert_eq!(state.open_submenu, None);
         assert!(state.toggle_menu(edit, &registry, window));
         assert_eq!(state.open_menu, None);
+    }
+
+    #[test]
+    fn submenu_opens_only_when_parent_menu_is_open_and_item_can_invoke() {
+        let window = window::Id::new(1);
+        let submenu = menu::Menu::new(PANELS, "Panels")
+            .section(menu::Section::new().item(menu::Item::new(CLICK)));
+        let mut registry = action::Registry::<()>::new();
+        let mut state = WindowState {
+            menus: HashMap::from([(PANELS, submenu)]),
+            ..WindowState::default()
+        };
+
+        registry.register(Action::new(CLICK, "Click"));
+
+        assert!(!state.open_submenu(PANELS, &registry, window));
+        state.open_menu = Some(FILE);
+        assert!(state.open_submenu(PANELS, &registry, window));
+        assert_eq!(state.open_submenu, Some(PANELS));
+    }
+
+    #[test]
+    fn closing_top_level_menu_also_closes_submenu() {
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            open_submenu: Some(PANELS),
+            ..WindowState::default()
+        };
+
+        assert!(state.close_menu());
+        assert_eq!(state.open_menu, None);
+        assert_eq!(state.open_submenu, None);
     }
 
     #[test]
@@ -683,6 +769,21 @@ mod tests {
         assert!(!state.dismiss_menu_for_target(Some(&path(CHILD))));
         assert_eq!(state.open_menu, Some(FILE));
         assert!(state.is_menu_path(&path(CHILD)));
+    }
+
+    #[test]
+    fn submenu_popup_target_does_not_dismiss_open_menu() {
+        let submenu_row = ui::Path::new([ui::widget::MENU_SUBMENU_POPUP, CHILD]);
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            open_submenu: Some(PANELS),
+            ..WindowState::default()
+        };
+
+        assert!(!state.dismiss_menu_for_target(Some(&submenu_row)));
+        assert_eq!(state.open_menu, Some(FILE));
+        assert_eq!(state.open_submenu, Some(PANELS));
+        assert!(state.is_menu_path(&submenu_row));
     }
 
     #[test]

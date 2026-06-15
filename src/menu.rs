@@ -23,6 +23,7 @@ pub struct Section {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Node {
     Item(Item),
+    Submenu(Menu),
     Separator,
 }
 
@@ -57,7 +58,7 @@ impl Bar {
     }
 
     pub fn find(&self, id: Id) -> Option<&Menu> {
-        self.menus.iter().find(|menu| menu.id == id)
+        self.menus.iter().find_map(|menu| menu.find(id))
     }
 }
 
@@ -94,7 +95,30 @@ impl Menu {
     }
 
     pub fn actions(&self) -> impl Iterator<Item = action::Id> + '_ {
-        self.sections.iter().flat_map(Section::actions)
+        let mut actions = Vec::new();
+        self.collect_actions(&mut actions);
+
+        actions.into_iter()
+    }
+
+    pub fn find(&self, id: Id) -> Option<&Menu> {
+        if self.id == id {
+            return Some(self);
+        }
+
+        self.sections()
+            .iter()
+            .flat_map(Section::nodes)
+            .find_map(|node| match node {
+                Node::Submenu(menu) => menu.find(id),
+                Node::Item(_) | Node::Separator => None,
+            })
+    }
+
+    fn collect_actions(&self, actions: &mut Vec<action::Id>) {
+        for section in self.sections() {
+            section.collect_actions(actions);
+        }
     }
 }
 
@@ -112,6 +136,11 @@ impl Section {
         self.item(Item::new(action))
     }
 
+    pub fn submenu(mut self, menu: Menu) -> Self {
+        self.nodes.push(Node::Submenu(menu));
+        self
+    }
+
     pub fn separator(mut self) -> Self {
         self.nodes.push(Node::Separator);
         self
@@ -122,10 +151,20 @@ impl Section {
     }
 
     pub fn actions(&self) -> impl Iterator<Item = action::Id> + '_ {
-        self.nodes.iter().filter_map(|node| match node {
-            Node::Item(item) => Some(item.action()),
-            Node::Separator => None,
-        })
+        let mut actions = Vec::new();
+        self.collect_actions(&mut actions);
+
+        actions.into_iter()
+    }
+
+    fn collect_actions(&self, actions: &mut Vec<action::Id>) {
+        for node in &self.nodes {
+            match node {
+                Node::Item(item) => actions.push(item.action()),
+                Node::Submenu(menu) => menu.collect_actions(actions),
+                Node::Separator => {}
+            }
+        }
     }
 }
 
@@ -163,6 +202,7 @@ mod tests {
 
     const FILE: Id = Id::new("file");
     const EDIT: Id = Id::new("edit");
+    const VIEW: Id = Id::new("view");
     const OPEN: action::Id = action::Id::new("open");
     const SAVE: action::Id = action::Id::new("save");
 
@@ -198,5 +238,31 @@ mod tests {
             panic!("first node should be an item");
         };
         assert_eq!(item.label(), Some("Open File"));
+    }
+
+    #[test]
+    fn menu_builders_support_recursive_submenus() {
+        let panels = Id::new("panels");
+        let bar = Bar::new().menu(
+            Menu::new(VIEW, "View").section(
+                Section::new().submenu(
+                    Menu::new(panels, "Panels").section(
+                        Section::new()
+                            .action(OPEN)
+                            .separator()
+                            .item(Item::new(SAVE).with_label("Save Layout")),
+                    ),
+                ),
+            ),
+        );
+
+        assert_eq!(bar.find(panels).expect("submenu").label(), "Panels");
+        assert_eq!(
+            bar.find(VIEW)
+                .expect("view menu")
+                .actions()
+                .collect::<Vec<_>>(),
+            vec![OPEN, SAVE]
+        );
     }
 }
