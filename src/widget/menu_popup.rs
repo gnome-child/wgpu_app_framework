@@ -6,8 +6,6 @@ use super::{
 };
 
 const SEPARATOR_LINE_HEIGHT: f32 = 1.0;
-const ROW_ICON_WIDTH: f32 = 28.0;
-const ROW_TRAILING_WIDTH: f32 = 22.0;
 const SUBMENU_GAP: f32 = 3.0;
 
 const ROW_GLYPH: ui::Id = ui::Id::new("__menu_row_glyph");
@@ -207,7 +205,13 @@ fn item_node<T>(
     menu_row(id, theme, color)
         .with_action(action)
         .with_action_target(ui::ActionTarget::Captured)
-        .with_child(glyph_cell(ROW_GLYPH, check, ROW_ICON_WIDTH, color, theme))
+        .with_child(glyph_cell(
+            ROW_GLYPH,
+            check,
+            glyph_column_width(theme),
+            color,
+            theme,
+        ))
         .with_child(text_cell(
             ROW_LABEL,
             item_label(item, actions),
@@ -227,7 +231,7 @@ fn item_node<T>(
         .with_child(glyph_cell(
             ROW_TRAILING,
             None,
-            ROW_TRAILING_WIDTH,
+            glyph_column_width(theme),
             color,
             theme,
         ))
@@ -249,7 +253,13 @@ fn submenu_node<T>(
     };
     let chevron = enabled.then(|| icon::Icon::phosphor(icon::Id::new("caret-right")));
     let row = menu_row(id, theme, color)
-        .with_child(glyph_cell(ROW_GLYPH, None, ROW_ICON_WIDTH, color, theme))
+        .with_child(glyph_cell(
+            ROW_GLYPH,
+            None,
+            glyph_column_width(theme),
+            color,
+            theme,
+        ))
         .with_child(text_cell(
             ROW_LABEL,
             menu.label(),
@@ -268,7 +278,7 @@ fn submenu_node<T>(
         .with_child(glyph_cell(
             ROW_TRAILING,
             chevron,
-            ROW_TRAILING_WIDTH,
+            glyph_column_width(theme),
             color,
             theme,
         ));
@@ -416,7 +426,8 @@ fn popup_metrics<T>(
     }
 
     let padding = theme.floating_panel().padding() * 2.0;
-    let body_width = ROW_ICON_WIDTH + label_width + shortcut_width + ROW_TRAILING_WIDTH;
+    let glyph_width = glyph_column_width(theme);
+    let body_width = glyph_width + label_width + shortcut_width + glyph_width;
     let body_height = theme.density().menu_row_height() * row_count as f32;
     let width = (body_width + padding).max(theme.density().menu_popup_min_width());
     let height = body_height + padding;
@@ -425,6 +436,10 @@ fn popup_metrics<T>(
         area: area::logical(width, height),
         shortcut_width,
     }
+}
+
+fn glyph_column_width(theme: &theme::Theme) -> f32 {
+    theme.density().menu_row_height()
 }
 
 fn measure_label(
@@ -518,6 +533,74 @@ mod tests {
 
         assert!(long.area.width() > short.area.width());
         assert!(long.shortcut_width > 0.0);
+    }
+
+    #[test]
+    fn menu_row_text_alignment_uses_left_label_and_right_shortcut() {
+        let theme = theme::Theme::default_dark();
+        let mut registry = action::Registry::<()>::new();
+        let item = menu::Item::new(ACTION_A);
+        let context = action::Context::window(crate::window::Id::new(1));
+
+        registry.register(
+            crate::Action::new(ACTION_A, "Select All")
+                .with_shortcut(action::Shortcut::control('a')),
+        );
+        let metrics = PopupMetrics {
+            area: area::logical(180.0, 24.0),
+            shortcut_width: 42.0,
+        };
+        let row = item_node(
+            ui::Id::new("row"),
+            &item,
+            &registry,
+            &context,
+            metrics,
+            &theme,
+        );
+        let label = row.children()[1]
+            .label()
+            .expect("menu row should have a label document");
+        let shortcut = row.children()[2]
+            .label()
+            .expect("menu row should have a shortcut document");
+
+        assert_eq!(label.blocks()[0].align(), text::Align::Start);
+        assert_eq!(shortcut.blocks()[0].align(), text::Align::End);
+    }
+
+    #[test]
+    fn menu_row_side_glyph_columns_are_square() {
+        let theme = theme::Theme::default_dark();
+        let mut registry = action::Registry::<()>::new();
+        let item = menu::Item::new(ACTION_A);
+        let context = action::Context::window(crate::window::Id::new(1));
+
+        registry.register(crate::Action::new(ACTION_A, "Select All"));
+        let row = item_node(
+            ui::Id::new("row"),
+            &item,
+            &registry,
+            &context,
+            PopupMetrics {
+                area: area::logical(180.0, 24.0),
+                shortcut_width: 0.0,
+            },
+            &theme,
+        );
+
+        assert_eq!(
+            row.children()[0].layout().width(),
+            layout::Size::Fixed(theme.density().menu_row_height())
+        );
+        assert_eq!(
+            row.children()[3].layout().width(),
+            layout::Size::Fixed(theme.density().menu_row_height())
+        );
+        assert_eq!(
+            row.layout().height(),
+            layout::Size::Fixed(theme.density().menu_row_height())
+        );
     }
 
     #[test]
