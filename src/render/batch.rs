@@ -69,7 +69,7 @@ mod tests {
         paint::Quad {
             rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
             style: paint::Style {
-                fill: Some(paint::Fill::Brush(paint::Brush::Solid(paint::Color::RED))),
+                fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::RED))),
                 stroke: None,
                 tint: None,
             },
@@ -95,14 +95,14 @@ mod tests {
     fn tint(x: f32) -> paint::Tint {
         paint::Tint {
             rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
-            color: paint::Color::rgba(1.0, 1.0, 1.0, 0.25),
+            brush: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.25)),
         }
     }
 
     fn shadow(x: f32) -> paint::Shadow {
         paint::Shadow {
             rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
-            color: paint::Color::rgba(0.0, 0.0, 0.0, 0.35),
+            brush: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.35)),
             blur: 16.0,
             spread: 1.0,
             offset: point::logical(0.0, 4.0),

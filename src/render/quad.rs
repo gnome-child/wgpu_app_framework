@@ -102,7 +102,7 @@ struct AnalyticShape {
     outer_rect: Rect,
     outer_radius: crate::geometry::rect::ResolvedRadius,
     inner: Option<AnalyticInner>,
-    color: paint::Color,
+    brush: paint::Brush,
     blur: f32,
 }
 
@@ -127,8 +127,16 @@ struct PreparedShape {
     outer_rect: Rect,
     outer_radius: crate::geometry::rect::ResolvedRadius,
     inner: Option<AnalyticInner>,
-    color: paint::Color,
+    brush: paint::Brush,
     blur: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PreparedBrush {
+    from: paint::Color,
+    to: paint::Color,
+    points: [f32; 4],
+    kind: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -220,30 +228,26 @@ fn analytic_shapes_for_quad(quad: &paint::Quad) -> Vec<AnalyticShape> {
     if let Some(fill) = quad.style.fill {
         match fill {
             paint::Fill::Brush(brush) => {
-                if let Some(color) = solid_color(brush) {
-                    shapes.push(fill_shape(rect, color));
-                }
+                shapes.push(fill_shape(rect, brush));
             }
         }
     }
 
     if let Some(stroke) = quad.style.stroke {
-        if let Some(color) = solid_color(stroke.brush) {
-            if let Some(shape) = internal_stroke_shape(rect, stroke.width, color) {
-                shapes.push(shape);
-            }
+        if let Some(shape) = internal_stroke_shape(rect, stroke.width, stroke.brush) {
+            shapes.push(shape);
         }
     }
 
-    if let Some(color) = quad.style.tint {
-        shapes.push(fill_shape(rect, color));
+    if let Some(brush) = quad.style.tint {
+        shapes.push(fill_shape(rect, brush));
     }
 
     shapes
 }
 
 fn analytic_shapes_for_tint(tint: &paint::Tint) -> Vec<AnalyticShape> {
-    vec![fill_shape(tint.rect, tint.color)]
+    vec![fill_shape(tint.rect, tint.brush)]
 }
 
 fn analytic_shapes_for_shadow(shadow: &paint::Shadow) -> Vec<AnalyticShape> {
@@ -251,11 +255,7 @@ fn analytic_shapes_for_shadow(shadow: &paint::Shadow) -> Vec<AnalyticShape> {
 }
 
 fn analytic_shapes_for_outline(outline: &paint::Outline) -> Vec<AnalyticShape> {
-    let Some(color) = solid_color(outline.brush) else {
-        return Vec::new();
-    };
-
-    external_outline_shape(outline.rect, outline.width, outline.offset, color)
+    external_outline_shape(outline.rect, outline.width, outline.offset, outline.brush)
         .into_iter()
         .collect()
 }
@@ -288,10 +288,10 @@ fn push_analytic_shape_vertices(
         Some(inner) => (rect_data(inner.rect), radius_data(inner.radius), 1.0),
         None => ([0.0, 0.0, -1.0, -1.0], [0.0; 4], 0.0),
     };
-    let color = shape.color.to_array();
+    let brush = brush_data(shape.brush);
     let params = match shape.kind {
-        AnalyticShapeKind::Shadow => [2.0, shape.blur, 0.0, 0.0],
-        _ => [mode, 0.0, 0.0, 0.0],
+        AnalyticShapeKind::Shadow => [2.0, shape.blur, brush.kind, 0.0],
+        _ => [mode, 0.0, brush.kind, 0.0],
     };
 
     let mut push = |x: f32, y: f32| {
@@ -302,7 +302,9 @@ fn push_analytic_shape_vertices(
             outer_radius,
             inner_rect,
             inner_radius,
-            color,
+            color: brush.from.to_array(),
+            color_to: brush.to.to_array(),
+            brush_points: brush.points,
             params,
         });
     };
@@ -337,7 +339,7 @@ fn prepare_fill_shape(
         outer_rect,
         outer_radius: outer_rect.radius.resolve(outer_rect.area),
         inner: None,
-        color: shape.color,
+        brush: shape.brush,
         blur: shape.blur,
     })
 }
@@ -349,7 +351,7 @@ fn prepare_internal_ring_shape(
     let outer_rect = pixel_geometry.snap_rect(shape.outer_rect);
     let width = pixel_geometry.snap_distance(ring_width(shape)?);
     let Some(inner_rect) = inset_rect(outer_rect, width) else {
-        return prepare_fill_shape(fill_shape(outer_rect, shape.color), pixel_geometry);
+        return prepare_fill_shape(fill_shape(outer_rect, shape.brush), pixel_geometry);
     };
     let outer_radius = outer_rect.radius.resolve(outer_rect.area);
     let inner = AnalyticInner {
@@ -364,7 +366,7 @@ fn prepare_internal_ring_shape(
         outer_rect,
         outer_radius,
         inner: Some(inner),
-        color: shape.color,
+        brush: shape.brush,
         blur: shape.blur,
     })
 }
@@ -390,7 +392,7 @@ fn prepare_external_ring_shape(
             rect: inner_rect,
             radius: inner_radius,
         }),
-        color: shape.color,
+        brush: shape.brush,
         blur: shape.blur,
     })
 }
@@ -417,23 +419,23 @@ fn prepare_shadow_shape(
             rect: inner_rect,
             radius: inner.radius,
         }),
-        color: shape.color,
+        brush: shape.brush,
         blur,
     })
 }
 
-fn fill_shape(rect: Rect, color: paint::Color) -> AnalyticShape {
+fn fill_shape(rect: Rect, brush: paint::Brush) -> AnalyticShape {
     AnalyticShape {
         kind: AnalyticShapeKind::Fill,
         outer_rect: rect,
         outer_radius: rect.radius.resolve(rect.area),
         inner: None,
-        color,
+        brush,
         blur: 0.0,
     }
 }
 
-fn internal_stroke_shape(rect: Rect, width: f32, color: paint::Color) -> Option<AnalyticShape> {
+fn internal_stroke_shape(rect: Rect, width: f32, brush: paint::Brush) -> Option<AnalyticShape> {
     let width = clamped_width(rect, width);
     if width <= 0.0 {
         return None;
@@ -441,7 +443,7 @@ fn internal_stroke_shape(rect: Rect, width: f32, color: paint::Color) -> Option<
 
     let outer_radius = rect.radius.resolve(rect.area);
     let Some(inner_rect) = inset_rect(rect, width) else {
-        return Some(fill_shape(rect, color));
+        return Some(fill_shape(rect, brush));
     };
 
     Some(AnalyticShape {
@@ -452,13 +454,13 @@ fn internal_stroke_shape(rect: Rect, width: f32, color: paint::Color) -> Option<
             rect: inner_rect,
             radius: shrink_radius(outer_radius, width),
         }),
-        color,
+        brush,
         blur: 0.0,
     })
 }
 
 fn shadow_shape(shadow: &paint::Shadow) -> Option<AnalyticShape> {
-    if shadow.color.a <= 0.0 {
+    if !shadow.brush.is_visible() {
         return None;
     }
 
@@ -475,7 +477,7 @@ fn shadow_shape(shadow: &paint::Shadow) -> Option<AnalyticShape> {
             rect,
             radius: base_radius,
         }),
-        color: shadow.color,
+        brush: shadow.brush,
         blur: shadow.blur.max(0.0),
     })
 }
@@ -484,7 +486,7 @@ fn external_outline_shape(
     rect: Rect,
     width: f32,
     offset: f32,
-    color: paint::Color,
+    brush: paint::Brush,
 ) -> Option<AnalyticShape> {
     if width <= 0.0 {
         return None;
@@ -502,7 +504,7 @@ fn external_outline_shape(
             rect: inner_rect,
             radius: expand_radius(base_radius, offset),
         }),
-        color,
+        brush,
         blur: 0.0,
     })
 }
@@ -598,13 +600,25 @@ fn shrink_radius(
     }
 }
 
-fn solid_color(brush: paint::Brush) -> Option<paint::Color> {
+fn brush_data(brush: paint::Brush) -> PreparedBrush {
     match brush {
-        paint::Brush::Solid(color) => Some(color),
-        paint::Brush::Gradient { .. } => {
-            log::debug!("skipping unsupported gradient brush");
-            None
-        }
+        paint::Brush::Solid(color) => PreparedBrush {
+            from: color,
+            to: color,
+            points: [0.0, 0.0, 1.0, 1.0],
+            kind: 0.0,
+        },
+        paint::Brush::Gradient(paint::Gradient::Linear(gradient)) => PreparedBrush {
+            from: gradient.from(),
+            to: gradient.to(),
+            points: [
+                gradient.start().x(),
+                gradient.start().y(),
+                gradient.end().x(),
+                gradient.end().y(),
+            ],
+            kind: 1.0,
+        },
     }
 }
 
@@ -658,18 +672,27 @@ mod tests {
     fn style(
         fill: Option<paint::Fill>,
         stroke: Option<paint::Stroke>,
-        tint: Option<paint::Color>,
+        tint: Option<paint::Brush>,
     ) -> paint::Style {
         paint::Style { fill, stroke, tint }
     }
 
     fn solid(color: paint::Color) -> paint::Fill {
-        paint::Fill::Brush(paint::Brush::Solid(color))
+        paint::Fill::Brush(paint::Brush::solid(color))
+    }
+
+    fn gradient_brush() -> paint::Brush {
+        paint::Brush::Gradient(paint::Gradient::Linear(paint::LinearGradient::new(
+            paint::UnitPoint::new(0.0, 1.0),
+            paint::UnitPoint::new(1.0, 0.0),
+            paint::Color::rgba(1.0, 0.0, 0.0, 0.25),
+            paint::Color::rgba(0.0, 0.0, 1.0, 0.75),
+        )))
     }
 
     fn stroke(width: f32) -> paint::Stroke {
         paint::Stroke {
-            brush: paint::Brush::Solid(paint::Color::BLACK),
+            brush: paint::Brush::solid(paint::Color::BLACK),
             width,
         }
     }
@@ -721,6 +744,63 @@ mod tests {
     }
 
     #[test]
+    fn gradient_fill_lowers_to_one_analytic_shape() {
+        let brush = gradient_brush();
+        let quad = quad(style(Some(paint::Fill::Brush(brush)), None, None));
+        let shapes = analytic_shapes_for_quad(&quad);
+
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(shapes[0].outer_rect, rect());
+        assert_eq!(shapes[0].brush, brush);
+    }
+
+    #[test]
+    fn gradient_shape_vertices_preserve_brush_payload() {
+        let brush = gradient_brush();
+        let vertices = vertices_for_shape(fill_shape(rect(), brush));
+
+        assert_eq!(vertices.len(), 6);
+        assert_eq!(vertices[0].color, [1.0, 0.0, 0.0, 0.25]);
+        assert_eq!(vertices[0].color_to, [0.0, 0.0, 1.0, 0.75]);
+        assert_eq!(vertices[0].brush_points, [0.0, 1.0, 1.0, 0.0]);
+        assert_eq!(vertices[0].params, [0.0, 0.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn gradient_stroke_tint_outline_and_shadow_preserve_brushes() {
+        let brush = gradient_brush();
+        let quad = quad(style(
+            None,
+            Some(paint::Stroke { brush, width: 2.0 }),
+            Some(brush),
+        ));
+        let quad_shapes = analytic_shapes_for_quad(&quad);
+        let tint_shape = analytic_shapes_for_tint(&paint::Tint {
+            rect: rect(),
+            brush,
+        })[0];
+        let outline_shape = analytic_shapes_for_outline(&paint::Outline {
+            rect: rect(),
+            brush,
+            width: 2.0,
+            offset: 1.0,
+        })[0];
+        let shadow_shape = analytic_shapes_for_shadow(&paint::Shadow {
+            rect: rect(),
+            brush,
+            blur: 10.0,
+            spread: 1.0,
+            offset: point::logical(0.0, 4.0),
+        })[0];
+
+        assert_eq!(quad_shapes[0].brush, brush);
+        assert_eq!(quad_shapes[1].brush, brush);
+        assert_eq!(tint_shape.brush, brush);
+        assert_eq!(outline_shape.brush, brush);
+        assert_eq!(shadow_shape.brush, brush);
+    }
+
+    #[test]
     fn fill_only_quad_lowers_to_one_analytic_shape() {
         let quad = quad(style(Some(solid(paint::Color::RED)), None, None));
         let shapes = analytic_shapes_for_quad(&quad);
@@ -729,13 +809,13 @@ mod tests {
         assert_eq!(shapes[0].outer_rect, rect());
         assert_eq!(shapes[0].outer_radius, rect().radius.resolve(rect().area));
         assert_eq!(shapes[0].inner, None);
-        assert_eq!(shapes[0].color, paint::Color::RED);
+        assert_eq!(shapes[0].brush, paint::Brush::solid(paint::Color::RED));
         assert_eq!(vertex_count_for_shape(shapes[0]), 6);
     }
 
     #[test]
     fn fill_raster_bounds_expand_by_one_physical_pixel() {
-        let shape = fill_shape(rect(), paint::Color::RED);
+        let shape = fill_shape(rect(), paint::Brush::solid(paint::Color::RED));
         let prepared = prepared_shape(shape, 1.0);
 
         assert_eq!(shape.outer_rect, rect());
@@ -745,7 +825,7 @@ mod tests {
 
     #[test]
     fn scale_factor_controls_logical_aa_expansion() {
-        let shape = fill_shape(rect(), paint::Color::RED);
+        let shape = fill_shape(rect(), paint::Brush::solid(paint::Color::RED));
         let prepared = prepared_shape(shape, 2.0);
 
         assert_eq!(prepared.outer_rect, rect());
@@ -784,7 +864,8 @@ mod tests {
 
     #[test]
     fn internal_stroke_shape_metadata_survives_raster_expansion() {
-        let shape = internal_stroke_shape(rect(), 2.0, paint::Color::BLACK).unwrap();
+        let shape =
+            internal_stroke_shape(rect(), 2.0, paint::Brush::solid(paint::Color::BLACK)).unwrap();
         let prepared = prepared_shape(shape, 1.0);
         let inner = prepared.inner.expect("stroke should stay a ring");
 
@@ -801,13 +882,16 @@ mod tests {
         let quad = quad(style(
             None,
             None,
-            Some(paint::Color::rgba(1.0, 1.0, 1.0, 0.25)),
+            Some(paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.25))),
         ));
         let shapes = analytic_shapes_for_quad(&quad);
 
         assert_eq!(shapes.len(), 1);
         assert_eq!(shapes[0].outer_rect, rect());
-        assert_eq!(shapes[0].color, paint::Color::rgba(1.0, 1.0, 1.0, 0.25));
+        assert_eq!(
+            shapes[0].brush,
+            paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.25))
+        );
     }
 
     #[test]
@@ -818,7 +902,7 @@ mod tests {
                 rect().area,
                 crate::geometry::rect::Radius::splat(1.0),
             ),
-            color: paint::Color::rgba(0.0, 0.0, 0.0, 0.35),
+            brush: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.35)),
             blur: 18.0,
             spread: 2.0,
             offset: point::logical(0.0, 6.0),
@@ -838,7 +922,7 @@ mod tests {
     fn shadow_raster_bounds_include_blur_and_cutout_metadata() {
         let shadow = paint::Shadow {
             rect: rect(),
-            color: paint::Color::rgba(0.0, 0.0, 0.0, 0.35),
+            brush: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.35)),
             blur: 10.0,
             spread: 2.0,
             offset: point::logical(0.0, 6.0),
@@ -856,7 +940,7 @@ mod tests {
     fn shadow_vertices_use_shadow_shader_mode() {
         let shadow = paint::Shadow {
             rect: rect(),
-            color: paint::Color::rgba(0.0, 0.0, 0.0, 0.35),
+            brush: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.35)),
             blur: 10.0,
             spread: 2.0,
             offset: point::logical(0.0, 6.0),
@@ -871,7 +955,7 @@ mod tests {
     fn tint_raster_bounds_expand_while_shape_bounds_stay_exact() {
         let tint = paint::Tint {
             rect: rect(),
-            color: paint::Color::rgba(1.0, 1.0, 1.0, 0.25),
+            brush: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.25)),
         };
         let shape = analytic_shapes_for_tint(&tint)[0];
         let prepared = prepared_shape(shape, 1.0);
@@ -886,21 +970,24 @@ mod tests {
         let quad = quad(style(
             Some(solid(paint::Color::RED)),
             Some(stroke(2.0)),
-            Some(paint::Color::rgba(1.0, 1.0, 1.0, 0.25)),
+            Some(paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.25))),
         ));
         let shapes = analytic_shapes_for_quad(&quad);
 
         assert_eq!(shapes.len(), 3);
-        assert_eq!(shapes[0].color, paint::Color::RED);
+        assert_eq!(shapes[0].brush, paint::Brush::solid(paint::Color::RED));
         assert!(shapes[1].inner.is_some());
-        assert_eq!(shapes[2].color, paint::Color::rgba(1.0, 1.0, 1.0, 0.25));
+        assert_eq!(
+            shapes[2].brush,
+            paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.25))
+        );
     }
 
     #[test]
     fn outline_item_expands_outside_rect_bounds() {
         let outline = paint::Outline {
             rect: rect(),
-            brush: paint::Brush::Solid(paint::Color::RED),
+            brush: paint::Brush::solid(paint::Color::RED),
             width: 2.0,
             offset: 3.0,
         };
@@ -924,7 +1011,7 @@ mod tests {
         );
         let outline = paint::Outline {
             rect,
-            brush: paint::Brush::Solid(paint::Color::RED),
+            brush: paint::Brush::solid(paint::Color::RED),
             width: 4.0,
             offset: 2.0,
         };
@@ -947,7 +1034,7 @@ mod tests {
         );
         let outline = paint::Outline {
             rect,
-            brush: paint::Brush::Solid(paint::Color::RED),
+            brush: paint::Brush::solid(paint::Color::RED),
             width: 4.0,
             offset: 2.0,
         };
@@ -965,7 +1052,7 @@ mod tests {
     fn outline_shape_metadata_survives_raster_expansion() {
         let outline = paint::Outline {
             rect: rect(),
-            brush: paint::Brush::Solid(paint::Color::RED),
+            brush: paint::Brush::solid(paint::Color::RED),
             width: 2.0,
             offset: 3.0,
         };
@@ -1006,10 +1093,10 @@ mod tests {
             area::logical(80.0, 30.0),
             crate::geometry::rect::Radius::splat(1.0),
         );
-        let fill = fill_shape(rect, paint::Color::RED);
+        let fill = fill_shape(rect, paint::Brush::solid(paint::Color::RED));
         let tint = paint::Tint {
             rect,
-            color: paint::Color::rgba(1.0, 1.0, 1.0, 0.25),
+            brush: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.25)),
         };
         let shapes = analytic_shapes_for_tint(&tint);
 

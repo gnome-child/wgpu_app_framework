@@ -4,7 +4,7 @@ pub fn panel(id: ui::Id) -> ui::Node {
     ui::Node::container(id, layout::Axis::Vertical)
         .with_background(paint::Color::rgb(0.18, 0.20, 0.24))
         .with_stroke(paint::Stroke {
-            brush: paint::Brush::Solid(paint::Color::rgb(0.30, 0.33, 0.38)),
+            brush: paint::Brush::solid(paint::Color::rgb(0.30, 0.33, 0.38)),
             width: 1.0,
         })
         .with_hover_tint(paint::Color::rgba(1.0, 1.0, 1.0, 0.08))

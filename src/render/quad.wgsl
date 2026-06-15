@@ -6,7 +6,9 @@ struct VertexIn {
     @location(4) inner_rect: vec4<f32>,
     @location(5) inner_radius: vec4<f32>,
     @location(6) color: vec4<f32>,
-    @location(7) params: vec4<f32>,
+    @location(7) color_to: vec4<f32>,
+    @location(8) brush_points: vec4<f32>,
+    @location(9) params: vec4<f32>,
 };
 
 struct VertexOut {
@@ -17,7 +19,9 @@ struct VertexOut {
     @location(3) inner_rect: vec4<f32>,
     @location(4) inner_radius: vec4<f32>,
     @location(5) color: vec4<f32>,
-    @location(6) params: vec4<f32>,
+    @location(6) color_to: vec4<f32>,
+    @location(7) brush_points: vec4<f32>,
+    @location(8) params: vec4<f32>,
 };
 
 @vertex
@@ -30,6 +34,8 @@ fn vs_main(in: VertexIn) -> VertexOut {
     out.inner_rect = in.inner_rect;
     out.inner_radius = in.inner_radius;
     out.color = in.color;
+    out.color_to = in.color_to;
+    out.brush_points = in.brush_points;
     out.params = in.params;
     return out;
 }
@@ -67,8 +73,24 @@ fn coverage(sdf: f32) -> f32 {
     return clamp(0.5 - sdf / width, 0.0, 1.0);
 }
 
+fn brush_color(in: VertexOut) -> vec4<f32> {
+    if in.params.z <= 0.5 {
+        return in.color;
+    }
+
+    let start = in.outer_rect.xy + in.brush_points.xy * in.outer_rect.zw;
+    let end = in.outer_rect.xy + in.brush_points.zw * in.outer_rect.zw;
+    let axis = end - start;
+    let denominator = max(dot(axis, axis), 0.0001);
+    let t = clamp(dot(in.local_position - start, axis) / denominator, 0.0, 1.0);
+
+    return mix(in.color, in.color_to, t);
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    let material = brush_color(in);
+
     if in.params.x > 1.5 {
         let caster_distance = rounded_rect_sdf(
             in.local_position,
@@ -88,7 +110,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
             discard;
         }
 
-        return vec4<f32>(in.color.rgb, in.color.a * alpha);
+        return vec4<f32>(material.rgb, material.a * alpha);
     }
 
     let outer_alpha = coverage(rounded_rect_sdf(
@@ -111,5 +133,5 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         discard;
     }
 
-    return vec4<f32>(in.color.rgb, in.color.a * alpha);
+    return vec4<f32>(material.rgb, material.a * alpha);
 }

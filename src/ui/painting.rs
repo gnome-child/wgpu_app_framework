@@ -50,8 +50,8 @@ fn node<T>(
         scene.push_quad(paint::Quad { rect, style });
     }
 
-    for tint in resolved_tints(node, &visual) {
-        scene.push_tint(paint::Tint { rect, color: tint });
+    for brush in resolved_tints(node, &visual) {
+        scene.push_tint(paint::Tint { rect, brush });
     }
 
     if let Some(icon) = resolved_icon(node, layout, &visual) {
@@ -95,8 +95,7 @@ fn resolved_quad_style(
     visual: &VisualState,
 ) -> Option<paint::Style> {
     let style = node.style();
-    let fill = resolved_background(node, layout, interaction, visual)
-        .map(|color| paint::Fill::Brush(paint::Brush::Solid(color)));
+    let fill = resolved_background(node, layout, interaction, visual).map(paint::Fill::Brush);
     let stroke = style.stroke();
 
     if fill.is_none() && stroke.is_none() {
@@ -115,7 +114,7 @@ fn resolved_background(
     layout: &layout::Box,
     interaction: &ui::Interaction,
     visual: &VisualState,
-) -> Option<paint::Color> {
+) -> Option<paint::Brush> {
     let style = node.style();
     let background = style
         .backdrop()
@@ -127,7 +126,9 @@ fn resolved_background(
     }
 
     if !visual.enabled {
-        return style.disabled_background().or_else(|| background.map(dim));
+        return style
+            .disabled_background()
+            .or_else(|| background.map(|brush| brush.dimmed(0.45)));
     }
 
     if visual.active {
@@ -210,7 +211,7 @@ fn action_context(
     }
 }
 
-fn resolved_tints(node: &ui::Node, visual: &VisualState) -> Vec<paint::Color> {
+fn resolved_tints(node: &ui::Node, visual: &VisualState) -> Vec<paint::Brush> {
     let style = node.style();
     let mut tints = Vec::new();
 
@@ -237,7 +238,7 @@ fn resolved_tints(node: &ui::Node, visual: &VisualState) -> Vec<paint::Color> {
     tints
 }
 
-fn push_optional(values: &mut Vec<paint::Color>, value: Option<paint::Color>) {
+fn push_optional(values: &mut Vec<paint::Brush>, value: Option<paint::Brush>) {
     if let Some(value) = value {
         values.push(value);
     }
@@ -267,7 +268,7 @@ fn resolved_shadow(node: &ui::Node, rect: crate::geometry::Rect) -> Option<paint
 
     Some(paint::Shadow {
         rect,
-        color: shadow.color(),
+        brush: shadow.brush(),
         blur: shadow.blur(),
         spread: shadow.spread(),
         offset: shadow.offset(),
@@ -348,13 +349,4 @@ fn resolved_icon_color(node: &ui::Node, visual: &VisualState) -> paint::Color {
 
 fn normalized(value: bool) -> f32 {
     if value { 1.0 } else { 0.0 }
-}
-
-fn dim(color: paint::Color) -> paint::Color {
-    paint::Color {
-        r: color.r * 0.45,
-        g: color.g * 0.45,
-        b: color.b * 0.45,
-        a: color.a,
-    }
 }

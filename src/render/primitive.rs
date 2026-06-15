@@ -10,12 +10,14 @@ pub struct Vertex {
     pub inner_rect: [f32; 4],
     pub inner_radius: [f32; 4],
     pub color: [f32; 4],
+    pub color_to: [f32; 4],
+    pub brush_points: [f32; 4],
     pub params: [f32; 4],
 }
 
 impl Vertex {
     pub fn layout() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRIBUTES: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
+        const ATTRIBUTES: [wgpu::VertexAttribute; 10] = wgpu::vertex_attr_array![
             0 => Float32x2,
             1 => Float32x2,
             2 => Float32x4,
@@ -23,7 +25,9 @@ impl Vertex {
             4 => Float32x4,
             5 => Float32x4,
             6 => Float32x4,
-            7 => Float32x4
+            7 => Float32x4,
+            8 => Float32x4,
+            9 => Float32x4
         ];
 
         wgpu::VertexBufferLayout {

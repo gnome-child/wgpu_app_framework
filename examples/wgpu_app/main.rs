@@ -231,11 +231,18 @@ impl app::Application for App {
         let popup_panel = ui::control::panel(COMMAND_SCOPE_PANEL)
             .with_command_scope()
             .with_backdrop(
-                ui::Backdrop::glass(paint::Color::rgba(0.12, 0.13, 0.15, 0.22)).with_blur(1.0),
+                ui::Backdrop::glass(paint::Brush::linear_gradient(
+                    paint::Color::rgba(0.12, 0.13, 0.15, 0.20),
+                    paint::Color::rgba(0.20, 0.23, 0.31, 0.34),
+                ))
+                .with_blur(1.0),
             )
             .with_radius(rect::Radius::splat(0.12))
             .with_stroke(paint::Stroke {
-                brush: paint::Brush::Solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.14)),
+                brush: paint::Brush::linear_gradient(
+                    paint::Color::rgba(1.0, 1.0, 1.0, 0.08),
+                    paint::Color::rgba(1.0, 1.0, 1.0, 0.22),
+                ),
                 width: 1.0,
             })
             .with_shadow(
@@ -251,7 +258,7 @@ impl app::Application for App {
                     .with_label(label(scope_label)),
             )
             .with_child(local_field)
-            .with_child(
+            .with_child(showcase_button(
                 ui::control::labeled_button(
                     LOCAL_SELECT_BUTTON,
                     action::SELECT_ALL,
@@ -259,8 +266,10 @@ impl app::Application for App {
                 )
                 .with_action_target(ui::ActionTarget::Command)
                 .with_size(layout::Size::Fill, layout::Size::Fixed(46.0)),
-            )
-            .with_child(
+                palette::CYAN,
+                palette::VIOLET,
+            ))
+            .with_child(showcase_button(
                 ui::control::labeled_button(
                     CAPTURED_SELECT_BUTTON,
                     action::SELECT_ALL,
@@ -268,7 +277,9 @@ impl app::Application for App {
                 )
                 .with_action_target(ui::ActionTarget::Captured)
                 .with_size(layout::Size::Fill, layout::Size::Fixed(46.0)),
-            );
+                palette::MAGENTA,
+                palette::AMBER,
+            ));
         let root = ui::control::panel(ROOT)
             .with_background(paint::Color::BLACK)
             .with_padding(layout::Insets::splat(16.0))
@@ -278,24 +289,30 @@ impl app::Application for App {
                     .with_label(label(status)),
             )
             .with_child(document_panel)
-            .with_child(
+            .with_child(showcase_button(
                 ui::control::labeled_button(SELECT_BUTTON, action::SELECT_ALL, "Select subject")
                     .with_action_target(ui::ActionTarget::Command)
                     .with_size(layout::Size::Fill, layout::Size::Fixed(48.0)),
-            )
-            .with_child(
+                palette::BLUE,
+                palette::PINK,
+            ))
+            .with_child(showcase_button(
                 ui::control::labeled_button(RUN_BUTTON, RUN_TASK, "Run task")
                     .with_size(layout::Size::Fill, layout::Size::Fixed(48.0)),
-            )
+                palette::GREEN,
+                palette::CYAN,
+            ))
             .with_child(
                 ui::control::panel(ui::Id::new("footer_panel"))
                     .with_size(layout::Size::Fill, layout::Size::Fixed(36.0))
                     .with_label(label(footer)),
             )
-            .with_child(
+            .with_child(showcase_button(
                 ui::control::icon_button(PREVIEW_BUTTON, TOGGLE_PREVIEW, preview_icon)
                     .with_size(layout::Size::Fill, layout::Size::Fixed(40.0)),
-            );
+                palette::VIOLET,
+                palette::BLUE,
+            ));
 
         tree.set_root(root);
         tree.clear_popups();
@@ -347,9 +364,51 @@ fn subject_background(active: bool) -> paint::Color {
 
 fn subject_stroke() -> paint::Stroke {
     paint::Stroke {
-        brush: paint::Brush::Solid(paint::Color::rgb(0.34, 0.62, 1.0)),
+        brush: paint::Brush::solid(paint::Color::rgb(0.34, 0.62, 1.0)),
         width: 2.0,
     }
+}
+
+fn showcase_button(node: ui::Node, from: paint::Color, to: paint::Color) -> ui::Node {
+    node.with_background(paint::Brush::linear_gradient(
+        from.with_alpha(0.34),
+        to.with_alpha(0.46),
+    ))
+    .with_stroke(paint::Stroke {
+        brush: paint::Brush::linear_gradient(from.with_alpha(0.80), to.with_alpha(0.92)),
+        width: 1.0,
+    })
+    .with_hover_tint(paint::Brush::linear_gradient(
+        paint::Color::rgba(1.0, 1.0, 1.0, 0.14),
+        to.with_alpha(0.18),
+    ))
+    .with_pressed_tint(paint::Brush::linear_gradient(
+        paint::Color::rgba(0.0, 0.0, 0.0, 0.22),
+        from.with_alpha(0.16),
+    ))
+    .with_active_tint(paint::Brush::linear_gradient(
+        from.with_alpha(0.36),
+        to.with_alpha(0.42),
+    ))
+    .with_busy_tint(paint::Brush::linear_gradient(
+        palette::AMBER.with_alpha(0.58),
+        palette::MAGENTA.with_alpha(0.34),
+    ))
+    .with_disabled_tint(paint::Brush::linear_gradient(
+        paint::Color::rgba(0.0, 0.0, 0.0, 0.48),
+        paint::Color::rgba(0.18, 0.20, 0.24, 0.64),
+    ))
+    .with_focus_outline(
+        paint::Brush::linear_gradient(from.with_alpha(1.0), to.with_alpha(1.0)),
+        2.0,
+        3.0,
+    )
+    .with_shadow(
+        paint::Brush::linear_gradient(from.with_alpha(0.24), to.with_alpha(0.20)),
+        12.0,
+        1.0,
+        point::logical(0.0, 4.0),
+    )
 }
 
 fn command_scope_path() -> ui::Path {
@@ -369,4 +428,26 @@ fn label(label: impl Into<String>) -> text::Document {
     block.push_run(text::Run::new(label, text::Style::default()));
 
     text::Document::from_block(block)
+}
+
+trait ColorExt {
+    fn with_alpha(self, alpha: f32) -> Self;
+}
+
+impl ColorExt for paint::Color {
+    fn with_alpha(self, alpha: f32) -> Self {
+        paint::Color::rgba(self.r, self.g, self.b, alpha)
+    }
+}
+
+mod palette {
+    use wgpu_l3::paint;
+
+    pub const BLUE: paint::Color = paint::Color::rgb(0.18, 0.48, 1.0);
+    pub const CYAN: paint::Color = paint::Color::rgb(0.04, 0.78, 0.96);
+    pub const GREEN: paint::Color = paint::Color::rgb(0.08, 0.78, 0.38);
+    pub const VIOLET: paint::Color = paint::Color::rgb(0.58, 0.34, 1.0);
+    pub const PINK: paint::Color = paint::Color::rgb(1.0, 0.24, 0.64);
+    pub const MAGENTA: paint::Color = paint::Color::rgb(0.92, 0.20, 1.0);
+    pub const AMBER: paint::Color = paint::Color::rgb(1.0, 0.66, 0.12);
 }

@@ -2,7 +2,7 @@ use crate::paint;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Backdrop {
-    fill: Option<paint::Color>,
+    fill: Option<paint::Brush>,
     blur: Option<f32>,
 }
 
@@ -14,12 +14,12 @@ impl Backdrop {
         }
     }
 
-    pub fn glass(fill: paint::Color) -> Self {
+    pub fn glass(fill: impl Into<paint::Brush>) -> Self {
         Self::new().with_fill(fill).with_blur(1.0)
     }
 
-    pub fn with_fill(mut self, fill: paint::Color) -> Self {
-        self.fill = Some(fill);
+    pub fn with_fill(mut self, fill: impl Into<paint::Brush>) -> Self {
+        self.fill = Some(fill.into());
         self
     }
 
@@ -29,7 +29,7 @@ impl Backdrop {
         self
     }
 
-    pub fn fill(self) -> Option<paint::Color> {
+    pub fn fill(self) -> Option<paint::Brush> {
         self.fill
     }
 
@@ -56,7 +56,7 @@ mod tests {
 
         assert_eq!(
             backdrop.fill(),
-            Some(paint::Color::rgba(0.1, 0.2, 0.3, 0.4))
+            Some(paint::Brush::solid(paint::Color::rgba(0.1, 0.2, 0.3, 0.4)))
         );
         assert_eq!(backdrop.blur(), Some(0.5));
     }
@@ -76,7 +76,17 @@ mod tests {
         let fill = paint::Color::rgba(0.1, 0.2, 0.3, 0.4);
         let backdrop = Backdrop::glass(fill);
 
-        assert_eq!(backdrop.fill(), Some(fill));
+        assert_eq!(backdrop.fill(), Some(paint::Brush::solid(fill)));
         assert_eq!(backdrop.blur(), Some(1.0));
+    }
+
+    #[test]
+    fn backdrop_fill_accepts_gradient_brush() {
+        let brush = paint::Brush::linear_gradient(
+            paint::Color::rgba(1.0, 0.0, 0.0, 0.2),
+            paint::Color::rgba(0.0, 0.0, 1.0, 0.6),
+        );
+
+        assert_eq!(Backdrop::new().with_fill(brush).fill(), Some(brush));
     }
 }

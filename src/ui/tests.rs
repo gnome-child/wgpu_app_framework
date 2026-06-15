@@ -77,6 +77,13 @@ fn check_icon() -> icon::Icon {
     icon::Icon::phosphor(icon::Id::new("check"))
 }
 
+fn gradient_brush() -> paint::Brush {
+    paint::Brush::linear_gradient(
+        paint::Color::rgba(0.1, 0.2, 0.8, 0.35),
+        paint::Color::rgba(0.8, 0.2, 0.5, 0.75),
+    )
+}
+
 #[test]
 fn fixed_and_fill_vertical_layout() {
     let mut root = Node::container(ROOT, layout::Axis::Vertical);
@@ -488,8 +495,98 @@ fn disabled_action_node_renders_disabled_background() {
 
     assert_eq!(
         quad(&scene, 0).style.fill,
-        Some(paint::Fill::Brush(paint::Brush::Solid(paint::Color::BLACK)))
+        Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::BLACK)))
     );
+}
+
+#[test]
+fn shape_chrome_builders_accept_gradient_brushes() {
+    let brush = gradient_brush();
+    let node = Node::leaf(A)
+        .with_background(brush)
+        .with_stroke(paint::Stroke { brush, width: 1.0 })
+        .with_hover_tint(brush)
+        .with_pressed_tint(brush)
+        .with_active_tint(brush)
+        .with_busy_tint(brush)
+        .with_disabled_tint(brush)
+        .with_focus_outline(brush, 2.0, 1.0)
+        .with_shadow(brush, 12.0, 1.0, point::logical(0.0, 4.0))
+        .with_backdrop(Backdrop::new().with_fill(brush));
+
+    assert_eq!(node.style().background(), Some(brush));
+    assert_eq!(node.style().stroke().expect("stroke").brush, brush);
+    assert_eq!(node.style().hover_tint(), Some(brush));
+    assert_eq!(node.style().pressed_tint(), Some(brush));
+    assert_eq!(node.style().active_tint(), Some(brush));
+    assert_eq!(node.style().busy_tint(), Some(brush));
+    assert_eq!(node.style().disabled_tint(), Some(brush));
+    assert_eq!(
+        node.style().focus_outline().expect("outline").brush(),
+        brush
+    );
+    assert_eq!(node.style().shadow().expect("shadow").brush(), brush);
+    assert_eq!(
+        node.style().backdrop().expect("backdrop").fill(),
+        Some(brush)
+    );
+}
+
+#[test]
+fn ui_lowering_preserves_gradient_shape_chrome_order() {
+    let background = gradient_brush();
+    let stroke = paint::Brush::linear_gradient(
+        paint::Color::rgba(1.0, 1.0, 1.0, 0.1),
+        paint::Color::rgba(1.0, 1.0, 1.0, 0.4),
+    );
+    let tint_brush = paint::Brush::linear_gradient(
+        paint::Color::rgba(1.0, 0.8, 0.2, 0.15),
+        paint::Color::rgba(0.2, 0.8, 1.0, 0.2),
+    );
+    let outline_brush = paint::Brush::linear_gradient(
+        paint::Color::rgba(0.2, 0.5, 1.0, 1.0),
+        paint::Color::rgba(0.9, 0.3, 0.8, 1.0),
+    );
+    let shadow_brush = paint::Brush::linear_gradient(
+        paint::Color::rgba(0.0, 0.0, 0.0, 0.2),
+        paint::Color::rgba(0.0, 0.0, 0.0, 0.45),
+    );
+    let root = Node::leaf(A)
+        .with_background(background)
+        .with_stroke(paint::Stroke {
+            brush: stroke,
+            width: 1.0,
+        })
+        .with_hover_tint(tint_brush)
+        .with_focus_outline(outline_brush, 2.0, 1.0)
+        .with_shadow(shadow_brush, 12.0, 1.0, point::logical(0.0, 4.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(Some(path(A)), Some(path(A)), None),
+        &mut scene,
+    );
+
+    assert!(matches!(scene.items()[0], paint::Item::Shadow(_)));
+    assert!(matches!(scene.items()[1], paint::Item::Quad(_)));
+    assert!(matches!(scene.items()[2], paint::Item::Tint(_)));
+    assert!(matches!(scene.items()[3], paint::Item::Outline(_)));
+    assert_eq!(shadow(&scene, 0).brush, shadow_brush);
+    assert_eq!(
+        quad(&scene, 1).style.fill,
+        Some(paint::Fill::Brush(background))
+    );
+    assert_eq!(quad(&scene, 1).style.stroke.expect("stroke").brush, stroke);
+    assert_eq!(tint(&scene, 2).brush, tint_brush);
+    assert_eq!(outline(&scene, 3).brush, outline_brush);
 }
 
 #[test]
@@ -523,7 +620,7 @@ fn disabled_button_uses_disabled_label_color() {
             .expect("control has disabled label color")
     );
     assert_eq!(
-        tint(&scene, 1).color,
+        tint(&scene, 1).brush,
         root.style()
             .disabled_tint()
             .expect("control has disabled tint")
@@ -583,12 +680,12 @@ fn control_hover_state_emits_hover_tint_over_base_background() {
 
     assert_eq!(
         quad(&scene, 0).style.fill,
-        Some(paint::Fill::Brush(paint::Brush::Solid(
+        Some(paint::Fill::Brush(
             root.style().background().expect("control has base color")
-        )))
+        ))
     );
     assert_eq!(
-        tint(&scene, 1).color,
+        tint(&scene, 1).brush,
         root.style().hover_tint().expect("control has hover tint")
     );
     assert_same_bounds(tint(&scene, 1).rect, layout.rect());
@@ -616,9 +713,9 @@ fn control_focus_state_emits_outline_without_changing_fill() {
 
     assert_eq!(
         quad(&scene, 0).style.fill,
-        Some(paint::Fill::Brush(paint::Brush::Solid(
+        Some(paint::Fill::Brush(
             root.style().background().expect("control has base color")
-        )))
+        ))
     );
     assert_same_bounds(outline(&scene, 1).rect, layout.rect());
     assert_eq!(outline(&scene, 1).rect.radius, root.style().radius());
@@ -673,7 +770,7 @@ fn active_state_renders_independently_from_focus_visibility() {
     );
 
     assert_eq!(
-        tint(&scene, 1).color,
+        tint(&scene, 1).brush,
         root.style().active_tint().expect("control has active tint")
     );
     assert_eq!(scene.items().len(), 2);
@@ -704,7 +801,7 @@ fn command_target_widget_visuals_derive_from_command_target_state() {
     );
 
     assert_eq!(
-        tint(&scene, 1).color,
+        tint(&scene, 1).brush,
         root.style().active_tint().expect("control has active tint")
     );
 }
@@ -734,7 +831,7 @@ fn window_target_widget_visuals_derive_from_window_state() {
     );
 
     assert_eq!(
-        tint(&scene, 1).color,
+        tint(&scene, 1).brush,
         root.style().active_tint().expect("control has active tint")
     );
 }
@@ -769,7 +866,7 @@ fn captured_target_widget_visuals_derive_from_scope_capture() {
     );
 
     assert_eq!(
-        tint(&scene, 1).color,
+        tint(&scene, 1).brush,
         root.children()[0]
             .style()
             .active_tint()
@@ -803,16 +900,16 @@ fn active_hovered_control_emits_active_then_hover_tint() {
 
     assert_eq!(
         quad(&scene, 0).style.fill,
-        Some(paint::Fill::Brush(paint::Brush::Solid(
+        Some(paint::Fill::Brush(
             root.style().background().expect("control has base color")
-        )))
+        ))
     );
     assert_eq!(
-        tint(&scene, 1).color,
+        tint(&scene, 1).brush,
         root.style().active_tint().expect("control has active tint")
     );
     assert_eq!(
-        tint(&scene, 2).color,
+        tint(&scene, 2).brush,
         root.style().hover_tint().expect("control has hover tint")
     );
 }
@@ -842,11 +939,11 @@ fn active_pressed_control_emits_active_then_pressed_tint() {
     );
 
     assert_eq!(
-        tint(&scene, 1).color,
+        tint(&scene, 1).brush,
         root.style().active_tint().expect("control has active tint")
     );
     assert_eq!(
-        tint(&scene, 2).color,
+        tint(&scene, 2).brush,
         root.style()
             .pressed_tint()
             .expect("control has pressed tint")
@@ -880,16 +977,16 @@ fn busy_control_emits_busy_tint_and_suppresses_hover_press() {
 
     assert_eq!(
         quad(&scene, 0).style.fill,
-        Some(paint::Fill::Brush(paint::Brush::Solid(
+        Some(paint::Fill::Brush(
             root.style().background().expect("control has base color")
-        )))
+        ))
     );
     assert_eq!(
-        tint(&scene, 1).color,
+        tint(&scene, 1).brush,
         root.style().active_tint().expect("control has active tint")
     );
     assert_eq!(
-        tint(&scene, 2).color,
+        tint(&scene, 2).brush,
         root.style().busy_tint().expect("control has busy tint")
     );
     assert_same_bounds(outline(&scene, 3).rect, layout.rect());
@@ -922,7 +1019,7 @@ fn disabled_control_emits_disabled_tint_and_suppresses_hover_press() {
     );
 
     assert_eq!(
-        tint(&scene, 1).color,
+        tint(&scene, 1).brush,
         root.style()
             .disabled_tint()
             .expect("control has disabled tint")
@@ -957,7 +1054,7 @@ fn busy_button_uses_busy_label_color() {
             .expect("control has busy label color")
     );
     assert_eq!(
-        tint(&scene, 1).color,
+        tint(&scene, 1).brush,
         root.style().busy_tint().expect("control has busy tint")
     );
 }
@@ -1010,7 +1107,7 @@ fn pressed_state_emits_pressed_tint_after_action_states() {
     );
 
     assert_eq!(
-        tint(&scene, 1).color,
+        tint(&scene, 1).brush,
         root.style()
             .pressed_tint()
             .expect("control has pressed tint")
@@ -1110,7 +1207,7 @@ fn backdrop_lowers_before_node_background() {
     );
     assert_eq!(
         quad(&scene, 1).style.fill,
-        Some(paint::Fill::Brush(paint::Brush::Solid(paint::Color::rgba(
+        Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::rgba(
             1.0, 1.0, 1.0, 0.5
         ))))
     );
@@ -1251,8 +1348,8 @@ fn enabled_inactive_action_node_uses_base_background() {
 
     assert_eq!(
         quad(&scene, 0).style.fill,
-        Some(paint::Fill::Brush(paint::Brush::Solid(
+        Some(paint::Fill::Brush(
             root.style().background().expect("control has base color")
-        )))
+        ))
     );
 }

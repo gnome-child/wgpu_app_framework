@@ -29,21 +29,21 @@ pub struct Layout {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Style {
-    background: Option<paint::Color>,
+    background: Option<paint::Brush>,
     radius: geometry::rect::Radius,
     stroke: Option<paint::Stroke>,
     shadow: Option<Shadow>,
     backdrop: Option<Backdrop>,
-    hover_background: Option<paint::Color>,
-    focus_background: Option<paint::Color>,
-    active_background: Option<paint::Color>,
-    busy_background: Option<paint::Color>,
-    disabled_background: Option<paint::Color>,
-    hover_tint: Option<paint::Color>,
-    pressed_tint: Option<paint::Color>,
-    active_tint: Option<paint::Color>,
-    busy_tint: Option<paint::Color>,
-    disabled_tint: Option<paint::Color>,
+    hover_background: Option<paint::Brush>,
+    focus_background: Option<paint::Brush>,
+    active_background: Option<paint::Brush>,
+    busy_background: Option<paint::Brush>,
+    disabled_background: Option<paint::Brush>,
+    hover_tint: Option<paint::Brush>,
+    pressed_tint: Option<paint::Brush>,
+    active_tint: Option<paint::Brush>,
+    busy_tint: Option<paint::Brush>,
+    disabled_tint: Option<paint::Brush>,
     focus_outline: Option<FocusOutline>,
     label_color: Option<paint::Color>,
     busy_label_color: Option<paint::Color>,
@@ -60,7 +60,7 @@ pub struct FocusOutline {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shadow {
-    color: paint::Color,
+    brush: paint::Brush,
     blur: f32,
     spread: f32,
     offset: geometry::point::Logical,
@@ -181,8 +181,8 @@ impl Node {
         self
     }
 
-    pub fn with_background(mut self, color: paint::Color) -> Self {
-        self.style.background = Some(color);
+    pub fn with_background(mut self, brush: impl Into<paint::Brush>) -> Self {
+        self.style.background = Some(brush.into());
         self
     }
 
@@ -198,13 +198,13 @@ impl Node {
 
     pub fn with_shadow(
         mut self,
-        color: paint::Color,
+        brush: impl Into<paint::Brush>,
         blur: f32,
         spread: f32,
         offset: geometry::point::Logical,
     ) -> Self {
         self.style.shadow = Some(Shadow {
-            color,
+            brush: brush.into(),
             blur,
             spread,
             offset,
@@ -217,59 +217,64 @@ impl Node {
         self
     }
 
-    pub fn with_hover_background(mut self, color: paint::Color) -> Self {
-        self.style.hover_background = Some(color);
+    pub fn with_hover_background(mut self, brush: impl Into<paint::Brush>) -> Self {
+        self.style.hover_background = Some(brush.into());
         self
     }
 
-    pub fn with_focus_background(mut self, color: paint::Color) -> Self {
-        self.style.focus_background = Some(color);
+    pub fn with_focus_background(mut self, brush: impl Into<paint::Brush>) -> Self {
+        self.style.focus_background = Some(brush.into());
         self
     }
 
-    pub fn with_active_background(mut self, color: paint::Color) -> Self {
-        self.style.active_background = Some(color);
+    pub fn with_active_background(mut self, brush: impl Into<paint::Brush>) -> Self {
+        self.style.active_background = Some(brush.into());
         self
     }
 
-    pub fn with_busy_background(mut self, color: paint::Color) -> Self {
-        self.style.busy_background = Some(color);
+    pub fn with_busy_background(mut self, brush: impl Into<paint::Brush>) -> Self {
+        self.style.busy_background = Some(brush.into());
         self
     }
 
-    pub fn with_disabled_background(mut self, color: paint::Color) -> Self {
-        self.style.disabled_background = Some(color);
+    pub fn with_disabled_background(mut self, brush: impl Into<paint::Brush>) -> Self {
+        self.style.disabled_background = Some(brush.into());
         self
     }
 
-    pub fn with_hover_tint(mut self, color: paint::Color) -> Self {
-        self.style.hover_tint = Some(color);
+    pub fn with_hover_tint(mut self, brush: impl Into<paint::Brush>) -> Self {
+        self.style.hover_tint = Some(brush.into());
         self
     }
 
-    pub fn with_pressed_tint(mut self, color: paint::Color) -> Self {
-        self.style.pressed_tint = Some(color);
+    pub fn with_pressed_tint(mut self, brush: impl Into<paint::Brush>) -> Self {
+        self.style.pressed_tint = Some(brush.into());
         self
     }
 
-    pub fn with_active_tint(mut self, color: paint::Color) -> Self {
-        self.style.active_tint = Some(color);
+    pub fn with_active_tint(mut self, brush: impl Into<paint::Brush>) -> Self {
+        self.style.active_tint = Some(brush.into());
         self
     }
 
-    pub fn with_busy_tint(mut self, color: paint::Color) -> Self {
-        self.style.busy_tint = Some(color);
+    pub fn with_busy_tint(mut self, brush: impl Into<paint::Brush>) -> Self {
+        self.style.busy_tint = Some(brush.into());
         self
     }
 
-    pub fn with_disabled_tint(mut self, color: paint::Color) -> Self {
-        self.style.disabled_tint = Some(color);
+    pub fn with_disabled_tint(mut self, brush: impl Into<paint::Brush>) -> Self {
+        self.style.disabled_tint = Some(brush.into());
         self
     }
 
-    pub fn with_focus_outline(mut self, color: paint::Color, width: f32, offset: f32) -> Self {
+    pub fn with_focus_outline(
+        mut self,
+        brush: impl Into<paint::Brush>,
+        width: f32,
+        offset: f32,
+    ) -> Self {
         self.style.focus_outline = Some(FocusOutline {
-            brush: paint::Brush::Solid(color),
+            brush: brush.into(),
             width,
             offset,
         });
@@ -405,7 +410,7 @@ impl Style {
         Self::default()
     }
 
-    pub fn background(self) -> Option<paint::Color> {
+    pub fn background(self) -> Option<paint::Brush> {
         self.background
     }
 
@@ -425,43 +430,43 @@ impl Style {
         self.backdrop
     }
 
-    pub fn hover_background(self) -> Option<paint::Color> {
+    pub fn hover_background(self) -> Option<paint::Brush> {
         self.hover_background
     }
 
-    pub fn focus_background(self) -> Option<paint::Color> {
+    pub fn focus_background(self) -> Option<paint::Brush> {
         self.focus_background
     }
 
-    pub fn active_background(self) -> Option<paint::Color> {
+    pub fn active_background(self) -> Option<paint::Brush> {
         self.active_background
     }
 
-    pub fn busy_background(self) -> Option<paint::Color> {
+    pub fn busy_background(self) -> Option<paint::Brush> {
         self.busy_background
     }
 
-    pub fn disabled_background(self) -> Option<paint::Color> {
+    pub fn disabled_background(self) -> Option<paint::Brush> {
         self.disabled_background
     }
 
-    pub fn hover_tint(self) -> Option<paint::Color> {
+    pub fn hover_tint(self) -> Option<paint::Brush> {
         self.hover_tint
     }
 
-    pub fn pressed_tint(self) -> Option<paint::Color> {
+    pub fn pressed_tint(self) -> Option<paint::Brush> {
         self.pressed_tint
     }
 
-    pub fn active_tint(self) -> Option<paint::Color> {
+    pub fn active_tint(self) -> Option<paint::Brush> {
         self.active_tint
     }
 
-    pub fn busy_tint(self) -> Option<paint::Color> {
+    pub fn busy_tint(self) -> Option<paint::Brush> {
         self.busy_tint
     }
 
-    pub fn disabled_tint(self) -> Option<paint::Color> {
+    pub fn disabled_tint(self) -> Option<paint::Brush> {
         self.disabled_tint
     }
 
@@ -514,8 +519,8 @@ impl Default for Style {
 }
 
 impl Shadow {
-    pub fn color(self) -> paint::Color {
-        self.color
+    pub fn brush(self) -> paint::Brush {
+        self.brush
     }
 
     pub fn blur(self) -> f32 {

@@ -103,7 +103,7 @@ pub struct Icon {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shadow {
     pub rect: Rect,
-    pub color: Color,
+    pub brush: Brush,
     pub blur: f32,
     pub spread: f32,
     pub offset: point::Logical,
@@ -112,7 +112,7 @@ pub struct Shadow {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Tint {
     pub rect: Rect,
-    pub color: Color,
+    pub brush: Brush,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -138,7 +138,7 @@ pub enum BackdropFilter {
 pub struct Style {
     pub fill: Option<Fill>,
     pub stroke: Option<Stroke>,
-    pub tint: Option<Color>,
+    pub tint: Option<Brush>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -155,7 +155,139 @@ pub struct Stroke {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Brush {
     Solid(Color),
-    Gradient { from: Color, to: Color },
+    Gradient(Gradient),
+}
+
+impl Brush {
+    pub const fn solid(color: Color) -> Self {
+        Self::Solid(color)
+    }
+
+    pub fn linear_gradient(from: Color, to: Color) -> Self {
+        Self::Gradient(Gradient::linear(from, to))
+    }
+
+    pub fn dimmed(self, factor: f32) -> Self {
+        match self {
+            Self::Solid(color) => Self::Solid(color.dimmed(factor)),
+            Self::Gradient(gradient) => Self::Gradient(gradient.dimmed(factor)),
+        }
+    }
+
+    pub fn is_visible(self) -> bool {
+        match self {
+            Self::Solid(color) => color.a > 0.0,
+            Self::Gradient(gradient) => gradient.is_visible(),
+        }
+    }
+}
+
+impl From<Color> for Brush {
+    fn from(color: Color) -> Self {
+        Self::solid(color)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Gradient {
+    Linear(LinearGradient),
+}
+
+impl Gradient {
+    pub fn linear(from: Color, to: Color) -> Self {
+        Self::Linear(LinearGradient::new(
+            UnitPoint::TOP_LEFT,
+            UnitPoint::BOTTOM_RIGHT,
+            from,
+            to,
+        ))
+    }
+
+    pub fn dimmed(self, factor: f32) -> Self {
+        match self {
+            Self::Linear(gradient) => Self::Linear(gradient.dimmed(factor)),
+        }
+    }
+
+    pub fn is_visible(self) -> bool {
+        match self {
+            Self::Linear(gradient) => gradient.is_visible(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LinearGradient {
+    start: UnitPoint,
+    end: UnitPoint,
+    from: Color,
+    to: Color,
+}
+
+impl LinearGradient {
+    pub const fn new(start: UnitPoint, end: UnitPoint, from: Color, to: Color) -> Self {
+        Self {
+            start,
+            end,
+            from,
+            to,
+        }
+    }
+
+    pub fn start(self) -> UnitPoint {
+        self.start
+    }
+
+    pub fn end(self) -> UnitPoint {
+        self.end
+    }
+
+    pub fn from(self) -> Color {
+        self.from
+    }
+
+    pub fn to(self) -> Color {
+        self.to
+    }
+
+    pub fn dimmed(self, factor: f32) -> Self {
+        Self {
+            start: self.start,
+            end: self.end,
+            from: self.from.dimmed(factor),
+            to: self.to.dimmed(factor),
+        }
+    }
+
+    pub fn is_visible(self) -> bool {
+        self.from.a > 0.0 || self.to.a > 0.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UnitPoint {
+    x: f32,
+    y: f32,
+}
+
+impl UnitPoint {
+    pub const TOP_LEFT: Self = Self { x: 0.0, y: 0.0 };
+    pub const BOTTOM_RIGHT: Self = Self { x: 1.0, y: 1.0 };
+
+    pub fn new(x: f32, y: f32) -> Self {
+        Self {
+            x: x.clamp(0.0, 1.0),
+            y: y.clamp(0.0, 1.0),
+        }
+    }
+
+    pub fn x(self) -> f32 {
+        self.x
+    }
+
+    pub fn y(self) -> f32 {
+        self.y
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -192,6 +324,17 @@ impl Color {
     pub fn to_array(self) -> [f32; 4] {
         [self.r, self.g, self.b, self.a]
     }
+
+    pub fn dimmed(self, factor: f32) -> Self {
+        let factor = factor.max(0.0);
+
+        Self {
+            r: self.r * factor,
+            g: self.g * factor,
+            b: self.b * factor,
+            a: self.a,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -205,7 +348,7 @@ mod tests {
         Quad {
             rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
             style: Style {
-                fill: Some(Fill::Brush(Brush::Solid(Color::RED))),
+                fill: Some(Fill::Brush(Brush::solid(Color::RED))),
                 stroke: None,
                 tint: None,
             },
@@ -237,7 +380,7 @@ mod tests {
         let first = solid_quad(1.0);
         let tint = Tint {
             rect: Rect::new(point::logical(1.25, 0.0), area::logical(10.0, 10.0)),
-            color: Color::rgba(1.0, 1.0, 1.0, 0.2),
+            brush: Brush::solid(Color::rgba(1.0, 1.0, 1.0, 0.2)),
         };
         let text = Text {
             rect: Rect::new(point::logical(1.5, 0.0), area::logical(10.0, 10.0)),
@@ -251,7 +394,7 @@ mod tests {
         };
         let shadow = Shadow {
             rect: Rect::new(point::logical(1.7, 0.0), area::logical(10.0, 10.0)),
-            color: Color::rgba(0.0, 0.0, 0.0, 0.35),
+            brush: Brush::solid(Color::rgba(0.0, 0.0, 0.0, 0.35)),
             blur: 16.0,
             spread: 1.0,
             offset: point::logical(0.0, 4.0),
@@ -262,7 +405,7 @@ mod tests {
         };
         let outline = Outline {
             rect: Rect::new(point::logical(1.75, 0.0), area::logical(10.0, 10.0)),
-            brush: Brush::Solid(Color::BLACK),
+            brush: Brush::solid(Color::BLACK),
             width: 2.0,
             offset: 1.0,
         };
@@ -308,7 +451,7 @@ mod tests {
                 area::logical(20.0, 10.0),
                 rect::Radius::splat(1.0),
             ),
-            color: Color::rgba(0.0, 0.0, 0.0, 0.3),
+            brush: Brush::solid(Color::rgba(0.0, 0.0, 0.0, 0.3)),
             blur: 18.0,
             spread: 1.0,
             offset: point::logical(0.0, 6.0),
@@ -347,6 +490,50 @@ mod tests {
         scene.push_backdrop(backdrop);
 
         assert_eq!(scene.items(), &[Item::Backdrop(backdrop)]);
+    }
+
+    #[test]
+    fn color_converts_into_solid_brush() {
+        let brush: Brush = Color::RED.into();
+
+        assert_eq!(brush, Brush::Solid(Color::RED));
+    }
+
+    #[test]
+    fn linear_gradient_brush_preserves_rgba_stops() {
+        let from = Color::rgba(0.1, 0.2, 0.3, 0.4);
+        let to = Color::rgba(0.5, 0.6, 0.7, 0.8);
+        let Brush::Gradient(Gradient::Linear(gradient)) = Brush::linear_gradient(from, to) else {
+            panic!("expected linear gradient brush");
+        };
+
+        assert_eq!(gradient.start(), UnitPoint::TOP_LEFT);
+        assert_eq!(gradient.end(), UnitPoint::BOTTOM_RIGHT);
+        assert_eq!(gradient.from(), from);
+        assert_eq!(gradient.to(), to);
+    }
+
+    #[test]
+    fn unit_point_clamps_to_normalized_range() {
+        let point = UnitPoint::new(-1.0, 2.0);
+
+        assert_eq!(point.x(), 0.0);
+        assert_eq!(point.y(), 1.0);
+    }
+
+    #[test]
+    fn brush_dim_preserves_alpha_and_dims_gradient_stops() {
+        let brush = Brush::linear_gradient(
+            Color::rgba(1.0, 0.5, 0.25, 0.4),
+            Color::rgba(0.5, 0.25, 0.125, 0.8),
+        )
+        .dimmed(0.5);
+        let Brush::Gradient(Gradient::Linear(gradient)) = brush else {
+            panic!("expected linear gradient brush");
+        };
+
+        assert_eq!(gradient.from(), Color::rgba(0.5, 0.25, 0.125, 0.4));
+        assert_eq!(gradient.to(), Color::rgba(0.25, 0.125, 0.0625, 0.8));
     }
 
     #[test]
