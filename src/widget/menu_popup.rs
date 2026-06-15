@@ -144,7 +144,11 @@ fn anchor_rect(
 }
 
 fn popup_rect(origin: point::Logical, chrome: PopupChrome, theme: &theme::Theme) -> Rect {
-    Rect::rounded(origin, chrome.area, theme.floating_panel().rounding())
+    Rect::rounded(
+        pixel_aligned_origin(origin),
+        chrome.area,
+        theme.floating_panel().rounding(),
+    )
 }
 
 fn popup_node<T>(
@@ -437,7 +441,7 @@ fn popup_chrome<T>(
     let body_height = row_height * row_count as f32;
     let width = (body_width + padding * 2.0).max(theme.density().menu_popup_min_width());
     let height = body_height + padding * 2.0;
-    let area = area::logical(width, height);
+    let area = pixel_aligned_area(area::logical(width, height));
 
     PopupChrome {
         area,
@@ -449,6 +453,14 @@ fn popup_chrome<T>(
         glyph_width,
         row_rounding: row_rounding(theme, area, padding),
     }
+}
+
+fn pixel_aligned_origin(origin: point::Logical) -> point::Logical {
+    point::logical(origin.x().round(), origin.y().round())
+}
+
+fn pixel_aligned_area(area: area::Logical) -> area::Logical {
+    area::logical(area.width().ceil(), area.height().ceil())
 }
 
 fn glyph_column_width(theme: &theme::Theme) -> f32 {
@@ -567,10 +579,29 @@ mod tests {
             menu::Section::new().item(menu::Item::new(ACTION_A).with_label("Toggle Preview")),
         );
         let chrome = popup_chrome(&menu, &registry, &theme, &mut measurer);
-        let expected = chrome.body_width + chrome.padding * 2.0;
+        let expected = (chrome.body_width + chrome.padding * 2.0).ceil();
 
         assert!(chrome.body_width + chrome.padding * 2.0 > theme.density().menu_popup_min_width());
         assert_eq!(chrome.area.width(), expected);
+    }
+
+    #[test]
+    fn popup_rect_aligns_origin_and_area_to_whole_logical_pixels() {
+        let theme = theme::Theme::default_dark();
+        let chrome = PopupChrome {
+            area: pixel_aligned_area(area::logical(120.2, 44.1)),
+            body_width: 108.2,
+            row_count: 1,
+            shortcut_width: 0.0,
+            padding: theme.floating_panel().padding(),
+            row_height: theme.density().menu_row_height(),
+            glyph_width: glyph_column_width(&theme),
+            row_rounding: rect::Rounding::fixed(4.0),
+        };
+        let rect = popup_rect(point::logical(10.4, 20.6), chrome, &theme);
+
+        assert_eq!(rect.origin, point::logical(10.0, 21.0));
+        assert_eq!(rect.area, area::logical(121.0, 45.0));
     }
 
     #[test]
