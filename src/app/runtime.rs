@@ -250,6 +250,10 @@ impl<A: Application> Runtime<A> {
             self.dispatch_message(event_loop, Message::RunAction(request));
         }
 
+        if let Some((_, intent)) = outcome.intent {
+            self.handle_intent(window, intent);
+        }
+
         if outcome.redraw {
             self.windows.request_redraw(window);
         }
@@ -287,8 +291,27 @@ impl<A: Application> Runtime<A> {
             self.dispatch_message(event_loop, Message::RunAction(request));
         }
 
+        if let Some((_, intent)) = outcome.intent {
+            self.handle_intent(window, intent);
+        }
+
         if outcome.redraw {
             self.windows.request_redraw(window);
+        }
+    }
+
+    fn handle_intent(&mut self, window: window::Id, intent: ui::Intent) {
+        let Some(state) = self.window_states.get_mut(&window) else {
+            return;
+        };
+
+        match intent {
+            ui::Intent::Action(_) => {}
+            ui::Intent::OpenMenu(menu) => {
+                if state.toggle_menu(menu, &self.actions, window) {
+                    self.windows.request_redraw(window);
+                }
+            }
         }
     }
 

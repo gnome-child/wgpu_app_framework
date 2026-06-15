@@ -3,12 +3,13 @@ use std::time::Duration;
 use wgpu_l3::{
     Action, Event, Icon, Task, action, app,
     geometry::{Rect, area, point, rect},
-    icon, layout, paint, text, ui, window,
+    icon, layout, menu, paint, text, ui, window,
 };
 
 const RUN_TASK: action::Id = action::Id::new("run_task");
 const TOGGLE_PREVIEW: action::Id = action::Id::new("toggle_preview");
 const ROOT: ui::Id = ui::Id::new("root");
+const MENU_BAR: ui::Id = ui::Id::new("menu_bar");
 const STATUS_PANEL: ui::Id = ui::Id::new("status_panel");
 const DOCUMENT_PANEL: ui::Id = ui::Id::new("document_panel");
 const SELECT_BUTTON: ui::Id = ui::Id::new("select_button");
@@ -18,6 +19,9 @@ const LOCAL_SELECT_BUTTON: ui::Id = ui::Id::new("local_select_button");
 const CAPTURED_SELECT_BUTTON: ui::Id = ui::Id::new("captured_select_button");
 const RUN_BUTTON: ui::Id = ui::Id::new("run_button");
 const PREVIEW_BUTTON: ui::Id = ui::Id::new("preview_button");
+const FILE_MENU: menu::Id = menu::Id::new("file");
+const EDIT_MENU: menu::Id = menu::Id::new("edit");
+const VIEW_MENU: menu::Id = menu::Id::new("view");
 
 fn main() -> app::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
@@ -283,6 +287,7 @@ impl app::Application for App {
         let root = ui::control::panel(ROOT)
             .with_background(paint::Color::BLACK)
             .with_padding(layout::Insets::splat(16.0))
+            .with_child(ui::widget::menu_bar(MENU_BAR, app_menu()))
             .with_child(
                 ui::control::panel(STATUS_PANEL)
                     .with_size(layout::Size::Fill, layout::Size::Fixed(64.0))
@@ -321,6 +326,22 @@ impl app::Application for App {
             popup_panel,
         ));
     }
+}
+
+fn app_menu() -> menu::Bar {
+    menu::Bar::new()
+        .menu(
+            menu::Menu::new(FILE_MENU, "File")
+                .section(menu::Section::new().item(menu::Item::new(RUN_TASK))),
+        )
+        .menu(
+            menu::Menu::new(EDIT_MENU, "Edit")
+                .section(menu::Section::new().item(menu::Item::new(action::SELECT_ALL))),
+        )
+        .menu(
+            menu::Menu::new(VIEW_MENU, "View")
+                .section(menu::Section::new().item(menu::Item::new(TOGGLE_PREVIEW))),
+        )
 }
 
 fn is_outside_command_scope(scope: &action::Scope) -> bool {

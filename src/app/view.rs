@@ -1,3 +1,4 @@
+use crate::app::menu_ui;
 use crate::app::state::WindowState;
 use crate::geometry::area;
 use crate::{action, layout, paint, ui, window};
@@ -10,9 +11,27 @@ pub fn compose<T>(
     logical_area: area::Logical,
 ) -> paint::Scene {
     let mut scene = paint::Scene::new();
+    let mut tree = tree.clone();
+
+    state.menus = tree.menus();
+    if state
+        .open_menu
+        .is_some_and(|menu| !state.menus.contains_key(&menu))
+    {
+        state.open_menu = None;
+    }
+
+    if let Some(open_menu) = state.open_menu
+        && let Some(menu) = state.menus.get(&open_menu)
+        && let Some(base_layout) = tree.layout(logical_area)
+        && let Some(popup) = menu_ui::popup(&tree, &base_layout, menu, actions)
+    {
+        tree.push_popup(popup);
+    }
 
     state.actions = tree.actions();
     state.action_targets = tree.action_targets();
+    state.intents = tree.intents();
     state.responders = tree.responders();
     state.command_scopes = tree.command_scopes();
     state.interactivity = tree.interactivity();
@@ -76,7 +95,7 @@ fn collect_focus_order(
 #[cfg(test)]
 mod tests {
     use crate::geometry::area;
-    use crate::{Action, layout, paint};
+    use crate::{Action, layout, menu, paint};
 
     use super::*;
 
@@ -84,6 +103,8 @@ mod tests {
     const CHILD: ui::Id = ui::Id::new("child");
     const OTHER: ui::Id = ui::Id::new("other");
     const CLICK: action::Id = action::Id::new("click");
+    const MENU_BAR: ui::Id = ui::Id::new("menu_bar");
+    const FILE: menu::Id = menu::Id::new("file");
 
     #[test]
     fn compose_updates_state_and_preserves_paint_order() {
@@ -281,5 +302,68 @@ mod tests {
         );
 
         assert!(state.command_scope_captures.is_empty());
+    }
+
+    #[test]
+    fn compose_injects_open_menu_popup_from_menu_bar() {
+        let window = window::Id::new(1);
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            command_subject: Some(action::Scope::Path(ui::Path::new([ROOT, CHILD]))),
+            ..WindowState::default()
+        };
+        let mut registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+
+        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        registry.set_state(
+            action::SELECT_ALL,
+            action::Context::path(window, ui::Path::new([ROOT, CHILD])),
+            action::State::enabled(),
+        );
+        tree.set_root(
+            ui::control::panel(ROOT)
+                .with_child(ui::widget::menu_bar(
+                    MENU_BAR,
+                    menu::Bar::new().menu(
+                        menu::Menu::new(FILE, "File").section(
+                            menu::Section::new().item(menu::Item::new(action::SELECT_ALL)),
+                        ),
+                    ),
+                ))
+                .with_child(
+                    ui::Node::leaf(CHILD)
+                        .with_responder(action::SELECT_ALL)
+                        .with_interactivity(ui::Interactivity::CONTROL),
+                ),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &registry,
+            area::logical(300.0, 180.0),
+        );
+
+        let row = ui::Path::new([ROOT, ui::widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
+        let scope = ui::Path::new([ROOT, ui::widget::MENU_POPUP]);
+
+        assert!(
+            state
+                .layout
+                .as_ref()
+                .and_then(|layout| layout.find_path(&scope))
+                .is_some()
+        );
+        assert_eq!(state.actions.get(&row), Some(&action::SELECT_ALL));
+        assert_eq!(
+            state.action_targets.get(&row),
+            Some(&ui::ActionTarget::Captured)
+        );
+        assert_eq!(
+            state.command_scope_captures.get(&scope),
+            Some(&action::Context::path(window, ui::Path::new([ROOT, CHILD])))
+        );
     }
 }

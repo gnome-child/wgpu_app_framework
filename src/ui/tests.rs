@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::*;
 use crate::geometry::{Rect, area, point, rect};
-use crate::{action, icon, layout, paint, text, window};
+use crate::{action, icon, layout, menu, paint, text, window};
 
 const ROOT: Id = Id::new("root");
 const A: Id = Id::new("a");
@@ -330,6 +330,50 @@ fn node_with_action_target_stores_policy() {
         .with_action_target(ActionTarget::Command);
 
     assert_eq!(node.action_target(), ActionTarget::Command);
+}
+
+#[test]
+fn node_with_intent_stores_open_menu_intent() {
+    let file = menu::Id::new("file");
+    let node = Node::leaf(A).with_intent(Intent::OpenMenu(file));
+
+    assert_eq!(node.intent(), Some(Intent::OpenMenu(file)));
+    assert_eq!(node.action(), None);
+}
+
+#[test]
+fn menu_bar_widget_creates_interactive_menu_title_intents() {
+    let file = menu::Id::new("file");
+    let edit = menu::Id::new("edit");
+    let bar = menu::Bar::new()
+        .menu(menu::Menu::new(file, "File"))
+        .menu(menu::Menu::new(edit, "Edit"));
+    let node = widget::menu_bar(A, bar.clone());
+
+    assert_eq!(node.menu_bar(), Some(&bar));
+    assert_eq!(node.children().len(), 2);
+    assert_eq!(node.children()[0].intent(), Some(Intent::OpenMenu(file)));
+    assert_eq!(node.children()[1].intent(), Some(Intent::OpenMenu(edit)));
+    assert!(node.children()[0].interactivity().hit_test());
+    assert!(node.children()[0].interactivity().focusable());
+    assert!(node.children()[0].interactivity().actionable());
+}
+
+#[test]
+fn tree_collects_intents_and_menu_definitions() {
+    let file = menu::Id::new("file");
+    let bar = menu::Bar::new().menu(menu::Menu::new(file, "File"));
+    let mut tree = Tree::new();
+
+    tree.set_root(
+        Node::container(ROOT, layout::Axis::Vertical).with_child(widget::menu_bar(A, bar)),
+    );
+
+    assert_eq!(
+        tree.intents().get(&Path::new([ROOT, A, Id::new("file")])),
+        Some(&Intent::OpenMenu(file))
+    );
+    assert_eq!(tree.menus().get(&file).map(menu::Menu::label), Some("File"));
 }
 
 #[test]

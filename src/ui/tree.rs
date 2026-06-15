@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 
 use crate::geometry::area;
-use crate::{action, layout, paint, window};
+use crate::{action, layout, menu, paint, window};
 
-use super::{ActionTarget, Interaction, Interactivity, Node, Path, Popup, layout_engine, painting};
+use super::{
+    ActionTarget, Intent, Interaction, Interactivity, Node, Path, Popup, layout_engine, painting,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tree {
@@ -99,6 +101,33 @@ impl Tree {
         }
 
         targets
+    }
+
+    pub fn intents(&self) -> HashMap<Path, Intent> {
+        let mut intents = HashMap::new();
+
+        if let Some(root) = self.root.as_ref() {
+            collect_intents(root, &Path::root(root.id()), &mut intents);
+            for popup in &self.popups {
+                collect_intents(
+                    popup.root(),
+                    &Path::root(root.id()).child(popup.root().id()),
+                    &mut intents,
+                );
+            }
+        }
+
+        intents
+    }
+
+    pub fn menus(&self) -> HashMap<menu::Id, menu::Menu> {
+        let mut menus = HashMap::new();
+
+        if let Some(root) = self.root.as_ref() {
+            collect_menus(root, &mut menus);
+        }
+
+        menus
     }
 
     pub fn responders(&self) -> HashMap<Path, Vec<action::Id>> {
@@ -202,6 +231,28 @@ fn collect_action_targets(node: &Node, path: &Path, targets: &mut HashMap<Path, 
 
     for child in node.children() {
         collect_action_targets(child, &path.child(child.id()), targets);
+    }
+}
+
+fn collect_intents(node: &Node, path: &Path, intents: &mut HashMap<Path, Intent>) {
+    if let Some(intent) = node.intent() {
+        intents.insert(path.clone(), intent);
+    }
+
+    for child in node.children() {
+        collect_intents(child, &path.child(child.id()), intents);
+    }
+}
+
+fn collect_menus(node: &Node, menus: &mut HashMap<menu::Id, menu::Menu>) {
+    if let Some(bar) = node.menu_bar() {
+        for menu in bar.menus() {
+            menus.insert(menu.id(), menu.clone());
+        }
+    }
+
+    for child in node.children() {
+        collect_menus(child, menus);
     }
 }
 

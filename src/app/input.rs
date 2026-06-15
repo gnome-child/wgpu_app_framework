@@ -3,7 +3,7 @@ use winit::{
     keyboard::{Key as WinitKey, ModifiersState, NamedKey},
 };
 
-use crate::app::state::{PressSource, WindowState, action_request};
+use crate::app::state::{PressSource, WindowState, action_request, intent};
 use crate::geometry::point;
 use crate::{action, pointer, ui, window};
 
@@ -11,6 +11,7 @@ use crate::{action, pointer, ui, window};
 pub struct Outcome {
     pub events: Vec<ui::Event>,
     pub request: Option<action::Request>,
+    pub intent: Option<(ui::Path, ui::Intent)>,
     pub redraw: bool,
 }
 
@@ -33,6 +34,7 @@ pub fn pointer_moved(state: &mut WindowState, position: point::Logical) -> Outco
     Outcome {
         events,
         request: None,
+        intent: None,
         redraw,
     }
 }
@@ -47,11 +49,13 @@ pub fn pointer_pressed(
         pressed: true,
     });
     let target = state.hit_test(position);
+    state.dismiss_menu_for_target(target.as_ref());
     let event = state.pointer_down(position, state.pointer.delta(), target, button);
 
     Outcome {
         events: vec![event],
         request: None,
+        intent: None,
         redraw: true,
     }
 }
@@ -69,14 +73,23 @@ pub fn pointer_released<T>(
     });
     let target = state.hit_test(position);
     let (event, invoke_target) = state.pointer_up(position, state.pointer.delta(), target, button);
-    let request = invoke_target
-        .and_then(|target| action_request(state, window, target, action::Source::Pointer))
-        .filter(|request| registry.can_invoke(request.action(), request.target().clone()));
+    let intent = invoke_target
+        .as_ref()
+        .and_then(|target| intent(state, target.clone()));
+    let request = invoke_target.and_then(|target| {
+        activation_request(registry, state, window, target, action::Source::Pointer)
+    });
+    let closed_menu = request
+        .as_ref()
+        .and_then(action::Request::origin)
+        .is_some_and(|origin| state.is_menu_path(origin))
+        && state.close_menu();
 
     Outcome {
         events: vec![event],
         request,
-        redraw: true,
+        intent,
+        redraw: true || closed_menu,
     }
 }
 
@@ -106,6 +119,7 @@ pub fn pointer_left(state: &mut WindowState) -> Outcome {
         redraw: !events.is_empty() || cleared_pressed,
         events,
         request: None,
+        intent: None,
     }
 }
 
@@ -123,6 +137,7 @@ pub fn key(key: &WinitKey) -> ui::Key {
         WinitKey::Named(NamedKey::Tab) => ui::Key::Tab,
         WinitKey::Named(NamedKey::Enter) => ui::Key::Enter,
         WinitKey::Named(NamedKey::Space) => ui::Key::Space,
+        WinitKey::Named(NamedKey::Escape) => ui::Key::Escape,
         WinitKey::Character(value) => {
             let mut chars = value.chars();
             let Some(character) = chars.next() else {
@@ -175,6 +190,9 @@ pub fn key_pressed<T>(
                 state.pressed_source = Some(PressSource::Keyboard);
             }
         }
+        ui::Key::Escape if !repeat => {
+            redraw |= state.close_menu();
+        }
         _ => {}
     }
 
@@ -187,6 +205,7 @@ pub fn key_pressed<T>(
     Outcome {
         events: vec![event],
         request,
+        intent: None,
         redraw,
     }
 }
@@ -205,6 +224,7 @@ pub fn key_released<T>(
     };
     let mut redraw = false;
     let mut request = None;
+    let mut intent = None;
 
     if matches!(key, ui::Key::Enter | ui::Key::Space)
         && state.pressed_source == Some(PressSource::Keyboard)
@@ -214,17 +234,41 @@ pub fn key_released<T>(
         redraw = pressed.is_some();
 
         if pressed == target {
-            request = target
-                .and_then(|target| action_request(state, window, target, action::Source::Keyboard))
-                .filter(|request| registry.can_invoke(request.action(), request.target().clone()));
+            intent = target
+                .as_ref()
+                .and_then(|target| super::state::intent(state, target.clone()));
+            request = target.and_then(|target| {
+                activation_request(registry, state, window, target, action::Source::Keyboard)
+            });
+            redraw |= request
+                .as_ref()
+                .and_then(action::Request::origin)
+                .is_some_and(|origin| state.is_menu_path(origin))
+                && state.close_menu();
         }
     }
 
     Outcome {
         events: vec![event],
         request,
+        intent,
         redraw,
     }
+}
+
+fn activation_request<T>(
+    registry: &action::Registry<T>,
+    state: &WindowState,
+    window: window::Id,
+    target: ui::Path,
+    source: action::Source,
+) -> Option<action::Request> {
+    if matches!(state.intent(&target), Some(ui::Intent::OpenMenu(_))) {
+        return None;
+    }
+
+    action_request(state, window, target, source)
+        .filter(|request| registry.can_invoke(request.action(), request.target().clone()))
 }
 
 fn next_focus<T>(
@@ -287,6 +331,10 @@ fn invokable_focused_path<T>(
     window: window::Id,
 ) -> Option<ui::Path> {
     let target = state.focused_path()?;
+    if matches!(state.intent(&target), Some(ui::Intent::OpenMenu(_))) {
+        return Some(target);
+    }
+
     action_request(state, window, target.clone(), action::Source::Keyboard)
         .filter(|request| registry.can_invoke(request.action(), request.target().clone()))
         .map(|_| target)
@@ -314,12 +362,14 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::Action;
+    use crate::menu;
 
     use super::*;
 
     const CHILD: ui::Id = ui::Id::new("child");
     const SECOND: ui::Id = ui::Id::new("second");
     const CLICK: action::Id = action::Id::new("click");
+    const FILE: menu::Id = menu::Id::new("file");
 
     fn path(id: ui::Id) -> ui::Path {
         ui::Path::from(id)
@@ -403,6 +453,86 @@ mod tests {
     }
 
     #[test]
+    fn released_menu_title_returns_open_menu_intent() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut state = WindowState {
+            pressed: Some(path(CHILD)),
+            pressed_source: Some(PressSource::Pointer),
+            intents: HashMap::from([(path(CHILD), ui::Intent::OpenMenu(FILE))]),
+            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            ..WindowState::default()
+        };
+
+        state.layout = Some(crate::layout::Box::new(
+            CHILD,
+            crate::geometry::Rect::new(
+                point::logical(0.0, 0.0),
+                crate::geometry::area::logical(10.0, 10.0),
+            ),
+            Vec::new(),
+        ));
+
+        let outcome = pointer_released(
+            &registry,
+            &mut state,
+            window,
+            point::logical(1.0, 1.0),
+            pointer::Button::Primary,
+        );
+
+        assert_eq!(outcome.request, None);
+        assert_eq!(
+            outcome.intent,
+            Some((path(CHILD), ui::Intent::OpenMenu(FILE)))
+        );
+    }
+
+    #[test]
+    fn menu_action_request_closes_open_menu() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let row = ui::Path::new([ui::widget::MENU_POPUP, CHILD]);
+        let mut state = WindowState {
+            pressed: Some(row.clone()),
+            pressed_source: Some(PressSource::Pointer),
+            open_menu: Some(FILE),
+            actions: HashMap::from([(row.clone(), CLICK)]),
+            intents: HashMap::from([(row.clone(), ui::Intent::Action(CLICK))]),
+            interactivity: HashMap::from([(row.clone(), ui::Interactivity::CONTROL)]),
+            ..WindowState::default()
+        };
+
+        state.layout = Some(crate::layout::Box::with_path(
+            ui::Path::from(ui::widget::MENU_POPUP),
+            crate::geometry::Rect::new(
+                point::logical(0.0, 0.0),
+                crate::geometry::area::logical(20.0, 20.0),
+            ),
+            vec![crate::layout::Box::with_path(
+                row.clone(),
+                crate::geometry::Rect::new(
+                    point::logical(0.0, 0.0),
+                    crate::geometry::area::logical(10.0, 10.0),
+                ),
+                Vec::new(),
+            )],
+        ));
+        registry.register(Action::new(CLICK, "Click"));
+
+        let outcome = pointer_released(
+            &registry,
+            &mut state,
+            window,
+            point::logical(1.0, 1.0),
+            pointer::Button::Primary,
+        );
+
+        assert!(outcome.request.is_some());
+        assert_eq!(state.open_menu, None);
+    }
+
+    #[test]
     fn winit_mouse_buttons_map_to_pointer_buttons() {
         assert_eq!(pointer_button(MouseButton::Left), pointer::Button::Primary);
         assert_eq!(
@@ -428,6 +558,21 @@ mod tests {
             ui::Key::Character('a')
         );
         assert_eq!(key(&WinitKey::Character("ab".into())), ui::Key::Other);
+    }
+
+    #[test]
+    fn escape_dismisses_open_menu() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            ..WindowState::default()
+        };
+
+        let outcome = key_pressed(&registry, &mut state, window, ui::Key::Escape, false);
+
+        assert!(outcome.redraw);
+        assert_eq!(state.open_menu, None);
     }
 
     #[test]

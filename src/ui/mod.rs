@@ -1,5 +1,6 @@
 pub mod control;
 pub mod focus;
+pub mod widget;
 
 mod backdrop;
 mod event;
@@ -13,7 +14,7 @@ mod tree;
 pub use backdrop::Backdrop;
 pub use event::{Event, Key, Modifiers};
 pub use id::{Id, Path};
-pub use node::{ActionTarget, Interaction, Interactivity, Layout, Node, Shadow, Style};
+pub use node::{ActionTarget, Intent, Interaction, Interactivity, Layout, Node, Shadow, Style};
 pub use popup::Popup;
 pub use tree::Tree;
 

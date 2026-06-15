@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{action, geometry, icon, layout, paint, text};
+use crate::{action, geometry, icon, layout, menu, paint, text};
 
 use super::{Backdrop, Id, Path, focus};
 
@@ -10,6 +10,7 @@ pub struct Node {
     layout: Layout,
     style: Style,
     interactivity: Interactivity,
+    intent: Option<Intent>,
     action: Option<action::Id>,
     action_target: ActionTarget,
     responders: Vec<action::Id>,
@@ -17,6 +18,7 @@ pub struct Node {
     label: Option<text::Document>,
     icon: Option<icon::Icon>,
     icon_size: Option<f32>,
+    menu_bar: Option<menu::Bar>,
     children: Vec<Node>,
 }
 
@@ -82,6 +84,12 @@ pub enum ActionTarget {
     Window,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Intent {
+    Action(action::Id),
+    OpenMenu(menu::Id),
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Interaction {
     hovered: Option<Path>,
@@ -99,6 +107,7 @@ impl Node {
             layout: Layout::default(),
             style: Style::default(),
             interactivity: Interactivity::default(),
+            intent: None,
             action: None,
             action_target: ActionTarget::default(),
             responders: Vec::new(),
@@ -106,6 +115,7 @@ impl Node {
             label: None,
             icon: None,
             icon_size: None,
+            menu_bar: None,
             children: Vec::new(),
         }
     }
@@ -138,6 +148,10 @@ impl Node {
         self.action
     }
 
+    pub fn intent(&self) -> Option<Intent> {
+        self.intent
+    }
+
     pub fn action_target(&self) -> ActionTarget {
         self.action_target
     }
@@ -160,6 +174,10 @@ impl Node {
 
     pub fn icon_size(&self) -> Option<f32> {
         self.icon_size
+    }
+
+    pub fn menu_bar(&self) -> Option<&menu::Bar> {
+        self.menu_bar.as_ref()
     }
 
     pub fn children(&self) -> &[Node] {
@@ -317,7 +335,17 @@ impl Node {
     }
 
     pub fn with_action(mut self, action: action::Id) -> Self {
+        self.intent = Some(Intent::Action(action));
         self.action = Some(action);
+        self
+    }
+
+    pub fn with_intent(mut self, intent: Intent) -> Self {
+        self.action = match intent {
+            Intent::Action(action) => Some(action),
+            Intent::OpenMenu(_) => None,
+        };
+        self.intent = Some(intent);
         self
     }
 
@@ -333,6 +361,11 @@ impl Node {
 
     pub fn with_command_scope(mut self) -> Self {
         self.command_scope = true;
+        self
+    }
+
+    pub fn with_menu_bar(mut self, bar: menu::Bar) -> Self {
+        self.menu_bar = Some(bar);
         self
     }
 

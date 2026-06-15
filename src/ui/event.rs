@@ -8,6 +8,7 @@ pub enum Key {
     Tab,
     Enter,
     Space,
+    Escape,
     Character(char),
     Other,
 }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::geometry::point;
-use crate::{action, layout, pointer, ui, window};
+use crate::{action, layout, menu, pointer, ui, window};
 
 use super::command;
 
@@ -18,6 +18,9 @@ pub struct WindowState {
     pub layout: Option<layout::Box>,
     pub actions: HashMap<ui::Path, action::Id>,
     pub action_targets: HashMap<ui::Path, ui::ActionTarget>,
+    pub intents: HashMap<ui::Path, ui::Intent>,
+    pub menus: HashMap<menu::Id, menu::Menu>,
+    pub open_menu: Option<menu::Id>,
     pub responders: HashMap<ui::Path, Vec<action::Id>>,
     pub command_scopes: Vec<ui::Path>,
     pub command_scope_captures: HashMap<ui::Path, action::Context>,
@@ -62,6 +65,10 @@ impl WindowState {
 
     pub fn action_target(&self, target: &ui::Path) -> ui::ActionTarget {
         self.action_targets.get(target).copied().unwrap_or_default()
+    }
+
+    pub fn intent(&self, target: &ui::Path) -> Option<ui::Intent> {
+        self.intents.get(target).copied()
     }
 
     pub fn has_responder(&self, target: &ui::Path) -> bool {
@@ -153,6 +160,55 @@ impl WindowState {
             },
             invoke,
         )
+    }
+
+    pub fn toggle_menu<T>(
+        &mut self,
+        id: menu::Id,
+        registry: &action::Registry<T>,
+        window: window::Id,
+    ) -> bool {
+        if self.open_menu == Some(id) {
+            self.open_menu = None;
+            return true;
+        }
+
+        let Some(menu) = self.menus.get(&id) else {
+            return false;
+        };
+
+        if !self.menu_can_open(menu, registry, window) {
+            return false;
+        }
+
+        self.open_menu = Some(id);
+        true
+    }
+
+    pub fn close_menu(&mut self) -> bool {
+        let changed = self.open_menu.is_some();
+        self.open_menu = None;
+        changed
+    }
+
+    pub fn dismiss_menu_for_target(&mut self, target: Option<&ui::Path>) -> bool {
+        if self.open_menu.is_none() {
+            return false;
+        }
+
+        if target.is_some_and(|target| self.is_menu_path(target)) {
+            return false;
+        }
+
+        self.close_menu()
+    }
+
+    pub fn is_menu_path(&self, path: &ui::Path) -> bool {
+        path.ids().iter().any(|id| *id == ui::widget::MENU_POPUP)
+            || path.ids().iter().enumerate().any(|(index, _)| {
+                let candidate = ui::Path::new(path.ids()[..=index].to_vec());
+                matches!(self.intent(&candidate), Some(ui::Intent::OpenMenu(_)))
+            })
     }
 
     pub fn focused_path(&self) -> Option<ui::Path> {
@@ -258,10 +314,38 @@ pub fn action_request(
     origin: ui::Path,
     source: action::Source,
 ) -> Option<action::Request> {
-    let action = *state.actions.get(&origin)?;
+    let action = match state.intent(&origin) {
+        Some(ui::Intent::Action(action)) => action,
+        Some(ui::Intent::OpenMenu(_)) => return None,
+        None => *state.actions.get(&origin)?,
+    };
     let context = state.action_context_for_path(window, &origin);
 
     Some(action::Request::new(action, source, context).with_origin(origin))
+}
+
+pub fn intent(state: &WindowState, origin: ui::Path) -> Option<(ui::Path, ui::Intent)> {
+    state.intent(&origin).map(|intent| (origin, intent))
+}
+
+impl WindowState {
+    fn menu_can_open<T>(
+        &self,
+        menu: &menu::Menu,
+        registry: &action::Registry<T>,
+        window: window::Id,
+    ) -> bool {
+        menu.actions().any(|action| {
+            let request = action::Request::new(
+                action,
+                action::Source::Pointer,
+                self.command_context(window),
+            );
+            let request = self.resolve_request(request);
+
+            registry.can_invoke(request.action(), request.target().clone())
+        })
+    }
 }
 
 #[cfg(test)]
@@ -269,11 +353,13 @@ mod tests {
     use super::*;
     use crate::Action;
     use crate::geometry::{Rect, area};
+    use crate::menu;
 
     const ROOT: ui::Id = ui::Id::new("root");
     const CHILD: ui::Id = ui::Id::new("child");
     const OUTSIDE: ui::Id = ui::Id::new("outside");
     const CLICK: action::Id = action::Id::new("click");
+    const FILE: menu::Id = menu::Id::new("file");
 
     fn path(id: ui::Id) -> ui::Path {
         ui::Path::from(id)
@@ -516,6 +602,87 @@ mod tests {
                 .filter(|request| registry.can_invoke(request.action(), request.target().clone())),
             None
         );
+    }
+
+    #[test]
+    fn menu_opens_only_when_an_item_can_invoke_after_resolution() {
+        let window = window::Id::new(1);
+        let menu = menu::Menu::new(FILE, "File")
+            .section(menu::Section::new().item(menu::Item::new(action::SELECT_ALL)));
+        let mut registry = action::Registry::<()>::new();
+        let mut state = WindowState {
+            menus: HashMap::from([(FILE, menu)]),
+            command_subject: Some(action::Scope::Path(path(CHILD))),
+            responders: HashMap::from([(path(CHILD), vec![action::SELECT_ALL])]),
+            ..WindowState::default()
+        };
+
+        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        registry.set_state(
+            action::SELECT_ALL,
+            action::Context::window(window),
+            action::State::disabled(),
+        );
+
+        assert!(!state.toggle_menu(FILE, &registry, window));
+        assert_eq!(state.open_menu, None);
+
+        registry.set_state(
+            action::SELECT_ALL,
+            action::Context::path(window, path(CHILD)),
+            action::State::enabled(),
+        );
+
+        assert!(state.toggle_menu(FILE, &registry, window));
+        assert_eq!(state.open_menu, Some(FILE));
+    }
+
+    #[test]
+    fn menu_toggle_switches_and_closes_current_menu() {
+        let window = window::Id::new(1);
+        let edit = menu::Id::new("edit");
+        let file_menu = menu::Menu::new(FILE, "File")
+            .section(menu::Section::new().item(menu::Item::new(CLICK)));
+        let edit_menu = menu::Menu::new(edit, "Edit")
+            .section(menu::Section::new().item(menu::Item::new(CLICK)));
+        let mut registry = action::Registry::<()>::new();
+        let mut state = WindowState {
+            menus: HashMap::from([(FILE, file_menu), (edit, edit_menu)]),
+            ..WindowState::default()
+        };
+
+        registry.register(Action::new(CLICK, "Click"));
+
+        assert!(state.toggle_menu(FILE, &registry, window));
+        assert_eq!(state.open_menu, Some(FILE));
+        assert!(state.toggle_menu(edit, &registry, window));
+        assert_eq!(state.open_menu, Some(edit));
+        assert!(state.toggle_menu(edit, &registry, window));
+        assert_eq!(state.open_menu, None);
+    }
+
+    #[test]
+    fn outside_pointer_target_dismisses_open_menu() {
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            ..WindowState::default()
+        };
+
+        assert!(state.dismiss_menu_for_target(Some(&path(CHILD))));
+        assert_eq!(state.open_menu, None);
+    }
+
+    #[test]
+    fn menu_pointer_target_does_not_dismiss_open_menu() {
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            intents: HashMap::from([(path(CHILD), ui::Intent::OpenMenu(FILE))]),
+            ..WindowState::default()
+        };
+
+        assert!(!state.dismiss_menu_for_target(Some(&path(CHILD))));
+        assert_eq!(state.open_menu, Some(FILE));
+        assert!(state.is_menu_path(&path(CHILD)));
     }
 
     #[test]
