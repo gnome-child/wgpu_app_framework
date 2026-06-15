@@ -22,8 +22,11 @@ pub fn pointer_moved(state: &mut WindowState, position: point::Logical) -> Outco
     let delta = state.pointer.delta();
     let target = state.hit_test(position);
     let hover_events = state.set_hovered(target.clone());
+    let intent = target
+        .as_ref()
+        .and_then(|target| hover_switch_menu_intent(state, target));
 
-    let redraw = !hover_events.is_empty();
+    let redraw = !hover_events.is_empty() || intent.is_some();
     let mut events = hover_events;
     events.push(ui::Event::PointerMoved {
         position,
@@ -34,7 +37,7 @@ pub fn pointer_moved(state: &mut WindowState, position: point::Logical) -> Outco
     Outcome {
         events,
         request: None,
-        intent: None,
+        intent,
         redraw,
     }
 }
@@ -271,6 +274,19 @@ fn activation_request<T>(
         .filter(|request| registry.can_invoke(request.action(), request.target().clone()))
 }
 
+fn hover_switch_menu_intent(
+    state: &WindowState,
+    target: &ui::Path,
+) -> Option<(ui::Path, ui::Intent)> {
+    let open_menu = state.open_menu?;
+    let intent = state.intent(target)?;
+
+    match intent {
+        ui::Intent::OpenMenu(menu) if menu != open_menu => Some((target.clone(), intent)),
+        _ => None,
+    }
+}
+
 fn next_focus<T>(
     registry: &action::Registry<T>,
     state: &WindowState,
@@ -370,6 +386,7 @@ mod tests {
     const SECOND: ui::Id = ui::Id::new("second");
     const CLICK: action::Id = action::Id::new("click");
     const FILE: menu::Id = menu::Id::new("file");
+    const EDIT: menu::Id = menu::Id::new("edit");
 
     fn path(id: ui::Id) -> ui::Path {
         ui::Path::from(id)
@@ -625,6 +642,76 @@ mod tests {
                 target: Some(path(SECOND)),
             }]
         );
+    }
+
+    #[test]
+    fn hovering_other_menu_title_while_menu_is_open_emits_open_menu_intent() {
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            intents: HashMap::from([(path(SECOND), ui::Intent::OpenMenu(EDIT))]),
+            interactivity: HashMap::from([(path(SECOND), ui::Interactivity::CONTROL)]),
+            ..WindowState::default()
+        };
+        state.layout = Some(crate::layout::Box::new(
+            SECOND,
+            crate::geometry::Rect::new(
+                point::logical(0.0, 0.0),
+                crate::geometry::area::logical(20.0, 20.0),
+            ),
+            Vec::new(),
+        ));
+
+        let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
+
+        assert_eq!(
+            outcome.intent,
+            Some((path(SECOND), ui::Intent::OpenMenu(EDIT)))
+        );
+        assert!(outcome.redraw);
+    }
+
+    #[test]
+    fn hovering_same_menu_title_does_not_toggle_open_menu() {
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            intents: HashMap::from([(path(CHILD), ui::Intent::OpenMenu(FILE))]),
+            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            ..WindowState::default()
+        };
+        state.layout = Some(crate::layout::Box::new(
+            CHILD,
+            crate::geometry::Rect::new(
+                point::logical(0.0, 0.0),
+                crate::geometry::area::logical(20.0, 20.0),
+            ),
+            Vec::new(),
+        ));
+
+        let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
+
+        assert_eq!(outcome.intent, None);
+        assert_eq!(state.open_menu, Some(FILE));
+    }
+
+    #[test]
+    fn menu_title_hover_without_open_menu_does_not_emit_intent() {
+        let mut state = WindowState {
+            intents: HashMap::from([(path(CHILD), ui::Intent::OpenMenu(FILE))]),
+            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            ..WindowState::default()
+        };
+        state.layout = Some(crate::layout::Box::new(
+            CHILD,
+            crate::geometry::Rect::new(
+                point::logical(0.0, 0.0),
+                crate::geometry::area::logical(20.0, 20.0),
+            ),
+            Vec::new(),
+        ));
+
+        let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
+
+        assert_eq!(outcome.intent, None);
     }
 
     #[test]

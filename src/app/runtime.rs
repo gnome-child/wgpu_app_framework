@@ -216,6 +216,10 @@ impl<A: Application> Runtime<A> {
         }
 
         self.dispatch_ui_events(event_loop, window, outcome.events);
+
+        if let Some((_, intent)) = outcome.intent {
+            self.handle_intent(window, intent);
+        }
     }
 
     fn pointer_button(
