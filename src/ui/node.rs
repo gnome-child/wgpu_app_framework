@@ -100,6 +100,8 @@ pub struct Interaction {
     pressed: Option<Path>,
     command_target: Option<action::Context>,
     command_scope_captures: HashMap<Path, action::Context>,
+    open_menu: Option<menu::Id>,
+    open_submenu: Option<menu::Id>,
 }
 
 impl Node {
@@ -641,6 +643,8 @@ impl Interaction {
             pressed,
             command_target: None,
             command_scope_captures: HashMap::new(),
+            open_menu: None,
+            open_submenu: None,
         }
     }
 
@@ -656,6 +660,16 @@ impl Interaction {
 
     pub fn with_command_scope_captures(mut self, captures: HashMap<Path, action::Context>) -> Self {
         self.command_scope_captures = captures;
+        self
+    }
+
+    pub fn with_open_menu(mut self, menu: Option<menu::Id>) -> Self {
+        self.open_menu = menu;
+        self
+    }
+
+    pub fn with_open_submenu(mut self, menu: Option<menu::Id>) -> Self {
+        self.open_submenu = menu;
         self
     }
 
@@ -677,6 +691,14 @@ impl Interaction {
 
     pub fn command_target(&self) -> Option<&action::Context> {
         self.command_target.as_ref()
+    }
+
+    pub fn open_menu(&self) -> Option<menu::Id> {
+        self.open_menu
+    }
+
+    pub fn open_submenu(&self) -> Option<menu::Id> {
+        self.open_submenu
     }
 
     pub fn captured_command_target(&self, path: &Path) -> Option<&action::Context> {

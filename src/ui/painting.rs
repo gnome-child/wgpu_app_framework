@@ -131,6 +131,10 @@ fn resolved_background(
             .or_else(|| background.map(|brush| brush.dimmed(0.45)));
     }
 
+    if visual.focus_visible {
+        return style.focus_background().or(background);
+    }
+
     if visual.active {
         return style.active_background().or(background);
     }
@@ -172,7 +176,7 @@ fn visual_state<T>(
     let enabled = action_state.is_enabled();
     let busy = action_state.is_busy();
     let interactive = enabled && !busy;
-    let active = action_state.is_active();
+    let active = action_state.is_active() || menu_intent_active(node.intent(), interaction);
     let hovered = interaction.hovered() == Some(layout.path());
     let pressed = interaction.pressed() == Some(layout.path());
     let focused = interaction.focused() == Some(layout.path());
@@ -188,6 +192,14 @@ fn visual_state<T>(
             hover: normalized(interactive && hovered),
             press: normalized(interactive && pressed),
         },
+    }
+}
+
+fn menu_intent_active(intent: Option<ui::Intent>, interaction: &ui::Interaction) -> bool {
+    match intent {
+        Some(ui::Intent::OpenMenu(menu)) => interaction.open_menu() == Some(menu),
+        Some(ui::Intent::OpenSubmenu(menu)) => interaction.open_submenu() == Some(menu),
+        Some(ui::Intent::Action(_) | ui::Intent::CloseSubmenu) | None => false,
     }
 }
 

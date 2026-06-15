@@ -840,6 +840,86 @@ fn control_focus_state_emits_outline_without_changing_fill() {
 }
 
 #[test]
+fn focus_background_renders_when_focus_visible() {
+    let focus_background = paint::Color::rgb(0.2, 0.3, 0.4);
+    let root = Node::leaf(A)
+        .with_background(paint::Color::BLACK)
+        .with_focus_background(focus_background);
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None)
+            .with_focus_visibility(focus::Visibility::Visible),
+        &mut scene,
+    );
+
+    assert_eq!(
+        quad(&scene, 0).style.fill,
+        Some(paint::Fill::Brush(paint::Brush::solid(focus_background)))
+    );
+}
+
+#[test]
+fn open_menu_title_emits_active_tint() {
+    let file = menu::Id::new("file");
+    let active_tint = paint::Color::rgba(0.1, 0.2, 0.3, 0.5);
+    let root = Node::leaf(A)
+        .with_background(paint::Color::BLACK)
+        .with_active_tint(active_tint)
+        .with_intent(Intent::OpenMenu(file));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::default().with_open_menu(Some(file)),
+        &mut scene,
+    );
+
+    assert_eq!(tint(&scene, 1).brush, paint::Brush::solid(active_tint));
+}
+
+#[test]
+fn open_submenu_row_emits_active_tint() {
+    let panels = menu::Id::new("panels");
+    let active_tint = paint::Color::rgba(0.1, 0.2, 0.3, 0.5);
+    let root = Node::leaf(A)
+        .with_background(paint::Color::BLACK)
+        .with_active_tint(active_tint)
+        .with_intent(Intent::OpenSubmenu(panels));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::default().with_open_submenu(Some(panels)),
+        &mut scene,
+    );
+
+    assert_eq!(tint(&scene, 1).brush, paint::Brush::solid(active_tint));
+}
+
+#[test]
 fn hidden_focus_does_not_emit_outline() {
     let root = control::button(A, CLICK);
     let mut tree = Tree::new();

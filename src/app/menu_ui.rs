@@ -274,6 +274,7 @@ fn submenu_node<T>(
     if enabled {
         row.with_intent(ui::Intent::OpenSubmenu(menu.id()))
             .with_interactivity(ui::Interactivity::CONTROL)
+            .with_active_tint(theme.menu().row_hover_tint())
     } else {
         row.with_interactivity(ui::Interactivity::NONE.with_hit_test(true))
     }
@@ -284,6 +285,7 @@ fn menu_row(id: ui::Id, theme: &theme::Theme, color: paint::Color) -> ui::Node {
         .with_intent(ui::Intent::CloseSubmenu)
         .with_interactivity(ui::Interactivity::CONTROL)
         .with_background(theme.menu().row_background())
+        .with_focus_background(theme.menu().row_hover_tint())
         .with_hover_tint(theme.menu().row_hover_tint())
         .with_pressed_tint(theme.menu().row_pressed_tint())
         .with_disabled_tint(theme.menu().row_disabled_tint())

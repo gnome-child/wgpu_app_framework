@@ -68,7 +68,9 @@ pub fn compose<T>(
         )
         .with_focus_visibility(state.focus_visibility())
         .with_command_target(command_target)
-        .with_command_scope_captures(state.command_scope_captures.clone());
+        .with_command_scope_captures(state.command_scope_captures.clone())
+        .with_open_menu(state.open_menu)
+        .with_open_submenu(state.open_submenu);
         state.layout = Some(layout.clone());
 
         tree.paint(&layout, actions, window, interaction, &mut scene);
@@ -406,6 +408,65 @@ mod tests {
             quad.style.fill,
             Some(paint::Fill::Brush(theme.floating_panel().backdrop_fill()))
         );
+    }
+
+    #[test]
+    fn focused_open_menu_row_lowers_focus_background() {
+        let window = window::Id::new(1);
+        let subject = ui::Path::new([ROOT, CHILD]);
+        let row = ui::Path::new([ROOT, ui::widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
+        let mut state = WindowState {
+            open_menu: Some(FILE),
+            command_subject: Some(action::Scope::Path(subject.clone())),
+            focus: Some(crate::app::state::Focus::new(
+                row,
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            ..WindowState::default()
+        };
+        let mut registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+
+        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        registry.set_state(
+            action::SELECT_ALL,
+            action::Context::path(window, subject),
+            action::State::enabled(),
+        );
+        tree.set_root(
+            ui::control::panel(ROOT)
+                .with_child(ui::widget::menu_bar(
+                    MENU_BAR,
+                    menu::Bar::new().menu(
+                        menu::Menu::new(FILE, "File").section(
+                            menu::Section::new().item(menu::Item::new(action::SELECT_ALL)),
+                        ),
+                    ),
+                ))
+                .with_child(
+                    ui::Node::leaf(CHILD)
+                        .with_responder(action::SELECT_ALL)
+                        .with_interactivity(ui::Interactivity::CONTROL),
+                ),
+        );
+
+        let scene = compose(
+            window,
+            &tree,
+            &mut state,
+            &registry,
+            area::logical(300.0, 180.0),
+        );
+        let theme = crate::theme::Theme::default_dark();
+
+        assert!(scene.items().iter().any(|item| {
+            matches!(
+                item,
+                paint::Item::Quad(quad)
+                    if quad.style.fill == Some(paint::Fill::Brush(theme.menu().row_hover_tint()))
+            )
+        }));
     }
 
     #[test]
