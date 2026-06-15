@@ -1,3 +1,4 @@
+use crate::geometry::point;
 use crate::{layout, menu, text, theme, ui};
 
 pub const MENU_POPUP: ui::Id = ui::Id::new("__menu_popup");
@@ -25,6 +26,13 @@ pub fn separator_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
     ui::Node::leaf(id)
         .with_background(theme.surfaces().separator())
         .with_size(layout::Size::Fill, layout::Size::Fixed(1.0))
+}
+
+pub fn scroll_view(id: ui::Id) -> ui::Node {
+    ui::Node::container(id, layout::Axis::Vertical)
+        .clipped()
+        .with_scroll_offset(point::logical(0.0, 0.0))
+        .with_size(layout::Size::Fill, layout::Size::Fill)
 }
 
 pub fn menu_bar(id: ui::Id, bar: menu::Bar) -> ui::Node {

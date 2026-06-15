@@ -15,6 +15,10 @@ pub struct Renderer {
     format: wgpu::TextureFormat,
 }
 
+pub struct Layer {
+    texture: Texture,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Target {
     physical_area: area::Physical,
@@ -237,22 +241,27 @@ impl Renderer {
         let Some(view) = self.composition_view() else {
             return;
         };
-        let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Composition Clear Pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view,
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(clear_color),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-        });
+        clear_view(encoder, view, clear_color, "Composition Clear Pass");
+    }
+
+    pub fn create_layer(
+        &self,
+        render_context: &render::Context,
+        target: Target,
+        label: &'static str,
+    ) -> Layer {
+        Layer {
+            texture: self.create_texture(render_context, target.physical_area.clamp_min(1), label),
+        }
+    }
+
+    pub fn clear_layer(&self, encoder: &mut wgpu::CommandEncoder, layer: &Layer) {
+        clear_view(
+            encoder,
+            layer.view(),
+            wgpu::Color::TRANSPARENT,
+            "Layer Clear Pass",
+        );
     }
 
     pub fn draw(
@@ -261,6 +270,7 @@ impl Renderer {
         target: Target,
         encoder: &mut wgpu::CommandEncoder,
         backdrop: paint::Backdrop,
+        scissor: Option<render::Scissor>,
     ) {
         let paint::BackdropFilter::Blur { amount } = backdrop.filter;
         if amount <= 0.0 {
@@ -301,6 +311,38 @@ impl Renderer {
             &textures.composition.view,
             target,
             prepared,
+            scissor,
+            "Backdrop Composite Bind Group",
+            "Backdrop Composite Vertex Buffer",
+            "Backdrop Composite Pass",
+        );
+    }
+
+    pub fn composite_layer(
+        &self,
+        render_context: &render::Context,
+        encoder: &mut wgpu::CommandEncoder,
+        source: &Layer,
+        output: &wgpu::TextureView,
+        target: Target,
+        clip: paint::Clip,
+        scissor: Option<render::Scissor>,
+    ) {
+        let Some(prepared) = prepare_clip(clip.rect, target.scale_factor) else {
+            return;
+        };
+
+        self.composite_pass(
+            render_context,
+            encoder,
+            source.view(),
+            output,
+            target,
+            prepared,
+            scissor,
+            "Layer Composite Bind Group",
+            "Layer Composite Vertex Buffer",
+            "Layer Composite Pass",
         );
     }
 
@@ -446,25 +488,24 @@ impl Renderer {
         output: &wgpu::TextureView,
         target: Target,
         prepared: PreparedBackdrop,
+        scissor: Option<render::Scissor>,
+        bind_group_label: &'static str,
+        vertex_buffer_label: &'static str,
+        pass_label: &'static str,
     ) {
         let params = self.params(target, prepared, [0.0, 0.0]);
-        let bind_group = self.bind_group(
-            render_context,
-            source,
-            params,
-            "Backdrop Composite Bind Group",
-        );
+        let bind_group = self.bind_group(render_context, source, params, bind_group_label);
         let vertices = composite_vertices(target.logical_area, prepared);
         let vertex_buffer =
             render_context
                 .device()
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Backdrop Composite Vertex Buffer"),
+                    label: Some(vertex_buffer_label),
                     contents: bytemuck::cast_slice(&vertices),
                     usage: wgpu::BufferUsages::VERTEX,
                 });
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Backdrop Composite Pass"),
+            label: Some(pass_label),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: output,
                 resolve_target: None,
@@ -483,6 +524,9 @@ impl Renderer {
         pass.set_pipeline(&self.composite_pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
         pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        if let Some(scissor) = scissor {
+            pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
+        }
         pass.draw(0..vertices.len() as u32, 0..1);
     }
 
@@ -540,6 +584,12 @@ impl Renderer {
             rect: rect_data(prepared.shape_rect),
             radius: radius_data(prepared.radius),
         }
+    }
+}
+
+impl Layer {
+    pub fn view(&self) -> &wgpu::TextureView {
+        &self.texture.view
     }
 }
 
@@ -612,17 +662,30 @@ fn prepare_backdrop(rect: Rect, blur_amount: f32, scale_factor: f32) -> Option<P
         return None;
     }
 
+    let mut prepared = prepare_clip(rect, scale_factor)?;
+    let blur_amount = blur_amount.clamp(0.0, 1.0);
+
+    prepared.blur_amount = blur_amount;
+    prepared.blur_radius_px = blur_radius_px(blur_amount, scale_factor);
+
+    Some(prepared)
+}
+
+fn prepare_clip(rect: Rect, scale_factor: f32) -> Option<PreparedBackdrop> {
+    if rect.area.width() <= 0.0 || rect.area.height() <= 0.0 {
+        return None;
+    }
+
     let pixel_geometry = PixelGeometry::new(scale_factor);
     let shape_rect = pixel_geometry.snap_rect(rect);
     let raster_rect = expand_rect(shape_rect, pixel_geometry.logical_pixel);
-    let blur_amount = blur_amount.clamp(0.0, 1.0);
 
     Some(PreparedBackdrop {
         raster_rect,
         shape_rect,
         radius: shape_rect.radius.resolve(shape_rect.area),
-        blur_amount,
-        blur_radius_px: blur_radius_px(blur_amount, scale_factor),
+        blur_amount: 0.0,
+        blur_radius_px: 0.0,
     })
 }
 
@@ -696,6 +759,30 @@ fn radius_data(radius: crate::geometry::rect::ResolvedRadius) -> [f32; 4] {
     ]
 }
 
+fn clear_view(
+    encoder: &mut wgpu::CommandEncoder,
+    view: &wgpu::TextureView,
+    color: wgpu::Color,
+    label: &'static str,
+) {
+    let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some(label),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view,
+            resolve_target: None,
+            depth_slice: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(color),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        occlusion_query_set: None,
+        timestamp_writes: None,
+        multiview_mask: None,
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -725,6 +812,22 @@ mod tests {
         assert_eq!(vertices.len(), 6);
         assert_eq!(vertices[0].rect, [10.0, 20.0, 80.0, 30.0]);
         assert_eq!(vertices[0].radius, [15.0, 15.0, 15.0, 15.0]);
+    }
+
+    #[test]
+    fn clip_preserves_rounded_shape_metadata_for_layer_composite() {
+        let rect = Rect::rounded(
+            point::logical(8.0, 12.0),
+            area::logical(48.0, 20.0),
+            crate::geometry::rect::Radius::splat(1.0),
+        );
+        let prepared = prepare_clip(rect, 1.0).expect("clip should prepare");
+        let vertices = composite_vertices(area::logical(100.0, 100.0), prepared);
+
+        assert_eq!(prepared.blur_amount, 0.0);
+        assert_eq!(prepared.blur_radius_px, 0.0);
+        assert_eq!(vertices[0].rect, [8.0, 12.0, 48.0, 20.0]);
+        assert_eq!(vertices[0].radius, [10.0, 10.0, 10.0, 10.0]);
     }
 
     #[test]

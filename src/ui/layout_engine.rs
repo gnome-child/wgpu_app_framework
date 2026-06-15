@@ -148,9 +148,16 @@ fn measure_text(document: &text::Document) -> area::Logical {
 
 fn arrange_node(node: &ui::Node, path: ui::Path, rect: Rect) -> layout::Box {
     let padding = node.style().padding();
+    let scroll_offset = node
+        .scroll_offset()
+        .unwrap_or_else(|| point::logical(0.0, 0.0));
     let content_origin = point::logical(
         rect.origin.x() + padding.left,
         rect.origin.y() + padding.top,
+    );
+    let child_origin = point::logical(
+        content_origin.x() - scroll_offset.x(),
+        content_origin.y() - scroll_offset.y(),
     );
     let content_area = area::logical(
         (rect.area.width() - padding.horizontal()).max(0.0),
@@ -158,12 +165,12 @@ fn arrange_node(node: &ui::Node, path: ui::Path, rect: Rect) -> layout::Box {
     );
     let children = match node.layout().direction() {
         Some(layout::Axis::Vertical) => {
-            arrange_vertical_children(node, &path, content_origin, content_area)
+            arrange_vertical_children(node, &path, child_origin, content_area)
         }
         Some(layout::Axis::Horizontal) => {
-            arrange_horizontal_children(node, &path, content_origin, content_area)
+            arrange_horizontal_children(node, &path, child_origin, content_area)
         }
-        None => arrange_overlay_children(node, &path, content_origin, content_area),
+        None => arrange_overlay_children(node, &path, child_origin, content_area),
     };
 
     layout::Box::with_path(path, rect, children)

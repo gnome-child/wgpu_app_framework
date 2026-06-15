@@ -65,6 +65,10 @@ fn node<T>(
         });
     }
 
+    if node.clips() {
+        scene.push_clip(paint::Clip { rect });
+    }
+
     for (child, child_layout) in node.children().iter().zip(layout.children()) {
         self::node(
             child,
@@ -75,6 +79,10 @@ fn node<T>(
             scene,
             overlays,
         );
+    }
+
+    if node.clips() {
+        scene.pop_clip();
     }
 
     if let Some(outline) = resolved_focus_outline(node, rect, visual) {

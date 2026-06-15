@@ -141,6 +141,7 @@ fn fs_composite(in: CompositeOut) -> @location(0) vec4<f32> {
     let scale_factor = params.direction_radius.w;
     let uv = in.local_position * scale_factor / max(params.texture_size, vec2<f32>(1.0));
     let color = textureSample(source_texture, source_sampler, uv);
+    let rgb = select(color.rgb / max(color.a, 0.0001), vec3<f32>(0.0), color.a <= 0.0001);
 
-    return vec4<f32>(color.rgb, color.a * alpha);
+    return vec4<f32>(rgb, color.a * alpha);
 }

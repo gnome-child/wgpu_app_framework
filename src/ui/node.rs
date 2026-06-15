@@ -19,6 +19,8 @@ pub struct Node {
     icon: Option<icon::Icon>,
     icon_size: Option<f32>,
     menu_bar: Option<menu::Bar>,
+    clip: bool,
+    scroll_offset: Option<geometry::point::Logical>,
     children: Vec<Node>,
 }
 
@@ -123,6 +125,8 @@ impl Node {
             icon: None,
             icon_size: None,
             menu_bar: None,
+            clip: false,
+            scroll_offset: None,
             children: Vec::new(),
         }
     }
@@ -185,6 +189,14 @@ impl Node {
 
     pub fn menu_bar(&self) -> Option<&menu::Bar> {
         self.menu_bar.as_ref()
+    }
+
+    pub fn clips(&self) -> bool {
+        self.clip
+    }
+
+    pub fn scroll_offset(&self) -> Option<geometry::point::Logical> {
+        self.scroll_offset
     }
 
     pub fn children(&self) -> &[Node] {
@@ -338,6 +350,20 @@ impl Node {
 
     pub fn with_padding(mut self, padding: layout::Insets) -> Self {
         self.style.padding = padding;
+        self
+    }
+
+    pub fn clipped(self) -> Self {
+        self.with_clip(true)
+    }
+
+    pub fn with_clip(mut self, clip: bool) -> Self {
+        self.clip = clip;
+        self
+    }
+
+    pub fn with_scroll_offset(mut self, offset: geometry::point::Logical) -> Self {
+        self.scroll_offset = Some(offset);
         self
     }
 

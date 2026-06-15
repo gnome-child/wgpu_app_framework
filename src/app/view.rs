@@ -53,6 +53,7 @@ pub fn compose<T>(
     state.responders = tree.responders();
     state.command_scopes = tree.command_scopes();
     state.interactivity = tree.interactivity();
+    state.scrollables = tree.scrollables();
 
     if let Some(layout) = tree.layout(logical_area) {
         state.focus_order = focus_order(&layout, &state.interactivity);
@@ -81,6 +82,7 @@ pub fn compose<T>(
         state.clear_command_target();
         state.command_scopes.clear();
         state.command_scope_captures.clear();
+        state.scrollables.clear();
     }
 
     scene

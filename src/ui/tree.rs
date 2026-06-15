@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::geometry::area;
+use crate::geometry::{area, point};
 use crate::{action, layout, menu, paint, window};
 
 use super::{
@@ -181,6 +181,23 @@ impl Tree {
         interactivity
     }
 
+    pub fn scrollables(&self) -> HashMap<Path, point::Logical> {
+        let mut scrollables = HashMap::new();
+
+        if let Some(root) = self.root.as_ref() {
+            collect_scrollables(root, &Path::root(root.id()), &mut scrollables);
+            for popup in &self.popups {
+                collect_scrollables(
+                    popup.root(),
+                    &Path::root(root.id()).child(popup.root().id()),
+                    &mut scrollables,
+                );
+            }
+        }
+
+        scrollables
+    }
+
     pub fn paint<T>(
         &self,
         layout: &layout::Box,
@@ -295,5 +312,15 @@ fn collect_interactivity(
 
     for child in node.children() {
         collect_interactivity(child, &path.child(child.id()), interactivity);
+    }
+}
+
+fn collect_scrollables(node: &Node, path: &Path, scrollables: &mut HashMap<Path, point::Logical>) {
+    if let Some(offset) = node.scroll_offset() {
+        scrollables.insert(path.clone(), offset);
+    }
+
+    for child in node.children() {
+        collect_scrollables(child, &path.child(child.id()), scrollables);
     }
 }

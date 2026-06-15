@@ -126,6 +126,23 @@ pub fn pointer_left(state: &mut WindowState) -> Outcome {
     }
 }
 
+pub fn scroll_wheel(
+    state: &WindowState,
+    position: point::Logical,
+    delta: point::Logical,
+) -> Outcome {
+    Outcome {
+        events: vec![ui::Event::ScrollWheel {
+            position,
+            delta,
+            target: state.scroll_target(position),
+        }],
+        request: None,
+        intent: None,
+        redraw: false,
+    }
+}
+
 pub fn modifiers(modifiers: ModifiersState) -> ui::Modifiers {
     ui::Modifiers::new(
         modifiers.shift_key(),
@@ -478,6 +495,67 @@ mod tests {
         );
         assert_eq!(state.focus_visibility(), ui::focus::Visibility::Hidden);
         assert_eq!(state.pressed, Some(path(CHILD)));
+    }
+
+    #[test]
+    fn wheel_event_routes_to_scrollable_under_pointer() {
+        let mut state = WindowState {
+            scrollables: HashMap::from([(path(CHILD), point::logical(0.0, 12.0))]),
+            ..WindowState::default()
+        };
+
+        state.layout = Some(crate::layout::Box::new(
+            CHILD,
+            crate::geometry::Rect::new(
+                point::logical(0.0, 0.0),
+                crate::geometry::area::logical(10.0, 10.0),
+            ),
+            Vec::new(),
+        ));
+
+        let outcome = scroll_wheel(&state, point::logical(1.0, 1.0), point::logical(0.0, -20.0));
+
+        assert!(!outcome.redraw);
+        assert_eq!(
+            outcome.events,
+            vec![ui::Event::ScrollWheel {
+                position: point::logical(1.0, 1.0),
+                delta: point::logical(0.0, -20.0),
+                target: Some(path(CHILD))
+            }]
+        );
+    }
+
+    #[test]
+    fn wheel_event_outside_scrollable_has_no_target() {
+        let mut state = WindowState {
+            scrollables: HashMap::from([(path(CHILD), point::logical(0.0, 12.0))]),
+            ..WindowState::default()
+        };
+
+        state.layout = Some(crate::layout::Box::new(
+            CHILD,
+            crate::geometry::Rect::new(
+                point::logical(0.0, 0.0),
+                crate::geometry::area::logical(10.0, 10.0),
+            ),
+            Vec::new(),
+        ));
+
+        let outcome = scroll_wheel(
+            &state,
+            point::logical(20.0, 20.0),
+            point::logical(0.0, -20.0),
+        );
+
+        assert_eq!(
+            outcome.events,
+            vec![ui::Event::ScrollWheel {
+                position: point::logical(20.0, 20.0),
+                delta: point::logical(0.0, -20.0),
+                target: None
+            }]
+        );
     }
 
     #[test]

@@ -12,6 +12,7 @@ const ROOT: ui::Id = ui::Id::new("root");
 const MENU_BAR: ui::Id = ui::Id::new("menu_bar");
 const STATUS_PANEL: ui::Id = ui::Id::new("status_panel");
 const DOCUMENT_PANEL: ui::Id = ui::Id::new("document_panel");
+const DOCUMENT_SCROLL: ui::Id = ui::Id::new("document_scroll");
 const SELECT_BUTTON: ui::Id = ui::Id::new("select_button");
 const COMMAND_SCOPE_PANEL: ui::Id = ui::Id::new("command_scope_panel");
 const LOCAL_FIELD: ui::Id = ui::Id::new("local_field");
@@ -23,6 +24,22 @@ const FILE_MENU: menu::Id = menu::Id::new("file");
 const EDIT_MENU: menu::Id = menu::Id::new("edit");
 const VIEW_MENU: menu::Id = menu::Id::new("view");
 const PANELS_MENU: menu::Id = menu::Id::new("panels");
+const SCROLL_VIEW_HEIGHT: f32 = 86.0;
+const SCROLL_PADDING: f32 = 4.0;
+const SCROLL_GAP: f32 = 3.0;
+const SCROLL_ROW_HEIGHT: f32 = 24.0;
+const SCROLL_ROWS: [ui::Id; 10] = [
+    ui::Id::new("scroll_row_0"),
+    ui::Id::new("scroll_row_1"),
+    ui::Id::new("scroll_row_2"),
+    ui::Id::new("scroll_row_3"),
+    ui::Id::new("scroll_row_4"),
+    ui::Id::new("scroll_row_5"),
+    ui::Id::new("scroll_row_6"),
+    ui::Id::new("scroll_row_7"),
+    ui::Id::new("scroll_row_8"),
+    ui::Id::new("scroll_row_9"),
+];
 
 fn main() -> app::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
@@ -40,6 +57,7 @@ struct App {
     last_select_target: Option<String>,
     last_select_origin: Option<String>,
     scope_capture_hint: Option<String>,
+    document_scroll: f32,
 }
 
 enum AppEvent {
@@ -90,29 +108,39 @@ impl app::Application for App {
     }
 
     fn event(&mut self, cx: &mut app::Context<'_, Self::Event>, event: Event<Self::Event>) {
-        let Event::App(event) = event else {
-            return;
-        };
-
         let Some(window) = self.window else {
             return;
         };
 
         match event {
-            AppEvent::WorkspaceReady => {
+            Event::Ui {
+                window: event_window,
+                event:
+                    ui::Event::ScrollWheel {
+                        delta,
+                        target: Some(target),
+                        ..
+                    },
+            } if event_window == window && target == scroll_path() => {
+                self.document_scroll =
+                    (self.document_scroll - delta.y()).clamp(0.0, document_scroll_max());
+                cx.request_redraw(window);
+            }
+            Event::Ui { .. } => {}
+            Event::App(AppEvent::WorkspaceReady) => {
                 self.workspace_ready = true;
                 cx.focus(window, document_path(), ui::focus::Visibility::Visible);
                 cx.request_redraw(window);
             }
-            AppEvent::RunTaskFinished => {
+            Event::App(AppEvent::RunTaskFinished) => {
                 self.run_count += 1;
                 cx.request_redraw(window);
             }
-            AppEvent::TogglePreview => {
+            Event::App(AppEvent::TogglePreview) => {
                 self.preview_enabled = !self.preview_enabled;
                 cx.request_redraw(window);
             }
-            AppEvent::SelectAll { target, origin } => {
+            Event::App(AppEvent::SelectAll { target, origin }) => {
                 log::debug!("select all target={target:?} origin={origin:?}");
                 self.last_select_target = Some(context_name(&target));
                 self.last_select_origin = origin.as_ref().map(path_name);
@@ -212,6 +240,20 @@ impl app::Application for App {
         if document_is_subject {
             document_panel = document_panel.with_stroke(subject_stroke(&theme));
         }
+        let mut scroll_view = ui::widget::scroll_view(DOCUMENT_SCROLL)
+            .with_scroll_offset(point::logical(0.0, self.document_scroll))
+            .with_background(theme.surfaces().panel())
+            .with_radius(theme.radii().panel())
+            .with_gap(SCROLL_GAP)
+            .with_padding(layout::Insets::splat(SCROLL_PADDING))
+            .with_size(layout::Size::Fill, layout::Size::Fixed(SCROLL_VIEW_HEIGHT));
+        for (index, id) in SCROLL_ROWS.iter().copied().enumerate() {
+            scroll_view.push_child(
+                ui::control::panel_with_theme(id, &theme)
+                    .with_size(layout::Size::Fill, layout::Size::Fixed(SCROLL_ROW_HEIGHT))
+                    .with_label(label(format!("Scrollable row {}", index + 1), &theme)),
+            );
+        }
 
         let mut local_field = ui::control::panel_with_theme(LOCAL_FIELD, &theme)
             .with_size(
@@ -293,6 +335,7 @@ impl app::Application for App {
                     .with_label(label(status, &theme)),
             )
             .with_child(document_panel)
+            .with_child(scroll_view)
             .with_child(
                 ui::control::labeled_button_with_theme(
                     SELECT_BUTTON,
@@ -425,6 +468,18 @@ fn document_path() -> ui::Path {
     ui::Path::new([ROOT, DOCUMENT_PANEL])
 }
 
+fn scroll_path() -> ui::Path {
+    ui::Path::new([ROOT, DOCUMENT_SCROLL])
+}
+
+fn document_scroll_max() -> f32 {
+    let row_count = SCROLL_ROWS.len() as f32;
+    let gaps = (row_count - 1.0).max(0.0) * SCROLL_GAP;
+    let content_height = SCROLL_PADDING * 2.0 + row_count * SCROLL_ROW_HEIGHT + gaps;
+
+    (content_height - SCROLL_VIEW_HEIGHT).max(0.0)
+}
+
 fn local_field_path() -> ui::Path {
     ui::Path::new([ROOT, COMMAND_SCOPE_PANEL, LOCAL_FIELD])
 }
@@ -439,4 +494,19 @@ fn label(label: impl Into<String>, theme: &Theme) -> text::Document {
     ));
 
     text::Document::from_block(block)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scroll_max_allows_last_row_to_fit_in_viewport() {
+        let row_count = SCROLL_ROWS.len() as f32;
+        let last_row_bottom =
+            SCROLL_PADDING + row_count * SCROLL_ROW_HEIGHT + (row_count - 1.0) * SCROLL_GAP;
+
+        assert_eq!(document_scroll_max(), 189.0);
+        assert!(last_row_bottom - document_scroll_max() <= SCROLL_VIEW_HEIGHT - SCROLL_PADDING);
+    }
 }

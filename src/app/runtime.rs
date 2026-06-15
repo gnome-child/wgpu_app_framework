@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, KeyEvent, MouseButton, WindowEvent},
+    event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::ActiveEventLoop,
 };
 
@@ -263,6 +263,36 @@ impl<A: Application> Runtime<A> {
         }
     }
 
+    fn mouse_wheel(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window: window::Id,
+        delta: MouseScrollDelta,
+    ) {
+        let Some(native_window) = self.windows.get(window) else {
+            return;
+        };
+        let scale_factor = native_window.scale_factor() as f32;
+        let position = self
+            .window_states
+            .get(&window)
+            .and_then(|state| state.pointer.position())
+            .unwrap_or_else(|| point::logical(0.0, 0.0));
+        let delta = match delta {
+            MouseScrollDelta::LineDelta(x, y) => point::logical(x * 40.0, y * 40.0),
+            MouseScrollDelta::PixelDelta(position) => {
+                point::physical(position.x as f32, position.y as f32).to_logical(scale_factor)
+            }
+        };
+
+        let Some(state) = self.window_states.get(&window) else {
+            return;
+        };
+        let outcome = input::scroll_wheel(state, position, delta);
+
+        self.dispatch_ui_events(event_loop, window, outcome.events);
+    }
+
     fn modifiers_changed(&mut self, window: window::Id, modifiers: winit::event::Modifiers) {
         let Some(state) = self.window_states.get_mut(&window) else {
             return;
@@ -450,6 +480,9 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 self.pointer_button(event_loop, window, state, button);
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                self.mouse_wheel(event_loop, window, delta);
             }
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.modifiers_changed(window, modifiers);

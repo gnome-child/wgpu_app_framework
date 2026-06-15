@@ -68,6 +68,13 @@ fn backdrop(scene: &paint::Scene, index: usize) -> paint::Backdrop {
     }
 }
 
+fn clip(scene: &paint::Scene, index: usize) -> paint::Clip {
+    match scene.items().get(index) {
+        Some(paint::Item::Clip(clip)) => *clip,
+        item => panic!("expected clip item at {index}, got {item:?}"),
+    }
+}
+
 fn assert_same_bounds(actual: Rect, expected: Rect) {
     assert_eq!(actual.origin, expected.origin);
     assert_eq!(actual.area, expected.area);
@@ -286,6 +293,36 @@ fn menu_bar_layout_remains_compact() {
 }
 
 #[test]
+fn scroll_offset_shifts_child_layout_and_paint_positions() {
+    let root = widget::scroll_view(ROOT)
+        .with_scroll_offset(point::logical(0.0, 12.0))
+        .with_child(
+            Node::leaf(A)
+                .with_background(paint::Color::RED)
+                .with_size(layout::Size::Fill, layout::Size::Fixed(30.0)),
+        );
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window::Id::new(1),
+        Interaction::default(),
+        &mut scene,
+    );
+
+    assert_eq!(
+        layout.children()[0].rect().origin,
+        point::logical(0.0, -12.0)
+    );
+    assert_eq!(quad(&scene, 1).rect.origin, point::logical(0.0, -12.0));
+}
+
+#[test]
 fn layout_assigns_stable_paths() {
     let root = Node::container(ROOT, layout::Axis::Vertical)
         .with_child(Node::container(A, layout::Axis::Vertical).with_child(Node::leaf(B)));
@@ -333,6 +370,21 @@ fn tree_collects_popup_interactivity_with_root_prefixed_path() {
     assert_eq!(
         tree.interactivity().get(&Path::new([ROOT, B])),
         Some(&Interactivity::CONTROL)
+    );
+}
+
+#[test]
+fn tree_collects_scrollables_with_root_prefixed_path() {
+    let mut tree = Tree::new();
+    tree.set_root(Node::leaf(ROOT));
+    tree.push_popup(Popup::new(
+        Rect::new(point::logical(0.0, 0.0), area::logical(40.0, 40.0)),
+        widget::scroll_view(B).with_scroll_offset(point::logical(0.0, 12.0)),
+    ));
+
+    assert_eq!(
+        tree.scrollables().get(&Path::new([ROOT, B])),
+        Some(&point::logical(0.0, 12.0))
     );
 }
 
@@ -410,6 +462,34 @@ fn passive_parent_does_not_become_hit_target() {
 }
 
 #[test]
+fn clipped_parent_suppresses_overflow_child_hit_testing() {
+    let root = widget::scroll_view(ROOT)
+        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(20.0))
+        .with_child(
+            control::button(A, CLICK).with_size(layout::Size::Fill, layout::Size::Fixed(40.0)),
+        );
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    let interactivity = tree.interactivity();
+    let accepts = |path: &Path| {
+        interactivity
+            .get(path)
+            .is_some_and(|interactivity| interactivity.hit_test())
+    };
+
+    assert_eq!(
+        layout.hit_test_where(point::logical(5.0, 10.0), accepts),
+        Some(Path::new(vec![ROOT, A]))
+    );
+    assert_eq!(
+        layout.hit_test_where(point::logical(5.0, 30.0), accepts),
+        None
+    );
+}
+
+#[test]
 fn tree_renders_background_quads_in_layout_order() {
     let root = Node::container(ROOT, layout::Axis::Vertical)
         .with_background(paint::Color::BLACK)
@@ -431,6 +511,32 @@ fn tree_renders_background_quads_in_layout_order() {
     assert_eq!(scene.items().len(), 2);
     assert_eq!(quad(&scene, 0).rect, layout.rect());
     assert_eq!(quad(&scene, 1).rect, layout.children()[0].rect());
+}
+
+#[test]
+fn clipped_node_wraps_children_in_clip_commands() {
+    let root = Node::container(ROOT, layout::Axis::Vertical)
+        .clipped()
+        .with_background(paint::Color::BLACK)
+        .with_child(Node::leaf(A).with_background(paint::Color::RED));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window::Id::new(1),
+        Interaction::default(),
+        &mut scene,
+    );
+
+    assert!(matches!(scene.items()[0], paint::Item::Quad(_)));
+    assert_eq!(clip(&scene, 1).rect, layout.rect());
+    assert!(matches!(scene.items()[2], paint::Item::Quad(_)));
+    assert!(matches!(scene.items()[3], paint::Item::PopClip));
 }
 
 #[test]

@@ -26,6 +26,45 @@ pub fn color_to_wgpu(color: crate::paint::Color) -> wgpu::Color {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Scissor {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
+impl Scissor {
+    pub fn new(x: u32, y: u32, width: u32, height: u32) -> Option<Self> {
+        if width == 0 || height == 0 {
+            None
+        } else {
+            Some(Self {
+                x,
+                y,
+                width,
+                height,
+            })
+        }
+    }
+
+    pub fn x(self) -> u32 {
+        self.x
+    }
+
+    pub fn y(self) -> u32 {
+        self.y
+    }
+
+    pub fn width(self) -> u32 {
+        self.width
+    }
+
+    pub fn height(self) -> u32 {
+        self.height
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Error)]

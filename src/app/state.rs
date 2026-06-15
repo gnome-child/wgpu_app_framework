@@ -26,6 +26,7 @@ pub struct WindowState {
     pub command_scopes: Vec<ui::Path>,
     pub command_scope_captures: HashMap<ui::Path, action::Context>,
     pub interactivity: HashMap<ui::Path, ui::Interactivity>,
+    pub scrollables: HashMap<ui::Path, point::Logical>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +50,12 @@ impl WindowState {
                     .get(path)
                     .is_some_and(|interactivity| interactivity.hit_test())
             })
+        })
+    }
+
+    pub fn scroll_target(&self, position: point::Logical) -> Option<ui::Path> {
+        self.layout.as_ref().and_then(|layout| {
+            layout.hit_test_where(position, |path| self.scrollables.contains_key(path))
         })
     }
 

@@ -54,6 +54,14 @@ impl Scene {
         self.items.push(Item::Backdrop(backdrop));
     }
 
+    pub fn push_clip(&mut self, clip: Clip) {
+        self.items.push(Item::Clip(clip));
+    }
+
+    pub fn pop_clip(&mut self) {
+        self.items.push(Item::PopClip);
+    }
+
     pub fn items(&self) -> &[Item] {
         &self.items
     }
@@ -78,6 +86,8 @@ pub enum Item {
     Tint(Tint),
     Outline(Outline),
     Backdrop(Backdrop),
+    Clip(Clip),
+    PopClip,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -127,6 +137,11 @@ pub struct Outline {
 pub struct Backdrop {
     pub rect: Rect,
     pub filter: BackdropFilter,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Clip {
+    pub rect: Rect,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -403,6 +418,9 @@ mod tests {
             rect: Rect::new(point::logical(1.72, 0.0), area::logical(10.0, 10.0)),
             filter: BackdropFilter::Blur { amount: 0.5 },
         };
+        let clip = Clip {
+            rect: Rect::new(point::logical(1.73, 0.0), area::logical(10.0, 10.0)),
+        };
         let outline = Outline {
             rect: Rect::new(point::logical(1.75, 0.0), area::logical(10.0, 10.0)),
             brush: Brush::solid(Color::BLACK),
@@ -424,7 +442,9 @@ mod tests {
         scene.push_text(text.clone());
         scene.push_shadow(shadow);
         scene.push_backdrop(backdrop);
+        scene.push_clip(clip);
         scene.push_outline(outline);
+        scene.pop_clip();
         scene.push_quad(second);
 
         assert_eq!(
@@ -436,7 +456,9 @@ mod tests {
                 Item::Text(text),
                 Item::Shadow(shadow),
                 Item::Backdrop(backdrop),
+                Item::Clip(clip),
                 Item::Outline(outline),
+                Item::PopClip,
                 Item::Quad(second)
             ]
         );
@@ -490,6 +512,28 @@ mod tests {
         scene.push_backdrop(backdrop);
 
         assert_eq!(scene.items(), &[Item::Backdrop(backdrop)]);
+    }
+
+    #[test]
+    fn clip_commands_preserve_order_and_shape() {
+        let mut scene = Scene::new();
+        let clip = Clip {
+            rect: Rect::rounded(
+                point::logical(0.0, 0.0),
+                area::logical(20.0, 10.0),
+                rect::Radius::splat(0.5),
+            ),
+        };
+        let quad = solid_quad(1.0);
+
+        scene.push_clip(clip);
+        scene.push_quad(quad);
+        scene.pop_clip();
+
+        assert_eq!(
+            scene.items(),
+            &[Item::Clip(clip), Item::Quad(quad), Item::PopClip]
+        );
     }
 
     #[test]

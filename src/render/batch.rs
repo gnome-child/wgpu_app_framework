@@ -4,6 +4,8 @@ pub enum ItemBatch<'a> {
     Shapes(Vec<Shape<'a>>),
     Backdrop(&'a paint::Backdrop),
     Glyphs(Vec<Glyph<'a>>),
+    PushClip(&'a paint::Clip),
+    PopClip,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -31,6 +33,8 @@ pub fn item_batches(items: &[paint::Item]) -> Vec<ItemBatch<'_>> {
             paint::Item::Tint(tint) => push_shape(&mut batches, Shape::Tint(tint)),
             paint::Item::Outline(outline) => push_shape(&mut batches, Shape::Outline(outline)),
             paint::Item::Backdrop(backdrop) => batches.push(ItemBatch::Backdrop(backdrop)),
+            paint::Item::Clip(clip) => batches.push(ItemBatch::PushClip(clip)),
+            paint::Item::PopClip => batches.push(ItemBatch::PopClip),
         }
     }
 
@@ -63,6 +67,8 @@ mod tests {
         Shapes(usize),
         Backdrop,
         Glyphs(usize),
+        PushClip,
+        PopClip,
     }
 
     fn solid_quad(x: f32) -> paint::Quad {
@@ -116,6 +122,8 @@ mod tests {
                 ItemBatch::Shapes(shapes) => Kind::Shapes(shapes.len()),
                 ItemBatch::Backdrop(_) => Kind::Backdrop,
                 ItemBatch::Glyphs(glyphs) => Kind::Glyphs(glyphs.len()),
+                ItemBatch::PushClip(_) => Kind::PushClip,
+                ItemBatch::PopClip => Kind::PopClip,
             })
             .collect()
     }
@@ -177,6 +185,31 @@ mod tests {
                 Kind::Backdrop,
                 Kind::Shapes(1),
                 Kind::Glyphs(1)
+            ]
+        );
+    }
+
+    #[test]
+    fn clip_commands_split_batches_to_preserve_order() {
+        let clip = paint::Clip {
+            rect: Rect::new(point::logical(1.0, 0.0), area::logical(10.0, 10.0)),
+        };
+        let items = vec![
+            paint::Item::Quad(solid_quad(0.0)),
+            paint::Item::Clip(clip),
+            paint::Item::Text(label(1.0)),
+            paint::Item::PopClip,
+            paint::Item::Quad(solid_quad(2.0)),
+        ];
+
+        assert_eq!(
+            kinds(&item_batches(&items)),
+            vec![
+                Kind::Shapes(1),
+                Kind::PushClip,
+                Kind::Glyphs(1),
+                Kind::PopClip,
+                Kind::Shapes(1)
             ]
         );
     }

@@ -55,6 +55,11 @@ pub enum Event {
         target: Option<Path>,
         button: pointer::Button,
     },
+    ScrollWheel {
+        position: point::Logical,
+        delta: point::Logical,
+        target: Option<Path>,
+    },
     KeyDown {
         key: Key,
         modifiers: Modifiers,
