@@ -1,7 +1,5 @@
 use crate::geometry::{Rect, area, point};
-use crate::{layout, text, ui};
-
-use super::scroll;
+use crate::{layout, text, ui, widget};
 
 pub fn tree(root: &ui::Node, area: area::Logical) -> layout::Box {
     let constraints = layout::Constraints::loose(area);
@@ -150,9 +148,9 @@ fn measure_text(document: &text::Document) -> area::Logical {
 
 fn arrange_node(node: &ui::Node, path: ui::Path, rect: Rect) -> layout::Box {
     let scroll_offset = node
-        .scroll_offset()
-        .unwrap_or_else(|| point::logical(0.0, 0.0));
-    let viewport = scroll::viewport_rect(node, rect);
+        .scroll()
+        .map_or_else(|| point::logical(0.0, 0.0), |scroll| scroll.offset());
+    let viewport = widget::scroll::viewport_rect(node, rect);
     let child_origin = point::logical(
         viewport.origin.x() - scroll_offset.x(),
         viewport.origin.y() - scroll_offset.y(),

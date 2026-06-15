@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use crate::{action, geometry, icon, layout, menu, paint, text};
+use crate::{action, geometry, icon, layout, menu, paint, text, widget};
 
-use super::{Backdrop, Id, Path, ScrollStyle, Scrollbars, focus};
+use super::{Backdrop, Id, Path, focus};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node {
@@ -20,9 +20,7 @@ pub struct Node {
     icon_size: Option<f32>,
     menu_bar: Option<menu::Bar>,
     clip: bool,
-    scroll_offset: Option<geometry::point::Logical>,
-    scrollbars: Scrollbars,
-    scroll_style: ScrollStyle,
+    scroll: Option<widget::Scroll>,
     children: Vec<Node>,
 }
 
@@ -129,9 +127,7 @@ impl Node {
             icon_size: None,
             menu_bar: None,
             clip: false,
-            scroll_offset: None,
-            scrollbars: Scrollbars::none(),
-            scroll_style: ScrollStyle::default(),
+            scroll: None,
             children: Vec::new(),
         }
     }
@@ -200,16 +196,8 @@ impl Node {
         self.clip
     }
 
-    pub fn scroll_offset(&self) -> Option<geometry::point::Logical> {
-        self.scroll_offset
-    }
-
-    pub fn scrollbars(&self) -> Scrollbars {
-        self.scrollbars
-    }
-
-    pub fn scroll_style(&self) -> ScrollStyle {
-        self.scroll_style
+    pub fn scroll(&self) -> Option<widget::Scroll> {
+        self.scroll
     }
 
     pub fn children(&self) -> &[Node] {
@@ -375,18 +363,23 @@ impl Node {
         self
     }
 
+    pub fn with_scroll(mut self, scroll: widget::Scroll) -> Self {
+        self.scroll = Some(scroll);
+        self
+    }
+
     pub fn with_scroll_offset(mut self, offset: geometry::point::Logical) -> Self {
-        self.scroll_offset = Some(offset);
+        self.scroll = Some(self.scroll.unwrap_or_default().with_offset(offset));
         self
     }
 
-    pub fn with_scrollbars(mut self, scrollbars: Scrollbars) -> Self {
-        self.scrollbars = scrollbars;
+    pub fn with_scroll_bars(mut self, bars: widget::scroll::Bars) -> Self {
+        self.scroll = Some(self.scroll.unwrap_or_default().with_bars(bars));
         self
     }
 
-    pub fn with_scroll_style(mut self, style: ScrollStyle) -> Self {
-        self.scroll_style = style;
+    pub fn with_scroll_style(mut self, style: widget::scroll::Style) -> Self {
+        self.scroll = Some(self.scroll.unwrap_or_default().with_style(style));
         self
     }
 

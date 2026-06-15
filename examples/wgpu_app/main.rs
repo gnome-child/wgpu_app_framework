@@ -3,7 +3,7 @@ use std::time::Duration;
 use wgpu_l3::{
     Action, Event, Icon, Task, Theme, action, app,
     geometry::{Rect, area, point},
-    icon, layout, menu, paint, text, ui, window,
+    icon, layout, menu, paint, text, ui, widget, window,
 };
 
 const RUN_TASK: action::Id = action::Id::new("run_task");
@@ -234,7 +234,7 @@ impl app::Application for App {
         if document_is_subject {
             document_panel = document_panel.with_stroke(subject_stroke(&theme));
         }
-        let mut scroll_view = ui::widget::scroll_view(DOCUMENT_SCROLL)
+        let mut scroll_view = widget::scroll_view(DOCUMENT_SCROLL)
             .with_scroll_offset(point::logical(0.0, self.document_scroll))
             .with_background(theme.surfaces().panel())
             .with_radius(theme.radii().panel())
@@ -318,11 +318,7 @@ impl app::Application for App {
         let root = ui::Node::container(ROOT, layout::Axis::Vertical)
             .with_background(theme.surfaces().app())
             .with_padding(layout::Insets::splat(density.app_padding()))
-            .with_child(ui::widget::menu_bar_with_theme(
-                MENU_BAR,
-                app_menu(),
-                &theme,
-            ))
+            .with_child(widget::menu_bar_with_theme(MENU_BAR, app_menu(), &theme))
             .with_child(
                 ui::control::panel_with_theme(STATUS_PANEL, &theme)
                     .with_size(layout::Size::Fill, layout::Size::Fixed(44.0))

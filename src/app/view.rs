@@ -55,7 +55,7 @@ pub fn compose<T>(
     state.interactivity = tree.interactivity();
 
     if let Some(layout) = tree.layout(logical_area) {
-        state.scrollables = tree.scrollables(&layout);
+        state.widget_metrics = tree.widget_metrics(&layout);
         state.focus_order = focus_order(&layout, &state.interactivity);
         state.clear_stale_focus();
         state.clear_stale_command_target();
@@ -83,7 +83,7 @@ pub fn compose<T>(
         state.clear_command_target();
         state.command_scopes.clear();
         state.command_scope_captures.clear();
-        state.scrollables.clear();
+        state.widget_metrics.clear();
     }
 
     scene
@@ -118,6 +118,7 @@ fn collect_focus_order(
 #[cfg(test)]
 mod tests {
     use crate::geometry::area;
+    use crate::widget;
     use crate::{Action, layout, menu, paint};
 
     use super::*;
@@ -349,7 +350,7 @@ mod tests {
         );
         tree.set_root(
             ui::control::panel(ROOT)
-                .with_child(ui::widget::menu_bar(
+                .with_child(widget::menu_bar(
                     MENU_BAR,
                     menu::Bar::new().menu(
                         menu::Menu::new(FILE, "File").section(
@@ -373,8 +374,8 @@ mod tests {
         );
         let theme = crate::theme::Theme::default_dark();
 
-        let row = ui::Path::new([ROOT, ui::widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
-        let scope = ui::Path::new([ROOT, ui::widget::MENU_POPUP]);
+        let row = ui::Path::new([ROOT, widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
+        let scope = ui::Path::new([ROOT, widget::MENU_POPUP]);
 
         assert!(
             state
@@ -417,7 +418,7 @@ mod tests {
     fn focused_open_menu_row_lowers_focus_background() {
         let window = window::Id::new(1);
         let subject = ui::Path::new([ROOT, CHILD]);
-        let row = ui::Path::new([ROOT, ui::widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
+        let row = ui::Path::new([ROOT, widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
         let mut state = WindowState {
             open_menu: Some(FILE),
             command_subject: Some(action::Scope::Path(subject.clone())),
@@ -439,7 +440,7 @@ mod tests {
         );
         tree.set_root(
             ui::control::panel(ROOT)
-                .with_child(ui::widget::menu_bar(
+                .with_child(widget::menu_bar(
                     MENU_BAR,
                     menu::Bar::new().menu(
                         menu::Menu::new(FILE, "File").section(
@@ -492,7 +493,7 @@ mod tests {
         );
         tree.set_root(
             ui::control::panel(ROOT)
-                .with_child(ui::widget::menu_bar(
+                .with_child(widget::menu_bar(
                     MENU_BAR,
                     menu::Bar::new().menu(
                         menu::Menu::new(VIEW, "View")
@@ -540,7 +541,7 @@ mod tests {
         );
         tree.set_root(
             ui::control::panel(ROOT)
-                .with_child(ui::widget::menu_bar(
+                .with_child(widget::menu_bar(
                     MENU_BAR,
                     menu::Bar::new().menu(
                         menu::Menu::new(VIEW, "View").section(
@@ -562,14 +563,14 @@ mod tests {
             area::logical(360.0, 220.0),
         );
 
-        let submenu_popup = ui::Path::new([ROOT, ui::widget::MENU_SUBMENU_POPUP]);
+        let submenu_popup = ui::Path::new([ROOT, widget::MENU_SUBMENU_POPUP]);
         let submenu_row = ui::Path::new([
             ROOT,
-            ui::widget::MENU_SUBMENU_POPUP,
+            widget::MENU_SUBMENU_POPUP,
             ui::Id::new("__menu_row_00"),
         ]);
         let top_submenu_row =
-            ui::Path::new([ROOT, ui::widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
+            ui::Path::new([ROOT, widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
 
         assert!(
             state

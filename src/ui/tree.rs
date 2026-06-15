@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 
 use crate::geometry::area;
-use crate::{action, layout, menu, paint, window};
+use crate::{action, layout, menu, paint, widget, window};
 
 use super::{
     ActionTarget, Intent, Interaction, Interactivity, Node, Path, Popup, layout_engine, painting,
-    scroll,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -182,20 +181,20 @@ impl Tree {
         interactivity
     }
 
-    pub fn scrollables(&self, layout: &layout::Box) -> HashMap<Path, scroll::ScrollMetrics> {
-        let mut scrollables = HashMap::new();
+    pub fn widget_metrics(&self, layout: &layout::Box) -> HashMap<Path, widget::Metrics> {
+        let mut metrics = HashMap::new();
 
         if let Some(root) = self.root.as_ref() {
-            collect_scrollables(root, layout, &mut scrollables);
+            collect_widget_metrics(root, layout, &mut metrics);
             for popup in &self.popups {
                 let path = Path::root(root.id()).child(popup.root().id());
                 if let Some(popup_layout) = layout.find_path(&path) {
-                    collect_scrollables(popup.root(), popup_layout, &mut scrollables);
+                    collect_widget_metrics(popup.root(), popup_layout, &mut metrics);
                 }
             }
         }
 
-        scrollables
+        metrics
     }
 
     pub fn paint<T>(
@@ -315,16 +314,19 @@ fn collect_interactivity(
     }
 }
 
-fn collect_scrollables(
+fn collect_widget_metrics(
     node: &Node,
     layout: &layout::Box,
-    scrollables: &mut HashMap<Path, scroll::ScrollMetrics>,
+    metrics: &mut HashMap<Path, widget::Metrics>,
 ) {
-    if let Some(metrics) = scroll::metrics(node, layout) {
-        scrollables.insert(layout.path().clone(), metrics);
+    if let Some(scroll_metrics) = widget::scroll::metrics(node, layout) {
+        metrics.insert(
+            layout.path().clone(),
+            widget::Metrics::Scroll(scroll_metrics),
+        );
     }
 
     for (child, child_layout) in node.children().iter().zip(layout.children()) {
-        collect_scrollables(child, child_layout, scrollables);
+        collect_widget_metrics(child, child_layout, metrics);
     }
 }

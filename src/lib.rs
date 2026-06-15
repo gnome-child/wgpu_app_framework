@@ -11,6 +11,7 @@ pub mod task;
 pub mod text;
 pub mod theme;
 pub mod ui;
+pub mod widget;
 pub mod window;
 
 mod native;

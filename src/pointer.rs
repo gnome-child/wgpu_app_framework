@@ -1,4 +1,5 @@
 use crate::geometry::point;
+use crate::{ui, widget};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pointer {
@@ -27,6 +28,15 @@ pub enum Event {
     Moved { position: point::Logical },
     Button { button: Button, pressed: bool },
     Left,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Capture {
+    target: ui::Path,
+    part: widget::Part,
+    button: Button,
+    origin: point::Logical,
+    grab_offset: point::Logical,
 }
 
 impl Pointer {
@@ -134,6 +144,44 @@ impl Default for Pointer {
     }
 }
 
+impl Capture {
+    pub fn new(
+        target: ui::Path,
+        part: widget::Part,
+        button: Button,
+        origin: point::Logical,
+        grab_offset: point::Logical,
+    ) -> Self {
+        Self {
+            target,
+            part,
+            button,
+            origin,
+            grab_offset,
+        }
+    }
+
+    pub fn target(&self) -> &ui::Path {
+        &self.target
+    }
+
+    pub fn part(&self) -> widget::Part {
+        self.part
+    }
+
+    pub fn button(&self) -> Button {
+        self.button
+    }
+
+    pub fn origin(&self) -> point::Logical {
+        self.origin
+    }
+
+    pub fn grab_offset(&self) -> point::Logical {
+        self.grab_offset
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,5 +261,26 @@ mod tests {
         assert_eq!(pointer.delta(), point::logical(0.0, 0.0));
         assert!(!pointer.primary_down());
         assert!(!pointer.secondary_down());
+    }
+
+    #[test]
+    fn capture_stores_target_part_button_origin_and_grab_offset() {
+        let target = ui::Path::from(ui::Id::new("scroll"));
+        let capture = Capture::new(
+            target.clone(),
+            widget::Part::Scroll(widget::scroll::Part::VerticalThumb),
+            Button::Primary,
+            point::logical(10.0, 20.0),
+            point::logical(0.0, 4.0),
+        );
+
+        assert_eq!(capture.target(), &target);
+        assert_eq!(
+            capture.part(),
+            widget::Part::Scroll(widget::scroll::Part::VerticalThumb)
+        );
+        assert_eq!(capture.button(), Button::Primary);
+        assert_eq!(capture.origin(), point::logical(10.0, 20.0));
+        assert_eq!(capture.grab_offset(), point::logical(0.0, 4.0));
     }
 }

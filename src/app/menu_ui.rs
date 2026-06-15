@@ -1,5 +1,5 @@
 use crate::geometry::{Rect, area, point};
-use crate::{action, icon, layout, menu, paint, text, theme, ui};
+use crate::{action, icon, layout, menu, paint, text, theme, ui, widget};
 
 const SEPARATOR_HEIGHT: f32 = 1.0;
 const ROW_ICON_WIDTH: f32 = 28.0;
@@ -65,7 +65,7 @@ pub fn popup<T>(
     Some(ui::Popup::new(
         popup_rect,
         popup_node(
-            ui::widget::MENU_POPUP,
+            widget::MENU_POPUP,
             menu,
             actions,
             command_target,
@@ -97,7 +97,7 @@ pub fn submenu_popup<T>(
     Some(ui::Popup::new(
         popup_rect,
         popup_node(
-            ui::widget::MENU_SUBMENU_POPUP,
+            widget::MENU_SUBMENU_POPUP,
             menu,
             actions,
             command_target,
@@ -335,7 +335,7 @@ fn text_cell(
 }
 
 fn separator_node(id: ui::Id, theme: &theme::Theme) -> ui::Node {
-    ui::widget::separator_with_theme(id, theme)
+    widget::separator_with_theme(id, theme)
         .with_intent(ui::Intent::CloseSubmenu)
         .with_size(layout::Size::Fill, layout::Size::Fixed(SEPARATOR_HEIGHT))
 }

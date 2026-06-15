@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::geometry::point;
-use crate::{action, layout, menu, pointer, ui, window};
+use crate::{action, layout, menu, pointer, ui, widget, window};
 
 use super::command;
 
@@ -26,8 +26,8 @@ pub struct WindowState {
     pub command_scopes: Vec<ui::Path>,
     pub command_scope_captures: HashMap<ui::Path, action::Context>,
     pub interactivity: HashMap<ui::Path, ui::Interactivity>,
-    pub scrollables: HashMap<ui::Path, ui::ScrollMetrics>,
-    pub scroll_drag: Option<ui::ScrollDrag>,
+    pub widget_metrics: HashMap<ui::Path, widget::Metrics>,
+    pub pointer_capture: Option<pointer::Capture>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,54 +56,73 @@ impl WindowState {
 
     pub fn scroll_target(&self, position: point::Logical) -> Option<ui::Path> {
         self.layout.as_ref().and_then(|layout| {
-            layout.hit_test_where(position, |path| self.scrollables.contains_key(path))
+            layout.hit_test_where(position, |path| {
+                matches!(
+                    self.widget_metrics.get(path),
+                    Some(widget::Metrics::Scroll(_))
+                )
+            })
         })
     }
 
-    pub fn scroll_hit(&self, position: point::Logical) -> Option<ui::ScrollHit> {
-        self.scrollables
+    pub fn widget_hit(&self, position: point::Logical) -> Option<widget::Hit> {
+        self.widget_metrics
             .iter()
             .filter_map(|(path, metrics)| {
                 metrics
                     .hit_test(position)
-                    .map(|part| ui::ScrollHit::new(path.clone(), part))
+                    .map(|part| widget::Hit::new(path.clone(), part))
             })
             .max_by_key(|hit| hit.target().ids().len())
     }
 
-    pub fn scroll_metrics(&self, target: &ui::Path) -> Option<ui::ScrollMetrics> {
-        self.scrollables.get(target).copied()
+    pub fn scroll_metrics(&self, target: &ui::Path) -> Option<widget::scroll::Metrics> {
+        match self.widget_metrics.get(target).copied()? {
+            widget::Metrics::Scroll(metrics) => Some(metrics),
+        }
     }
 
-    pub fn start_scroll_drag(&mut self, hit: &ui::ScrollHit, position: point::Logical) -> bool {
+    pub fn start_pointer_capture(
+        &mut self,
+        hit: &widget::Hit,
+        button: pointer::Button,
+        position: point::Logical,
+    ) -> bool {
         let Some(metrics) = self.scroll_metrics(hit.target()) else {
             return false;
         };
 
-        let Some((axis, grab_offset)) = scroll_drag_parts(metrics, hit.part(), position) else {
+        let Some(grab_offset) = scroll_capture_offset(metrics, hit.part(), position) else {
             return false;
         };
 
-        self.scroll_drag = Some(ui::ScrollDrag::new(hit.target().clone(), axis, grab_offset));
+        self.pointer_capture = Some(pointer::Capture::new(
+            hit.target().clone(),
+            hit.part(),
+            button,
+            position,
+            grab_offset,
+        ));
         self.pressed = Some(hit.target().clone());
         self.pressed_source = Some(PressSource::Pointer);
         true
     }
 
-    pub fn scroll_drag_offset(
+    pub fn pointer_capture_offset(
         &self,
         position: point::Logical,
     ) -> Option<(ui::Path, point::Logical)> {
-        let drag = self.scroll_drag.as_ref()?;
-        let metrics = self.scroll_metrics(drag.target())?;
-        let offset = metrics.drag_offset(drag.axis(), position, drag.grab_offset())?;
+        let capture = self.pointer_capture.as_ref()?;
+        let part = capture.part().scroll()?;
+        let metrics = self.scroll_metrics(capture.target())?;
+        let offset = metrics.drag_offset(part, position, capture.grab_offset())?;
 
-        Some((drag.target().clone(), offset))
+        Some((capture.target().clone(), offset))
     }
 
-    pub fn clear_scroll_drag(&mut self) -> bool {
-        let changed = self.scroll_drag.is_some();
-        self.scroll_drag = None;
+    pub fn clear_pointer_capture(&mut self) -> bool {
+        let changed = self.pointer_capture.is_some();
+        self.pointer_capture = None;
         changed
     }
 
@@ -300,19 +319,17 @@ impl WindowState {
     }
 
     pub fn is_dropdown_path(&self, path: &ui::Path) -> bool {
-        path.ids().iter().any(|id| *id == ui::widget::MENU_POPUP)
-            || self.is_submenu_popup_path(path)
+        path.ids().iter().any(|id| *id == widget::MENU_POPUP) || self.is_submenu_popup_path(path)
     }
 
     pub fn is_top_menu_popup_path(&self, path: &ui::Path) -> bool {
-        path.ids().iter().any(|id| *id == ui::widget::MENU_POPUP)
-            && !self.is_submenu_popup_path(path)
+        path.ids().iter().any(|id| *id == widget::MENU_POPUP) && !self.is_submenu_popup_path(path)
     }
 
     pub fn is_submenu_popup_path(&self, path: &ui::Path) -> bool {
         path.ids()
             .iter()
-            .any(|id| *id == ui::widget::MENU_SUBMENU_POPUP)
+            .any(|id| *id == widget::MENU_SUBMENU_POPUP)
     }
 
     pub fn focused_path(&self) -> Option<ui::Path> {
@@ -394,19 +411,19 @@ impl WindowState {
     }
 }
 
-fn scroll_drag_parts(
-    metrics: ui::ScrollMetrics,
-    part: ui::ScrollPart,
+fn scroll_capture_offset(
+    metrics: widget::scroll::Metrics,
+    part: widget::Part,
     position: point::Logical,
-) -> Option<(ui::ScrollAxis, f32)> {
-    match part {
-        ui::ScrollPart::VerticalThumb if metrics.max_offset().y() > 0.0 => {
+) -> Option<point::Logical> {
+    match part.scroll()? {
+        widget::scroll::Part::VerticalThumb if metrics.max_offset().y() > 0.0 => {
             let thumb = metrics.vertical_thumb()?;
-            Some((ui::ScrollAxis::Vertical, position.y() - thumb.origin.y()))
+            Some(point::logical(0.0, position.y() - thumb.origin.y()))
         }
-        ui::ScrollPart::HorizontalThumb if metrics.max_offset().x() > 0.0 => {
+        widget::scroll::Part::HorizontalThumb if metrics.max_offset().x() > 0.0 => {
             let thumb = metrics.horizontal_thumb()?;
-            Some((ui::ScrollAxis::Horizontal, position.x() - thumb.origin.x()))
+            Some(point::logical(position.x() - thumb.origin.x(), 0.0))
         }
         _ => None,
     }
@@ -846,7 +863,7 @@ mod tests {
 
     #[test]
     fn submenu_popup_target_does_not_dismiss_open_menu() {
-        let submenu_row = ui::Path::new([ui::widget::MENU_SUBMENU_POPUP, CHILD]);
+        let submenu_row = ui::Path::new([widget::MENU_SUBMENU_POPUP, CHILD]);
         let mut state = WindowState {
             open_menu: Some(FILE),
             open_submenu: Some(PANELS),

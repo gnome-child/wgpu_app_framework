@@ -1,6 +1,4 @@
-use crate::{action, layout, paint, ui, window};
-
-use super::scroll;
+use crate::{action, layout, paint, ui, widget, window};
 
 pub fn tree<T>(
     root: &ui::Node,
@@ -68,7 +66,7 @@ fn node<T>(
     }
 
     let clip_rect = if node.clips() {
-        Some(scroll::metrics(node, layout).map_or(rect, |metrics| metrics.viewport()))
+        Some(widget::scroll::metrics(node, layout).map_or(rect, |metrics| metrics.viewport()))
     } else {
         None
     };
@@ -106,7 +104,7 @@ fn paint_scrollbars(
     interaction: &ui::Interaction,
     scene: &mut paint::Scene,
 ) {
-    let Some(metrics) = scroll::metrics(node, layout) else {
+    let Some(metrics) = widget::scroll::metrics(node, layout) else {
         return;
     };
 
@@ -130,7 +128,7 @@ fn paint_scrollbars(
             scene,
             metrics,
             thumb,
-            ui::ScrollPart::VerticalThumb,
+            widget::scroll::Part::VerticalThumb,
             interaction.pressed() == Some(layout.path()),
             interaction,
         );
@@ -142,7 +140,7 @@ fn paint_scrollbars(
             scene,
             metrics,
             thumb,
-            ui::ScrollPart::HorizontalThumb,
+            widget::scroll::Part::HorizontalThumb,
             interaction.pressed() == Some(layout.path()),
             interaction,
         );
@@ -162,9 +160,9 @@ fn push_scroll_chrome(scene: &mut paint::Scene, rect: crate::geometry::Rect, bru
 
 fn push_scroll_thumb_tint(
     scene: &mut paint::Scene,
-    metrics: ui::ScrollMetrics,
+    metrics: widget::scroll::Metrics,
     thumb: crate::geometry::Rect,
-    part: ui::ScrollPart,
+    part: widget::scroll::Part,
     pressed: bool,
     interaction: &ui::Interaction,
 ) {

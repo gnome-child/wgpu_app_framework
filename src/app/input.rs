@@ -21,7 +21,7 @@ pub fn pointer_moved(state: &mut WindowState, position: point::Logical) -> Outco
         .handle_event(pointer::Event::Moved { position });
     let delta = state.pointer.delta();
 
-    if let Some((target, offset)) = state.scroll_drag_offset(position) {
+    if let Some((target, offset)) = state.pointer_capture_offset(position) {
         let mut events = vec![ui::Event::PointerMoved {
             position,
             delta,
@@ -75,7 +75,7 @@ pub fn pointer_pressed(
     });
 
     if button == pointer::Button::Primary
-        && let Some(hit) = state.scroll_hit(position)
+        && let Some(hit) = state.widget_hit(position)
     {
         state.dismiss_menu_for_target(Some(hit.target()));
         let mut events = vec![ui::Event::PointerDown {
@@ -85,7 +85,7 @@ pub fn pointer_pressed(
             button,
         }];
 
-        if state.start_scroll_drag(&hit, position) {
+        if state.start_pointer_capture(&hit, button, position) {
             return Outcome {
                 events,
                 request: None,
@@ -94,8 +94,9 @@ pub fn pointer_pressed(
             };
         }
 
-        if let Some(metrics) = state.scroll_metrics(hit.target())
-            && let Some(offset) = metrics.page_offset(hit.part(), position)
+        if let Some(part) = hit.part().scroll()
+            && let Some(metrics) = state.scroll_metrics(hit.target())
+            && let Some(offset) = metrics.page_offset(part, position)
             && offset != metrics.offset()
         {
             state.pressed = Some(hit.target().clone());
@@ -138,8 +139,8 @@ pub fn pointer_released<T>(
         pressed: false,
     });
 
-    if let Some(drag) = state.scroll_drag.clone() {
-        state.clear_scroll_drag();
+    if let Some(capture) = state.pointer_capture.clone() {
+        state.clear_pointer_capture();
         state.pressed = None;
         state.pressed_source = None;
 
@@ -147,7 +148,7 @@ pub fn pointer_released<T>(
             events: vec![ui::Event::PointerUp {
                 position,
                 delta: state.pointer.delta(),
-                target: Some(drag.target().clone()),
+                target: Some(capture.target().clone()),
                 button,
             }],
             request: None,
@@ -192,7 +193,7 @@ pub fn pointer_button(button: MouseButton) -> pointer::Button {
 pub fn pointer_left(state: &mut WindowState) -> Outcome {
     state.pointer.handle_event(pointer::Event::Left);
     let events = state.set_hovered(None);
-    let cleared_scroll_drag = state.clear_scroll_drag();
+    let cleared_capture = state.clear_pointer_capture();
     let cleared_pressed = if state.pressed_source == Some(PressSource::Pointer) {
         state.pressed = None;
         state.pressed_source = None;
@@ -202,7 +203,7 @@ pub fn pointer_left(state: &mut WindowState) -> Outcome {
     };
 
     Outcome {
-        redraw: !events.is_empty() || cleared_pressed || cleared_scroll_drag,
+        redraw: !events.is_empty() || cleared_pressed || cleared_capture,
         events,
         request: None,
         intent: None,
@@ -544,7 +545,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::Action;
-    use crate::menu;
+    use crate::{menu, widget};
 
     use super::*;
 
@@ -562,7 +563,7 @@ mod tests {
     fn scroll_state(offset: point::Logical) -> WindowState {
         let mut tree = ui::Tree::new();
         tree.set_root(
-            ui::widget::scroll_view(CHILD)
+            widget::scroll_view(CHILD)
                 .with_scroll_offset(offset)
                 .with_size(
                     crate::layout::Size::Fixed(40.0),
@@ -587,11 +588,11 @@ mod tests {
         let layout = tree
             .layout(crate::geometry::area::logical(40.0, 40.0))
             .expect("scroll test tree should layout");
-        let scrollables = tree.scrollables(&layout);
+        let widget_metrics = tree.widget_metrics(&layout);
 
         WindowState {
             layout: Some(layout),
-            scrollables,
+            widget_metrics,
             ..WindowState::default()
         }
     }
@@ -599,7 +600,7 @@ mod tests {
     fn non_overflow_scroll_state() -> WindowState {
         let mut tree = ui::Tree::new();
         tree.set_root(
-            ui::widget::scroll_view(CHILD)
+            widget::scroll_view(CHILD)
                 .with_size(
                     crate::layout::Size::Fixed(40.0),
                     crate::layout::Size::Fixed(40.0),
@@ -613,11 +614,11 @@ mod tests {
         let layout = tree
             .layout(crate::geometry::area::logical(40.0, 40.0))
             .expect("scroll test tree should layout");
-        let scrollables = tree.scrollables(&layout);
+        let widget_metrics = tree.widget_metrics(&layout);
 
         WindowState {
             layout: Some(layout),
-            scrollables,
+            widget_metrics,
             ..WindowState::default()
         }
     }
@@ -715,7 +716,7 @@ mod tests {
             pointer::Button::Primary,
         );
         assert!(pressed.redraw);
-        assert!(state.scroll_drag.is_some());
+        assert!(state.pointer_capture.is_some());
         assert_eq!(state.pressed, Some(path(CHILD)));
 
         let moved = pointer_moved(&mut state, point::logical(35.0, 20.0));
@@ -723,7 +724,7 @@ mod tests {
 
         assert_eq!(offset.x(), 0.0);
         assert!((offset.y() - 34.09091).abs() < 0.001);
-        assert!(state.scroll_drag.is_some());
+        assert!(state.pointer_capture.is_some());
     }
 
     #[test]
@@ -740,7 +741,7 @@ mod tests {
             requested_offset(&outcome.events),
             Some(point::logical(0.0, 40.0))
         );
-        assert!(state.scroll_drag.is_none());
+        assert!(state.pointer_capture.is_none());
     }
 
     #[test]
@@ -753,7 +754,7 @@ mod tests {
             pointer::Button::Primary,
         );
 
-        assert!(state.scroll_drag.is_none());
+        assert!(state.pointer_capture.is_none());
         assert_eq!(requested_offset(&thumb.events), None);
 
         let wheel = scroll_wheel(&state, point::logical(1.0, 1.0), point::logical(0.0, -20.0));
@@ -844,7 +845,7 @@ mod tests {
     fn menu_action_request_closes_open_menu() {
         let window = window::Id::new(1);
         let mut registry = action::Registry::<()>::new();
-        let row = ui::Path::new([ui::widget::MENU_POPUP, CHILD]);
+        let row = ui::Path::new([widget::MENU_POPUP, CHILD]);
         let mut state = WindowState {
             pressed: Some(row.clone()),
             pressed_source: Some(PressSource::Pointer),
@@ -856,7 +857,7 @@ mod tests {
         };
 
         state.layout = Some(crate::layout::Box::with_path(
-            ui::Path::from(ui::widget::MENU_POPUP),
+            ui::Path::from(widget::MENU_POPUP),
             crate::geometry::Rect::new(
                 point::logical(0.0, 0.0),
                 crate::geometry::area::logical(20.0, 20.0),
@@ -1052,7 +1053,7 @@ mod tests {
 
     #[test]
     fn hovering_submenu_row_while_menu_is_open_emits_open_submenu_intent() {
-        let row = ui::Path::new([ui::widget::MENU_POPUP, CHILD]);
+        let row = ui::Path::new([widget::MENU_POPUP, CHILD]);
         let mut state = WindowState {
             open_menu: Some(FILE),
             intents: HashMap::from([(row.clone(), ui::Intent::OpenSubmenu(PANELS))]),
@@ -1075,7 +1076,7 @@ mod tests {
 
     #[test]
     fn hovering_top_menu_action_row_closes_open_submenu() {
-        let row = ui::Path::new([ui::widget::MENU_POPUP, CHILD]);
+        let row = ui::Path::new([widget::MENU_POPUP, CHILD]);
         let mut state = WindowState {
             open_menu: Some(FILE),
             open_submenu: Some(PANELS),
@@ -1247,7 +1248,7 @@ mod tests {
     fn tab_focus_is_trapped_to_open_dropdown_rows() {
         let window = window::Id::new(1);
         let registry = action::Registry::<()>::new();
-        let menu_row = ui::Path::new([ui::widget::MENU_POPUP, CHILD]);
+        let menu_row = ui::Path::new([widget::MENU_POPUP, CHILD]);
         let mut state = WindowState {
             open_menu: Some(FILE),
             focus_order: vec![path(SECOND), menu_row.clone()],
@@ -1267,7 +1268,7 @@ mod tests {
     fn focusing_submenu_row_emits_open_submenu_intent() {
         let window = window::Id::new(1);
         let registry = action::Registry::<()>::new();
-        let menu_row = ui::Path::new([ui::widget::MENU_POPUP, CHILD]);
+        let menu_row = ui::Path::new([widget::MENU_POPUP, CHILD]);
         let mut state = WindowState {
             open_menu: Some(FILE),
             focus_order: vec![menu_row.clone()],
