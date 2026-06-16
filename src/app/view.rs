@@ -60,7 +60,7 @@ mod tests {
     use crate::geometry::{area, point};
     use crate::widget;
     use crate::widget::menu;
-    use crate::{Action, layout_old, paint, text};
+    use crate::{Action, layout, paint, text};
 
     use super::*;
 
@@ -99,7 +99,7 @@ mod tests {
                 .with_background(paint::Color::BLACK)
                 .with_child(
                     widget::button(CHILD, CLICK)
-                        .with_size(layout_old::Size::Fixed(10.0), layout_old::Size::Fixed(10.0)),
+                        .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
                 ),
         );
 
@@ -145,7 +145,7 @@ mod tests {
             widget::panel(ROOT).with_child(
                 widget::button(OTHER, CLICK)
                     .with_responder(CLICK)
-                    .with_size(layout_old::Size::Fixed(10.0), layout_old::Size::Fixed(10.0)),
+                    .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
             ),
         );
 
@@ -173,7 +173,7 @@ mod tests {
         tree.set_root(
             widget::panel(ROOT).with_child(
                 widget::button(OTHER, CLICK)
-                    .with_size(layout_old::Size::Fixed(10.0), layout_old::Size::Fixed(10.0)),
+                    .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
             ),
         );
 
@@ -199,7 +199,7 @@ mod tests {
             widget::panel(ROOT).with_child(
                 ui::Node::leaf(CHILD)
                     .with_responder(action::SELECT_ALL)
-                    .with_size(layout_old::Size::Fixed(10.0), layout_old::Size::Fixed(10.0)),
+                    .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
             ),
         );
 
@@ -235,12 +235,12 @@ mod tests {
                 .with_child(
                     ui::Node::leaf(CHILD)
                         .with_responder(action::SELECT_ALL)
-                        .with_size(layout_old::Size::Fixed(10.0), layout_old::Size::Fixed(10.0)),
+                        .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
                 )
                 .with_child(
                     widget::panel(OTHER)
                         .with_command_scope()
-                        .with_size(layout_old::Size::Fixed(10.0), layout_old::Size::Fixed(10.0)),
+                        .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
                 ),
         );
 
@@ -335,11 +335,11 @@ mod tests {
         let layout = composition.layout();
 
         assert!(layout.find_path(&scope).is_some());
-        let popup_rect = layout_old
+        let popup_rect = layout
             .find_path(&scope)
             .expect("menu popup root layout")
             .rect();
-        let background_hit = layout_old.hit_test_where(
+        let background_hit = layout.hit_test_where(
             point::logical(popup_rect.origin.x() + 1.0, popup_rect.origin.y() + 1.0),
             |path| {
                 composition

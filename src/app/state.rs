@@ -525,16 +525,16 @@ mod tests {
         ui::Path::from(id)
     }
 
-    fn single_box(id: ui::Id) -> crate::layout_old::Box {
-        crate::layout_old::Box::new(
-            id,
+    fn single_box(id: ui::Id) -> crate::ui::Frame {
+        crate::layout::Frame::<ui::Path>::new(
+            ui::Path::root(id),
             Rect::new(point::logical(0.0, 0.0), area::logical(20.0, 20.0)),
             Vec::new(),
         )
     }
 
     fn composition(
-        layout: crate::layout_old::Box,
+        layout: crate::ui::Frame,
         menus: HashMap<menu::Id, menu::Menu>,
         actions: HashMap<ui::Path, action::Id>,
         action_targets: HashMap<ui::Path, ui::ActionTarget>,
@@ -558,7 +558,7 @@ mod tests {
     }
 
     fn state_with_composition(
-        layout: crate::layout_old::Box,
+        layout: crate::ui::Frame,
         menus: HashMap<menu::Id, menu::Menu>,
         actions: HashMap<ui::Path, action::Id>,
         action_targets: HashMap<ui::Path, ui::ActionTarget>,

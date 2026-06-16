@@ -3,7 +3,7 @@ use std::time::Duration;
 use wgpu_l3::{
     Action, Event, Icon, Task, Theme, action, app,
     geometry::{Rect, area, point},
-    icon, layout_old, paint, text, ui, widget, window,
+    icon, layout, paint, text, ui, widget, window,
 };
 
 const RUN_TASK: action::Id = action::Id::new("run_task");
@@ -224,7 +224,7 @@ impl app::Application for App {
         let local_is_subject = matches_path(command_subject.scope(), &local_field_path());
 
         let mut document_panel = widget::panel_with_theme(DOCUMENT_PANEL, &theme)
-            .with_size(layout_old::Size::Fill, layout_old::Size::Fixed(56.0))
+            .with_size(layout::Size::Fill, layout::Size::Fixed(56.0))
             .with_background(subject_background(document_is_subject, &theme))
             .with_interactivity(
                 ui::Interactivity::NONE
@@ -241,18 +241,12 @@ impl app::Application for App {
             .with_background(theme.surfaces().panel())
             .with_rounding(theme.roundings().panel())
             .with_gap(SCROLL_GAP)
-            .with_padding(layout_old::Insets::splat(SCROLL_PADDING))
-            .with_size(
-                layout_old::Size::Fill,
-                layout_old::Size::Fixed(SCROLL_VIEW_HEIGHT),
-            );
+            .with_padding(layout::Insets::splat(SCROLL_PADDING))
+            .with_size(layout::Size::Fill, layout::Size::Fixed(SCROLL_VIEW_HEIGHT));
         for (index, id) in SCROLL_ROWS.iter().copied().enumerate() {
             scroll_view.push_child(
                 widget::panel_with_theme(id, &theme)
-                    .with_size(
-                        layout_old::Size::Fill,
-                        layout_old::Size::Fixed(SCROLL_ROW_HEIGHT),
-                    )
+                    .with_size(layout::Size::Fill, layout::Size::Fixed(SCROLL_ROW_HEIGHT))
                     .with_label(label(format!("Scrollable row {}", index + 1), &theme)),
             );
         }
@@ -261,17 +255,14 @@ impl app::Application for App {
             .with_background(theme.surfaces().panel())
             .with_rounding(theme.roundings().panel())
             .with_gap(SCROLL_GAP)
-            .with_padding(layout_old::Insets::splat(SCROLL_PADDING))
-            .with_size(
-                layout_old::Size::Fill,
-                layout_old::Size::Fixed(SCROLL_VIEW_HEIGHT),
-            )
+            .with_padding(layout::Insets::splat(SCROLL_PADDING))
+            .with_size(layout::Size::Fill, layout::Size::Fixed(SCROLL_VIEW_HEIGHT))
             .with_child(both_axis_grid(&theme));
 
         let mut local_field = widget::panel_with_theme(LOCAL_FIELD, &theme)
             .with_size(
-                layout_old::Size::Fill,
-                layout_old::Size::Fixed(density.control_height()),
+                layout::Size::Fill,
+                layout::Size::Fixed(density.control_height()),
             )
             .with_background(subject_background(local_is_subject, &theme))
             .with_interactivity(
@@ -302,8 +293,8 @@ impl app::Application for App {
             .with_child(
                 widget::panel_with_theme(ui::Id::new("scope_status"), &theme)
                     .with_size(
-                        layout_old::Size::Fill,
-                        layout_old::Size::Fixed(density.control_height()),
+                        layout::Size::Fill,
+                        layout::Size::Fixed(density.control_height()),
                     )
                     .with_label(label(scope_label, &theme)),
             )
@@ -317,8 +308,8 @@ impl app::Application for App {
                 )
                 .with_action_target(ui::ActionTarget::Command)
                 .with_size(
-                    layout_old::Size::Fill,
-                    layout_old::Size::Fixed(density.control_height()),
+                    layout::Size::Fill,
+                    layout::Size::Fixed(density.control_height()),
                 ),
             )
             .with_child(
@@ -330,17 +321,17 @@ impl app::Application for App {
                 )
                 .with_action_target(ui::ActionTarget::Captured)
                 .with_size(
-                    layout_old::Size::Fill,
-                    layout_old::Size::Fixed(density.control_height()),
+                    layout::Size::Fill,
+                    layout::Size::Fixed(density.control_height()),
                 ),
             );
-        let root = ui::Node::container(ROOT, layout_old::Axis::Vertical)
+        let root = ui::Node::container(ROOT, layout::Axis::Vertical)
             .with_background(theme.surfaces().app())
-            .with_padding(layout_old::Insets::splat(density.app_padding()))
+            .with_padding(layout::Insets::splat(density.app_padding()))
             .with_child(widget::menu_bar_with_theme(MENU_BAR, app_menu(), &theme))
             .with_child(
                 widget::panel_with_theme(STATUS_PANEL, &theme)
-                    .with_size(layout_old::Size::Fill, layout_old::Size::Fixed(44.0))
+                    .with_size(layout::Size::Fill, layout::Size::Fixed(44.0))
                     .with_label(label(status, &theme)),
             )
             .with_child(document_panel)
@@ -355,22 +346,22 @@ impl app::Application for App {
                 )
                 .with_action_target(ui::ActionTarget::Command)
                 .with_size(
-                    layout_old::Size::Fill,
-                    layout_old::Size::Fixed(density.control_height()),
+                    layout::Size::Fill,
+                    layout::Size::Fixed(density.control_height()),
                 ),
             )
             .with_child(
                 widget::labeled_button_with_theme(RUN_BUTTON, RUN_TASK, "Run task", &theme)
                     .with_size(
-                        layout_old::Size::Fill,
-                        layout_old::Size::Fixed(density.control_height()),
+                        layout::Size::Fill,
+                        layout::Size::Fixed(density.control_height()),
                     ),
             )
             .with_child(
                 widget::panel_with_theme(ui::Id::new("footer_panel"), &theme)
                     .with_size(
-                        layout_old::Size::Fill,
-                        layout_old::Size::Fixed(density.control_height()),
+                        layout::Size::Fill,
+                        layout::Size::Fixed(density.control_height()),
                     )
                     .with_label(label(footer, &theme)),
             )
@@ -382,8 +373,8 @@ impl app::Application for App {
                     &theme,
                 )
                 .with_size(
-                    layout_old::Size::Fill,
-                    layout_old::Size::Fixed(density.icon_button_height()),
+                    layout::Size::Fill,
+                    layout::Size::Fixed(density.icon_button_height()),
                 ),
             );
 
@@ -439,24 +430,21 @@ fn both_axis_grid(theme: &Theme) -> ui::Node {
         ],
     ];
 
-    let mut grid = ui::Node::container(BOTH_AXIS_CONTENT, layout_old::Axis::Vertical)
-        .with_size(
-            layout_old::Size::Fixed(1000.0),
-            layout_old::Size::Fixed(240.0),
-        )
-        .with_padding(layout_old::Insets::splat(8.0))
+    let mut grid = ui::Node::container(BOTH_AXIS_CONTENT, layout::Axis::Vertical)
+        .with_size(layout::Size::Fixed(1000.0), layout::Size::Fixed(240.0))
+        .with_padding(layout::Insets::splat(8.0))
         .with_gap(6.0)
         .with_background(theme.surfaces().canvas());
 
     for (row_index, row_id) in ROWS.iter().enumerate() {
-        let mut row = ui::Node::container(*row_id, layout_old::Axis::Horizontal)
-            .with_size(layout_old::Size::Fill, layout_old::Size::Fixed(48.0))
+        let mut row = ui::Node::container(*row_id, layout::Axis::Horizontal)
+            .with_size(layout::Size::Fill, layout::Size::Fixed(48.0))
             .with_gap(6.0);
 
         for (column_index, id) in CELLS[row_index].iter().enumerate() {
             row = row.with_child(
                 widget::panel_with_theme(*id, theme)
-                    .with_size(layout_old::Size::Fixed(150.0), layout_old::Size::Fill)
+                    .with_size(layout::Size::Fixed(150.0), layout::Size::Fill)
                     .with_label(label(format!("{}-{}", row_index, column_index), theme)),
             );
         }

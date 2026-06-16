@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use crate::geometry::area;
 use crate::widget::menu;
-use crate::{action, layout_old, paint, text, widget, window};
+use crate::{action, paint, text, widget, window};
 
 use super::{
-    ActionTarget, Intent, Interaction, Interactivity, Node, Path, layout_engine, painting,
+    ActionTarget, Frame, Intent, Interaction, Interactivity, Node, Path, layout_engine, painting,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -17,7 +17,7 @@ pub struct Tree {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Composition {
     tree: Tree,
-    layout: layout_old::Box,
+    layout: Frame,
     open_menu: Option<menu::Id>,
     open_submenu: Option<menu::Id>,
     menus: HashMap<menu::Id, menu::Menu>,
@@ -67,11 +67,7 @@ impl Tree {
         self.root.is_none()
     }
 
-    pub fn layout(
-        &self,
-        area: area::Logical,
-        measurer: &mut text::Measurer,
-    ) -> Option<layout_old::Box> {
+    pub fn layout(&self, area: area::Logical, measurer: &mut text::Measurer) -> Option<Frame> {
         let root = self.root.as_ref()?;
         let root_layout = layout_engine::tree(root, area, measurer);
         if self.popups.is_empty() {
@@ -189,7 +185,7 @@ impl Tree {
         self.index().interactivity
     }
 
-    pub fn widget_metrics(&self, layout: &layout_old::Box) -> HashMap<Path, widget::Metrics> {
+    pub fn widget_metrics(&self, layout: &Frame) -> HashMap<Path, widget::Metrics> {
         let mut metrics = HashMap::new();
 
         if let Some(root) = self.root.as_ref() {
@@ -207,7 +203,7 @@ impl Tree {
 
     pub fn paint<T>(
         &self,
-        layout: &layout_old::Box,
+        layout: &Frame,
         actions: &action::Registry<T>,
         window: window::Id,
         interaction: Interaction,
@@ -238,17 +234,14 @@ impl Default for Tree {
     }
 }
 
-fn focus_order(
-    layout: &layout_old::Box,
-    interactivity: &HashMap<Path, Interactivity>,
-) -> Vec<Path> {
+fn focus_order(layout: &Frame, interactivity: &HashMap<Path, Interactivity>) -> Vec<Path> {
     let mut order = Vec::new();
     collect_focus_order(layout, interactivity, &mut order);
     order
 }
 
 fn collect_focus_order(
-    layout: &layout_old::Box,
+    layout: &Frame,
     interactivity: &HashMap<Path, Interactivity>,
     order: &mut Vec<Path>,
 ) {
@@ -267,7 +260,7 @@ fn collect_focus_order(
 impl Composition {
     fn new(
         tree: Tree,
-        layout: layout_old::Box,
+        layout: Frame,
         open_menu: Option<menu::Id>,
         open_submenu: Option<menu::Id>,
         menus: HashMap<menu::Id, menu::Menu>,
@@ -293,7 +286,7 @@ impl Composition {
         }
     }
 
-    pub fn layout(&self) -> &layout_old::Box {
+    pub fn layout(&self) -> &Frame {
         &self.layout
     }
 
@@ -388,7 +381,7 @@ impl Composition {
 
     #[cfg(test)]
     pub fn for_test(
-        layout: layout_old::Box,
+        layout: Frame,
         menus: HashMap<menu::Id, menu::Menu>,
         actions: HashMap<Path, action::Id>,
         action_targets: HashMap<Path, ActionTarget>,
@@ -481,7 +474,7 @@ fn collect_menu(menu: &menu::Menu, menus: &mut HashMap<menu::Id, menu::Menu>) {
 
 fn collect_widget_metrics(
     node: &Node,
-    layout: &layout_old::Box,
+    layout: &Frame,
     metrics: &mut HashMap<Path, widget::Metrics>,
 ) {
     if let Some(scroll_metrics) = widget::scroll::metrics(node, layout) {

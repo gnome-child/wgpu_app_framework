@@ -1,4 +1,4 @@
-use crate::{geometry, layout_old, paint};
+use crate::{geometry, layout, paint};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Theme {
@@ -629,8 +629,8 @@ pub fn stroke(brush: paint::Brush, width: f32) -> paint::Stroke {
     paint::Stroke { brush, width }
 }
 
-pub fn insets(value: f32) -> layout_old::Insets {
-    layout_old::Insets::splat(value)
+pub fn insets(value: f32) -> layout::Insets {
+    layout::Insets::splat(value)
 }
 
 fn srgb8(r: u8, g: u8, b: u8) -> paint::Color {

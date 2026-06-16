@@ -4,7 +4,6 @@ pub mod event;
 pub mod geometry;
 pub mod icon;
 pub mod layout;
-pub mod layout_old;
 pub mod paint;
 pub mod pointer;
 pub mod task;

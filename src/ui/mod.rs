@@ -12,6 +12,7 @@ pub use backdrop::Backdrop;
 pub use event::{Event, Key, Modifiers};
 pub use id::{Id, Path};
 pub use node::{ActionTarget, Intent, Interaction, Interactivity, Layout, Node, Shadow, Style};
+pub type Frame = crate::layout::Frame<Path>;
 #[doc(hidden)]
 pub use tree::Composition;
 pub use tree::Tree;

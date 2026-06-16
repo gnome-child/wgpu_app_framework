@@ -6,7 +6,7 @@ mod menu_popup;
 mod popup;
 
 use crate::geometry::{Rect, area, point};
-use crate::{layout_old, text, theme, ui};
+use crate::{layout, text, theme, ui};
 
 pub use self::menu::Menu;
 pub use self::menu_popup::{menu_popup, submenu_popup};
@@ -58,8 +58,8 @@ pub fn label_with_theme(id: ui::Id, label: impl Into<String>, theme: &theme::The
         .with_label(document_with_theme(label, theme, text::Align::Center))
         .with_label_color(theme.text().secondary())
         .with_size(
-            layout_old::Size::Fill,
-            layout_old::Size::Fixed(theme.density().label_height()),
+            layout::Size::Fill,
+            layout::Size::Fixed(theme.density().label_height()),
         )
 }
 
@@ -70,7 +70,7 @@ pub fn separator(id: ui::Id) -> ui::Node {
 pub fn separator_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
     ui::Node::leaf(id)
         .with_background(theme.surfaces().separator())
-        .with_size(layout_old::Size::Fill, layout_old::Size::Fixed(1.0))
+        .with_size(layout::Size::Fill, layout::Size::Fixed(1.0))
 }
 
 pub fn scroll_view(id: ui::Id) -> ui::Node {
@@ -91,10 +91,10 @@ pub fn scroll_view_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
             scroll.corner(),
         ));
 
-    ui::Node::container(id, layout_old::Axis::Vertical)
+    ui::Node::container(id, layout::Axis::Vertical)
         .clipped()
         .with_scroll(scroll)
-        .with_size(layout_old::Size::Fill, layout_old::Size::Fill)
+        .with_size(layout::Size::Fill, layout::Size::Fill)
 }
 
 pub fn menu_bar(id: ui::Id, bar: menu::Bar) -> ui::Node {
@@ -102,13 +102,13 @@ pub fn menu_bar(id: ui::Id, bar: menu::Bar) -> ui::Node {
 }
 
 pub fn menu_bar_with_theme(id: ui::Id, bar: menu::Bar, theme: &theme::Theme) -> ui::Node {
-    let mut node = ui::Node::container(id, layout_old::Axis::Horizontal)
+    let mut node = ui::Node::container(id, layout::Axis::Horizontal)
         .with_menu_bar(bar.clone())
         .with_background(theme.menu().bar_background())
         .with_stroke(theme.menu().bar_stroke())
         .with_size(
-            layout_old::Size::Fill,
-            layout_old::Size::Fixed(theme.density().menu_bar_height()),
+            layout::Size::Fill,
+            layout::Size::Fixed(theme.density().menu_bar_height()),
         );
 
     for menu in bar.menus() {
@@ -160,13 +160,13 @@ fn menu_title(menu: &menu::Menu, theme: &theme::Theme) -> ui::Node {
         .with_focus_outline(outline.brush(), outline.width(), outline.offset())
         .with_label_color(theme.text().primary())
         .with_rounding(theme.roundings().menu_title())
-        .with_padding(layout_old::Insets {
+        .with_padding(layout::Insets {
             left: horizontal_padding,
             top: 0.0,
             right: horizontal_padding,
             bottom: 0.0,
         })
-        .with_size(layout_old::Size::Fit, layout_old::Size::Fill)
+        .with_size(layout::Size::Fit, layout::Size::Fill)
 }
 
 impl Scroll {
