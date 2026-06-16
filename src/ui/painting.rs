@@ -225,17 +225,17 @@ fn action_context(
     window: window::Id,
     interaction: &ui::Interaction,
 ) -> action::Context {
-    match node.action_target() {
-        ui::ActionTarget::Origin => action::Context::path(window, layout.path().clone()),
-        ui::ActionTarget::Command => interaction
-            .command_target()
+    match node.command_subject() {
+        ui::CommandSubject::Origin => action::Context::path(window, layout.path().clone()),
+        ui::CommandSubject::Current => interaction
+            .command_subject()
             .cloned()
             .unwrap_or_else(|| action::Context::window(window)),
-        ui::ActionTarget::Captured => interaction
-            .captured_command_target(layout.path())
+        ui::CommandSubject::Captured => interaction
+            .captured_command_subject(layout.path())
             .cloned()
             .unwrap_or_else(|| action::Context::window(window)),
-        ui::ActionTarget::Window => action::Context::window(window),
+        ui::CommandSubject::Window => action::Context::window(window),
     }
 }
 

@@ -11,13 +11,13 @@ pub fn compose<T>(
     logical_area: area::Logical,
 ) -> paint::Scene {
     let mut scene = paint::Scene::new();
-    let command_target = state.command_context(window);
+    let command_subject = state.command_context(window);
 
     if let Some(composition) = tree.compose(
         window,
         logical_area,
         actions,
-        &command_target,
+        &command_subject,
         state.open_menu,
         state.open_submenu,
         measurer,
@@ -26,9 +26,9 @@ pub fn compose<T>(
         state.open_submenu = composition.open_submenu();
         state.composition = Some(composition);
         state.clear_stale_focus();
-        state.clear_stale_command_target();
+        state.clear_stale_command_subject();
         state.update_command_scope_captures(window);
-        let command_target = state.command_context(window);
+        let command_subject = state.command_context(window);
 
         let interaction = ui::Interaction::new(
             state.hovered.clone(),
@@ -36,7 +36,7 @@ pub fn compose<T>(
             state.pressed.clone(),
         )
         .with_focus_visibility(state.focus_visibility())
-        .with_command_target(command_target)
+        .with_command_subject(command_subject)
         .with_command_scope_captures(state.command_scope_captures.clone())
         .with_open_menu(state.open_menu)
         .with_open_submenu(state.open_submenu)
@@ -49,7 +49,7 @@ pub fn compose<T>(
     } else {
         state.composition = None;
         state.clear_focus();
-        state.clear_command_target();
+        state.clear_command_subject();
         state.command_scope_captures.clear();
     }
 
@@ -119,8 +119,8 @@ mod tests {
             Some(CLICK)
         );
         assert_eq!(
-            composition.action_target(&ui::Path::new([ROOT, CHILD])),
-            ui::ActionTarget::Origin
+            composition.command_subject(&ui::Path::new([ROOT, CHILD])),
+            ui::CommandSubject::Origin
         );
         assert!(composition.responder_map().is_empty());
         assert!(composition.interactivity(&ui::Path::from(ROOT)).is_some());
@@ -162,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    fn compose_clears_stale_command_target_after_tree_rebuild() {
+    fn compose_clears_stale_command_subject_after_tree_rebuild() {
         let window = window::Id::new(1);
         let mut state = WindowState {
             command_subject: Some(action::Scope::Path(ui::Path::new([ROOT, CHILD]))),
@@ -399,7 +399,10 @@ mod tests {
                     && !interactivity.actionable())
         );
         assert_eq!(composition.action(&row), Some(action::SELECT_ALL));
-        assert_eq!(composition.action_target(&row), ui::ActionTarget::Captured);
+        assert_eq!(
+            composition.command_subject(&row),
+            ui::CommandSubject::Captured
+        );
         assert_eq!(
             state.command_scope_captures.get(&scope),
             Some(&action::Context::path(window, ui::Path::new([ROOT, CHILD])))

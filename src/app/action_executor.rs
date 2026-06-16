@@ -15,7 +15,7 @@ pub fn execute<T: Send + 'static>(
     let context = request.target().clone();
     let window = context.window_id();
 
-    if !actions.can_invoke(action, context.clone()) {
+    if !actions.can_execute(&request) {
         return None;
     }
 

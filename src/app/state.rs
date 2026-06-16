@@ -135,11 +135,11 @@ impl WindowState {
             .is_some_and(|interactivity| interactivity.actionable())
     }
 
-    pub fn action_target(&self, target: &ui::Path) -> ui::ActionTarget {
+    pub fn command_subject(&self, target: &ui::Path) -> ui::CommandSubject {
         self.composition
             .as_ref()
-            .map_or_else(ui::ActionTarget::default, |composition| {
-                composition.action_target(target)
+            .map_or_else(ui::CommandSubject::default, |composition| {
+                composition.command_subject(target)
             })
     }
 
@@ -401,24 +401,12 @@ impl WindowState {
         command::context_for_path(self, window, path)
     }
 
-    pub fn set_command_target(&mut self, context: action::Context) -> bool {
-        self.set_command_subject(context)
-    }
-
     pub fn set_command_subject(&mut self, context: action::Context) -> bool {
         command::set_subject(self, context)
     }
 
-    pub fn clear_command_target(&mut self) -> bool {
-        self.clear_command_subject()
-    }
-
     pub fn clear_command_subject(&mut self) -> bool {
         command::clear_subject(self)
-    }
-
-    pub fn clear_stale_command_target(&mut self) -> bool {
-        self.clear_stale_command_subject()
     }
 
     pub fn clear_stale_command_subject(&mut self) -> bool {
@@ -514,7 +502,7 @@ impl WindowState {
             );
             let request = self.resolve_request(request);
 
-            registry.can_invoke(request.action(), request.target().clone())
+            registry.can_execute(&request)
         })
     }
 }
@@ -549,7 +537,7 @@ mod tests {
         layout: crate::ui::Frame,
         menus: HashMap<menu::Id, menu::Menu>,
         actions: HashMap<ui::Path, action::Id>,
-        action_targets: HashMap<ui::Path, ui::ActionTarget>,
+        command_subjects: HashMap<ui::Path, ui::CommandSubject>,
         intents: HashMap<ui::Path, ui::Intent>,
         responders: HashMap<ui::Path, Vec<action::Id>>,
         interactivity: HashMap<ui::Path, ui::Interactivity>,
@@ -559,7 +547,7 @@ mod tests {
             layout,
             menus,
             actions,
-            action_targets,
+            command_subjects,
             intents,
             responders,
             Vec::new(),
@@ -573,7 +561,7 @@ mod tests {
         layout: crate::ui::Frame,
         menus: HashMap<menu::Id, menu::Menu>,
         actions: HashMap<ui::Path, action::Id>,
-        action_targets: HashMap<ui::Path, ui::ActionTarget>,
+        command_subjects: HashMap<ui::Path, ui::CommandSubject>,
         intents: HashMap<ui::Path, ui::Intent>,
         responders: HashMap<ui::Path, Vec<action::Id>>,
         interactivity: HashMap<ui::Path, ui::Interactivity>,
@@ -584,7 +572,7 @@ mod tests {
                 layout,
                 menus,
                 actions,
-                action_targets,
+                command_subjects,
                 intents,
                 responders,
                 interactivity,
@@ -822,7 +810,7 @@ mod tests {
             target.expect("release should target pressed element"),
             action::Source::Pointer,
         )
-        .filter(|request| registry.can_invoke(request.action(), request.target().clone()));
+        .filter(|request| registry.can_execute(request));
 
         assert_eq!(
             request,
@@ -858,7 +846,7 @@ mod tests {
 
         assert_eq!(
             action_request(&state, window, path(CHILD), action::Source::Pointer)
-                .filter(|request| registry.can_invoke(request.action(), request.target().clone())),
+                .filter(|request| registry.can_execute(request)),
             None
         );
     }
@@ -1037,13 +1025,13 @@ mod tests {
 
         assert_eq!(
             action_request(&state, window, path(CHILD), action::Source::Pointer)
-                .filter(|request| registry.can_invoke(request.action(), request.target().clone())),
+                .filter(|request| registry.can_execute(request)),
             None
         );
     }
 
     #[test]
-    fn command_target_survives_focus_changes() {
+    fn command_subject_survives_focus_changes() {
         let window = window::Id::new(1);
         let mut state = state_with_composition(
             single_box(OUTSIDE),
@@ -1074,14 +1062,14 @@ mod tests {
     }
 
     #[test]
-    fn command_subject_aliases_match_command_target_behavior() {
+    fn command_subject_setters_update_command_subject_behavior() {
         let window = window::Id::new(1);
         let subject = action::Context::path(window, path(CHILD));
         let mut state = WindowState::default();
 
         assert!(state.set_command_subject(subject.clone()));
         assert_eq!(state.command_context(window), subject);
-        assert!(!state.set_command_target(action::Context::path(window, path(CHILD))));
+        assert!(!state.set_command_subject(action::Context::path(window, path(CHILD))));
         assert!(state.clear_command_subject());
         assert_eq!(
             state.command_context(window),
@@ -1251,7 +1239,7 @@ mod tests {
     }
 
     #[test]
-    fn stale_command_target_is_cleared_when_path_disappears() {
+    fn stale_command_subject_is_cleared_when_path_disappears() {
         let window = window::Id::new(1);
         let mut state = state_with_composition(
             single_box(ROOT),
@@ -1265,7 +1253,7 @@ mod tests {
         );
         state.command_subject = Some(action::Scope::Path(path(CHILD)));
 
-        assert!(state.clear_stale_command_target());
+        assert!(state.clear_stale_command_subject());
         assert_eq!(state.command_subject, None);
         assert_eq!(
             state.command_context(window),
@@ -1274,13 +1262,13 @@ mod tests {
     }
 
     #[test]
-    fn command_target_policy_resolves_stored_target() {
+    fn command_subject_policy_resolves_stored_subject() {
         let window = window::Id::new(1);
         let mut state = state_with_composition(
             single_box(ROOT),
             HashMap::new(),
             HashMap::from([(path(ROOT), CLICK)]),
-            HashMap::from([(path(ROOT), ui::ActionTarget::Command)]),
+            HashMap::from([(path(ROOT), ui::CommandSubject::Current)]),
             HashMap::new(),
             HashMap::new(),
             HashMap::new(),
@@ -1289,9 +1277,10 @@ mod tests {
         state.command_subject = Some(action::Scope::Path(path(CHILD)));
 
         let request = action_request(&state, window, path(ROOT), action::Source::Pointer)
-            .expect("command-target action should produce request");
+            .expect("command-subject action should produce request");
 
         assert_eq!(request.origin(), Some(&path(ROOT)));
+        assert_eq!(request.payload(), &action::Payload::None);
         assert_eq!(
             request.target(),
             &action::Context::path(window, path(CHILD))
@@ -1299,13 +1288,13 @@ mod tests {
     }
 
     #[test]
-    fn command_target_policy_resolves_window_without_subject() {
+    fn command_subject_policy_resolves_window_without_subject() {
         let window = window::Id::new(1);
         let state = state_with_composition(
             single_box(ROOT),
             HashMap::new(),
             HashMap::from([(path(ROOT), CLICK)]),
-            HashMap::from([(path(ROOT), ui::ActionTarget::Command)]),
+            HashMap::from([(path(ROOT), ui::CommandSubject::Current)]),
             HashMap::new(),
             HashMap::new(),
             HashMap::new(),
@@ -1313,19 +1302,19 @@ mod tests {
         );
 
         let request = action_request(&state, window, path(ROOT), action::Source::Pointer)
-            .expect("command-target action should produce request");
+            .expect("command-subject action should produce request");
 
         assert_eq!(request.target(), &action::Context::window(window));
     }
 
     #[test]
-    fn window_target_policy_resolves_window_context() {
+    fn window_subject_policy_resolves_window_context() {
         let window = window::Id::new(1);
         let mut state = state_with_composition(
             single_box(ROOT),
             HashMap::new(),
             HashMap::from([(path(ROOT), CLICK)]),
-            HashMap::from([(path(ROOT), ui::ActionTarget::Window)]),
+            HashMap::from([(path(ROOT), ui::CommandSubject::Window)]),
             HashMap::new(),
             HashMap::new(),
             HashMap::new(),
@@ -1334,14 +1323,14 @@ mod tests {
         state.command_subject = Some(action::Scope::Path(path(CHILD)));
 
         let request = action_request(&state, window, path(ROOT), action::Source::Pointer)
-            .expect("window-target action should produce request");
+            .expect("window-subject action should produce request");
 
         assert_eq!(request.origin(), Some(&path(ROOT)));
         assert_eq!(request.target(), &action::Context::window(window));
     }
 
     #[test]
-    fn captured_target_policy_resolves_nearest_scope_capture() {
+    fn captured_subject_policy_resolves_nearest_scope_capture() {
         let window = window::Id::new(1);
         let scope = path(ROOT);
         let origin = ui::Path::new([ROOT, CHILD]);
@@ -1350,7 +1339,7 @@ mod tests {
             single_box(ROOT),
             HashMap::new(),
             HashMap::from([(origin.clone(), CLICK)]),
-            HashMap::from([(origin.clone(), ui::ActionTarget::Captured)]),
+            HashMap::from([(origin.clone(), ui::CommandSubject::Captured)]),
             HashMap::new(),
             HashMap::new(),
             HashMap::new(),
@@ -1367,7 +1356,7 @@ mod tests {
     }
 
     #[test]
-    fn local_responder_inside_scope_becomes_command_target() {
+    fn local_responder_inside_scope_becomes_command_subject() {
         let window = window::Id::new(1);
         let local = ui::Path::new([ROOT, CHILD]);
         let button = ui::Path::new([ROOT, OUTSIDE]);
@@ -1375,7 +1364,7 @@ mod tests {
             single_box(ROOT),
             HashMap::new(),
             HashMap::from([(button.clone(), CLICK)]),
-            HashMap::from([(button.clone(), ui::ActionTarget::Command)]),
+            HashMap::from([(button.clone(), ui::CommandSubject::Current)]),
             HashMap::new(),
             HashMap::from([(local.clone(), vec![CLICK])]),
             HashMap::from([(local.clone(), ui::Interactivity::CONTROL)]),
@@ -1388,7 +1377,7 @@ mod tests {
             ui::focus::Visibility::Visible
         ));
         let request = action_request(&state, window, button, action::Source::Pointer)
-            .expect("command-target action should produce request");
+            .expect("command-subject action should produce request");
 
         assert_eq!(request.target(), &action::Context::path(window, local));
     }
@@ -1453,7 +1442,7 @@ mod tests {
             single_box(CHILD),
             HashMap::new(),
             HashMap::from([(path(CHILD), CLICK)]),
-            HashMap::from([(path(CHILD), ui::ActionTarget::Origin)]),
+            HashMap::from([(path(CHILD), ui::CommandSubject::Origin)]),
             HashMap::new(),
             HashMap::new(),
             HashMap::new(),
@@ -1500,6 +1489,6 @@ mod tests {
         );
         let request = state.resolve_request(request);
 
-        assert!(!registry.can_invoke(request.action(), request.target().clone()));
+        assert!(!registry.can_execute(&request));
     }
 }

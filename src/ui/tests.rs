@@ -858,7 +858,7 @@ fn icon_button_is_action_bound_control() {
     let button = widget::icon_button(A, CLICK, check_icon());
 
     assert_eq!(button.action(), Some(CLICK));
-    assert_eq!(button.action_target(), ActionTarget::Origin);
+    assert_eq!(button.command_subject(), CommandSubject::Origin);
     assert_eq!(button.icon(), Some(check_icon()));
     assert!(button.interactivity().hit_test());
     assert!(button.interactivity().focusable());
@@ -924,12 +924,12 @@ fn floating_panel_uses_default_glass_material_tokens() {
 }
 
 #[test]
-fn node_with_action_target_stores_policy() {
+fn node_with_command_subject_stores_policy() {
     let node = Node::leaf(A)
         .with_action(CLICK)
-        .with_action_target(ActionTarget::Command);
+        .with_command_subject(CommandSubject::Current);
 
-    assert_eq!(node.action_target(), ActionTarget::Command);
+    assert_eq!(node.command_subject(), CommandSubject::Current);
 }
 
 #[test]
@@ -1018,16 +1018,16 @@ fn node_with_responder_binding_stores_projected_state() {
 }
 
 #[test]
-fn tree_collects_action_target_policies() {
+fn tree_collects_command_subject_policies() {
     let root = Node::container(ROOT, layout::Axis::Vertical)
-        .with_child(widget::button(A, CLICK).with_action_target(ActionTarget::Command));
+        .with_child(widget::button(A, CLICK).with_command_subject(CommandSubject::Current));
     let mut tree = Tree::new();
 
     tree.set_root(root);
 
     assert_eq!(
-        tree.action_targets().get(&Path::new([ROOT, A])),
-        Some(&ActionTarget::Command)
+        tree.command_subjects().get(&Path::new([ROOT, A])),
+        Some(&CommandSubject::Current)
     );
 }
 
@@ -1550,8 +1550,8 @@ fn active_state_renders_independently_from_focus_visibility() {
 }
 
 #[test]
-fn command_target_widget_visuals_derive_from_command_target_state() {
-    let root = widget::button(A, CLICK).with_action_target(ActionTarget::Command);
+fn command_subject_widget_visuals_derive_from_command_subject_state() {
+    let root = widget::button(A, CLICK).with_command_subject(CommandSubject::Current);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1569,7 +1569,7 @@ fn command_target_widget_visuals_derive_from_command_target_state() {
         &layout,
         &registry,
         window,
-        Interaction::default().with_command_target(action::Context::path(window, path(B))),
+        Interaction::default().with_command_subject(action::Context::path(window, path(B))),
         &mut scene,
     );
 
@@ -1580,8 +1580,8 @@ fn command_target_widget_visuals_derive_from_command_target_state() {
 }
 
 #[test]
-fn window_target_widget_visuals_derive_from_window_state() {
-    let root = widget::button(A, CLICK).with_action_target(ActionTarget::Window);
+fn window_subject_widget_visuals_derive_from_window_state() {
+    let root = widget::button(A, CLICK).with_command_subject(CommandSubject::Window);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();
@@ -1610,10 +1610,10 @@ fn window_target_widget_visuals_derive_from_window_state() {
 }
 
 #[test]
-fn captured_target_widget_visuals_derive_from_scope_capture() {
+fn captured_subject_widget_visuals_derive_from_scope_capture() {
     let root = Node::container(ROOT, layout::Axis::Vertical)
         .with_command_scope()
-        .with_child(widget::button(A, CLICK).with_action_target(ActionTarget::Captured));
+        .with_child(widget::button(A, CLICK).with_command_subject(CommandSubject::Captured));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = action::Registry::<()>::new();

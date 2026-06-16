@@ -2,11 +2,12 @@ use std::fmt;
 
 use crate::Task;
 
-use super::{Id, Invocation, Shortcut};
+use super::{Id, Invocation, PayloadKind, Shortcut};
 
 pub struct Action<T = ()> {
     id: Id,
     label: String,
+    payload: PayloadKind,
     shortcuts: Vec<Shortcut>,
     handler: Box<dyn Fn(Invocation) -> Effect<T>>,
 }
@@ -23,6 +24,7 @@ impl<T> Action<T> {
         Self {
             id,
             label: label.into(),
+            payload: id.payload_kind(),
             shortcuts: Vec::new(),
             handler: Box::new(|_| Effect::None),
         }
@@ -36,8 +38,17 @@ impl<T> Action<T> {
         &self.label
     }
 
+    pub fn payload(&self) -> PayloadKind {
+        self.payload
+    }
+
     pub fn shortcuts(&self) -> &[Shortcut] {
         &self.shortcuts
+    }
+
+    pub fn with_payload(mut self, payload: PayloadKind) -> Self {
+        self.payload = payload;
+        self
     }
 
     pub fn with_shortcut(mut self, shortcut: Shortcut) -> Self {
@@ -75,6 +86,7 @@ impl<T> fmt::Debug for Action<T> {
             .debug_struct("Action")
             .field("id", &self.id)
             .field("label", &self.label)
+            .field("payload", &self.payload)
             .field("shortcuts", &self.shortcuts)
             .finish_non_exhaustive()
     }

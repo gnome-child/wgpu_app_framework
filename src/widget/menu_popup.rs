@@ -54,7 +54,7 @@ pub fn menu_popup<T>(
     layout: &ui::Frame,
     menu: &menu::Menu,
     actions: &action::Registry<T>,
-    command_target: &action::Context,
+    command_subject: &action::Context,
     measurer: &mut text::Measurer,
 ) -> Option<Popup> {
     let theme = theme::Theme::default_dark();
@@ -68,7 +68,7 @@ pub fn menu_popup<T>(
 
     Some(Popup::new(
         popup_rect,
-        popup_node(MENU_POPUP, menu, actions, command_target, chrome, &theme),
+        popup_node(MENU_POPUP, menu, actions, command_subject, chrome, &theme),
     ))
 }
 
@@ -77,7 +77,7 @@ pub fn submenu_popup<T>(
     layout: &ui::Frame,
     menu: &menu::Menu,
     actions: &action::Registry<T>,
-    command_target: &action::Context,
+    command_subject: &action::Context,
     measurer: &mut text::Measurer,
 ) -> Option<Popup> {
     let theme = theme::Theme::default_dark();
@@ -99,7 +99,7 @@ pub fn submenu_popup<T>(
             MENU_SUBMENU_POPUP,
             menu,
             actions,
-            command_target,
+            command_subject,
             chrome,
             &theme,
         ),
@@ -155,7 +155,7 @@ fn popup_node<T>(
     id: ui::Id,
     menu: &menu::Menu,
     actions: &action::Registry<T>,
-    command_target: &action::Context,
+    command_subject: &action::Context,
     chrome: PopupChrome,
     theme: &theme::Theme,
 ) -> ui::Node {
@@ -173,12 +173,12 @@ fn popup_node<T>(
                 menu::Node::Item(item) => {
                     let id = row_id(row);
                     row += 1;
-                    item_node(id, item, actions, command_target, chrome, theme)
+                    item_node(id, item, actions, command_subject, chrome, theme)
                 }
                 menu::Node::Submenu(menu) => {
                     let id = row_id(row);
                     row += 1;
-                    submenu_node(id, menu, actions, command_target, chrome, theme)
+                    submenu_node(id, menu, actions, command_subject, chrome, theme)
                 }
                 menu::Node::Separator => {
                     let id = row_id(row);
@@ -196,12 +196,12 @@ fn item_node<T>(
     id: ui::Id,
     item: &menu::Item,
     actions: &action::Registry<T>,
-    command_target: &action::Context,
+    command_subject: &action::Context,
     chrome: PopupChrome,
     theme: &theme::Theme,
 ) -> ui::Node {
     let action = item.action();
-    let state = actions.state(action, command_target.clone());
+    let state = actions.state(action, command_subject.clone());
     let color = if state.is_enabled() {
         theme.text().primary()
     } else {
@@ -214,7 +214,7 @@ fn item_node<T>(
 
     menu_row(id, chrome, theme, color)
         .with_action(action)
-        .with_action_target(ui::ActionTarget::Captured)
+        .with_command_subject(ui::CommandSubject::Captured)
         .with_child(glyph_cell(
             ROW_GLYPH,
             check,
@@ -251,11 +251,11 @@ fn submenu_node<T>(
     id: ui::Id,
     menu: &menu::Menu,
     actions: &action::Registry<T>,
-    command_target: &action::Context,
+    command_subject: &action::Context,
     chrome: PopupChrome,
     theme: &theme::Theme,
 ) -> ui::Node {
-    let enabled = menu_can_open(menu, actions, command_target);
+    let enabled = menu_can_open(menu, actions, command_subject);
     let color = if enabled {
         theme.text().primary()
     } else {
@@ -493,10 +493,10 @@ fn measure_label(
 fn menu_can_open<T>(
     menu: &menu::Menu,
     actions: &action::Registry<T>,
-    command_target: &action::Context,
+    command_subject: &action::Context,
 ) -> bool {
     menu.actions()
-        .any(|action| actions.can_invoke(action, command_target.clone()))
+        .any(|action| actions.can_invoke(action, command_subject.clone()))
 }
 
 fn row_id(index: usize) -> ui::Id {

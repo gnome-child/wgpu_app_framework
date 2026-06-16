@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::window;
 
-use super::{Action, Context, Effect, Id, Invocation, Scope, Shortcut, State};
+use super::{Action, Context, Effect, Id, Invocation, Request, Scope, Shortcut, State};
 use super::{definition, state};
 
 /// Stores command definitions and context-scoped command state.
@@ -84,6 +84,14 @@ impl<T> Registry<T> {
         state.is_enabled() && !state.is_busy()
     }
 
+    pub fn can_execute(&self, request: &Request) -> bool {
+        self.can_invoke(request.action(), request.target().clone())
+            && self
+                .actions
+                .get(&request.action())
+                .is_some_and(|action| action.payload().accepts(request.payload()))
+    }
+
     pub fn set_busy(&mut self, id: Id, context: Context, busy: bool) -> bool {
         if busy {
             self.busy.insert((id, context))
@@ -96,7 +104,12 @@ impl<T> Registry<T> {
         let id = invocation.action();
         let context = invocation.context().clone();
 
-        if !self.can_invoke(id, context.clone()) {
+        if !self.can_invoke(id, context.clone())
+            || !self
+                .actions
+                .get(&id)
+                .is_some_and(|action| action.payload().accepts(invocation.payload()))
+        {
             return None;
         }
 

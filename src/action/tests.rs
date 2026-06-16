@@ -198,6 +198,30 @@ fn action_stores_shortcut_bindings() {
 }
 
 #[test]
+fn built_in_edit_actions_expose_expected_payload_kinds() {
+    assert_eq!(
+        Action::<()>::new(super::SELECT_ALL, "Select All").payload(),
+        PayloadKind::None
+    );
+    assert_eq!(
+        Action::<()>::new(super::COPY, "Copy").payload(),
+        PayloadKind::None
+    );
+    assert_eq!(
+        Action::<()>::new(super::CUT, "Cut").payload(),
+        PayloadKind::None
+    );
+    assert_eq!(
+        Action::<()>::new(super::PASTE, "Paste").payload(),
+        PayloadKind::None
+    );
+    assert_eq!(
+        Action::<()>::new(super::INSERT_TEXT, "Insert Text").payload(),
+        PayloadKind::Text
+    );
+}
+
+#[test]
 fn registry_finds_action_for_registered_shortcut() {
     let mut registry = Registry::<()>::new();
 
@@ -221,6 +245,7 @@ fn request_preserves_activation_source_target_and_origin() {
     assert_eq!(request.action(), SELECT_ALL);
     assert_eq!(request.source(), Source::Shortcut);
     assert_eq!(request.target(), &context);
+    assert_eq!(request.payload(), &Payload::None);
     assert_eq!(request.origin(), Some(&path));
 }
 
@@ -241,8 +266,51 @@ fn invocation_preserves_request_origin() {
     let window = window::Id::new(1);
     let origin = ui::Path::from(TEXT_BOX);
     let request = Request::new(SELECT_ALL, Source::Shortcut, Context::window(window))
+        .with_payload(Payload::Bool(true))
         .with_origin(origin.clone());
     let invocation = Invocation::from(request);
 
     assert_eq!(invocation.origin(), Some(&origin));
+    assert_eq!(invocation.payload(), &Payload::Bool(true));
+}
+
+#[test]
+fn payload_kind_validation_controls_execution() {
+    let mut registry = Registry::<i32>::new();
+    let window = window::Id::new(1);
+    let context = Context::window(window);
+
+    registry.register(Action::new(SELECT_ALL, "Select All").emit(|_| 1));
+    registry.register(
+        Action::new(super::INSERT_TEXT, "Insert Text").emit(|invocation| {
+            match invocation.payload() {
+                Payload::Text(text) => text.len() as i32,
+                _ => 0,
+            }
+        }),
+    );
+
+    let select_request = Request::new(SELECT_ALL, Source::Programmatic, context.clone());
+    let insert_request = Request::new(super::INSERT_TEXT, Source::Programmatic, context.clone())
+        .with_payload(Payload::Text("abc".to_owned()));
+    let bad_insert_request = Request::new(super::INSERT_TEXT, Source::Programmatic, context)
+        .with_payload(Payload::Bool(true));
+
+    assert!(registry.can_execute(&select_request));
+    assert!(registry.can_execute(&insert_request));
+    assert!(!registry.can_execute(&bad_insert_request));
+    assert_eq!(
+        registry.execute(Invocation::from(insert_request)),
+        Some(Effect::Emit(3))
+    );
+    assert_eq!(registry.execute(Invocation::from(bad_insert_request)), None);
+}
+
+#[test]
+fn action_payload_contract_can_be_overridden_for_custom_actions() {
+    let custom = Id::new("custom").payload_kind();
+    let action = Action::<()>::new(Id::new("set_flag"), "Set Flag").with_payload(PayloadKind::Bool);
+
+    assert_eq!(custom, PayloadKind::None);
+    assert_eq!(action.payload(), PayloadKind::Bool);
 }

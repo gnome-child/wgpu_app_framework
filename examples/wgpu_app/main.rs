@@ -300,7 +300,7 @@ impl app::Application for App {
                     "Select current subject",
                     &theme,
                 )
-                .with_action_target(ui::ActionTarget::Command)
+                .with_command_subject(ui::CommandSubject::Current)
                 .with_size(
                     layout::Size::Fill,
                     layout::Size::Fixed(density.control_height()),
@@ -313,7 +313,7 @@ impl app::Application for App {
                     "Select captured subject",
                     &theme,
                 )
-                .with_action_target(ui::ActionTarget::Captured)
+                .with_command_subject(ui::CommandSubject::Captured)
                 .with_size(
                     layout::Size::Fill,
                     layout::Size::Fixed(density.control_height()),
@@ -338,7 +338,7 @@ impl app::Application for App {
                     "Select subject",
                     &theme,
                 )
-                .with_action_target(ui::ActionTarget::Command)
+                .with_command_subject(ui::CommandSubject::Current)
                 .with_size(
                     layout::Size::Fill,
                     layout::Size::Fixed(density.control_height()),

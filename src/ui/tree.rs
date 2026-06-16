@@ -5,7 +5,7 @@ use crate::widget::menu;
 use crate::{action, paint, text, widget, window};
 
 use super::{
-    ActionTarget, Frame, Intent, Interaction, Interactivity, Node, Path, layout_engine, painting,
+    CommandSubject, Frame, Intent, Interaction, Interactivity, Node, Path, layout_engine, painting,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -22,7 +22,7 @@ pub struct Composition {
     open_submenu: Option<menu::Id>,
     menus: HashMap<menu::Id, menu::Menu>,
     actions: HashMap<Path, action::Id>,
-    action_targets: HashMap<Path, ActionTarget>,
+    command_subjects: HashMap<Path, CommandSubject>,
     intents: HashMap<Path, Intent>,
     responders: HashMap<Path, Vec<action::Id>>,
     responder_bindings: HashMap<Path, Vec<action::Binding>>,
@@ -94,7 +94,7 @@ impl Tree {
         window: window::Id,
         area: area::Logical,
         actions: &mut action::Registry<T>,
-        command_target: &action::Context,
+        command_subject: &action::Context,
         open_menu: Option<menu::Id>,
         open_submenu: Option<menu::Id>,
         measurer: &mut text::Measurer,
@@ -111,8 +111,14 @@ impl Tree {
         if let Some(open_menu) = open_menu
             && let Some(menu) = menus.get(&open_menu)
             && let Some(base_layout) = tree.layout(area, measurer)
-            && let Some(popup) =
-                widget::menu_popup(&tree, &base_layout, menu, actions, command_target, measurer)
+            && let Some(popup) = widget::menu_popup(
+                &tree,
+                &base_layout,
+                menu,
+                actions,
+                command_subject,
+                measurer,
+            )
         {
             tree.push_popup(popup);
             menu_popup_inserted = true;
@@ -122,8 +128,14 @@ impl Tree {
             && let Some(open_submenu) = open_submenu
             && let Some(menu) = menus.get(&open_submenu)
             && let Some(menu_layout) = tree.layout(area, measurer)
-            && let Some(popup) =
-                widget::submenu_popup(&tree, &menu_layout, menu, actions, command_target, measurer)
+            && let Some(popup) = widget::submenu_popup(
+                &tree,
+                &menu_layout,
+                menu,
+                actions,
+                command_subject,
+                measurer,
+            )
         {
             tree.push_popup(popup);
         }
@@ -160,8 +172,8 @@ impl Tree {
         self.index().actions
     }
 
-    pub fn action_targets(&self) -> HashMap<Path, ActionTarget> {
-        self.index().action_targets
+    pub fn command_subjects(&self) -> HashMap<Path, CommandSubject> {
+        self.index().command_subjects
     }
 
     pub fn intents(&self) -> HashMap<Path, Intent> {
@@ -309,7 +321,7 @@ impl Composition {
             open_submenu,
             menus,
             actions: index.actions,
-            action_targets: index.action_targets,
+            command_subjects: index.command_subjects,
             intents: index.intents,
             responders: index.responders,
             responder_bindings: index.responder_bindings,
@@ -348,12 +360,12 @@ impl Composition {
         &self.actions
     }
 
-    pub fn action_target(&self, path: &Path) -> ActionTarget {
-        self.action_targets.get(path).copied().unwrap_or_default()
+    pub fn command_subject(&self, path: &Path) -> CommandSubject {
+        self.command_subjects.get(path).copied().unwrap_or_default()
     }
 
-    pub fn action_targets(&self) -> &HashMap<Path, ActionTarget> {
-        &self.action_targets
+    pub fn command_subjects(&self) -> &HashMap<Path, CommandSubject> {
+        &self.command_subjects
     }
 
     pub fn intent(&self, path: &Path) -> Option<Intent> {
@@ -426,7 +438,7 @@ impl Composition {
         layout: Frame,
         menus: HashMap<menu::Id, menu::Menu>,
         actions: HashMap<Path, action::Id>,
-        action_targets: HashMap<Path, ActionTarget>,
+        command_subjects: HashMap<Path, CommandSubject>,
         intents: HashMap<Path, Intent>,
         responders: HashMap<Path, Vec<action::Id>>,
         command_scopes: Vec<Path>,
@@ -455,7 +467,7 @@ impl Composition {
             open_submenu: None,
             menus,
             actions,
-            action_targets,
+            command_subjects,
             intents,
             responders,
             responder_bindings,
@@ -470,7 +482,7 @@ impl Composition {
 #[derive(Default)]
 struct TreeIndex {
     actions: HashMap<Path, action::Id>,
-    action_targets: HashMap<Path, ActionTarget>,
+    command_subjects: HashMap<Path, CommandSubject>,
     intents: HashMap<Path, Intent>,
     responders: HashMap<Path, Vec<action::Id>>,
     responder_bindings: HashMap<Path, Vec<action::Binding>>,
@@ -482,8 +494,8 @@ impl TreeIndex {
     fn collect_node(&mut self, node: &Node, path: &Path) {
         if let Some(action) = node.action() {
             self.actions.insert(path.clone(), action);
-            self.action_targets
-                .insert(path.clone(), node.action_target());
+            self.command_subjects
+                .insert(path.clone(), node.command_subject());
         }
 
         if let Some(intent) = node.intent() {

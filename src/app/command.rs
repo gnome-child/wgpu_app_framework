@@ -19,11 +19,11 @@ pub fn context_for_path(
     window: window::Id,
     path: &ui::Path,
 ) -> action::Context {
-    match state.action_target(path) {
-        ui::ActionTarget::Origin => action::Context::path(window, path.clone()),
-        ui::ActionTarget::Command => context(state, window),
-        ui::ActionTarget::Captured => captured_context_for_path(state, window, path),
-        ui::ActionTarget::Window => action::Context::window(window),
+    match state.command_subject(path) {
+        ui::CommandSubject::Origin => action::Context::path(window, path.clone()),
+        ui::CommandSubject::Current => context(state, window),
+        ui::CommandSubject::Captured => captured_context_for_path(state, window, path),
+        ui::CommandSubject::Window => action::Context::window(window),
     }
 }
 
@@ -156,7 +156,7 @@ fn handler_for_path(state: &WindowState, action: action::Id, path: &ui::Path) ->
                 .as_ref()
                 .and_then(|composition| composition.action(path))
                 == Some(action)
-                && state.action_target(path) == ui::ActionTarget::Origin)
+                && state.command_subject(path) == ui::CommandSubject::Origin)
     })
 }
 

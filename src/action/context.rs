@@ -1,6 +1,6 @@
 use crate::{ui, window};
 
-use super::Id;
+use super::{Id, Payload};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Context {
@@ -22,19 +22,21 @@ pub enum Source {
     Shortcut,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Request {
     action: Id,
     source: Source,
     target: Context,
+    payload: Payload,
     origin: Option<ui::Path>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Invocation {
     action: Id,
     source: Source,
     context: Context,
+    payload: Payload,
     origin: Option<ui::Path>,
 }
 
@@ -72,8 +74,14 @@ impl Request {
             action,
             source,
             target,
+            payload: Payload::None,
             origin: None,
         }
+    }
+
+    pub fn with_payload(mut self, payload: Payload) -> Self {
+        self.payload = payload;
+        self
     }
 
     pub fn with_origin(mut self, origin: ui::Path) -> Self {
@@ -98,6 +106,10 @@ impl Request {
         &self.target
     }
 
+    pub fn payload(&self) -> &Payload {
+        &self.payload
+    }
+
     pub fn origin(&self) -> Option<&ui::Path> {
         self.origin.as_ref()
     }
@@ -109,8 +121,14 @@ impl Invocation {
             action,
             source,
             context,
+            payload: Payload::None,
             origin: None,
         }
+    }
+
+    pub fn with_payload(mut self, payload: Payload) -> Self {
+        self.payload = payload;
+        self
     }
 
     pub fn with_origin(mut self, origin: ui::Path) -> Self {
@@ -130,6 +148,10 @@ impl Invocation {
         &self.context
     }
 
+    pub fn payload(&self) -> &Payload {
+        &self.payload
+    }
+
     pub fn origin(&self) -> Option<&ui::Path> {
         self.origin.as_ref()
     }
@@ -141,6 +163,7 @@ impl From<Request> for Invocation {
             action: request.action,
             source: request.source,
             context: request.target,
+            payload: request.payload,
             origin: request.origin,
         }
     }

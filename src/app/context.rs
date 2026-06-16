@@ -136,19 +136,11 @@ impl<T: Send + 'static> Context<'_, T> {
         ));
     }
 
-    pub fn command_target(&self, window: window::Id) -> action::Context {
-        self.command_subject(window)
-    }
-
     pub fn command_subject(&self, window: window::Id) -> action::Context {
         self.window_states
             .get(&window)
             .map(|state| state.command_context(window))
             .unwrap_or_else(|| action::Context::window(window))
-    }
-
-    pub fn set_command_target(&mut self, window: window::Id, context: action::Context) {
-        self.set_command_subject(window, context);
     }
 
     pub fn set_command_subject(&mut self, window: window::Id, context: action::Context) {
@@ -160,13 +152,9 @@ impl<T: Send + 'static> Context<'_, T> {
             return;
         };
 
-        if state.set_command_target(context) {
+        if state.set_command_subject(context) {
             self.request_redraw(window);
         }
-    }
-
-    pub fn clear_command_target(&mut self, window: window::Id) {
-        self.clear_command_subject(window);
     }
 
     pub fn clear_command_subject(&mut self, window: window::Id) {
@@ -174,7 +162,7 @@ impl<T: Send + 'static> Context<'_, T> {
             return;
         };
 
-        if state.clear_command_target() {
+        if state.clear_command_subject() {
             self.request_redraw(window);
         }
     }

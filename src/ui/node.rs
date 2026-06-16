@@ -13,7 +13,7 @@ pub struct Node {
     interactivity: Interactivity,
     intent: Option<Intent>,
     action: Option<action::Id>,
-    action_target: ActionTarget,
+    command_subject: CommandSubject,
     responders: Vec<action::Id>,
     responder_bindings: Vec<action::Binding>,
     command_scope: bool,
@@ -83,10 +83,10 @@ pub struct Interactivity {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ActionTarget {
+pub enum CommandSubject {
     #[default]
     Origin,
-    Command,
+    Current,
     Captured,
     Window,
 }
@@ -105,7 +105,7 @@ pub struct Interaction {
     focused: Option<Path>,
     focus_visibility: focus::Visibility,
     pressed: Option<Path>,
-    command_target: Option<action::Context>,
+    command_subject: Option<action::Context>,
     command_scope_captures: HashMap<Path, action::Context>,
     open_menu: Option<menu::Id>,
     open_submenu: Option<menu::Id>,
@@ -122,7 +122,7 @@ impl Node {
             interactivity: Interactivity::default(),
             intent: None,
             action: None,
-            action_target: ActionTarget::default(),
+            command_subject: CommandSubject::default(),
             responders: Vec::new(),
             responder_bindings: Vec::new(),
             command_scope: false,
@@ -168,8 +168,8 @@ impl Node {
         self.intent
     }
 
-    pub fn action_target(&self) -> ActionTarget {
-        self.action_target
+    pub fn command_subject(&self) -> CommandSubject {
+        self.command_subject
     }
 
     pub fn responders(&self) -> &[action::Id] {
@@ -421,8 +421,8 @@ impl Node {
         self
     }
 
-    pub fn with_action_target(mut self, target: ActionTarget) -> Self {
-        self.action_target = target;
+    pub fn with_command_subject(mut self, target: CommandSubject) -> Self {
+        self.command_subject = target;
         self
     }
 
@@ -785,7 +785,7 @@ impl Interaction {
             focused,
             focus_visibility: focus::Visibility::Visible,
             pressed,
-            command_target: None,
+            command_subject: None,
             command_scope_captures: HashMap::new(),
             open_menu: None,
             open_submenu: None,
@@ -799,8 +799,8 @@ impl Interaction {
         self
     }
 
-    pub fn with_command_target(mut self, target: action::Context) -> Self {
-        self.command_target = Some(target);
+    pub fn with_command_subject(mut self, target: action::Context) -> Self {
+        self.command_subject = Some(target);
         self
     }
 
@@ -845,8 +845,8 @@ impl Interaction {
         self.pressed.as_ref()
     }
 
-    pub fn command_target(&self) -> Option<&action::Context> {
-        self.command_target.as_ref()
+    pub fn command_subject(&self) -> Option<&action::Context> {
+        self.command_subject.as_ref()
     }
 
     pub fn open_menu(&self) -> Option<menu::Id> {
@@ -865,7 +865,7 @@ impl Interaction {
         self.pointer_capture.as_ref()
     }
 
-    pub fn captured_command_target(&self, path: &Path) -> Option<&action::Context> {
+    pub fn captured_command_subject(&self, path: &Path) -> Option<&action::Context> {
         for length in (1..=path.ids().len()).rev() {
             let candidate = Path::new(path.ids()[..length].to_vec());
 

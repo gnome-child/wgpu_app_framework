@@ -392,8 +392,7 @@ fn activation_request<T>(
         return None;
     }
 
-    action_request(state, window, target, source)
-        .filter(|request| registry.can_invoke(request.action(), request.target().clone()))
+    action_request(state, window, target, source).filter(|request| registry.can_execute(request))
 }
 
 fn hover_menu_intent(state: &WindowState, target: &ui::Path) -> Option<(ui::Path, ui::Intent)> {
@@ -524,7 +523,7 @@ fn invokable_focused_path<T>(
     }
 
     action_request(state, window, target.clone(), action::Source::Keyboard)
-        .filter(|request| registry.can_invoke(request.action(), request.target().clone()))
+        .filter(|request| registry.can_execute(request))
         .map(|_| target)
 }
 
@@ -672,7 +671,7 @@ mod tests {
     fn composition(
         layout: crate::ui::Frame,
         actions: HashMap<ui::Path, action::Id>,
-        action_targets: HashMap<ui::Path, ui::ActionTarget>,
+        command_subjects: HashMap<ui::Path, ui::CommandSubject>,
         intents: HashMap<ui::Path, ui::Intent>,
         responders: HashMap<ui::Path, Vec<action::Id>>,
         interactivity: HashMap<ui::Path, ui::Interactivity>,
@@ -683,7 +682,7 @@ mod tests {
             layout,
             HashMap::new(),
             actions,
-            action_targets,
+            command_subjects,
             intents,
             responders,
             Vec::new(),
@@ -696,7 +695,7 @@ mod tests {
     fn state_with_composition(
         layout: crate::ui::Frame,
         actions: HashMap<ui::Path, action::Id>,
-        action_targets: HashMap<ui::Path, ui::ActionTarget>,
+        command_subjects: HashMap<ui::Path, ui::CommandSubject>,
         intents: HashMap<ui::Path, ui::Intent>,
         responders: HashMap<ui::Path, Vec<action::Id>>,
         interactivity: HashMap<ui::Path, ui::Interactivity>,
@@ -707,7 +706,7 @@ mod tests {
             composition: Some(composition(
                 layout,
                 actions,
-                action_targets,
+                command_subjects,
                 intents,
                 responders,
                 interactivity,
@@ -1481,7 +1480,7 @@ mod tests {
     }
 
     #[test]
-    fn shortcut_press_emits_shortcut_request_for_command_target() {
+    fn shortcut_press_emits_shortcut_request_for_command_subject() {
         let window = window::Id::new(1);
         let mut registry = action::Registry::<()>::new();
         let mut state = state_with_composition(
@@ -1527,7 +1526,7 @@ mod tests {
         let mut state = state_with_composition(
             single_box(CHILD),
             HashMap::from([(path(CHILD), action::SELECT_ALL)]),
-            HashMap::from([(path(CHILD), ui::ActionTarget::Command)]),
+            HashMap::from([(path(CHILD), ui::CommandSubject::Current)]),
             HashMap::new(),
             HashMap::from([(path(SECOND), vec![action::SELECT_ALL])]),
             HashMap::new(),
@@ -1593,13 +1592,13 @@ mod tests {
     }
 
     #[test]
-    fn command_target_control_uses_stored_command_target() {
+    fn command_subject_control_uses_stored_command_subject() {
         let window = window::Id::new(1);
         let mut registry = action::Registry::<()>::new();
         let mut state = state_with_composition(
             single_box(CHILD),
             HashMap::from([(path(CHILD), CLICK)]),
-            HashMap::from([(path(CHILD), ui::ActionTarget::Command)]),
+            HashMap::from([(path(CHILD), ui::CommandSubject::Current)]),
             HashMap::new(),
             HashMap::new(),
             HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
@@ -1639,7 +1638,7 @@ mod tests {
         let mut state = state_with_composition(
             single_box(CHILD),
             HashMap::from([(path(CHILD), CLICK)]),
-            HashMap::from([(path(CHILD), ui::ActionTarget::Window)]),
+            HashMap::from([(path(CHILD), ui::CommandSubject::Window)]),
             HashMap::new(),
             HashMap::new(),
             HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
