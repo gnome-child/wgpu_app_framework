@@ -155,6 +155,32 @@ impl WindowState {
             .is_some_and(|composition| composition.has_responder(target))
     }
 
+    pub fn text_field(&self, target: &ui::Path) -> Option<&crate::text::Buffer> {
+        self.composition
+            .as_ref()
+            .and_then(|composition| composition.text_field(target))
+    }
+
+    pub fn is_text_field(&self, target: &ui::Path) -> bool {
+        self.text_field(target).is_some()
+    }
+
+    pub fn text_field_cursor_at(
+        &self,
+        target: &ui::Path,
+        position: point::Logical,
+    ) -> Option<usize> {
+        let composition = self.composition.as_ref()?;
+        let buffer = composition.text_field(target)?;
+        let frame = composition.layout().find_path(target)?;
+        let width = frame.rect().area.width().max(1.0);
+        let fraction = ((position.x() - frame.rect().origin.x()) / width).clamp(0.0, 1.0);
+        let char_count = buffer.text().chars().count();
+        let char_index = (fraction * char_count as f32).round() as usize;
+
+        Some(byte_index_for_char(buffer.text(), char_index))
+    }
+
     pub fn set_hovered(&mut self, target: Option<ui::Path>) -> Vec<ui::Event> {
         if self.hovered == target {
             return Vec::new();
@@ -420,6 +446,13 @@ impl WindowState {
     pub fn resolve_request(&self, request: action::Request) -> action::Request {
         command::resolve_request(self, request)
     }
+}
+
+fn byte_index_for_char(text: &str, char_index: usize) -> usize {
+    text.char_indices()
+        .nth(char_index)
+        .map(|(index, _)| index)
+        .unwrap_or(text.len())
 }
 
 fn scroll_capture_offset(

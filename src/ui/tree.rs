@@ -27,6 +27,7 @@ pub struct Composition {
     responders: HashMap<Path, Vec<action::Id>>,
     responder_bindings: HashMap<Path, Vec<action::Binding>>,
     command_scopes: Vec<Path>,
+    text_fields: HashMap<Path, text::Buffer>,
     interactivity: HashMap<Path, Interactivity>,
     widget_metrics: HashMap<Path, widget::Metrics>,
     focus_order: Vec<Path>,
@@ -326,6 +327,7 @@ impl Composition {
             responders: index.responders,
             responder_bindings: index.responder_bindings,
             command_scopes: index.command_scopes,
+            text_fields: index.text_fields,
             interactivity: index.interactivity,
             widget_metrics,
             focus_order,
@@ -402,6 +404,14 @@ impl Composition {
         &self.command_scopes
     }
 
+    pub fn text_field(&self, path: &Path) -> Option<&text::Buffer> {
+        self.text_fields.get(path)
+    }
+
+    pub fn text_fields(&self) -> &HashMap<Path, text::Buffer> {
+        &self.text_fields
+    }
+
     pub fn interactivity(&self, path: &Path) -> Option<Interactivity> {
         self.interactivity.get(path).copied()
     }
@@ -472,6 +482,7 @@ impl Composition {
             responders,
             responder_bindings,
             command_scopes,
+            text_fields: HashMap::new(),
             interactivity,
             widget_metrics,
             focus_order,
@@ -487,6 +498,7 @@ struct TreeIndex {
     responders: HashMap<Path, Vec<action::Id>>,
     responder_bindings: HashMap<Path, Vec<action::Binding>>,
     command_scopes: Vec<Path>,
+    text_fields: HashMap<Path, text::Buffer>,
     interactivity: HashMap<Path, Interactivity>,
 }
 
@@ -514,6 +526,10 @@ impl TreeIndex {
 
         if node.is_command_scope() {
             self.command_scopes.push(path.clone());
+        }
+
+        if let Some(buffer) = node.text_field() {
+            self.text_fields.insert(path.clone(), buffer.clone());
         }
 
         self.interactivity

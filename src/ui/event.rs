@@ -1,5 +1,6 @@
 use crate::geometry::{area, point};
 use crate::pointer;
+use crate::text;
 
 use super::Path;
 
@@ -9,6 +10,12 @@ pub enum Key {
     Enter,
     Space,
     Escape,
+    Backspace,
+    Delete,
+    ArrowLeft,
+    ArrowRight,
+    Home,
+    End,
     Character(char),
     Other,
 }
@@ -63,6 +70,10 @@ pub enum Event {
     ScrollRequested {
         target: Path,
         offset: point::Logical,
+    },
+    TextEditRequested {
+        target: Path,
+        edit: text::Edit,
     },
     KeyDown {
         key: Key,

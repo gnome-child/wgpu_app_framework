@@ -1,4 +1,4 @@
-use crate::{action, paint, ui, widget, window};
+use crate::{action, geometry, paint, text, ui, widget, window};
 
 pub fn tree<T>(
     root: &ui::Node,
@@ -58,12 +58,16 @@ fn node<T>(
         scene.push_icon(icon);
     }
 
+    paint_text_field_selection(node, layout, scene);
+
     if let Some(document) = resolved_label(node, &visual) {
         scene.push_text(paint::Text {
             rect: layout.rect(),
             document,
         });
     }
+
+    paint_text_field_caret(node, layout, &visual, scene);
 
     let clip_rect = if node.clips() {
         Some(widget::scroll::metrics(node, layout).map_or(rect, |metrics| metrics.viewport()))
@@ -167,6 +171,7 @@ struct VisualState {
     enabled: bool,
     busy: bool,
     active: bool,
+    focused: bool,
     focus_visible: bool,
     position: StatePosition,
 }
@@ -202,6 +207,7 @@ fn visual_state<T>(
         enabled,
         busy,
         active,
+        focused,
         focus_visible,
         position: StatePosition {
             active: normalized(active),
@@ -369,6 +375,88 @@ fn resolved_icon_color(node: &ui::Node, visual: &VisualState) -> paint::Color {
     }
 
     style.label_color().unwrap_or(fallback)
+}
+
+fn paint_text_field_selection(node: &ui::Node, layout: &ui::Frame, scene: &mut paint::Scene) {
+    let Some(buffer) = node.text_field() else {
+        return;
+    };
+    let Some(range) = buffer.selected_range() else {
+        return;
+    };
+
+    let rect = text_content_rect(node, layout);
+    let start = text_x(buffer.text(), range.start, rect);
+    let end = text_x(buffer.text(), range.end, rect).max(start + 1.0);
+
+    scene.push_quad(paint::Quad {
+        rect: geometry::Rect::rounded(
+            geometry::point::logical(start, rect.origin.y()),
+            geometry::area::logical(end - start, rect.area.height()),
+            geometry::rect::Rounding::fixed(3.0),
+        ),
+        style: paint::Style {
+            fill: Some(paint::Fill::Brush(
+                paint::Color::rgba(0.18, 0.42, 0.86, 0.48).into(),
+            )),
+            stroke: None,
+            tint: None,
+        },
+    });
+}
+
+fn paint_text_field_caret(
+    node: &ui::Node,
+    layout: &ui::Frame,
+    visual: &VisualState,
+    scene: &mut paint::Scene,
+) {
+    let Some(buffer) = node.text_field() else {
+        return;
+    };
+
+    if !visual.focused {
+        return;
+    }
+
+    let rect = text_content_rect(node, layout);
+    let x = text_x(buffer.text(), buffer.cursor(), rect);
+
+    scene.push_quad(paint::Quad {
+        rect: geometry::Rect::new(
+            geometry::point::logical(x, rect.origin.y() + 5.0),
+            geometry::area::logical(1.0, (rect.area.height() - 10.0).max(6.0)),
+        ),
+        style: paint::Style {
+            fill: Some(paint::Fill::Brush(
+                node.style()
+                    .label_color()
+                    .unwrap_or_else(|| text::Style::default().color())
+                    .into(),
+            )),
+            stroke: None,
+            tint: None,
+        },
+    });
+}
+
+fn text_content_rect(node: &ui::Node, layout: &ui::Frame) -> geometry::Rect {
+    let rect = layout.rect();
+    let padding = node.style().padding();
+    let x = rect.origin.x() + padding.left;
+    let y = rect.origin.y();
+    let width = (rect.area.width() - padding.left - padding.right).max(0.0);
+
+    geometry::Rect::new(
+        geometry::point::logical(x, y),
+        geometry::area::logical(width, rect.area.height()),
+    )
+}
+
+fn text_x(text: &str, cursor: usize, rect: geometry::Rect) -> f32 {
+    let cursor_chars = text[..cursor.min(text.len())].chars().count() as f32;
+    let total_chars = text.chars().count().max(1) as f32;
+    rect.origin.x() + rect.area.width() * (cursor_chars / total_chars)
 }
 
 fn normalized(value: bool) -> f32 {

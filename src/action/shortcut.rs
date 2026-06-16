@@ -68,6 +68,12 @@ impl Shortcut {
             ui::Key::Enter => "Enter".to_owned(),
             ui::Key::Space => "Space".to_owned(),
             ui::Key::Escape => "Esc".to_owned(),
+            ui::Key::Backspace => "Backspace".to_owned(),
+            ui::Key::Delete => "Delete".to_owned(),
+            ui::Key::ArrowLeft => "Left".to_owned(),
+            ui::Key::ArrowRight => "Right".to_owned(),
+            ui::Key::Home => "Home".to_owned(),
+            ui::Key::End => "End".to_owned(),
             ui::Key::Character(character) => character.to_ascii_uppercase().to_string(),
             ui::Key::Other => "Other".to_owned(),
         });

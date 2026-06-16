@@ -5,7 +5,7 @@ use winit::{
 
 use crate::app::state::{PressSource, WindowState, action_request, intent};
 use crate::geometry::point;
-use crate::{action, pointer, ui, window};
+use crate::{action, pointer, text, ui, window};
 
 #[derive(Debug, Default)]
 pub struct Outcome {
@@ -118,9 +118,23 @@ pub fn pointer_pressed(
     let target = state.hit_test(position);
     state.dismiss_menu_for_target(target.as_ref());
     let event = state.pointer_down(position, state.pointer.delta(), target, button);
+    let mut events = vec![event];
+
+    if button == pointer::Button::Primary
+        && let ui::Event::PointerDown {
+            target: Some(target),
+            ..
+        } = &events[0]
+        && let Some(cursor) = state.text_field_cursor_at(target, position)
+    {
+        events.push(ui::Event::TextEditRequested {
+            target: target.clone(),
+            edit: text::Edit::SetCursor(cursor),
+        });
+    }
 
     Outcome {
-        events: vec![event],
+        events,
         request: None,
         intent: None,
         redraw: true,
@@ -254,6 +268,12 @@ pub fn key(key: &WinitKey) -> ui::Key {
         WinitKey::Named(NamedKey::Enter) => ui::Key::Enter,
         WinitKey::Named(NamedKey::Space) => ui::Key::Space,
         WinitKey::Named(NamedKey::Escape) => ui::Key::Escape,
+        WinitKey::Named(NamedKey::Backspace) => ui::Key::Backspace,
+        WinitKey::Named(NamedKey::Delete) => ui::Key::Delete,
+        WinitKey::Named(NamedKey::ArrowLeft) => ui::Key::ArrowLeft,
+        WinitKey::Named(NamedKey::ArrowRight) => ui::Key::ArrowRight,
+        WinitKey::Named(NamedKey::Home) => ui::Key::Home,
+        WinitKey::Named(NamedKey::End) => ui::Key::End,
         WinitKey::Character(value) => {
             let mut chars = value.chars();
             let Some(character) = chars.next() else {
@@ -261,12 +281,32 @@ pub fn key(key: &WinitKey) -> ui::Key {
             };
 
             if chars.next().is_none() {
-                ui::Key::Character(character.to_ascii_lowercase())
+                ui::Key::Character(character)
             } else {
                 ui::Key::Other
             }
         }
         _ => ui::Key::Other,
+    }
+}
+
+fn text_edit_for_key(key: ui::Key, modifiers: ui::Modifiers) -> Option<text::Edit> {
+    if modifiers.control() || modifiers.alt() || modifiers.super_key() {
+        return None;
+    }
+
+    match key {
+        ui::Key::Space => Some(text::Edit::insert(" ")),
+        ui::Key::Backspace => Some(text::Edit::DeleteBackward),
+        ui::Key::Delete => Some(text::Edit::DeleteForward),
+        ui::Key::ArrowLeft => Some(text::Edit::MoveLeft),
+        ui::Key::ArrowRight => Some(text::Edit::MoveRight),
+        ui::Key::Home => Some(text::Edit::MoveHome),
+        ui::Key::End => Some(text::Edit::MoveEnd),
+        ui::Key::Character(character) if !character.is_control() => {
+            Some(text::Edit::insert(character.to_string()))
+        }
+        _ => None,
     }
 }
 
@@ -287,6 +327,29 @@ pub fn key_pressed<T>(
         target: target.clone(),
         repeat,
     };
+    let mut events = vec![event];
+
+    if let Some(edit) = text_edit_for_key(key, state.modifiers)
+        && let Some(target) = target.as_ref().filter(|target| state.is_text_field(target))
+    {
+        events.push(ui::Event::TextEditRequested {
+            target: target.clone(),
+            edit,
+        });
+
+        let request = if !repeat {
+            shortcut_request(registry, state, window, key)
+        } else {
+            None
+        };
+
+        return Outcome {
+            events,
+            request,
+            intent: None,
+            redraw: true,
+        };
+    }
 
     match key {
         ui::Key::Tab => {
@@ -325,7 +388,7 @@ pub fn key_pressed<T>(
     };
 
     Outcome {
-        events: vec![event],
+        events,
         request,
         intent,
         redraw,
@@ -549,6 +612,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::Action;
+    use crate::app::state::Focus;
     use crate::widget::{self, menu};
 
     use super::*;
@@ -712,6 +776,42 @@ mod tests {
                 interactivity,
                 widget_metrics,
                 focus_order,
+            )),
+            ..WindowState::default()
+        }
+    }
+
+    fn text_field_state() -> WindowState {
+        let window = window::Id::new(1);
+        let mut tree = ui::Tree::new();
+        let mut registry = action::Registry::<()>::new();
+        let mut measurer = crate::text::Engine::new();
+
+        tree.set_root(
+            widget::text_field(CHILD, crate::text::Buffer::from_text("hello")).with_size(
+                crate::layout::Size::Fixed(100.0),
+                crate::layout::Size::Fixed(24.0),
+            ),
+        );
+
+        let composition = tree
+            .compose(
+                window,
+                crate::geometry::area::logical(100.0, 24.0),
+                &mut registry,
+                &action::Context::window(window),
+                None,
+                None,
+                &mut measurer,
+            )
+            .expect("text field tree should compose");
+
+        WindowState {
+            composition: Some(composition),
+            focus: Some(Focus::new(
+                path(CHILD),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
             )),
             ..WindowState::default()
         }
@@ -983,12 +1083,56 @@ mod tests {
     }
 
     #[test]
-    fn character_keys_are_normalized() {
+    fn character_keys_preserve_text_case_and_normalize_on_demand() {
         assert_eq!(
             key(&WinitKey::Character("A".into())),
+            ui::Key::Character('A')
+        );
+        assert_eq!(
+            key(&WinitKey::Character("A".into())).normalized(),
             ui::Key::Character('a')
         );
         assert_eq!(key(&WinitKey::Character("ab".into())), ui::Key::Other);
+    }
+
+    #[test]
+    fn focused_text_field_character_key_emits_insert_edit_request() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut state = text_field_state();
+
+        let outcome = key_pressed(
+            &registry,
+            &mut state,
+            window,
+            ui::Key::Character('A'),
+            false,
+        );
+
+        assert!(outcome.events.contains(&ui::Event::TextEditRequested {
+            target: path(CHILD),
+            edit: crate::text::Edit::insert("A"),
+        }));
+    }
+
+    #[test]
+    fn pointer_press_on_text_field_requests_cursor_placement() {
+        let mut state = text_field_state();
+
+        let outcome = pointer_pressed(
+            &mut state,
+            point::logical(50.0, 12.0),
+            pointer::Button::Primary,
+        );
+
+        assert_eq!(state.focused_path(), Some(path(CHILD)));
+        assert!(outcome.events.iter().any(|event| matches!(
+            event,
+            ui::Event::TextEditRequested {
+                target,
+                edit: crate::text::Edit::SetCursor(_)
+            } if target == &path(CHILD)
+        )));
     }
 
     #[test]

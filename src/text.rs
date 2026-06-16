@@ -39,6 +39,32 @@ pub struct Metrics {
     line_count: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Buffer {
+    text: String,
+    cursor: usize,
+    selection: Option<Selection>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Selection {
+    anchor: usize,
+    focus: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Edit {
+    Insert(String),
+    DeleteBackward,
+    DeleteForward,
+    MoveLeft,
+    MoveRight,
+    MoveHome,
+    MoveEnd,
+    SelectAll,
+    SetCursor(usize),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Style {
     size: f32,
@@ -252,6 +278,204 @@ impl Metrics {
     }
 }
 
+impl Buffer {
+    pub fn new() -> Self {
+        Self {
+            text: String::new(),
+            cursor: 0,
+            selection: None,
+        }
+    }
+
+    pub fn from_text(text: impl Into<String>) -> Self {
+        let text = text.into();
+        let cursor = text.len();
+
+        Self {
+            text,
+            cursor,
+            selection: None,
+        }
+    }
+
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    pub fn selection(&self) -> Option<Selection> {
+        self.selection
+    }
+
+    pub fn selected_range(&self) -> Option<std::ops::Range<usize>> {
+        let selection = self.selection?;
+        let start = selection.anchor.min(selection.focus);
+        let end = selection.anchor.max(selection.focus);
+
+        (start < end).then_some(start..end)
+    }
+
+    pub fn has_selection(&self) -> bool {
+        self.selected_range().is_some()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.text.is_empty()
+    }
+
+    pub fn apply(&mut self, edit: Edit) {
+        match edit {
+            Edit::Insert(text) => self.insert(&text),
+            Edit::DeleteBackward => self.delete_backward(),
+            Edit::DeleteForward => self.delete_forward(),
+            Edit::MoveLeft => self.move_left(),
+            Edit::MoveRight => self.move_right(),
+            Edit::MoveHome => self.move_home(),
+            Edit::MoveEnd => self.move_end(),
+            Edit::SelectAll => self.select_all(),
+            Edit::SetCursor(cursor) => self.set_cursor(cursor),
+        }
+    }
+
+    fn insert(&mut self, value: &str) {
+        if let Some(range) = self.selected_range() {
+            self.text.replace_range(range.clone(), value);
+            self.cursor = range.start + value.len();
+        } else {
+            self.cursor = floor_boundary(&self.text, self.cursor);
+            self.text.insert_str(self.cursor, value);
+            self.cursor += value.len();
+        }
+
+        self.cursor = floor_boundary(&self.text, self.cursor);
+        self.selection = None;
+    }
+
+    fn delete_backward(&mut self) {
+        if self.delete_selection() {
+            return;
+        }
+
+        let cursor = floor_boundary(&self.text, self.cursor);
+        let previous = previous_boundary(&self.text, cursor);
+        if previous == cursor {
+            return;
+        }
+
+        self.text.replace_range(previous..cursor, "");
+        self.cursor = previous;
+        self.selection = None;
+    }
+
+    fn delete_forward(&mut self) {
+        if self.delete_selection() {
+            return;
+        }
+
+        let cursor = floor_boundary(&self.text, self.cursor);
+        let next = next_boundary(&self.text, cursor);
+        if next == cursor {
+            return;
+        }
+
+        self.text.replace_range(cursor..next, "");
+        self.cursor = cursor;
+        self.selection = None;
+    }
+
+    fn delete_selection(&mut self) -> bool {
+        let Some(range) = self.selected_range() else {
+            return false;
+        };
+
+        self.text.replace_range(range.clone(), "");
+        self.cursor = range.start;
+        self.selection = None;
+        true
+    }
+
+    fn move_left(&mut self) {
+        self.cursor = self.selected_range().map_or_else(
+            || previous_boundary(&self.text, self.cursor),
+            |range| range.start,
+        );
+        self.selection = None;
+    }
+
+    fn move_right(&mut self) {
+        self.cursor = self
+            .selected_range()
+            .map_or_else(|| next_boundary(&self.text, self.cursor), |range| range.end);
+        self.selection = None;
+    }
+
+    fn move_home(&mut self) {
+        self.cursor = 0;
+        self.selection = None;
+    }
+
+    fn move_end(&mut self) {
+        self.cursor = self.text.len();
+        self.selection = None;
+    }
+
+    fn select_all(&mut self) {
+        if self.text.is_empty() {
+            self.cursor = 0;
+            self.selection = None;
+        } else {
+            self.cursor = self.text.len();
+            self.selection = Some(Selection::new(0, self.text.len()));
+        }
+    }
+
+    fn set_cursor(&mut self, cursor: usize) {
+        self.cursor = floor_boundary(&self.text, cursor.min(self.text.len()));
+        self.selection = None;
+    }
+}
+
+impl Default for Buffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<String> for Buffer {
+    fn from(value: String) -> Self {
+        Self::from_text(value)
+    }
+}
+
+impl From<&str> for Buffer {
+    fn from(value: &str) -> Self {
+        Self::from_text(value)
+    }
+}
+
+impl Selection {
+    pub fn new(anchor: usize, focus: usize) -> Self {
+        Self { anchor, focus }
+    }
+
+    pub fn anchor(self) -> usize {
+        self.anchor
+    }
+
+    pub fn focus(self) -> usize {
+        self.focus
+    }
+}
+
+impl Edit {
+    pub fn insert(text: impl Into<String>) -> Self {
+        Self::Insert(text.into())
+    }
+}
+
 impl Block {
     pub fn new(align: Align) -> Self {
         Self {
@@ -448,6 +672,41 @@ fn finite_bits(value: f32) -> u32 {
     }
 }
 
+fn floor_boundary(text: &str, index: usize) -> usize {
+    let mut index = index.min(text.len());
+    while index > 0 && !text.is_char_boundary(index) {
+        index -= 1;
+    }
+
+    index
+}
+
+fn previous_boundary(text: &str, index: usize) -> usize {
+    let index = floor_boundary(text, index);
+    if index == 0 {
+        return 0;
+    }
+
+    text[..index]
+        .char_indices()
+        .last()
+        .map(|(offset, _)| offset)
+        .unwrap_or(0)
+}
+
+fn next_boundary(text: &str, index: usize) -> usize {
+    let index = floor_boundary(text, index);
+    if index >= text.len() {
+        return text.len();
+    }
+
+    text[index..]
+        .char_indices()
+        .nth(1)
+        .map(|(offset, _)| index + offset)
+        .unwrap_or(text.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -585,6 +844,53 @@ mod tests {
 
         assert_eq!(engine.cache_len(), 2);
         assert_eq!(engine.uncached_measure_count(), 4);
+    }
+
+    #[test]
+    fn buffer_inserts_and_deletes_text() {
+        let mut buffer = Buffer::from_text("ab");
+
+        buffer.apply(Edit::insert("c"));
+        buffer.apply(Edit::MoveLeft);
+        buffer.apply(Edit::DeleteBackward);
+
+        assert_eq!(buffer.text(), "ac");
+        assert_eq!(buffer.cursor(), 1);
+
+        buffer.apply(Edit::DeleteForward);
+
+        assert_eq!(buffer.text(), "a");
+        assert_eq!(buffer.cursor(), 1);
+    }
+
+    #[test]
+    fn buffer_select_all_replaces_selection() {
+        let mut buffer = Buffer::from_text("hello");
+
+        buffer.apply(Edit::SelectAll);
+        assert_eq!(buffer.selected_range(), Some(0..5));
+
+        buffer.apply(Edit::insert("hi"));
+
+        assert_eq!(buffer.text(), "hi");
+        assert_eq!(buffer.cursor(), 2);
+        assert_eq!(buffer.selected_range(), None);
+    }
+
+    #[test]
+    fn buffer_edits_preserve_unicode_boundaries() {
+        let mut buffer = Buffer::from_text("aé🙂");
+
+        buffer.apply(Edit::SetCursor(3));
+        assert_eq!(buffer.cursor(), "aé".len());
+
+        buffer.apply(Edit::DeleteBackward);
+        assert_eq!(buffer.text(), "a🙂");
+
+        buffer.apply(Edit::MoveEnd);
+        buffer.apply(Edit::DeleteBackward);
+        assert_eq!(buffer.text(), "a");
+        assert!(buffer.text().is_char_boundary(buffer.cursor()));
     }
 
     fn styled_document(text: &str, align: Align, size: f32, weight: Weight) -> Document {

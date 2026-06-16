@@ -18,6 +18,7 @@ pub struct Node {
     responder_bindings: Vec<action::Binding>,
     command_scope: bool,
     label: Option<text::Document>,
+    text_field: Option<text::Buffer>,
     icon: Option<icon::Icon>,
     icon_size: Option<f32>,
     menu_bar: Option<menu::Bar>,
@@ -127,6 +128,7 @@ impl Node {
             responder_bindings: Vec::new(),
             command_scope: false,
             label: None,
+            text_field: None,
             icon: None,
             icon_size: None,
             menu_bar: None,
@@ -186,6 +188,10 @@ impl Node {
 
     pub fn label(&self) -> Option<&text::Document> {
         self.label.as_ref()
+    }
+
+    pub fn text_field(&self) -> Option<&text::Buffer> {
+        self.text_field.as_ref()
     }
 
     pub fn icon(&self) -> Option<icon::Icon> {
@@ -393,6 +399,11 @@ impl Node {
 
     pub fn with_label(mut self, label: text::Document) -> Self {
         self.label = Some(label);
+        self
+    }
+
+    pub fn with_text_field(mut self, buffer: text::Buffer) -> Self {
+        self.text_field = Some(buffer);
         self
     }
 

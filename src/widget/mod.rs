@@ -18,7 +18,9 @@ pub use control::{
     button, button_with_theme, floating_panel, floating_panel_with_theme, icon_button,
     icon_button_with_theme, labeled_button, labeled_button_with_theme, panel, panel_with_theme,
 };
-pub use text_widget::{paragraph, paragraph_with_theme, text, text_with_theme};
+pub use text_widget::{
+    paragraph, paragraph_with_theme, text, text_field, text_field_with_theme, text_with_theme,
+};
 
 pub const MENU_POPUP: ui::Id = ui::Id::new("__menu_popup");
 pub const MENU_SUBMENU_POPUP: ui::Id = ui::Id::new("__menu_submenu_popup");
@@ -282,6 +284,7 @@ impl Hit {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::action;
     use crate::paint;
     use crate::text as text_model;
 
@@ -354,6 +357,21 @@ mod tests {
         assert_eq!(node.layout().width(), layout::Size::Fill);
         assert_eq!(node.layout().height(), layout::Size::Fit);
         assert_eq!(node.style().label_color(), Some(theme.text().primary()));
+    }
+
+    #[test]
+    fn text_field_is_focusable_text_bearing_and_responder_bound() {
+        let theme = theme::Theme::default_dark();
+        let buffer = text_model::Buffer::from_text("Editable");
+        let node = text_field_with_theme(ROOT, buffer.clone(), &theme);
+
+        assert_eq!(node.text_field(), Some(&buffer));
+        assert!(node.label().is_some());
+        assert!(node.interactivity().hit_test());
+        assert!(node.interactivity().focusable());
+        assert!(!node.interactivity().actionable());
+        assert!(node.responders().contains(&action::SELECT_ALL));
+        assert!(node.responders().contains(&action::INSERT_TEXT));
     }
 
     #[test]
