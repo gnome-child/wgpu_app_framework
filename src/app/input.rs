@@ -465,7 +465,10 @@ fn focusable_paths<T>(
     window: window::Id,
 ) -> Vec<ui::Path> {
     let paths = state
-        .focus_order
+        .composition
+        .as_ref()
+        .map(ui::Composition::focus_order)
+        .unwrap_or(&[])
         .iter()
         .filter(|path| can_focus(registry, state, window, path))
         .cloned()
@@ -496,11 +499,15 @@ fn can_focus<T>(
         return false;
     }
 
-    let Some(action) = state.actions.get(path) else {
+    let Some(action) = state
+        .composition
+        .as_ref()
+        .and_then(|composition| composition.action(path))
+    else {
         return true;
     };
 
-    registry.can_invoke(*action, state.action_context_for_path(window, path))
+    registry.can_invoke(action, state.action_context_for_path(window, path))
 }
 
 fn invokable_focused_path<T>(
@@ -589,11 +596,16 @@ mod tests {
             .expect("scroll test tree should layout");
         let widget_metrics = tree.widget_metrics(&layout);
 
-        WindowState {
-            layout: Some(layout),
+        state_with_composition(
+            layout,
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
             widget_metrics,
-            ..WindowState::default()
-        }
+            Vec::new(),
+        )
     }
 
     fn non_overflow_scroll_state() -> WindowState {
@@ -616,11 +628,16 @@ mod tests {
             .expect("scroll test tree should layout");
         let widget_metrics = tree.widget_metrics(&layout);
 
-        WindowState {
-            layout: Some(layout),
+        state_with_composition(
+            layout,
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
             widget_metrics,
-            ..WindowState::default()
-        }
+            Vec::new(),
+        )
     }
 
     fn requested_offset(events: &[ui::Event]) -> Option<point::Logical> {
@@ -630,21 +647,89 @@ mod tests {
         })
     }
 
-    #[test]
-    fn pressed_control_focuses_and_requests_redraw() {
-        let mut state = WindowState {
-            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
-
-        state.layout = Some(crate::layout::Box::new(
-            CHILD,
+    fn single_box(id: ui::Id) -> crate::layout::Box {
+        crate::layout::Box::new(
+            id,
             crate::geometry::Rect::new(
                 point::logical(0.0, 0.0),
-                crate::geometry::area::logical(10.0, 10.0),
+                crate::geometry::area::logical(20.0, 20.0),
             ),
             Vec::new(),
-        ));
+        )
+    }
+
+    fn path_box(path: ui::Path) -> crate::layout::Box {
+        crate::layout::Box::with_path(
+            path,
+            crate::geometry::Rect::new(
+                point::logical(0.0, 0.0),
+                crate::geometry::area::logical(20.0, 20.0),
+            ),
+            Vec::new(),
+        )
+    }
+
+    fn composition(
+        layout: crate::layout::Box,
+        actions: HashMap<ui::Path, action::Id>,
+        action_targets: HashMap<ui::Path, ui::ActionTarget>,
+        intents: HashMap<ui::Path, ui::Intent>,
+        responders: HashMap<ui::Path, Vec<action::Id>>,
+        interactivity: HashMap<ui::Path, ui::Interactivity>,
+        widget_metrics: HashMap<ui::Path, widget::Metrics>,
+        focus_order: Vec<ui::Path>,
+    ) -> ui::Composition {
+        ui::Composition::for_test(
+            layout,
+            HashMap::new(),
+            actions,
+            action_targets,
+            intents,
+            responders,
+            Vec::new(),
+            interactivity,
+            widget_metrics,
+            focus_order,
+        )
+    }
+
+    fn state_with_composition(
+        layout: crate::layout::Box,
+        actions: HashMap<ui::Path, action::Id>,
+        action_targets: HashMap<ui::Path, ui::ActionTarget>,
+        intents: HashMap<ui::Path, ui::Intent>,
+        responders: HashMap<ui::Path, Vec<action::Id>>,
+        interactivity: HashMap<ui::Path, ui::Interactivity>,
+        widget_metrics: HashMap<ui::Path, widget::Metrics>,
+        focus_order: Vec<ui::Path>,
+    ) -> WindowState {
+        WindowState {
+            composition: Some(composition(
+                layout,
+                actions,
+                action_targets,
+                intents,
+                responders,
+                interactivity,
+                widget_metrics,
+                focus_order,
+            )),
+            ..WindowState::default()
+        }
+    }
+
+    #[test]
+    fn pressed_control_focuses_and_requests_redraw() {
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            HashMap::new(),
+            Vec::new(),
+        );
 
         let outcome = pointer_pressed(
             &mut state,
@@ -765,22 +850,18 @@ mod tests {
     fn released_control_returns_contextual_action_request() {
         let window = window::Id::new(1);
         let mut registry = action::Registry::<()>::new();
-        let mut state = WindowState {
-            pressed: Some(path(CHILD)),
-            pressed_source: Some(PressSource::Pointer),
-            actions: HashMap::from([(path(CHILD), CLICK)]),
-            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
-
-        state.layout = Some(crate::layout::Box::new(
-            CHILD,
-            crate::geometry::Rect::new(
-                point::logical(0.0, 0.0),
-                crate::geometry::area::logical(10.0, 10.0),
-            ),
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::from([(path(CHILD), CLICK)]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            HashMap::new(),
             Vec::new(),
-        ));
+        );
+        state.pressed = Some(path(CHILD));
+        state.pressed_source = Some(PressSource::Pointer);
         registry.register(Action::new(CLICK, "Click"));
 
         let outcome = pointer_released(
@@ -809,22 +890,18 @@ mod tests {
     fn released_menu_title_returns_open_menu_intent() {
         let window = window::Id::new(1);
         let registry = action::Registry::<()>::new();
-        let mut state = WindowState {
-            pressed: Some(path(CHILD)),
-            pressed_source: Some(PressSource::Pointer),
-            intents: HashMap::from([(path(CHILD), ui::Intent::OpenMenu(FILE))]),
-            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
-
-        state.layout = Some(crate::layout::Box::new(
-            CHILD,
-            crate::geometry::Rect::new(
-                point::logical(0.0, 0.0),
-                crate::geometry::area::logical(10.0, 10.0),
-            ),
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Intent::OpenMenu(FILE))]),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            HashMap::new(),
             Vec::new(),
-        ));
+        );
+        state.pressed = Some(path(CHILD));
+        state.pressed_source = Some(PressSource::Pointer);
 
         let outcome = pointer_released(
             &registry,
@@ -846,31 +923,33 @@ mod tests {
         let window = window::Id::new(1);
         let mut registry = action::Registry::<()>::new();
         let row = ui::Path::new([widget::MENU_POPUP, CHILD]);
-        let mut state = WindowState {
-            pressed: Some(row.clone()),
-            pressed_source: Some(PressSource::Pointer),
-            open_menu: Some(FILE),
-            actions: HashMap::from([(row.clone(), CLICK)]),
-            intents: HashMap::from([(row.clone(), ui::Intent::Action(CLICK))]),
-            interactivity: HashMap::from([(row.clone(), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
-
-        state.layout = Some(crate::layout::Box::with_path(
-            ui::Path::from(widget::MENU_POPUP),
-            crate::geometry::Rect::new(
-                point::logical(0.0, 0.0),
-                crate::geometry::area::logical(20.0, 20.0),
-            ),
-            vec![crate::layout::Box::with_path(
-                row.clone(),
+        let mut state = state_with_composition(
+            crate::layout::Box::with_path(
+                ui::Path::from(widget::MENU_POPUP),
                 crate::geometry::Rect::new(
                     point::logical(0.0, 0.0),
-                    crate::geometry::area::logical(10.0, 10.0),
+                    crate::geometry::area::logical(20.0, 20.0),
                 ),
-                Vec::new(),
-            )],
-        ));
+                vec![crate::layout::Box::with_path(
+                    row.clone(),
+                    crate::geometry::Rect::new(
+                        point::logical(0.0, 0.0),
+                        crate::geometry::area::logical(10.0, 10.0),
+                    ),
+                    Vec::new(),
+                )],
+            ),
+            HashMap::from([(row.clone(), CLICK)]),
+            HashMap::new(),
+            HashMap::from([(row.clone(), ui::Intent::Action(CLICK))]),
+            HashMap::new(),
+            HashMap::from([(row.clone(), ui::Interactivity::CONTROL)]),
+            HashMap::new(),
+            Vec::new(),
+        );
+        state.pressed = Some(row.clone());
+        state.pressed_source = Some(PressSource::Pointer);
+        state.open_menu = Some(FILE);
         registry.register(Action::new(CLICK, "Click"));
 
         let outcome = pointer_released(
@@ -952,19 +1031,17 @@ mod tests {
 
     #[test]
     fn pointer_movement_uses_pointer_delta_and_hover_order() {
-        let mut state = WindowState {
-            hovered: Some(path(CHILD)),
-            interactivity: HashMap::from([(path(SECOND), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
-        state.layout = Some(crate::layout::Box::new(
-            SECOND,
-            crate::geometry::Rect::new(
-                point::logical(0.0, 0.0),
-                crate::geometry::area::logical(20.0, 20.0),
-            ),
+        let mut state = state_with_composition(
+            single_box(SECOND),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(SECOND), ui::Interactivity::CONTROL)]),
+            HashMap::new(),
             Vec::new(),
-        ));
+        );
+        state.hovered = Some(path(CHILD));
         let entered = pointer_moved(&mut state, point::logical(2.0, 3.0));
 
         assert_eq!(
@@ -1004,20 +1081,17 @@ mod tests {
 
     #[test]
     fn hovering_other_menu_title_while_menu_is_open_emits_open_menu_intent() {
-        let mut state = WindowState {
-            open_menu: Some(FILE),
-            intents: HashMap::from([(path(SECOND), ui::Intent::OpenMenu(EDIT))]),
-            interactivity: HashMap::from([(path(SECOND), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
-        state.layout = Some(crate::layout::Box::new(
-            SECOND,
-            crate::geometry::Rect::new(
-                point::logical(0.0, 0.0),
-                crate::geometry::area::logical(20.0, 20.0),
-            ),
+        let mut state = state_with_composition(
+            single_box(SECOND),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(SECOND), ui::Intent::OpenMenu(EDIT))]),
+            HashMap::new(),
+            HashMap::from([(path(SECOND), ui::Interactivity::CONTROL)]),
+            HashMap::new(),
             Vec::new(),
-        ));
+        );
+        state.open_menu = Some(FILE);
 
         let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
 
@@ -1030,20 +1104,17 @@ mod tests {
 
     #[test]
     fn hovering_same_menu_title_does_not_toggle_open_menu() {
-        let mut state = WindowState {
-            open_menu: Some(FILE),
-            intents: HashMap::from([(path(CHILD), ui::Intent::OpenMenu(FILE))]),
-            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
-        state.layout = Some(crate::layout::Box::new(
-            CHILD,
-            crate::geometry::Rect::new(
-                point::logical(0.0, 0.0),
-                crate::geometry::area::logical(20.0, 20.0),
-            ),
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Intent::OpenMenu(FILE))]),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            HashMap::new(),
             Vec::new(),
-        ));
+        );
+        state.open_menu = Some(FILE);
 
         let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
 
@@ -1054,20 +1125,17 @@ mod tests {
     #[test]
     fn hovering_submenu_row_while_menu_is_open_emits_open_submenu_intent() {
         let row = ui::Path::new([widget::MENU_POPUP, CHILD]);
-        let mut state = WindowState {
-            open_menu: Some(FILE),
-            intents: HashMap::from([(row.clone(), ui::Intent::OpenSubmenu(PANELS))]),
-            interactivity: HashMap::from([(row.clone(), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
-        state.layout = Some(crate::layout::Box::with_path(
-            row.clone(),
-            crate::geometry::Rect::new(
-                point::logical(0.0, 0.0),
-                crate::geometry::area::logical(20.0, 20.0),
-            ),
+        let mut state = state_with_composition(
+            path_box(row.clone()),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(row.clone(), ui::Intent::OpenSubmenu(PANELS))]),
+            HashMap::new(),
+            HashMap::from([(row.clone(), ui::Interactivity::CONTROL)]),
+            HashMap::new(),
             Vec::new(),
-        ));
+        );
+        state.open_menu = Some(FILE);
 
         let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
 
@@ -1077,21 +1145,18 @@ mod tests {
     #[test]
     fn hovering_top_menu_action_row_closes_open_submenu() {
         let row = ui::Path::new([widget::MENU_POPUP, CHILD]);
-        let mut state = WindowState {
-            open_menu: Some(FILE),
-            open_submenu: Some(PANELS),
-            intents: HashMap::from([(row.clone(), ui::Intent::Action(CLICK))]),
-            interactivity: HashMap::from([(row.clone(), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
-        state.layout = Some(crate::layout::Box::with_path(
-            row.clone(),
-            crate::geometry::Rect::new(
-                point::logical(0.0, 0.0),
-                crate::geometry::area::logical(20.0, 20.0),
-            ),
+        let mut state = state_with_composition(
+            path_box(row.clone()),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(row.clone(), ui::Intent::Action(CLICK))]),
+            HashMap::new(),
+            HashMap::from([(row.clone(), ui::Interactivity::CONTROL)]),
+            HashMap::new(),
             Vec::new(),
-        ));
+        );
+        state.open_menu = Some(FILE);
+        state.open_submenu = Some(PANELS);
 
         let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
 
@@ -1101,24 +1166,18 @@ mod tests {
     #[test]
     fn hovering_top_menu_separator_row_closes_open_submenu() {
         let row = ui::Path::new([widget::MENU_POPUP, CHILD]);
-        let mut state = WindowState {
-            open_menu: Some(FILE),
-            open_submenu: Some(PANELS),
-            intents: HashMap::from([(row.clone(), ui::Intent::CloseSubmenu)]),
-            interactivity: HashMap::from([(
-                row.clone(),
-                ui::Interactivity::NONE.with_hit_test(true),
-            )]),
-            ..WindowState::default()
-        };
-        state.layout = Some(crate::layout::Box::with_path(
-            row.clone(),
-            crate::geometry::Rect::new(
-                point::logical(0.0, 0.0),
-                crate::geometry::area::logical(20.0, 20.0),
-            ),
+        let mut state = state_with_composition(
+            path_box(row.clone()),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(row.clone(), ui::Intent::CloseSubmenu)]),
+            HashMap::new(),
+            HashMap::from([(row.clone(), ui::Interactivity::NONE.with_hit_test(true))]),
+            HashMap::new(),
             Vec::new(),
-        ));
+        );
+        state.open_menu = Some(FILE);
+        state.open_submenu = Some(PANELS);
 
         let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
 
@@ -1128,23 +1187,18 @@ mod tests {
     #[test]
     fn hovering_top_menu_popup_background_preserves_open_submenu() {
         let popup = ui::Path::from(widget::MENU_POPUP);
-        let mut state = WindowState {
-            open_menu: Some(FILE),
-            open_submenu: Some(PANELS),
-            interactivity: HashMap::from([(
-                popup.clone(),
-                ui::Interactivity::NONE.with_hit_test(true),
-            )]),
-            ..WindowState::default()
-        };
-        state.layout = Some(crate::layout::Box::with_path(
-            popup,
-            crate::geometry::Rect::new(
-                point::logical(0.0, 0.0),
-                crate::geometry::area::logical(20.0, 20.0),
-            ),
+        let mut state = state_with_composition(
+            path_box(popup.clone()),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(popup.clone(), ui::Interactivity::NONE.with_hit_test(true))]),
+            HashMap::new(),
             Vec::new(),
-        ));
+        );
+        state.open_menu = Some(FILE);
+        state.open_submenu = Some(PANELS);
 
         let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
 
@@ -1155,23 +1209,18 @@ mod tests {
     #[test]
     fn hovering_submenu_popup_preserves_open_submenu() {
         let popup = ui::Path::from(widget::MENU_SUBMENU_POPUP);
-        let mut state = WindowState {
-            open_menu: Some(FILE),
-            open_submenu: Some(PANELS),
-            interactivity: HashMap::from([(
-                popup.clone(),
-                ui::Interactivity::NONE.with_hit_test(true),
-            )]),
-            ..WindowState::default()
-        };
-        state.layout = Some(crate::layout::Box::with_path(
-            popup,
-            crate::geometry::Rect::new(
-                point::logical(0.0, 0.0),
-                crate::geometry::area::logical(20.0, 20.0),
-            ),
+        let mut state = state_with_composition(
+            path_box(popup.clone()),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(popup.clone(), ui::Interactivity::NONE.with_hit_test(true))]),
+            HashMap::new(),
             Vec::new(),
-        ));
+        );
+        state.open_menu = Some(FILE);
+        state.open_submenu = Some(PANELS);
 
         let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
 
@@ -1181,19 +1230,16 @@ mod tests {
 
     #[test]
     fn menu_title_hover_without_open_menu_does_not_emit_intent() {
-        let mut state = WindowState {
-            intents: HashMap::from([(path(CHILD), ui::Intent::OpenMenu(FILE))]),
-            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
-        state.layout = Some(crate::layout::Box::new(
-            CHILD,
-            crate::geometry::Rect::new(
-                point::logical(0.0, 0.0),
-                crate::geometry::area::logical(20.0, 20.0),
-            ),
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Intent::OpenMenu(FILE))]),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            HashMap::new(),
             Vec::new(),
-        ));
+        );
 
         let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
 
@@ -1248,14 +1294,19 @@ mod tests {
     fn tab_moves_focus_in_layout_order_and_shows_outline() {
         let window = window::Id::new(1);
         let registry = action::Registry::<()>::new();
-        let mut state = WindowState {
-            focus_order: vec![path(CHILD), path(SECOND)],
-            interactivity: HashMap::from([
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([
                 (path(CHILD), ui::Interactivity::CONTROL),
                 (path(SECOND), ui::Interactivity::CONTROL),
             ]),
-            ..WindowState::default()
-        };
+            HashMap::new(),
+            vec![path(CHILD), path(SECOND)],
+        );
 
         let outcome = key_pressed(&registry, &mut state, window, ui::Key::Tab, false);
 
@@ -1285,15 +1336,20 @@ mod tests {
     fn shift_tab_moves_focus_backward() {
         let window = window::Id::new(1);
         let registry = action::Registry::<()>::new();
-        let mut state = WindowState {
-            focus_order: vec![path(CHILD), path(SECOND)],
-            modifiers: ui::Modifiers::new(true, false, false, false),
-            interactivity: HashMap::from([
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([
                 (path(CHILD), ui::Interactivity::CONTROL),
                 (path(SECOND), ui::Interactivity::CONTROL),
             ]),
-            ..WindowState::default()
-        };
+            HashMap::new(),
+            vec![path(CHILD), path(SECOND)],
+        );
+        state.modifiers = ui::Modifiers::new(true, false, false, false);
 
         key_pressed(&registry, &mut state, window, ui::Key::Tab, false);
 
@@ -1304,15 +1360,19 @@ mod tests {
     fn disabled_action_bound_controls_are_skipped_by_tab_focus() {
         let window = window::Id::new(1);
         let mut registry = action::Registry::<()>::new();
-        let mut state = WindowState {
-            focus_order: vec![path(CHILD), path(SECOND)],
-            actions: HashMap::from([(path(CHILD), CLICK)]),
-            interactivity: HashMap::from([
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::from([(path(CHILD), CLICK)]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([
                 (path(CHILD), ui::Interactivity::CONTROL),
                 (path(SECOND), ui::Interactivity::CONTROL),
             ]),
-            ..WindowState::default()
-        };
+            HashMap::new(),
+            vec![path(CHILD), path(SECOND)],
+        );
 
         registry.register(Action::new(CLICK, "Click"));
         registry.set_state(
@@ -1330,15 +1390,20 @@ mod tests {
         let window = window::Id::new(1);
         let registry = action::Registry::<()>::new();
         let menu_row = ui::Path::new([widget::MENU_POPUP, CHILD]);
-        let mut state = WindowState {
-            open_menu: Some(FILE),
-            focus_order: vec![path(SECOND), menu_row.clone()],
-            interactivity: HashMap::from([
+        let mut state = state_with_composition(
+            path_box(menu_row.clone()),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([
                 (path(SECOND), ui::Interactivity::CONTROL),
                 (menu_row.clone(), ui::Interactivity::CONTROL),
             ]),
-            ..WindowState::default()
-        };
+            HashMap::new(),
+            vec![path(SECOND), menu_row.clone()],
+        );
+        state.open_menu = Some(FILE);
 
         key_pressed(&registry, &mut state, window, ui::Key::Tab, false);
 
@@ -1350,13 +1415,17 @@ mod tests {
         let window = window::Id::new(1);
         let registry = action::Registry::<()>::new();
         let menu_row = ui::Path::new([widget::MENU_POPUP, CHILD]);
-        let mut state = WindowState {
-            open_menu: Some(FILE),
-            focus_order: vec![menu_row.clone()],
-            intents: HashMap::from([(menu_row.clone(), ui::Intent::OpenSubmenu(PANELS))]),
-            interactivity: HashMap::from([(menu_row.clone(), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            path_box(menu_row.clone()),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(menu_row.clone(), ui::Intent::OpenSubmenu(PANELS))]),
+            HashMap::new(),
+            HashMap::from([(menu_row.clone(), ui::Interactivity::CONTROL)]),
+            HashMap::new(),
+            vec![menu_row.clone()],
+        );
+        state.open_menu = Some(FILE);
 
         let outcome = key_pressed(&registry, &mut state, window, ui::Key::Tab, false);
 
@@ -1370,16 +1439,21 @@ mod tests {
     fn enter_releases_focused_action_with_keyboard_source() {
         let window = window::Id::new(1);
         let mut registry = action::Registry::<()>::new();
-        let mut state = WindowState {
-            focus: Some(crate::app::state::Focus::new(
-                path(CHILD),
-                ui::focus::Reason::Keyboard,
-                ui::focus::Visibility::Visible,
-            )),
-            actions: HashMap::from([(path(CHILD), CLICK)]),
-            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::from([(path(CHILD), CLICK)]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            HashMap::new(),
+            Vec::new(),
+        );
+        state.focus = Some(crate::app::state::Focus::new(
+            path(CHILD),
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible,
+        ));
 
         registry.register(Action::new(CLICK, "Click"));
         let pressed = key_pressed(&registry, &mut state, window, ui::Key::Enter, false);
@@ -1410,12 +1484,18 @@ mod tests {
     fn shortcut_press_emits_shortcut_request_for_command_target() {
         let window = window::Id::new(1);
         let mut registry = action::Registry::<()>::new();
-        let mut state = WindowState {
-            modifiers: ui::Modifiers::new(false, true, false, false),
-            command_subject: Some(action::Scope::Path(path(SECOND))),
-            responders: HashMap::from([(path(SECOND), vec![action::SELECT_ALL])]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(SECOND),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(SECOND), vec![action::SELECT_ALL])]),
+            HashMap::new(),
+            HashMap::new(),
+            Vec::new(),
+        );
+        state.modifiers = ui::Modifiers::new(false, true, false, false);
+        state.command_subject = Some(action::Scope::Path(path(SECOND)));
 
         registry.register(
             Action::new(action::SELECT_ALL, "Select All")
@@ -1444,18 +1524,22 @@ mod tests {
     fn shortcut_and_command_button_use_same_automatic_subject() {
         let window = window::Id::new(1);
         let mut registry = action::Registry::<()>::new();
-        let mut state = WindowState {
-            focus: Some(crate::app::state::Focus::new(
-                path(SECOND),
-                ui::focus::Reason::Keyboard,
-                ui::focus::Visibility::Visible,
-            )),
-            modifiers: ui::Modifiers::new(false, true, false, false),
-            responders: HashMap::from([(path(SECOND), vec![action::SELECT_ALL])]),
-            actions: HashMap::from([(path(CHILD), action::SELECT_ALL)]),
-            action_targets: HashMap::from([(path(CHILD), ui::ActionTarget::Command)]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::from([(path(CHILD), action::SELECT_ALL)]),
+            HashMap::from([(path(CHILD), ui::ActionTarget::Command)]),
+            HashMap::new(),
+            HashMap::from([(path(SECOND), vec![action::SELECT_ALL])]),
+            HashMap::new(),
+            HashMap::new(),
+            Vec::new(),
+        );
+        state.focus = Some(crate::app::state::Focus::new(
+            path(SECOND),
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible,
+        ));
+        state.modifiers = ui::Modifiers::new(false, true, false, false);
 
         registry.register(
             Action::new(action::SELECT_ALL, "Select All")
@@ -1485,12 +1569,18 @@ mod tests {
     fn repeated_shortcut_press_does_not_emit_request() {
         let window = window::Id::new(1);
         let mut registry = action::Registry::<()>::new();
-        let mut state = WindowState {
-            modifiers: ui::Modifiers::new(false, true, false, false),
-            command_subject: Some(action::Scope::Path(path(SECOND))),
-            responders: HashMap::from([(path(SECOND), vec![action::SELECT_ALL])]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(SECOND),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(SECOND), vec![action::SELECT_ALL])]),
+            HashMap::new(),
+            HashMap::new(),
+            Vec::new(),
+        );
+        state.modifiers = ui::Modifiers::new(false, true, false, false);
+        state.command_subject = Some(action::Scope::Path(path(SECOND)));
 
         registry.register(
             Action::new(action::SELECT_ALL, "Select All")
@@ -1506,24 +1596,19 @@ mod tests {
     fn command_target_control_uses_stored_command_target() {
         let window = window::Id::new(1);
         let mut registry = action::Registry::<()>::new();
-        let mut state = WindowState {
-            pressed: Some(path(CHILD)),
-            pressed_source: Some(PressSource::Pointer),
-            command_subject: Some(action::Scope::Path(path(SECOND))),
-            actions: HashMap::from([(path(CHILD), CLICK)]),
-            action_targets: HashMap::from([(path(CHILD), ui::ActionTarget::Command)]),
-            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
-
-        state.layout = Some(crate::layout::Box::new(
-            CHILD,
-            crate::geometry::Rect::new(
-                point::logical(0.0, 0.0),
-                crate::geometry::area::logical(10.0, 10.0),
-            ),
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::from([(path(CHILD), CLICK)]),
+            HashMap::from([(path(CHILD), ui::ActionTarget::Command)]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            HashMap::new(),
             Vec::new(),
-        ));
+        );
+        state.pressed = Some(path(CHILD));
+        state.pressed_source = Some(PressSource::Pointer);
+        state.command_subject = Some(action::Scope::Path(path(SECOND)));
         registry.register(Action::new(CLICK, "Click"));
 
         let outcome = pointer_released(
@@ -1551,18 +1636,22 @@ mod tests {
     fn window_target_control_uses_window_context() {
         let window = window::Id::new(1);
         let mut registry = action::Registry::<()>::new();
-        let mut state = WindowState {
-            focus: Some(crate::app::state::Focus::new(
-                path(CHILD),
-                ui::focus::Reason::Keyboard,
-                ui::focus::Visibility::Visible,
-            )),
-            command_subject: Some(action::Scope::Path(path(SECOND))),
-            actions: HashMap::from([(path(CHILD), CLICK)]),
-            action_targets: HashMap::from([(path(CHILD), ui::ActionTarget::Window)]),
-            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::from([(path(CHILD), CLICK)]),
+            HashMap::from([(path(CHILD), ui::ActionTarget::Window)]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            HashMap::new(),
+            Vec::new(),
+        );
+        state.focus = Some(crate::app::state::Focus::new(
+            path(CHILD),
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible,
+        ));
+        state.command_subject = Some(action::Scope::Path(path(SECOND)));
 
         registry.register(Action::new(CLICK, "Click"));
         key_pressed(&registry, &mut state, window, ui::Key::Space, false);

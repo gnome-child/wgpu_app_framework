@@ -70,8 +70,13 @@ pub fn clear_stale_subject(state: &mut WindowState) -> bool {
 }
 
 pub fn update_scope_captures(state: &mut WindowState, window: window::Id) {
-    let scopes = state.command_scopes.clone();
-    let responders = &state.responders;
+    let Some(composition) = state.composition.as_ref() else {
+        state.command_scope_captures.clear();
+        return;
+    };
+    let scopes = composition.command_scopes().to_vec();
+    let responders = composition.responder_map().clone();
+
     state.command_scope_captures.retain(|scope, context| {
         scopes.contains(scope)
             && match context.scope() {
@@ -142,10 +147,15 @@ fn context_outside_scope(
 fn handler_for_path(state: &WindowState, action: action::Id, path: &ui::Path) -> Option<ui::Path> {
     nearest_path(path, |path| {
         state
-            .responders
-            .get(path)
+            .composition
+            .as_ref()
+            .and_then(|composition| composition.responders(path))
             .is_some_and(|actions| actions.contains(&action))
-            || (state.actions.get(path) == Some(&action)
+            || (state
+                .composition
+                .as_ref()
+                .and_then(|composition| composition.action(path))
+                == Some(action)
                 && state.action_target(path) == ui::ActionTarget::Origin)
     })
 }

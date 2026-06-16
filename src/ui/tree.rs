@@ -13,6 +13,23 @@ pub struct Tree {
     popups: Vec<widget::Popup>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Composition {
+    tree: Tree,
+    layout: layout::Box,
+    open_menu: Option<menu::Id>,
+    open_submenu: Option<menu::Id>,
+    menus: HashMap<menu::Id, menu::Menu>,
+    actions: HashMap<Path, action::Id>,
+    action_targets: HashMap<Path, ActionTarget>,
+    intents: HashMap<Path, Intent>,
+    responders: HashMap<Path, Vec<action::Id>>,
+    command_scopes: Vec<Path>,
+    interactivity: HashMap<Path, Interactivity>,
+    widget_metrics: HashMap<Path, widget::Metrics>,
+    focus_order: Vec<Path>,
+}
+
 impl Tree {
     pub fn new() -> Self {
         Self {
@@ -74,55 +91,79 @@ impl Tree {
         Some(root_layout.with_children(children))
     }
 
-    pub fn actions(&self) -> HashMap<Path, action::Id> {
-        let mut actions = HashMap::new();
+    pub fn compose<T>(
+        &self,
+        area: area::Logical,
+        actions: &action::Registry<T>,
+        command_target: &action::Context,
+        open_menu: Option<menu::Id>,
+        open_submenu: Option<menu::Id>,
+        measurer: &mut text::Measurer,
+    ) -> Option<Composition> {
+        let mut tree = self.clone();
+        let menus = tree.menus();
+        let open_menu = open_menu.filter(|menu| menus.contains_key(menu));
+        let open_submenu =
+            open_submenu.filter(|menu| open_menu.is_some() && menus.contains_key(menu));
+
+        let mut menu_popup_inserted = false;
+        if let Some(open_menu) = open_menu
+            && let Some(menu) = menus.get(&open_menu)
+            && let Some(base_layout) = tree.layout(area, measurer)
+            && let Some(popup) =
+                widget::menu_popup(&tree, &base_layout, menu, actions, command_target, measurer)
+        {
+            tree.push_popup(popup);
+            menu_popup_inserted = true;
+        }
+
+        if menu_popup_inserted
+            && let Some(open_submenu) = open_submenu
+            && let Some(menu) = menus.get(&open_submenu)
+            && let Some(menu_layout) = tree.layout(area, measurer)
+            && let Some(popup) =
+                widget::submenu_popup(&tree, &menu_layout, menu, actions, command_target, measurer)
+        {
+            tree.push_popup(popup);
+        }
+
+        let layout = tree.layout(area, measurer)?;
+
+        Some(Composition::new(
+            tree,
+            layout,
+            open_menu,
+            open_submenu,
+            menus,
+        ))
+    }
+
+    fn index(&self) -> TreeIndex {
+        let mut index = TreeIndex::default();
 
         if let Some(root) = self.root.as_ref() {
-            collect_actions(root, &Path::root(root.id()), &mut actions);
+            index.collect_node(root, &Path::root(root.id()));
             for popup in &self.popups {
-                collect_actions(
+                index.collect_node(
                     popup.root(),
                     &Path::root(root.id()).child(popup.root().id()),
-                    &mut actions,
                 );
             }
         }
 
-        actions
+        index
+    }
+
+    pub fn actions(&self) -> HashMap<Path, action::Id> {
+        self.index().actions
     }
 
     pub fn action_targets(&self) -> HashMap<Path, ActionTarget> {
-        let mut targets = HashMap::new();
-
-        if let Some(root) = self.root.as_ref() {
-            collect_action_targets(root, &Path::root(root.id()), &mut targets);
-            for popup in &self.popups {
-                collect_action_targets(
-                    popup.root(),
-                    &Path::root(root.id()).child(popup.root().id()),
-                    &mut targets,
-                );
-            }
-        }
-
-        targets
+        self.index().action_targets
     }
 
     pub fn intents(&self) -> HashMap<Path, Intent> {
-        let mut intents = HashMap::new();
-
-        if let Some(root) = self.root.as_ref() {
-            collect_intents(root, &Path::root(root.id()), &mut intents);
-            for popup in &self.popups {
-                collect_intents(
-                    popup.root(),
-                    &Path::root(root.id()).child(popup.root().id()),
-                    &mut intents,
-                );
-            }
-        }
-
-        intents
+        self.index().intents
     }
 
     pub fn menus(&self) -> HashMap<menu::Id, menu::Menu> {
@@ -136,54 +177,15 @@ impl Tree {
     }
 
     pub fn responders(&self) -> HashMap<Path, Vec<action::Id>> {
-        let mut responders = HashMap::new();
-
-        if let Some(root) = self.root.as_ref() {
-            collect_responders(root, &Path::root(root.id()), &mut responders);
-            for popup in &self.popups {
-                collect_responders(
-                    popup.root(),
-                    &Path::root(root.id()).child(popup.root().id()),
-                    &mut responders,
-                );
-            }
-        }
-
-        responders
+        self.index().responders
     }
 
     pub fn command_scopes(&self) -> Vec<Path> {
-        let mut scopes = Vec::new();
-
-        if let Some(root) = self.root.as_ref() {
-            collect_command_scopes(root, &Path::root(root.id()), &mut scopes);
-            for popup in &self.popups {
-                collect_command_scopes(
-                    popup.root(),
-                    &Path::root(root.id()).child(popup.root().id()),
-                    &mut scopes,
-                );
-            }
-        }
-
-        scopes
+        self.index().command_scopes
     }
 
     pub fn interactivity(&self) -> HashMap<Path, Interactivity> {
-        let mut interactivity = HashMap::new();
-
-        if let Some(root) = self.root.as_ref() {
-            collect_interactivity(root, &Path::root(root.id()), &mut interactivity);
-            for popup in &self.popups {
-                collect_interactivity(
-                    popup.root(),
-                    &Path::root(root.id()).child(popup.root().id()),
-                    &mut interactivity,
-                );
-            }
-        }
-
-        interactivity
+        self.index().interactivity
     }
 
     pub fn widget_metrics(&self, layout: &layout::Box) -> HashMap<Path, widget::Metrics> {
@@ -235,33 +237,219 @@ impl Default for Tree {
     }
 }
 
-fn collect_actions(node: &Node, path: &Path, actions: &mut HashMap<Path, action::Id>) {
-    if let Some(action) = node.action() {
-        actions.insert(path.clone(), action);
+fn focus_order(layout: &layout::Box, interactivity: &HashMap<Path, Interactivity>) -> Vec<Path> {
+    let mut order = Vec::new();
+    collect_focus_order(layout, interactivity, &mut order);
+    order
+}
+
+fn collect_focus_order(
+    layout: &layout::Box,
+    interactivity: &HashMap<Path, Interactivity>,
+    order: &mut Vec<Path>,
+) {
+    if interactivity
+        .get(layout.path())
+        .is_some_and(|interactivity| interactivity.focusable())
+    {
+        order.push(layout.path().clone());
     }
 
-    for child in node.children() {
-        collect_actions(child, &path.child(child.id()), actions);
+    for child in layout.children() {
+        collect_focus_order(child, interactivity, order);
     }
 }
 
-fn collect_action_targets(node: &Node, path: &Path, targets: &mut HashMap<Path, ActionTarget>) {
-    if node.action().is_some() {
-        targets.insert(path.clone(), node.action_target());
+impl Composition {
+    fn new(
+        tree: Tree,
+        layout: layout::Box,
+        open_menu: Option<menu::Id>,
+        open_submenu: Option<menu::Id>,
+        menus: HashMap<menu::Id, menu::Menu>,
+    ) -> Self {
+        let index = tree.index();
+        let widget_metrics = tree.widget_metrics(&layout);
+        let focus_order = focus_order(&layout, &index.interactivity);
+
+        Self {
+            tree,
+            layout,
+            open_menu,
+            open_submenu,
+            menus,
+            actions: index.actions,
+            action_targets: index.action_targets,
+            intents: index.intents,
+            responders: index.responders,
+            command_scopes: index.command_scopes,
+            interactivity: index.interactivity,
+            widget_metrics,
+            focus_order,
+        }
     }
 
-    for child in node.children() {
-        collect_action_targets(child, &path.child(child.id()), targets);
+    pub fn layout(&self) -> &layout::Box {
+        &self.layout
+    }
+
+    pub fn open_menu(&self) -> Option<menu::Id> {
+        self.open_menu
+    }
+
+    pub fn open_submenu(&self) -> Option<menu::Id> {
+        self.open_submenu
+    }
+
+    pub fn menus(&self) -> &HashMap<menu::Id, menu::Menu> {
+        &self.menus
+    }
+
+    pub fn menu(&self, id: menu::Id) -> Option<&menu::Menu> {
+        self.menus.get(&id)
+    }
+
+    pub fn action(&self, path: &Path) -> Option<action::Id> {
+        self.actions.get(path).copied()
+    }
+
+    pub fn actions(&self) -> &HashMap<Path, action::Id> {
+        &self.actions
+    }
+
+    pub fn action_target(&self, path: &Path) -> ActionTarget {
+        self.action_targets.get(path).copied().unwrap_or_default()
+    }
+
+    pub fn action_targets(&self) -> &HashMap<Path, ActionTarget> {
+        &self.action_targets
+    }
+
+    pub fn intent(&self, path: &Path) -> Option<Intent> {
+        self.intents.get(path).copied()
+    }
+
+    pub fn intents(&self) -> &HashMap<Path, Intent> {
+        &self.intents
+    }
+
+    pub fn responders(&self, path: &Path) -> Option<&[action::Id]> {
+        self.responders.get(path).map(Vec::as_slice)
+    }
+
+    pub fn responder_map(&self) -> &HashMap<Path, Vec<action::Id>> {
+        &self.responders
+    }
+
+    pub fn has_responder(&self, path: &Path) -> bool {
+        self.responders
+            .get(path)
+            .is_some_and(|actions| !actions.is_empty())
+    }
+
+    pub fn command_scopes(&self) -> &[Path] {
+        &self.command_scopes
+    }
+
+    pub fn interactivity(&self, path: &Path) -> Option<Interactivity> {
+        self.interactivity.get(path).copied()
+    }
+
+    pub fn interactivity_map(&self) -> &HashMap<Path, Interactivity> {
+        &self.interactivity
+    }
+
+    pub fn widget_metrics(&self, path: &Path) -> Option<widget::Metrics> {
+        self.widget_metrics.get(path).copied()
+    }
+
+    pub fn widget_metrics_iter(&self) -> impl Iterator<Item = (&Path, &widget::Metrics)> {
+        self.widget_metrics.iter()
+    }
+
+    pub fn focus_order(&self) -> &[Path] {
+        &self.focus_order
+    }
+
+    pub fn paint<T>(
+        &self,
+        actions: &action::Registry<T>,
+        window: window::Id,
+        interaction: Interaction,
+        scene: &mut paint::Scene,
+    ) {
+        self.tree
+            .paint(&self.layout, actions, window, interaction, scene);
+    }
+
+    #[cfg(test)]
+    pub fn for_test(
+        layout: layout::Box,
+        menus: HashMap<menu::Id, menu::Menu>,
+        actions: HashMap<Path, action::Id>,
+        action_targets: HashMap<Path, ActionTarget>,
+        intents: HashMap<Path, Intent>,
+        responders: HashMap<Path, Vec<action::Id>>,
+        command_scopes: Vec<Path>,
+        interactivity: HashMap<Path, Interactivity>,
+        widget_metrics: HashMap<Path, widget::Metrics>,
+        focus_order: Vec<Path>,
+    ) -> Self {
+        Self {
+            tree: Tree::new(),
+            layout,
+            open_menu: None,
+            open_submenu: None,
+            menus,
+            actions,
+            action_targets,
+            intents,
+            responders,
+            command_scopes,
+            interactivity,
+            widget_metrics,
+            focus_order,
+        }
     }
 }
 
-fn collect_intents(node: &Node, path: &Path, intents: &mut HashMap<Path, Intent>) {
-    if let Some(intent) = node.intent() {
-        intents.insert(path.clone(), intent);
-    }
+#[derive(Default)]
+struct TreeIndex {
+    actions: HashMap<Path, action::Id>,
+    action_targets: HashMap<Path, ActionTarget>,
+    intents: HashMap<Path, Intent>,
+    responders: HashMap<Path, Vec<action::Id>>,
+    command_scopes: Vec<Path>,
+    interactivity: HashMap<Path, Interactivity>,
+}
 
-    for child in node.children() {
-        collect_intents(child, &path.child(child.id()), intents);
+impl TreeIndex {
+    fn collect_node(&mut self, node: &Node, path: &Path) {
+        if let Some(action) = node.action() {
+            self.actions.insert(path.clone(), action);
+            self.action_targets
+                .insert(path.clone(), node.action_target());
+        }
+
+        if let Some(intent) = node.intent() {
+            self.intents.insert(path.clone(), intent);
+        }
+
+        if !node.responders().is_empty() {
+            self.responders
+                .insert(path.clone(), node.responders().to_vec());
+        }
+
+        if node.is_command_scope() {
+            self.command_scopes.push(path.clone());
+        }
+
+        self.interactivity
+            .insert(path.clone(), node.interactivity());
+
+        for child in node.children() {
+            self.collect_node(child, &path.child(child.id()));
+        }
     }
 }
 
@@ -284,38 +472,6 @@ fn collect_menu(menu: &menu::Menu, menus: &mut HashMap<menu::Id, menu::Menu>) {
         if let menu::Node::Submenu(submenu) = node {
             collect_menu(submenu, menus);
         }
-    }
-}
-
-fn collect_responders(node: &Node, path: &Path, responders: &mut HashMap<Path, Vec<action::Id>>) {
-    if !node.responders().is_empty() {
-        responders.insert(path.clone(), node.responders().to_vec());
-    }
-
-    for child in node.children() {
-        collect_responders(child, &path.child(child.id()), responders);
-    }
-}
-
-fn collect_command_scopes(node: &Node, path: &Path, scopes: &mut Vec<Path>) {
-    if node.is_command_scope() {
-        scopes.push(path.clone());
-    }
-
-    for child in node.children() {
-        collect_command_scopes(child, &path.child(child.id()), scopes);
-    }
-}
-
-fn collect_interactivity(
-    node: &Node,
-    path: &Path,
-    interactivity: &mut HashMap<Path, Interactivity>,
-) {
-    interactivity.insert(path.clone(), node.interactivity());
-
-    for child in node.children() {
-        collect_interactivity(child, &path.child(child.id()), interactivity);
     }
 }
 

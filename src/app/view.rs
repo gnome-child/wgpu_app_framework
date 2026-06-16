@@ -1,6 +1,6 @@
 use crate::app::state::WindowState;
 use crate::geometry::area;
-use crate::{action, layout, paint, text, ui, widget, window};
+use crate::{action, paint, text, ui, window};
 
 pub fn compose<T>(
     window: window::Id,
@@ -11,68 +11,19 @@ pub fn compose<T>(
     logical_area: area::Logical,
 ) -> paint::Scene {
     let mut scene = paint::Scene::new();
-    let mut tree = tree.clone();
-
-    state.menus = tree.menus();
-    if state
-        .open_menu
-        .is_some_and(|menu| !state.menus.contains_key(&menu))
-    {
-        state.open_menu = None;
-    }
-    if state.open_menu.is_none() {
-        state.open_submenu = None;
-    }
-    if state
-        .open_submenu
-        .is_some_and(|menu| !state.menus.contains_key(&menu))
-    {
-        state.open_submenu = None;
-    }
-
     let command_target = state.command_context(window);
-    let mut menu_popup_inserted = false;
-    if let Some(open_menu) = state.open_menu
-        && let Some(menu) = state.menus.get(&open_menu)
-        && let Some(base_layout) = tree.layout(logical_area, measurer)
-        && let Some(popup) = widget::menu_popup(
-            &tree,
-            &base_layout,
-            menu,
-            actions,
-            &command_target,
-            measurer,
-        )
-    {
-        tree.push_popup(popup);
-        menu_popup_inserted = true;
-    }
-    if menu_popup_inserted
-        && let Some(open_submenu) = state.open_submenu
-        && let Some(menu) = state.menus.get(&open_submenu)
-        && let Some(menu_layout) = tree.layout(logical_area, measurer)
-        && let Some(popup) = widget::submenu_popup(
-            &tree,
-            &menu_layout,
-            menu,
-            actions,
-            &command_target,
-            measurer,
-        )
-    {
-        tree.push_popup(popup);
-    }
 
-    state.actions = tree.actions();
-    state.action_targets = tree.action_targets();
-    state.intents = tree.intents();
-    state.responders = tree.responders();
-    state.command_scopes = tree.command_scopes();
-    state.interactivity = tree.interactivity();
-
-    if let Some(layout) = tree.layout(logical_area, measurer) {
-        state.widget_metrics = tree.widget_metrics(&layout);
-        state.focus_order = focus_order(&layout, &state.interactivity);
+    if let Some(composition) = tree.compose(
+        logical_area,
+        actions,
+        &command_target,
+        state.open_menu,
+        state.open_submenu,
+        measurer,
+    ) {
+        state.open_menu = composition.open_menu();
+        state.open_submenu = composition.open_submenu();
+        state.composition = Some(composition);
         state.clear_stale_focus();
         state.clear_stale_command_target();
         state.update_command_scope_captures(window);
@@ -90,46 +41,18 @@ pub fn compose<T>(
         .with_open_submenu(state.open_submenu)
         .with_pointer_position(state.pointer.position())
         .with_pointer_capture(state.pointer_capture.clone());
-        state.layout = Some(layout.clone());
 
-        tree.paint(&layout, actions, window, interaction, &mut scene);
+        if let Some(composition) = state.composition.as_ref() {
+            composition.paint(actions, window, interaction, &mut scene);
+        }
     } else {
-        state.layout = None;
-        state.focus_order.clear();
+        state.composition = None;
         state.clear_focus();
         state.clear_command_target();
-        state.command_scopes.clear();
         state.command_scope_captures.clear();
-        state.widget_metrics.clear();
     }
 
     scene
-}
-
-fn focus_order(
-    layout: &layout::Box,
-    interactivity: &std::collections::HashMap<ui::Path, ui::Interactivity>,
-) -> Vec<ui::Path> {
-    let mut order = Vec::new();
-    collect_focus_order(layout, interactivity, &mut order);
-    order
-}
-
-fn collect_focus_order(
-    layout: &layout::Box,
-    interactivity: &std::collections::HashMap<ui::Path, ui::Interactivity>,
-    order: &mut Vec<ui::Path>,
-) {
-    if interactivity
-        .get(layout.path())
-        .is_some_and(|interactivity| interactivity.focusable())
-    {
-        order.push(layout.path().clone());
-    }
-
-    for child in layout.children() {
-        collect_focus_order(child, interactivity, order);
-    }
 }
 
 #[cfg(test)]
@@ -186,19 +109,20 @@ mod tests {
             &registry,
             area::logical(100.0, 100.0),
         );
+        let composition = state.composition.as_ref().expect("composition");
 
-        assert!(state.layout.is_some());
+        assert!(state.composition.is_some());
         assert_eq!(
-            state.actions.get(&ui::Path::new([ROOT, CHILD])),
-            Some(&CLICK)
+            composition.action(&ui::Path::new([ROOT, CHILD])),
+            Some(CLICK)
         );
         assert_eq!(
-            state.action_targets.get(&ui::Path::new([ROOT, CHILD])),
-            Some(&ui::ActionTarget::Origin)
+            composition.action_target(&ui::Path::new([ROOT, CHILD])),
+            ui::ActionTarget::Origin
         );
-        assert!(state.responders.is_empty());
-        assert!(state.interactivity.contains_key(&ui::Path::from(ROOT)));
-        assert_eq!(state.focus_order, vec![ui::Path::new([ROOT, CHILD])]);
+        assert!(composition.responder_map().is_empty());
+        assert!(composition.interactivity(&ui::Path::from(ROOT)).is_some());
+        assert_eq!(composition.focus_order(), &[ui::Path::new([ROOT, CHILD])]);
         assert_eq!(scene.items().len(), 2);
     }
 
@@ -285,10 +209,11 @@ mod tests {
             &registry,
             area::logical(100.0, 100.0),
         );
+        let composition = state.composition.as_ref().expect("composition");
 
         assert_eq!(
-            state.responders.get(&ui::Path::new([ROOT, CHILD])),
-            Some(&vec![action::SELECT_ALL])
+            composition.responders(&ui::Path::new([ROOT, CHILD])),
+            Some(&[action::SELECT_ALL][..])
         );
     }
 
@@ -405,15 +330,10 @@ mod tests {
 
         let row = ui::Path::new([ROOT, widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
         let scope = ui::Path::new([ROOT, widget::MENU_POPUP]);
+        let composition = state.composition.as_ref().expect("composition");
+        let layout = composition.layout();
 
-        assert!(
-            state
-                .layout
-                .as_ref()
-                .and_then(|layout| layout.find_path(&scope))
-                .is_some()
-        );
-        let layout = state.layout.as_ref().expect("layout");
+        assert!(layout.find_path(&scope).is_some());
         let popup_rect = layout
             .find_path(&scope)
             .expect("menu popup root layout")
@@ -421,24 +341,22 @@ mod tests {
         let background_hit = layout.hit_test_where(
             point::logical(popup_rect.origin.x() + 1.0, popup_rect.origin.y() + 1.0),
             |path| {
-                state
-                    .interactivity
-                    .get(path)
+                composition
+                    .interactivity(path)
                     .is_some_and(|interactivity| interactivity.hit_test())
             },
         );
 
         assert_eq!(background_hit, Some(scope.clone()));
-        assert!(state.interactivity.get(&scope).is_some_and(
-            |interactivity| interactivity.hit_test()
-                && !interactivity.focusable()
-                && !interactivity.actionable()
-        ));
-        assert_eq!(state.actions.get(&row), Some(&action::SELECT_ALL));
-        assert_eq!(
-            state.action_targets.get(&row),
-            Some(&ui::ActionTarget::Captured)
+        assert!(
+            composition
+                .interactivity(&scope)
+                .is_some_and(|interactivity| interactivity.hit_test()
+                    && !interactivity.focusable()
+                    && !interactivity.actionable())
         );
+        assert_eq!(composition.action(&row), Some(action::SELECT_ALL));
+        assert_eq!(composition.action_target(&row), ui::ActionTarget::Captured);
         assert_eq!(
             state.command_scope_captures.get(&scope),
             Some(&action::Context::path(window, ui::Path::new([ROOT, CHILD])))
@@ -621,15 +539,10 @@ mod tests {
         ]);
         let top_submenu_row =
             ui::Path::new([ROOT, widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
+        let composition = state.composition.as_ref().expect("composition");
 
-        assert!(
-            state
-                .layout
-                .as_ref()
-                .and_then(|layout| layout.find_path(&submenu_popup))
-                .is_some()
-        );
-        assert_eq!(state.actions.get(&submenu_row), Some(&TOGGLE));
+        assert!(composition.layout().find_path(&submenu_popup).is_some());
+        assert_eq!(composition.action(&submenu_row), Some(TOGGLE));
         assert_eq!(
             state.intent(&top_submenu_row),
             Some(ui::Intent::OpenSubmenu(PANELS))

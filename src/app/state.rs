@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::geometry::point;
-use crate::{action, layout, menu, pointer, ui, widget, window};
+use crate::{action, menu, pointer, ui, widget, window};
 
 use super::command;
 
@@ -12,22 +12,13 @@ pub struct WindowState {
     pub pressed: Option<ui::Path>,
     pub pressed_source: Option<PressSource>,
     pub modifiers: ui::Modifiers,
-    pub focus_order: Vec<ui::Path>,
     pub command_subject: Option<action::Scope>,
     pub pointer: pointer::Pointer,
-    pub layout: Option<layout::Box>,
-    pub actions: HashMap<ui::Path, action::Id>,
-    pub action_targets: HashMap<ui::Path, ui::ActionTarget>,
-    pub intents: HashMap<ui::Path, ui::Intent>,
-    pub menus: HashMap<menu::Id, menu::Menu>,
     pub open_menu: Option<menu::Id>,
     pub open_submenu: Option<menu::Id>,
-    pub responders: HashMap<ui::Path, Vec<action::Id>>,
-    pub command_scopes: Vec<ui::Path>,
     pub command_scope_captures: HashMap<ui::Path, action::Context>,
-    pub interactivity: HashMap<ui::Path, ui::Interactivity>,
-    pub widget_metrics: HashMap<ui::Path, widget::Metrics>,
     pub pointer_capture: Option<pointer::Capture>,
+    pub composition: Option<ui::Composition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,20 +36,22 @@ pub enum PressSource {
 
 impl WindowState {
     pub fn hit_test(&self, position: point::Logical) -> Option<ui::Path> {
-        self.layout.as_ref().and_then(|layout| {
+        self.composition.as_ref().and_then(|composition| {
+            let layout = composition.layout();
             layout.hit_test_where(position, |path| {
-                self.interactivity
-                    .get(path)
+                composition
+                    .interactivity(path)
                     .is_some_and(|interactivity| interactivity.hit_test())
             })
         })
     }
 
     pub fn scroll_target(&self, position: point::Logical) -> Option<ui::Path> {
-        self.layout.as_ref().and_then(|layout| {
+        self.composition.as_ref().and_then(|composition| {
+            let layout = composition.layout();
             layout.hit_test_where(position, |path| {
                 matches!(
-                    self.widget_metrics.get(path),
+                    composition.widget_metrics(path),
                     Some(widget::Metrics::Scroll(_))
                 )
             })
@@ -66,8 +59,9 @@ impl WindowState {
     }
 
     pub fn widget_hit(&self, position: point::Logical) -> Option<widget::Hit> {
-        self.widget_metrics
-            .iter()
+        self.composition
+            .as_ref()?
+            .widget_metrics_iter()
             .filter_map(|(path, metrics)| {
                 metrics
                     .hit_test(position)
@@ -77,7 +71,7 @@ impl WindowState {
     }
 
     pub fn scroll_metrics(&self, target: &ui::Path) -> Option<widget::scroll::Metrics> {
-        match self.widget_metrics.get(target).copied()? {
+        match self.composition.as_ref()?.widget_metrics(target)? {
             widget::Metrics::Scroll(metrics) => Some(metrics),
         }
     }
@@ -127,29 +121,37 @@ impl WindowState {
     }
 
     pub fn is_focusable(&self, target: &ui::Path) -> bool {
-        self.interactivity
-            .get(target)
+        self.composition
+            .as_ref()
+            .and_then(|composition| composition.interactivity(target))
             .is_some_and(|interactivity| interactivity.focusable())
     }
 
     pub fn is_actionable(&self, target: &ui::Path) -> bool {
-        self.interactivity
-            .get(target)
+        self.composition
+            .as_ref()
+            .and_then(|composition| composition.interactivity(target))
             .is_some_and(|interactivity| interactivity.actionable())
     }
 
     pub fn action_target(&self, target: &ui::Path) -> ui::ActionTarget {
-        self.action_targets.get(target).copied().unwrap_or_default()
+        self.composition
+            .as_ref()
+            .map_or_else(ui::ActionTarget::default, |composition| {
+                composition.action_target(target)
+            })
     }
 
     pub fn intent(&self, target: &ui::Path) -> Option<ui::Intent> {
-        self.intents.get(target).copied()
+        self.composition
+            .as_ref()
+            .and_then(|composition| composition.intent(target))
     }
 
     pub fn has_responder(&self, target: &ui::Path) -> bool {
-        self.responders
-            .get(target)
-            .is_some_and(|actions| !actions.is_empty())
+        self.composition
+            .as_ref()
+            .is_some_and(|composition| composition.has_responder(target))
     }
 
     pub fn set_hovered(&mut self, target: Option<ui::Path>) -> Vec<ui::Event> {
@@ -247,7 +249,11 @@ impl WindowState {
             return self.close_menu();
         }
 
-        let Some(menu) = self.menus.get(&id) else {
+        let Some(menu) = self
+            .composition
+            .as_ref()
+            .and_then(|composition| composition.menu(id))
+        else {
             return false;
         };
 
@@ -270,7 +276,11 @@ impl WindowState {
             return false;
         }
 
-        let Some(menu) = self.menus.get(&id) else {
+        let Some(menu) = self
+            .composition
+            .as_ref()
+            .and_then(|composition| composition.menu(id))
+        else {
             return false;
         };
 
@@ -458,7 +468,10 @@ pub fn action_request(
         Some(ui::Intent::OpenMenu(_) | ui::Intent::OpenSubmenu(_) | ui::Intent::CloseSubmenu) => {
             return None;
         }
-        None => *state.actions.get(&origin)?,
+        None => state
+            .composition
+            .as_ref()
+            .and_then(|composition| composition.action(&origin))?,
     };
     let context = state.action_context_for_path(window, &origin);
 
@@ -476,6 +489,10 @@ impl WindowState {
         registry: &action::Registry<T>,
         window: window::Id,
     ) -> bool {
+        if self.composition.is_none() {
+            return false;
+        }
+
         menu.actions().any(|action| {
             let request = action::Request::new(
                 action,
@@ -507,6 +524,63 @@ mod tests {
         ui::Path::from(id)
     }
 
+    fn single_box(id: ui::Id) -> crate::layout::Box {
+        crate::layout::Box::new(
+            id,
+            Rect::new(point::logical(0.0, 0.0), area::logical(20.0, 20.0)),
+            Vec::new(),
+        )
+    }
+
+    fn composition(
+        layout: crate::layout::Box,
+        menus: HashMap<menu::Id, menu::Menu>,
+        actions: HashMap<ui::Path, action::Id>,
+        action_targets: HashMap<ui::Path, ui::ActionTarget>,
+        intents: HashMap<ui::Path, ui::Intent>,
+        responders: HashMap<ui::Path, Vec<action::Id>>,
+        interactivity: HashMap<ui::Path, ui::Interactivity>,
+        focus_order: Vec<ui::Path>,
+    ) -> ui::Composition {
+        ui::Composition::for_test(
+            layout,
+            menus,
+            actions,
+            action_targets,
+            intents,
+            responders,
+            Vec::new(),
+            interactivity,
+            HashMap::new(),
+            focus_order,
+        )
+    }
+
+    fn state_with_composition(
+        layout: crate::layout::Box,
+        menus: HashMap<menu::Id, menu::Menu>,
+        actions: HashMap<ui::Path, action::Id>,
+        action_targets: HashMap<ui::Path, ui::ActionTarget>,
+        intents: HashMap<ui::Path, ui::Intent>,
+        responders: HashMap<ui::Path, Vec<action::Id>>,
+        interactivity: HashMap<ui::Path, ui::Interactivity>,
+        focus_order: Vec<ui::Path>,
+    ) -> WindowState {
+        WindowState {
+            composition: Some(composition(
+                layout,
+                menus,
+                actions,
+                action_targets,
+                intents,
+                responders,
+                interactivity,
+                focus_order,
+            )),
+            ..WindowState::default()
+        }
+    }
+
     #[test]
     fn hover_changes_emit_leave_then_enter() {
         let mut state = WindowState {
@@ -529,10 +603,16 @@ mod tests {
 
     #[test]
     fn pointer_down_updates_focused_element() {
-        let mut state = WindowState {
-            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            Vec::new(),
+        );
 
         let event = state.pointer_down(
             point::logical(1.0, 2.0),
@@ -576,10 +656,16 @@ mod tests {
 
     #[test]
     fn programmatic_focus_can_choose_visible_or_hidden_indication() {
-        let mut state = WindowState {
-            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            Vec::new(),
+        );
 
         assert!(state.set_focus(
             path(CHILD),
@@ -614,12 +700,18 @@ mod tests {
 
     #[test]
     fn pointer_capture_routes_release_to_pressed_element() {
-        let mut state = WindowState {
-            pressed: Some(path(CHILD)),
-            pressed_source: Some(PressSource::Pointer),
-            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            Vec::new(),
+        );
+        state.pressed = Some(path(CHILD));
+        state.pressed_source = Some(PressSource::Pointer);
 
         let (event, invoke) = state.pointer_up(
             point::logical(50.0, 50.0),
@@ -642,12 +734,18 @@ mod tests {
 
     #[test]
     fn non_primary_release_does_not_invoke_action() {
-        let mut state = WindowState {
-            pressed: Some(path(CHILD)),
-            pressed_source: Some(PressSource::Pointer),
-            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            Vec::new(),
+        );
+        state.pressed = Some(path(CHILD));
+        state.pressed_source = Some(PressSource::Pointer);
 
         let (_, invoke) = state.pointer_up(
             point::logical(1.0, 1.0),
@@ -680,16 +778,16 @@ mod tests {
     #[test]
     fn pointer_release_over_pressed_action_emits_contextual_request() {
         let window = window::Id::new(1);
-        let mut state = WindowState {
-            layout: Some(layout::Box::new(
-                CHILD,
-                Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
-                Vec::new(),
-            )),
-            actions: HashMap::from([(path(CHILD), CLICK)]),
-            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), CLICK)]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            Vec::new(),
+        );
         let mut registry = action::Registry::<()>::new();
 
         registry.register(Action::new(CLICK, "Click"));
@@ -731,10 +829,16 @@ mod tests {
         let window = window::Id::new(1);
         let context = action::Context::path(window, path(CHILD));
         let mut registry = action::Registry::<()>::new();
-        let state = WindowState {
-            actions: HashMap::from([(path(CHILD), CLICK)]),
-            ..WindowState::default()
-        };
+        let state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), CLICK)]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            Vec::new(),
+        );
 
         registry.register(Action::new(CLICK, "Click"));
         registry.set_state(CLICK, context, action::State::disabled());
@@ -752,12 +856,17 @@ mod tests {
         let menu = menu::Menu::new(FILE, "File")
             .section(menu::Section::new().item(menu::Item::new(action::SELECT_ALL)));
         let mut registry = action::Registry::<()>::new();
-        let mut state = WindowState {
-            menus: HashMap::from([(FILE, menu)]),
-            command_subject: Some(action::Scope::Path(path(CHILD))),
-            responders: HashMap::from([(path(CHILD), vec![action::SELECT_ALL])]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::from([(FILE, menu)]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), vec![action::SELECT_ALL])]),
+            HashMap::new(),
+            Vec::new(),
+        );
+        state.command_subject = Some(action::Scope::Path(path(CHILD)));
 
         registry.register(Action::new(action::SELECT_ALL, "Select All"));
         registry.set_state(
@@ -788,10 +897,16 @@ mod tests {
         let edit_menu = menu::Menu::new(edit, "Edit")
             .section(menu::Section::new().item(menu::Item::new(CLICK)));
         let mut registry = action::Registry::<()>::new();
-        let mut state = WindowState {
-            menus: HashMap::from([(FILE, file_menu), (edit, edit_menu)]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(ROOT),
+            HashMap::from([(FILE, file_menu), (edit, edit_menu)]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            Vec::new(),
+        );
 
         registry.register(Action::new(CLICK, "Click"));
 
@@ -811,10 +926,16 @@ mod tests {
         let submenu = menu::Menu::new(PANELS, "Panels")
             .section(menu::Section::new().item(menu::Item::new(CLICK)));
         let mut registry = action::Registry::<()>::new();
-        let mut state = WindowState {
-            menus: HashMap::from([(PANELS, submenu)]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(ROOT),
+            HashMap::from([(PANELS, submenu)]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            Vec::new(),
+        );
 
         registry.register(Action::new(CLICK, "Click"));
 
@@ -850,11 +971,17 @@ mod tests {
 
     #[test]
     fn menu_pointer_target_does_not_dismiss_open_menu() {
-        let mut state = WindowState {
-            open_menu: Some(FILE),
-            intents: HashMap::from([(path(CHILD), ui::Intent::OpenMenu(FILE))]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), ui::Intent::OpenMenu(FILE))]),
+            HashMap::new(),
+            HashMap::new(),
+            Vec::new(),
+        );
+        state.open_menu = Some(FILE);
 
         assert!(!state.dismiss_menu_for_target(Some(&path(CHILD))));
         assert_eq!(state.open_menu, Some(FILE));
@@ -881,10 +1008,16 @@ mod tests {
         let window = window::Id::new(1);
         let context = action::Context::path(window, path(CHILD));
         let mut registry = action::Registry::<()>::new();
-        let state = WindowState {
-            actions: HashMap::from([(path(CHILD), CLICK)]),
-            ..WindowState::default()
-        };
+        let state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), CLICK)]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            Vec::new(),
+        );
 
         registry.register(Action::new(CLICK, "Click"));
         registry.set_busy(CLICK, context, true);
@@ -899,16 +1032,22 @@ mod tests {
     #[test]
     fn command_target_survives_focus_changes() {
         let window = window::Id::new(1);
-        let mut state = WindowState {
-            command_subject: Some(action::Scope::Path(path(CHILD))),
-            focus: Some(Focus::new(
-                path(ROOT),
-                ui::focus::Reason::Keyboard,
-                ui::focus::Visibility::Visible,
-            )),
-            interactivity: HashMap::from([(path(OUTSIDE), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(OUTSIDE),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(OUTSIDE), ui::Interactivity::CONTROL)]),
+            Vec::new(),
+        );
+        state.command_subject = Some(action::Scope::Path(path(CHILD)));
+        state.focus = Some(Focus::new(
+            path(ROOT),
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible,
+        ));
 
         assert!(state.set_focus(
             path(OUTSIDE),
@@ -924,12 +1063,17 @@ mod tests {
     #[test]
     fn transient_focus_does_not_replace_command_subject() {
         let window = window::Id::new(1);
-        let mut state = WindowState {
-            command_subject: Some(action::Scope::Path(path(CHILD))),
-            interactivity: HashMap::from([(path(OUTSIDE), ui::Interactivity::CONTROL)]),
-            responders: HashMap::from([(path(CHILD), vec![CLICK])]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(OUTSIDE),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), vec![CLICK])]),
+            HashMap::from([(path(OUTSIDE), ui::Interactivity::CONTROL)]),
+            Vec::new(),
+        );
+        state.command_subject = Some(action::Scope::Path(path(CHILD)));
 
         assert!(state.set_focus(
             path(OUTSIDE),
@@ -945,12 +1089,17 @@ mod tests {
     #[test]
     fn responder_focus_replaces_command_subject() {
         let window = window::Id::new(1);
-        let mut state = WindowState {
-            command_subject: Some(action::Scope::Path(path(ROOT))),
-            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
-            responders: HashMap::from([(path(ROOT), vec![CLICK]), (path(CHILD), vec![CLICK])]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(ROOT), vec![CLICK]), (path(CHILD), vec![CLICK])]),
+            HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            Vec::new(),
+        );
+        state.command_subject = Some(action::Scope::Path(path(ROOT)));
 
         assert!(state.set_focus(
             path(CHILD),
@@ -966,11 +1115,16 @@ mod tests {
     #[test]
     fn focused_responder_automatically_becomes_command_subject() {
         let window = window::Id::new(1);
-        let mut state = WindowState {
-            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
-            responders: HashMap::from([(path(CHILD), vec![CLICK])]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), vec![CLICK])]),
+            HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            Vec::new(),
+        );
 
         assert!(state.set_focus(
             path(CHILD),
@@ -986,16 +1140,21 @@ mod tests {
     #[test]
     fn refocusing_same_responder_restores_cleared_command_subject() {
         let window = window::Id::new(1);
-        let mut state = WindowState {
-            focus: Some(Focus::new(
-                path(CHILD),
-                ui::focus::Reason::Keyboard,
-                ui::focus::Visibility::Visible,
-            )),
-            interactivity: HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
-            responders: HashMap::from([(path(CHILD), vec![CLICK])]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), vec![CLICK])]),
+            HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
+            Vec::new(),
+        );
+        state.focus = Some(Focus::new(
+            path(CHILD),
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible,
+        ));
 
         assert_eq!(state.command_subject, None);
         assert!(state.set_focus(
@@ -1012,16 +1171,22 @@ mod tests {
     #[test]
     fn command_subject_falls_back_to_focus_then_window() {
         let window = window::Id::new(1);
-        let mut state = WindowState {
-            hovered: Some(path(ROOT)),
-            focus: Some(Focus::new(
-                path(CHILD),
-                ui::focus::Reason::Keyboard,
-                ui::focus::Visibility::Visible,
-            )),
-            responders: HashMap::from([(path(ROOT), vec![CLICK]), (path(CHILD), vec![CLICK])]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(ROOT), vec![CLICK]), (path(CHILD), vec![CLICK])]),
+            HashMap::new(),
+            Vec::new(),
+        );
+        state.hovered = Some(path(ROOT));
+        state.focus = Some(Focus::new(
+            path(CHILD),
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible,
+        ));
 
         assert_eq!(
             state.command_context(window),
@@ -1038,11 +1203,17 @@ mod tests {
     #[test]
     fn hover_alone_does_not_become_command_subject() {
         let window = window::Id::new(1);
-        let state = WindowState {
-            hovered: Some(path(ROOT)),
-            responders: HashMap::from([(path(ROOT), vec![CLICK])]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(ROOT),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(ROOT), vec![CLICK])]),
+            HashMap::new(),
+            Vec::new(),
+        );
+        state.hovered = Some(path(ROOT));
 
         assert_eq!(
             state.command_context(window),
@@ -1053,11 +1224,17 @@ mod tests {
     #[test]
     fn stale_command_target_is_cleared_when_path_disappears() {
         let window = window::Id::new(1);
-        let mut state = WindowState {
-            command_subject: Some(action::Scope::Path(path(CHILD))),
-            interactivity: HashMap::from([(path(ROOT), ui::Interactivity::CONTROL)]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(ROOT),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(ROOT), ui::Interactivity::CONTROL)]),
+            Vec::new(),
+        );
+        state.command_subject = Some(action::Scope::Path(path(CHILD)));
 
         assert!(state.clear_stale_command_target());
         assert_eq!(state.command_subject, None);
@@ -1070,12 +1247,17 @@ mod tests {
     #[test]
     fn command_target_policy_resolves_stored_target() {
         let window = window::Id::new(1);
-        let state = WindowState {
-            command_subject: Some(action::Scope::Path(path(CHILD))),
-            actions: HashMap::from([(path(ROOT), CLICK)]),
-            action_targets: HashMap::from([(path(ROOT), ui::ActionTarget::Command)]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(ROOT),
+            HashMap::new(),
+            HashMap::from([(path(ROOT), CLICK)]),
+            HashMap::from([(path(ROOT), ui::ActionTarget::Command)]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            Vec::new(),
+        );
+        state.command_subject = Some(action::Scope::Path(path(CHILD)));
 
         let request = action_request(&state, window, path(ROOT), action::Source::Pointer)
             .expect("command-target action should produce request");
@@ -1090,11 +1272,16 @@ mod tests {
     #[test]
     fn command_target_policy_resolves_window_without_subject() {
         let window = window::Id::new(1);
-        let state = WindowState {
-            actions: HashMap::from([(path(ROOT), CLICK)]),
-            action_targets: HashMap::from([(path(ROOT), ui::ActionTarget::Command)]),
-            ..WindowState::default()
-        };
+        let state = state_with_composition(
+            single_box(ROOT),
+            HashMap::new(),
+            HashMap::from([(path(ROOT), CLICK)]),
+            HashMap::from([(path(ROOT), ui::ActionTarget::Command)]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            Vec::new(),
+        );
 
         let request = action_request(&state, window, path(ROOT), action::Source::Pointer)
             .expect("command-target action should produce request");
@@ -1105,12 +1292,17 @@ mod tests {
     #[test]
     fn window_target_policy_resolves_window_context() {
         let window = window::Id::new(1);
-        let state = WindowState {
-            command_subject: Some(action::Scope::Path(path(CHILD))),
-            actions: HashMap::from([(path(ROOT), CLICK)]),
-            action_targets: HashMap::from([(path(ROOT), ui::ActionTarget::Window)]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(ROOT),
+            HashMap::new(),
+            HashMap::from([(path(ROOT), CLICK)]),
+            HashMap::from([(path(ROOT), ui::ActionTarget::Window)]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            Vec::new(),
+        );
+        state.command_subject = Some(action::Scope::Path(path(CHILD)));
 
         let request = action_request(&state, window, path(ROOT), action::Source::Pointer)
             .expect("window-target action should produce request");
@@ -1125,15 +1317,19 @@ mod tests {
         let scope = path(ROOT);
         let origin = ui::Path::new([ROOT, CHILD]);
         let subject = path(OUTSIDE);
-        let state = WindowState {
-            actions: HashMap::from([(origin.clone(), CLICK)]),
-            action_targets: HashMap::from([(origin.clone(), ui::ActionTarget::Captured)]),
-            command_scope_captures: HashMap::from([(
-                scope,
-                action::Context::path(window, subject.clone()),
-            )]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(ROOT),
+            HashMap::new(),
+            HashMap::from([(origin.clone(), CLICK)]),
+            HashMap::from([(origin.clone(), ui::ActionTarget::Captured)]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            Vec::new(),
+        );
+        state
+            .command_scope_captures
+            .insert(scope, action::Context::path(window, subject.clone()));
 
         let request = action_request(&state, window, origin, action::Source::Pointer)
             .expect("captured-target action should produce request");
@@ -1146,13 +1342,16 @@ mod tests {
         let window = window::Id::new(1);
         let local = ui::Path::new([ROOT, CHILD]);
         let button = ui::Path::new([ROOT, OUTSIDE]);
-        let mut state = WindowState {
-            interactivity: HashMap::from([(local.clone(), ui::Interactivity::CONTROL)]),
-            responders: HashMap::from([(local.clone(), vec![CLICK])]),
-            actions: HashMap::from([(button.clone(), CLICK)]),
-            action_targets: HashMap::from([(button.clone(), ui::ActionTarget::Command)]),
-            ..WindowState::default()
-        };
+        let mut state = state_with_composition(
+            single_box(ROOT),
+            HashMap::new(),
+            HashMap::from([(button.clone(), CLICK)]),
+            HashMap::from([(button.clone(), ui::ActionTarget::Command)]),
+            HashMap::new(),
+            HashMap::from([(local.clone(), vec![CLICK])]),
+            HashMap::from([(local.clone(), ui::Interactivity::CONTROL)]),
+            Vec::new(),
+        );
 
         assert!(state.set_focus(
             local.clone(),
@@ -1171,10 +1370,16 @@ mod tests {
         let root = path(ROOT);
         let child = ui::Path::new([ROOT, CHILD]);
         let outside = ui::Path::new([ROOT, CHILD, OUTSIDE]);
-        let state = WindowState {
-            responders: HashMap::from([(root.clone(), vec![CLICK]), (child.clone(), vec![CLICK])]),
-            ..WindowState::default()
-        };
+        let state = state_with_composition(
+            single_box(ROOT),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(root.clone(), vec![CLICK]), (child.clone(), vec![CLICK])]),
+            HashMap::new(),
+            Vec::new(),
+        );
         let request = action::Request::new(
             CLICK,
             action::Source::Shortcut,
@@ -1190,10 +1395,16 @@ mod tests {
     #[test]
     fn responder_resolution_falls_back_to_window_without_handler() {
         let window = window::Id::new(1);
-        let state = WindowState {
-            responders: HashMap::from([(path(ROOT), vec![action::COPY])]),
-            ..WindowState::default()
-        };
+        let state = state_with_composition(
+            single_box(ROOT),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(ROOT), vec![action::COPY])]),
+            HashMap::new(),
+            Vec::new(),
+        );
         let request = action::Request::new(
             CLICK,
             action::Source::Shortcut,
@@ -1209,11 +1420,16 @@ mod tests {
     #[test]
     fn origin_bound_action_resolves_to_itself() {
         let window = window::Id::new(1);
-        let state = WindowState {
-            actions: HashMap::from([(path(CHILD), CLICK)]),
-            action_targets: HashMap::from([(path(CHILD), ui::ActionTarget::Origin)]),
-            ..WindowState::default()
-        };
+        let state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), CLICK)]),
+            HashMap::from([(path(CHILD), ui::ActionTarget::Origin)]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            Vec::new(),
+        );
         let request = action::Request::new(
             CLICK,
             action::Source::Pointer,
@@ -1231,10 +1447,16 @@ mod tests {
     fn disabled_responder_target_blocks_invocation_after_resolution() {
         let window = window::Id::new(1);
         let mut registry = action::Registry::<()>::new();
-        let state = WindowState {
-            responders: HashMap::from([(path(CHILD), vec![action::SELECT_ALL])]),
-            ..WindowState::default()
-        };
+        let state = state_with_composition(
+            single_box(CHILD),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(path(CHILD), vec![action::SELECT_ALL])]),
+            HashMap::new(),
+            Vec::new(),
+        );
         let request = action::Request::new(
             action::SELECT_ALL,
             action::Source::Shortcut,
