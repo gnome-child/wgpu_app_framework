@@ -165,20 +165,10 @@ impl app::Application for App {
         cx.action(window, action::SELECT_ALL)
             .enabled(false)
             .active(false);
-        cx.set_action_state(
-            action::SELECT_ALL,
-            action::Context::path(window, document_path()),
-            action::State::new(self.workspace_ready, false),
-        );
-        cx.set_action_state(
-            action::SELECT_ALL,
-            action::Context::path(window, local_field_path()),
-            action::State::new(self.workspace_ready, false),
-        );
 
         let theme = Theme::default_dark();
         let density = theme.density();
-        let command_subject = cx.command_target(window);
+        let command_subject = cx.command_subject(window);
         let subject_name = context_name(&command_subject);
         let focused_name = cx
             .focused(window)
@@ -231,7 +221,9 @@ impl app::Application for App {
                     .with_hit_test(true)
                     .with_focusable(true),
             )
-            .with_responder(action::SELECT_ALL)
+            .with_responder_binding(
+                action::Binding::new(action::SELECT_ALL).enabled(self.workspace_ready),
+            )
             .with_label(label(document_label, &theme));
         if document_is_subject {
             document_panel = document_panel.with_stroke(subject_stroke(&theme));
@@ -270,7 +262,9 @@ impl app::Application for App {
                     .with_hit_test(true)
                     .with_focusable(true),
             )
-            .with_responder(action::SELECT_ALL)
+            .with_responder_binding(
+                action::Binding::new(action::SELECT_ALL).enabled(self.workspace_ready),
+            )
             .with_label(label(
                 if local_is_subject {
                     "Local responder | current subject"

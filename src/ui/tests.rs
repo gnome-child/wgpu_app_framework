@@ -1000,6 +1000,21 @@ fn node_with_responder_stores_handled_action() {
     let node = Node::leaf(A).with_responder(action::SELECT_ALL);
 
     assert_eq!(node.responders(), &[action::SELECT_ALL]);
+    assert_eq!(
+        node.responder_bindings(),
+        &[action::Binding::new(action::SELECT_ALL)]
+    );
+}
+
+#[test]
+fn node_with_responder_binding_stores_projected_state() {
+    let binding = action::Binding::new(action::SELECT_ALL)
+        .enabled(false)
+        .busy(true);
+    let node = Node::leaf(A).with_responder_binding(binding);
+
+    assert_eq!(node.responders(), &[action::SELECT_ALL]);
+    assert_eq!(node.responder_bindings(), &[binding]);
 }
 
 #[test]
@@ -1027,6 +1042,21 @@ fn tree_collects_responder_actions_by_path() {
     assert_eq!(
         tree.responders().get(&Path::new([ROOT, A])),
         Some(&vec![action::SELECT_ALL])
+    );
+}
+
+#[test]
+fn tree_collects_responder_bindings_by_path() {
+    let binding = action::Binding::new(action::SELECT_ALL).enabled(false);
+    let root = Node::container(ROOT, layout::Axis::Vertical)
+        .with_child(Node::leaf(A).with_responder_binding(binding));
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+
+    assert_eq!(
+        tree.responder_bindings().get(&Path::new([ROOT, A])),
+        Some(&vec![binding])
     );
 }
 

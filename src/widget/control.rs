@@ -62,9 +62,7 @@ pub fn button(id: ui::Id, action: action::Id) -> ui::Node {
 }
 
 pub fn button_with_theme(id: ui::Id, action: action::Id, theme: &theme::Theme) -> ui::Node {
-    panel_with_theme(id, theme)
-        .with_action(action)
-        .with_interactivity(ui::Interactivity::CONTROL)
+    actionable(panel_with_theme(id, theme), action)
         .with_background(theme.control().background())
         .with_stroke(theme.control().stroke())
         .with_rounding(theme.roundings().control())
@@ -72,6 +70,11 @@ pub fn button_with_theme(id: ui::Id, action: action::Id, theme: &theme::Theme) -
             layout::Size::Fill,
             layout::Size::Fixed(theme.density().control_height()),
         )
+}
+
+fn actionable(node: ui::Node, action: action::Id) -> ui::Node {
+    node.with_action(action)
+        .with_interactivity(ui::Interactivity::CONTROL)
 }
 
 pub fn labeled_button(id: ui::Id, action: action::Id, label: impl Into<String>) -> ui::Node {

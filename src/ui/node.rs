@@ -15,6 +15,7 @@ pub struct Node {
     action: Option<action::Id>,
     action_target: ActionTarget,
     responders: Vec<action::Id>,
+    responder_bindings: Vec<action::Binding>,
     command_scope: bool,
     label: Option<text::Document>,
     icon: Option<icon::Icon>,
@@ -123,6 +124,7 @@ impl Node {
             action: None,
             action_target: ActionTarget::default(),
             responders: Vec::new(),
+            responder_bindings: Vec::new(),
             command_scope: false,
             label: None,
             icon: None,
@@ -172,6 +174,10 @@ impl Node {
 
     pub fn responders(&self) -> &[action::Id] {
         &self.responders
+    }
+
+    pub fn responder_bindings(&self) -> &[action::Binding] {
+        &self.responder_bindings
     }
 
     pub fn is_command_scope(&self) -> bool {
@@ -421,7 +427,12 @@ impl Node {
     }
 
     pub fn with_responder(mut self, action: action::Id) -> Self {
-        self.responders.push(action);
+        self.push_responder_binding(action::Binding::new(action));
+        self
+    }
+
+    pub fn with_responder_binding(mut self, binding: action::Binding) -> Self {
+        self.push_responder_binding(binding);
         self
     }
 
@@ -462,6 +473,25 @@ impl Node {
     pub fn with_child(mut self, child: Node) -> Self {
         self.push_child(child);
         self
+    }
+
+    fn push_responder_binding(&mut self, binding: action::Binding) {
+        let action = binding.action();
+
+        if !self.responders.contains(&action) {
+            self.responders.push(action);
+        }
+
+        if let Some(existing) = self
+            .responder_bindings
+            .iter_mut()
+            .find(|existing| existing.action() == action)
+        {
+            *existing = binding;
+            return;
+        }
+
+        self.responder_bindings.push(binding);
     }
 }
 

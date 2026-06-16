@@ -6,7 +6,7 @@ pub fn compose<T>(
     window: window::Id,
     tree: &ui::Tree,
     state: &mut WindowState,
-    actions: &action::Registry<T>,
+    actions: &mut action::Registry<T>,
     measurer: &mut text::Measurer,
     logical_area: area::Logical,
 ) -> paint::Scene {
@@ -14,6 +14,7 @@ pub fn compose<T>(
     let command_target = state.command_context(window);
 
     if let Some(composition) = tree.compose(
+        window,
         logical_area,
         actions,
         &command_target,
@@ -78,7 +79,7 @@ mod tests {
         window: window::Id,
         tree: &ui::Tree,
         state: &mut WindowState,
-        actions: &action::Registry<T>,
+        actions: &mut action::Registry<T>,
         logical_area: area::Logical,
     ) -> paint::Scene {
         let mut measurer = text::Measurer::new();
@@ -107,7 +108,7 @@ mod tests {
             window,
             &tree,
             &mut state,
-            &registry,
+            &mut registry,
             area::logical(100.0, 100.0),
         );
         let composition = state.composition.as_ref().expect("composition");
@@ -138,7 +139,7 @@ mod tests {
             )),
             ..WindowState::default()
         };
-        let registry = action::Registry::<()>::new();
+        let mut registry = action::Registry::<()>::new();
         let mut tree = ui::Tree::new();
 
         tree.set_root(
@@ -153,7 +154,7 @@ mod tests {
             window,
             &tree,
             &mut state,
-            &registry,
+            &mut registry,
             area::logical(100.0, 100.0),
         );
 
@@ -167,7 +168,7 @@ mod tests {
             command_subject: Some(action::Scope::Path(ui::Path::new([ROOT, CHILD]))),
             ..WindowState::default()
         };
-        let registry = action::Registry::<()>::new();
+        let mut registry = action::Registry::<()>::new();
         let mut tree = ui::Tree::new();
 
         tree.set_root(
@@ -181,7 +182,7 @@ mod tests {
             window,
             &tree,
             &mut state,
-            &registry,
+            &mut registry,
             area::logical(100.0, 100.0),
         );
 
@@ -192,7 +193,7 @@ mod tests {
     fn compose_stores_responder_paths() {
         let window = window::Id::new(1);
         let mut state = WindowState::default();
-        let registry = action::Registry::<()>::new();
+        let mut registry = action::Registry::<()>::new();
         let mut tree = ui::Tree::new();
 
         tree.set_root(
@@ -207,7 +208,7 @@ mod tests {
             window,
             &tree,
             &mut state,
-            &registry,
+            &mut registry,
             area::logical(100.0, 100.0),
         );
         let composition = state.composition.as_ref().expect("composition");
@@ -215,6 +216,47 @@ mod tests {
         assert_eq!(
             composition.responders(&ui::Path::new([ROOT, CHILD])),
             Some(&[action::SELECT_ALL][..])
+        );
+    }
+
+    #[test]
+    fn compose_publishes_responder_binding_state() {
+        let window = window::Id::new(1);
+        let mut state = WindowState::default();
+        let mut registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+        let path = ui::Path::new([ROOT, CHILD]);
+        let binding = action::Binding::new(action::SELECT_ALL)
+            .enabled(false)
+            .active(true)
+            .busy(true);
+
+        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        tree.set_root(
+            widget::panel(ROOT).with_child(
+                ui::Node::leaf(CHILD)
+                    .with_responder_binding(binding)
+                    .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
+            ),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(100.0, 100.0),
+        );
+        let composition = state.composition.as_ref().expect("composition");
+
+        assert_eq!(
+            composition.responders(&path),
+            Some(&[action::SELECT_ALL][..])
+        );
+        assert_eq!(composition.responder_bindings(&path), Some(&[binding][..]));
+        assert_eq!(
+            registry.configured_state(action::SELECT_ALL, action::Context::path(window, path)),
+            binding.state().expect("projected binding state")
         );
     }
 
@@ -227,7 +269,7 @@ mod tests {
             command_subject: Some(action::Scope::Path(subject.clone())),
             ..WindowState::default()
         };
-        let registry = action::Registry::<()>::new();
+        let mut registry = action::Registry::<()>::new();
         let mut tree = ui::Tree::new();
 
         tree.set_root(
@@ -248,7 +290,7 @@ mod tests {
             window,
             &tree,
             &mut state,
-            &registry,
+            &mut registry,
             area::logical(100.0, 100.0),
         );
 
@@ -270,7 +312,7 @@ mod tests {
             )]),
             ..WindowState::default()
         };
-        let registry = action::Registry::<()>::new();
+        let mut registry = action::Registry::<()>::new();
         let mut tree = ui::Tree::new();
 
         tree.set_root(widget::panel(ROOT));
@@ -279,7 +321,7 @@ mod tests {
             window,
             &tree,
             &mut state,
-            &registry,
+            &mut registry,
             area::logical(100.0, 100.0),
         );
 
@@ -324,7 +366,7 @@ mod tests {
             window,
             &tree,
             &mut state,
-            &registry,
+            &mut registry,
             area::logical(300.0, 180.0),
         );
         let theme = crate::theme::Theme::default_dark();
@@ -428,7 +470,7 @@ mod tests {
             window,
             &tree,
             &mut state,
-            &registry,
+            &mut registry,
             area::logical(300.0, 180.0),
         );
         let theme = crate::theme::Theme::default_dark();
@@ -476,7 +518,7 @@ mod tests {
             window,
             &tree,
             &mut state,
-            &registry,
+            &mut registry,
             area::logical(300.0, 180.0),
         );
 
@@ -528,7 +570,7 @@ mod tests {
             window,
             &tree,
             &mut state,
-            &registry,
+            &mut registry,
             area::logical(360.0, 220.0),
         );
 

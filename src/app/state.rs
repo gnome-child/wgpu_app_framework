@@ -402,14 +402,26 @@ impl WindowState {
     }
 
     pub fn set_command_target(&mut self, context: action::Context) -> bool {
+        self.set_command_subject(context)
+    }
+
+    pub fn set_command_subject(&mut self, context: action::Context) -> bool {
         command::set_subject(self, context)
     }
 
     pub fn clear_command_target(&mut self) -> bool {
+        self.clear_command_subject()
+    }
+
+    pub fn clear_command_subject(&mut self) -> bool {
         command::clear_subject(self)
     }
 
     pub fn clear_stale_command_target(&mut self) -> bool {
+        self.clear_stale_command_subject()
+    }
+
+    pub fn clear_stale_command_subject(&mut self) -> bool {
         command::clear_stale_subject(self)
     }
 
@@ -1058,6 +1070,22 @@ mod tests {
         assert_eq!(
             state.command_context(window),
             action::Context::path(window, path(CHILD))
+        );
+    }
+
+    #[test]
+    fn command_subject_aliases_match_command_target_behavior() {
+        let window = window::Id::new(1);
+        let subject = action::Context::path(window, path(CHILD));
+        let mut state = WindowState::default();
+
+        assert!(state.set_command_subject(subject.clone()));
+        assert_eq!(state.command_context(window), subject);
+        assert!(!state.set_command_target(action::Context::path(window, path(CHILD))));
+        assert!(state.clear_command_subject());
+        assert_eq!(
+            state.command_context(window),
+            action::Context::window(window)
         );
     }
 

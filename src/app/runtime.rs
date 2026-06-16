@@ -176,7 +176,7 @@ impl<A: Application> Runtime<A> {
             window,
             &tree,
             state,
-            &self.actions,
+            &mut self.actions,
             &mut self.text_measurer,
             logical_area,
         );

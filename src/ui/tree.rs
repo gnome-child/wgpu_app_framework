@@ -25,6 +25,7 @@ pub struct Composition {
     action_targets: HashMap<Path, ActionTarget>,
     intents: HashMap<Path, Intent>,
     responders: HashMap<Path, Vec<action::Id>>,
+    responder_bindings: HashMap<Path, Vec<action::Binding>>,
     command_scopes: Vec<Path>,
     interactivity: HashMap<Path, Interactivity>,
     widget_metrics: HashMap<Path, widget::Metrics>,
@@ -90,8 +91,9 @@ impl Tree {
 
     pub fn compose<T>(
         &self,
+        window: window::Id,
         area: area::Logical,
-        actions: &action::Registry<T>,
+        actions: &mut action::Registry<T>,
         command_target: &action::Context,
         open_menu: Option<menu::Id>,
         open_submenu: Option<menu::Id>,
@@ -102,6 +104,8 @@ impl Tree {
         let open_menu = open_menu.filter(|menu| menus.contains_key(menu));
         let open_submenu =
             open_submenu.filter(|menu| open_menu.is_some() && menus.contains_key(menu));
+
+        tree.publish_responder_binding_states(actions, window);
 
         let mut menu_popup_inserted = false;
         if let Some(open_menu) = open_menu
@@ -124,6 +128,7 @@ impl Tree {
             tree.push_popup(popup);
         }
 
+        tree.publish_responder_binding_states(actions, window);
         let layout = tree.layout(area, measurer)?;
 
         Some(Composition::new(
@@ -177,6 +182,10 @@ impl Tree {
         self.index().responders
     }
 
+    pub fn responder_bindings(&self) -> HashMap<Path, Vec<action::Binding>> {
+        self.index().responder_bindings
+    }
+
     pub fn command_scopes(&self) -> Vec<Path> {
         self.index().command_scopes
     }
@@ -225,6 +234,30 @@ impl Tree {
                 }
             }
         }
+    }
+
+    fn publish_responder_binding_states<T>(
+        &self,
+        actions: &mut action::Registry<T>,
+        window: window::Id,
+    ) -> bool {
+        let mut changed = false;
+
+        for (path, bindings) in self.responder_bindings() {
+            for binding in bindings {
+                let Some(state) = binding.state() else {
+                    continue;
+                };
+
+                changed |= actions.set_state(
+                    binding.action(),
+                    action::Context::path(window, path.clone()),
+                    state,
+                );
+            }
+        }
+
+        changed
     }
 }
 
@@ -279,6 +312,7 @@ impl Composition {
             action_targets: index.action_targets,
             intents: index.intents,
             responders: index.responders,
+            responder_bindings: index.responder_bindings,
             command_scopes: index.command_scopes,
             interactivity: index.interactivity,
             widget_metrics,
@@ -338,6 +372,14 @@ impl Composition {
         &self.responders
     }
 
+    pub fn responder_bindings(&self, path: &Path) -> Option<&[action::Binding]> {
+        self.responder_bindings.get(path).map(Vec::as_slice)
+    }
+
+    pub fn responder_binding_map(&self) -> &HashMap<Path, Vec<action::Binding>> {
+        &self.responder_bindings
+    }
+
     pub fn has_responder(&self, path: &Path) -> bool {
         self.responders
             .get(path)
@@ -392,6 +434,20 @@ impl Composition {
         widget_metrics: HashMap<Path, widget::Metrics>,
         focus_order: Vec<Path>,
     ) -> Self {
+        let responder_bindings = responders
+            .iter()
+            .map(|(path, responders)| {
+                (
+                    path.clone(),
+                    responders
+                        .iter()
+                        .copied()
+                        .map(action::Binding::new)
+                        .collect(),
+                )
+            })
+            .collect();
+
         Self {
             tree: Tree::new(),
             layout,
@@ -402,6 +458,7 @@ impl Composition {
             action_targets,
             intents,
             responders,
+            responder_bindings,
             command_scopes,
             interactivity,
             widget_metrics,
@@ -416,6 +473,7 @@ struct TreeIndex {
     action_targets: HashMap<Path, ActionTarget>,
     intents: HashMap<Path, Intent>,
     responders: HashMap<Path, Vec<action::Id>>,
+    responder_bindings: HashMap<Path, Vec<action::Binding>>,
     command_scopes: Vec<Path>,
     interactivity: HashMap<Path, Interactivity>,
 }
@@ -435,6 +493,11 @@ impl TreeIndex {
         if !node.responders().is_empty() {
             self.responders
                 .insert(path.clone(), node.responders().to_vec());
+        }
+
+        if !node.responder_bindings().is_empty() {
+            self.responder_bindings
+                .insert(path.clone(), node.responder_bindings().to_vec());
         }
 
         if node.is_command_scope() {

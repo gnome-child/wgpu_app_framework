@@ -171,6 +171,21 @@ fn state_accessors_expose_enabled_active_and_busy_flags() {
 }
 
 #[test]
+fn binding_projects_optional_action_state() {
+    let binding = Binding::new(SELECT_ALL);
+
+    assert_eq!(binding.action(), SELECT_ALL);
+    assert_eq!(binding.state(), None);
+
+    let binding = binding.enabled(false).active(true).busy(true);
+    let state = binding.state().expect("binding should project state");
+
+    assert!(!state.is_enabled());
+    assert!(state.is_active());
+    assert!(state.is_busy());
+}
+
+#[test]
 fn action_stores_shortcut_bindings() {
     let shortcut = Shortcut::control('A');
     let action = Action::<()>::new(SELECT_ALL, "Select All").with_shortcut(shortcut);
