@@ -89,7 +89,6 @@ pub struct Menu {
     row_background: paint::Brush,
     row_hover_tint: paint::Brush,
     row_pressed_tint: paint::Brush,
-    row_disabled_tint: paint::Brush,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -238,7 +237,6 @@ impl Theme {
                 row_background: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.0)),
                 row_hover_tint: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.09)),
                 row_pressed_tint: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.17)),
-                row_disabled_tint: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.30)),
             },
             floating_panel: FloatingPanel {
                 backdrop_fill: paint::Brush::linear_gradient(
@@ -524,10 +522,6 @@ impl Menu {
 
     pub fn row_pressed_tint(self) -> paint::Brush {
         self.row_pressed_tint
-    }
-
-    pub fn row_disabled_tint(self) -> paint::Brush {
-        self.row_disabled_tint
     }
 }
 

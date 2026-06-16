@@ -523,16 +523,28 @@ fn content_size(node: &ui::Node, layout: &ui::Frame, viewport: Rect) -> area::Lo
     let mut width = viewport.area.width();
     let mut height = viewport.area.height();
 
-    for child in layout.children() {
-        width = width.max(
-            child.rect().origin.x() + child.rect().area.width() - viewport.origin.x() + offset.x(),
-        );
-        height = height.max(
-            child.rect().origin.y() + child.rect().area.height() - viewport.origin.y() + offset.y(),
-        );
-    }
+    extend_content_size(layout.children(), viewport, offset, &mut width, &mut height);
 
     area::logical(width.max(0.0), height.max(0.0))
+}
+
+fn extend_content_size(
+    children: &[ui::Frame],
+    viewport: Rect,
+    offset: point::Logical,
+    width: &mut f32,
+    height: &mut f32,
+) {
+    for child in children {
+        *width = width.max(
+            child.rect().origin.x() + child.rect().area.width() - viewport.origin.x() + offset.x(),
+        );
+        *height = height.max(
+            child.rect().origin.y() + child.rect().area.height() - viewport.origin.y() + offset.y(),
+        );
+
+        extend_content_size(child.children(), viewport, offset, width, height);
+    }
 }
 
 fn vertical_track(node: &ui::Node, rect: Rect) -> Option<Rect> {

@@ -9,6 +9,10 @@ const ROOT: Id = Id::new("root");
 const A: Id = Id::new("a");
 const B: Id = Id::new("b");
 const C: Id = Id::new("c");
+const D: Id = Id::new("d");
+const E: Id = Id::new("e");
+const F: Id = Id::new("f");
+const G: Id = Id::new("g");
 const CLICK: action::Id = action::Id::new("click");
 
 fn layout(tree: &Tree) -> Frame {
@@ -418,6 +422,43 @@ fn scrollbar_thumb_size_and_position_derive_from_metrics() {
     assert_eq!(metrics.max_offset(), point::logical(0.0, 50.0));
     assert_eq!(thumb.area.height(), 18.0);
     assert_eq!(thumb.origin.y(), 11.0);
+}
+
+#[test]
+fn scroll_metrics_include_nested_descendant_overflow() {
+    let wide_row = Node::container(B, layout::Axis::Horizontal)
+        .with_size(layout::Size::Fill, layout::Size::Fixed(32.0))
+        .with_child(Node::leaf(D).with_size(layout::Size::Fixed(80.0), layout::Size::Fill))
+        .with_child(Node::leaf(E).with_size(layout::Size::Fixed(80.0), layout::Size::Fill));
+    let middle_row = Node::container(C, layout::Axis::Horizontal)
+        .with_size(layout::Size::Fill, layout::Size::Fixed(32.0))
+        .with_child(Node::leaf(F).with_size(layout::Size::Fixed(80.0), layout::Size::Fill))
+        .with_child(Node::leaf(G).with_size(layout::Size::Fixed(80.0), layout::Size::Fill));
+    let content = Node::container(A, layout::Axis::Vertical)
+        .with_size(layout::Size::Fill, layout::Size::Fill)
+        .with_child(wide_row)
+        .with_child(middle_row)
+        .with_child(
+            Node::leaf(Id::new("nested_tail"))
+                .with_size(layout::Size::Fill, layout::Size::Fixed(32.0)),
+        );
+    let root = widget::scroll_view(ROOT)
+        .with_scroll_bars(widget::scroll::Bars::both())
+        .with_child(content);
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+    let layout = layout_area(&tree, area::logical(100.0, 80.0));
+    let widget_metrics = tree.widget_metrics(&layout);
+    let metrics = widget_metrics
+        .get(&path(ROOT))
+        .and_then(|metrics| metrics.scroll())
+        .expect("scroll metrics");
+
+    assert!(metrics.content_size().width() > metrics.viewport().area.width());
+    assert!(metrics.content_size().height() > metrics.viewport().area.height());
+    assert!(metrics.max_offset().x() > 0.0);
+    assert!(metrics.max_offset().y() > 0.0);
 }
 
 #[test]

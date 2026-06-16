@@ -315,7 +315,6 @@ fn menu_row(
         .with_focus_background(theme.menu().row_hover_tint())
         .with_hover_tint(theme.menu().row_hover_tint())
         .with_pressed_tint(theme.menu().row_pressed_tint())
-        .with_disabled_tint(theme.menu().row_disabled_tint())
         .with_label_color(color)
         .with_disabled_label_color(theme.text().disabled())
         .with_rounding(chrome.row_rounding)
@@ -739,6 +738,55 @@ mod tests {
             row.layout().height(),
             layout::Size::Fixed(test_chrome(&theme, 0.0).row_height)
         );
+    }
+
+    #[test]
+    fn disabled_menu_item_dims_content_without_disabled_tint() {
+        let theme = theme::Theme::default_dark();
+        let mut registry = action::Registry::<()>::new();
+        let item = menu::Item::new(ACTION_A);
+        let context = action::Context::window(crate::window::Id::new(1));
+
+        registry.register(crate::Action::new(ACTION_A, "Unavailable"));
+        registry.set_state(ACTION_A, context.clone(), action::State::disabled());
+
+        let row = item_node(
+            ui::Id::new("row"),
+            &item,
+            &registry,
+            &context,
+            test_chrome(&theme, 0.0),
+            &theme,
+        );
+
+        assert_eq!(row.style().disabled_tint(), None);
+        assert_eq!(row.style().label_color(), Some(theme.text().disabled()));
+        for child in row.children() {
+            assert_eq!(child.style().label_color(), Some(theme.text().disabled()));
+        }
+    }
+
+    #[test]
+    fn disabled_submenu_row_dims_content_without_disabled_tint() {
+        let theme = theme::Theme::default_dark();
+        let registry = action::Registry::<()>::new();
+        let context = action::Context::window(crate::window::Id::new(1));
+        let submenu = menu::Menu::new(menu::Id::new("disabled"), "Disabled")
+            .section(menu::Section::new().item(menu::Item::new(ACTION_A)));
+
+        let row = submenu_node(
+            ui::Id::new("row"),
+            &submenu,
+            &registry,
+            &context,
+            test_chrome(&theme, 0.0),
+            &theme,
+        );
+
+        assert_eq!(row.style().disabled_tint(), None);
+        assert_eq!(row.style().label_color(), Some(theme.text().disabled()));
+        assert!(row.interactivity().hit_test());
+        assert!(!row.interactivity().actionable());
     }
 
     #[test]
