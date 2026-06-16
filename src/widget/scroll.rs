@@ -1,5 +1,5 @@
 use crate::geometry::{Rect, area, point, rect};
-use crate::{layout, paint, ui};
+use crate::{layout_old, paint, ui};
 
 use super::Frame;
 
@@ -329,7 +329,7 @@ impl Metrics {
     }
 }
 
-pub fn metrics(node: &ui::Node, layout: &layout::Box) -> Option<Metrics> {
+pub fn metrics(node: &ui::Node, layout: &layout_old::Box) -> Option<Metrics> {
     let scroll = node.scroll()?;
     let scrollbars = scroll.bars();
     if !scrollbars.is_enabled() {
@@ -401,7 +401,7 @@ pub fn metrics(node: &ui::Node, layout: &layout::Box) -> Option<Metrics> {
 
 pub fn paint_chrome(
     node: &ui::Node,
-    layout: &layout::Box,
+    layout: &layout_old::Box,
     interaction: &ui::Interaction,
     scene: &mut paint::Scene,
 ) {
@@ -516,7 +516,7 @@ fn push_thumb_tint(
     }
 }
 
-fn content_size(node: &ui::Node, layout: &layout::Box, viewport: Rect) -> area::Logical {
+fn content_size(node: &ui::Node, layout: &layout_old::Box, viewport: Rect) -> area::Logical {
     let offset = node
         .scroll()
         .map_or_else(|| point::logical(0.0, 0.0), |scroll| scroll.offset());

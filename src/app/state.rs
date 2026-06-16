@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use crate::geometry::point;
-use crate::{action, menu, pointer, ui, widget, window};
+use crate::widget::menu;
+use crate::{action, pointer, ui, widget, window};
 
 use super::command;
 
@@ -511,7 +512,7 @@ mod tests {
     use super::*;
     use crate::Action;
     use crate::geometry::{Rect, area};
-    use crate::menu;
+    use crate::widget::menu;
 
     const ROOT: ui::Id = ui::Id::new("root");
     const CHILD: ui::Id = ui::Id::new("child");
@@ -524,8 +525,8 @@ mod tests {
         ui::Path::from(id)
     }
 
-    fn single_box(id: ui::Id) -> crate::layout::Box {
-        crate::layout::Box::new(
+    fn single_box(id: ui::Id) -> crate::layout_old::Box {
+        crate::layout_old::Box::new(
             id,
             Rect::new(point::logical(0.0, 0.0), area::logical(20.0, 20.0)),
             Vec::new(),
@@ -533,7 +534,7 @@ mod tests {
     }
 
     fn composition(
-        layout: crate::layout::Box,
+        layout: crate::layout_old::Box,
         menus: HashMap<menu::Id, menu::Menu>,
         actions: HashMap<ui::Path, action::Id>,
         action_targets: HashMap<ui::Path, ui::ActionTarget>,
@@ -557,7 +558,7 @@ mod tests {
     }
 
     fn state_with_composition(
-        layout: crate::layout::Box,
+        layout: crate::layout_old::Box,
         menus: HashMap<menu::Id, menu::Menu>,
         actions: HashMap<ui::Path, action::Id>,
         action_targets: HashMap<ui::Path, ui::ActionTarget>,

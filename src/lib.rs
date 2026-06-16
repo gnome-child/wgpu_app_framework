@@ -4,7 +4,7 @@ pub mod event;
 pub mod geometry;
 pub mod icon;
 pub mod layout;
-pub mod menu;
+pub mod layout_old;
 pub mod paint;
 pub mod pointer;
 pub mod task;
@@ -21,7 +21,6 @@ mod text_backend;
 pub use action::Action;
 pub use event::Event;
 pub use icon::Icon;
-pub use menu::{Bar, Menu};
 pub use task::Task;
 pub use theme::Theme;
 

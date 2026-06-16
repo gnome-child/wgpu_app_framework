@@ -1,8 +1,8 @@
-use crate::{action, layout, paint, ui, widget, window};
+use crate::{action, layout_old, paint, ui, widget, window};
 
 pub fn tree<T>(
     root: &ui::Node,
-    layout: &layout::Box,
+    layout: &layout_old::Box,
     actions: &action::Registry<T>,
     window: window::Id,
     interaction: &ui::Interaction,
@@ -27,7 +27,7 @@ pub fn tree<T>(
 
 fn node<T>(
     node: &ui::Node,
-    layout: &layout::Box,
+    layout: &layout_old::Box,
     actions: &action::Registry<T>,
     window: window::Id,
     interaction: &ui::Interaction,
@@ -98,7 +98,7 @@ fn node<T>(
     }
 }
 
-fn styled_rect(node: &ui::Node, layout: &layout::Box) -> crate::geometry::Rect {
+fn styled_rect(node: &ui::Node, layout: &layout_old::Box) -> crate::geometry::Rect {
     let rect = layout.rect();
 
     crate::geometry::Rect::rounded(rect.origin, rect.area, node.style().rounding())
@@ -106,7 +106,7 @@ fn styled_rect(node: &ui::Node, layout: &layout::Box) -> crate::geometry::Rect {
 
 fn resolved_quad_style(
     node: &ui::Node,
-    layout: &layout::Box,
+    layout: &layout_old::Box,
     interaction: &ui::Interaction,
     visual: &VisualState,
 ) -> Option<paint::Style> {
@@ -127,7 +127,7 @@ fn resolved_quad_style(
 
 fn resolved_background(
     node: &ui::Node,
-    layout: &layout::Box,
+    layout: &layout_old::Box,
     interaction: &ui::Interaction,
     visual: &VisualState,
 ) -> Option<paint::Brush> {
@@ -180,7 +180,7 @@ struct StatePosition {
 
 fn visual_state<T>(
     node: &ui::Node,
-    layout: &layout::Box,
+    layout: &layout_old::Box,
     actions: &action::Registry<T>,
     window: window::Id,
     interaction: &ui::Interaction,
@@ -221,7 +221,7 @@ fn menu_intent_active(intent: Option<ui::Intent>, interaction: &ui::Interaction)
 
 fn action_context(
     node: &ui::Node,
-    layout: &layout::Box,
+    layout: &layout_old::Box,
     window: window::Id,
     interaction: &ui::Interaction,
 ) -> action::Context {
@@ -341,7 +341,7 @@ fn resolved_label(node: &ui::Node, visual: &VisualState) -> Option<crate::text::
 
 fn resolved_icon(
     node: &ui::Node,
-    layout: &layout::Box,
+    layout: &layout_old::Box,
     visual: &VisualState,
 ) -> Option<paint::Icon> {
     let icon = node.icon()?;

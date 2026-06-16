@@ -1,4 +1,4 @@
-use crate::{geometry, layout, paint};
+use crate::{geometry, layout_old, paint};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Theme {
@@ -138,7 +138,7 @@ impl Theme {
         let accent = srgb8(10, 132, 255);
         let accent_subtle = srgba8(10, 132, 255, 0.24);
         let warning = srgb8(255, 190, 80);
-        let scroll_track = paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.18));
+        let scroll_track = paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.60));
         let popup_shadow = Shadow {
             brush: paint::Brush::linear_gradient(
                 paint::Color::rgba(0.0, 0.0, 0.0, 0.24),
@@ -228,7 +228,7 @@ impl Theme {
                 },
                 title_background: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.0)),
                 title_hover_tint: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.08)),
-                title_pressed_tint: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.18)),
+                title_pressed_tint: paint::Brush::solid(paint::Color::rgba(0.25, 0.25, 0.25, 0.18)),
                 title_active_tint: paint::Brush::solid(srgba8(10, 132, 255, 0.22)),
                 title_focus_outline: Outline {
                     brush: paint::Brush::solid(srgba8(10, 132, 255, 0.72)),
@@ -629,8 +629,8 @@ pub fn stroke(brush: paint::Brush, width: f32) -> paint::Stroke {
     paint::Stroke { brush, width }
 }
 
-pub fn insets(value: f32) -> layout::Insets {
-    layout::Insets::splat(value)
+pub fn insets(value: f32) -> layout_old::Insets {
+    layout_old::Insets::splat(value)
 }
 
 fn srgb8(r: u8, g: u8, b: u8) -> paint::Color {

@@ -1,8 +1,8 @@
 use crate::geometry::{Rect, area, point, rect};
-use crate::{action, icon, layout, menu, paint, text, theme, ui};
+use crate::{action, icon, layout_old, paint, text, theme, ui};
 
 use super::{
-    MENU_POPUP, MENU_SUBMENU_POPUP, Popup, floating_panel_with_theme, separator_with_theme,
+    MENU_POPUP, MENU_SUBMENU_POPUP, Popup, floating_panel_with_theme, menu, separator_with_theme,
 };
 
 const SEPARATOR_LINE_HEIGHT: f32 = 1.0;
@@ -51,7 +51,7 @@ const ROW_IDS: [ui::Id; 32] = [
 
 pub fn menu_popup<T>(
     tree: &ui::Tree,
-    layout: &layout::Box,
+    layout: &layout_old::Box,
     menu: &menu::Menu,
     actions: &action::Registry<T>,
     command_target: &action::Context,
@@ -74,7 +74,7 @@ pub fn menu_popup<T>(
 
 pub fn submenu_popup<T>(
     tree: &ui::Tree,
-    layout: &layout::Box,
+    layout: &layout_old::Box,
     menu: &menu::Menu,
     actions: &action::Registry<T>,
     command_target: &action::Context,
@@ -126,7 +126,7 @@ enum AnchorKind {
 
 fn anchor_rect(
     tree: &ui::Tree,
-    layout: &layout::Box,
+    layout: &layout_old::Box,
     id: menu::Id,
     kind: AnchorKind,
 ) -> Option<Rect> {
@@ -134,10 +134,10 @@ fn anchor_rect(
         .into_iter()
         .find_map(|(path, intent)| match (kind, intent) {
             (AnchorKind::TopLevel, ui::Intent::OpenMenu(menu)) if menu == id => {
-                layout.find_path(&path).map(layout::Box::rect)
+                layout.find_path(&path).map(layout_old::Box::rect)
             }
             (AnchorKind::Submenu, ui::Intent::OpenSubmenu(menu)) if menu == id => {
-                layout.find_path(&path).map(layout::Box::rect)
+                layout.find_path(&path).map(layout_old::Box::rect)
             }
             _ => None,
         })
@@ -162,8 +162,8 @@ fn popup_node<T>(
     let mut popup = floating_panel_with_theme(id, theme)
         .with_command_scope()
         .with_size(
-            layout::Size::Fixed(chrome.area.width()),
-            layout::Size::Fixed(chrome.area.height()),
+            layout_old::Size::Fixed(chrome.area.width()),
+            layout_old::Size::Fixed(chrome.area.height()),
         );
 
     let mut row = 0;
@@ -226,7 +226,7 @@ fn item_node<T>(
             ROW_LABEL,
             item_label(item, actions),
             text::Align::Start,
-            layout::Size::Fill,
+            layout_old::Size::Fill,
             color,
             theme,
         ))
@@ -234,7 +234,7 @@ fn item_node<T>(
             ROW_SHORTCUT,
             shortcut.unwrap_or_default(),
             text::Align::End,
-            layout::Size::Fixed(chrome.shortcut_width),
+            layout_old::Size::Fixed(chrome.shortcut_width),
             color,
             theme,
         ))
@@ -274,7 +274,7 @@ fn submenu_node<T>(
             ROW_LABEL,
             menu.label(),
             text::Align::Start,
-            layout::Size::Fill,
+            layout_old::Size::Fill,
             color,
             theme,
         ))
@@ -308,7 +308,7 @@ fn menu_row(
     theme: &theme::Theme,
     color: paint::Color,
 ) -> ui::Node {
-    ui::Node::container(id, layout::Axis::Horizontal)
+    ui::Node::container(id, layout_old::Axis::Horizontal)
         .with_intent(ui::Intent::CloseSubmenu)
         .with_interactivity(ui::Interactivity::CONTROL)
         .with_background(theme.menu().row_background())
@@ -319,7 +319,10 @@ fn menu_row(
         .with_label_color(color)
         .with_disabled_label_color(theme.text().disabled())
         .with_rounding(chrome.row_rounding)
-        .with_size(layout::Size::Fill, layout::Size::Fixed(chrome.row_height))
+        .with_size(
+            layout_old::Size::Fill,
+            layout_old::Size::Fixed(chrome.row_height),
+        )
 }
 
 fn glyph_cell(
@@ -332,7 +335,7 @@ fn glyph_cell(
     let mut node = ui::Node::leaf(id)
         .with_label_color(color)
         .with_disabled_label_color(theme.text().disabled())
-        .with_size(layout::Size::Fixed(width), layout::Size::Fill);
+        .with_size(layout_old::Size::Fixed(width), layout_old::Size::Fill);
 
     if let Some(icon) = icon {
         node = node
@@ -347,7 +350,7 @@ fn text_cell(
     id: ui::Id,
     label: impl Into<String>,
     align: text::Align,
-    width: layout::Size,
+    width: layout_old::Size,
     color: paint::Color,
     theme: &theme::Theme,
 ) -> ui::Node {
@@ -355,19 +358,22 @@ fn text_cell(
         .with_label(document(label, theme, align, color))
         .with_label_color(color)
         .with_disabled_label_color(theme.text().disabled())
-        .with_size(width, layout::Size::Fill)
+        .with_size(width, layout_old::Size::Fill)
 }
 
 fn separator_node(id: ui::Id, chrome: PopupChrome, theme: &theme::Theme) -> ui::Node {
-    ui::Node::container(id, layout::Axis::Vertical)
+    ui::Node::container(id, layout_old::Axis::Vertical)
         .with_intent(ui::Intent::CloseSubmenu)
         .with_interactivity(ui::Interactivity::NONE.with_hit_test(true))
-        .with_align(layout::Align::Center)
-        .with_cross_align(layout::Align::Stretch)
-        .with_size(layout::Size::Fill, layout::Size::Fixed(chrome.row_height))
+        .with_align(layout_old::Align::Center)
+        .with_cross_align(layout_old::Align::Stretch)
+        .with_size(
+            layout_old::Size::Fill,
+            layout_old::Size::Fixed(chrome.row_height),
+        )
         .with_child(separator_with_theme(ROW_SEPARATOR, theme).with_size(
-            layout::Size::Fill,
-            layout::Size::Fixed(SEPARATOR_LINE_HEIGHT),
+            layout_old::Size::Fill,
+            layout_old::Size::Fixed(SEPARATOR_LINE_HEIGHT),
         ))
 }
 
@@ -729,15 +735,15 @@ mod tests {
 
         assert_eq!(
             row.children()[0].layout().width(),
-            layout::Size::Fixed(test_chrome(&theme, 0.0).glyph_width)
+            layout_old::Size::Fixed(test_chrome(&theme, 0.0).glyph_width)
         );
         assert_eq!(
             row.children()[3].layout().width(),
-            layout::Size::Fixed(test_chrome(&theme, 0.0).glyph_width)
+            layout_old::Size::Fixed(test_chrome(&theme, 0.0).glyph_width)
         );
         assert_eq!(
             row.layout().height(),
-            layout::Size::Fixed(test_chrome(&theme, 0.0).row_height)
+            layout_old::Size::Fixed(test_chrome(&theme, 0.0).row_height)
         );
     }
 
@@ -753,9 +759,9 @@ mod tests {
 
         assert_eq!(
             row.layout().height(),
-            layout::Size::Fixed(chrome.row_height)
+            layout_old::Size::Fixed(chrome.row_height)
         );
-        assert_eq!(line.layout().height(), layout::Size::Fixed(1.0));
+        assert_eq!(line.layout().height(), layout_old::Size::Fixed(1.0));
         assert_eq!(row.intent(), Some(ui::Intent::CloseSubmenu));
         assert!(row.interactivity().hit_test());
         assert!(!row.interactivity().focusable());

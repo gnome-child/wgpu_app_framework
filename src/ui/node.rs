@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use crate::{action, geometry, icon, layout, menu, paint, pointer, text, widget};
+use crate::widget::menu;
+use crate::{action, geometry, icon, layout_old, paint, pointer, text, widget};
 
 use super::{Backdrop, Id, Path, focus};
 
@@ -26,12 +27,12 @@ pub struct Node {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Layout {
-    width: layout::Size,
-    height: layout::Size,
-    direction: Option<layout::Axis>,
+    width: layout_old::Size,
+    height: layout_old::Size,
+    direction: Option<layout_old::Axis>,
     gap: f32,
-    align: layout::Align,
-    cross_align: layout::Align,
+    align: layout_old::Align,
+    cross_align: layout_old::Align,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -55,7 +56,7 @@ pub struct Style {
     label_color: Option<paint::Color>,
     busy_label_color: Option<paint::Color>,
     disabled_label_color: Option<paint::Color>,
-    padding: layout::Insets,
+    padding: layout_old::Insets,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -137,7 +138,7 @@ impl Node {
         Self::new(id)
     }
 
-    pub fn container(id: Id, axis: layout::Axis) -> Self {
+    pub fn container(id: Id, axis: layout_old::Axis) -> Self {
         Self::new(id).with_direction(axis)
     }
 
@@ -210,12 +211,12 @@ impl Node {
         self
     }
 
-    pub fn with_size(mut self, width: layout::Size, height: layout::Size) -> Self {
+    pub fn with_size(mut self, width: layout_old::Size, height: layout_old::Size) -> Self {
         self.layout = self.layout.with_size(width, height);
         self
     }
 
-    pub fn with_direction(mut self, axis: layout::Axis) -> Self {
+    pub fn with_direction(mut self, axis: layout_old::Axis) -> Self {
         self.layout = self.layout.with_direction(axis);
         self
     }
@@ -225,12 +226,12 @@ impl Node {
         self
     }
 
-    pub fn with_align(mut self, align: layout::Align) -> Self {
+    pub fn with_align(mut self, align: layout_old::Align) -> Self {
         self.layout = self.layout.with_align(align);
         self
     }
 
-    pub fn with_cross_align(mut self, align: layout::Align) -> Self {
+    pub fn with_cross_align(mut self, align: layout_old::Align) -> Self {
         self.layout = self.layout.with_cross_align(align);
         self
     }
@@ -350,7 +351,7 @@ impl Node {
         self
     }
 
-    pub fn with_padding(mut self, padding: layout::Insets) -> Self {
+    pub fn with_padding(mut self, padding: layout_old::Insets) -> Self {
         self.style.padding = padding;
         self
     }
@@ -465,26 +466,26 @@ impl Node {
 }
 
 impl Layout {
-    pub const fn new(width: layout::Size, height: layout::Size) -> Self {
+    pub const fn new(width: layout_old::Size, height: layout_old::Size) -> Self {
         Self {
             width,
             height,
             direction: None,
             gap: 0.0,
-            align: layout::Align::Start,
-            cross_align: layout::Align::Stretch,
+            align: layout_old::Align::Start,
+            cross_align: layout_old::Align::Stretch,
         }
     }
 
-    pub const fn width(self) -> layout::Size {
+    pub const fn width(self) -> layout_old::Size {
         self.width
     }
 
-    pub const fn height(self) -> layout::Size {
+    pub const fn height(self) -> layout_old::Size {
         self.height
     }
 
-    pub const fn direction(self) -> Option<layout::Axis> {
+    pub const fn direction(self) -> Option<layout_old::Axis> {
         self.direction
     }
 
@@ -492,21 +493,21 @@ impl Layout {
         self.gap
     }
 
-    pub const fn align(self) -> layout::Align {
+    pub const fn align(self) -> layout_old::Align {
         self.align
     }
 
-    pub const fn cross_align(self) -> layout::Align {
+    pub const fn cross_align(self) -> layout_old::Align {
         self.cross_align
     }
 
-    pub const fn with_size(mut self, width: layout::Size, height: layout::Size) -> Self {
+    pub const fn with_size(mut self, width: layout_old::Size, height: layout_old::Size) -> Self {
         self.width = width;
         self.height = height;
         self
     }
 
-    pub const fn with_direction(mut self, direction: layout::Axis) -> Self {
+    pub const fn with_direction(mut self, direction: layout_old::Axis) -> Self {
         self.direction = Some(direction);
         self
     }
@@ -516,12 +517,12 @@ impl Layout {
         self
     }
 
-    pub const fn with_align(mut self, align: layout::Align) -> Self {
+    pub const fn with_align(mut self, align: layout_old::Align) -> Self {
         self.align = align;
         self
     }
 
-    pub const fn with_cross_align(mut self, align: layout::Align) -> Self {
+    pub const fn with_cross_align(mut self, align: layout_old::Align) -> Self {
         self.cross_align = align;
         self
     }
@@ -529,7 +530,7 @@ impl Layout {
 
 impl Default for Layout {
     fn default() -> Self {
-        Self::new(layout::Size::Fill, layout::Size::Fill)
+        Self::new(layout_old::Size::Fill, layout_old::Size::Fill)
     }
 }
 
@@ -614,7 +615,7 @@ impl Style {
         self.disabled_label_color
     }
 
-    pub fn padding(self) -> layout::Insets {
+    pub fn padding(self) -> layout_old::Insets {
         self.padding
     }
 }
@@ -641,7 +642,7 @@ impl Default for Style {
             label_color: None,
             busy_label_color: None,
             disabled_label_color: None,
-            padding: layout::Insets::ZERO,
+            padding: layout_old::Insets::ZERO,
         }
     }
 }

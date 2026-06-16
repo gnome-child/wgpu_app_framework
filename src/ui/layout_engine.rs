@@ -1,8 +1,12 @@
 use crate::geometry::{Rect, area, point};
-use crate::{layout, text, ui, widget};
+use crate::{layout_old, text, ui, widget};
 
-pub fn tree(root: &ui::Node, area: area::Logical, measurer: &mut text::Measurer) -> layout::Box {
-    let constraints = layout::Constraints::loose(area);
+pub fn tree(
+    root: &ui::Node,
+    area: area::Logical,
+    measurer: &mut text::Measurer,
+) -> layout_old::Box {
+    let constraints = layout_old::Constraints::loose(area);
     let measured = measure_node(root, constraints, measurer);
     let root_area = resolve_root_area(root.layout(), measured, area);
     let rect = Rect::new(point::logical(0.0, 0.0), root_area);
@@ -15,13 +19,13 @@ pub fn subtree_at(
     path: ui::Path,
     rect: Rect,
     measurer: &mut text::Measurer,
-) -> layout::Box {
+) -> layout_old::Box {
     arrange_node(root, path, rect, measurer)
 }
 
 fn measure_node(
     node: &ui::Node,
-    constraints: layout::Constraints,
+    constraints: layout_old::Constraints,
     measurer: &mut text::Measurer,
 ) -> area::Logical {
     let node_layout = node.layout();
@@ -58,15 +62,17 @@ fn measure_content(
     max: area::Logical,
     measurer: &mut text::Measurer,
 ) -> area::Logical {
-    let child_constraints = layout::Constraints::loose(max);
+    let child_constraints = layout_old::Constraints::loose(max);
     let child_sizes: Vec<_> = node
         .children()
         .iter()
         .map(|child| measure_node(child, child_constraints, measurer))
         .collect();
     let child_content = match node.layout().direction() {
-        Some(layout::Axis::Vertical) => measure_vertical_stack(&child_sizes, node.layout().gap()),
-        Some(layout::Axis::Horizontal) => {
+        Some(layout_old::Axis::Vertical) => {
+            measure_vertical_stack(&child_sizes, node.layout().gap())
+        }
+        Some(layout_old::Axis::Horizontal) => {
             measure_horizontal_stack(&child_sizes, node.layout().gap())
         }
         None => measure_overlay(&child_sizes),
@@ -151,7 +157,7 @@ fn arrange_node(
     path: ui::Path,
     rect: Rect,
     measurer: &mut text::Measurer,
-) -> layout::Box {
+) -> layout_old::Box {
     let scroll_offset = node
         .scroll()
         .map_or_else(|| point::logical(0.0, 0.0), |scroll| scroll.offset());
@@ -161,16 +167,16 @@ fn arrange_node(
         viewport.origin.y() - scroll_offset.y(),
     );
     let children = match node.layout().direction() {
-        Some(layout::Axis::Vertical) => {
+        Some(layout_old::Axis::Vertical) => {
             arrange_vertical_children(node, &path, child_origin, viewport.area, measurer)
         }
-        Some(layout::Axis::Horizontal) => {
+        Some(layout_old::Axis::Horizontal) => {
             arrange_horizontal_children(node, &path, child_origin, viewport.area, measurer)
         }
         None => arrange_overlay_children(node, &path, child_origin, viewport.area, measurer),
     };
 
-    layout::Box::with_path(path, rect, children)
+    layout_old::Box::with_path(path, rect, children)
 }
 
 fn arrange_vertical_children(
@@ -179,7 +185,7 @@ fn arrange_vertical_children(
     origin: point::Logical,
     available: area::Logical,
     measurer: &mut text::Measurer,
-) -> Vec<layout::Box> {
+) -> Vec<layout_old::Box> {
     let measured = measure_children(node, available, measurer);
     let gap = node.layout().gap();
     let gap_total = gap_total(gap, node.children().len());
@@ -188,15 +194,15 @@ fn arrange_vertical_children(
         .iter()
         .zip(&measured)
         .map(|(child, measured)| match child.layout().height() {
-            layout::Size::Fixed(value) => resolve_fixed_axis(value, available.height()),
-            layout::Size::Fit => measured.height(),
-            layout::Size::Fill => 0.0,
+            layout_old::Size::Fixed(value) => resolve_fixed_axis(value, available.height()),
+            layout_old::Size::Fit => measured.height(),
+            layout_old::Size::Fill => 0.0,
         })
         .sum::<f32>();
     let fill_count = node
         .children()
         .iter()
-        .filter(|child| matches!(child.layout().height(), layout::Size::Fill))
+        .filter(|child| matches!(child.layout().height(), layout_old::Size::Fill))
         .count();
     let fill_height = fill_size(available.height(), fixed_fit_height, gap_total, fill_count);
     let total_height = fixed_fit_height + fill_height * fill_count as f32 + gap_total;
@@ -233,7 +239,7 @@ fn arrange_horizontal_children(
     origin: point::Logical,
     available: area::Logical,
     measurer: &mut text::Measurer,
-) -> Vec<layout::Box> {
+) -> Vec<layout_old::Box> {
     let measured = measure_children(node, available, measurer);
     let gap = node.layout().gap();
     let gap_total = gap_total(gap, node.children().len());
@@ -242,15 +248,15 @@ fn arrange_horizontal_children(
         .iter()
         .zip(&measured)
         .map(|(child, measured)| match child.layout().width() {
-            layout::Size::Fixed(value) => resolve_fixed_axis(value, available.width()),
-            layout::Size::Fit => measured.width(),
-            layout::Size::Fill => 0.0,
+            layout_old::Size::Fixed(value) => resolve_fixed_axis(value, available.width()),
+            layout_old::Size::Fit => measured.width(),
+            layout_old::Size::Fill => 0.0,
         })
         .sum::<f32>();
     let fill_count = node
         .children()
         .iter()
-        .filter(|child| matches!(child.layout().width(), layout::Size::Fill))
+        .filter(|child| matches!(child.layout().width(), layout_old::Size::Fill))
         .count();
     let fill_width = fill_size(available.width(), fixed_fit_width, gap_total, fill_count);
     let total_width = fixed_fit_width + fill_width * fill_count as f32 + gap_total;
@@ -287,7 +293,7 @@ fn arrange_overlay_children(
     origin: point::Logical,
     available: area::Logical,
     measurer: &mut text::Measurer,
-) -> Vec<layout::Box> {
+) -> Vec<layout_old::Box> {
     measure_children(node, available, measurer)
         .into_iter()
         .zip(node.children())
@@ -314,7 +320,7 @@ fn measure_children(
     available: area::Logical,
     measurer: &mut text::Measurer,
 ) -> Vec<area::Logical> {
-    let constraints = layout::Constraints::loose(available);
+    let constraints = layout_old::Constraints::loose(available);
 
     node.children()
         .iter()
@@ -333,51 +339,56 @@ fn resolve_root_area(
     )
 }
 
-fn resolve_root_axis(size: layout::Size, measured: f32, available: f32) -> f32 {
+fn resolve_root_axis(size: layout_old::Size, measured: f32, available: f32) -> f32 {
     match size {
-        layout::Size::Fixed(value) => resolve_fixed_axis(value, available),
-        layout::Size::Fill => available.max(0.0),
-        layout::Size::Fit => measured.min(available.max(0.0)),
+        layout_old::Size::Fixed(value) => resolve_fixed_axis(value, available),
+        layout_old::Size::Fill => available.max(0.0),
+        layout_old::Size::Fit => measured.min(available.max(0.0)),
     }
 }
 
-fn resolve_measured_axis(size: layout::Size, desired: f32, min: f32, max: f32) -> f32 {
+fn resolve_measured_axis(size: layout_old::Size, desired: f32, min: f32, max: f32) -> f32 {
     let max = max.max(0.0);
     let value = match size {
-        layout::Size::Fixed(value) => value.max(0.0),
-        layout::Size::Fill | layout::Size::Fit => desired.max(0.0),
+        layout_old::Size::Fixed(value) => value.max(0.0),
+        layout_old::Size::Fill | layout_old::Size::Fit => desired.max(0.0),
     };
 
     value.max(min.max(0.0)).min(max)
 }
 
-fn resolve_stack_main_axis(size: layout::Size, measured: f32, available: f32, fill: f32) -> f32 {
+fn resolve_stack_main_axis(
+    size: layout_old::Size,
+    measured: f32,
+    available: f32,
+    fill: f32,
+) -> f32 {
     match size {
-        layout::Size::Fixed(value) => resolve_fixed_axis(value, available),
-        layout::Size::Fill => fill,
-        layout::Size::Fit => measured.min(available.max(0.0)),
+        layout_old::Size::Fixed(value) => resolve_fixed_axis(value, available),
+        layout_old::Size::Fill => fill,
+        layout_old::Size::Fit => measured.min(available.max(0.0)),
     }
 }
 
 fn resolve_stack_cross_axis(
-    size: layout::Size,
+    size: layout_old::Size,
     measured: f32,
     available: f32,
-    align: layout::Align,
+    align: layout_old::Align,
 ) -> f32 {
     match size {
-        layout::Size::Fixed(value) => resolve_fixed_axis(value, available),
-        layout::Size::Fill => available.max(0.0),
-        layout::Size::Fit if align == layout::Align::Stretch => available.max(0.0),
-        layout::Size::Fit => measured.min(available.max(0.0)),
+        layout_old::Size::Fixed(value) => resolve_fixed_axis(value, available),
+        layout_old::Size::Fill => available.max(0.0),
+        layout_old::Size::Fit if align == layout_old::Align::Stretch => available.max(0.0),
+        layout_old::Size::Fit => measured.min(available.max(0.0)),
     }
 }
 
-fn resolve_overlay_axis(size: layout::Size, measured: f32, available: f32) -> f32 {
+fn resolve_overlay_axis(size: layout_old::Size, measured: f32, available: f32) -> f32 {
     match size {
-        layout::Size::Fixed(value) => resolve_fixed_axis(value, available),
-        layout::Size::Fill => available.max(0.0),
-        layout::Size::Fit => measured.min(available.max(0.0)),
+        layout_old::Size::Fixed(value) => resolve_fixed_axis(value, available),
+        layout_old::Size::Fill => available.max(0.0),
+        layout_old::Size::Fit => measured.min(available.max(0.0)),
     }
 }
 
@@ -393,13 +404,13 @@ fn fill_size(available: f32, fixed_fit: f32, gap: f32, fill_count: usize) -> f32
     ((available - fixed_fit - gap).max(0.0)) / fill_count as f32
 }
 
-fn align_offset(align: layout::Align, available: f32, size: f32) -> f32 {
+fn align_offset(align: layout_old::Align, available: f32, size: f32) -> f32 {
     let extra = (available - size).max(0.0);
 
     match align {
-        layout::Align::Start | layout::Align::Stretch => 0.0,
-        layout::Align::Center => extra / 2.0,
-        layout::Align::End => extra,
+        layout_old::Align::Start | layout_old::Align::Stretch => 0.0,
+        layout_old::Align::Center => extra / 2.0,
+        layout_old::Align::End => extra,
     }
 }
 

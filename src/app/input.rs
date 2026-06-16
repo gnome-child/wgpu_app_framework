@@ -550,7 +550,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::Action;
-    use crate::{menu, widget};
+    use crate::widget::{self, menu};
 
     use super::*;
 
@@ -571,22 +571,31 @@ mod tests {
             widget::scroll_view(CHILD)
                 .with_scroll_offset(offset)
                 .with_size(
-                    crate::layout::Size::Fixed(40.0),
-                    crate::layout::Size::Fixed(40.0),
+                    crate::layout_old::Size::Fixed(40.0),
+                    crate::layout_old::Size::Fixed(40.0),
                 )
                 .with_child(
                     ui::Node::leaf(SECOND)
-                        .with_size(crate::layout::Size::Fill, crate::layout::Size::Fixed(30.0))
+                        .with_size(
+                            crate::layout_old::Size::Fill,
+                            crate::layout_old::Size::Fixed(30.0),
+                        )
                         .with_interactivity(ui::Interactivity::NONE.with_hit_test(true)),
                 )
                 .with_child(
                     ui::Node::leaf(ui::Id::new("third"))
-                        .with_size(crate::layout::Size::Fill, crate::layout::Size::Fixed(30.0))
+                        .with_size(
+                            crate::layout_old::Size::Fill,
+                            crate::layout_old::Size::Fixed(30.0),
+                        )
                         .with_interactivity(ui::Interactivity::NONE.with_hit_test(true)),
                 )
                 .with_child(
                     ui::Node::leaf(ui::Id::new("fourth"))
-                        .with_size(crate::layout::Size::Fill, crate::layout::Size::Fixed(30.0))
+                        .with_size(
+                            crate::layout_old::Size::Fill,
+                            crate::layout_old::Size::Fixed(30.0),
+                        )
                         .with_interactivity(ui::Interactivity::NONE.with_hit_test(true)),
                 ),
         );
@@ -613,12 +622,15 @@ mod tests {
         tree.set_root(
             widget::scroll_view(CHILD)
                 .with_size(
-                    crate::layout::Size::Fixed(40.0),
-                    crate::layout::Size::Fixed(40.0),
+                    crate::layout_old::Size::Fixed(40.0),
+                    crate::layout_old::Size::Fixed(40.0),
                 )
                 .with_child(
                     ui::Node::leaf(SECOND)
-                        .with_size(crate::layout::Size::Fill, crate::layout::Size::Fixed(20.0))
+                        .with_size(
+                            crate::layout_old::Size::Fill,
+                            crate::layout_old::Size::Fixed(20.0),
+                        )
                         .with_interactivity(ui::Interactivity::NONE.with_hit_test(true)),
                 ),
         );
@@ -647,8 +659,8 @@ mod tests {
         })
     }
 
-    fn single_box(id: ui::Id) -> crate::layout::Box {
-        crate::layout::Box::new(
+    fn single_box(id: ui::Id) -> crate::layout_old::Box {
+        crate::layout_old::Box::new(
             id,
             crate::geometry::Rect::new(
                 point::logical(0.0, 0.0),
@@ -658,8 +670,8 @@ mod tests {
         )
     }
 
-    fn path_box(path: ui::Path) -> crate::layout::Box {
-        crate::layout::Box::with_path(
+    fn path_box(path: ui::Path) -> crate::layout_old::Box {
+        crate::layout_old::Box::with_path(
             path,
             crate::geometry::Rect::new(
                 point::logical(0.0, 0.0),
@@ -670,7 +682,7 @@ mod tests {
     }
 
     fn composition(
-        layout: crate::layout::Box,
+        layout: crate::layout_old::Box,
         actions: HashMap<ui::Path, action::Id>,
         action_targets: HashMap<ui::Path, ui::ActionTarget>,
         intents: HashMap<ui::Path, ui::Intent>,
@@ -694,7 +706,7 @@ mod tests {
     }
 
     fn state_with_composition(
-        layout: crate::layout::Box,
+        layout: crate::layout_old::Box,
         actions: HashMap<ui::Path, action::Id>,
         action_targets: HashMap<ui::Path, ui::ActionTarget>,
         intents: HashMap<ui::Path, ui::Intent>,
@@ -924,13 +936,13 @@ mod tests {
         let mut registry = action::Registry::<()>::new();
         let row = ui::Path::new([widget::MENU_POPUP, CHILD]);
         let mut state = state_with_composition(
-            crate::layout::Box::with_path(
+            crate::layout_old::Box::with_path(
                 ui::Path::from(widget::MENU_POPUP),
                 crate::geometry::Rect::new(
                     point::logical(0.0, 0.0),
                     crate::geometry::area::logical(20.0, 20.0),
                 ),
-                vec![crate::layout::Box::with_path(
+                vec![crate::layout_old::Box::with_path(
                     row.clone(),
                     crate::geometry::Rect::new(
                         point::logical(0.0, 0.0),

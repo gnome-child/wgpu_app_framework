@@ -1,4 +1,4 @@
-use crate::{action, icon, layout, paint, text, theme, ui};
+use crate::{action, icon, layout_old, paint, text, theme, ui};
 
 pub fn panel(id: ui::Id) -> ui::Node {
     panel_with_theme(id, &theme::Theme::default_dark())
@@ -8,7 +8,7 @@ pub fn panel_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
     let control = theme.control();
     let focus_outline = control.focus_outline();
 
-    ui::Node::container(id, layout::Axis::Vertical)
+    ui::Node::container(id, layout_old::Axis::Vertical)
         .with_background(theme.surfaces().panel())
         .with_stroke(paint::Stroke {
             brush: theme.surfaces().panel_stroke(),
@@ -38,7 +38,7 @@ pub fn floating_panel_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
     let floating = theme.floating_panel();
     let shadow = floating.shadow();
 
-    ui::Node::container(id, layout::Axis::Vertical)
+    ui::Node::container(id, layout_old::Axis::Vertical)
         .with_backdrop(
             ui::Backdrop::glass(floating.backdrop_fill()).with_blur(floating.backdrop_blur()),
         )
@@ -50,7 +50,7 @@ pub fn floating_panel_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
             shadow.offset(),
         )
         .with_rounding(floating.rounding())
-        .with_padding(layout::Insets::splat(floating.padding()))
+        .with_padding(layout_old::Insets::splat(floating.padding()))
         .with_label_color(theme.text().primary())
         .with_busy_label_color(theme.text().busy())
         .with_disabled_label_color(theme.text().disabled())
@@ -69,8 +69,8 @@ pub fn button_with_theme(id: ui::Id, action: action::Id, theme: &theme::Theme) -
         .with_stroke(theme.control().stroke())
         .with_rounding(theme.roundings().control())
         .with_size(
-            layout::Size::Fill,
-            layout::Size::Fixed(theme.density().control_height()),
+            layout_old::Size::Fill,
+            layout_old::Size::Fixed(theme.density().control_height()),
         )
 }
 
@@ -109,7 +109,7 @@ pub fn icon_button_with_theme(
         .with_icon(icon)
         .with_icon_size(theme.text().icon_size())
         .with_size(
-            layout::Size::Fill,
-            layout::Size::Fixed(theme.density().icon_button_height()),
+            layout_old::Size::Fill,
+            layout_old::Size::Fixed(theme.density().icon_button_height()),
         )
 }
