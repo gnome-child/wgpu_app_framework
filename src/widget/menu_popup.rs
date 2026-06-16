@@ -2,7 +2,8 @@ use crate::geometry::{Rect, area, point, rect};
 use crate::{action, icon, layout, paint, text, theme, ui};
 
 use super::{
-    MENU_POPUP, MENU_SUBMENU_POPUP, Popup, floating_panel_with_theme, menu, separator_with_theme,
+    MENU_POPUP, MENU_SUBMENU_POPUP, Popup, floating_panel_with_theme, foundation, menu,
+    separator_with_theme,
 };
 
 const SEPARATOR_LINE_HEIGHT: f32 = 1.0;
@@ -55,7 +56,7 @@ pub fn menu_popup<T>(
     menu: &menu::Menu,
     actions: &action::Registry<T>,
     command_subject: &action::Context,
-    measurer: &mut text::Measurer,
+    measurer: &mut text::Engine,
 ) -> Option<Popup> {
     let theme = theme::Theme::default_dark();
     let anchor = anchor_rect(tree, layout, menu.id(), AnchorKind::TopLevel)?;
@@ -78,7 +79,7 @@ pub fn submenu_popup<T>(
     menu: &menu::Menu,
     actions: &action::Registry<T>,
     command_subject: &action::Context,
-    measurer: &mut text::Measurer,
+    measurer: &mut text::Engine,
 ) -> Option<Popup> {
     let theme = theme::Theme::default_dark();
     let anchor = anchor_rect(tree, layout, menu.id(), AnchorKind::Submenu)?;
@@ -395,22 +396,14 @@ fn document(
     align: text::Align,
     color: paint::Color,
 ) -> text::Document {
-    let mut block = text::Block::new(align);
-    block.push_run(text::Run::new(
-        label,
-        text::Style::default()
-            .with_size(theme.text().menu_size())
-            .with_color(color),
-    ));
-
-    text::Document::from_block(block)
+    foundation::document(label, align, theme.text().menu_size(), color)
 }
 
 fn popup_chrome<T>(
     menu: &menu::Menu,
     actions: &action::Registry<T>,
     theme: &theme::Theme,
-    measurer: &mut text::Measurer,
+    measurer: &mut text::Engine,
 ) -> PopupChrome {
     let mut label_width = 0.0_f32;
     let mut shortcut_width = 0.0_f32;
@@ -479,7 +472,7 @@ fn row_rounding(theme: &theme::Theme, popup_area: area::Logical, padding: f32) -
 fn measure_label(
     label: impl Into<String>,
     theme: &theme::Theme,
-    measurer: &mut text::Measurer,
+    measurer: &mut text::Engine,
 ) -> f32 {
     measurer
         .measure(
@@ -516,7 +509,7 @@ mod tests {
     fn menu_separator_occupies_normal_row_height() {
         let theme = theme::Theme::default_dark();
         let registry = action::Registry::<()>::new();
-        let mut measurer = text::Measurer::new();
+        let mut measurer = text::Engine::new();
         let menu = menu::Menu::new(menu::Id::new("test"), "Test").section(
             menu::Section::new()
                 .action(ACTION_A)
@@ -535,7 +528,7 @@ mod tests {
     fn menu_popup_width_respects_theme_minimum() {
         let theme = theme::Theme::default_dark();
         let registry = action::Registry::<()>::new();
-        let mut measurer = text::Measurer::new();
+        let mut measurer = text::Engine::new();
         let menu = menu::Menu::new(menu::Id::new("test"), "Test")
             .section(menu::Section::new().separator());
         let metrics = popup_chrome(&menu, &registry, &theme, &mut measurer);
@@ -547,7 +540,7 @@ mod tests {
     fn menu_popup_width_grows_for_long_labels_and_shortcuts() {
         let theme = theme::Theme::default_dark();
         let mut registry = action::Registry::<()>::new();
-        let mut measurer = text::Measurer::new();
+        let mut measurer = text::Engine::new();
         let short = menu::Menu::new(menu::Id::new("short"), "Short")
             .section(menu::Section::new().action(ACTION_A));
         let long = menu::Menu::new(menu::Id::new("long"), "Long").section(
@@ -573,7 +566,7 @@ mod tests {
     fn ordinary_menu_popup_uses_wider_default_floor_when_content_is_narrow() {
         let theme = theme::Theme::default_dark();
         let registry = action::Registry::<()>::new();
-        let mut measurer = text::Measurer::new();
+        let mut measurer = text::Engine::new();
         let menu = menu::Menu::new(menu::Id::new("preview"), "Preview").section(
             menu::Section::new().item(menu::Item::new(ACTION_A).with_label("Toggle Preview")),
         );
@@ -606,7 +599,7 @@ mod tests {
     fn menu_row_rounding_derives_from_popup_rounding_minus_padding() {
         let theme = theme::Theme::default_dark();
         let registry = action::Registry::<()>::new();
-        let mut measurer = text::Measurer::new();
+        let mut measurer = text::Engine::new();
         let menu = menu::Menu::new(menu::Id::new("test"), "Test").section(
             menu::Section::new()
                 .action(ACTION_A)
@@ -643,7 +636,7 @@ mod tests {
     fn menu_popup_bottom_empty_space_matches_side_inset() {
         let theme = theme::Theme::default_dark();
         let registry = action::Registry::<()>::new();
-        let mut measurer = text::Measurer::new();
+        let mut measurer = text::Engine::new();
         let menu = menu::Menu::new(menu::Id::new("test"), "Test").section(
             menu::Section::new()
                 .action(ACTION_A)
@@ -660,7 +653,7 @@ mod tests {
     fn menu_popup_metrics_reuse_cached_label_and_shortcut_measurements() {
         let theme = theme::Theme::default_dark();
         let mut registry = action::Registry::<()>::new();
-        let mut measurer = text::Measurer::new();
+        let mut measurer = text::Engine::new();
         let menu = menu::Menu::new(menu::Id::new("test"), "Test").section(
             menu::Section::new().item(menu::Item::new(ACTION_A).with_label("Measured Menu Item")),
         );

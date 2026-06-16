@@ -15,7 +15,7 @@ pub mod window;
 
 mod native;
 mod render;
-mod text_backend;
+mod text_system;
 
 pub use action::Action;
 pub use event::Event;

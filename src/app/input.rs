@@ -589,7 +589,7 @@ mod tests {
                         .with_interactivity(ui::Interactivity::NONE.with_hit_test(true)),
                 ),
         );
-        let mut measurer = crate::text::Measurer::new();
+        let mut measurer = crate::text::Engine::new();
         let layout = tree
             .layout(crate::geometry::area::logical(40.0, 40.0), &mut measurer)
             .expect("scroll test tree should layout");
@@ -621,7 +621,7 @@ mod tests {
                         .with_interactivity(ui::Interactivity::NONE.with_hit_test(true)),
                 ),
         );
-        let mut measurer = crate::text::Measurer::new();
+        let mut measurer = crate::text::Engine::new();
         let layout = tree
             .layout(crate::geometry::area::logical(40.0, 40.0), &mut measurer)
             .expect("scroll test tree should layout");

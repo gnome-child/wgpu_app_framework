@@ -7,7 +7,7 @@ pub fn compose<T>(
     tree: &ui::Tree,
     state: &mut WindowState,
     actions: &mut action::Registry<T>,
-    measurer: &mut text::Measurer,
+    text_engine: &mut text::Engine,
     logical_area: area::Logical,
 ) -> paint::Scene {
     let mut scene = paint::Scene::new();
@@ -20,7 +20,7 @@ pub fn compose<T>(
         &command_subject,
         state.open_menu,
         state.open_submenu,
-        measurer,
+        text_engine,
     ) {
         state.open_menu = composition.open_menu();
         state.open_submenu = composition.open_submenu();
@@ -82,9 +82,9 @@ mod tests {
         actions: &mut action::Registry<T>,
         logical_area: area::Logical,
     ) -> paint::Scene {
-        let mut measurer = text::Measurer::new();
+        let mut text_engine = text::Engine::new();
 
-        super::compose(window, tree, state, actions, &mut measurer, logical_area)
+        super::compose(window, tree, state, actions, &mut text_engine, logical_area)
     }
 
     #[test]

@@ -68,7 +68,7 @@ impl Tree {
         self.root.is_none()
     }
 
-    pub fn layout(&self, area: area::Logical, measurer: &mut text::Measurer) -> Option<Frame> {
+    pub fn layout(&self, area: area::Logical, measurer: &mut text::Engine) -> Option<Frame> {
         let root = self.root.as_ref()?;
         let root_layout = layout_engine::tree(root, area, measurer);
         if self.popups.is_empty() {
@@ -97,7 +97,7 @@ impl Tree {
         command_subject: &action::Context,
         open_menu: Option<menu::Id>,
         open_submenu: Option<menu::Id>,
-        measurer: &mut text::Measurer,
+        measurer: &mut text::Engine,
     ) -> Option<Composition> {
         let mut tree = self.clone();
         let menus = tree.menus();

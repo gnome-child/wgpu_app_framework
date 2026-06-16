@@ -1,7 +1,7 @@
 use crate::paint;
 use crate::render;
 use crate::render::batch;
-use crate::text_backend;
+use crate::text_system;
 
 use thiserror::Error;
 
@@ -25,7 +25,7 @@ pub struct TextRenderer {
 }
 
 struct PreparedText {
-    buffer: glyphon::Buffer,
+    buffer: glyphon::cosmic_text::Buffer,
     left: f32,
     top: f32,
     bounds: glyphon::TextBounds,
@@ -47,7 +47,7 @@ impl TextRenderer {
             viewport,
             atlas,
             renderers: Vec::new(),
-            font_system: text_backend::font_system(),
+            font_system: text_system::font_system(),
             swash_cache: glyphon::SwashCache::new(),
         }
     }
@@ -152,37 +152,11 @@ fn prepare_text(
     text: &paint::Text,
     scale_factor: f32,
 ) -> Option<PreparedText> {
-    let block = text
-        .document
-        .blocks()
-        .iter()
-        .find(|block| !block.is_empty())?;
-    let first_style = block.runs().iter().find(|run| !run.is_empty())?.style();
-    let font_size = first_style.size.max(1.0);
-    let line_height = font_size * 1.25;
-    let mut buffer = glyphon::Buffer::new(font_system, glyphon::Metrics::relative(font_size, 1.25));
     let width = text.rect.area.width().max(0.0);
     let height = text.rect.area.height().max(0.0);
-    let buffer_height = height.min(line_height);
-
-    buffer.set_size(font_system, Some(width), Some(buffer_height));
-
-    let spans = block
-        .runs()
-        .iter()
-        .filter(|run| !run.is_empty())
-        .map(|run| (run.text(), text_backend::attrs_for_style(run.style())))
-        .collect::<Vec<_>>();
-
-    let default_attrs = text_backend::attrs_for_style(first_style);
-    buffer.set_rich_text(
-        font_system,
-        spans,
-        &default_attrs,
-        glyphon::Shaping::Advanced,
-        Some(text_backend::align(block.align())),
-    );
-    buffer.shape_until_scroll(font_system, false);
+    let prepared =
+        text_system::prepare_document_buffer(font_system, &text.document, width, height)?;
+    let buffer_height = height.min(prepared.line_height);
 
     let clip_left = text.rect.origin.x() * scale_factor;
     let clip_top = text.rect.origin.y() * scale_factor;
@@ -192,7 +166,7 @@ fn prepare_text(
     let top = (text.rect.origin.y() + (height - buffer_height).max(0.0) * 0.5) * scale_factor;
 
     Some(PreparedText {
-        buffer,
+        buffer: prepared.buffer,
         left,
         top,
         bounds: glyphon::TextBounds {
@@ -201,7 +175,7 @@ fn prepare_text(
             right: clip_right.ceil() as i32,
             bottom: clip_bottom.ceil() as i32,
         },
-        default_color: text_backend::color(first_style.color),
+        default_color: prepared.default_color,
     })
 }
 
@@ -214,29 +188,12 @@ fn prepare_icon(
         log::debug!("skipping missing icon glyph: {:?}", icon.icon);
         return None;
     };
-    let Some(character) = glyph.character() else {
-        log::debug!("skipping invalid icon codepoint: {:?}", glyph);
-        return None;
-    };
 
-    let font_size = icon.size.max(1.0);
-    let line_height = font_size;
-    let mut buffer = glyphon::Buffer::new(font_system, glyphon::Metrics::relative(font_size, 1.0));
     let width = icon.rect.area.width().max(0.0);
     let height = icon.rect.area.height().max(0.0);
-    let buffer_height = height.min(line_height);
-    let attrs = text_backend::attrs_for_icon(glyph, font_size, icon.color);
-    let text = character.to_string();
-
-    buffer.set_size(font_system, Some(width), Some(buffer_height));
-    buffer.set_rich_text(
-        font_system,
-        vec![(text.as_str(), attrs.clone())],
-        &attrs,
-        glyphon::Shaping::Basic,
-        Some(glyphon::cosmic_text::Align::Center),
-    );
-    buffer.shape_until_scroll(font_system, false);
+    let prepared =
+        text_system::prepare_icon_buffer(font_system, glyph, icon.size, icon.color, width, height)?;
+    let buffer_height = height.min(prepared.line_height);
 
     let clip_left = icon.rect.origin.x() * scale_factor;
     let clip_top = icon.rect.origin.y() * scale_factor;
@@ -246,7 +203,7 @@ fn prepare_icon(
     let top = (icon.rect.origin.y() + (height - buffer_height).max(0.0) * 0.5) * scale_factor;
 
     Some(PreparedText {
-        buffer,
+        buffer: prepared.buffer,
         left,
         top,
         bounds: glyphon::TextBounds {
@@ -255,6 +212,6 @@ fn prepare_icon(
             right: clip_right.ceil() as i32,
             bottom: clip_bottom.ceil() as i32,
         },
-        default_color: text_backend::color(icon.color),
+        default_color: prepared.default_color,
     })
 }

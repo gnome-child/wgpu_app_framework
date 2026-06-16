@@ -1,5 +1,5 @@
 use crate::geometry::area;
-use crate::{paint, text_backend};
+use crate::{paint, text_system};
 use std::collections::{HashMap, VecDeque};
 
 const MEASURE_CACHE_CAPACITY: usize = 2048;
@@ -21,7 +21,7 @@ pub struct Run {
     style: Style,
 }
 
-pub struct Measurer {
+pub struct Engine {
     font_system: glyphon::FontSystem,
     cache: MeasureCache,
     #[cfg(test)]
@@ -41,9 +41,9 @@ pub struct Metrics {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Style {
-    pub size: f32,
-    pub color: paint::Color,
-    pub weight: Weight,
+    size: f32,
+    color: paint::Color,
+    weight: Weight,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -120,7 +120,7 @@ impl Document {
     pub fn with_color(mut self, color: paint::Color) -> Self {
         for block in &mut self.blocks {
             for run in &mut block.runs {
-                run.style.color = color;
+                run.style = run.style.with_color(color);
             }
         }
 
@@ -150,10 +150,10 @@ impl From<&str> for Document {
     }
 }
 
-impl Measurer {
+impl Engine {
     pub fn new() -> Self {
         Self {
-            font_system: text_backend::font_system(),
+            font_system: text_system::font_system(),
             cache: MeasureCache::new(MEASURE_CACHE_CAPACITY),
             #[cfg(test)]
             uncached_measure_count: 0,
@@ -181,64 +181,7 @@ impl Measurer {
             self.uncached_measure_count += 1;
         }
 
-        let mut width = 0.0_f32;
-        let mut height = 0.0_f32;
-        let mut line_count = 0_usize;
-
-        for block in document.blocks().iter().filter(|block| !block.is_empty()) {
-            let Some(first_style) = block
-                .runs()
-                .iter()
-                .find(|run| !run.is_empty())
-                .map(Run::style)
-            else {
-                continue;
-            };
-            let font_size = first_style.size.max(1.0);
-            let mut buffer = glyphon::Buffer::new(
-                &mut self.font_system,
-                glyphon::Metrics::relative(font_size, 1.25),
-            );
-            let max_width = measure
-                .max()
-                .map(|max| max.width().max(0.0))
-                .filter(|width| width.is_finite());
-            let spans = block
-                .runs()
-                .iter()
-                .filter(|run| !run.is_empty())
-                .map(|run| (run.text(), text_backend::attrs_for_style(run.style())))
-                .collect::<Vec<_>>();
-            let default_attrs = text_backend::attrs_for_style(first_style);
-
-            buffer.set_size(&mut self.font_system, max_width, None);
-            buffer.set_rich_text(
-                &mut self.font_system,
-                spans,
-                &default_attrs,
-                glyphon::Shaping::Advanced,
-                Some(text_backend::align(block.align())),
-            );
-            buffer.shape_until_scroll(&mut self.font_system, false);
-
-            let mut block_height = 0.0_f32;
-            let mut block_lines = 0_usize;
-            for run in buffer.layout_runs() {
-                width = width.max(run.line_w);
-                block_height = block_height.max(run.line_top + run.line_height);
-                block_lines += 1;
-            }
-
-            if block_lines == 0 {
-                block_height = block_height.max(font_size * 1.25);
-                block_lines = 1;
-            }
-
-            height += block_height;
-            line_count += block_lines;
-        }
-
-        Metrics::new(area::logical(width, height), line_count)
+        text_system::measure_document(&mut self.font_system, document, measure)
     }
 
     #[cfg(test)]
@@ -254,14 +197,14 @@ impl Measurer {
     #[cfg(test)]
     fn with_cache_capacity(capacity: usize) -> Self {
         Self {
-            font_system: text_backend::font_system(),
+            font_system: text_system::font_system(),
             cache: MeasureCache::new(capacity),
             uncached_measure_count: 0,
         }
     }
 }
 
-impl Default for Measurer {
+impl Default for Engine {
     fn default() -> Self {
         Self::new()
     }
@@ -372,6 +315,18 @@ impl Run {
 }
 
 impl Style {
+    pub fn size(self) -> f32 {
+        self.size
+    }
+
+    pub fn color(self) -> paint::Color {
+        self.color
+    }
+
+    pub fn weight(self) -> Weight {
+        self.weight
+    }
+
     pub fn with_color(mut self, color: paint::Color) -> Self {
         self.color = color;
         self
@@ -468,8 +423,8 @@ impl RunKey {
 
         Self {
             text: run.text().to_owned(),
-            size: finite_bits(style.size.max(1.0)),
-            weight: style.weight,
+            size: finite_bits(style.size().max(1.0)),
+            weight: style.weight(),
         }
     }
 }
@@ -525,15 +480,15 @@ mod tests {
         let document = Document::plain("Label").with_color(paint::Color::BLACK);
 
         assert_eq!(
-            document.blocks()[0].runs()[0].style().color,
+            document.blocks()[0].runs()[0].style().color(),
             paint::Color::BLACK
         );
     }
 
     #[test]
-    fn measurer_returns_non_zero_metrics_for_non_empty_text() {
-        let mut measurer = Measurer::new();
-        let metrics = measurer.measure(&Document::plain("Label"), Measure::unbounded());
+    fn engine_returns_non_zero_metrics_for_non_empty_text() {
+        let mut engine = Engine::new();
+        let metrics = engine.measure(&Document::plain("Label"), Measure::unbounded());
 
         assert!(metrics.width() > 0.0);
         assert!(metrics.height() > 0.0);
@@ -542,9 +497,9 @@ mod tests {
 
     #[test]
     fn longer_text_measures_wider_than_shorter_text() {
-        let mut measurer = Measurer::new();
-        let short = measurer.measure(&Document::plain("Run"), Measure::unbounded());
-        let long = measurer.measure(&Document::plain("Run workspace task"), Measure::unbounded());
+        let mut engine = Engine::new();
+        let short = engine.measure(&Document::plain("Run"), Measure::unbounded());
+        let long = engine.measure(&Document::plain("Run workspace task"), Measure::unbounded());
 
         assert!(long.width() > short.width());
         assert!(long.height() >= short.height());
@@ -552,7 +507,7 @@ mod tests {
 
     #[test]
     fn larger_font_measures_taller_than_smaller_font() {
-        let mut measurer = Measurer::new();
+        let mut engine = Engine::new();
         let small = Document::from_block({
             let mut block = Block::new(Align::Start);
             block.push_run(Run::new("Label", Style::default().with_size(10.0)));
@@ -564,72 +519,72 @@ mod tests {
             block
         });
 
-        let small = measurer.measure(&small, Measure::unbounded());
-        let large = measurer.measure(&large, Measure::unbounded());
+        let small = engine.measure(&small, Measure::unbounded());
+        let large = engine.measure(&large, Measure::unbounded());
 
         assert!(large.height() > small.height());
     }
 
     #[test]
     fn repeated_measurement_reuses_cached_metrics() {
-        let mut measurer = Measurer::new();
+        let mut engine = Engine::new();
         let document = Document::plain("Cached Label");
 
-        let first = measurer.measure(&document, Measure::unbounded());
-        let second = measurer.measure(&document, Measure::unbounded());
+        let first = engine.measure(&document, Measure::unbounded());
+        let second = engine.measure(&document, Measure::unbounded());
 
         assert_eq!(first, second);
-        assert_eq!(measurer.uncached_measure_count(), 1);
-        assert_eq!(measurer.cache_len(), 1);
+        assert_eq!(engine.uncached_measure_count(), 1);
+        assert_eq!(engine.cache_len(), 1);
     }
 
     #[test]
     fn color_only_changes_reuse_cached_metrics() {
-        let mut measurer = Measurer::new();
+        let mut engine = Engine::new();
         let red = Document::plain("Cached Label").with_color(paint::Color::RED);
         let black = Document::plain("Cached Label").with_color(paint::Color::BLACK);
 
-        let red = measurer.measure(&red, Measure::unbounded());
-        let black = measurer.measure(&black, Measure::unbounded());
+        let red = engine.measure(&red, Measure::unbounded());
+        let black = engine.measure(&black, Measure::unbounded());
 
         assert_eq!(red, black);
-        assert_eq!(measurer.uncached_measure_count(), 1);
+        assert_eq!(engine.uncached_measure_count(), 1);
     }
 
     #[test]
     fn shaping_relevant_document_and_bounds_changes_use_distinct_cache_keys() {
-        let mut measurer = Measurer::new();
+        let mut engine = Engine::new();
         let base = styled_document("Cached Label", Align::Start, 16.0, Weight::Normal);
         let text = styled_document("Different Label", Align::Start, 16.0, Weight::Normal);
         let size = styled_document("Cached Label", Align::Start, 20.0, Weight::Normal);
         let weight = styled_document("Cached Label", Align::Start, 16.0, Weight::Bold);
         let align = styled_document("Cached Label", Align::End, 16.0, Weight::Normal);
 
-        measurer.measure(&base, Measure::unbounded());
-        measurer.measure(&text, Measure::unbounded());
-        measurer.measure(&size, Measure::unbounded());
-        measurer.measure(&weight, Measure::unbounded());
-        measurer.measure(&align, Measure::unbounded());
-        measurer.measure(&base, Measure::bounded(area::logical(40.0, 100.0)));
+        engine.measure(&base, Measure::unbounded());
+        engine.measure(&text, Measure::unbounded());
+        engine.measure(&size, Measure::unbounded());
+        engine.measure(&weight, Measure::unbounded());
+        engine.measure(&align, Measure::unbounded());
+        engine.measure(&base, Measure::bounded(area::logical(40.0, 100.0)));
 
-        assert_eq!(measurer.uncached_measure_count(), 6);
-        assert_eq!(measurer.cache_len(), 6);
+        assert_eq!(engine.uncached_measure_count(), 6);
+        assert_eq!(engine.cache_len(), 6);
     }
 
     #[test]
     fn bounded_fifo_cache_evicts_oldest_entries() {
-        let mut measurer = Measurer::with_cache_capacity(2);
+        let mut engine = Engine::with_cache_capacity(2);
         let first = Document::plain("First");
         let second = Document::plain("Second");
         let third = Document::plain("Third");
 
-        measurer.measure(&first, Measure::unbounded());
-        measurer.measure(&second, Measure::unbounded());
-        measurer.measure(&third, Measure::unbounded());
-        measurer.measure(&first, Measure::unbounded());
+        engine.measure(&first, Measure::unbounded());
+        engine.measure(&second, Measure::unbounded());
+        engine.measure(&third, Measure::unbounded());
+        engine.measure(&first, Measure::unbounded());
 
-        assert_eq!(measurer.cache_len(), 2);
-        assert_eq!(measurer.uncached_measure_count(), 4);
+        assert_eq!(engine.cache_len(), 2);
+        assert_eq!(engine.uncached_measure_count(), 4);
     }
 
     fn styled_document(text: &str, align: Align, size: f32, weight: Weight) -> Document {

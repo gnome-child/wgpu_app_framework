@@ -20,7 +20,7 @@ fn layout(tree: &Tree) -> Frame {
 }
 
 fn layout_area(tree: &Tree, area: area::Logical) -> Frame {
-    let mut measurer = text::Measurer::new();
+    let mut measurer = text::Engine::new();
 
     tree.layout(area, &mut measurer)
         .expect("tree should have root")
@@ -1348,7 +1348,9 @@ fn disabled_button_uses_disabled_label_color() {
     );
 
     assert_eq!(
-        text(&scene, 2).document.blocks()[0].runs()[0].style().color,
+        text(&scene, 2).document.blocks()[0].runs()[0]
+            .style()
+            .color(),
         root.style()
             .disabled_label_color()
             .expect("control has disabled label color")
@@ -1862,7 +1864,9 @@ fn busy_button_uses_busy_label_color() {
     );
 
     assert_eq!(
-        text(&scene, 2).document.blocks()[0].runs()[0].style().color,
+        text(&scene, 2).document.blocks()[0].runs()[0]
+            .style()
+            .color(),
         root.style()
             .busy_label_color()
             .expect("control has busy label color")

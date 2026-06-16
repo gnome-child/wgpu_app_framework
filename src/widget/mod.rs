@@ -2,11 +2,14 @@ pub mod menu;
 pub mod scroll;
 
 mod control;
+mod foundation;
 mod menu_popup;
 mod popup;
+mod text_widget;
 
 use crate::geometry::{Rect, area, point};
-use crate::{layout, text, theme, ui};
+use crate::text as text_model;
+use crate::{layout, theme, ui};
 
 pub use self::menu::Menu;
 pub use self::menu_popup::{menu_popup, submenu_popup};
@@ -15,6 +18,7 @@ pub use control::{
     button, button_with_theme, floating_panel, floating_panel_with_theme, icon_button,
     icon_button_with_theme, labeled_button, labeled_button_with_theme, panel, panel_with_theme,
 };
+pub use text_widget::{paragraph, paragraph_with_theme, text, text_with_theme};
 
 pub const MENU_POPUP: ui::Id = ui::Id::new("__menu_popup");
 pub const MENU_SUBMENU_POPUP: ui::Id = ui::Id::new("__menu_submenu_popup");
@@ -54,8 +58,8 @@ pub fn label(id: ui::Id, label: impl Into<String>) -> ui::Node {
 }
 
 pub fn label_with_theme(id: ui::Id, label: impl Into<String>, theme: &theme::Theme) -> ui::Node {
-    ui::Node::leaf(id)
-        .with_label(document_with_theme(label, theme, text::Align::Center))
+    foundation::content_colors(ui::Node::leaf(id), theme)
+        .with_label(document_with_theme(label, theme, text_model::Align::Center))
         .with_label_color(theme.text().secondary())
         .with_size(
             layout::Size::Fill,
@@ -118,27 +122,26 @@ pub fn menu_bar_with_theme(id: ui::Id, bar: menu::Bar, theme: &theme::Theme) -> 
     node
 }
 
-pub fn document(label: impl Into<String>) -> text::Document {
-    let mut block = text::Block::new(text::Align::Center);
-    block.push_run(text::Run::new(label, text::Style::default()));
-
-    text::Document::from_block(block)
+pub fn document(label: impl Into<String>) -> text_model::Document {
+    foundation::document(
+        label,
+        text_model::Align::Center,
+        text_model::Style::default().size(),
+        text_model::Style::default().color(),
+    )
 }
 
 fn document_with_theme(
     label: impl Into<String>,
     theme: &theme::Theme,
-    align: text::Align,
-) -> text::Document {
-    let mut block = text::Block::new(align);
-    block.push_run(text::Run::new(
+    align: text_model::Align,
+) -> text_model::Document {
+    foundation::document(
         label,
-        text::Style::default()
-            .with_size(theme.text().menu_size())
-            .with_color(theme.text().primary()),
-    ));
-
-    text::Document::from_block(block)
+        align,
+        theme.text().menu_size(),
+        theme.text().primary(),
+    )
 }
 
 fn menu_title(menu: &menu::Menu, theme: &theme::Theme) -> ui::Node {
@@ -151,7 +154,7 @@ fn menu_title(menu: &menu::Menu, theme: &theme::Theme) -> ui::Node {
         .with_label(document_with_theme(
             menu.label(),
             theme,
-            text::Align::Center,
+            text_model::Align::Center,
         ))
         .with_background(theme.menu().title_background())
         .with_hover_tint(theme.menu().title_hover_tint())
@@ -280,6 +283,7 @@ impl Hit {
 mod tests {
     use super::*;
     use crate::paint;
+    use crate::text as text_model;
 
     const ROOT: ui::Id = ui::Id::new("root");
 
@@ -324,6 +328,35 @@ mod tests {
     }
 
     #[test]
+    fn text_widget_stores_themed_text_document() {
+        let theme = theme::Theme::default_dark();
+        let node = text_with_theme(ROOT, "Status", &theme);
+        let label = node.label().expect("text widget should store a label");
+
+        assert_eq!(label.blocks()[0].runs()[0].text(), "Status");
+        assert_eq!(
+            label.blocks()[0].runs()[0].style().color(),
+            theme.text().primary()
+        );
+        assert_eq!(node.style().label_color(), Some(theme.text().primary()));
+        assert_eq!(node.layout().width(), layout::Size::Fit);
+        assert_eq!(
+            node.layout().height(),
+            layout::Size::Fixed(theme.density().label_height())
+        );
+    }
+
+    #[test]
+    fn paragraph_widget_is_fill_width_and_fit_height() {
+        let theme = theme::Theme::default_dark();
+        let node = paragraph_with_theme(ROOT, "Paragraph text", &theme);
+
+        assert_eq!(node.layout().width(), layout::Size::Fill);
+        assert_eq!(node.layout().height(), layout::Size::Fit);
+        assert_eq!(node.style().label_color(), Some(theme.text().primary()));
+    }
+
+    #[test]
     fn menu_title_width_uses_measured_label_content() {
         let bar = menu::Bar::new()
             .menu(menu::Menu::new(menu::Id::new("a"), "A"))
@@ -332,7 +365,7 @@ mod tests {
                 "Workspace Tools",
             ));
         let mut tree = ui::Tree::new();
-        let mut measurer = text::Measurer::new();
+        let mut measurer = text_model::Engine::new();
 
         tree.set_root(menu_bar(ROOT, bar));
         let layout = tree

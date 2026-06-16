@@ -26,7 +26,7 @@ pub struct Runtime<A: Application> {
     windows: Windows,
     window_states: HashMap<window::Id, WindowState>,
     actions: action::Registry<A::Event>,
-    text_measurer: text::Measurer,
+    text_engine: text::Engine,
     mailbox: Mailbox<A::Event>,
     sender: Sender<A::Event>,
     started: bool,
@@ -41,7 +41,7 @@ impl<A: Application> Runtime<A> {
             windows: Windows::new(),
             window_states: HashMap::new(),
             actions: action::Registry::new(),
-            text_measurer: text::Measurer::new(),
+            text_engine: text::Engine::new(),
             mailbox: Mailbox::new(),
             sender,
             started: false,
@@ -177,7 +177,7 @@ impl<A: Application> Runtime<A> {
             &tree,
             state,
             &mut self.actions,
-            &mut self.text_measurer,
+            &mut self.text_engine,
             logical_area,
         );
 

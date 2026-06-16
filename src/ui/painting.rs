@@ -352,7 +352,7 @@ fn resolved_icon(node: &ui::Node, layout: &ui::Frame, visual: &VisualState) -> O
 
 fn resolved_icon_color(node: &ui::Node, visual: &VisualState) -> paint::Color {
     let style = node.style();
-    let fallback = crate::text::Style::default().color;
+    let fallback = crate::text::Style::default().color();
 
     if visual.busy {
         return style

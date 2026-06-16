@@ -1,33 +1,13 @@
-use crate::{action, icon, layout, paint, text, theme, ui};
+use crate::{action, icon, layout, text, theme, ui};
+
+use super::foundation;
 
 pub fn panel(id: ui::Id) -> ui::Node {
     panel_with_theme(id, &theme::Theme::default_dark())
 }
 
 pub fn panel_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
-    let control = theme.control();
-    let focus_outline = control.focus_outline();
-
-    ui::Node::container(id, layout::Axis::Vertical)
-        .with_background(theme.surfaces().panel())
-        .with_stroke(paint::Stroke {
-            brush: theme.surfaces().panel_stroke(),
-            width: 1.0,
-        })
-        .with_hover_tint(control.hover_tint())
-        .with_pressed_tint(control.pressed_tint())
-        .with_active_tint(control.active_tint())
-        .with_busy_tint(control.busy_tint())
-        .with_disabled_tint(control.disabled_tint())
-        .with_focus_outline(
-            focus_outline.brush(),
-            focus_outline.width(),
-            focus_outline.offset(),
-        )
-        .with_label_color(theme.text().primary())
-        .with_busy_label_color(theme.text().busy())
-        .with_disabled_label_color(theme.text().disabled())
-        .with_rounding(theme.roundings().panel())
+    foundation::panel_chrome(ui::Node::container(id, layout::Axis::Vertical), theme)
 }
 
 pub fn floating_panel(id: ui::Id) -> ui::Node {
@@ -38,7 +18,7 @@ pub fn floating_panel_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
     let floating = theme.floating_panel();
     let shadow = floating.shadow();
 
-    ui::Node::container(id, layout::Axis::Vertical)
+    foundation::content_colors(ui::Node::container(id, layout::Axis::Vertical), theme)
         .with_backdrop(
             ui::Backdrop::glass(floating.backdrop_fill()).with_blur(floating.backdrop_blur()),
         )
@@ -51,9 +31,6 @@ pub fn floating_panel_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
         )
         .with_rounding(floating.rounding())
         .with_padding(layout::Insets::splat(floating.padding()))
-        .with_label_color(theme.text().primary())
-        .with_busy_label_color(theme.text().busy())
-        .with_disabled_label_color(theme.text().disabled())
         .with_interactivity(ui::Interactivity::NONE.with_hit_test(true))
 }
 
@@ -62,19 +39,10 @@ pub fn button(id: ui::Id, action: action::Id) -> ui::Node {
 }
 
 pub fn button_with_theme(id: ui::Id, action: action::Id, theme: &theme::Theme) -> ui::Node {
-    actionable(panel_with_theme(id, theme), action)
-        .with_background(theme.control().background())
-        .with_stroke(theme.control().stroke())
-        .with_rounding(theme.roundings().control())
-        .with_size(
-            layout::Size::Fill,
-            layout::Size::Fixed(theme.density().control_height()),
-        )
-}
-
-fn actionable(node: ui::Node, action: action::Id) -> ui::Node {
-    node.with_action(action)
-        .with_interactivity(ui::Interactivity::CONTROL)
+    foundation::control_chrome(
+        foundation::actionable(panel_with_theme(id, theme), action),
+        theme,
+    )
 }
 
 pub fn labeled_button(id: ui::Id, action: action::Id, label: impl Into<String>) -> ui::Node {

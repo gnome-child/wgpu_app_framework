@@ -58,6 +58,10 @@ const STATE_READY: ui::Id = ui::Id::new("state_ready");
 const STATE_SUBJECT: ui::Id = ui::Id::new("state_subject");
 const STATE_LAST: ui::Id = ui::Id::new("state_last");
 const STATE_FOOTER: ui::Id = ui::Id::new("state_footer");
+const TEXT_SECTION: ui::Id = ui::Id::new("text_section");
+const TEXT_HEADER: ui::Id = ui::Id::new("text_header");
+const TEXT_LINE: ui::Id = ui::Id::new("text_line");
+const TEXT_PARAGRAPH: ui::Id = ui::Id::new("text_paragraph");
 
 const COMMAND_SCOPE_PANEL: ui::Id = ui::Id::new("command_scope_panel");
 const SCOPE_STATUS: ui::Id = ui::Id::new("scope_status");
@@ -399,6 +403,7 @@ fn right_column(theme: &Theme, model: &ViewModel) -> ui::Node {
     ui::Node::container(RIGHT_COLUMN, layout::Axis::Vertical)
         .with_size(layout::Size::Fixed(210.0), layout::Size::Fill)
         .with_gap(theme.density().app_padding())
+        .with_child(text_section(theme))
         .with_child(state_section(theme, model))
 }
 
@@ -637,6 +642,27 @@ fn state_section(theme: &Theme, model: &ViewModel) -> ui::Node {
         .with_child(info_panel(STATE_FOOTER, model.last_select.clone(), theme))
 }
 
+fn text_section(theme: &Theme) -> ui::Node {
+    section_panel(
+        TEXT_SECTION,
+        "Text Widgets",
+        theme,
+        layout::Size::Fixed(128.0),
+    )
+    .with_child(
+        widget::text_with_theme(TEXT_LINE, "fit-sized text()", theme)
+            .with_label_color(theme.text().secondary()),
+    )
+    .with_child(
+        widget::paragraph_with_theme(
+            TEXT_PARAGRAPH,
+            "paragraph() measures through text::Engine and wraps as layout constraints change.",
+            theme,
+        )
+        .with_label_color(theme.text().secondary()),
+    )
+}
+
 fn document_scroll(theme: &Theme, offset: f32) -> ui::Node {
     let mut scroll = widget::scroll_view_with_theme(DOCUMENT_SCROLL, theme)
         .with_scroll_offset(point::logical(0.0, offset))
@@ -861,6 +887,8 @@ fn header_id(id: ui::Id) -> ui::Id {
         STATE_HEADER
     } else if id == POPUP_SECTION {
         POPUP_HEADER
+    } else if id == TEXT_SECTION {
+        TEXT_HEADER
     } else {
         ui::Id::new("section_header")
     }
