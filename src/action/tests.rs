@@ -216,6 +216,14 @@ fn built_in_edit_actions_expose_expected_payload_kinds() {
         PayloadKind::None
     );
     assert_eq!(
+        Action::<()>::new(super::UNDO, "Undo").payload(),
+        PayloadKind::None
+    );
+    assert_eq!(
+        Action::<()>::new(super::REDO, "Redo").payload(),
+        PayloadKind::None
+    );
+    assert_eq!(
         Action::<()>::new(super::INSERT_TEXT, "Insert Text").payload(),
         PayloadKind::Text
     );

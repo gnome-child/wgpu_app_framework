@@ -35,6 +35,13 @@ impl Shortcut {
         )
     }
 
+    pub const fn control_shift(key: char) -> Self {
+        Self::new(
+            ui::Key::Character(key.to_ascii_lowercase()),
+            ui::Modifiers::new(true, true, false, false),
+        )
+    }
+
     pub const fn key(self) -> ui::Key {
         self.key
     }

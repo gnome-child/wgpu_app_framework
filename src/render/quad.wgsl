@@ -73,6 +73,14 @@ fn coverage(sdf: f32) -> f32 {
     return clamp(0.5 - sdf / width, 0.0, 1.0);
 }
 
+fn hard_coverage(sdf: f32) -> f32 {
+    if sdf <= 0.0 {
+        return 1.0;
+    }
+
+    return 0.0;
+}
+
 fn brush_color(in: VertexOut) -> vec4<f32> {
     if in.params.z <= 0.5 {
         return in.color;
@@ -113,11 +121,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         return vec4<f32>(material.rgb, material.a * alpha);
     }
 
-    let outer_alpha = coverage(rounded_rect_sdf(
-        in.local_position,
-        in.outer_rect,
-        in.outer_rounding,
-    ));
+    let outer_sdf = rounded_rect_sdf(in.local_position, in.outer_rect, in.outer_rounding);
+    let outer_alpha = select(hard_coverage(outer_sdf), coverage(outer_sdf), in.params.w > 0.5);
     var alpha = outer_alpha;
 
     if in.params.x > 0.5 {

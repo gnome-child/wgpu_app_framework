@@ -56,6 +56,7 @@ pub fn measure_document(
             first_style,
             max_width,
             None,
+            glyphon::Wrap::WordOrGlyph,
         );
 
         let mut block_height = 0.0_f32;
@@ -83,6 +84,7 @@ pub fn prepare_document_buffer(
     document: &text::Document,
     width: f32,
     height: f32,
+    wrap: glyphon::Wrap,
 ) -> Option<PreparedBuffer> {
     let block = document.blocks().iter().find(|block| !block.is_empty())?;
     let first_style = block.runs().iter().find(|run| !run.is_empty())?.style();
@@ -98,6 +100,7 @@ pub fn prepare_document_buffer(
         first_style,
         Some(width.max(0.0)),
         Some(buffer_height.max(0.0)),
+        wrap,
     );
 
     Some(PreparedBuffer {
@@ -155,6 +158,7 @@ fn set_document_buffer(
     first_style: text::Style,
     width: Option<f32>,
     height: Option<f32>,
+    wrap: glyphon::Wrap,
 ) {
     let spans = block
         .runs()
@@ -165,6 +169,7 @@ fn set_document_buffer(
     let default_attrs = attrs_for_style(first_style);
 
     buffer.set_size(font_system, width, height);
+    buffer.set_wrap(font_system, wrap);
     buffer.set_rich_text(
         font_system,
         spans,

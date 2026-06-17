@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
+use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::{event_loop::ActiveEventLoop, window::WindowAttributes};
 
+use crate::geometry::Rect;
 use crate::geometry::area;
 use crate::native;
 use crate::render;
@@ -57,6 +59,20 @@ impl Window {
 
     pub fn set_visibility(&self, visible: bool) {
         self.handle.set_visible(visible);
+    }
+
+    pub fn set_ime_allowed(&self, allowed: bool) {
+        self.handle.set_ime_allowed(allowed);
+    }
+
+    pub fn set_ime_cursor_area(&self, rect: Rect) {
+        self.handle.set_ime_cursor_area(
+            LogicalPosition::new(rect.origin.x() as f64, rect.origin.y() as f64),
+            LogicalSize::new(
+                rect.area.width().max(1.0) as f64,
+                rect.area.height().max(1.0) as f64,
+            ),
+        );
     }
 
     pub fn canvas(&self) -> &render::Canvas {

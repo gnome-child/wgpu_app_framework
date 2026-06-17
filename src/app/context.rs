@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use winit::event_loop::ActiveEventLoop;
 
 use crate::app::mailbox::Mailbox;
@@ -5,9 +7,10 @@ use crate::app::rendering;
 use crate::app::sender::Sender;
 use crate::app::state::WindowState;
 use crate::app::task_runner;
+use crate::app::text_input;
 use crate::app::windows::Windows;
 use crate::geometry::area;
-use crate::{Action, Task, action, ui, window};
+use crate::{Action, Task, action, text, ui, window};
 
 use super::Result;
 
@@ -16,6 +19,8 @@ pub struct Context<'a, T: Send + 'static> {
     windows: &'a mut Windows,
     window_states: &'a mut std::collections::HashMap<window::Id, WindowState>,
     actions: &'a mut action::Registry<T>,
+    text_engine: &'a mut text::Engine,
+    clipboard: &'a mut dyn text::Clipboard,
     mailbox: &'a mut Mailbox<T>,
     sender: Sender<T>,
     redraw_on_action_state_change: bool,
@@ -27,6 +32,8 @@ pub struct Parts<'a, T: Send + 'static> {
     pub windows: &'a mut Windows,
     pub window_states: &'a mut std::collections::HashMap<window::Id, WindowState>,
     pub actions: &'a mut action::Registry<T>,
+    pub text_engine: &'a mut text::Engine,
+    pub clipboard: &'a mut dyn text::Clipboard,
     pub mailbox: &'a mut Mailbox<T>,
     pub sender: Sender<T>,
     pub redraw_on_action_state_change: bool,
@@ -39,6 +46,8 @@ pub fn new<T: Send + 'static>(parts: Parts<'_, T>) -> Context<'_, T> {
         windows: parts.windows,
         window_states: parts.window_states,
         actions: parts.actions,
+        text_engine: parts.text_engine,
+        clipboard: parts.clipboard,
         mailbox: parts.mailbox,
         sender: parts.sender,
         redraw_on_action_state_change: parts.redraw_on_action_state_change,
@@ -122,6 +131,109 @@ impl<T: Send + 'static> Context<'_, T> {
 
     pub fn spawn(&self, task: Task<T>) {
         task_runner::spawn(task, self.sender.clone());
+    }
+
+    pub fn apply_text_edit(&mut self, buffer: &mut text::Buffer, edit: text::Edit) -> bool {
+        self.text_engine.apply_text_edit(buffer, edit)
+    }
+
+    pub fn apply_text_edit_for(
+        &mut self,
+        target: &ui::Path,
+        buffer: &mut text::Buffer,
+        edit: text::Edit,
+    ) -> bool {
+        if !self
+            .window_states
+            .values()
+            .any(|state| state.can_apply_text_edit(target, &edit))
+        {
+            return false;
+        }
+
+        let history_kind = edit.history_kind();
+        let result = self.text_engine.apply_text_edit_with_result(buffer, edit);
+
+        if let Some(change) = result.change.clone() {
+            for state in self.window_states.values_mut() {
+                state.record_text_field_history(target, change.clone(), history_kind);
+            }
+        }
+
+        if result.buffer_changed() {
+            let now = Instant::now();
+            for state in self.window_states.values_mut() {
+                state.reset_text_field_caret_blink(target, now);
+            }
+        }
+
+        result.buffer_changed()
+    }
+
+    pub fn apply_text_command_for(
+        &mut self,
+        target: &ui::Path,
+        buffer: &mut text::Buffer,
+        command: text::Command,
+    ) -> text::CommandResult {
+        if matches!(command, text::Command::Undo | text::Command::Redo) {
+            let Some(result) = self.window_states.values_mut().find_map(|state| {
+                let can_apply = state
+                    .text_field(target)
+                    .is_some_and(|field| text_input::can_apply_command(state, target, field, command));
+
+                can_apply.then(|| state.apply_text_history_command(target, buffer, command))
+            }) else {
+                return text::CommandResult {
+                    unavailable: true,
+                    ..text::CommandResult::default()
+                };
+            };
+
+            if result.buffer_changed() {
+                let now = Instant::now();
+                for state in self.window_states.values_mut() {
+                    state.reset_text_field_caret_blink(target, now);
+                }
+            }
+
+            return result;
+        }
+
+        if !self
+            .window_states
+            .values()
+            .any(|state| {
+                state
+                    .text_field(target)
+                    .is_some_and(|field| text_input::can_apply_command(state, target, field, command))
+            })
+        {
+            return text::CommandResult {
+                unavailable: true,
+                ..text::CommandResult::default()
+            };
+        }
+
+        let outcome =
+            self.text_engine
+                .apply_text_command_with_result(buffer, command, self.clipboard);
+        let result = outcome.result;
+
+        if let Some(change) = outcome.change {
+            for state in self.window_states.values_mut() {
+                state.record_text_field_history(target, change.clone(), text::HistoryKind::Boundary);
+            }
+        }
+
+        if result.buffer_changed() {
+            let now = Instant::now();
+            for state in self.window_states.values_mut() {
+                state.reset_text_field_caret_blink(target, now);
+            }
+        }
+
+        result
     }
 
     pub fn sender(&self) -> Sender<T> {

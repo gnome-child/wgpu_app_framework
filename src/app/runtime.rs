@@ -1,12 +1,15 @@
 use std::collections::HashMap;
+use std::time::Instant;
 
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
+    event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, StartCause, WindowEvent},
     event_loop::ActiveEventLoop,
 };
 
+use crate::animation;
 use crate::app::action_executor;
+use crate::app::clipboard::SystemClipboard;
 use crate::app::context;
 use crate::app::input;
 use crate::app::mailbox::{Mailbox, Message};
@@ -27,8 +30,11 @@ pub struct Runtime<A: Application> {
     window_states: HashMap<window::Id, WindowState>,
     actions: action::Registry<A::Event>,
     text_engine: text::Engine,
+    clipboard: SystemClipboard,
     mailbox: Mailbox<A::Event>,
     sender: Sender<A::Event>,
+    animation_schedules: HashMap<window::Id, animation::Schedule>,
+    last_frames: HashMap<window::Id, Instant>,
     started: bool,
     error: Option<Error>,
 }
@@ -42,8 +48,11 @@ impl<A: Application> Runtime<A> {
             window_states: HashMap::new(),
             actions: action::Registry::new(),
             text_engine: text::Engine::new(),
+            clipboard: SystemClipboard::new(),
             mailbox: Mailbox::new(),
             sender,
+            animation_schedules: HashMap::new(),
+            last_frames: HashMap::new(),
             started: false,
             error: None,
         }
@@ -89,6 +98,8 @@ impl<A: Application> Runtime<A> {
                         windows: &mut self.windows,
                         window_states: &mut self.window_states,
                         actions: &mut self.actions,
+                        text_engine: &mut self.text_engine,
+                        clipboard: &mut self.clipboard,
                         mailbox: &mut self.mailbox,
                         sender: self.sender.clone(),
                         redraw_on_action_state_change: true,
@@ -143,11 +154,58 @@ impl<A: Application> Runtime<A> {
         self.mailbox.push_app(event);
     }
 
+    fn frame_for_window(&mut self, window: window::Id) -> animation::Frame {
+        let now = Instant::now();
+        let previous = self.last_frames.insert(window, now);
+
+        animation::Frame::new(now, previous)
+    }
+
+    fn request_due_animation_redraws(&mut self, now: Instant) {
+        let due = self
+            .animation_schedules
+            .iter()
+            .filter_map(|(window, schedule)| schedule.is_due(now).then_some(*window))
+            .collect::<Vec<_>>();
+
+        for window in due {
+            if self.windows.contains(window) {
+                self.windows.request_redraw(window);
+            } else {
+                self.animation_schedules.remove(&window);
+            }
+        }
+    }
+
+    fn refresh_animation_schedules(&mut self, now: Instant) -> animation::Schedule {
+        self.animation_schedules
+            .retain(|window, _| self.windows.contains(*window));
+
+        for (window, state) in &self.window_states {
+            if !self.windows.contains(*window) {
+                continue;
+            }
+
+            let schedule = state.animation_schedule(now);
+            if schedule == animation::Schedule::Idle {
+                self.animation_schedules.remove(window);
+            } else {
+                self.animation_schedules.insert(*window, schedule);
+            }
+        }
+
+        self.animation_schedules
+            .values()
+            .copied()
+            .fold(animation::Schedule::Idle, animation::Schedule::merge)
+    }
+
     fn redraw_window(&mut self, event_loop: &ActiveEventLoop, window: window::Id) {
         if !self.rendering.ready() {
             return;
         }
 
+        let frame = self.frame_for_window(window);
         let mut tree = ui::Tree::new();
 
         self.actions.clear_context_states(window);
@@ -158,6 +216,8 @@ impl<A: Application> Runtime<A> {
                 windows: &mut self.windows,
                 window_states: &mut self.window_states,
                 actions: &mut self.actions,
+                text_engine: &mut self.text_engine,
+                clipboard: &mut self.clipboard,
                 mailbox: &mut self.mailbox,
                 sender: self.sender.clone(),
                 redraw_on_action_state_change: false,
@@ -179,7 +239,9 @@ impl<A: Application> Runtime<A> {
             &mut self.actions,
             &mut self.text_engine,
             logical_area,
+            frame,
         );
+        self.sync_ime_for_window(window);
 
         let Some(native_window) = self.windows.get_mut(window) else {
             return;
@@ -203,6 +265,8 @@ impl<A: Application> Runtime<A> {
     fn close_window(&mut self, event_loop: &ActiveEventLoop, window: window::Id) {
         self.windows.remove(window);
         self.window_states.remove(&window);
+        self.animation_schedules.remove(&window);
+        self.last_frames.remove(&window);
 
         if self.windows.is_empty() {
             event_loop.exit();
@@ -218,7 +282,7 @@ impl<A: Application> Runtime<A> {
         let Some(state) = self.window_states.get_mut(&window) else {
             return;
         };
-        let outcome = input::pointer_moved(state, position);
+        let outcome = input::pointer_moved_with_text_engine(state, position, &mut self.text_engine);
 
         if outcome.redraw {
             self.windows.request_redraw(window);
@@ -251,7 +315,9 @@ impl<A: Application> Runtime<A> {
         };
 
         let outcome = match state {
-            ElementState::Pressed => input::pointer_pressed(window_state, position, button),
+            ElementState::Pressed => {
+                input::pointer_pressed(window_state, position, button, &mut self.text_engine)
+            }
             ElementState::Released => {
                 input::pointer_released(&self.actions, window_state, window, position, button)
             }
@@ -270,6 +336,7 @@ impl<A: Application> Runtime<A> {
         if outcome.redraw {
             self.windows.request_redraw(window);
         }
+        self.sync_ime_for_window(window);
     }
 
     fn mouse_wheel(
@@ -322,9 +389,14 @@ impl<A: Application> Runtime<A> {
         };
 
         let outcome = match event.state {
-            ElementState::Pressed => {
-                input::key_pressed(&self.actions, state, window, key, event.repeat)
-            }
+            ElementState::Pressed => input::key_pressed_with_text(
+                &self.actions,
+                state,
+                window,
+                key,
+                event.text.as_deref(),
+                event.repeat,
+            ),
             ElementState::Released => input::key_released(&self.actions, state, window, key),
         };
 
@@ -341,6 +413,26 @@ impl<A: Application> Runtime<A> {
         if outcome.redraw {
             self.windows.request_redraw(window);
         }
+        self.sync_ime_for_window(window);
+    }
+
+    fn ime_input(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window: window::Id,
+        event: winit::event::Ime,
+    ) {
+        let Some(state) = self.window_states.get_mut(&window) else {
+            return;
+        };
+        let outcome = input::ime(state, event);
+
+        self.dispatch_ui_events(event_loop, window, outcome.events);
+
+        if outcome.redraw {
+            self.windows.request_redraw(window);
+        }
+        self.sync_ime_for_window(window);
     }
 
     fn handle_intent(&mut self, window: window::Id, intent: ui::Intent) {
@@ -368,6 +460,24 @@ impl<A: Application> Runtime<A> {
         }
     }
 
+    fn sync_ime_for_window(&mut self, window: window::Id) {
+        let Some(state) = self.window_states.get(&window) else {
+            return;
+        };
+        let enabled = state.text_input_enabled();
+        let cursor_rect = enabled
+            .then(|| state.focused_text_field_caret_rect(&mut self.text_engine))
+            .flatten();
+        let Some(native_window) = self.windows.get(window) else {
+            return;
+        };
+
+        native_window.set_ime_allowed(enabled);
+        if let Some(rect) = cursor_rect {
+            native_window.set_ime_cursor_area(rect);
+        }
+    }
+
     fn dispatch_ui_events(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -381,6 +491,10 @@ impl<A: Application> Runtime<A> {
 }
 
 impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
+    fn new_events(&mut self, _event_loop: &ActiveEventLoop, _cause: StartCause) {
+        self.request_due_animation_redraws(Instant::now());
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if !self.rendering.ready() {
             if let Err(error) = self.rendering.initialize() {
@@ -400,6 +514,8 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
             windows: &mut self.windows,
             window_states: &mut self.window_states,
             actions: &mut self.actions,
+            text_engine: &mut self.text_engine,
+            clipboard: &mut self.clipboard,
             mailbox: &mut self.mailbox,
             sender: self.sender.clone(),
             redraw_on_action_state_change: true,
@@ -503,6 +619,9 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
             } => {
                 self.keyboard_input(event_loop, window, event);
             }
+            WindowEvent::Ime(event) => {
+                self.ime_input(event_loop, window, event);
+            }
             WindowEvent::RedrawRequested => {
                 self.redraw_window(event_loop, window);
             }
@@ -512,5 +631,13 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, message: Message<A::Event>) {
         self.dispatch_message(event_loop, message);
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let now = Instant::now();
+        self.request_due_animation_redraws(now);
+        let schedule = self.refresh_animation_schedules(now);
+
+        event_loop.set_control_flow(schedule.control_flow(now));
     }
 }

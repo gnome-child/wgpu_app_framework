@@ -74,6 +74,7 @@ mod tests {
     fn solid_quad(x: f32) -> paint::Quad {
         paint::Quad {
             rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
+            rasterization: paint::Rasterization::default(),
             style: paint::Style {
                 fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::RED))),
                 stroke: None,
@@ -86,6 +87,7 @@ mod tests {
         paint::Text {
             rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
             document: text::Document::plain("Label"),
+            wrap: paint::TextWrap::WordOrGlyph,
         }
     }
 

@@ -203,11 +203,7 @@ fn item_node<T>(
 ) -> ui::Node {
     let action = item.action();
     let state = actions.state(action, command_subject.clone());
-    let color = if state.is_enabled() {
-        theme.text().primary()
-    } else {
-        theme.text().disabled()
-    };
+    let color = theme.text().primary();
     let check = state
         .is_active()
         .then(|| icon::Icon::phosphor(icon::Id::new("check")));
@@ -734,7 +730,7 @@ mod tests {
     }
 
     #[test]
-    fn disabled_menu_item_dims_content_without_disabled_tint() {
+    fn disabled_menu_item_keeps_content_color_tokens_for_paint_projection() {
         let theme = theme::Theme::default_dark();
         let mut registry = action::Registry::<()>::new();
         let item = menu::Item::new(ACTION_A);
@@ -753,10 +749,218 @@ mod tests {
         );
 
         assert_eq!(row.style().disabled_tint(), None);
-        assert_eq!(row.style().label_color(), Some(theme.text().disabled()));
+        assert_eq!(row.style().label_color(), Some(theme.text().primary()));
+        assert_eq!(
+            row.style().disabled_label_color(),
+            Some(theme.text().disabled())
+        );
         for child in row.children() {
-            assert_eq!(child.style().label_color(), Some(theme.text().disabled()));
+            assert_eq!(child.style().label_color(), Some(theme.text().primary()));
+            assert_eq!(
+                child.style().disabled_label_color(),
+                Some(theme.text().disabled())
+            );
         }
+    }
+
+    #[test]
+    fn disabled_menu_item_paints_label_and_shortcut_with_disabled_color() {
+        let theme = theme::Theme::default_dark();
+        let mut registry = action::Registry::<()>::new();
+        let item = menu::Item::new(ACTION_A);
+        let window = crate::window::Id::new(1);
+        let context = action::Context::window(window);
+
+        registry.register(
+            crate::Action::new(ACTION_A, "Select All")
+                .with_shortcut(action::Shortcut::control('a')),
+        );
+        registry.set_state(ACTION_A, context.clone(), action::State::disabled());
+
+        let row = item_node(
+            ui::Id::new("row"),
+            &item,
+            &registry,
+            &context,
+            test_chrome(&theme, 42.0),
+            &theme,
+        );
+        let mut tree = ui::Tree::new();
+        let mut measurer = text::Engine::new();
+        let mut scene = paint::Scene::new();
+
+        tree.set_root(row);
+        let layout = tree
+            .layout(area::logical(160.0, 40.0), &mut measurer)
+            .expect("menu row should layout");
+        tree.paint(
+            &layout,
+            &registry,
+            window,
+            ui::Interaction::default(),
+            &mut scene,
+        );
+
+        let label = scene
+            .items()
+            .iter()
+            .filter_map(|item| match item {
+                paint::Item::Text(text) => Some(text),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(label.len(), 2);
+        for text in label {
+            assert_eq!(
+                text.document.blocks()[0].runs()[0].style().color(),
+                theme.text().disabled()
+            );
+        }
+    }
+
+    #[test]
+    fn enabled_menu_item_paints_label_and_shortcut_with_primary_color() {
+        let theme = theme::Theme::default_dark();
+        let mut registry = action::Registry::<()>::new();
+        let item = menu::Item::new(ACTION_A);
+        let window = crate::window::Id::new(1);
+        let context = action::Context::window(window);
+
+        registry.register(
+            crate::Action::new(ACTION_A, "Select All")
+                .with_shortcut(action::Shortcut::control('a')),
+        );
+
+        let row = item_node(
+            ui::Id::new("row"),
+            &item,
+            &registry,
+            &context,
+            test_chrome(&theme, 42.0),
+            &theme,
+        );
+        let mut tree = ui::Tree::new();
+        let mut measurer = text::Engine::new();
+        let mut scene = paint::Scene::new();
+
+        tree.set_root(row);
+        let layout = tree
+            .layout(area::logical(160.0, 40.0), &mut measurer)
+            .expect("menu row should layout");
+        tree.paint(
+            &layout,
+            &registry,
+            window,
+            ui::Interaction::default(),
+            &mut scene,
+        );
+
+        let label = scene
+            .items()
+            .iter()
+            .filter_map(|item| match item {
+                paint::Item::Text(text) => Some(text),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(label.len(), 2);
+        for text in label {
+            assert_eq!(
+                text.document.blocks()[0].runs()[0].style().color(),
+                theme.text().primary()
+            );
+        }
+    }
+
+    #[test]
+    fn disabled_menu_item_suppresses_hover_and_press_tints() {
+        let theme = theme::Theme::default_dark();
+        let mut registry = action::Registry::<()>::new();
+        let item = menu::Item::new(ACTION_A);
+        let window = crate::window::Id::new(1);
+        let context = action::Context::window(window);
+        let row_id = ui::Id::new("row");
+        let row_path = ui::Path::from(row_id);
+
+        registry.register(crate::Action::new(ACTION_A, "Select All"));
+        registry.set_state(ACTION_A, context.clone(), action::State::disabled());
+
+        let row = item_node(
+            row_id,
+            &item,
+            &registry,
+            &context,
+            test_chrome(&theme, 0.0),
+            &theme,
+        );
+        let mut tree = ui::Tree::new();
+        let mut measurer = text::Engine::new();
+        let mut scene = paint::Scene::new();
+
+        tree.set_root(row);
+        let layout = tree
+            .layout(area::logical(160.0, 40.0), &mut measurer)
+            .expect("menu row should layout");
+        tree.paint(
+            &layout,
+            &registry,
+            window,
+            ui::Interaction::new(Some(row_path.clone()), None, Some(row_path)),
+            &mut scene,
+        );
+
+        assert!(
+            scene
+                .items()
+                .iter()
+                .all(|item| !matches!(item, paint::Item::Tint(_)))
+        );
+    }
+
+    #[test]
+    fn enabled_menu_item_hover_emits_hover_tint() {
+        let theme = theme::Theme::default_dark();
+        let mut registry = action::Registry::<()>::new();
+        let item = menu::Item::new(ACTION_A);
+        let window = crate::window::Id::new(1);
+        let context = action::Context::window(window);
+        let row_id = ui::Id::new("row");
+        let row_path = ui::Path::from(row_id);
+
+        registry.register(crate::Action::new(ACTION_A, "Select All"));
+
+        let row = item_node(
+            row_id,
+            &item,
+            &registry,
+            &context,
+            test_chrome(&theme, 0.0),
+            &theme,
+        );
+        let mut tree = ui::Tree::new();
+        let mut measurer = text::Engine::new();
+        let mut scene = paint::Scene::new();
+
+        tree.set_root(row);
+        let layout = tree
+            .layout(area::logical(160.0, 40.0), &mut measurer)
+            .expect("menu row should layout");
+        tree.paint(
+            &layout,
+            &registry,
+            window,
+            ui::Interaction::new(Some(row_path), None, None),
+            &mut scene,
+        );
+
+        assert!(
+            scene
+                .items()
+                .iter()
+                .any(|item| matches!(item, paint::Item::Tint(tint) if tint.brush == theme.menu().row_hover_tint()))
+        );
     }
 
     #[test]

@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use crate::animation::Frame as AnimationFrame;
 use crate::{action, geometry, paint, text, ui, widget, window};
 
 pub fn tree<T>(
@@ -6,6 +9,9 @@ pub fn tree<T>(
     actions: &action::Registry<T>,
     window: window::Id,
     interaction: &ui::Interaction,
+    text_field_states: &HashMap<ui::Path, text::TextFieldState>,
+    text_engine: &mut text::Engine,
+    frame: AnimationFrame,
     scene: &mut paint::Scene,
 ) {
     let mut overlays = Vec::new();
@@ -13,9 +19,13 @@ pub fn tree<T>(
     node(
         root,
         layout,
+        None,
         actions,
         window,
         interaction,
+        text_field_states,
+        text_engine,
+        frame,
         scene,
         &mut overlays,
     );
@@ -28,13 +38,22 @@ pub fn tree<T>(
 fn node<T>(
     node: &ui::Node,
     layout: &ui::Frame,
+    inherited_content: Option<ContentVisualState>,
     actions: &action::Registry<T>,
     window: window::Id,
     interaction: &ui::Interaction,
+    text_field_states: &HashMap<ui::Path, text::TextFieldState>,
+    text_engine: &mut text::Engine,
+    frame: AnimationFrame,
     scene: &mut paint::Scene,
     overlays: &mut Vec<paint::Outline>,
 ) {
     let visual = visual_state(node, layout, actions, window, interaction);
+    let content_visual = content_visual_state(node, &visual, inherited_content);
+    let text_field_state = text_field_states
+        .get(layout.path())
+        .cloned()
+        .unwrap_or_default();
 
     let rect = styled_rect(node, layout);
 
@@ -47,27 +66,73 @@ fn node<T>(
     }
 
     if let Some(style) = resolved_quad_style(node, layout, interaction, &visual) {
-        scene.push_quad(paint::Quad { rect, style });
+        scene.push_quad(paint::Quad {
+            rect,
+            style,
+            rasterization: paint::Rasterization::default(),
+        });
     }
 
     for brush in resolved_tints(node, &visual) {
         scene.push_tint(paint::Tint { rect, brush });
     }
 
-    if let Some(icon) = resolved_icon(node, layout, &visual) {
+    if let Some(icon) = resolved_icon(node, layout, &content_visual) {
         scene.push_icon(icon);
     }
 
-    paint_text_field_selection(node, layout, scene);
+    let label = node.text_field().map_or_else(
+        || resolved_label(node, &content_visual),
+        |field| resolved_text_field_label(node, field, &content_visual, &text_field_state),
+    );
+    let text_field_layout = node.text_field().map(|field| {
+        let style = label
+            .as_ref()
+            .or_else(|| node.label())
+            .and_then(text::Document::first_style)
+            .unwrap_or_default();
+        text_engine.text_field_layout_for_field_at(
+            field,
+            style,
+            text_content_rect(node, layout).area,
+            text_field_state.clone(),
+            frame.now(),
+        )
+    });
 
-    if let Some(document) = resolved_label(node, &visual) {
-        scene.push_text(paint::Text {
-            rect: layout.rect(),
-            document,
+    if node.text_field().is_some() {
+        scene.push_clip(paint::Clip {
+            rect: text_content_rect(node, layout),
         });
     }
 
-    paint_text_field_caret(node, layout, &visual, scene);
+    paint_text_field_selection(node, layout, interaction, text_field_layout.as_ref(), scene);
+
+    if let Some(document) = label {
+        let scroll_x = text_field_layout
+            .as_ref()
+            .map(text::TextFieldLayout::scroll_x)
+            .unwrap_or(0.0);
+        scene.push_text(paint::Text {
+            rect: if node.text_field().is_some() {
+                scrolled_text_rect(node, layout, scroll_x)
+            } else {
+                layout.rect()
+            },
+            document,
+            wrap: if node.text_field().is_some() {
+                paint::TextWrap::None
+            } else {
+                paint::TextWrap::WordOrGlyph
+            },
+        });
+    }
+
+    paint_text_field_caret(node, layout, &visual, text_field_layout.as_ref(), scene);
+
+    if node.text_field().is_some() {
+        scene.pop_clip();
+    }
 
     let clip_rect = if node.clips() {
         Some(widget::scroll::metrics(node, layout).map_or(rect, |metrics| metrics.viewport()))
@@ -83,9 +148,13 @@ fn node<T>(
         self::node(
             child,
             child_layout,
+            Some(content_visual),
             actions,
             window,
             interaction,
+            text_field_states,
+            text_engine,
+            frame,
             scene,
             overlays,
         );
@@ -183,6 +252,12 @@ struct StatePosition {
     press: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ContentVisualState {
+    enabled: bool,
+    busy: bool,
+}
+
 fn visual_state<T>(
     node: &ui::Node,
     layout: &ui::Frame,
@@ -215,6 +290,32 @@ fn visual_state<T>(
             press: normalized(interactive && pressed),
         },
     }
+}
+
+fn content_visual_state(
+    node: &ui::Node,
+    visual: &VisualState,
+    inherited: Option<ContentVisualState>,
+) -> ContentVisualState {
+    if node_owns_content_visual_state(node) {
+        return ContentVisualState {
+            enabled: visual.enabled,
+            busy: visual.busy,
+        };
+    }
+
+    inherited.unwrap_or(ContentVisualState {
+        enabled: visual.enabled,
+        busy: visual.busy,
+    })
+}
+
+fn node_owns_content_visual_state(node: &ui::Node) -> bool {
+    node.action().is_some()
+        || matches!(
+            node.intent(),
+            Some(ui::Intent::Action(_) | ui::Intent::OpenMenu(_) | ui::Intent::OpenSubmenu(_))
+        )
 }
 
 fn menu_intent_active(intent: Option<ui::Intent>, interaction: &ui::Interaction) -> bool {
@@ -318,11 +419,14 @@ fn resolved_backdrop(node: &ui::Node, rect: crate::geometry::Rect) -> Option<pai
     })
 }
 
-fn resolved_label(node: &ui::Node, visual: &VisualState) -> Option<crate::text::Document> {
+fn resolved_label(
+    node: &ui::Node,
+    content_visual: &ContentVisualState,
+) -> Option<crate::text::Document> {
     let style = node.style();
     let mut document = node.label().cloned()?;
 
-    if visual.busy {
+    if content_visual.busy {
         if let Some(color) = style.busy_label_color().or(style.label_color()) {
             document = document.with_color(color);
         }
@@ -330,7 +434,7 @@ fn resolved_label(node: &ui::Node, visual: &VisualState) -> Option<crate::text::
         return Some(document);
     }
 
-    if !visual.enabled {
+    if !content_visual.enabled {
         if let Some(color) = style.disabled_label_color().or(style.label_color()) {
             document = document.with_color(color);
         }
@@ -345,29 +449,70 @@ fn resolved_label(node: &ui::Node, visual: &VisualState) -> Option<crate::text::
     Some(document)
 }
 
-fn resolved_icon(node: &ui::Node, layout: &ui::Frame, visual: &VisualState) -> Option<paint::Icon> {
+fn resolved_text_field_label(
+    node: &ui::Node,
+    field: &text::Field,
+    content_visual: &ContentVisualState,
+    state: &text::TextFieldState,
+) -> Option<crate::text::Document> {
+    let style = node.style();
+    let default_color = text::Style::default().color();
+    let disabled_color = style
+        .disabled_label_color()
+        .or(style.label_color())
+        .unwrap_or(default_color);
+    let normal_color = if content_visual.busy {
+        style
+            .busy_label_color()
+            .or(style.label_color())
+            .unwrap_or(default_color)
+    } else if !content_visual.enabled || field.is_disabled() {
+        disabled_color
+    } else {
+        style.label_color().unwrap_or(default_color)
+    };
+
+    if field.buffer().is_empty() {
+        if state.preedit().is_some() {
+            return None;
+        }
+
+        if let Some(placeholder) = field.placeholder() {
+            return Some(placeholder.clone().with_color(disabled_color));
+        }
+    }
+
+    let source = node.label().cloned()?;
+    Some(source.with_color(normal_color))
+}
+
+fn resolved_icon(
+    node: &ui::Node,
+    layout: &ui::Frame,
+    content_visual: &ContentVisualState,
+) -> Option<paint::Icon> {
     let icon = node.icon()?;
 
     Some(paint::Icon {
         rect: layout.rect(),
         icon,
-        color: resolved_icon_color(node, visual),
+        color: resolved_icon_color(node, content_visual),
         size: node.icon_size().unwrap_or(24.0),
     })
 }
 
-fn resolved_icon_color(node: &ui::Node, visual: &VisualState) -> paint::Color {
+fn resolved_icon_color(node: &ui::Node, content_visual: &ContentVisualState) -> paint::Color {
     let style = node.style();
     let fallback = crate::text::Style::default().color();
 
-    if visual.busy {
+    if content_visual.busy {
         return style
             .busy_label_color()
             .or(style.label_color())
             .unwrap_or(fallback);
     }
 
-    if !visual.enabled {
+    if !content_visual.enabled {
         return style
             .disabled_label_color()
             .or(style.label_color())
@@ -377,56 +522,78 @@ fn resolved_icon_color(node: &ui::Node, visual: &VisualState) -> paint::Color {
     style.label_color().unwrap_or(fallback)
 }
 
-fn paint_text_field_selection(node: &ui::Node, layout: &ui::Frame, scene: &mut paint::Scene) {
-    let Some(buffer) = node.text_field() else {
+fn paint_text_field_selection(
+    node: &ui::Node,
+    layout: &ui::Frame,
+    interaction: &ui::Interaction,
+    text_field_layout: Option<&text::TextFieldLayout>,
+    scene: &mut paint::Scene,
+) {
+    let Some(field) = node.text_field() else {
         return;
     };
-    let Some(range) = buffer.selected_range() else {
+
+    if !field.is_selectable() || !field.buffer().has_selection() {
         return;
-    };
+    }
+
+    if interaction.text_editing_target() != Some(layout.path()) {
+        return;
+    }
 
     let rect = text_content_rect(node, layout);
-    let start = text_x(buffer.text(), range.start, rect);
-    let end = text_x(buffer.text(), range.end, rect).max(start + 1.0);
+    let Some(text_field_layout) = text_field_layout else {
+        return;
+    };
 
-    scene.push_quad(paint::Quad {
-        rect: geometry::Rect::rounded(
-            geometry::point::logical(start, rect.origin.y()),
-            geometry::area::logical(end - start, rect.area.height()),
-            geometry::rect::Rounding::fixed(3.0),
-        ),
-        style: paint::Style {
-            fill: Some(paint::Fill::Brush(
-                paint::Color::rgba(0.18, 0.42, 0.86, 0.48).into(),
-            )),
-            stroke: None,
-            tint: None,
-        },
-    });
+    for span in text_field_layout.selection_spans() {
+        scene.push_quad(paint::Quad {
+            rect: geometry::Rect::rounded(
+                geometry::point::logical(rect.origin.x() + span.x(), rect.origin.y() + span.y()),
+                geometry::area::logical(span.width().max(1.0), span.height()),
+                geometry::rect::Rounding::fixed(3.0),
+            ),
+            rasterization: paint::Rasterization::default(),
+            style: paint::Style {
+                fill: Some(paint::Fill::Brush(
+                    paint::Color::rgba(0.18, 0.42, 0.86, 0.48).into(),
+                )),
+                stroke: None,
+                tint: None,
+            },
+        });
+    }
 }
 
 fn paint_text_field_caret(
     node: &ui::Node,
     layout: &ui::Frame,
     visual: &VisualState,
+    text_field_layout: Option<&text::TextFieldLayout>,
     scene: &mut paint::Scene,
 ) {
-    let Some(buffer) = node.text_field() else {
+    if node.text_field().is_none() {
         return;
-    };
+    }
 
     if !visual.focused {
         return;
     }
 
     let rect = text_content_rect(node, layout);
-    let x = text_x(buffer.text(), buffer.cursor(), rect);
+    let Some(caret) = text_field_layout.and_then(text::TextFieldLayout::caret) else {
+        return;
+    };
 
     scene.push_quad(paint::Quad {
         rect: geometry::Rect::new(
-            geometry::point::logical(x, rect.origin.y() + 5.0),
-            geometry::area::logical(1.0, (rect.area.height() - 10.0).max(6.0)),
+            geometry::point::logical(rect.origin.x() + caret.x(), rect.origin.y() + caret.y()),
+            geometry::area::logical(1.0, caret.height().max(6.0)),
         ),
+        rasterization: paint::Rasterization {
+            snapping: paint::Snapping::FixedWidth { width_px: 2 },
+            edge_mode: paint::EdgeMode::Hard,
+        },
         style: paint::Style {
             fill: Some(paint::Fill::Brush(
                 node.style()
@@ -453,10 +620,14 @@ fn text_content_rect(node: &ui::Node, layout: &ui::Frame) -> geometry::Rect {
     )
 }
 
-fn text_x(text: &str, cursor: usize, rect: geometry::Rect) -> f32 {
-    let cursor_chars = text[..cursor.min(text.len())].chars().count() as f32;
-    let total_chars = text.chars().count().max(1) as f32;
-    rect.origin.x() + rect.area.width() * (cursor_chars / total_chars)
+fn scrolled_text_rect(node: &ui::Node, layout: &ui::Frame, scroll_x: f32) -> geometry::Rect {
+    let rect = text_content_rect(node, layout);
+    let scroll_x = scroll_x.max(0.0);
+
+    geometry::Rect::new(
+        geometry::point::logical(rect.origin.x() - scroll_x, rect.origin.y()),
+        geometry::area::logical(rect.area.width() + scroll_x, rect.area.height()),
+    )
 }
 
 fn normalized(value: bool) -> f32 {

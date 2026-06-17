@@ -1,5 +1,7 @@
+use std::time::Instant;
+
 use winit::{
-    event::MouseButton,
+    event::{Ime, MouseButton},
     keyboard::{Key as WinitKey, ModifiersState, NamedKey},
 };
 
@@ -15,7 +17,18 @@ pub struct Outcome {
     pub redraw: bool,
 }
 
+#[cfg(test)]
 pub fn pointer_moved(state: &mut WindowState, position: point::Logical) -> Outcome {
+    let mut text_engine = text::Engine::new();
+
+    pointer_moved_with_text_engine(state, position, &mut text_engine)
+}
+
+pub fn pointer_moved_with_text_engine(
+    state: &mut WindowState,
+    position: point::Logical,
+    text_engine: &mut text::Engine,
+) -> Outcome {
     state
         .pointer
         .handle_event(pointer::Event::Moved { position });
@@ -55,6 +68,9 @@ pub fn pointer_moved(state: &mut WindowState, position: point::Logical) -> Outco
         delta,
         target,
     });
+    if let Some((target, edit)) = state.text_field_drag_edit_at(position, text_engine) {
+        events.push(ui::Event::TextEditRequested { target, edit });
+    }
 
     Outcome {
         events,
@@ -68,6 +84,7 @@ pub fn pointer_pressed(
     state: &mut WindowState,
     position: point::Logical,
     button: pointer::Button,
+    text_engine: &mut text::Engine,
 ) -> Outcome {
     state.pointer.handle_event(pointer::Event::Button {
         button,
@@ -125,11 +142,11 @@ pub fn pointer_pressed(
             target: Some(target),
             ..
         } = &events[0]
-        && let Some(cursor) = state.text_field_cursor_at(target, position)
+        && let Some(edit) = state.text_field_edit_at(target, position, text_engine)
     {
         events.push(ui::Event::TextEditRequested {
             target: target.clone(),
-            edit: text::Edit::SetCursor(cursor),
+            edit,
         });
     }
 
@@ -152,6 +169,7 @@ pub fn pointer_released<T>(
         button,
         pressed: false,
     });
+    state.end_text_field_drag();
 
     if let Some(capture) = state.pointer_capture.clone() {
         state.clear_pointer_capture();
@@ -183,13 +201,16 @@ pub fn pointer_released<T>(
         .as_ref()
         .and_then(action::Request::origin)
         .is_some_and(|origin| state.is_menu_path(origin))
-        && state.close_menu();
+        && state.close_menu_with_focus_visibility(Some(ui::focus::Visibility::Hidden));
+    let restored_focus = request.as_ref().is_some_and(|request| {
+        restore_action_target_focus(state, request, action::Source::Pointer)
+    });
 
     Outcome {
         events: vec![event],
         request,
         intent,
-        redraw: true || closed_menu,
+        redraw: true || closed_menu || restored_focus,
     }
 }
 
@@ -206,6 +227,7 @@ pub fn pointer_button(button: MouseButton) -> pointer::Button {
 
 pub fn pointer_left(state: &mut WindowState) -> Outcome {
     state.pointer.handle_event(pointer::Event::Left);
+    state.end_text_field_drag();
     let events = state.set_hovered(None);
     let cleared_capture = state.clear_pointer_capture();
     let cleared_pressed = if state.pressed_source == Some(PressSource::Pointer) {
@@ -290,19 +312,44 @@ pub fn key(key: &WinitKey) -> ui::Key {
     }
 }
 
-fn text_edit_for_key(key: ui::Key, modifiers: ui::Modifiers) -> Option<text::Edit> {
-    if modifiers.control() || modifiers.alt() || modifiers.super_key() {
+fn text_edit_for_key(
+    key: ui::Key,
+    modifiers: ui::Modifiers,
+    inserted_text: Option<&str>,
+) -> Option<text::Edit> {
+    if modifiers.super_key() {
         return None;
     }
 
+    let jump = jump_modifier_pressed(modifiers);
+    let motion = match key {
+        ui::Key::ArrowLeft if jump => Some(glyphon::cosmic_text::Motion::LeftWord),
+        ui::Key::ArrowRight if jump => Some(glyphon::cosmic_text::Motion::RightWord),
+        ui::Key::ArrowLeft => Some(glyphon::cosmic_text::Motion::Left),
+        ui::Key::ArrowRight => Some(glyphon::cosmic_text::Motion::Right),
+        ui::Key::Home => Some(glyphon::cosmic_text::Motion::Home),
+        ui::Key::End => Some(glyphon::cosmic_text::Motion::End),
+        _ => None,
+    };
+
+    if let Some(motion) = motion {
+        return Some(if modifiers.shift() {
+            text::Edit::extend_motion(motion)
+        } else {
+            text::Edit::motion(motion)
+        });
+    }
+
     match key {
+        ui::Key::Backspace if jump => Some(text::Edit::delete_word_backward()),
+        ui::Key::Delete if jump => Some(text::Edit::delete_word_forward()),
+        _ if modifiers.control() || modifiers.alt() => None,
+        ui::Key::Backspace => Some(text::Edit::action(glyphon::Action::Backspace)),
+        ui::Key::Delete => Some(text::Edit::action(glyphon::Action::Delete)),
+        _ if inserted_text.is_some_and(|text| text.chars().all(|c| !c.is_control())) => {
+            Some(text::Edit::insert(inserted_text.unwrap_or_default()))
+        }
         ui::Key::Space => Some(text::Edit::insert(" ")),
-        ui::Key::Backspace => Some(text::Edit::DeleteBackward),
-        ui::Key::Delete => Some(text::Edit::DeleteForward),
-        ui::Key::ArrowLeft => Some(text::Edit::MoveLeft),
-        ui::Key::ArrowRight => Some(text::Edit::MoveRight),
-        ui::Key::Home => Some(text::Edit::MoveHome),
-        ui::Key::End => Some(text::Edit::MoveEnd),
         ui::Key::Character(character) if !character.is_control() => {
             Some(text::Edit::insert(character.to_string()))
         }
@@ -310,11 +357,31 @@ fn text_edit_for_key(key: ui::Key, modifiers: ui::Modifiers) -> Option<text::Edi
     }
 }
 
+fn jump_modifier_pressed(modifiers: ui::Modifiers) -> bool {
+    if cfg!(target_os = "macos") {
+        modifiers.alt()
+    } else {
+        modifiers.control()
+    }
+}
+
+#[cfg(test)]
 pub fn key_pressed<T>(
     registry: &action::Registry<T>,
     state: &mut WindowState,
     window: window::Id,
     key: ui::Key,
+    repeat: bool,
+) -> Outcome {
+    key_pressed_with_text(registry, state, window, key, None, repeat)
+}
+
+pub fn key_pressed_with_text<T>(
+    registry: &action::Registry<T>,
+    state: &mut WindowState,
+    window: window::Id,
+    key: ui::Key,
+    inserted_text: Option<&str>,
     repeat: bool,
 ) -> Outcome {
     let target = state.focused_path();
@@ -329,9 +396,14 @@ pub fn key_pressed<T>(
     };
     let mut events = vec![event];
 
-    if let Some(edit) = text_edit_for_key(key, state.modifiers)
-        && let Some(target) = target.as_ref().filter(|target| state.is_text_field(target))
+    if let Some(edit) = text_edit_for_key(key, state.modifiers, inserted_text)
+        && let Some(target) = target
+            .as_ref()
+            .filter(|target| state.can_apply_text_edit(target, &edit))
     {
+        if state.is_editable_text_field(target) {
+            state.reset_text_field_caret_blink(target, Instant::now());
+        }
         events.push(ui::Event::TextEditRequested {
             target: target.clone(),
             edit,
@@ -429,7 +501,10 @@ pub fn key_released<T>(
                 .as_ref()
                 .and_then(action::Request::origin)
                 .is_some_and(|origin| state.is_menu_path(origin))
-                && state.close_menu();
+                && state.close_menu_with_focus_visibility(Some(ui::focus::Visibility::Visible));
+            redraw |= request.as_ref().is_some_and(|request| {
+                restore_action_target_focus(state, request, action::Source::Keyboard)
+            });
         }
     }
 
@@ -438,6 +513,42 @@ pub fn key_released<T>(
         request,
         intent,
         redraw,
+    }
+}
+
+pub fn ime(state: &mut WindowState, event: Ime) -> Outcome {
+    match event {
+        Ime::Enabled => Outcome::default(),
+        Ime::Preedit(text, selection) => {
+            let preedit = (!text.is_empty()).then(|| text::Preedit::new(text, selection));
+            let redraw = state.set_focused_text_field_preedit(preedit).is_some();
+
+            Outcome {
+                redraw,
+                ..Outcome::default()
+            }
+        }
+        Ime::Commit(text) => {
+            let Some(target) = state.focused_editable_text_field() else {
+                return Outcome::default();
+            };
+
+            state.set_focused_text_field_preedit(None);
+            state.reset_text_field_caret_blink(&target, Instant::now());
+
+            Outcome {
+                events: vec![ui::Event::TextEditRequested {
+                    target,
+                    edit: text::Edit::ime_commit(text),
+                }],
+                redraw: true,
+                ..Outcome::default()
+            }
+        }
+        Ime::Disabled => Outcome {
+            redraw: state.clear_text_field_preedits(),
+            ..Outcome::default()
+        },
     }
 }
 
@@ -456,6 +567,35 @@ fn activation_request<T>(
     }
 
     action_request(state, window, target, source).filter(|request| registry.can_execute(request))
+}
+
+fn restore_action_target_focus(
+    state: &mut WindowState,
+    request: &action::Request,
+    source: action::Source,
+) -> bool {
+    let Some(origin) = request.origin() else {
+        return false;
+    };
+    let action::Scope::Path(target) = request.target().scope() else {
+        return false;
+    };
+    if state.is_menu_path(origin) {
+        return false;
+    }
+    if !state.is_focusable(target) {
+        return false;
+    }
+    if state.command_subject(origin) == ui::CommandSubject::Origin {
+        return false;
+    }
+
+    let visibility = match source {
+        action::Source::Keyboard => ui::focus::Visibility::Visible,
+        _ => ui::focus::Visibility::Hidden,
+    };
+
+    state.set_focus(target.clone(), ui::focus::Reason::Programmatic, visibility)
 }
 
 fn hover_menu_intent(state: &WindowState, target: &ui::Path) -> Option<(ui::Path, ui::Intent)> {
@@ -610,15 +750,19 @@ fn shortcut_request<T>(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::time::{Duration, Instant};
 
     use crate::Action;
-    use crate::app::state::Focus;
+    use crate::app::state::{Focus, FocusState};
     use crate::widget::{self, menu};
 
     use super::*;
 
     const CHILD: ui::Id = ui::Id::new("child");
     const SECOND: ui::Id = ui::Id::new("second");
+    const ROOT: ui::Id = ui::Id::new("root");
+    const MENU_BAR: ui::Id = ui::Id::new("menu_bar");
+    const ORIGIN_BUTTON: ui::Id = ui::Id::new("origin_button");
     const CLICK: action::Id = action::Id::new("click");
     const FILE: menu::Id = menu::Id::new("file");
     const EDIT: menu::Id = menu::Id::new("edit");
@@ -626,6 +770,10 @@ mod tests {
 
     fn path(id: ui::Id) -> ui::Path {
         ui::Path::from(id)
+    }
+
+    fn root_path(id: ui::Id) -> ui::Path {
+        ui::Path::new([ROOT, id])
     }
 
     fn scroll_state(offset: point::Logical) -> WindowState {
@@ -782,13 +930,17 @@ mod tests {
     }
 
     fn text_field_state() -> WindowState {
+        text_field_state_with_field(crate::text::Buffer::from_text("hello"))
+    }
+
+    fn text_field_state_with_field(field: impl Into<crate::text::Field>) -> WindowState {
         let window = window::Id::new(1);
         let mut tree = ui::Tree::new();
         let mut registry = action::Registry::<()>::new();
         let mut measurer = crate::text::Engine::new();
 
         tree.set_root(
-            widget::text_field(CHILD, crate::text::Buffer::from_text("hello")).with_size(
+            widget::text_field(CHILD, field).with_size(
                 crate::layout::Size::Fixed(100.0),
                 crate::layout::Size::Fixed(24.0),
             ),
@@ -808,13 +960,146 @@ mod tests {
 
         WindowState {
             composition: Some(composition),
-            focus: Some(Focus::new(
+            focus: FocusState::focused(Focus::new(
                 path(CHILD),
                 ui::focus::Reason::Keyboard,
                 ui::focus::Visibility::Visible,
             )),
             ..WindowState::default()
         }
+    }
+
+    fn text_field_state_with_registry(
+        buffer: crate::text::Buffer,
+        registry: &mut action::Registry<()>,
+    ) -> WindowState {
+        let window = window::Id::new(1);
+        let mut tree = ui::Tree::new();
+        let mut measurer = crate::text::Engine::new();
+
+        tree.set_root(widget::text_field(CHILD, buffer).with_size(
+            crate::layout::Size::Fixed(100.0),
+            crate::layout::Size::Fixed(24.0),
+        ));
+
+        let composition = tree
+            .compose(
+                window,
+                crate::geometry::area::logical(100.0, 24.0),
+                registry,
+                &action::Context::window(window),
+                None,
+                None,
+                &mut measurer,
+            )
+            .expect("text field tree should compose");
+
+        let state = WindowState {
+            composition: Some(composition),
+            focus: FocusState::focused(Focus::new(
+                path(CHILD),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            ..WindowState::default()
+        };
+        crate::app::text_input::publish_action_states(&state, registry, window);
+        state
+    }
+
+    fn text_field_command_tree(open_menu: bool) -> WindowState {
+        let window = window::Id::new(1);
+        let field = root_path(CHILD);
+        let mut tree = ui::Tree::new();
+        let mut registry = action::Registry::<()>::new();
+        let mut measurer = crate::text::Engine::new();
+
+        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        registry.register(Action::new(CLICK, "Click"));
+        tree.set_root(
+            ui::Node::container(ROOT, crate::layout::Axis::Vertical)
+                .with_child(widget::menu_bar(
+                    MENU_BAR,
+                    menu::Bar::new().menu(
+                        menu::Menu::new(FILE, "File").section(
+                            menu::Section::new().item(menu::Item::new(action::SELECT_ALL)),
+                        ),
+                    ),
+                ))
+                .with_child(
+                    widget::text_field(CHILD, crate::text::Buffer::from_text("hello")).with_size(
+                        crate::layout::Size::Fixed(100.0),
+                        crate::layout::Size::Fixed(24.0),
+                    ),
+                )
+                .with_child(
+                    ui::Node::leaf(SECOND)
+                        .with_action(action::SELECT_ALL)
+                        .with_command_subject(ui::CommandSubject::Current)
+                        .with_interactivity(ui::Interactivity::CONTROL)
+                        .with_size(
+                            crate::layout::Size::Fixed(20.0),
+                            crate::layout::Size::Fixed(20.0),
+                        ),
+                )
+                .with_child(
+                    ui::Node::leaf(ORIGIN_BUTTON)
+                        .with_action(CLICK)
+                        .with_interactivity(ui::Interactivity::CONTROL)
+                        .with_size(
+                            crate::layout::Size::Fixed(20.0),
+                            crate::layout::Size::Fixed(20.0),
+                        ),
+                ),
+        );
+        let composition = tree
+            .compose(
+                window,
+                crate::geometry::area::logical(180.0, 120.0),
+                &mut registry,
+                &action::Context::path(window, field.clone()),
+                open_menu.then_some(FILE),
+                None,
+                &mut measurer,
+            )
+            .expect("command text field tree should compose");
+
+        let mut state = WindowState {
+            composition: Some(composition),
+            focus: FocusState::focused(Focus::new(
+                field.clone(),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            command_subject: Some(action::Scope::Path(field)),
+            open_menu: open_menu.then_some(FILE),
+            ..WindowState::default()
+        };
+        state.update_command_scope_captures(window);
+        state.sync_menu_focus_scopes();
+        state
+    }
+
+    fn select_all_menu_row(state: &WindowState) -> ui::Path {
+        state
+            .composition
+            .as_ref()
+            .expect("state should have composition")
+            .actions()
+            .iter()
+            .find_map(|(path, action)| {
+                (*action == action::SELECT_ALL && state.is_menu_path(path)).then(|| path.clone())
+            })
+            .expect("open menu should contain select all row")
+    }
+
+    fn pointer_pressed_for_test(
+        state: &mut WindowState,
+        position: point::Logical,
+        button: pointer::Button,
+    ) -> Outcome {
+        let mut text_engine = crate::text::Engine::new();
+        pointer_pressed(state, position, button, &mut text_engine)
     }
 
     #[test]
@@ -830,7 +1115,7 @@ mod tests {
             Vec::new(),
         );
 
-        let outcome = pointer_pressed(
+        let outcome = pointer_pressed_for_test(
             &mut state,
             point::logical(1.0, 1.0),
             pointer::Button::Primary,
@@ -894,7 +1179,7 @@ mod tests {
     fn thumb_drag_emits_clamped_scroll_request_and_preserves_capture() {
         let mut state = scroll_state(point::logical(0.0, 0.0));
 
-        let pressed = pointer_pressed(
+        let pressed = pointer_pressed_for_test(
             &mut state,
             point::logical(35.0, 5.0),
             pointer::Button::Primary,
@@ -915,7 +1200,7 @@ mod tests {
     fn scrollbar_track_click_pages_by_one_viewport() {
         let mut state = scroll_state(point::logical(0.0, 0.0));
 
-        let outcome = pointer_pressed(
+        let outcome = pointer_pressed_for_test(
             &mut state,
             point::logical(35.0, 35.0),
             pointer::Button::Primary,
@@ -932,7 +1217,7 @@ mod tests {
     fn non_overflowing_scrollbar_draws_but_ignores_drag_and_track_input() {
         let mut state = non_overflow_scroll_state();
 
-        let thumb = pointer_pressed(
+        let thumb = pointer_pressed_for_test(
             &mut state,
             point::logical(35.0, 5.0),
             pointer::Button::Primary,
@@ -1064,6 +1349,128 @@ mod tests {
     }
 
     #[test]
+    fn pointer_menu_action_restores_focus_to_text_field_command_target() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let mut state = text_field_command_tree(true);
+        let field = root_path(CHILD);
+        let row = select_all_menu_row(&state);
+        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        assert!(state.set_focus(
+            row.clone(),
+            ui::focus::Reason::Pointer,
+            ui::focus::Visibility::Hidden,
+        ));
+        state.pressed = Some(row);
+        state.pressed_source = Some(PressSource::Pointer);
+
+        let outcome = pointer_released(
+            &registry,
+            &mut state,
+            window,
+            point::logical(1.0, 1.0),
+            pointer::Button::Primary,
+        );
+
+        assert_eq!(state.open_menu, None);
+        assert_eq!(state.focused_path(), Some(field.clone()));
+        assert_eq!(state.focus_visibility(), ui::focus::Visibility::Hidden);
+        assert_eq!(
+            outcome.request.as_ref().map(action::Request::target),
+            Some(&action::Context::path(window, field))
+        );
+    }
+
+    #[test]
+    fn keyboard_menu_action_restores_visible_focus_to_text_field_command_target() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let mut state = text_field_command_tree(true);
+        let field = root_path(CHILD);
+        let row = select_all_menu_row(&state);
+        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        assert!(state.set_focus(
+            row.clone(),
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible,
+        ));
+        state.pressed = Some(row);
+        state.pressed_source = Some(PressSource::Keyboard);
+
+        let outcome = key_released(&registry, &mut state, window, ui::Key::Enter);
+
+        assert_eq!(state.open_menu, None);
+        assert_eq!(state.focused_path(), Some(field.clone()));
+        assert_eq!(state.focus_visibility(), ui::focus::Visibility::Visible);
+        assert_eq!(
+            outcome.request.as_ref().map(action::Request::target),
+            Some(&action::Context::path(window, field))
+        );
+    }
+
+    #[test]
+    fn command_subject_button_restores_focus_to_text_field_command_target() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let mut state = text_field_command_tree(false);
+        let field = root_path(CHILD);
+        let button = root_path(SECOND);
+        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        state.focus = FocusState::focused(Focus::new(
+            button.clone(),
+            ui::focus::Reason::Pointer,
+            ui::focus::Visibility::Hidden,
+        ));
+        state.pressed = Some(button);
+        state.pressed_source = Some(PressSource::Pointer);
+
+        let outcome = pointer_released(
+            &registry,
+            &mut state,
+            window,
+            point::logical(1.0, 1.0),
+            pointer::Button::Primary,
+        );
+
+        assert_eq!(state.focused_path(), Some(field.clone()));
+        assert_eq!(state.focus_visibility(), ui::focus::Visibility::Hidden);
+        assert_eq!(
+            outcome.request.as_ref().map(action::Request::target),
+            Some(&action::Context::path(window, field))
+        );
+    }
+
+    #[test]
+    fn origin_targeted_button_keeps_its_own_focus_after_activation() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let mut state = text_field_command_tree(false);
+        let button = root_path(ORIGIN_BUTTON);
+        registry.register(Action::new(CLICK, "Click"));
+        state.focus = FocusState::focused(Focus::new(
+            button.clone(),
+            ui::focus::Reason::Pointer,
+            ui::focus::Visibility::Hidden,
+        ));
+        state.pressed = Some(button.clone());
+        state.pressed_source = Some(PressSource::Pointer);
+
+        let outcome = pointer_released(
+            &registry,
+            &mut state,
+            window,
+            point::logical(1.0, 1.0),
+            pointer::Button::Primary,
+        );
+
+        assert_eq!(state.focused_path(), Some(button.clone()));
+        assert_eq!(
+            outcome.request.as_ref().map(action::Request::target),
+            Some(&action::Context::path(window, button))
+        );
+    }
+
+    #[test]
     fn winit_mouse_buttons_map_to_pointer_buttons() {
         assert_eq!(pointer_button(MouseButton::Left), pointer::Button::Primary);
         assert_eq!(
@@ -1116,10 +1523,232 @@ mod tests {
     }
 
     #[test]
+    fn read_only_text_field_suppresses_character_edit_requests() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut state = text_field_state_with_field(crate::text::Field::new("hello").read_only());
+
+        let outcome = key_pressed(
+            &registry,
+            &mut state,
+            window,
+            ui::Key::Character('A'),
+            false,
+        );
+
+        assert!(!outcome
+            .events
+            .iter()
+            .any(|event| matches!(event, ui::Event::TextEditRequested { .. })));
+    }
+
+    #[test]
+    fn read_only_text_field_still_emits_selection_navigation_requests() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut state = text_field_state_with_field(crate::text::Field::new("hello").read_only());
+
+        let outcome = key_pressed(&registry, &mut state, window, ui::Key::ArrowLeft, false);
+
+        assert!(outcome.events.contains(&ui::Event::TextEditRequested {
+            target: path(CHILD),
+            edit: crate::text::Edit::motion(glyphon::cosmic_text::Motion::Left),
+        }));
+    }
+
+    #[test]
+    fn read_only_text_field_does_not_enable_ime_or_commit_text() {
+        let mut state = text_field_state_with_field(crate::text::Field::new("hello").read_only());
+
+        assert!(!state.text_input_enabled());
+        let preedit = ime(&mut state, Ime::Preedit("compose".into(), Some((0, 1))));
+        let commit = ime(&mut state, Ime::Commit("x".into()));
+
+        assert!(!preedit.redraw);
+        assert!(commit.events.is_empty());
+    }
+
+    #[test]
+    fn focused_text_field_key_edit_resets_caret_blink() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut state = text_field_state();
+        let old_epoch = Instant::now() - Duration::from_millis(500);
+        state.text_field_states.insert(
+            path(CHILD),
+            crate::text::TextFieldState::new_at(0.0, old_epoch),
+        );
+
+        assert!(
+            !state
+                .text_field_states
+                .get(&path(CHILD))
+                .expect("text field state should exist")
+                .caret_visible(Instant::now())
+        );
+
+        key_pressed(
+            &registry,
+            &mut state,
+            window,
+            ui::Key::Character('A'),
+            false,
+        );
+
+        assert!(
+            state
+                .text_field_states
+                .get(&path(CHILD))
+                .expect("text field state should exist")
+                .caret_visible(Instant::now())
+        );
+    }
+
+    #[test]
+    fn ime_commit_on_focused_text_field_emits_insert_edit_request() {
+        let mut state = text_field_state();
+        state.text_field_states.insert(
+            path(CHILD),
+            crate::text::TextFieldState::default()
+                .with_preedit(Some(crate::text::Preedit::new("preedit", Some((0, 3))))),
+        );
+
+        let outcome = ime(&mut state, Ime::Commit("a\nb".into()));
+
+        assert_eq!(
+            outcome.events,
+            vec![ui::Event::TextEditRequested {
+                target: path(CHILD),
+                edit: crate::text::Edit::ime_commit("a\nb")
+            }]
+        );
+        assert!(outcome.redraw);
+        assert_eq!(
+            state
+                .text_field_states
+                .get(&path(CHILD))
+                .and_then(crate::text::TextFieldState::preedit),
+            None
+        );
+    }
+
+    #[test]
+    fn ime_preedit_is_stored_on_focused_text_field_and_cleared_when_disabled() {
+        let mut state = text_field_state();
+
+        let preedit = ime(&mut state, Ime::Preedit("compose".into(), Some((1, 4))));
+
+        assert!(preedit.redraw);
+        let stored = state
+            .text_field_states
+            .get(&path(CHILD))
+            .and_then(crate::text::TextFieldState::preedit)
+            .expect("preedit should be stored on focused text field");
+        assert_eq!(stored.text(), "compose");
+        assert_eq!(stored.selection(), Some((1, 4)));
+
+        let disabled = ime(&mut state, Ime::Disabled);
+
+        assert!(disabled.redraw);
+        assert_eq!(
+            state
+                .text_field_states
+                .get(&path(CHILD))
+                .and_then(crate::text::TextFieldState::preedit),
+            None
+        );
+    }
+
+    #[test]
+    fn focused_text_field_enables_text_input_and_exposes_caret_rect() {
+        let mut state = text_field_state();
+        let mut text_engine = crate::text::Engine::new();
+
+        assert!(state.text_input_enabled());
+        let rect = state
+            .focused_text_field_caret_rect(&mut text_engine)
+            .expect("focused text field should expose shaped caret rect");
+        assert_eq!(rect.area.width(), 1.0);
+        assert!(rect.area.height() > 0.0);
+
+        state.clear_focus();
+
+        assert!(!state.text_input_enabled());
+        assert_eq!(state.focused_text_field_caret_rect(&mut text_engine), None);
+    }
+
+    #[test]
+    fn focused_text_field_arrow_key_emits_cosmic_motion_edit_request() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut state = text_field_state();
+
+        let outcome = key_pressed(&registry, &mut state, window, ui::Key::ArrowLeft, false);
+
+        assert!(outcome.events.contains(&ui::Event::TextEditRequested {
+            target: path(CHILD),
+            edit: crate::text::Edit::motion(glyphon::cosmic_text::Motion::Left),
+        }));
+    }
+
+    #[test]
+    fn focused_text_field_shift_arrow_extends_selection() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut state = text_field_state();
+        state.modifiers = ui::Modifiers::new(true, false, false, false);
+
+        let outcome = key_pressed(&registry, &mut state, window, ui::Key::ArrowRight, false);
+
+        assert!(outcome.events.contains(&ui::Event::TextEditRequested {
+            target: path(CHILD),
+            edit: crate::text::Edit::extend_motion(glyphon::cosmic_text::Motion::Right),
+        }));
+    }
+
+    #[test]
+    fn focused_text_field_jump_arrow_emits_word_motion() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut state = text_field_state();
+        state.modifiers = if cfg!(target_os = "macos") {
+            ui::Modifiers::new(false, false, true, false)
+        } else {
+            ui::Modifiers::new(false, true, false, false)
+        };
+
+        let outcome = key_pressed(&registry, &mut state, window, ui::Key::ArrowLeft, false);
+
+        assert!(outcome.events.contains(&ui::Event::TextEditRequested {
+            target: path(CHILD),
+            edit: crate::text::Edit::motion(glyphon::cosmic_text::Motion::LeftWord),
+        }));
+    }
+
+    #[test]
+    fn focused_text_field_jump_delete_emits_word_delete() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut state = text_field_state();
+        state.modifiers = if cfg!(target_os = "macos") {
+            ui::Modifiers::new(false, false, true, false)
+        } else {
+            ui::Modifiers::new(false, true, false, false)
+        };
+
+        let outcome = key_pressed(&registry, &mut state, window, ui::Key::Backspace, false);
+
+        assert!(outcome.events.contains(&ui::Event::TextEditRequested {
+            target: path(CHILD),
+            edit: crate::text::Edit::delete_word_backward(),
+        }));
+    }
+
+    #[test]
     fn pointer_press_on_text_field_requests_cursor_placement() {
         let mut state = text_field_state();
 
-        let outcome = pointer_pressed(
+        let outcome = pointer_pressed_for_test(
             &mut state,
             point::logical(50.0, 12.0),
             pointer::Button::Primary,
@@ -1130,9 +1759,57 @@ mod tests {
             event,
             ui::Event::TextEditRequested {
                 target,
-                edit: crate::text::Edit::SetCursor(_)
+                edit: crate::text::Edit::Pointer {
+                    kind: crate::text::PointerEditKind::Click,
+                    cursor
+                }
             } if target == &path(CHILD)
+                && cursor.line == 0
+                && cursor.index <= "hello".len()
         )));
+    }
+
+    #[test]
+    fn pointer_drag_on_text_field_requests_drag_edit_until_release() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut state = text_field_state();
+        let mut text_engine = crate::text::Engine::new();
+
+        pointer_pressed(
+            &mut state,
+            point::logical(10.0, 12.0),
+            pointer::Button::Primary,
+            &mut text_engine,
+        );
+        let moved = pointer_moved_with_text_engine(
+            &mut state,
+            point::logical(80.0, 12.0),
+            &mut text_engine,
+        );
+
+        assert!(moved.events.iter().any(|event| matches!(
+            event,
+            ui::Event::TextEditRequested {
+                target,
+                edit: crate::text::Edit::Pointer {
+                    kind: crate::text::PointerEditKind::Drag,
+                    cursor
+                }
+            } if target == &path(CHILD)
+                && cursor.line == 0
+                && cursor.index <= "hello".len()
+        )));
+
+        pointer_released(
+            &registry,
+            &mut state,
+            window,
+            point::logical(80.0, 12.0),
+            pointer::Button::Primary,
+        );
+
+        assert_eq!(state.text_field_drag, None);
     }
 
     #[test]
@@ -1592,7 +2269,7 @@ mod tests {
             HashMap::new(),
             Vec::new(),
         );
-        state.focus = Some(crate::app::state::Focus::new(
+        state.focus = FocusState::focused(Focus::new(
             path(CHILD),
             ui::focus::Reason::Keyboard,
             ui::focus::Visibility::Visible,
@@ -1664,6 +2341,246 @@ mod tests {
     }
 
     #[test]
+    fn copy_shortcut_targets_focused_text_field_command_subject() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let mut state = text_field_state();
+        state.modifiers = ui::Modifiers::new(false, true, false, false);
+
+        registry.register(
+            Action::new(action::COPY, "Copy").with_shortcut(action::Shortcut::control('c')),
+        );
+
+        let outcome = key_pressed(
+            &registry,
+            &mut state,
+            window,
+            ui::Key::Character('c'),
+            false,
+        );
+
+        assert_eq!(
+            outcome.request,
+            Some(action::Request::new(
+                action::COPY,
+                action::Source::Shortcut,
+                action::Context::path(window, path(CHILD))
+            ))
+        );
+        assert!(!outcome.events.iter().any(|event| {
+            matches!(
+                event,
+                ui::Event::TextEditRequested {
+                    edit: crate::text::Edit::Insert(_),
+                    ..
+                }
+            )
+        }));
+    }
+
+    #[test]
+    fn copy_shortcut_targeting_text_field_without_selection_is_not_executable() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        registry.register(
+            Action::new(action::COPY, "Copy").with_shortcut(action::Shortcut::control('c')),
+        );
+        let mut state =
+            text_field_state_with_registry(crate::text::Buffer::from_text("hello"), &mut registry);
+        state.modifiers = ui::Modifiers::new(false, true, false, false);
+
+        let request = key_pressed(
+            &registry,
+            &mut state,
+            window,
+            ui::Key::Character('c'),
+            false,
+        )
+        .request
+        .expect("copy shortcut should create a request for the text field");
+
+        assert_eq!(
+            request.target(),
+            &action::Context::path(window, path(CHILD))
+        );
+        assert!(!registry.can_execute(&request));
+    }
+
+    #[test]
+    fn copy_shortcut_targeting_selected_text_field_remains_executable() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let mut engine = crate::text::Engine::new();
+        let mut buffer = crate::text::Buffer::from_text("hello");
+        registry.register(
+            Action::new(action::COPY, "Copy").with_shortcut(action::Shortcut::control('c')),
+        );
+        engine.apply_text_edit(&mut buffer, crate::text::Edit::SelectAll);
+        let mut state = text_field_state_with_registry(buffer, &mut registry);
+        state.modifiers = ui::Modifiers::new(false, true, false, false);
+
+        let request = key_pressed(
+            &registry,
+            &mut state,
+            window,
+            ui::Key::Character('c'),
+            false,
+        )
+        .request
+        .expect("copy shortcut should create a request for the text field");
+
+        assert_eq!(
+            request.target(),
+            &action::Context::path(window, path(CHILD))
+        );
+        assert!(registry.can_execute(&request));
+    }
+
+    #[test]
+    fn undo_shortcut_targeting_text_field_without_history_is_not_executable() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        registry.register(
+            Action::new(action::UNDO, "Undo").with_shortcut(action::Shortcut::control('z')),
+        );
+        let mut state =
+            text_field_state_with_registry(crate::text::Buffer::from_text("hello"), &mut registry);
+        state.modifiers = ui::Modifiers::new(false, true, false, false);
+
+        let request = key_pressed(
+            &registry,
+            &mut state,
+            window,
+            ui::Key::Character('z'),
+            false,
+        )
+        .request
+        .expect("undo shortcut should create a request for the text field");
+
+        assert_eq!(
+            request.target(),
+            &action::Context::path(window, path(CHILD))
+        );
+        assert!(!registry.can_execute(&request));
+    }
+
+    #[test]
+    fn undo_shortcut_targeting_text_field_with_history_is_executable() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let mut engine = crate::text::Engine::new();
+        let mut buffer = crate::text::Buffer::from_text("hello");
+
+        registry.register(
+            Action::new(action::UNDO, "Undo").with_shortcut(action::Shortcut::control('z')),
+        );
+        let result = engine.apply_text_edit_with_result(&mut buffer, crate::text::Edit::insert("!"));
+        let mut state = text_field_state_with_registry(buffer, &mut registry);
+        state.record_text_field_history(
+            &path(CHILD),
+            result.change.expect("insert should change text"),
+            crate::text::HistoryKind::Typing,
+        );
+        crate::app::text_input::publish_action_states(&state, &mut registry, window);
+        state.modifiers = ui::Modifiers::new(false, true, false, false);
+
+        let request = key_pressed(
+            &registry,
+            &mut state,
+            window,
+            ui::Key::Character('z'),
+            false,
+        )
+        .request
+        .expect("undo shortcut should create a request for the text field");
+
+        assert_eq!(
+            request.target(),
+            &action::Context::path(window, path(CHILD))
+        );
+        assert!(registry.can_execute(&request));
+    }
+
+    #[test]
+    fn redo_shortcuts_target_text_field_redo_history() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let mut engine = crate::text::Engine::new();
+        let mut buffer = crate::text::Buffer::from_text("hello");
+
+        registry.register(
+            Action::new(action::REDO, "Redo")
+                .with_shortcut(action::Shortcut::control_shift('z'))
+                .with_shortcut(action::Shortcut::control('y')),
+        );
+        let result = engine.apply_text_edit_with_result(&mut buffer, crate::text::Edit::insert("!"));
+        let mut state = text_field_state_with_registry(buffer.clone(), &mut registry);
+        state.record_text_field_history(
+            &path(CHILD),
+            result.change.expect("insert should change text"),
+            crate::text::HistoryKind::Typing,
+        );
+        state.apply_text_history_command(&path(CHILD), &mut buffer, crate::text::Command::Undo);
+        crate::app::text_input::publish_action_states(&state, &mut registry, window);
+
+        state.modifiers = ui::Modifiers::new(true, true, false, false);
+        let shift_z = key_pressed(
+            &registry,
+            &mut state,
+            window,
+            ui::Key::Character('z'),
+            false,
+        )
+        .request
+        .expect("redo shortcut should create a request");
+        assert!(registry.can_execute(&shift_z));
+
+        state.modifiers = ui::Modifiers::new(false, true, false, false);
+        let control_y = key_pressed(
+            &registry,
+            &mut state,
+            window,
+            ui::Key::Character('y'),
+            false,
+        )
+        .request
+        .expect("redo shortcut should create a request");
+        assert!(registry.can_execute(&control_y));
+    }
+
+    #[test]
+    fn select_all_shortcut_targeting_fully_selected_text_field_is_not_executable() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let mut engine = crate::text::Engine::new();
+        let mut buffer = crate::text::Buffer::from_text("hello");
+
+        registry.register(
+            Action::new(action::SELECT_ALL, "Select All")
+                .with_shortcut(action::Shortcut::control('a')),
+        );
+        engine.apply_text_edit(&mut buffer, crate::text::Edit::SelectAll);
+        let mut state = text_field_state_with_registry(buffer, &mut registry);
+        state.modifiers = ui::Modifiers::new(false, true, false, false);
+
+        let request = key_pressed(
+            &registry,
+            &mut state,
+            window,
+            ui::Key::Character('a'),
+            false,
+        )
+        .request
+        .expect("select all shortcut should create a request for the text field");
+
+        assert_eq!(
+            request.target(),
+            &action::Context::path(window, path(CHILD))
+        );
+        assert!(!registry.can_execute(&request));
+    }
+
+    #[test]
     fn shortcut_and_command_button_use_same_automatic_subject() {
         let window = window::Id::new(1);
         let mut registry = action::Registry::<()>::new();
@@ -1677,7 +2594,7 @@ mod tests {
             HashMap::new(),
             Vec::new(),
         );
-        state.focus = Some(crate::app::state::Focus::new(
+        state.focus = FocusState::focused(Focus::new(
             path(SECOND),
             ui::focus::Reason::Keyboard,
             ui::focus::Visibility::Visible,
@@ -1789,7 +2706,7 @@ mod tests {
             HashMap::new(),
             Vec::new(),
         );
-        state.focus = Some(crate::app::state::Focus::new(
+        state.focus = FocusState::focused(Focus::new(
             path(CHILD),
             ui::focus::Reason::Keyboard,
             ui::focus::Visibility::Visible,

@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::time::Instant;
 
-use crate::geometry::area;
+use crate::animation::Frame as AnimationFrame;
+use crate::geometry::{Rect, area, point};
 use crate::widget::menu;
 use crate::{action, paint, text, widget, window};
 
@@ -27,7 +29,7 @@ pub struct Composition {
     responders: HashMap<Path, Vec<action::Id>>,
     responder_bindings: HashMap<Path, Vec<action::Binding>>,
     command_scopes: Vec<Path>,
-    text_fields: HashMap<Path, text::Buffer>,
+    text_fields: HashMap<Path, text::Field>,
     interactivity: HashMap<Path, Interactivity>,
     widget_metrics: HashMap<Path, widget::Metrics>,
     focus_order: Vec<Path>,
@@ -231,8 +233,64 @@ impl Tree {
         interaction: Interaction,
         scene: &mut paint::Scene,
     ) {
+        let mut text_engine = text::Engine::new();
+        let text_field_states = HashMap::new();
+        self.paint_with_text_engine(
+            layout,
+            actions,
+            window,
+            interaction,
+            &text_field_states,
+            &mut text_engine,
+            scene,
+        );
+    }
+
+    pub fn paint_with_text_engine<T>(
+        &self,
+        layout: &Frame,
+        actions: &action::Registry<T>,
+        window: window::Id,
+        interaction: Interaction,
+        text_field_states: &HashMap<Path, text::TextFieldState>,
+        text_engine: &mut text::Engine,
+        scene: &mut paint::Scene,
+    ) {
+        self.paint_with_text_engine_at(
+            layout,
+            actions,
+            window,
+            interaction,
+            text_field_states,
+            text_engine,
+            AnimationFrame::new(Instant::now(), None),
+            scene,
+        );
+    }
+
+    pub(crate) fn paint_with_text_engine_at<T>(
+        &self,
+        layout: &Frame,
+        actions: &action::Registry<T>,
+        window: window::Id,
+        interaction: Interaction,
+        text_field_states: &HashMap<Path, text::TextFieldState>,
+        text_engine: &mut text::Engine,
+        frame: AnimationFrame,
+        scene: &mut paint::Scene,
+    ) {
         if let Some(root) = self.root.as_ref() {
-            painting::tree(root, layout, actions, window, &interaction, scene);
+            painting::tree(
+                root,
+                layout,
+                actions,
+                window,
+                &interaction,
+                text_field_states,
+                text_engine,
+                frame,
+                scene,
+            );
             for popup in &self.popups {
                 let path = layout.path().child(popup.root().id());
                 if let Some(popup_layout) = layout.find_path(&path) {
@@ -242,6 +300,9 @@ impl Tree {
                         actions,
                         window,
                         &interaction,
+                        text_field_states,
+                        text_engine,
+                        frame,
                         scene,
                     );
                 }
@@ -301,6 +362,37 @@ fn collect_focus_order(
     for child in layout.children() {
         collect_focus_order(child, interactivity, order);
     }
+}
+
+fn node_at_path<'a>(node: &'a Node, ids: &[super::Id]) -> Option<&'a Node> {
+    if ids.first().copied() != Some(node.id()) {
+        return None;
+    }
+
+    let Some((_, rest)) = ids.split_first() else {
+        return Some(node);
+    };
+
+    if rest.is_empty() {
+        return Some(node);
+    }
+
+    node.children()
+        .iter()
+        .find_map(|child| node_at_path(child, rest))
+}
+
+fn text_content_rect(node: &Node, layout: &Frame) -> crate::geometry::Rect {
+    let rect = layout.rect();
+    let padding = node.style().padding();
+    let x = rect.origin.x() + padding.left;
+    let y = rect.origin.y();
+    let width = (rect.area.width() - padding.left - padding.right).max(0.0);
+
+    crate::geometry::Rect::new(
+        point::logical(x, y),
+        area::logical(width, rect.area.height()),
+    )
 }
 
 impl Composition {
@@ -404,12 +496,107 @@ impl Composition {
         &self.command_scopes
     }
 
-    pub fn text_field(&self, path: &Path) -> Option<&text::Buffer> {
+    pub fn text_field(&self, path: &Path) -> Option<&text::Field> {
         self.text_fields.get(path)
     }
 
-    pub fn text_fields(&self) -> &HashMap<Path, text::Buffer> {
+    pub fn text_fields(&self) -> &HashMap<Path, text::Field> {
         &self.text_fields
+    }
+
+    pub fn text_field_edit_at(
+        &self,
+        path: &Path,
+        position: point::Logical,
+        kind: text::PointerEditKind,
+        state: text::TextFieldState,
+        text_engine: &mut text::Engine,
+    ) -> Option<text::Edit> {
+        let node = self.node(path)?;
+        let field = node.text_field()?;
+        let layout = self.layout.find_path(path)?;
+        let rect = text_content_rect(node, layout);
+        let style = node
+            .label()
+            .and_then(text::Document::first_style)
+            .unwrap_or_default();
+        let position = point::logical(
+            position.x() - rect.origin.x(),
+            position.y() - rect.origin.y(),
+        );
+        let cursor =
+            text_engine.text_field_cursor_at_for_field(field, style, rect.area, position, state)?;
+
+        Some(text::Edit::pointer(kind, cursor))
+    }
+
+    pub fn text_field_caret_rect(
+        &self,
+        path: &Path,
+        state: text::TextFieldState,
+        text_engine: &mut text::Engine,
+    ) -> Option<Rect> {
+        let node = self.node(path)?;
+        let field = node.text_field()?;
+        let layout = self.layout.find_path(path)?;
+        let rect = text_content_rect(node, layout);
+        let style = node
+            .label()
+            .and_then(text::Document::first_style)
+            .unwrap_or_default();
+        let caret = text_engine.text_field_caret_for_field(field, style, rect.area, state)?;
+
+        Some(Rect::new(
+            point::logical(rect.origin.x() + caret.x(), rect.origin.y() + caret.y()),
+            area::logical(1.0, caret.height().max(1.0)),
+        ))
+    }
+
+    pub fn sync_text_field_states(
+        &self,
+        states: &mut HashMap<Path, text::TextFieldState>,
+        focused: Option<&Path>,
+        text_engine: &mut text::Engine,
+    ) -> bool {
+        let mut changed = false;
+        let old_len = states.len();
+        states.retain(|path, _| self.text_fields.contains_key(path));
+        changed |= old_len != states.len();
+
+        for path in self.text_fields.keys() {
+            if !states.contains_key(path) {
+                states.insert(path.clone(), text::TextFieldState::default());
+                changed = true;
+            }
+        }
+
+        let Some(focused) = focused.filter(|path| self.text_fields.contains_key(*path)) else {
+            return changed;
+        };
+        let Some(node) = self.node(focused) else {
+            return changed;
+        };
+        let Some(field) = node.text_field() else {
+            return changed;
+        };
+        let Some(layout) = self.layout.find_path(focused) else {
+            return changed;
+        };
+        let rect = text_content_rect(node, layout);
+        let style = node
+            .label()
+            .and_then(text::Document::first_style)
+            .unwrap_or_default();
+        let current = states.get(focused).cloned().unwrap_or_default();
+        let next =
+            text_engine.text_field_reveal_scroll_for_field(field, style, rect.area, current.clone());
+
+        if next != current {
+            states.insert(focused.clone(), next);
+            changed = true;
+        }
+
+        changed
     }
 
     pub fn interactivity(&self, path: &Path) -> Option<Interactivity> {
@@ -437,10 +624,47 @@ impl Composition {
         actions: &action::Registry<T>,
         window: window::Id,
         interaction: Interaction,
+        text_field_states: &HashMap<Path, text::TextFieldState>,
+        text_engine: &mut text::Engine,
         scene: &mut paint::Scene,
     ) {
-        self.tree
-            .paint(&self.layout, actions, window, interaction, scene);
+        self.paint_at(
+            actions,
+            window,
+            interaction,
+            text_field_states,
+            text_engine,
+            AnimationFrame::new(Instant::now(), None),
+            scene,
+        );
+    }
+
+    pub(crate) fn paint_at<T>(
+        &self,
+        actions: &action::Registry<T>,
+        window: window::Id,
+        interaction: Interaction,
+        text_field_states: &HashMap<Path, text::TextFieldState>,
+        text_engine: &mut text::Engine,
+        frame: AnimationFrame,
+        scene: &mut paint::Scene,
+    ) {
+        self.tree.paint_with_text_engine_at(
+            &self.layout,
+            actions,
+            window,
+            interaction,
+            text_field_states,
+            text_engine,
+            frame,
+            scene,
+        );
+    }
+
+    fn node(&self, path: &Path) -> Option<&Node> {
+        let root = self.tree.root.as_ref()?;
+
+        node_at_path(root, path.ids())
     }
 
     #[cfg(test)]
@@ -498,7 +722,7 @@ struct TreeIndex {
     responders: HashMap<Path, Vec<action::Id>>,
     responder_bindings: HashMap<Path, Vec<action::Binding>>,
     command_scopes: Vec<Path>,
-    text_fields: HashMap<Path, text::Buffer>,
+    text_fields: HashMap<Path, text::Field>,
     interactivity: HashMap<Path, Interactivity>,
 }
 

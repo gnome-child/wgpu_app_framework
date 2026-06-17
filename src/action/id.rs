@@ -8,6 +8,8 @@ pub const COPY: Id = Id::new("copy");
 pub const CUT: Id = Id::new("cut");
 pub const PASTE: Id = Id::new("paste");
 pub const INSERT_TEXT: Id = Id::new("insert_text");
+pub const UNDO: Id = Id::new("undo");
+pub const REDO: Id = Id::new("redo");
 
 impl Id {
     pub const fn new(value: &'static str) -> Self {

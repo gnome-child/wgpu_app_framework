@@ -480,6 +480,7 @@ pub fn viewport_rect(node: &ui::Node, rect: Rect) -> Rect {
 fn push_chrome(scene: &mut paint::Scene, rect: Rect, brush: paint::Brush) {
     scene.push_quad(paint::Quad {
         rect,
+        rasterization: paint::Rasterization::default(),
         style: paint::Style {
             fill: Some(paint::Fill::Brush(brush)),
             stroke: None,

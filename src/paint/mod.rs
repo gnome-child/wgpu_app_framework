@@ -94,12 +94,48 @@ pub enum Item {
 pub struct Quad {
     pub rect: Rect,
     pub style: Style,
+    pub rasterization: Rasterization,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rasterization {
+    pub snapping: Snapping,
+    pub edge_mode: EdgeMode,
+}
+
+impl Default for Rasterization {
+    fn default() -> Self {
+        Self {
+            snapping: Snapping::Disabled,
+            edge_mode: EdgeMode::Antialiased,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Snapping {
+    Disabled,
+    Rect,
+    FixedWidth { width_px: u32 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EdgeMode {
+    Antialiased,
+    Hard,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Text {
     pub rect: Rect,
     pub document: text::Document,
+    pub wrap: TextWrap,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextWrap {
+    WordOrGlyph,
+    None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -362,6 +398,7 @@ mod tests {
     fn solid_quad(x: f32) -> Quad {
         Quad {
             rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
+            rasterization: Rasterization::default(),
             style: Style {
                 fill: Some(Fill::Brush(Brush::solid(Color::RED))),
                 stroke: None,
@@ -400,6 +437,7 @@ mod tests {
         let text = Text {
             rect: Rect::new(point::logical(1.5, 0.0), area::logical(10.0, 10.0)),
             document: text::Document::plain("Label"),
+            wrap: TextWrap::WordOrGlyph,
         };
         let icon = Icon {
             rect: Rect::new(point::logical(1.6, 0.0), area::logical(10.0, 10.0)),
@@ -587,6 +625,7 @@ mod tests {
         scene.push_text(Text {
             rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
             document: text::Document::plain(""),
+            wrap: TextWrap::WordOrGlyph,
         });
 
         assert!(scene.items().is_empty());

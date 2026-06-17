@@ -39,49 +39,76 @@ pub fn paragraph_with_theme(
     )
 }
 
-pub fn text_field(id: ui::Id, buffer: impl Into<text::Buffer>) -> ui::Node {
-    text_field_with_theme(id, buffer, &theme::Theme::default_dark())
+pub fn text_field(id: ui::Id, field: impl Into<text::Field>) -> ui::Node {
+    text_field_with_theme(id, field, &theme::Theme::default_dark())
 }
 
 pub fn text_field_with_theme(
     id: ui::Id,
-    buffer: impl Into<text::Buffer>,
+    field: impl Into<text::Field>,
     theme: &theme::Theme,
 ) -> ui::Node {
-    let buffer = buffer.into();
-    let mut block = text::Block::new(text::Align::Start);
-    block.push_run(text::Run::new(
-        buffer.text().to_owned(),
-        text::Style::default()
-            .with_size(theme.text().control_size())
-            .with_color(theme.text().primary()),
-    ));
+    let field = field.into();
+    let label = text_field_document(&field, theme);
+    let mut interactivity = ui::Interactivity::NONE.with_hit_test(true);
+    if field.is_selectable() {
+        interactivity = interactivity.with_focusable(true);
+    }
 
-    foundation::control_chrome(
+    let mut node = foundation::control_chrome(
         foundation::content_colors(
             ui::Node::leaf(id)
-                .with_text_field(buffer.clone())
-                .with_label(text::Document::from_block(block))
-                .with_interactivity(
-                    ui::Interactivity::NONE
-                        .with_hit_test(true)
-                        .with_focusable(true),
-                )
-                .with_responder_binding(
-                    action::Binding::new(action::SELECT_ALL).enabled(!buffer.is_empty()),
-                )
-                .with_responder_binding(action::Binding::new(action::COPY).enabled(false))
-                .with_responder_binding(action::Binding::new(action::CUT).enabled(false))
-                .with_responder_binding(action::Binding::new(action::PASTE).enabled(false))
-                .with_responder_binding(action::Binding::new(action::INSERT_TEXT).enabled(true)),
+                .with_text_field(field.clone())
+                .with_label(label)
+                .with_interactivity(interactivity),
             theme,
         ),
         theme,
-    )
+    );
+
+    if field.is_editable() {
+        node = node
+            .with_responder(action::SELECT_ALL)
+            .with_responder(action::COPY)
+            .with_responder(action::CUT)
+            .with_responder(action::PASTE)
+            .with_responder(action::UNDO)
+            .with_responder(action::REDO)
+            .with_responder(action::INSERT_TEXT);
+    } else if field.is_read_only() {
+        node = node
+            .with_responder(action::SELECT_ALL)
+            .with_responder(action::COPY);
+    }
+
+    node
     .with_padding(layout::Insets {
         left: theme.density().app_padding(),
         top: 0.0,
         right: theme.density().app_padding(),
         bottom: 0.0,
     })
+}
+
+fn text_field_document(field: &text::Field, theme: &theme::Theme) -> text::Document {
+    if field.buffer().is_empty()
+        && let Some(placeholder) = field.placeholder()
+    {
+        return placeholder.clone().with_color(theme.text().disabled());
+    }
+
+    let color = if field.is_disabled() {
+        theme.text().disabled()
+    } else {
+        theme.text().primary()
+    };
+    let mut block = text::Block::new(text::Align::Start);
+    block.push_run(text::Run::new(
+        field.presentation_text(),
+        text::Style::default()
+            .with_size(theme.text().control_size())
+            .with_color(color),
+    ));
+
+    text::Document::from_block(block)
 }

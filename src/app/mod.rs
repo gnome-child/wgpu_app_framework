@@ -1,6 +1,8 @@
 mod action_executor;
+mod clipboard;
 mod command;
 mod context;
+mod focus;
 mod input;
 mod mailbox;
 mod rendering;
@@ -8,6 +10,7 @@ mod runtime;
 mod sender;
 mod state;
 mod task_runner;
+mod text_input;
 mod view;
 mod windows;
 

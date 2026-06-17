@@ -1,15 +1,24 @@
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
-use crate::geometry::point;
+use crate::animation;
+use crate::geometry::{Rect, point};
 use crate::widget::menu;
-use crate::{action, pointer, ui, widget, window};
+use crate::{action, pointer, text, ui, widget, window};
 
-use super::command;
+use super::{command, focus};
+
+pub use focus::Focus;
+#[cfg(test)]
+pub(crate) use focus::State as FocusState;
+
+const MULTI_CLICK_MAX_INTERVAL: Duration = Duration::from_millis(500);
+const MULTI_CLICK_MAX_DISTANCE: f32 = 4.0;
 
 #[derive(Debug, Default)]
 pub struct WindowState {
     pub hovered: Option<ui::Path>,
-    pub focus: Option<Focus>,
+    pub focus: focus::State,
     pub pressed: Option<ui::Path>,
     pub pressed_source: Option<PressSource>,
     pub modifiers: ui::Modifiers,
@@ -20,19 +29,23 @@ pub struct WindowState {
     pub command_scope_captures: HashMap<ui::Path, action::Context>,
     pub pointer_capture: Option<pointer::Capture>,
     pub composition: Option<ui::Composition>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Focus {
-    pub path: ui::Path,
-    pub reason: ui::focus::Reason,
-    pub visibility: ui::focus::Visibility,
+    pub text_field_states: HashMap<ui::Path, text::TextFieldState>,
+    pub last_text_field_click: Option<TextFieldClick>,
+    pub text_field_drag: Option<ui::Path>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PressSource {
     Pointer,
     Keyboard,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextFieldClick {
+    path: ui::Path,
+    position: point::Logical,
+    at: Instant,
+    count: u8,
 }
 
 impl WindowState {
@@ -155,7 +168,7 @@ impl WindowState {
             .is_some_and(|composition| composition.has_responder(target))
     }
 
-    pub fn text_field(&self, target: &ui::Path) -> Option<&crate::text::Buffer> {
+    pub fn text_field(&self, target: &ui::Path) -> Option<&crate::text::Field> {
         self.composition
             .as_ref()
             .and_then(|composition| composition.text_field(target))
@@ -165,20 +178,269 @@ impl WindowState {
         self.text_field(target).is_some()
     }
 
-    pub fn text_field_cursor_at(
-        &self,
+    pub fn is_selectable_text_field(&self, target: &ui::Path) -> bool {
+        self.text_field(target)
+            .is_some_and(crate::text::Field::is_selectable)
+    }
+
+    pub fn is_editable_text_field(&self, target: &ui::Path) -> bool {
+        self.text_field(target)
+            .is_some_and(crate::text::Field::is_editable)
+    }
+
+    pub fn focused_editable_text_field(&self) -> Option<ui::Path> {
+        self.focused_path()
+            .filter(|path| self.is_editable_text_field(path))
+    }
+
+    pub fn text_input_enabled(&self) -> bool {
+        self.focused_editable_text_field().is_some()
+    }
+
+    pub fn focused_text_field_caret_rect(&self, text_engine: &mut text::Engine) -> Option<Rect> {
+        let target = self.focused_editable_text_field()?;
+        let state = self
+            .text_field_states
+            .get(&target)
+            .cloned()
+            .unwrap_or_default();
+
+        self.composition
+            .as_ref()?
+            .text_field_caret_rect(&target, state, text_engine)
+    }
+
+    pub fn set_focused_text_field_preedit(
+        &mut self,
+        preedit: Option<text::Preedit>,
+    ) -> Option<ui::Path> {
+        let target = self.focused_editable_text_field()?;
+        let current = self
+            .text_field_states
+            .get(&target)
+            .cloned()
+            .unwrap_or_default();
+        let next = current.clone().with_preedit(preedit);
+
+        if next != current {
+            self.text_field_states.insert(target.clone(), next);
+        }
+
+        Some(target)
+    }
+
+    pub fn clear_text_field_preedits(&mut self) -> bool {
+        let mut changed = false;
+
+        for state in self.text_field_states.values_mut() {
+            if state.preedit().is_some() {
+                *state = state.clone().with_preedit(None);
+                changed = true;
+            }
+        }
+
+        changed
+    }
+
+    pub fn text_field_edit_at(
+        &mut self,
         target: &ui::Path,
         position: point::Logical,
-    ) -> Option<usize> {
-        let composition = self.composition.as_ref()?;
-        let buffer = composition.text_field(target)?;
-        let frame = composition.layout().find_path(target)?;
-        let width = frame.rect().area.width().max(1.0);
-        let fraction = ((position.x() - frame.rect().origin.x()) / width).clamp(0.0, 1.0);
-        let char_count = buffer.text().chars().count();
-        let char_index = (fraction * char_count as f32).round() as usize;
+        text_engine: &mut text::Engine,
+    ) -> Option<text::Edit> {
+        if !self.is_selectable_text_field(target) {
+            return None;
+        }
 
-        Some(byte_index_for_char(buffer.text(), char_index))
+        let kind = self.text_field_click_kind(target, position);
+        let edit = self.composition.as_ref()?.text_field_edit_at(
+            target,
+            position,
+            kind,
+            self.text_field_states
+                .get(target)
+                .cloned()
+                .unwrap_or_default(),
+            text_engine,
+        )?;
+        self.text_field_drag = Some(target.clone());
+        self.reset_text_field_caret_blink(target, Instant::now());
+
+        Some(edit)
+    }
+
+    pub fn text_field_drag_edit_at(
+        &mut self,
+        position: point::Logical,
+        text_engine: &mut text::Engine,
+    ) -> Option<(ui::Path, text::Edit)> {
+        let target = self.text_field_drag.as_ref()?.clone();
+        if !self.is_selectable_text_field(&target) {
+            return None;
+        }
+        let edit = self.composition.as_ref()?.text_field_edit_at(
+            &target,
+            position,
+            text::PointerEditKind::Drag,
+            self.text_field_states
+                .get(&target)
+                .cloned()
+                .unwrap_or_default(),
+            text_engine,
+        )?;
+        self.reset_text_field_caret_blink(&target, Instant::now());
+
+        Some((target, edit))
+    }
+
+    pub fn end_text_field_drag(&mut self) {
+        self.text_field_drag = None;
+    }
+
+    pub fn sync_text_field_states(&mut self, text_engine: &mut text::Engine) -> bool {
+        let Some(composition) = self.composition.as_ref() else {
+            let changed = !self.text_field_states.is_empty();
+            self.text_field_states.clear();
+            self.last_text_field_click = None;
+            self.text_field_drag = None;
+            return changed;
+        };
+
+        let mut changed = composition.sync_text_field_states(
+            &mut self.text_field_states,
+            self.focus.as_ref().map(|focus| &focus.path),
+            text_engine,
+        );
+
+        for (path, field) in composition.text_fields() {
+            let state = self.text_field_states.entry(path.clone()).or_default();
+            changed |= state.sync_history(field.buffer());
+        }
+
+        changed
+    }
+
+    pub fn reset_text_field_caret_blink(&mut self, target: &ui::Path, now: Instant) -> bool {
+        if !self.is_text_field(target) && !self.text_field_states.contains_key(target) {
+            return false;
+        }
+
+        let current = self
+            .text_field_states
+            .get(target)
+            .cloned()
+            .unwrap_or_else(|| text::TextFieldState::new_at(0.0, now));
+        let next = current.clone().reset_caret_blink(now);
+
+        if next == current {
+            return false;
+        }
+
+        self.text_field_states.insert(target.clone(), next);
+        true
+    }
+
+    pub(crate) fn record_text_field_history(
+        &mut self,
+        target: &ui::Path,
+        change: text::TextChange,
+        kind: text::HistoryKind,
+    ) -> bool {
+        if !self.is_text_field(target) && !self.text_field_states.contains_key(target) {
+            return false;
+        }
+
+        self.text_field_states
+            .entry(target.clone())
+            .or_default()
+            .record_history(change, kind);
+        true
+    }
+
+    pub(crate) fn can_apply_text_edit(&self, target: &ui::Path, edit: &text::Edit) -> bool {
+        let Some(field) = self.text_field(target) else {
+            return false;
+        };
+
+        if !field.is_selectable() {
+            return false;
+        }
+
+        !edit.mutates_text() || field.allows_text_mutation()
+    }
+
+    pub(crate) fn apply_text_history_command(
+        &mut self,
+        target: &ui::Path,
+        buffer: &mut text::Buffer,
+        command: text::Command,
+    ) -> text::CommandResult {
+        let Some(state) = self.text_field_states.get_mut(target) else {
+            return text::CommandResult {
+                unavailable: true,
+                ..text::CommandResult::default()
+            };
+        };
+
+        match command {
+            text::Command::Undo => state.apply_undo(buffer),
+            text::Command::Redo => state.apply_redo(buffer),
+            _ => text::CommandResult {
+                unavailable: true,
+                ..text::CommandResult::default()
+            },
+        }
+    }
+
+    pub fn animation_schedule(&self, now: Instant) -> animation::Schedule {
+        let Some(focus) = self.focus.as_ref() else {
+            return animation::Schedule::Idle;
+        };
+        let Some(field) = self.text_field(&focus.path) else {
+            return animation::Schedule::Idle;
+        };
+
+        if !field.paints_caret() || field.buffer().has_selection() {
+            return animation::Schedule::Idle;
+        }
+
+        let state = self
+            .text_field_states
+            .get(&focus.path)
+            .cloned()
+            .unwrap_or_default();
+
+        animation::Schedule::At(state.next_caret_deadline(now))
+    }
+
+    fn text_field_click_kind(
+        &mut self,
+        target: &ui::Path,
+        position: point::Logical,
+    ) -> text::PointerEditKind {
+        let now = Instant::now();
+        let count = self
+            .last_text_field_click
+            .as_ref()
+            .filter(|click| {
+                click.path == *target
+                    && now.duration_since(click.at) <= MULTI_CLICK_MAX_INTERVAL
+                    && point_distance(click.position, position) <= MULTI_CLICK_MAX_DISTANCE
+            })
+            .map_or(1, |click| (click.count + 1).min(3));
+
+        self.last_text_field_click = Some(TextFieldClick {
+            path: target.clone(),
+            position,
+            at: now,
+            count,
+        });
+
+        match count {
+            1 => text::PointerEditKind::Click,
+            2 => text::PointerEditKind::DoubleClick,
+            _ => text::PointerEditKind::TripleClick,
+        }
     }
 
     pub fn set_hovered(&mut self, target: Option<ui::Path>) -> Vec<ui::Event> {
@@ -208,16 +470,18 @@ impl WindowState {
         target: Option<ui::Path>,
         button: pointer::Button,
     ) -> ui::Event {
-        self.focus = target
-            .clone()
-            .filter(|target| self.is_focusable(target))
-            .map(|path| {
-                Focus::new(
-                    path,
-                    ui::focus::Reason::Pointer,
-                    ui::focus::Visibility::Hidden,
-                )
-            });
+        if let Some(path) = target.as_ref().filter(|target| self.is_focusable(target)) {
+            self.set_focus(
+                path.clone(),
+                ui::focus::Reason::Pointer,
+                ui::focus::Visibility::Hidden,
+            );
+        } else {
+            self.clear_focus();
+        }
+        if let Some(target) = target.as_ref() {
+            self.reset_text_field_caret_blink(target, Instant::now());
+        }
         if let Some(target) = target.as_ref() {
             command::set_subject_from_path(self, target);
         }
@@ -288,6 +552,7 @@ impl WindowState {
             return false;
         }
 
+        self.begin_menu_focus_scope(ui::Path::from(widget::MENU_POPUP));
         self.open_menu = Some(id);
         self.open_submenu = None;
         true
@@ -315,21 +580,48 @@ impl WindowState {
             return false;
         }
 
+        self.focus.include_transient_root(
+            focus::TransientScope::Submenu,
+            ui::Path::from(widget::MENU_SUBMENU_POPUP),
+        );
         self.open_submenu = Some(id);
         true
     }
 
     pub fn close_submenu(&mut self) -> bool {
+        self.close_submenu_with_focus_visibility(None)
+    }
+
+    pub fn close_submenu_with_focus_visibility(
+        &mut self,
+        visibility: Option<ui::focus::Visibility>,
+    ) -> bool {
         let changed = self.open_submenu.is_some();
         self.open_submenu = None;
-        changed
+        self.focus
+            .close_transient(focus::TransientScope::Submenu, visibility)
+            || changed
     }
 
     pub fn close_menu(&mut self) -> bool {
+        self.close_menu_with_focus_visibility(None)
+    }
+
+    pub fn close_menu_with_focus_visibility(
+        &mut self,
+        visibility: Option<ui::focus::Visibility>,
+    ) -> bool {
         let changed = self.open_menu.is_some() || self.open_submenu.is_some();
         self.open_menu = None;
         self.open_submenu = None;
-        changed
+        let closed_submenu = self
+            .focus
+            .close_transient(focus::TransientScope::Submenu, visibility);
+        let closed_menu = self
+            .focus
+            .close_transient(focus::TransientScope::Menu, visibility);
+
+        changed || closed_submenu || closed_menu
     }
 
     pub fn dismiss_menu_for_target(&mut self, target: Option<&ui::Path>) -> bool {
@@ -370,14 +662,11 @@ impl WindowState {
     }
 
     pub fn focused_path(&self) -> Option<ui::Path> {
-        self.focus.as_ref().map(|focus| focus.path.clone())
+        self.focus.path()
     }
 
     pub fn focus_visibility(&self) -> ui::focus::Visibility {
-        self.focus
-            .as_ref()
-            .map(Focus::visibility)
-            .unwrap_or(ui::focus::Visibility::Hidden)
+        self.focus.visibility()
     }
 
     pub fn set_focus(
@@ -390,6 +679,7 @@ impl WindowState {
             return self.clear_focus();
         }
 
+        self.prepare_focus_scope_for_path(&path);
         let focus = Focus::new(path.clone(), reason, visibility);
 
         let subject_changed = command::set_subject_from_path(self, &path);
@@ -397,26 +687,38 @@ impl WindowState {
             return subject_changed;
         }
 
-        self.focus = Some(focus);
+        self.focus.set(focus);
+        self.reset_text_field_caret_blink(&path, Instant::now());
         true
     }
 
     pub fn clear_focus(&mut self) -> bool {
-        let changed = self.focus.is_some();
-        self.focus = None;
-        changed
+        self.focus.clear()
     }
 
     pub fn clear_stale_focus(&mut self) -> bool {
-        let Some(path) = self.focused_path() else {
-            return false;
-        };
+        let focusable = self
+            .focused_path()
+            .is_some_and(|path| self.is_focusable(&path));
+        self.focus.clear_stale(|_| focusable)
+    }
 
-        if self.is_focusable(&path) {
-            return false;
+    pub fn sync_menu_focus_scopes(&mut self) -> bool {
+        let mut changed = false;
+
+        if self.open_menu.is_some()
+            && let Some(root) = self.popup_root_path(widget::MENU_POPUP)
+        {
+            changed |= self.begin_menu_focus_scope(root);
         }
 
-        self.clear_focus()
+        if self.open_submenu.is_some()
+            && let Some(root) = self.popup_root_path(widget::MENU_SUBMENU_POPUP)
+        {
+            changed |= self.begin_submenu_focus_scope(root);
+        }
+
+        changed
     }
 
     pub fn command_context(&self, window: window::Id) -> action::Context {
@@ -446,13 +748,32 @@ impl WindowState {
     pub fn resolve_request(&self, request: action::Request) -> action::Request {
         command::resolve_request(self, request)
     }
-}
 
-fn byte_index_for_char(text: &str, char_index: usize) -> usize {
-    text.char_indices()
-        .nth(char_index)
-        .map(|(index, _)| index)
-        .unwrap_or(text.len())
+    fn prepare_focus_scope_for_path(&mut self, path: &ui::Path) {
+        if self.is_menu_path(path) {
+            self.begin_menu_focus_scope(path.clone());
+        }
+
+        if self.is_submenu_popup_path(path) {
+            self.begin_submenu_focus_scope(path.clone());
+        }
+    }
+
+    fn begin_menu_focus_scope(&mut self, root: ui::Path) -> bool {
+        self.focus
+            .begin_transient(focus::TransientScope::Menu, root)
+    }
+
+    fn begin_submenu_focus_scope(&mut self, root: ui::Path) -> bool {
+        self.focus
+            .begin_transient(focus::TransientScope::Submenu, root)
+    }
+
+    fn popup_root_path(&self, id: ui::Id) -> Option<ui::Path> {
+        self.composition
+            .as_ref()
+            .and_then(|composition| path_with_leaf(composition.layout(), id))
+    }
 }
 
 fn scroll_capture_offset(
@@ -473,22 +794,22 @@ fn scroll_capture_offset(
     }
 }
 
-impl Focus {
-    pub fn new(
-        path: ui::Path,
-        reason: ui::focus::Reason,
-        visibility: ui::focus::Visibility,
-    ) -> Self {
-        Self {
-            path,
-            reason,
-            visibility,
-        }
+fn point_distance(a: point::Logical, b: point::Logical) -> f32 {
+    let dx = a.x() - b.x();
+    let dy = a.y() - b.y();
+
+    (dx.mul_add(dx, dy * dy)).sqrt()
+}
+
+fn path_with_leaf(frame: &ui::Frame, id: ui::Id) -> Option<ui::Path> {
+    if frame.path().leaf() == Some(id) {
+        return Some(frame.path().clone());
     }
 
-    pub fn visibility(&self) -> ui::focus::Visibility {
-        self.visibility
-    }
+    frame
+        .children()
+        .iter()
+        .find_map(|child| path_with_leaf(child, id))
 }
 
 pub fn action_request(
@@ -615,6 +936,44 @@ mod tests {
         }
     }
 
+    fn text_field_window_state(buffer: text::Buffer, epoch: Instant) -> WindowState {
+        let window = window::Id::new(1);
+        let mut tree = ui::Tree::new();
+        let mut registry = action::Registry::<()>::new();
+        let mut text_engine = text::Engine::new();
+
+        tree.set_root(widget::text_field(CHILD, buffer).with_size(
+            crate::layout::Size::Fixed(120.0),
+            crate::layout::Size::Fixed(32.0),
+        ));
+
+        let composition = tree
+            .compose(
+                window,
+                area::logical(120.0, 32.0),
+                &mut registry,
+                &action::Context::window(window),
+                None,
+                None,
+                &mut text_engine,
+            )
+            .expect("text field tree should compose");
+
+        WindowState {
+            focus: FocusState::focused(Focus::new(
+                path(CHILD),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            composition: Some(composition),
+            text_field_states: HashMap::from([(
+                path(CHILD),
+                text::TextFieldState::new_at(0.0, epoch),
+            )]),
+            ..WindowState::default()
+        }
+    }
+
     #[test]
     fn hover_changes_emit_leave_then_enter() {
         let mut state = WindowState {
@@ -689,6 +1048,51 @@ mod tests {
     }
 
     #[test]
+    fn focused_text_field_schedules_next_caret_blink() {
+        let epoch = Instant::now();
+        let state = text_field_window_state(text::Buffer::from_text("hello"), epoch);
+
+        assert_eq!(
+            state.animation_schedule(epoch),
+            animation::Schedule::At(epoch + Duration::from_millis(500))
+        );
+    }
+
+    #[test]
+    fn unfocused_window_state_has_idle_animation_schedule() {
+        let epoch = Instant::now();
+        let mut state = text_field_window_state(text::Buffer::from_text("hello"), epoch);
+        state.clear_focus();
+
+        assert_eq!(state.animation_schedule(epoch), animation::Schedule::Idle);
+    }
+
+    #[test]
+    fn selected_text_field_has_idle_animation_schedule() {
+        let epoch = Instant::now();
+        let mut engine = text::Engine::new();
+        let mut buffer = text::Buffer::from_text("hello");
+        engine.apply_text_edit(&mut buffer, text::Edit::SelectAll);
+        let state = text_field_window_state(buffer, epoch);
+
+        assert_eq!(state.animation_schedule(epoch), animation::Schedule::Idle);
+    }
+
+    #[test]
+    fn resetting_text_field_caret_blink_moves_next_deadline() {
+        let epoch = Instant::now();
+        let later = epoch + Duration::from_millis(200);
+        let mut state = text_field_window_state(text::Buffer::from_text("hello"), epoch);
+
+        assert!(state.reset_text_field_caret_blink(&path(CHILD), later));
+
+        assert_eq!(
+            state.animation_schedule(later),
+            animation::Schedule::At(later + Duration::from_millis(500))
+        );
+    }
+
+    #[test]
     fn programmatic_focus_can_choose_visible_or_hidden_indication() {
         let mut state = state_with_composition(
             single_box(CHILD),
@@ -720,7 +1124,7 @@ mod tests {
     #[test]
     fn stale_focused_paths_are_cleared_when_not_focusable() {
         let mut state = WindowState {
-            focus: Some(Focus::new(
+            focus: FocusState::focused(Focus::new(
                 path(CHILD),
                 ui::focus::Reason::Keyboard,
                 ui::focus::Visibility::Visible,
@@ -1077,7 +1481,7 @@ mod tests {
             Vec::new(),
         );
         state.command_subject = Some(action::Scope::Path(path(CHILD)));
-        state.focus = Some(Focus::new(
+        state.focus = FocusState::focused(Focus::new(
             path(ROOT),
             ui::focus::Reason::Keyboard,
             ui::focus::Visibility::Visible,
@@ -1200,7 +1604,7 @@ mod tests {
             HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
             Vec::new(),
         );
-        state.focus = Some(Focus::new(
+        state.focus = FocusState::focused(Focus::new(
             path(CHILD),
             ui::focus::Reason::Keyboard,
             ui::focus::Visibility::Visible,
@@ -1232,7 +1636,7 @@ mod tests {
             Vec::new(),
         );
         state.hovered = Some(path(ROOT));
-        state.focus = Some(Focus::new(
+        state.focus = FocusState::focused(Focus::new(
             path(CHILD),
             ui::focus::Reason::Keyboard,
             ui::focus::Visibility::Visible,
@@ -1243,7 +1647,7 @@ mod tests {
             action::Context::path(window, path(CHILD))
         );
 
-        state.focus = None;
+        state.focus = FocusState::default();
         assert_eq!(
             state.command_context(window),
             action::Context::window(window)

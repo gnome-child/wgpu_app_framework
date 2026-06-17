@@ -170,7 +170,7 @@ impl Theme {
             text: Text {
                 primary: srgb8(232, 233, 236),
                 secondary: srgb8(166, 168, 174),
-                disabled: srgb8(94, 97, 105),
+                disabled: srgb8(140, 142, 148),
                 busy: srgb8(255, 218, 138),
                 body_size: 13.0,
                 control_size: 13.0,

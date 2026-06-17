@@ -18,7 +18,7 @@ pub struct Node {
     responder_bindings: Vec<action::Binding>,
     command_scope: bool,
     label: Option<text::Document>,
-    text_field: Option<text::Buffer>,
+    text_field: Option<text::Field>,
     icon: Option<icon::Icon>,
     icon_size: Option<f32>,
     menu_bar: Option<menu::Bar>,
@@ -104,6 +104,7 @@ pub enum Intent {
 pub struct Interaction {
     hovered: Option<Path>,
     focused: Option<Path>,
+    text_editing_target: Option<Path>,
     focus_visibility: focus::Visibility,
     pressed: Option<Path>,
     command_subject: Option<action::Context>,
@@ -190,7 +191,7 @@ impl Node {
         self.label.as_ref()
     }
 
-    pub fn text_field(&self) -> Option<&text::Buffer> {
+    pub fn text_field(&self) -> Option<&text::Field> {
         self.text_field.as_ref()
     }
 
@@ -402,8 +403,8 @@ impl Node {
         self
     }
 
-    pub fn with_text_field(mut self, buffer: text::Buffer) -> Self {
-        self.text_field = Some(buffer);
+    pub fn with_text_field(mut self, field: impl Into<text::Field>) -> Self {
+        self.text_field = Some(field.into());
         self
     }
 
@@ -794,6 +795,7 @@ impl Interaction {
         Self {
             hovered,
             focused,
+            text_editing_target: None,
             focus_visibility: focus::Visibility::Visible,
             pressed,
             command_subject: None,
@@ -807,6 +809,11 @@ impl Interaction {
 
     pub fn with_focus_visibility(mut self, visibility: focus::Visibility) -> Self {
         self.focus_visibility = visibility;
+        self
+    }
+
+    pub fn with_text_editing_target(mut self, target: Option<Path>) -> Self {
+        self.text_editing_target = target;
         self
     }
 
@@ -846,6 +853,10 @@ impl Interaction {
 
     pub fn focused(&self) -> Option<&Path> {
         self.focused.as_ref()
+    }
+
+    pub fn text_editing_target(&self) -> Option<&Path> {
+        self.text_editing_target.as_ref()
     }
 
     pub fn focus_visibility(&self) -> focus::Visibility {

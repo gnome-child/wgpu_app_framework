@@ -13,6 +13,7 @@ pub mod ui;
 pub mod widget;
 pub mod window;
 
+mod animation;
 mod native;
 mod render;
 mod text_system;

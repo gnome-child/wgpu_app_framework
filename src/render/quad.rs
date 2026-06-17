@@ -104,6 +104,7 @@ struct AnalyticShape {
     inner: Option<AnalyticInner>,
     brush: paint::Brush,
     blur: f32,
+    antialias: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,6 +130,7 @@ struct PreparedShape {
     inner: Option<AnalyticInner>,
     brush: paint::Brush,
     blur: f32,
+    antialias: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -192,6 +194,24 @@ impl PixelGeometry {
     fn snap_position(self, position: f32) -> f32 {
         (position * self.scale_factor).round() / self.scale_factor
     }
+
+    fn snap_fixed_width_rect(self, rect: Rect, width_px: u32) -> Rect {
+        let (left, top, _, bottom) = edges(rect);
+        let left = self.snap_position(left);
+        let top = self.snap_position(top);
+        let mut bottom = self.snap_position(bottom);
+        let width = (width_px.max(1) as f32) / self.scale_factor;
+
+        if bottom <= top {
+            bottom = top + self.logical_pixel;
+        }
+
+        Rect::rounded(
+            point::logical(left, top),
+            area::logical(width, bottom - top),
+            rect.rounding,
+        )
+    }
 }
 
 fn push_shape_vertices(
@@ -207,28 +227,54 @@ fn push_shape_vertices(
         return;
     }
 
-    for shape in analytic_shapes_for_shape(shape) {
+    for shape in analytic_shapes_for_shape(shape, canvas.scale_factor()) {
         push_analytic_shape_vertices(buffer, canvas_area, pixel_geometry, shape);
     }
 }
 
-fn analytic_shapes_for_shape(shape: &batch::Shape<'_>) -> Vec<AnalyticShape> {
+fn analytic_shapes_for_shape(shape: &batch::Shape<'_>, scale_factor: f32) -> Vec<AnalyticShape> {
     match shape {
-        batch::Shape::Quad(quad) => analytic_shapes_for_quad(quad),
+        batch::Shape::Quad(quad) => analytic_shapes_for_quad_at_scale(quad, scale_factor),
         batch::Shape::Shadow(shadow) => analytic_shapes_for_shadow(shadow),
         batch::Shape::Tint(tint) => analytic_shapes_for_tint(tint),
         batch::Shape::Outline(outline) => analytic_shapes_for_outline(outline),
     }
 }
 
+#[cfg(test)]
 fn analytic_shapes_for_quad(quad: &paint::Quad) -> Vec<AnalyticShape> {
     let rect = quad.rect;
+    analytic_shapes_for_quad_rect(quad, rect)
+}
+
+fn analytic_shapes_for_quad_at_scale(quad: &paint::Quad, scale_factor: f32) -> Vec<AnalyticShape> {
+    let rect = rasterized_quad_rect(quad, scale_factor);
+
+    analytic_shapes_for_quad_rect(quad, rect)
+}
+
+fn rasterized_quad_rect(quad: &paint::Quad, scale_factor: f32) -> Rect {
+    let pixel_geometry = PixelGeometry::new(scale_factor);
+
+    match quad.rasterization.snapping {
+        paint::Snapping::Disabled => quad.rect,
+        paint::Snapping::Rect => pixel_geometry.snap_rect(quad.rect),
+        paint::Snapping::FixedWidth { width_px } => {
+            pixel_geometry.snap_fixed_width_rect(quad.rect, width_px)
+        }
+    }
+}
+
+fn analytic_shapes_for_quad_rect(quad: &paint::Quad, rect: Rect) -> Vec<AnalyticShape> {
     let mut shapes = Vec::new();
+    let antialias = quad.rasterization.edge_mode == paint::EdgeMode::Antialiased;
 
     if let Some(fill) = quad.style.fill {
         match fill {
             paint::Fill::Brush(brush) => {
-                shapes.push(fill_shape(rect, brush));
+                let mut shape = fill_shape(rect, brush);
+                shape.antialias = antialias;
+                shapes.push(shape);
             }
         }
     }
@@ -291,7 +337,12 @@ fn push_analytic_shape_vertices(
     let brush = brush_data(shape.brush);
     let params = match shape.kind {
         AnalyticShapeKind::Shadow => [2.0, shape.blur, brush.kind, 0.0],
-        _ => [mode, 0.0, brush.kind, 0.0],
+        _ => [
+            mode,
+            0.0,
+            brush.kind,
+            if shape.antialias { 1.0 } else { 0.0 },
+        ],
     };
 
     let mut push = |x: f32, y: f32| {
@@ -331,7 +382,11 @@ fn prepare_fill_shape(
     pixel_geometry: PixelGeometry,
 ) -> Option<PreparedShape> {
     let outer_rect = pixel_geometry.snap_rect(shape.outer_rect);
-    let raster_rect = expand_rect(outer_rect, pixel_geometry.logical_pixel());
+    let raster_rect = if shape.antialias {
+        expand_rect(outer_rect, pixel_geometry.logical_pixel())
+    } else {
+        outer_rect
+    };
 
     Some(PreparedShape {
         kind: shape.kind,
@@ -341,6 +396,7 @@ fn prepare_fill_shape(
         inner: None,
         brush: shape.brush,
         blur: shape.blur,
+        antialias: shape.antialias,
     })
 }
 
@@ -368,6 +424,7 @@ fn prepare_internal_ring_shape(
         inner: Some(inner),
         brush: shape.brush,
         blur: shape.blur,
+        antialias: shape.antialias,
     })
 }
 
@@ -394,6 +451,7 @@ fn prepare_external_ring_shape(
         }),
         brush: shape.brush,
         blur: shape.blur,
+        antialias: shape.antialias,
     })
 }
 
@@ -421,6 +479,7 @@ fn prepare_shadow_shape(
         }),
         brush: shape.brush,
         blur,
+        antialias: shape.antialias,
     })
 }
 
@@ -432,6 +491,7 @@ fn fill_shape(rect: Rect, brush: paint::Brush) -> AnalyticShape {
         inner: None,
         brush,
         blur: 0.0,
+        antialias: true,
     }
 }
 
@@ -456,6 +516,7 @@ fn internal_stroke_shape(rect: Rect, width: f32, brush: paint::Brush) -> Option<
         }),
         brush,
         blur: 0.0,
+        antialias: true,
     })
 }
 
@@ -479,6 +540,7 @@ fn shadow_shape(shadow: &paint::Shadow) -> Option<AnalyticShape> {
         }),
         brush: shadow.brush,
         blur: shadow.blur.max(0.0),
+        antialias: true,
     })
 }
 
@@ -506,6 +568,7 @@ fn external_outline_shape(
         }),
         brush,
         blur: 0.0,
+        antialias: true,
     })
 }
 
@@ -659,6 +722,7 @@ mod tests {
         paint::Quad {
             rect: rect(),
             style,
+            rasterization: paint::Rasterization::default(),
         }
     }
 
@@ -736,6 +800,13 @@ mod tests {
         edges(rect)
     }
 
+    fn assert_approx_eq(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 0.0001,
+            "expected {actual} to approximately equal {expected}"
+        );
+    }
+
     #[test]
     fn gradient_fill_lowers_to_one_analytic_shape() {
         let brush = gradient_brush();
@@ -756,7 +827,7 @@ mod tests {
         assert_eq!(vertices[0].color, [1.0, 0.0, 0.0, 0.25]);
         assert_eq!(vertices[0].color_to, [0.0, 0.0, 1.0, 0.75]);
         assert_eq!(vertices[0].brush_points, [0.0, 1.0, 1.0, 0.0]);
-        assert_eq!(vertices[0].params, [0.0, 0.0, 1.0, 0.0]);
+        assert_eq!(vertices[0].params, [0.0, 0.0, 1.0, 1.0]);
     }
 
     #[test]
@@ -834,6 +905,36 @@ mod tests {
         let snapped = PixelGeometry::new(2.0).snap_rect(rect);
 
         assert_eq!(rect_bounds(snapped), (10.0, 20.5, 50.5, 51.0));
+    }
+
+    #[test]
+    fn fixed_width_snapping_forces_stable_quad_width_only_when_requested() {
+        let scale_factor = 1.5;
+        let rect = Rect::new(point::logical(10.2, 20.3), area::logical(7.7, 9.2));
+        let mut snapped_quad = quad(style(Some(solid(paint::Color::RED)), None, None));
+        snapped_quad.rect = rect;
+        snapped_quad.rasterization.snapping = paint::Snapping::FixedWidth { width_px: 2 };
+        snapped_quad.rasterization.edge_mode = paint::EdgeMode::Hard;
+
+        let snapped = analytic_shapes_for_quad_at_scale(&snapped_quad, scale_factor);
+        let (left, top, right, bottom) = rect_bounds(snapped[0].outer_rect);
+
+        assert_approx_eq(
+            left * scale_factor,
+            (rect.origin.x() * scale_factor).round(),
+        );
+        assert_approx_eq(top * scale_factor, (rect.origin.y() * scale_factor).round());
+        assert_approx_eq(
+            bottom * scale_factor,
+            ((rect.origin.y() + rect.area.height()) * scale_factor).round(),
+        );
+        assert_approx_eq((right - left) * scale_factor, 2.0);
+
+        let mut ordinary_quad = snapped_quad;
+        ordinary_quad.rasterization = paint::Rasterization::default();
+        let ordinary = analytic_shapes_for_quad_at_scale(&ordinary_quad, scale_factor);
+
+        assert_eq!(ordinary[0].outer_rect, rect);
     }
 
     #[test]
@@ -1076,6 +1177,7 @@ mod tests {
                 crate::geometry::rect::Rounding::relative(1.0),
             ),
             style: style(Some(solid(paint::Color::RED)), None, None),
+            rasterization: paint::Rasterization::default(),
         };
         let shapes = analytic_shapes_for_quad(&quad);
 
@@ -1114,6 +1216,7 @@ mod tests {
                 crate::geometry::rect::Rounding::relative(1.0),
             ),
             style: style(None, Some(stroke(4.0)), None),
+            rasterization: paint::Rasterization::default(),
         };
         let shapes = analytic_shapes_for_quad(&quad);
         let inner = shapes[0].inner.expect("stroke should be a ring");

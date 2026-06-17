@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use super::*;
 use crate::geometry::{Rect, area, point, rect};
@@ -14,6 +15,7 @@ const E: Id = Id::new("e");
 const F: Id = Id::new("f");
 const G: Id = Id::new("g");
 const CLICK: action::Id = action::Id::new("click");
+const OTHER_CLICK: action::Id = action::Id::new("other_click");
 
 fn layout(tree: &Tree) -> Frame {
     layout_area(tree, area::logical(100.0, 80.0))
@@ -42,6 +44,32 @@ fn text(scene: &paint::Scene, index: usize) -> &paint::Text {
         Some(paint::Item::Text(text)) => text,
         item => panic!("expected text item at {index}, got {item:?}"),
     }
+}
+
+fn caret_quad_count(scene: &paint::Scene) -> usize {
+    scene
+        .items()
+        .iter()
+        .filter(|item| {
+            matches!(
+                item,
+                paint::Item::Quad(quad)
+                    if (quad.rect.area.width() - 1.0).abs() <= f32::EPSILON
+            )
+        })
+        .count()
+}
+
+fn selection_quad_count(scene: &paint::Scene) -> usize {
+    let fill = Some(paint::Fill::Brush(
+        paint::Color::rgba(0.18, 0.42, 0.86, 0.48).into(),
+    ));
+
+    scene
+        .items()
+        .iter()
+        .filter(|item| matches!(item, paint::Item::Quad(quad) if quad.style.fill == fill))
+        .count()
 }
 
 fn icon_item(scene: &paint::Scene, index: usize) -> paint::Icon {
@@ -1174,6 +1202,309 @@ fn tree_paint_emits_label_after_node_background() {
 }
 
 #[test]
+fn text_field_paint_clips_content_and_offsets_scrolled_text() {
+    let root = widget::text_field(A, text::Buffer::from_text("hello world"))
+        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+    let mut text_engine = text::Engine::new();
+    let states = HashMap::from([(path(A), text::TextFieldState::new(12.0))]);
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint_with_text_engine(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None),
+        &states,
+        &mut text_engine,
+        &mut scene,
+    );
+
+    let content = {
+        let rect = layout.rect();
+        let padding = tree.root().unwrap().style().padding();
+        Rect::new(
+            point::logical(rect.origin.x() + padding.left, rect.origin.y()),
+            area::logical(
+                rect.area.width() - padding.left - padding.right,
+                rect.area.height(),
+            ),
+        )
+    };
+
+    assert_eq!(clip(&scene, 1).rect, content);
+    let text = scene
+        .items()
+        .iter()
+        .find_map(|item| match item {
+            paint::Item::Text(text) => Some(text),
+            _ => None,
+        })
+        .expect("text field should paint text");
+    assert_eq!(text.wrap, paint::TextWrap::None);
+    assert_eq!(text.rect.origin.x(), content.origin.x() - 12.0);
+    assert_eq!(text.rect.area.width(), content.area.width() + 12.0);
+}
+
+#[test]
+fn text_field_paint_emits_caret_during_visible_blink_phase() {
+    let epoch = Instant::now();
+    let root = widget::text_field(A, text::Buffer::from_text("hello"))
+        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+    let mut text_engine = text::Engine::new();
+    let states = HashMap::from([(path(A), text::TextFieldState::new_at(0.0, epoch))]);
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint_with_text_engine_at(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None),
+        &states,
+        &mut text_engine,
+        crate::animation::Frame::new(epoch, None),
+        &mut scene,
+    );
+
+    assert_eq!(caret_quad_count(&scene), 1);
+    let caret = scene
+        .items()
+        .iter()
+        .find_map(|item| match item {
+            paint::Item::Quad(quad) if (quad.rect.area.width() - 1.0).abs() <= f32::EPSILON => {
+                Some(quad)
+            }
+            _ => None,
+        })
+        .expect("caret quad should be painted");
+    assert_eq!(
+        caret.rasterization,
+        paint::Rasterization {
+            snapping: paint::Snapping::FixedWidth { width_px: 2 },
+            edge_mode: paint::EdgeMode::Hard,
+        }
+    );
+}
+
+#[test]
+fn text_field_paint_omits_caret_during_hidden_blink_phase() {
+    let epoch = Instant::now();
+    let root = widget::text_field(A, text::Buffer::from_text("hello"))
+        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+    let mut text_engine = text::Engine::new();
+    let states = HashMap::from([(path(A), text::TextFieldState::new_at(0.0, epoch))]);
+    let hidden = epoch + Duration::from_millis(500);
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint_with_text_engine_at(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None),
+        &states,
+        &mut text_engine,
+        crate::animation::Frame::new(hidden, None),
+        &mut scene,
+    );
+
+    assert_eq!(caret_quad_count(&scene), 0);
+}
+
+#[test]
+fn read_only_text_field_paint_omits_caret_even_when_focused() {
+    let epoch = Instant::now();
+    let root = widget::text_field(A, text::Field::new("hello").read_only())
+        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+    let mut text_engine = text::Engine::new();
+    let states = HashMap::from([(path(A), text::TextFieldState::new_at(0.0, epoch))]);
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint_with_text_engine_at(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None),
+        &states,
+        &mut text_engine,
+        crate::animation::Frame::new(epoch, None),
+        &mut scene,
+    );
+
+    assert_eq!(caret_quad_count(&scene), 0);
+}
+
+#[test]
+fn empty_text_field_paints_placeholder_until_preedit_starts() {
+    let theme = theme::Theme::default_dark();
+    let root = widget::text_field_with_theme(
+        A,
+        text::Field::new("").with_placeholder("Search"),
+        &theme,
+    )
+    .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+    let mut text_engine = text::Engine::new();
+    let states = HashMap::new();
+
+    tree.set_root(root.clone());
+    let layout = layout(&tree);
+    tree.paint_with_text_engine(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None),
+        &states,
+        &mut text_engine,
+        &mut scene,
+    );
+
+    let placeholder = scene
+        .items()
+        .iter()
+        .find_map(|item| match item {
+            paint::Item::Text(text) => Some(text),
+            _ => None,
+        })
+        .expect("placeholder text should paint");
+    assert_eq!(placeholder.document.blocks()[0].runs()[0].text(), "Search");
+    assert_eq!(
+        placeholder.document.blocks()[0].runs()[0].style().color(),
+        theme.text().disabled()
+    );
+
+    let mut preedit_scene = paint::Scene::new();
+    let preedit_states = HashMap::from([(
+        path(A),
+        text::TextFieldState::default().with_preedit(Some(text::Preedit::new("s", Some((0, 1))))),
+    )]);
+    tree.paint_with_text_engine(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None),
+        &preedit_states,
+        &mut text_engine,
+        &mut preedit_scene,
+    );
+
+    assert!(!preedit_scene
+        .items()
+        .iter()
+        .any(|item| matches!(item, paint::Item::Text(_))));
+}
+
+#[test]
+fn obscured_text_field_paints_dot_glyphs_instead_of_source_text() {
+    let root = widget::text_field(A, text::Field::new("secret").obscured_dot())
+        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+    let mut text_engine = text::Engine::new();
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint_with_text_engine(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None),
+        &HashMap::new(),
+        &mut text_engine,
+        &mut scene,
+    );
+
+    let painted = scene
+        .items()
+        .iter()
+        .find_map(|item| match item {
+            paint::Item::Text(text) => Some(text),
+            _ => None,
+        })
+        .expect("obscured text should paint");
+    assert_eq!(painted.document.blocks()[0].runs()[0].text(), "••••••");
+}
+
+#[test]
+fn text_field_paint_omits_selection_without_text_editing_target() {
+    let mut buffer = text::Buffer::from_text("hello");
+    let mut engine = text::Engine::new();
+    engine.apply_text_edit(&mut buffer, text::Edit::SelectAll);
+    let root = widget::text_field(A, buffer)
+        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+    let states = HashMap::new();
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint_with_text_engine(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, None, None),
+        &states,
+        &mut engine,
+        &mut scene,
+    );
+
+    assert_eq!(selection_quad_count(&scene), 0);
+}
+
+#[test]
+fn text_field_paint_emits_selection_for_text_editing_target() {
+    let mut buffer = text::Buffer::from_text("hello");
+    let mut engine = text::Engine::new();
+    engine.apply_text_edit(&mut buffer, text::Edit::SelectAll);
+    let root = widget::text_field(A, buffer)
+        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+    let states = HashMap::new();
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint_with_text_engine(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, None, None).with_text_editing_target(Some(path(A))),
+        &states,
+        &mut engine,
+        &mut scene,
+    );
+
+    assert_eq!(selection_quad_count(&scene), 1);
+}
+
+#[test]
 fn later_sibling_quad_renders_after_button_label() {
     let root = Node::container(ROOT, layout::Axis::Vertical)
         .with_child(widget::labeled_button(A, CLICK, "Activate"))
@@ -1841,6 +2172,165 @@ fn disabled_control_emits_disabled_tint_and_suppresses_hover_press() {
             .expect("control has disabled tint")
     );
     assert_eq!(scene.items().len(), 2);
+}
+
+#[test]
+fn disabled_actionable_parent_paints_child_label_with_disabled_color() {
+    let theme = theme::Theme::default_dark();
+    let root = Node::container(A, layout::Axis::Horizontal)
+        .with_action(CLICK)
+        .with_child(
+            Node::leaf(B)
+                .with_label(text::Document::plain("Unavailable"))
+                .with_label_color(theme.text().primary())
+                .with_disabled_label_color(theme.text().disabled()),
+        );
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    registry.set_state(
+        CLICK,
+        action::Context::path(window, path(A)),
+        action::State::disabled(),
+    );
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::default(),
+        &mut scene,
+    );
+
+    assert_eq!(
+        text(&scene, 0).document.blocks()[0].runs()[0]
+            .style()
+            .color(),
+        theme.text().disabled()
+    );
+}
+
+#[test]
+fn disabled_actionable_parent_paints_child_icon_with_disabled_color() {
+    let theme = theme::Theme::default_dark();
+    let root = Node::container(A, layout::Axis::Horizontal)
+        .with_action(CLICK)
+        .with_child(
+            Node::leaf(B)
+                .with_icon(check_icon())
+                .with_label_color(theme.text().primary())
+                .with_disabled_label_color(theme.text().disabled()),
+        );
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    registry.set_state(
+        CLICK,
+        action::Context::path(window, path(A)),
+        action::State::disabled(),
+    );
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::default(),
+        &mut scene,
+    );
+
+    assert_eq!(icon_item(&scene, 0).color, theme.text().disabled());
+}
+
+#[test]
+fn enabled_actionable_parent_paints_child_content_with_normal_color() {
+    let theme = theme::Theme::default_dark();
+    let root = Node::container(A, layout::Axis::Horizontal)
+        .with_action(CLICK)
+        .with_child(
+            Node::leaf(B)
+                .with_label(text::Document::plain("Available"))
+                .with_label_color(theme.text().primary())
+                .with_disabled_label_color(theme.text().disabled()),
+        )
+        .with_child(
+            Node::leaf(C)
+                .with_icon(check_icon())
+                .with_label_color(theme.text().primary())
+                .with_disabled_label_color(theme.text().disabled()),
+        );
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::default(),
+        &mut scene,
+    );
+
+    assert_eq!(
+        text(&scene, 0).document.blocks()[0].runs()[0]
+            .style()
+            .color(),
+        theme.text().primary()
+    );
+    assert_eq!(icon_item(&scene, 1).color, theme.text().primary());
+}
+
+#[test]
+fn child_action_uses_own_state_instead_of_inherited_disabled_state() {
+    let theme = theme::Theme::default_dark();
+    let root = Node::container(A, layout::Axis::Horizontal)
+        .with_action(CLICK)
+        .with_child(
+            Node::leaf(B)
+                .with_action(OTHER_CLICK)
+                .with_label(text::Document::plain("Child"))
+                .with_label_color(theme.text().primary())
+                .with_disabled_label_color(theme.text().disabled()),
+        );
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let mut registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    registry.register(action::Action::new(CLICK, "Click"));
+    registry.register(action::Action::new(OTHER_CLICK, "Child"));
+    registry.set_state(
+        CLICK,
+        action::Context::path(window, path(A)),
+        action::State::disabled(),
+    );
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::default(),
+        &mut scene,
+    );
+
+    assert_eq!(
+        text(&scene, 0).document.blocks()[0].runs()[0]
+            .style()
+            .color(),
+        theme.text().primary()
+    );
 }
 
 #[test]

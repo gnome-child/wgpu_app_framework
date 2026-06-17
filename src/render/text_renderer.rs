@@ -154,8 +154,13 @@ fn prepare_text(
 ) -> Option<PreparedText> {
     let width = text.rect.area.width().max(0.0);
     let height = text.rect.area.height().max(0.0);
-    let prepared =
-        text_system::prepare_document_buffer(font_system, &text.document, width, height)?;
+    let prepared = text_system::prepare_document_buffer(
+        font_system,
+        &text.document,
+        width,
+        height,
+        wrap(text.wrap),
+    )?;
     let buffer_height = height.min(prepared.line_height);
 
     let clip_left = text.rect.origin.x() * scale_factor;
@@ -177,6 +182,13 @@ fn prepare_text(
         },
         default_color: prepared.default_color,
     })
+}
+
+fn wrap(wrap: paint::TextWrap) -> glyphon::Wrap {
+    match wrap {
+        paint::TextWrap::WordOrGlyph => glyphon::Wrap::WordOrGlyph,
+        paint::TextWrap::None => glyphon::Wrap::None,
+    }
 }
 
 fn prepare_icon(

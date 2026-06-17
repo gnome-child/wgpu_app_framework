@@ -1,4 +1,5 @@
-use crate::app::state::WindowState;
+use crate::animation;
+use crate::app::{state::WindowState, text_input};
 use crate::geometry::area;
 use crate::{action, paint, text, ui, window};
 
@@ -9,6 +10,7 @@ pub fn compose<T>(
     actions: &mut action::Registry<T>,
     text_engine: &mut text::Engine,
     logical_area: area::Logical,
+    frame: animation::Frame,
 ) -> paint::Scene {
     let mut scene = paint::Scene::new();
     let command_subject = state.command_context(window);
@@ -25,9 +27,12 @@ pub fn compose<T>(
         state.open_menu = composition.open_menu();
         state.open_submenu = composition.open_submenu();
         state.composition = Some(composition);
+        state.sync_menu_focus_scopes();
         state.clear_stale_focus();
         state.clear_stale_command_subject();
         state.update_command_scope_captures(window);
+        state.sync_text_field_states(text_engine);
+        text_input::publish_action_states(state, actions, window);
         let command_subject = state.command_context(window);
 
         let interaction = ui::Interaction::new(
@@ -35,6 +40,7 @@ pub fn compose<T>(
             state.focused_path(),
             state.pressed.clone(),
         )
+        .with_text_editing_target(text_input::editing_target(state))
         .with_focus_visibility(state.focus_visibility())
         .with_command_subject(command_subject)
         .with_command_scope_captures(state.command_scope_captures.clone())
@@ -44,10 +50,19 @@ pub fn compose<T>(
         .with_pointer_capture(state.pointer_capture.clone());
 
         if let Some(composition) = state.composition.as_ref() {
-            composition.paint(actions, window, interaction, &mut scene);
+            composition.paint_at(
+                actions,
+                window,
+                interaction,
+                &state.text_field_states,
+                text_engine,
+                frame,
+                &mut scene,
+            );
         }
     } else {
         state.composition = None;
+        state.sync_text_field_states(text_engine);
         state.clear_focus();
         state.clear_command_subject();
         state.command_scope_captures.clear();
@@ -84,7 +99,15 @@ mod tests {
     ) -> paint::Scene {
         let mut text_engine = text::Engine::new();
 
-        super::compose(window, tree, state, actions, &mut text_engine, logical_area)
+        super::compose(
+            window,
+            tree,
+            state,
+            actions,
+            &mut text_engine,
+            logical_area,
+            crate::animation::Frame::new(std::time::Instant::now(), None),
+        )
     }
 
     #[test]
@@ -132,7 +155,7 @@ mod tests {
     fn compose_clears_stale_focused_paths_after_tree_rebuild() {
         let window = window::Id::new(1);
         let mut state = WindowState {
-            focus: Some(crate::app::state::Focus::new(
+            focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
                 ui::Path::new([ROOT, CHILD]),
                 ui::focus::Reason::Keyboard,
                 ui::focus::Visibility::Visible,
@@ -257,6 +280,148 @@ mod tests {
         assert_eq!(
             registry.configured_state(action::SELECT_ALL, action::Context::path(window, path)),
             binding.state().expect("projected binding state")
+        );
+    }
+
+    #[test]
+    fn compose_disables_text_commands_without_text_editing_focus() {
+        let window = window::Id::new(1);
+        let path = ui::Path::new([ROOT, CHILD]);
+        let mut state = WindowState::default();
+        let mut registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+
+        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        registry.register(Action::new(action::PASTE, "Paste"));
+        tree.set_root(
+            widget::panel(ROOT)
+                .with_child(widget::text_field(CHILD, text::Buffer::from_text("hello"))),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(100.0, 100.0),
+        );
+
+        assert!(
+            !registry
+                .configured_state(
+                    action::SELECT_ALL,
+                    action::Context::path(window, path.clone())
+                )
+                .is_enabled()
+        );
+        assert!(
+            !registry
+                .configured_state(action::PASTE, action::Context::path(window, path))
+                .is_enabled()
+        );
+    }
+
+    #[test]
+    fn compose_enables_text_commands_for_focused_text_field() {
+        let window = window::Id::new(1);
+        let path = ui::Path::new([ROOT, CHILD]);
+        let mut state = WindowState {
+            focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
+                path.clone(),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            ..WindowState::default()
+        };
+        let mut registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+
+        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        registry.register(Action::new(action::PASTE, "Paste"));
+        tree.set_root(
+            widget::panel(ROOT)
+                .with_child(widget::text_field(CHILD, text::Buffer::from_text("hello"))),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(100.0, 100.0),
+        );
+
+        assert!(
+            registry
+                .configured_state(
+                    action::SELECT_ALL,
+                    action::Context::path(window, path.clone())
+                )
+                .is_enabled()
+        );
+        assert!(
+            registry
+                .configured_state(action::PASTE, action::Context::path(window, path))
+                .is_enabled()
+        );
+    }
+
+    #[test]
+    fn open_menu_projects_disabled_select_all_when_text_is_fully_selected() {
+        let window = window::Id::new(1);
+        let field = ui::Path::new([ROOT, CHILD]);
+        let mut engine = text::Engine::new();
+        let mut buffer = text::Buffer::from_text("hello");
+        let mut state = WindowState {
+            focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
+                field.clone(),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            ..WindowState::default()
+        };
+        let mut registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+
+        engine.apply_text_edit(&mut buffer, text::Edit::SelectAll);
+        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        tree.set_root(
+            widget::panel(ROOT)
+                .with_child(widget::menu_bar(
+                    MENU_BAR,
+                    menu::Bar::new().menu(
+                        menu::Menu::new(FILE, "File").section(
+                            menu::Section::new().item(menu::Item::new(action::SELECT_ALL)),
+                        ),
+                    ),
+                ))
+                .with_child(widget::text_field(CHILD, buffer)),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(300.0, 180.0),
+        );
+        state.open_menu = Some(FILE);
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(300.0, 180.0),
+        );
+
+        let row = ui::Path::new([ROOT, widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
+        let composition = state.composition.as_ref().expect("composition");
+
+        assert_eq!(composition.action(&row), Some(action::SELECT_ALL));
+        assert!(
+            !registry
+                .configured_state(action::SELECT_ALL, action::Context::path(window, field))
+                .is_enabled()
         );
     }
 
@@ -436,7 +601,7 @@ mod tests {
         let mut state = WindowState {
             open_menu: Some(FILE),
             command_subject: Some(action::Scope::Path(subject.clone())),
-            focus: Some(crate::app::state::Focus::new(
+            focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
                 row,
                 ui::focus::Reason::Keyboard,
                 ui::focus::Visibility::Visible,

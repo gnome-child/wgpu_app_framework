@@ -365,13 +365,60 @@ mod tests {
         let buffer = text_model::Buffer::from_text("Editable");
         let node = text_field_with_theme(ROOT, buffer.clone(), &theme);
 
-        assert_eq!(node.text_field(), Some(&buffer));
+        assert_eq!(node.text_field().map(text_model::Field::buffer), Some(&buffer));
         assert!(node.label().is_some());
         assert!(node.interactivity().hit_test());
         assert!(node.interactivity().focusable());
         assert!(!node.interactivity().actionable());
         assert!(node.responders().contains(&action::SELECT_ALL));
         assert!(node.responders().contains(&action::INSERT_TEXT));
+    }
+
+    #[test]
+    fn text_field_declares_text_command_responders_without_projected_state() {
+        let theme = theme::Theme::default_dark();
+        let node = text_field_with_theme(ROOT, text_model::Buffer::from_text("Editable"), &theme);
+
+        assert!(node.responders().contains(&action::SELECT_ALL));
+        assert!(node.responders().contains(&action::COPY));
+        assert!(node.responders().contains(&action::CUT));
+        assert!(node.responders().contains(&action::PASTE));
+        assert!(node.responders().contains(&action::UNDO));
+        assert!(node.responders().contains(&action::REDO));
+        assert!(node.responders().contains(&action::INSERT_TEXT));
+        assert!(
+            node.responder_bindings()
+                .iter()
+                .all(|binding| binding.state().is_none())
+        );
+    }
+
+    #[test]
+    fn read_only_text_field_is_focusable_and_copy_select_all_responder_bound() {
+        let theme = theme::Theme::default_dark();
+        let field = text_model::Field::new("Readonly").read_only();
+        let node = text_field_with_theme(ROOT, field, &theme);
+
+        assert!(node.interactivity().hit_test());
+        assert!(node.interactivity().focusable());
+        assert!(node.responders().contains(&action::SELECT_ALL));
+        assert!(node.responders().contains(&action::COPY));
+        assert!(!node.responders().contains(&action::CUT));
+        assert!(!node.responders().contains(&action::PASTE));
+        assert!(!node.responders().contains(&action::UNDO));
+        assert!(!node.responders().contains(&action::REDO));
+        assert!(!node.responders().contains(&action::INSERT_TEXT));
+    }
+
+    #[test]
+    fn disabled_text_field_is_hit_testable_but_not_focusable_or_responder_bound() {
+        let theme = theme::Theme::default_dark();
+        let field = text_model::Field::new("Disabled").disabled();
+        let node = text_field_with_theme(ROOT, field, &theme);
+
+        assert!(node.interactivity().hit_test());
+        assert!(!node.interactivity().focusable());
+        assert!(node.responders().is_empty());
     }
 
     #[test]
