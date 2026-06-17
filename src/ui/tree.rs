@@ -7,8 +7,8 @@ use crate::widget::menu;
 use crate::{action, paint, text, widget, window};
 
 use super::{
-    CommandSubject, Cursor, Frame, Intent, Interaction, Interactivity, Node, Path, layout_engine,
-    painting,
+    CommandSubject, Cursor, Frame, Intent, Interaction, Interactivity, Node, Path, floating,
+    layout_engine, painting,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -30,6 +30,7 @@ pub struct Composition {
     responders: HashMap<Path, Vec<action::Id>>,
     responder_bindings: HashMap<Path, Vec<action::Binding>>,
     command_scopes: Vec<Path>,
+    command_scope_contexts: HashMap<Path, action::Context>,
     text_fields: HashMap<Path, text::Field>,
     interactivity: HashMap<Path, Interactivity>,
     cursors: HashMap<Path, Cursor>,
@@ -99,49 +100,67 @@ impl Tree {
         window: window::Id,
         area: area::Logical,
         actions: &mut action::Registry<T>,
-        command_subject: &action::Context,
-        open_menu: Option<menu::Id>,
-        open_submenu: Option<menu::Id>,
+        floating_surfaces: &[floating::Surface],
         measurer: &mut text::Engine,
     ) -> Option<Composition> {
         let mut tree = self.clone();
         let menus = tree.menus();
-        let open_menu = open_menu.filter(|menu| menus.contains_key(menu));
-        let open_submenu =
-            open_submenu.filter(|menu| open_menu.is_some() && menus.contains_key(menu));
+        let open_menu_surface = floating_surfaces.iter().find(|surface| {
+            matches!(surface.kind(), floating::Kind::Menu(menu) if menus.contains_key(menu))
+        });
+        let open_menu = open_menu_surface.and_then(|surface| surface.menu_id());
+        let open_submenu_surface = floating_surfaces.iter().rev().find(|surface| {
+            matches!(
+                surface.kind(),
+                floating::Kind::Submenu(menu) if open_menu.is_some() && menus.contains_key(menu)
+            )
+        });
+        let open_submenu = open_submenu_surface.and_then(|surface| surface.menu_id());
+        let context_menu = floating_surfaces
+            .iter()
+            .rev()
+            .find(|surface| matches!(surface.kind(), floating::Kind::ContextMenu { .. }));
+        let mut command_scope_contexts = HashMap::new();
 
         tree.publish_responder_binding_states(actions, window);
 
         let mut menu_popup_inserted = false;
-        if let Some(open_menu) = open_menu
+        if let Some(surface) = open_menu_surface
+            && let Some(open_menu) = open_menu
             && let Some(menu) = menus.get(&open_menu)
             && let Some(base_layout) = tree.layout(area, measurer)
-            && let Some(popup) = widget::menu_popup(
-                &tree,
-                &base_layout,
-                menu,
-                actions,
-                command_subject,
-                measurer,
-            )
+            && let Some(popup) =
+                widget::menu_popup(&tree, &base_layout, surface, menu, actions, measurer)
         {
+            if let Some(scope) = popup_scope_path(&tree, popup.root().id()) {
+                command_scope_contexts.insert(scope, surface.command_context().clone());
+            }
             tree.push_popup(popup);
             menu_popup_inserted = true;
         }
 
         if menu_popup_inserted
+            && let Some(surface) = open_submenu_surface
             && let Some(open_submenu) = open_submenu
             && let Some(menu) = menus.get(&open_submenu)
             && let Some(menu_layout) = tree.layout(area, measurer)
-            && let Some(popup) = widget::submenu_popup(
-                &tree,
-                &menu_layout,
-                menu,
-                actions,
-                command_subject,
-                measurer,
-            )
+            && let Some(popup) =
+                widget::submenu_popup(&tree, &menu_layout, surface, menu, actions, measurer)
         {
+            if let Some(scope) = popup_scope_path(&tree, popup.root().id()) {
+                command_scope_contexts.insert(scope, surface.command_context().clone());
+            }
+            tree.push_popup(popup);
+        }
+
+        if let Some(surface) = context_menu
+            && let Some(base_layout) = tree.layout(area, measurer)
+            && let Some(popup) =
+                widget::text_context_menu_popup(surface, actions, measurer, base_layout.rect())
+        {
+            if let Some(scope) = popup_scope_path(&tree, popup.root().id()) {
+                command_scope_contexts.insert(scope, surface.command_context().clone());
+            }
             tree.push_popup(popup);
         }
 
@@ -154,6 +173,7 @@ impl Tree {
             open_menu,
             open_submenu,
             menus,
+            command_scope_contexts,
         ))
     }
 
@@ -397,6 +417,11 @@ fn text_content_rect(node: &Node, layout: &Frame) -> crate::geometry::Rect {
     )
 }
 
+fn popup_scope_path(tree: &Tree, popup_root: super::Id) -> Option<Path> {
+    tree.root()
+        .map(|root| Path::root(root.id()).child(popup_root))
+}
+
 impl Composition {
     fn new(
         tree: Tree,
@@ -404,6 +429,7 @@ impl Composition {
         open_menu: Option<menu::Id>,
         open_submenu: Option<menu::Id>,
         menus: HashMap<menu::Id, menu::Menu>,
+        command_scope_contexts: HashMap<Path, action::Context>,
     ) -> Self {
         let index = tree.index();
         let widget_metrics = tree.widget_metrics(&layout);
@@ -421,6 +447,7 @@ impl Composition {
             responders: index.responders,
             responder_bindings: index.responder_bindings,
             command_scopes: index.command_scopes,
+            command_scope_contexts,
             text_fields: index.text_fields,
             interactivity: index.interactivity,
             cursors: index.cursors,
@@ -499,6 +526,14 @@ impl Composition {
         &self.command_scopes
     }
 
+    pub fn command_scope_context(&self, scope: &Path) -> Option<&action::Context> {
+        self.command_scope_contexts.get(scope)
+    }
+
+    pub fn command_scope_contexts(&self) -> &HashMap<Path, action::Context> {
+        &self.command_scope_contexts
+    }
+
     pub fn text_field(&self, path: &Path) -> Option<&text::Field> {
         self.text_fields.get(path)
     }
@@ -533,6 +568,29 @@ impl Composition {
         Some(text::Edit::pointer(kind, cursor))
     }
 
+    pub fn text_field_cursor_at(
+        &self,
+        path: &Path,
+        position: point::Logical,
+        state: text::TextFieldState,
+        text_engine: &mut text::Engine,
+    ) -> Option<text::Cursor> {
+        let node = self.node(path)?;
+        let field = node.text_field()?;
+        let layout = self.layout.find_path(path)?;
+        let rect = text_content_rect(node, layout);
+        let style = node
+            .label()
+            .and_then(text::Document::first_style)
+            .unwrap_or_default();
+        let position = point::logical(
+            position.x() - rect.origin.x(),
+            position.y() - rect.origin.y(),
+        );
+
+        text_engine.text_field_cursor_at_for_field(field, style, rect.area, position, state)
+    }
+
     pub fn text_field_caret_rect(
         &self,
         path: &Path,
@@ -548,6 +606,31 @@ impl Composition {
             .and_then(text::Document::first_style)
             .unwrap_or_default();
         let caret = text_engine.text_field_caret_for_field(field, style, rect.area, state)?;
+
+        Some(Rect::new(
+            point::logical(rect.origin.x() + caret.x(), rect.origin.y() + caret.y()),
+            area::logical(1.0, caret.height().max(1.0)),
+        ))
+    }
+
+    pub fn text_field_caret_rect_at_cursor(
+        &self,
+        path: &Path,
+        cursor: text::Cursor,
+        state: text::TextFieldState,
+        text_engine: &mut text::Engine,
+    ) -> Option<Rect> {
+        let node = self.node(path)?;
+        let field = node.text_field()?;
+        let layout = self.layout.find_path(path)?;
+        let rect = text_content_rect(node, layout);
+        let style = node
+            .label()
+            .and_then(text::Document::first_style)
+            .unwrap_or_default();
+        let mut buffer = field.buffer().clone();
+        text_engine.apply_text_edit(&mut buffer, text::Edit::set_cursor(cursor));
+        let caret = text_engine.text_field_caret(&buffer, style, rect.area, state)?;
 
         Some(Rect::new(
             point::logical(rect.origin.x() + caret.x(), rect.origin.y() + caret.y()),
@@ -717,6 +800,7 @@ impl Composition {
             responders,
             responder_bindings,
             command_scopes,
+            command_scope_contexts: HashMap::new(),
             text_fields: HashMap::new(),
             interactivity,
             cursors: HashMap::new(),

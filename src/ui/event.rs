@@ -2,7 +2,7 @@ use crate::geometry::{area, point};
 use crate::pointer;
 use crate::text;
 
-use super::Path;
+use super::{Path, drag_drop};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
@@ -14,8 +14,12 @@ pub enum Key {
     Delete,
     ArrowLeft,
     ArrowRight,
+    ArrowUp,
+    ArrowDown,
     Home,
     End,
+    F10,
+    ContextMenu,
     Character(char),
     Other,
 }
@@ -74,6 +78,12 @@ pub enum Event {
     TextEditRequested {
         target: Path,
         edit: text::Edit,
+    },
+    TextDropRequested {
+        source: Option<(Path, text::Edit)>,
+        target: Path,
+        edit: text::Edit,
+        operation: drag_drop::Operation,
     },
     KeyDown {
         key: Key,

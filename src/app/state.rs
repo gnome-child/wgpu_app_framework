@@ -6,7 +6,7 @@ use crate::geometry::{Rect, point};
 use crate::widget::menu;
 use crate::{action, pointer, text, ui, widget, window};
 
-use super::{command, focus, text_input};
+use super::{command, drag_drop, floating, focus, text_input};
 
 pub use focus::Focus;
 #[cfg(test)]
@@ -24,15 +24,17 @@ pub struct WindowState {
     pub modifiers: ui::Modifiers,
     pub command_subject: Option<action::Scope>,
     pub pointer: pointer::Pointer,
+    pub floating: floating::State,
     pub open_menu: Option<menu::Id>,
     pub open_submenu: Option<menu::Id>,
     pub command_scope_captures: HashMap<ui::Path, action::Context>,
     pub pointer_capture: Option<pointer::Capture>,
     pub composition: Option<ui::Composition>,
     pub text_input_session: text_input::Session,
+    pub drag_drop: drag_drop::State,
     pub text_field_states: HashMap<ui::Path, text::TextFieldState>,
     pub last_text_field_click: Option<TextFieldClick>,
-    pub text_field_drag: Option<ui::Path>,
+    pub text_selection_drag: Option<ui::Path>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -209,12 +211,17 @@ impl WindowState {
             .filter(|path| self.is_editable_text_field(path))
     }
 
+    pub fn focused_selectable_text_field(&self) -> Option<ui::Path> {
+        self.focused_path()
+            .filter(|path| self.is_selectable_text_field(path))
+    }
+
     pub fn text_input_enabled(&self) -> bool {
         self.focused_editable_text_field().is_some()
     }
 
     pub fn focused_text_field_caret_rect(&self, text_engine: &mut text::Engine) -> Option<Rect> {
-        let target = self.focused_editable_text_field()?;
+        let target = self.focused_selectable_text_field()?;
         let state = self
             .text_field_states
             .get(&target)
@@ -224,6 +231,14 @@ impl WindowState {
         self.composition
             .as_ref()?
             .text_field_caret_rect(&target, state, text_engine)
+    }
+
+    pub fn text_field_rect(&self, target: &ui::Path) -> Option<Rect> {
+        self.composition
+            .as_ref()?
+            .layout()
+            .find_path(target)
+            .map(|frame| frame.rect())
     }
 
     pub fn set_focused_text_field_preedit(
@@ -269,6 +284,21 @@ impl WindowState {
         }
 
         let kind = self.text_field_click_kind(target, position);
+        if kind == text::PointerEditKind::Click
+            && let Some((range, selected_text, source_editable)) =
+                self.text_drag_source_at(target, position, text_engine)
+        {
+            self.drag_drop.begin_text(
+                target.clone(),
+                position,
+                range,
+                selected_text,
+                source_editable,
+            );
+            self.reset_text_field_caret_blink(target, Instant::now());
+            return None;
+        }
+
         let edit = self.composition.as_ref()?.text_field_edit_at(
             target,
             position,
@@ -279,7 +309,7 @@ impl WindowState {
                 .unwrap_or_default(),
             text_engine,
         )?;
-        self.text_field_drag = Some(target.clone());
+        self.text_selection_drag = Some(target.clone());
         self.reset_text_field_caret_blink(target, Instant::now());
 
         Some(edit)
@@ -290,7 +320,7 @@ impl WindowState {
         position: point::Logical,
         text_engine: &mut text::Engine,
     ) -> Option<(ui::Path, text::Edit)> {
-        let target = self.text_field_drag.as_ref()?.clone();
+        let target = self.text_selection_drag.as_ref()?.clone();
         if !self.is_selectable_text_field(&target) {
             return None;
         }
@@ -309,8 +339,178 @@ impl WindowState {
         Some((target, edit))
     }
 
-    pub fn end_text_field_drag(&mut self) {
-        self.text_field_drag = None;
+    pub fn end_text_selection_drag(&mut self) {
+        self.text_selection_drag = None;
+    }
+
+    pub fn try_start_text_drag(
+        &mut self,
+        position: point::Logical,
+        text_engine: &mut text::Engine,
+    ) -> bool {
+        let was_active = self.drag_drop.active_text().is_some();
+        let active = self.drag_drop.try_start_text_drag(position);
+        let changed = active && !was_active;
+
+        if active {
+            return self.update_text_drop_target(position, text_engine) || changed;
+        }
+
+        changed
+    }
+
+    pub fn update_text_drop_target(
+        &mut self,
+        position: point::Logical,
+        text_engine: &mut text::Engine,
+    ) -> bool {
+        let Some(source) = self.drag_drop.active_text().cloned() else {
+            return self.drag_drop.clear_text_target();
+        };
+
+        let Some(target) = self
+            .hit_test(position)
+            .filter(|target| self.text_field(target).is_some_and(text::Field::allows_cut))
+        else {
+            return self.drag_drop.clear_text_target();
+        };
+
+        let Some(cursor) = self.text_field_cursor_at(&target, position, text_engine) else {
+            return self.drag_drop.clear_text_target();
+        };
+
+        let operation = drag_drop::text_operation(&source, &target, true, self.modifiers);
+        if operation == ui::drag_drop::Operation::None
+            || (operation == ui::drag_drop::Operation::Move
+                && source.path() == &target
+                && source.selected_range().contains(&cursor.index))
+        {
+            return self.drag_drop.clear_text_target();
+        }
+
+        let Some(caret_rect) = self.text_field_caret_rect_at_cursor(&target, cursor, text_engine)
+        else {
+            return self.drag_drop.clear_text_target();
+        };
+
+        self.drag_drop
+            .set_text_target(Some(drag_drop::TextTarget::new(
+                target, cursor, operation, caret_rect,
+            )))
+    }
+
+    pub fn finish_text_drop(&mut self) -> Option<ui::Event> {
+        let source = self.drag_drop.active_text().cloned()?;
+        let target = self.drag_drop.text_target().cloned()?;
+        let operation = target.operation();
+
+        if operation == ui::drag_drop::Operation::None {
+            self.drag_drop.clear();
+            return None;
+        }
+
+        let text = source.selected_text().to_owned();
+        let source_range = source.selected_range();
+        let source_edit = if operation == ui::drag_drop::Operation::Move
+            && source.source_editable()
+            && source.path() != target.path()
+        {
+            Some((
+                source.path().clone(),
+                text::Edit::replace_range(source_range.clone(), ""),
+            ))
+        } else {
+            None
+        };
+        let target_edit =
+            if operation == ui::drag_drop::Operation::Move && source.path() == target.path() {
+                text::Edit::move_range(source_range, target.cursor().index)
+            } else {
+                text::Edit::insert_at(target.cursor().index, text)
+            };
+        let target_path = target.path().clone();
+        let event = ui::Event::TextDropRequested {
+            source: source_edit,
+            target: target_path.clone(),
+            edit: target_edit,
+            operation,
+        };
+
+        self.set_focus(
+            target_path.clone(),
+            ui::focus::Reason::Pointer,
+            self.focus_visibility_for_activation(&target_path, action::Source::Pointer),
+        );
+        command::set_subject_from_path(self, &target_path);
+        text_input::sync_session(self);
+        self.drag_drop.clear();
+        Some(event)
+    }
+
+    pub fn clear_text_drag_drop(&mut self) -> bool {
+        self.drag_drop.clear()
+    }
+
+    pub fn text_drop_caret(&self) -> Option<(ui::Path, Rect)> {
+        let target = self.drag_drop.text_target()?;
+
+        Some((target.path().clone(), target.caret_rect()))
+    }
+
+    fn text_drag_source_at(
+        &self,
+        target: &ui::Path,
+        position: point::Logical,
+        text_engine: &mut text::Engine,
+    ) -> Option<(std::ops::Range<usize>, String, bool)> {
+        let field = self.text_field(target)?;
+        if !field.allows_copy() {
+            return None;
+        }
+
+        let range = field.buffer().selected_range()?;
+        let selected_text = field.buffer().selected_text()?;
+        let cursor = self.text_field_cursor_at(target, position, text_engine)?;
+
+        (range.start <= cursor.index && cursor.index <= range.end).then_some((
+            range,
+            selected_text,
+            field.allows_cut(),
+        ))
+    }
+
+    fn text_field_cursor_at(
+        &self,
+        target: &ui::Path,
+        position: point::Logical,
+        text_engine: &mut text::Engine,
+    ) -> Option<text::Cursor> {
+        self.composition.as_ref()?.text_field_cursor_at(
+            target,
+            position,
+            self.text_field_states
+                .get(target)
+                .cloned()
+                .unwrap_or_default(),
+            text_engine,
+        )
+    }
+
+    fn text_field_caret_rect_at_cursor(
+        &self,
+        target: &ui::Path,
+        cursor: text::Cursor,
+        text_engine: &mut text::Engine,
+    ) -> Option<Rect> {
+        self.composition.as_ref()?.text_field_caret_rect_at_cursor(
+            target,
+            cursor,
+            self.text_field_states
+                .get(target)
+                .cloned()
+                .unwrap_or_default(),
+            text_engine,
+        )
     }
 
     pub fn sync_text_field_states(&mut self, text_engine: &mut text::Engine) -> bool {
@@ -318,7 +518,8 @@ impl WindowState {
             let changed = !self.text_field_states.is_empty();
             self.text_field_states.clear();
             self.last_text_field_click = None;
-            self.text_field_drag = None;
+            self.text_selection_drag = None;
+            self.drag_drop.clear();
             let session_changed = text_input::sync_session(self);
             return changed || session_changed;
         };
@@ -487,16 +688,24 @@ impl WindowState {
         target: Option<ui::Path>,
         button: pointer::Button,
     ) -> ui::Event {
-        if let Some(path) = target.as_ref().filter(|target| self.is_focusable(target)) {
-            let visibility = self.focus_visibility_for_activation(path, action::Source::Pointer);
-            self.set_focus(path.clone(), ui::focus::Reason::Pointer, visibility);
-        } else {
-            self.clear_focus();
+        let preserve_focus = button == pointer::Button::Primary
+            && target
+                .as_ref()
+                .is_some_and(|target| matches!(self.intent(target), Some(ui::Intent::OpenMenu(_))));
+
+        if !preserve_focus {
+            if let Some(path) = target.as_ref().filter(|target| self.is_focusable(target)) {
+                let visibility =
+                    self.focus_visibility_for_activation(path, action::Source::Pointer);
+                self.set_focus(path.clone(), ui::focus::Reason::Pointer, visibility);
+            } else {
+                self.clear_focus();
+            }
         }
         if let Some(target) = target.as_ref() {
             self.reset_text_field_caret_blink(target, Instant::now());
         }
-        if let Some(target) = target.as_ref() {
+        if let Some(target) = target.as_ref().filter(|_| !preserve_focus) {
             command::set_subject_from_path(self, target);
         }
         self.pressed = target.clone();
@@ -563,6 +772,7 @@ impl WindowState {
         id: menu::Id,
         registry: &action::Registry<T>,
         window: window::Id,
+        source: action::Source,
     ) -> bool {
         if self.open_menu == Some(id) {
             return self.close_menu();
@@ -580,9 +790,22 @@ impl WindowState {
             return false;
         }
 
+        self.floating.close_all();
+        self.focus
+            .close_transient(focus::TransientScope::ContextMenu, None);
+        let command_context = self.command_context(window);
         self.begin_menu_focus_scope(ui::Path::from(widget::MENU_POPUP));
-        self.open_menu = Some(id);
-        self.open_submenu = None;
+        let focus_policy = match source {
+            action::Source::Keyboard | action::Source::Shortcut => {
+                ui::floating::FocusPolicy::FocusFirstEnabledRow
+            }
+            action::Source::Pointer | action::Source::Programmatic => {
+                ui::floating::FocusPolicy::PreserveCurrentFocus
+            }
+        };
+        self.floating
+            .open_top_menu(id, command_context, source, focus_policy);
+        self.sync_open_menu_mirrors();
         true
     }
 
@@ -591,6 +814,7 @@ impl WindowState {
         id: menu::Id,
         registry: &action::Registry<T>,
         window: window::Id,
+        source: action::Source,
     ) -> bool {
         if self.open_menu.is_none() || self.open_submenu == Some(id) {
             return false;
@@ -608,11 +832,25 @@ impl WindowState {
             return false;
         }
 
+        if self.floating.open_menu().is_none()
+            && let Some(open_menu) = self.open_menu
+        {
+            let command_context = self.command_context(window);
+            self.floating.open_top_menu(
+                open_menu,
+                command_context,
+                source,
+                ui::floating::FocusPolicy::PreserveCurrentFocus,
+            );
+        }
+
         self.focus.include_transient_root(
             focus::TransientScope::Submenu,
             ui::Path::from(widget::MENU_SUBMENU_POPUP),
         );
-        self.open_submenu = Some(id);
+        let command_context = self.command_context(window);
+        self.floating.show_submenu(id, command_context, source);
+        self.sync_open_menu_mirrors();
         true
     }
 
@@ -624,8 +862,15 @@ impl WindowState {
         &mut self,
         visibility: Option<ui::focus::Visibility>,
     ) -> bool {
-        let changed = self.open_submenu.is_some();
-        self.open_submenu = None;
+        let had_floating_menu = self.floating.open_menu().is_some();
+        let had_submenu = self.open_submenu.is_some();
+        let closed_floating = self.floating.close_submenu();
+        let changed = had_submenu || closed_floating;
+        if had_floating_menu {
+            self.sync_open_menu_mirrors();
+        } else {
+            self.open_submenu = None;
+        }
         let closed = self
             .focus
             .close_transient(focus::TransientScope::Submenu, visibility)
@@ -643,9 +888,15 @@ impl WindowState {
         &mut self,
         visibility: Option<ui::focus::Visibility>,
     ) -> bool {
-        let changed = self.open_menu.is_some() || self.open_submenu.is_some();
-        self.open_menu = None;
-        self.open_submenu = None;
+        let had_surface = self.open_menu.is_some()
+            || self.open_submenu.is_some()
+            || self.floating.has_open_surface();
+        let closed_floating = self.floating.close_all();
+        let changed = had_surface || closed_floating;
+        self.sync_open_menu_mirrors();
+        let closed_context_menu = self
+            .focus
+            .close_transient(focus::TransientScope::ContextMenu, visibility);
         let closed_submenu = self
             .focus
             .close_transient(focus::TransientScope::Submenu, visibility);
@@ -655,11 +906,11 @@ impl WindowState {
 
         let session_changed = text_input::sync_session(self);
 
-        changed || closed_submenu || closed_menu || session_changed
+        changed || closed_context_menu || closed_submenu || closed_menu || session_changed
     }
 
     pub fn dismiss_menu_for_target(&mut self, target: Option<&ui::Path>) -> bool {
-        if self.open_menu.is_none() {
+        if self.open_menu.is_none() && !self.floating.has_open_surface() {
             return false;
         }
 
@@ -682,7 +933,9 @@ impl WindowState {
     }
 
     pub fn is_dropdown_path(&self, path: &ui::Path) -> bool {
-        path.ids().iter().any(|id| *id == widget::MENU_POPUP) || self.is_submenu_popup_path(path)
+        path.ids().iter().any(|id| *id == widget::MENU_POPUP)
+            || self.is_submenu_popup_path(path)
+            || self.is_context_menu_popup_path(path)
     }
 
     pub fn is_top_menu_popup_path(&self, path: &ui::Path) -> bool {
@@ -693,6 +946,12 @@ impl WindowState {
         path.ids()
             .iter()
             .any(|id| *id == widget::MENU_SUBMENU_POPUP)
+    }
+
+    pub fn is_context_menu_popup_path(&self, path: &ui::Path) -> bool {
+        path.ids()
+            .iter()
+            .any(|id| *id == widget::TEXT_CONTEXT_MENU_POPUP)
     }
 
     pub fn focus_preserves_text_input_session(&self, path: &ui::Path) -> bool {
@@ -767,6 +1026,89 @@ impl WindowState {
             changed |= self.begin_submenu_focus_scope(root);
         }
 
+        if self.floating.context_menu().is_some()
+            && let Some(root) = self.popup_root_path(widget::TEXT_CONTEXT_MENU_POPUP)
+        {
+            changed |= self.begin_context_menu_focus_scope(root);
+        }
+
+        changed
+    }
+
+    pub fn focus_first_floating_row<T>(
+        &mut self,
+        registry: &action::Registry<T>,
+        window: window::Id,
+    ) -> bool {
+        if !self.floating.take_keyboard_focus_request() {
+            return false;
+        }
+
+        let target = self.composition.as_ref().and_then(|composition| {
+            composition
+                .focus_order()
+                .iter()
+                .find(|path| {
+                    self.is_dropdown_path(path) && self.can_focus_path(registry, window, path)
+                })
+                .cloned()
+        });
+
+        let Some(target) = target else {
+            return false;
+        };
+
+        self.set_focus(
+            target,
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible,
+        )
+    }
+
+    pub fn open_text_context_menu(
+        &mut self,
+        window: window::Id,
+        target: ui::Path,
+        anchor: point::Logical,
+        source: action::Source,
+    ) -> bool {
+        if !self.is_selectable_text_field(&target) {
+            return false;
+        }
+
+        let mut changed = self.floating.close_all();
+        changed |= self
+            .focus
+            .close_transient(focus::TransientScope::Submenu, None);
+        changed |= self
+            .focus
+            .close_transient(focus::TransientScope::Menu, None);
+        changed |= self
+            .focus
+            .close_transient(focus::TransientScope::ContextMenu, None);
+        self.sync_open_menu_mirrors();
+
+        let reason = match source {
+            action::Source::Keyboard => ui::focus::Reason::Keyboard,
+            action::Source::Pointer | action::Source::Programmatic | action::Source::Shortcut => {
+                ui::focus::Reason::Pointer
+            }
+        };
+        let visibility = self.focus_visibility_for_activation(&target, source);
+        changed |= self.set_focus(target.clone(), reason, visibility);
+        changed |= command::set_subject_from_path(self, &target);
+        text_input::sync_session(self);
+
+        changed |= self.floating.open_context_menu(
+            target.clone(),
+            anchor,
+            action::Context::path(window, target),
+            source,
+        );
+        changed |=
+            self.begin_context_menu_focus_scope(ui::Path::from(widget::TEXT_CONTEXT_MENU_POPUP));
+        self.sync_open_menu_mirrors();
+
         changed
     }
 
@@ -806,6 +1148,10 @@ impl WindowState {
         if self.is_submenu_popup_path(path) {
             self.begin_submenu_focus_scope(path.clone());
         }
+
+        if self.is_context_menu_popup_path(path) {
+            self.begin_context_menu_focus_scope(path.clone());
+        }
     }
 
     fn begin_menu_focus_scope(&mut self, root: ui::Path) -> bool {
@@ -826,10 +1172,49 @@ impl WindowState {
             .begin_transient(focus::TransientScope::Submenu, root)
     }
 
+    fn begin_context_menu_focus_scope(&mut self, root: ui::Path) -> bool {
+        let restore = text_input::editing_target(self)
+            .map(|target| {
+                let visibility =
+                    self.focus_visibility_for_activation(&target, action::Source::Pointer);
+                Focus::new(target, ui::focus::Reason::Programmatic, visibility)
+            })
+            .or_else(|| self.focus.as_ref().cloned());
+
+        self.focus
+            .begin_transient_with_restore(focus::TransientScope::ContextMenu, root, restore)
+    }
+
+    pub fn sync_open_menu_mirrors(&mut self) {
+        self.open_menu = self.floating.open_menu();
+        self.open_submenu = self.floating.open_submenu();
+    }
+
     fn popup_root_path(&self, id: ui::Id) -> Option<ui::Path> {
         self.composition
             .as_ref()
             .and_then(|composition| path_with_leaf(composition.layout(), id))
+    }
+
+    fn can_focus_path<T>(
+        &self,
+        registry: &action::Registry<T>,
+        window: window::Id,
+        path: &ui::Path,
+    ) -> bool {
+        if !self.is_focusable(path) {
+            return false;
+        }
+
+        let Some(action) = self
+            .composition
+            .as_ref()
+            .and_then(|composition| composition.action(path))
+        else {
+            return true;
+        };
+
+        registry.can_invoke(action, self.action_context_for_path(window, path))
     }
 }
 
@@ -888,10 +1273,6 @@ pub fn action_request(
     let context = state.action_context_for_path(window, &origin);
 
     Some(action::Request::new(action, source, context).with_origin(origin))
-}
-
-pub fn intent(state: &WindowState, origin: ui::Path) -> Option<(ui::Path, ui::Intent)> {
-    state.intent(&origin).map(|intent| (origin, intent))
 }
 
 impl WindowState {
@@ -1044,9 +1425,7 @@ mod tests {
                 window,
                 area::logical(120.0, 32.0),
                 &mut registry,
-                &action::Context::window(window),
-                None,
-                None,
+                &[],
                 &mut text_engine,
             )
             .expect("text field tree should compose");
@@ -1080,9 +1459,7 @@ mod tests {
                 window,
                 area::logical(200.0, 80.0),
                 &mut registry,
-                &action::Context::window(window),
-                None,
-                None,
+                &[],
                 &mut text_engine,
             )
             .expect("tree should compose");
@@ -1544,7 +1921,7 @@ mod tests {
             action::State::disabled(),
         );
 
-        assert!(!state.toggle_menu(FILE, &registry, window));
+        assert!(!state.toggle_menu(FILE, &registry, window, action::Source::Pointer));
         assert_eq!(state.open_menu, None);
 
         registry.set_state(
@@ -1553,7 +1930,7 @@ mod tests {
             action::State::enabled(),
         );
 
-        assert!(state.toggle_menu(FILE, &registry, window));
+        assert!(state.toggle_menu(FILE, &registry, window, action::Source::Pointer));
         assert_eq!(state.open_menu, Some(FILE));
     }
 
@@ -1579,13 +1956,13 @@ mod tests {
 
         registry.register(Action::new(CLICK, "Click"));
 
-        assert!(state.toggle_menu(FILE, &registry, window));
+        assert!(state.toggle_menu(FILE, &registry, window, action::Source::Pointer));
         assert_eq!(state.open_menu, Some(FILE));
         state.open_submenu = Some(PANELS);
-        assert!(state.toggle_menu(edit, &registry, window));
+        assert!(state.toggle_menu(edit, &registry, window, action::Source::Pointer));
         assert_eq!(state.open_menu, Some(edit));
         assert_eq!(state.open_submenu, None);
-        assert!(state.toggle_menu(edit, &registry, window));
+        assert!(state.toggle_menu(edit, &registry, window, action::Source::Pointer));
         assert_eq!(state.open_menu, None);
     }
 
@@ -1608,9 +1985,9 @@ mod tests {
 
         registry.register(Action::new(CLICK, "Click"));
 
-        assert!(!state.open_submenu(PANELS, &registry, window));
+        assert!(!state.open_submenu(PANELS, &registry, window, action::Source::Pointer));
         state.open_menu = Some(FILE);
-        assert!(state.open_submenu(PANELS, &registry, window));
+        assert!(state.open_submenu(PANELS, &registry, window, action::Source::Pointer));
         assert_eq!(state.open_submenu, Some(PANELS));
     }
 

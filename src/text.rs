@@ -126,6 +126,14 @@ pub struct Preedit {
 pub enum Edit {
     Insert(String),
     ImeCommit(String),
+    ReplaceRange {
+        range: std::ops::Range<usize>,
+        text: String,
+    },
+    MoveRange {
+        range: std::ops::Range<usize>,
+        to: usize,
+    },
     Action(glyphon::Action),
     ExtendMotion(glyphon::cosmic_text::Motion),
     DeleteWordBackward,
@@ -434,6 +442,19 @@ impl Engine {
             },
             other => other,
         };
+
+        match edit {
+            Edit::ReplaceRange { range, text } => {
+                apply_replace_range(buffer, range, text);
+                return TextEditResult::from_snapshots(before, buffer.snapshot());
+            }
+            Edit::MoveRange { range, to } => {
+                apply_move_range(buffer, range, to);
+                return TextEditResult::from_snapshots(before, buffer.snapshot());
+            }
+            _ => {}
+        }
+
         let (cursor, selection) = {
             let mut editor = glyphon::Editor::new(&mut buffer.buffer);
             glyphon::Edit::set_cursor(&mut editor, buffer.cursor);
@@ -447,6 +468,9 @@ impl Engine {
                 Edit::ImeCommit(text) => {
                     let text = normalize_single_line(&text);
                     glyphon::Edit::insert_string(&mut editor, &text, None);
+                }
+                Edit::ReplaceRange { .. } | Edit::MoveRange { .. } => {
+                    unreachable!("range edits return before the cosmic editor path");
                 }
                 Edit::Action(glyphon::Action::Enter) => {}
                 Edit::Action(glyphon::Action::Insert(character)) => {
@@ -1570,6 +1594,21 @@ impl Edit {
         Self::ImeCommit(text.into())
     }
 
+    pub fn replace_range(range: std::ops::Range<usize>, text: impl Into<String>) -> Self {
+        Self::ReplaceRange {
+            range,
+            text: text.into(),
+        }
+    }
+
+    pub fn insert_at(index: usize, text: impl Into<String>) -> Self {
+        Self::replace_range(index..index, text)
+    }
+
+    pub fn move_range(range: std::ops::Range<usize>, to: usize) -> Self {
+        Self::MoveRange { range, to }
+    }
+
     pub fn action(action: glyphon::Action) -> Self {
         Self::Action(action)
     }
@@ -1603,6 +1642,8 @@ impl Edit {
             Self::Insert(text) if text.chars().count() == 1 => HistoryKind::Typing,
             Self::Insert(_)
             | Self::ImeCommit(_)
+            | Self::ReplaceRange { .. }
+            | Self::MoveRange { .. }
             | Self::Action(glyphon::Action::Backspace | glyphon::Action::Delete)
             | Self::Action(glyphon::Action::Insert(_))
             | Self::DeleteWordBackward
@@ -1620,6 +1661,8 @@ impl Edit {
             self,
             Self::Insert(_)
                 | Self::ImeCommit(_)
+                | Self::ReplaceRange { .. }
+                | Self::MoveRange { .. }
                 | Self::Action(
                     glyphon::Action::Backspace
                         | glyphon::Action::Delete
@@ -1838,6 +1881,62 @@ fn normalize_single_line(text: &str) -> String {
             _ => character,
         })
         .collect()
+}
+
+fn apply_replace_range(buffer: &mut Buffer, range: std::ops::Range<usize>, text: String) {
+    let current = buffer.text().to_owned();
+    let range = normalized_range(&current, range);
+    let text = normalize_single_line(&text);
+    let mut next = String::with_capacity(current.len() - (range.end - range.start) + text.len());
+    next.push_str(&current[..range.start]);
+    next.push_str(&text);
+    next.push_str(&current[range.end..]);
+    let cursor = Cursor::new(0, range.start + text.len());
+
+    *buffer = Buffer::from_text(next);
+    buffer.cursor = buffer.clamp_cursor(cursor);
+    buffer.selection = Selection::None;
+}
+
+fn apply_move_range(buffer: &mut Buffer, range: std::ops::Range<usize>, to: usize) {
+    let current = buffer.text().to_owned();
+    let range = normalized_range(&current, range);
+    let to = floor_boundary(&current, to);
+
+    if range.is_empty() || (range.start..=range.end).contains(&to) {
+        buffer.cursor = buffer.clamp_cursor(Cursor::new(0, to));
+        buffer.selection = Selection::None;
+        return;
+    }
+
+    let moved = current[range.clone()].to_owned();
+    let mut without = String::with_capacity(current.len() - (range.end - range.start));
+    without.push_str(&current[..range.start]);
+    without.push_str(&current[range.end..]);
+
+    let insert_at = if to > range.end {
+        to - (range.end - range.start)
+    } else {
+        to
+    };
+    let insert_at = floor_boundary(&without, insert_at);
+
+    let mut next = String::with_capacity(without.len() + moved.len());
+    next.push_str(&without[..insert_at]);
+    next.push_str(&moved);
+    next.push_str(&without[insert_at..]);
+    let cursor = Cursor::new(0, insert_at + moved.len());
+
+    *buffer = Buffer::from_text(next);
+    buffer.cursor = buffer.clamp_cursor(cursor);
+    buffer.selection = Selection::None;
+}
+
+fn normalized_range(text: &str, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
+    let start = floor_boundary(text, range.start);
+    let end = floor_boundary(text, range.end);
+
+    start.min(end)..start.max(end)
 }
 
 fn selection_bounds(
@@ -2178,6 +2277,30 @@ mod tests {
 
         assert_eq!(buffer.text(), "hi");
         assert_eq!(buffer.cursor().index, 2);
+        assert_eq!(buffer.selected_range(), None);
+    }
+
+    #[test]
+    fn replace_range_normalizes_inserted_text_and_restores_caret() {
+        let mut engine = Engine::new();
+        let mut buffer = Buffer::from_text("hello world");
+
+        assert!(engine.apply_text_edit(&mut buffer, Edit::replace_range(6..11, "there\nfriend")));
+
+        assert_eq!(buffer.text(), "hello there friend");
+        assert_eq!(buffer.cursor(), Cursor::new(0, "hello there friend".len()));
+        assert_eq!(buffer.selected_range(), None);
+    }
+
+    #[test]
+    fn move_range_adjusts_forward_drop_position() {
+        let mut engine = Engine::new();
+        let mut buffer = Buffer::from_text("abcdef");
+
+        assert!(engine.apply_text_edit(&mut buffer, Edit::move_range(1..3, 5)));
+
+        assert_eq!(buffer.text(), "adebcf");
+        assert_eq!(buffer.cursor(), Cursor::new(0, 5));
         assert_eq!(buffer.selected_range(), None);
     }
 

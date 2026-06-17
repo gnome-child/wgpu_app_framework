@@ -79,8 +79,12 @@ impl Shortcut {
             ui::Key::Delete => "Delete".to_owned(),
             ui::Key::ArrowLeft => "Left".to_owned(),
             ui::Key::ArrowRight => "Right".to_owned(),
+            ui::Key::ArrowUp => "Up".to_owned(),
+            ui::Key::ArrowDown => "Down".to_owned(),
             ui::Key::Home => "Home".to_owned(),
             ui::Key::End => "End".to_owned(),
+            ui::Key::F10 => "F10".to_owned(),
+            ui::Key::ContextMenu => "Menu".to_owned(),
             ui::Key::Character(character) => character.to_ascii_uppercase().to_string(),
             ui::Key::Other => "Other".to_owned(),
         });

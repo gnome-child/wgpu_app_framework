@@ -128,6 +128,7 @@ fn node<T>(
         });
     }
 
+    paint_text_drop_caret(node, layout, interaction, scene);
     paint_text_field_caret(node, layout, &visual, text_field_layout.as_ref(), scene);
 
     if node.text_field().is_some() {
@@ -596,6 +597,46 @@ fn paint_text_field_caret(
         rect: geometry::Rect::new(
             geometry::point::logical(rect.origin.x() + caret.x(), rect.origin.y() + caret.y()),
             geometry::area::logical(1.0, caret.height().max(6.0)),
+        ),
+        rasterization: paint::Rasterization {
+            snapping: paint::Snapping::FixedWidth { width_px: 2 },
+            edge_mode: paint::EdgeMode::Hard,
+        },
+        style: paint::Style {
+            fill: Some(paint::Fill::Brush(
+                node.style()
+                    .label_color()
+                    .unwrap_or_else(|| text::Style::default().color())
+                    .into(),
+            )),
+            stroke: None,
+            tint: None,
+        },
+    });
+}
+
+fn paint_text_drop_caret(
+    node: &ui::Node,
+    layout: &ui::Frame,
+    interaction: &ui::Interaction,
+    scene: &mut paint::Scene,
+) {
+    if node.text_field().is_none() {
+        return;
+    }
+
+    let Some((path, rect)) = interaction.text_drop_caret() else {
+        return;
+    };
+
+    if path != layout.path() {
+        return;
+    }
+
+    scene.push_quad(paint::Quad {
+        rect: geometry::Rect::new(
+            rect.origin,
+            geometry::area::logical(1.0, rect.area.height().max(6.0)),
         ),
         rasterization: paint::Rasterization {
             snapping: paint::Snapping::FixedWidth { width_px: 2 },

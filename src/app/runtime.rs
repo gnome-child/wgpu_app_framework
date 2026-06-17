@@ -295,7 +295,7 @@ impl<A: Application> Runtime<A> {
         self.sync_cursor_for_window(window);
         self.dispatch_ui_events(event_loop, window, outcome.events);
 
-        if let Some((_, intent)) = outcome.intent {
+        if let Some(intent) = outcome.intent {
             self.handle_intent(window, intent);
         }
     }
@@ -320,9 +320,13 @@ impl<A: Application> Runtime<A> {
         };
 
         let outcome = match state {
-            ElementState::Pressed => {
-                input::pointer_pressed(window_state, position, button, &mut self.text_engine)
-            }
+            ElementState::Pressed => input::pointer_pressed(
+                window_state,
+                window,
+                position,
+                button,
+                &mut self.text_engine,
+            ),
             ElementState::Released => {
                 input::pointer_released(&self.actions, window_state, window, position, button)
             }
@@ -334,7 +338,7 @@ impl<A: Application> Runtime<A> {
             self.dispatch_message(event_loop, Message::RunAction(request));
         }
 
-        if let Some((_, intent)) = outcome.intent {
+        if let Some(intent) = outcome.intent {
             self.handle_intent(window, intent);
         }
 
@@ -402,6 +406,7 @@ impl<A: Application> Runtime<A> {
                 key,
                 event.text.as_deref(),
                 event.repeat,
+                &mut self.text_engine,
             ),
             ElementState::Released => input::key_released(&self.actions, state, window, key),
         };
@@ -412,7 +417,7 @@ impl<A: Application> Runtime<A> {
             self.dispatch_message(event_loop, Message::RunAction(request));
         }
 
-        if let Some((_, intent)) = outcome.intent {
+        if let Some(intent) = outcome.intent {
             self.handle_intent(window, intent);
         }
 
@@ -441,20 +446,20 @@ impl<A: Application> Runtime<A> {
         self.sync_ime_for_window(window);
     }
 
-    fn handle_intent(&mut self, window: window::Id, intent: ui::Intent) {
+    fn handle_intent(&mut self, window: window::Id, request: input::IntentRequest) {
         let Some(state) = self.window_states.get_mut(&window) else {
             return;
         };
 
-        match intent {
+        match request.intent {
             ui::Intent::Action(_) => {}
             ui::Intent::OpenMenu(menu) => {
-                if state.toggle_menu(menu, &self.actions, window) {
+                if state.toggle_menu(menu, &self.actions, window, request.source) {
                     self.windows.request_redraw(window);
                 }
             }
             ui::Intent::OpenSubmenu(menu) => {
-                if state.open_submenu(menu, &self.actions, window) {
+                if state.open_submenu(menu, &self.actions, window, request.source) {
                     self.windows.request_redraw(window);
                 }
             }

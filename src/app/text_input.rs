@@ -244,9 +244,7 @@ mod tests {
                 window(),
                 area::logical(120.0, 32.0),
                 &mut registry,
-                &action::Context::window(window()),
-                None,
-                None,
+                &[],
                 &mut text_engine,
             )
             .expect("text field tree should compose");
@@ -305,9 +303,7 @@ mod tests {
                 window(),
                 area::logical(120.0, 64.0),
                 &mut registry,
-                &action::Context::window(window()),
-                None,
-                None,
+                &[],
                 &mut text_engine,
             )
             .expect("two-field tree should compose");
@@ -354,9 +350,7 @@ mod tests {
                 window(),
                 area::logical(200.0, 96.0),
                 &mut registry,
-                &action::Context::window(window()),
-                None,
-                None,
+                &[],
                 &mut text_engine,
             )
             .expect("two-field menu tree should compose");
@@ -569,7 +563,7 @@ mod tests {
         ));
         assert_eq!(editing_target(&state), Some(child_path(OTHER_FIELD)));
 
-        assert!(state.toggle_menu(FILE, &registry, window()));
+        assert!(state.toggle_menu(FILE, &registry, window(), action::Source::Pointer,));
         assert!(state.focus.restores_to(&child_path(OTHER_FIELD)));
         assert!(!state.focus.restores_to(&child_path(FIELD)));
     }

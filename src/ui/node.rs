@@ -121,6 +121,7 @@ pub struct Interaction {
     open_submenu: Option<menu::Id>,
     pointer_position: Option<geometry::point::Logical>,
     pointer_capture: Option<pointer::Capture>,
+    text_drop_caret: Option<(Path, geometry::Rect)>,
 }
 
 impl Node {
@@ -822,6 +823,7 @@ impl Interaction {
             open_submenu: None,
             pointer_position: None,
             pointer_capture: None,
+            text_drop_caret: None,
         }
     }
 
@@ -865,6 +867,11 @@ impl Interaction {
         self
     }
 
+    pub fn with_text_drop_caret(mut self, caret: Option<(Path, geometry::Rect)>) -> Self {
+        self.text_drop_caret = caret;
+        self
+    }
+
     pub fn hovered(&self) -> Option<&Path> {
         self.hovered.as_ref()
     }
@@ -903,6 +910,12 @@ impl Interaction {
 
     pub fn pointer_capture(&self) -> Option<&pointer::Capture> {
         self.pointer_capture.as_ref()
+    }
+
+    pub fn text_drop_caret(&self) -> Option<(&Path, geometry::Rect)> {
+        self.text_drop_caret
+            .as_ref()
+            .map(|(path, rect)| (path, *rect))
     }
 
     pub fn captured_command_subject(&self, path: &Path) -> Option<&action::Context> {

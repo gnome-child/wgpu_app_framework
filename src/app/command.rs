@@ -82,19 +82,23 @@ pub fn update_scope_captures(state: &mut WindowState, window: window::Id) {
     };
     let scopes = composition.command_scopes().to_vec();
     let responders = composition.responder_map().clone();
+    let explicit_contexts = composition.command_scope_contexts().clone();
 
     state.command_scope_captures.retain(|scope, context| {
         scopes.contains(scope)
-            && match context.scope() {
-                action::Scope::Path(path) => responders
-                    .get(path)
-                    .is_some_and(|actions| !actions.is_empty()),
-                action::Scope::Window => true,
-            }
+            && (explicit_contexts.contains_key(scope)
+                || match context.scope() {
+                    action::Scope::Path(path) => responders
+                        .get(path)
+                        .is_some_and(|actions| !actions.is_empty()),
+                    action::Scope::Window => true,
+                })
     });
 
     for scope in scopes {
-        if let Some(context) = context_outside_scope(state, window, &scope) {
+        if let Some(context) = explicit_contexts.get(&scope) {
+            state.command_scope_captures.insert(scope, context.clone());
+        } else if let Some(context) = context_outside_scope(state, window, &scope) {
             state.command_scope_captures.insert(scope, context);
         } else if !state.command_scope_captures.contains_key(&scope) {
             state

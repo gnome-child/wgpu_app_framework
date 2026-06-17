@@ -14,15 +14,12 @@ pub fn compose<T>(
 ) -> paint::Scene {
     let mut scene = paint::Scene::new();
     text_input::sync_session(state);
-    let command_subject = state.command_context(window);
 
     if let Some(composition) = tree.compose(
         window,
         logical_area,
         actions,
-        &command_subject,
-        state.open_menu,
-        state.open_submenu,
+        state.floating.surfaces(),
         text_engine,
     ) {
         state.open_menu = composition.open_menu();
@@ -35,6 +32,7 @@ pub fn compose<T>(
         state.update_command_scope_captures(window);
         state.sync_text_field_states(text_engine);
         text_input::publish_action_states(state, actions, window);
+        state.focus_first_floating_row(actions, window);
         let command_subject = state.command_context(window);
 
         let interaction = ui::Interaction::new(
@@ -49,7 +47,8 @@ pub fn compose<T>(
         .with_open_menu(state.open_menu)
         .with_open_submenu(state.open_submenu)
         .with_pointer_position(state.pointer.position())
-        .with_pointer_capture(state.pointer_capture.clone());
+        .with_pointer_capture(state.pointer_capture.clone())
+        .with_text_drop_caret(state.text_drop_caret());
 
         if let Some(composition) = state.composition.as_ref() {
             composition.paint_at(
@@ -111,6 +110,37 @@ mod tests {
             logical_area,
             crate::animation::Frame::new(std::time::Instant::now(), None),
         )
+    }
+
+    fn open_menu_surface(
+        state: &mut WindowState,
+        window: window::Id,
+        menu: menu::Id,
+        subject: ui::Path,
+    ) {
+        state.floating.open_top_menu(
+            menu,
+            action::Context::path(window, subject),
+            action::Source::Pointer,
+            ui::floating::FocusPolicy::PreserveCurrentFocus,
+        );
+        state.sync_open_menu_mirrors();
+    }
+
+    fn open_submenu_surface(
+        state: &mut WindowState,
+        window: window::Id,
+        menu: menu::Id,
+        submenu: menu::Id,
+        subject: ui::Path,
+    ) {
+        open_menu_surface(state, window, menu, subject.clone());
+        state.floating.show_submenu(
+            submenu,
+            action::Context::path(window, subject),
+            action::Source::Pointer,
+        );
+        state.sync_open_menu_mirrors();
     }
 
     #[test]
@@ -408,7 +438,7 @@ mod tests {
             &mut registry,
             area::logical(300.0, 180.0),
         );
-        state.open_menu = Some(FILE);
+        open_menu_surface(&mut state, window, FILE, field.clone());
         compose(
             window,
             &tree,
@@ -499,9 +529,9 @@ mod tests {
     #[test]
     fn compose_injects_open_menu_popup_from_menu_bar() {
         let window = window::Id::new(1);
+        let subject = ui::Path::new([ROOT, CHILD]);
         let mut state = WindowState {
-            open_menu: Some(FILE),
-            command_subject: Some(action::Scope::Path(ui::Path::new([ROOT, CHILD]))),
+            command_subject: Some(action::Scope::Path(subject.clone())),
             ..WindowState::default()
         };
         let mut registry = action::Registry::<()>::new();
@@ -510,9 +540,10 @@ mod tests {
         registry.register(Action::new(action::SELECT_ALL, "Select All"));
         registry.set_state(
             action::SELECT_ALL,
-            action::Context::path(window, ui::Path::new([ROOT, CHILD])),
+            action::Context::path(window, subject.clone()),
             action::State::enabled(),
         );
+        open_menu_surface(&mut state, window, FILE, subject.clone());
         tree.set_root(
             widget::panel(ROOT)
                 .with_child(widget::menu_bar(
@@ -573,7 +604,7 @@ mod tests {
         );
         assert_eq!(
             state.command_scope_captures.get(&scope),
-            Some(&action::Context::path(window, ui::Path::new([ROOT, CHILD])))
+            Some(&action::Context::path(window, subject))
         );
 
         let backdrop_index = scene
@@ -597,12 +628,121 @@ mod tests {
     }
 
     #[test]
+    fn pointer_opened_menu_preserves_text_field_focus_after_compose() {
+        let window = window::Id::new(1);
+        let field = ui::Path::new([ROOT, CHILD]);
+        let mut state = WindowState {
+            focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
+                field.clone(),
+                ui::focus::Reason::Pointer,
+                ui::focus::Visibility::Visible,
+            )),
+            command_subject: Some(action::Scope::Path(field.clone())),
+            ..WindowState::default()
+        };
+        let mut registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+
+        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        registry.set_state(
+            action::SELECT_ALL,
+            action::Context::path(window, field.clone()),
+            action::State::enabled(),
+        );
+        open_menu_surface(&mut state, window, FILE, field.clone());
+        tree.set_root(
+            widget::panel(ROOT)
+                .with_child(widget::menu_bar(
+                    MENU_BAR,
+                    menu::Bar::new().menu(
+                        menu::Menu::new(FILE, "File").section(
+                            menu::Section::new().item(menu::Item::new(action::SELECT_ALL)),
+                        ),
+                    ),
+                ))
+                .with_child(
+                    widget::text_field(CHILD, text::Buffer::from_text("hello"))
+                        .with_responder(action::SELECT_ALL),
+                ),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(300.0, 180.0),
+        );
+
+        assert_eq!(state.focused_path(), Some(field));
+        assert_eq!(state.focus_visibility(), ui::focus::Visibility::Visible);
+    }
+
+    #[test]
+    fn keyboard_opened_menu_focuses_first_enabled_row() {
+        let window = window::Id::new(1);
+        let field = ui::Path::new([ROOT, CHILD]);
+        let row = ui::Path::new([ROOT, widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
+        let mut state = WindowState {
+            focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
+                field.clone(),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            command_subject: Some(action::Scope::Path(field.clone())),
+            ..WindowState::default()
+        };
+        let mut registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+
+        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        registry.set_state(
+            action::SELECT_ALL,
+            action::Context::path(window, field.clone()),
+            action::State::enabled(),
+        );
+        tree.set_root(
+            widget::panel(ROOT)
+                .with_child(widget::menu_bar(
+                    MENU_BAR,
+                    menu::Bar::new().menu(
+                        menu::Menu::new(FILE, "File").section(
+                            menu::Section::new().item(menu::Item::new(action::SELECT_ALL)),
+                        ),
+                    ),
+                ))
+                .with_child(
+                    widget::text_field(CHILD, text::Buffer::from_text("hello"))
+                        .with_responder(action::SELECT_ALL),
+                ),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(300.0, 180.0),
+        );
+        assert!(state.toggle_menu(FILE, &registry, window, action::Source::Keyboard));
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(300.0, 180.0),
+        );
+
+        assert_eq!(state.focused_path(), Some(row));
+        assert_eq!(state.focus_visibility(), ui::focus::Visibility::Visible);
+    }
+
+    #[test]
     fn focused_open_menu_row_lowers_focus_background() {
         let window = window::Id::new(1);
         let subject = ui::Path::new([ROOT, CHILD]);
         let row = ui::Path::new([ROOT, widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
         let mut state = WindowState {
-            open_menu: Some(FILE),
             command_subject: Some(action::Scope::Path(subject.clone())),
             focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
                 row,
@@ -617,9 +757,10 @@ mod tests {
         registry.register(Action::new(action::SELECT_ALL, "Select All"));
         registry.set_state(
             action::SELECT_ALL,
-            action::Context::path(window, subject),
+            action::Context::path(window, subject.clone()),
             action::State::enabled(),
         );
+        open_menu_surface(&mut state, window, FILE, subject.clone());
         tree.set_root(
             widget::panel(ROOT)
                 .with_child(widget::menu_bar(
@@ -660,7 +801,6 @@ mod tests {
         let window = window::Id::new(1);
         let subject = ui::Path::new([ROOT, CHILD]);
         let mut state = WindowState {
-            open_menu: Some(VIEW),
             command_subject: Some(action::Scope::Path(subject.clone())),
             ..WindowState::default()
         };
@@ -670,9 +810,10 @@ mod tests {
         registry.register(Action::new(TOGGLE, "Toggle Preview"));
         registry.set_state(
             TOGGLE,
-            action::Context::path(window, subject),
+            action::Context::path(window, subject.clone()),
             action::State::active(),
         );
+        open_menu_surface(&mut state, window, VIEW, subject.clone());
         tree.set_root(
             widget::panel(ROOT)
                 .with_child(widget::menu_bar(
@@ -707,8 +848,6 @@ mod tests {
         let window = window::Id::new(1);
         let subject = ui::Path::new([ROOT, CHILD]);
         let mut state = WindowState {
-            open_menu: Some(VIEW),
-            open_submenu: Some(PANELS),
             command_subject: Some(action::Scope::Path(subject.clone())),
             ..WindowState::default()
         };
@@ -721,6 +860,7 @@ mod tests {
             action::Context::path(window, subject.clone()),
             action::State::enabled(),
         );
+        open_submenu_surface(&mut state, window, VIEW, PANELS, subject.clone());
         tree.set_root(
             widget::panel(ROOT)
                 .with_child(widget::menu_bar(

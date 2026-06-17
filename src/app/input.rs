@@ -5,16 +5,35 @@ use winit::{
     keyboard::{Key as WinitKey, ModifiersState, NamedKey},
 };
 
-use crate::app::state::{PressSource, WindowState, action_request, intent};
+use crate::app::state::{PressSource, WindowState, action_request};
 use crate::geometry::point;
 use crate::{action, pointer, text, ui, window};
+
+use super::text_input;
 
 #[derive(Debug, Default)]
 pub struct Outcome {
     pub events: Vec<ui::Event>,
     pub request: Option<action::Request>,
-    pub intent: Option<(ui::Path, ui::Intent)>,
+    pub intent: Option<IntentRequest>,
     pub redraw: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IntentRequest {
+    pub origin: ui::Path,
+    pub intent: ui::Intent,
+    pub source: action::Source,
+}
+
+impl IntentRequest {
+    fn new(origin: ui::Path, intent: ui::Intent, source: action::Source) -> Self {
+        Self {
+            origin,
+            intent,
+            source,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -68,6 +87,17 @@ pub fn pointer_moved_with_text_engine(
         delta,
         target,
     });
+
+    let text_drag_redraw = state.try_start_text_drag(position, text_engine);
+    if state.drag_drop.active_text().is_some() {
+        return Outcome {
+            events,
+            request: None,
+            intent,
+            redraw: redraw || text_drag_redraw,
+        };
+    }
+
     if let Some((target, edit)) = state.text_field_drag_edit_at(position, text_engine) {
         events.push(ui::Event::TextEditRequested { target, edit });
     }
@@ -82,6 +112,7 @@ pub fn pointer_moved_with_text_engine(
 
 pub fn pointer_pressed(
     state: &mut WindowState,
+    window: window::Id,
     position: point::Logical,
     button: pointer::Button,
     text_engine: &mut text::Engine,
@@ -133,6 +164,26 @@ pub fn pointer_pressed(
     }
 
     let target = state.hit_test(position);
+    if button == pointer::Button::Secondary
+        && let Some(target) = target.as_ref()
+        && state.is_selectable_text_field(target)
+    {
+        let event = state.pointer_down(
+            position,
+            state.pointer.delta(),
+            Some(target.clone()),
+            button,
+        );
+        state.open_text_context_menu(window, target.clone(), position, action::Source::Pointer);
+
+        return Outcome {
+            events: vec![event],
+            request: None,
+            intent: None,
+            redraw: true,
+        };
+    }
+
     state.dismiss_menu_for_target(target.as_ref());
     let event = state.pointer_down(position, state.pointer.delta(), target, button);
     let mut events = vec![event];
@@ -169,7 +220,17 @@ pub fn pointer_released<T>(
         button,
         pressed: false,
     });
-    state.end_text_field_drag();
+    let text_drop_event = if button == pointer::Button::Primary {
+        state.finish_text_drop()
+    } else {
+        None
+    };
+    let cleared_text_drag = if text_drop_event.is_none() {
+        state.clear_text_drag_drop()
+    } else {
+        false
+    };
+    state.end_text_selection_drag();
 
     if let Some(capture) = state.pointer_capture.clone() {
         state.clear_pointer_capture();
@@ -191,9 +252,20 @@ pub fn pointer_released<T>(
 
     let target = state.hit_test(position);
     let (event, invoke_target) = state.pointer_up(position, state.pointer.delta(), target, button);
-    let intent = invoke_target
-        .as_ref()
-        .and_then(|target| intent(state, target.clone()));
+    if let Some(text_drop_event) = text_drop_event {
+        return Outcome {
+            events: vec![event, text_drop_event],
+            request: None,
+            intent: None,
+            redraw: true,
+        };
+    }
+
+    let intent = invoke_target.as_ref().and_then(|target| {
+        state
+            .intent(target)
+            .map(|intent| IntentRequest::new(target.clone(), intent, action::Source::Pointer))
+    });
     let request = invoke_target.and_then(|target| {
         activation_request(registry, state, window, target, action::Source::Pointer)
     });
@@ -219,7 +291,7 @@ pub fn pointer_released<T>(
         events: vec![event],
         request,
         intent,
-        redraw: true || closed_menu || restored_focus,
+        redraw: true || closed_menu || restored_focus || cleared_text_drag,
     }
 }
 
@@ -236,7 +308,8 @@ pub fn pointer_button(button: MouseButton) -> pointer::Button {
 
 pub fn pointer_left(state: &mut WindowState) -> Outcome {
     state.pointer.handle_event(pointer::Event::Left);
-    state.end_text_field_drag();
+    state.end_text_selection_drag();
+    let cleared_text_drag = state.clear_text_drag_drop();
     let events = state.set_hovered(None);
     let cleared_capture = state.clear_pointer_capture();
     let cleared_pressed = if state.pressed_source == Some(PressSource::Pointer) {
@@ -248,7 +321,7 @@ pub fn pointer_left(state: &mut WindowState) -> Outcome {
     };
 
     Outcome {
-        redraw: !events.is_empty() || cleared_pressed || cleared_capture,
+        redraw: !events.is_empty() || cleared_pressed || cleared_capture || cleared_text_drag,
         events,
         request: None,
         intent: None,
@@ -303,8 +376,12 @@ pub fn key(key: &WinitKey) -> ui::Key {
         WinitKey::Named(NamedKey::Delete) => ui::Key::Delete,
         WinitKey::Named(NamedKey::ArrowLeft) => ui::Key::ArrowLeft,
         WinitKey::Named(NamedKey::ArrowRight) => ui::Key::ArrowRight,
+        WinitKey::Named(NamedKey::ArrowUp) => ui::Key::ArrowUp,
+        WinitKey::Named(NamedKey::ArrowDown) => ui::Key::ArrowDown,
         WinitKey::Named(NamedKey::Home) => ui::Key::Home,
         WinitKey::Named(NamedKey::End) => ui::Key::End,
+        WinitKey::Named(NamedKey::F10) => ui::Key::F10,
+        WinitKey::Named(NamedKey::ContextMenu) => ui::Key::ContextMenu,
         WinitKey::Character(value) => {
             let mut chars = value.chars();
             let Some(character) = chars.next() else {
@@ -382,7 +459,9 @@ pub fn key_pressed<T>(
     key: ui::Key,
     repeat: bool,
 ) -> Outcome {
-    key_pressed_with_text(registry, state, window, key, None, repeat)
+    let mut text_engine = text::Engine::new();
+
+    key_pressed_with_text(registry, state, window, key, None, repeat, &mut text_engine)
 }
 
 pub fn key_pressed_with_text<T>(
@@ -392,6 +471,7 @@ pub fn key_pressed_with_text<T>(
     key: ui::Key,
     inserted_text: Option<&str>,
     repeat: bool,
+    text_engine: &mut text::Engine,
 ) -> Outcome {
     let target = state.focused_path();
     let mut redraw = false;
@@ -433,6 +513,23 @@ pub fn key_pressed_with_text<T>(
     }
 
     match key {
+        ui::Key::ContextMenu if !repeat => {
+            redraw |= open_keyboard_text_context_menu(state, window, text_engine);
+        }
+        ui::Key::F10 if state.modifiers.shift() && !repeat => {
+            redraw |= open_keyboard_text_context_menu(state, window, text_engine);
+        }
+        ui::Key::ArrowUp | ui::Key::ArrowDown if state.floating.has_open_surface() => {
+            let reverse = key == ui::Key::ArrowUp;
+            if let Some(path) = next_focus(registry, state, window, reverse) {
+                redraw |= state.set_focus(
+                    path.clone(),
+                    ui::focus::Reason::Keyboard,
+                    ui::focus::Visibility::Visible,
+                );
+                intent = focus_menu_intent(state, &path);
+            }
+        }
         ui::Key::Tab => {
             let reverse = state.modifiers.shift();
             if let Some(path) = next_focus(registry, state, window, reverse) {
@@ -500,9 +597,11 @@ pub fn key_released<T>(
         redraw = pressed.is_some();
 
         if pressed == target {
-            intent = target
-                .as_ref()
-                .and_then(|target| super::state::intent(state, target.clone()));
+            intent = target.as_ref().and_then(|target| {
+                state.intent(target).map(|intent| {
+                    IntentRequest::new(target.clone(), intent, action::Source::Keyboard)
+                })
+            });
             request = target.and_then(|target| {
                 activation_request(registry, state, window, target, action::Source::Keyboard)
             });
@@ -604,38 +703,55 @@ fn restore_action_target_focus(
     state.set_focus(target.clone(), ui::focus::Reason::Programmatic, visibility)
 }
 
-fn hover_menu_intent(state: &WindowState, target: &ui::Path) -> Option<(ui::Path, ui::Intent)> {
-    menu_navigation_intent(state, target)
+fn hover_menu_intent(state: &WindowState, target: &ui::Path) -> Option<IntentRequest> {
+    menu_navigation_intent(state, target, action::Source::Pointer)
 }
 
-fn focus_menu_intent(state: &WindowState, target: &ui::Path) -> Option<(ui::Path, ui::Intent)> {
-    menu_navigation_intent(state, target)
+fn focus_menu_intent(state: &WindowState, target: &ui::Path) -> Option<IntentRequest> {
+    menu_navigation_intent(state, target, action::Source::Keyboard)
 }
 
 fn menu_navigation_intent(
     state: &WindowState,
     target: &ui::Path,
-) -> Option<(ui::Path, ui::Intent)> {
+    source: action::Source,
+) -> Option<IntentRequest> {
     let intent = state.intent(target);
 
     match intent {
         Some(ui::Intent::OpenMenu(menu)) if state.open_menu.is_some_and(|open| open != menu) => {
-            return Some((target.clone(), ui::Intent::OpenMenu(menu)));
+            return Some(IntentRequest::new(
+                target.clone(),
+                ui::Intent::OpenMenu(menu),
+                source,
+            ));
         }
         Some(ui::Intent::OpenSubmenu(menu))
             if state.open_menu.is_some() && state.open_submenu != Some(menu) =>
         {
-            return Some((target.clone(), ui::Intent::OpenSubmenu(menu)));
+            return Some(IntentRequest::new(
+                target.clone(),
+                ui::Intent::OpenSubmenu(menu),
+                source,
+            ));
         }
         Some(ui::Intent::CloseSubmenu)
             if state.open_submenu.is_some() && state.is_top_menu_popup_path(target) =>
         {
-            return Some((target.clone(), ui::Intent::CloseSubmenu));
+            return Some(IntentRequest::new(
+                target.clone(),
+                ui::Intent::CloseSubmenu,
+                source,
+            ));
         }
         Some(ui::Intent::Action(_))
             if state.open_submenu.is_some() && state.is_top_menu_popup_path(target) =>
         {
-            return Some((target.clone(), ui::Intent::CloseSubmenu));
+            return Some(IntentRequest::new(
+                target.clone(),
+                ui::Intent::CloseSubmenu,
+                source,
+            ));
         }
         _ => {}
     }
@@ -682,7 +798,7 @@ fn focusable_paths<T>(
         .cloned()
         .collect::<Vec<_>>();
 
-    if state.open_menu.is_some() {
+    if state.open_menu.is_some() || state.floating.has_open_surface() {
         let menu_paths = paths
             .iter()
             .filter(|path| state.is_dropdown_path(path))
@@ -695,6 +811,23 @@ fn focusable_paths<T>(
     }
 
     paths
+}
+
+fn open_keyboard_text_context_menu(
+    state: &mut WindowState,
+    window: window::Id,
+    text_engine: &mut text::Engine,
+) -> bool {
+    let Some(target) = text_input::editing_target(state) else {
+        return false;
+    };
+    let anchor = state
+        .focused_text_field_caret_rect(text_engine)
+        .or_else(|| state.text_field_rect(&target))
+        .map(|rect| rect.origin)
+        .unwrap_or_else(|| point::logical(0.0, 0.0));
+
+    state.open_text_context_menu(window, target, anchor, action::Source::Keyboard)
 }
 
 fn can_focus<T>(
@@ -955,9 +1088,7 @@ mod tests {
                 window,
                 crate::geometry::area::logical(100.0, 24.0),
                 &mut registry,
-                &action::Context::window(window),
-                None,
-                None,
+                &[],
                 &mut measurer,
             )
             .expect("text field tree should compose");
@@ -991,9 +1122,7 @@ mod tests {
                 window,
                 crate::geometry::area::logical(100.0, 24.0),
                 registry,
-                &action::Context::window(window),
-                None,
-                None,
+                &[],
                 &mut measurer,
             )
             .expect("text field tree should compose");
@@ -1018,6 +1147,7 @@ mod tests {
         let mut tree = ui::Tree::new();
         let mut registry = action::Registry::<()>::new();
         let mut measurer = crate::text::Engine::new();
+        let mut floating = crate::app::floating::State::default();
 
         registry.register(Action::new(action::SELECT_ALL, "Select All"));
         registry.register(Action::new(CLICK, "Click"));
@@ -1057,14 +1187,20 @@ mod tests {
                         ),
                 ),
         );
+        if open_menu {
+            floating.open_top_menu(
+                FILE,
+                action::Context::path(window, field.clone()),
+                action::Source::Pointer,
+                ui::floating::FocusPolicy::PreserveCurrentFocus,
+            );
+        }
         let composition = tree
             .compose(
                 window,
                 crate::geometry::area::logical(180.0, 120.0),
                 &mut registry,
-                &action::Context::path(window, field.clone()),
-                open_menu.then_some(FILE),
-                None,
+                floating.surfaces(),
                 &mut measurer,
             )
             .expect("command text field tree should compose");
@@ -1077,9 +1213,10 @@ mod tests {
                 ui::focus::Visibility::Visible,
             )),
             command_subject: Some(action::Scope::Path(field)),
-            open_menu: open_menu.then_some(FILE),
+            floating,
             ..WindowState::default()
         };
+        state.sync_open_menu_mirrors();
         state.update_command_scope_captures(window);
         state.sync_menu_focus_scopes();
         crate::app::text_input::sync_session(&mut state);
@@ -1105,7 +1242,13 @@ mod tests {
         button: pointer::Button,
     ) -> Outcome {
         let mut text_engine = crate::text::Engine::new();
-        pointer_pressed(state, position, button, &mut text_engine)
+        pointer_pressed(
+            state,
+            window::Id::new(1),
+            position,
+            button,
+            &mut text_engine,
+        )
     }
 
     #[test]
@@ -1136,6 +1279,60 @@ mod tests {
         );
         assert_eq!(state.focus_visibility(), ui::focus::Visibility::Hidden);
         assert_eq!(state.pressed, Some(path(CHILD)));
+    }
+
+    #[test]
+    fn pointer_down_on_menu_title_preserves_text_field_focus() {
+        let mut state = text_field_command_tree(false);
+        let title = state
+            .composition
+            .as_ref()
+            .expect("composition")
+            .intents()
+            .iter()
+            .find_map(|(path, intent)| {
+                (*intent == ui::Intent::OpenMenu(FILE)).then(|| path.clone())
+            })
+            .expect("menu title path");
+        let field = root_path(CHILD);
+
+        let event = state.pointer_down(
+            point::logical(1.0, 1.0),
+            point::logical(0.0, 0.0),
+            Some(title.clone()),
+            pointer::Button::Primary,
+        );
+
+        assert_eq!(state.focused_path(), Some(field.clone()));
+        assert_eq!(state.command_subject, Some(action::Scope::Path(field)));
+        assert_eq!(state.pressed, Some(title.clone()));
+        assert_eq!(
+            event,
+            ui::Event::PointerDown {
+                position: point::logical(1.0, 1.0),
+                delta: point::logical(0.0, 0.0),
+                target: Some(title),
+                button: pointer::Button::Primary,
+            }
+        );
+    }
+
+    #[test]
+    fn floating_menu_captured_context_overrides_stale_command_subject() {
+        let window = window::Id::new(1);
+        let mut state = text_field_command_tree(true);
+        let row = select_all_menu_row(&state);
+        let field = root_path(CHILD);
+        let stale = root_path(ORIGIN_BUTTON);
+
+        state.command_subject = Some(action::Scope::Path(stale));
+        state.update_command_scope_captures(window);
+
+        let request = action_request(&state, window, row, action::Source::Pointer)
+            .expect("captured menu row should request select all");
+
+        assert_eq!(request.action(), action::SELECT_ALL);
+        assert_eq!(request.target(), &action::Context::path(window, field));
     }
 
     #[test]
@@ -1304,7 +1501,11 @@ mod tests {
         assert_eq!(outcome.request, None);
         assert_eq!(
             outcome.intent,
-            Some((path(CHILD), ui::Intent::OpenMenu(FILE)))
+            Some(IntentRequest::new(
+                path(CHILD),
+                ui::Intent::OpenMenu(FILE),
+                action::Source::Pointer,
+            ))
         );
     }
 
@@ -1778,6 +1979,69 @@ mod tests {
     }
 
     #[test]
+    fn secondary_click_on_text_field_opens_context_menu_without_moving_caret() {
+        let mut state = text_field_state();
+
+        let outcome = pointer_pressed_for_test(
+            &mut state,
+            point::logical(10.0, 12.0),
+            pointer::Button::Secondary,
+        );
+
+        assert!(state.floating.context_menu().is_some_and(|surface| {
+            surface.context_menu_target() == Some(&path(CHILD))
+                && surface.anchor() == ui::floating::Anchor::Point(point::logical(10.0, 12.0))
+        }));
+        assert_eq!(state.focused_path(), Some(path(CHILD)));
+        assert_eq!(state.focus_visibility(), ui::focus::Visibility::Visible);
+        assert!(
+            !outcome
+                .events
+                .iter()
+                .any(|event| matches!(event, ui::Event::TextEditRequested { .. }))
+        );
+    }
+
+    #[test]
+    fn secondary_click_on_disabled_text_field_does_not_open_context_menu() {
+        let mut state = text_field_state_with_field(crate::text::Field::new("Disabled").disabled());
+
+        pointer_pressed_for_test(
+            &mut state,
+            point::logical(10.0, 12.0),
+            pointer::Button::Secondary,
+        );
+
+        assert!(state.floating.context_menu().is_none());
+        assert_eq!(state.focused_path(), None);
+    }
+
+    #[test]
+    fn context_menu_key_opens_text_context_menu_for_active_session() {
+        let registry = action::Registry::<()>::new();
+        let window = window::Id::new(1);
+        let mut state = text_field_state();
+        let mut text_engine = crate::text::Engine::new();
+        crate::app::text_input::sync_session(&mut state);
+
+        let outcome = key_pressed_with_text(
+            &registry,
+            &mut state,
+            window,
+            ui::Key::ContextMenu,
+            None,
+            false,
+            &mut text_engine,
+        );
+
+        assert!(outcome.redraw);
+        assert!(state.floating.context_menu().is_some_and(|surface| {
+            surface.context_menu_target() == Some(&path(CHILD))
+                && surface.source() == action::Source::Keyboard
+        }));
+    }
+
+    #[test]
     fn pointer_drag_on_text_field_requests_drag_edit_until_release() {
         let window = window::Id::new(1);
         let registry = action::Registry::<()>::new();
@@ -1786,6 +2050,7 @@ mod tests {
 
         pointer_pressed(
             &mut state,
+            window,
             point::logical(10.0, 12.0),
             pointer::Button::Primary,
             &mut text_engine,
@@ -1817,7 +2082,77 @@ mod tests {
             pointer::Button::Primary,
         );
 
-        assert_eq!(state.text_field_drag, None);
+        assert_eq!(state.text_selection_drag, None);
+    }
+
+    #[test]
+    fn pointer_drag_inside_selected_text_starts_text_drop_session() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut text_engine = crate::text::Engine::new();
+        let mut buffer = crate::text::Buffer::from_text("hello");
+        text_engine.apply_text_edit(
+            &mut buffer,
+            crate::text::Edit::set_cursor(crate::text::Cursor::new(0, 0)),
+        );
+        text_engine.apply_text_edit(
+            &mut buffer,
+            crate::text::Edit::pointer(
+                crate::text::PointerEditKind::Drag,
+                crate::text::Cursor::new(0, 2),
+            ),
+        );
+        let mut state = text_field_state_with_field(buffer);
+
+        let pressed = pointer_pressed(
+            &mut state,
+            window,
+            point::logical(10.0, 12.0),
+            pointer::Button::Primary,
+            &mut text_engine,
+        );
+        assert!(
+            !pressed
+                .events
+                .iter()
+                .any(|event| matches!(event, ui::Event::TextEditRequested { .. }))
+        );
+
+        let moved = pointer_moved_with_text_engine(
+            &mut state,
+            point::logical(80.0, 12.0),
+            &mut text_engine,
+        );
+
+        assert!(state.drag_drop.active_text().is_some());
+        assert!(state.drag_drop.text_target().is_some());
+        assert_eq!(state.text_selection_drag, None);
+        assert!(
+            !moved
+                .events
+                .iter()
+                .any(|event| matches!(event, ui::Event::TextEditRequested { .. }))
+        );
+
+        let released = pointer_released(
+            &registry,
+            &mut state,
+            window,
+            point::logical(80.0, 12.0),
+            pointer::Button::Primary,
+        );
+
+        assert!(released.events.iter().any(|event| matches!(
+            event,
+            ui::Event::TextDropRequested {
+                source: None,
+                target,
+                edit: crate::text::Edit::MoveRange { range, .. },
+                operation: ui::drag_drop::Operation::Move,
+            } if target == &path(CHILD) && range == &(0..2)
+        )));
+        assert!(state.drag_drop.active_text().is_none());
+        assert!(state.drag_drop.text_target().is_none());
     }
 
     #[test]
@@ -1925,7 +2260,11 @@ mod tests {
 
         assert_eq!(
             outcome.intent,
-            Some((path(SECOND), ui::Intent::OpenMenu(EDIT)))
+            Some(IntentRequest::new(
+                path(SECOND),
+                ui::Intent::OpenMenu(EDIT),
+                action::Source::Pointer,
+            ))
         );
         assert!(outcome.redraw);
     }
@@ -1967,7 +2306,14 @@ mod tests {
 
         let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
 
-        assert_eq!(outcome.intent, Some((row, ui::Intent::OpenSubmenu(PANELS))));
+        assert_eq!(
+            outcome.intent,
+            Some(IntentRequest::new(
+                row,
+                ui::Intent::OpenSubmenu(PANELS),
+                action::Source::Pointer,
+            ))
+        );
     }
 
     #[test]
@@ -1988,7 +2334,14 @@ mod tests {
 
         let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
 
-        assert_eq!(outcome.intent, Some((row, ui::Intent::CloseSubmenu)));
+        assert_eq!(
+            outcome.intent,
+            Some(IntentRequest::new(
+                row,
+                ui::Intent::CloseSubmenu,
+                action::Source::Pointer,
+            ))
+        );
     }
 
     #[test]
@@ -2009,7 +2362,14 @@ mod tests {
 
         let outcome = pointer_moved(&mut state, point::logical(2.0, 3.0));
 
-        assert_eq!(outcome.intent, Some((row, ui::Intent::CloseSubmenu)));
+        assert_eq!(
+            outcome.intent,
+            Some(IntentRequest::new(
+                row,
+                ui::Intent::CloseSubmenu,
+                action::Source::Pointer,
+            ))
+        );
     }
 
     #[test]
@@ -2259,7 +2619,11 @@ mod tests {
 
         assert_eq!(
             outcome.intent,
-            Some((menu_row, ui::Intent::OpenSubmenu(PANELS)))
+            Some(IntentRequest::new(
+                menu_row,
+                ui::Intent::OpenSubmenu(PANELS),
+                action::Source::Keyboard,
+            ))
         );
     }
 

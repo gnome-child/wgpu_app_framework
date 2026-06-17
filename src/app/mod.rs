@@ -2,6 +2,8 @@ mod action_executor;
 mod clipboard;
 mod command;
 mod context;
+mod drag_drop;
+mod floating;
 mod focus;
 mod input;
 mod mailbox;

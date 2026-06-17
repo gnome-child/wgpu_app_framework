@@ -2,7 +2,8 @@ use crate::geometry::{Rect, area, point, rect};
 use crate::{action, icon, layout, paint, text, theme, ui};
 
 use super::{
-    MENU_POPUP, MENU_SUBMENU_POPUP, Popup, floating_panel_with_theme, menu, separator_with_theme,
+    MENU_POPUP, MENU_SUBMENU_POPUP, Popup, TEXT_CONTEXT_MENU_POPUP, floating_panel_with_theme,
+    menu, separator_with_theme,
 };
 
 const SEPARATOR_LINE_HEIGHT: f32 = 1.0;
@@ -13,6 +14,7 @@ const ROW_LABEL: ui::Id = ui::Id::new("__menu_row_label");
 const ROW_SHORTCUT: ui::Id = ui::Id::new("__menu_row_shortcut");
 const ROW_TRAILING: ui::Id = ui::Id::new("__menu_row_trailing");
 const ROW_SEPARATOR: ui::Id = ui::Id::new("__menu_row_separator");
+const TEXT_CONTEXT_MENU: menu::Id = menu::Id::new("__text_context_menu");
 
 const ROW_IDS: [ui::Id; 32] = [
     ui::Id::new("__menu_row_00"),
@@ -52,9 +54,9 @@ const ROW_IDS: [ui::Id; 32] = [
 pub fn menu_popup<T>(
     tree: &ui::Tree,
     layout: &ui::Frame,
+    surface: &ui::floating::Surface,
     menu: &menu::Menu,
     actions: &action::Registry<T>,
-    command_subject: &action::Context,
     measurer: &mut text::Engine,
 ) -> Option<Popup> {
     let theme = theme::Theme::default_dark();
@@ -64,20 +66,28 @@ pub fn menu_popup<T>(
         point::logical(anchor.origin.x(), anchor.origin.y() + anchor.area.height()),
         chrome,
         &theme,
+        layout.rect(),
     );
 
     Some(Popup::new(
         popup_rect,
-        popup_node(MENU_POPUP, menu, actions, command_subject, chrome, &theme),
+        popup_node(
+            MENU_POPUP,
+            menu,
+            actions,
+            surface.command_context(),
+            chrome,
+            &theme,
+        ),
     ))
 }
 
 pub fn submenu_popup<T>(
     tree: &ui::Tree,
     layout: &ui::Frame,
+    surface: &ui::floating::Surface,
     menu: &menu::Menu,
     actions: &action::Registry<T>,
-    command_subject: &action::Context,
     measurer: &mut text::Engine,
 ) -> Option<Popup> {
     let theme = theme::Theme::default_dark();
@@ -91,6 +101,7 @@ pub fn submenu_popup<T>(
         ),
         chrome,
         &theme,
+        layout.rect(),
     );
 
     Some(Popup::new(
@@ -99,7 +110,37 @@ pub fn submenu_popup<T>(
             MENU_SUBMENU_POPUP,
             menu,
             actions,
-            command_subject,
+            surface.command_context(),
+            chrome,
+            &theme,
+        ),
+    ))
+}
+
+pub fn text_context_menu_popup<T>(
+    surface: &ui::floating::Surface,
+    actions: &action::Registry<T>,
+    measurer: &mut text::Engine,
+    bounds: Rect,
+) -> Option<Popup> {
+    surface.context_menu_target()?;
+
+    let theme = theme::Theme::default_dark();
+    let menu = text_context_menu();
+    let chrome = popup_chrome(&menu, actions, &theme, measurer);
+    let origin = match surface.anchor() {
+        ui::floating::Anchor::Point(point) => point,
+        ui::floating::Anchor::Rect(rect) => rect.origin,
+    };
+    let popup_rect = popup_rect(origin, chrome, &theme, bounds);
+
+    Some(Popup::new(
+        popup_rect,
+        popup_node(
+            TEXT_CONTEXT_MENU_POPUP,
+            &menu,
+            actions,
+            surface.command_context(),
             chrome,
             &theme,
         ),
@@ -143,11 +184,44 @@ fn anchor_rect(
         })
 }
 
-fn popup_rect(origin: point::Logical, chrome: PopupChrome, theme: &theme::Theme) -> Rect {
-    Rect::rounded(
-        pixel_aligned_origin(origin),
-        chrome.area,
-        theme.floating_panel().rounding(),
+fn popup_rect(
+    origin: point::Logical,
+    chrome: PopupChrome,
+    theme: &theme::Theme,
+    bounds: Rect,
+) -> Rect {
+    let origin = clamped_origin(pixel_aligned_origin(origin), chrome.area, bounds);
+
+    Rect::rounded(origin, chrome.area, theme.floating_panel().rounding())
+}
+
+fn clamped_origin(
+    origin: point::Logical,
+    popup_area: area::Logical,
+    bounds: Rect,
+) -> point::Logical {
+    let min_x = bounds.origin.x();
+    let min_y = bounds.origin.y();
+    let max_x = (bounds.origin.x() + bounds.area.width() - popup_area.width()).max(min_x);
+    let max_y = (bounds.origin.y() + bounds.area.height() - popup_area.height()).max(min_y);
+
+    point::logical(
+        origin.x().clamp(min_x, max_x),
+        origin.y().clamp(min_y, max_y),
+    )
+}
+
+fn text_context_menu() -> menu::Menu {
+    menu::Menu::new(TEXT_CONTEXT_MENU, "Text").section(
+        menu::Section::new()
+            .action(action::UNDO)
+            .action(action::REDO)
+            .separator()
+            .action(action::CUT)
+            .action(action::COPY)
+            .action(action::PASTE)
+            .separator()
+            .action(action::SELECT_ALL),
     )
 }
 
@@ -589,7 +663,12 @@ mod tests {
             glyph_width: glyph_column_width(&theme),
             row_rounding: rect::Rounding::fixed(4.0),
         };
-        let rect = popup_rect(point::logical(10.4, 20.6), chrome, &theme);
+        let rect = popup_rect(
+            point::logical(10.4, 20.6),
+            chrome,
+            &theme,
+            Rect::new(point::logical(0.0, 0.0), area::logical(400.0, 300.0)),
+        );
 
         assert_eq!(rect.origin, point::logical(10.0, 21.0));
         assert_eq!(rect.area, area::logical(121.0, 45.0));

@@ -17,6 +17,7 @@ pub struct Focus {
 pub enum TransientScope {
     Menu,
     Submenu,
+    ContextMenu,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

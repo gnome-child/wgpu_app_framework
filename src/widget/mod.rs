@@ -12,7 +12,7 @@ use crate::text as text_model;
 use crate::{layout, theme, ui};
 
 pub use self::menu::Menu;
-pub use self::menu_popup::{menu_popup, submenu_popup};
+pub use self::menu_popup::{menu_popup, submenu_popup, text_context_menu_popup};
 pub use self::popup::Popup;
 pub use control::{
     button, button_with_theme, floating_panel, floating_panel_with_theme, icon_button,
@@ -24,6 +24,7 @@ pub use text_widget::{
 
 pub const MENU_POPUP: ui::Id = ui::Id::new("__menu_popup");
 pub const MENU_SUBMENU_POPUP: ui::Id = ui::Id::new("__menu_submenu_popup");
+pub const TEXT_CONTEXT_MENU_POPUP: ui::Id = ui::Id::new("__text_context_menu_popup");
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Scroll {

@@ -1125,9 +1125,7 @@ fn composition_indexes_node_cursors_by_path() {
             window,
             area::logical(100.0, 80.0),
             &mut registry,
-            &action::Context::window(window),
-            None,
-            None,
+            &[],
             &mut measurer,
         )
         .expect("tree should compose");

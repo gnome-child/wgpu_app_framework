@@ -178,9 +178,9 @@ impl<T: Send + 'static> Context<'_, T> {
     ) -> text::CommandResult {
         if matches!(command, text::Command::Undo | text::Command::Redo) {
             let Some(result) = self.window_states.values_mut().find_map(|state| {
-                let can_apply = state
-                    .text_field(target)
-                    .is_some_and(|field| text_input::can_apply_command(state, target, field, command));
+                let can_apply = state.text_field(target).is_some_and(|field| {
+                    text_input::can_apply_command(state, target, field, command)
+                });
 
                 can_apply.then(|| state.apply_text_history_command(target, buffer, command))
             }) else {
@@ -200,15 +200,11 @@ impl<T: Send + 'static> Context<'_, T> {
             return result;
         }
 
-        if !self
-            .window_states
-            .values()
-            .any(|state| {
-                state
-                    .text_field(target)
-                    .is_some_and(|field| text_input::can_apply_command(state, target, field, command))
-            })
-        {
+        if !self.window_states.values().any(|state| {
+            state
+                .text_field(target)
+                .is_some_and(|field| text_input::can_apply_command(state, target, field, command))
+        }) {
             return text::CommandResult {
                 unavailable: true,
                 ..text::CommandResult::default()
@@ -222,7 +218,11 @@ impl<T: Send + 'static> Context<'_, T> {
 
         if let Some(change) = outcome.change {
             for state in self.window_states.values_mut() {
-                state.record_text_field_history(target, change.clone(), text::HistoryKind::Boundary);
+                state.record_text_field_history(
+                    target,
+                    change.clone(),
+                    text::HistoryKind::Boundary,
+                );
             }
         }
 
