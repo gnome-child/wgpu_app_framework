@@ -64,8 +64,10 @@ pub fn text_field_with_theme(
     let label = text_field_document(&field, theme);
     let outline = theme.control().focus_outline();
     let mut interactivity = ui::Interactivity::NONE.with_hit_test(true);
+    let mut cursor = ui::Cursor::Default;
     if field.is_selectable() {
         interactivity = interactivity.with_focusable(true);
+        cursor = ui::Cursor::Text;
     }
 
     let mut node = foundation::control_chrome(
@@ -73,7 +75,8 @@ pub fn text_field_with_theme(
             ui::Node::leaf(id)
                 .with_text_field(field.clone())
                 .with_label(label)
-                .with_interactivity(interactivity),
+                .with_interactivity(interactivity)
+                .with_cursor(cursor),
             theme,
         ),
         theme,

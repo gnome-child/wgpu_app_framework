@@ -73,6 +73,21 @@ impl WindowState {
         })
     }
 
+    pub fn cursor_for_hovered(&self) -> ui::Cursor {
+        let Some(composition) = self.composition.as_ref() else {
+            return ui::Cursor::Default;
+        };
+
+        if let Some(capture) = self.pointer_capture.as_ref() {
+            return composition.cursor(capture.target());
+        }
+
+        self.hovered
+            .as_ref()
+            .map(|path| composition.cursor(path))
+            .unwrap_or_default()
+    }
+
     pub fn widget_hit(&self, position: point::Logical) -> Option<widget::Hit> {
         self.composition
             .as_ref()?
@@ -1053,6 +1068,31 @@ mod tests {
         state
     }
 
+    fn state_from_tree(root: ui::Node) -> WindowState {
+        let window = window::Id::new(1);
+        let mut tree = ui::Tree::new();
+        let mut registry = action::Registry::<()>::new();
+        let mut text_engine = text::Engine::new();
+
+        tree.set_root(root);
+        let composition = tree
+            .compose(
+                window,
+                area::logical(200.0, 80.0),
+                &mut registry,
+                &action::Context::window(window),
+                None,
+                None,
+                &mut text_engine,
+            )
+            .expect("tree should compose");
+
+        WindowState {
+            composition: Some(composition),
+            ..WindowState::default()
+        }
+    }
+
     #[test]
     fn hover_changes_emit_leave_then_enter() {
         let mut state = WindowState {
@@ -1071,6 +1111,67 @@ mod tests {
                 }
             ]
         );
+    }
+
+    #[test]
+    fn cursor_for_hovered_resolves_hovered_node_cursor() {
+        let root = ui::Node::container(ROOT, crate::layout::Axis::Vertical)
+            .with_child(
+                widget::text_field(CHILD, text::Buffer::from_text("Editable")).with_size(
+                    crate::layout::Size::Fixed(120.0),
+                    crate::layout::Size::Fixed(32.0),
+                ),
+            )
+            .with_child(widget::button(OUTSIDE, CLICK).with_size(
+                crate::layout::Size::Fixed(120.0),
+                crate::layout::Size::Fixed(32.0),
+            ));
+        let mut state = state_from_tree(root);
+
+        state.hovered = Some(ui::Path::new([ROOT, CHILD]));
+        assert_eq!(state.cursor_for_hovered(), ui::Cursor::Text);
+
+        state.hovered = Some(ui::Path::new([ROOT, OUTSIDE]));
+        assert_eq!(state.cursor_for_hovered(), ui::Cursor::Default);
+    }
+
+    #[test]
+    fn cursor_for_hovered_resolves_default_when_hover_leaves_window() {
+        let mut state =
+            text_field_window_state(text::Buffer::from_text("Editable"), Instant::now());
+
+        state.hovered = Some(path(CHILD));
+        assert_eq!(state.cursor_for_hovered(), ui::Cursor::Text);
+
+        state.hovered = None;
+        assert_eq!(state.cursor_for_hovered(), ui::Cursor::Default);
+    }
+
+    #[test]
+    fn cursor_for_hovered_prefers_pointer_capture_target() {
+        let root = ui::Node::container(ROOT, crate::layout::Axis::Vertical)
+            .with_child(
+                widget::text_field(CHILD, text::Buffer::from_text("Editable")).with_size(
+                    crate::layout::Size::Fixed(120.0),
+                    crate::layout::Size::Fixed(32.0),
+                ),
+            )
+            .with_child(widget::button(OUTSIDE, CLICK).with_size(
+                crate::layout::Size::Fixed(120.0),
+                crate::layout::Size::Fixed(32.0),
+            ));
+        let mut state = state_from_tree(root);
+
+        state.hovered = Some(ui::Path::new([ROOT, OUTSIDE]));
+        state.pointer_capture = Some(pointer::Capture::new(
+            ui::Path::new([ROOT, CHILD]),
+            widget::Part::Scroll(widget::scroll::Part::VerticalThumb),
+            pointer::Button::Primary,
+            point::logical(0.0, 0.0),
+            point::logical(0.0, 0.0),
+        ));
+
+        assert_eq!(state.cursor_for_hovered(), ui::Cursor::Text);
     }
 
     #[test]

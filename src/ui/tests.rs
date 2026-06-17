@@ -913,6 +913,15 @@ fn node_with_icon_stores_icon_data() {
 }
 
 #[test]
+fn node_defaults_to_default_cursor_and_stores_cursor_intent() {
+    assert_eq!(Node::leaf(A).cursor(), Cursor::Default);
+    assert_eq!(
+        Node::leaf(A).with_cursor(Cursor::Text).cursor(),
+        Cursor::Text
+    );
+}
+
+#[test]
 fn node_with_backdrop_stores_backdrop_data() {
     let backdrop = Backdrop::new()
         .with_fill(paint::Color::rgba(0.1, 0.2, 0.3, 0.4))
@@ -1098,6 +1107,33 @@ fn tree_collects_command_subject_policies() {
         tree.command_subjects().get(&Path::new([ROOT, A])),
         Some(&CommandSubject::Current)
     );
+}
+
+#[test]
+fn composition_indexes_node_cursors_by_path() {
+    let root = Node::container(ROOT, layout::Axis::Vertical)
+        .with_child(Node::leaf(A).with_cursor(Cursor::Text))
+        .with_child(Node::leaf(B));
+    let mut tree = Tree::new();
+    let mut registry = action::Registry::<()>::new();
+    let mut measurer = text::Engine::new();
+    let window = window::Id::new(1);
+
+    tree.set_root(root);
+    let composition = tree
+        .compose(
+            window,
+            area::logical(100.0, 80.0),
+            &mut registry,
+            &action::Context::window(window),
+            None,
+            None,
+            &mut measurer,
+        )
+        .expect("tree should compose");
+
+    assert_eq!(composition.cursor(&Path::new([ROOT, A])), Cursor::Text);
+    assert_eq!(composition.cursor(&Path::new([ROOT, B])), Cursor::Default);
 }
 
 #[test]
@@ -1943,10 +1979,12 @@ fn visible_focus_on_text_field_emits_outline() {
         &mut scene,
     );
 
-    assert!(scene
-        .items()
-        .iter()
-        .any(|item| matches!(item, paint::Item::Outline(_))));
+    assert!(
+        scene
+            .items()
+            .iter()
+            .any(|item| matches!(item, paint::Item::Outline(_)))
+    );
 }
 
 #[test]

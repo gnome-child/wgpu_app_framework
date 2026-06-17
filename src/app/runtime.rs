@@ -35,6 +35,7 @@ pub struct Runtime<A: Application> {
     sender: Sender<A::Event>,
     animation_schedules: HashMap<window::Id, animation::Schedule>,
     last_frames: HashMap<window::Id, Instant>,
+    cursors: HashMap<window::Id, ui::Cursor>,
     started: bool,
     error: Option<Error>,
 }
@@ -53,6 +54,7 @@ impl<A: Application> Runtime<A> {
             sender,
             animation_schedules: HashMap::new(),
             last_frames: HashMap::new(),
+            cursors: HashMap::new(),
             started: false,
             error: None,
         }
@@ -242,6 +244,7 @@ impl<A: Application> Runtime<A> {
             frame,
         );
         self.sync_ime_for_window(window);
+        self.sync_cursor_for_window(window);
 
         let Some(native_window) = self.windows.get_mut(window) else {
             return;
@@ -267,6 +270,7 @@ impl<A: Application> Runtime<A> {
         self.window_states.remove(&window);
         self.animation_schedules.remove(&window);
         self.last_frames.remove(&window);
+        self.cursors.remove(&window);
 
         if self.windows.is_empty() {
             event_loop.exit();
@@ -288,6 +292,7 @@ impl<A: Application> Runtime<A> {
             self.windows.request_redraw(window);
         }
 
+        self.sync_cursor_for_window(window);
         self.dispatch_ui_events(event_loop, window, outcome.events);
 
         if let Some((_, intent)) = outcome.intent {
@@ -337,6 +342,7 @@ impl<A: Application> Runtime<A> {
             self.windows.request_redraw(window);
         }
         self.sync_ime_for_window(window);
+        self.sync_cursor_for_window(window);
     }
 
     fn mouse_wheel(
@@ -478,6 +484,26 @@ impl<A: Application> Runtime<A> {
         }
     }
 
+    fn sync_cursor_for_window(&mut self, window: window::Id) {
+        let cursor = self
+            .window_states
+            .get(&window)
+            .map(WindowState::cursor_for_hovered)
+            .unwrap_or_default();
+
+        let Some(native_window) = self.windows.get(window) else {
+            self.cursors.remove(&window);
+            return;
+        };
+
+        if self.cursors.get(&window).copied() == Some(cursor) {
+            return;
+        }
+
+        native_window.set_cursor(cursor);
+        self.cursors.insert(window, cursor);
+    }
+
     fn dispatch_ui_events(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -601,6 +627,7 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
                     self.windows.request_redraw(window);
                 }
 
+                self.sync_cursor_for_window(window);
                 self.dispatch_ui_events(event_loop, window, outcome.events);
             }
             WindowEvent::MouseInput { state, button, .. } => {

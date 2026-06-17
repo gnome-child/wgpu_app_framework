@@ -7,7 +7,8 @@ use crate::widget::menu;
 use crate::{action, paint, text, widget, window};
 
 use super::{
-    CommandSubject, Frame, Intent, Interaction, Interactivity, Node, Path, layout_engine, painting,
+    CommandSubject, Cursor, Frame, Intent, Interaction, Interactivity, Node, Path, layout_engine,
+    painting,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -31,6 +32,7 @@ pub struct Composition {
     command_scopes: Vec<Path>,
     text_fields: HashMap<Path, text::Field>,
     interactivity: HashMap<Path, Interactivity>,
+    cursors: HashMap<Path, Cursor>,
     widget_metrics: HashMap<Path, widget::Metrics>,
     focus_order: Vec<Path>,
 }
@@ -421,6 +423,7 @@ impl Composition {
             command_scopes: index.command_scopes,
             text_fields: index.text_fields,
             interactivity: index.interactivity,
+            cursors: index.cursors,
             widget_metrics,
             focus_order,
         }
@@ -588,8 +591,12 @@ impl Composition {
             .and_then(text::Document::first_style)
             .unwrap_or_default();
         let current = states.get(focused).cloned().unwrap_or_default();
-        let next =
-            text_engine.text_field_reveal_scroll_for_field(field, style, rect.area, current.clone());
+        let next = text_engine.text_field_reveal_scroll_for_field(
+            field,
+            style,
+            rect.area,
+            current.clone(),
+        );
 
         if next != current {
             states.insert(focused.clone(), next);
@@ -605,6 +612,10 @@ impl Composition {
 
     pub fn interactivity_map(&self) -> &HashMap<Path, Interactivity> {
         &self.interactivity
+    }
+
+    pub fn cursor(&self, path: &Path) -> Cursor {
+        self.cursors.get(path).copied().unwrap_or_default()
     }
 
     pub fn widget_metrics(&self, path: &Path) -> Option<widget::Metrics> {
@@ -708,6 +719,7 @@ impl Composition {
             command_scopes,
             text_fields: HashMap::new(),
             interactivity,
+            cursors: HashMap::new(),
             widget_metrics,
             focus_order,
         }
@@ -724,6 +736,7 @@ struct TreeIndex {
     command_scopes: Vec<Path>,
     text_fields: HashMap<Path, text::Field>,
     interactivity: HashMap<Path, Interactivity>,
+    cursors: HashMap<Path, Cursor>,
 }
 
 impl TreeIndex {
@@ -758,6 +771,7 @@ impl TreeIndex {
 
         self.interactivity
             .insert(path.clone(), node.interactivity());
+        self.cursors.insert(path.clone(), node.cursor());
 
         for child in node.children() {
             self.collect_node(child, &path.child(child.id()));

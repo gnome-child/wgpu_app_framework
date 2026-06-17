@@ -353,6 +353,7 @@ mod tests {
             theme.text().label_size()
         );
         assert_eq!(node.style().label_color(), Some(theme.text().primary()));
+        assert_eq!(node.cursor(), ui::Cursor::Default);
         assert_eq!(node.layout().width(), layout::Size::Fit);
         assert_eq!(
             node.layout().height(),
@@ -405,6 +406,7 @@ mod tests {
         assert!(node.interactivity().hit_test());
         assert!(node.interactivity().focusable());
         assert!(!node.interactivity().actionable());
+        assert_eq!(node.cursor(), ui::Cursor::Text);
         assert!(node.responders().contains(&action::SELECT_ALL));
         assert!(node.responders().contains(&action::INSERT_TEXT));
     }
@@ -436,6 +438,7 @@ mod tests {
 
         assert!(node.interactivity().hit_test());
         assert!(node.interactivity().focusable());
+        assert_eq!(node.cursor(), ui::Cursor::Text);
         assert!(node.responders().contains(&action::SELECT_ALL));
         assert!(node.responders().contains(&action::COPY));
         assert!(!node.responders().contains(&action::CUT));
@@ -453,6 +456,7 @@ mod tests {
 
         assert!(node.interactivity().hit_test());
         assert!(!node.interactivity().focusable());
+        assert_eq!(node.cursor(), ui::Cursor::Default);
         assert!(node.responders().is_empty());
     }
 

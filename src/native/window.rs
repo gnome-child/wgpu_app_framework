@@ -1,12 +1,16 @@
 use std::sync::Arc;
 
 use winit::dpi::{LogicalPosition, LogicalSize};
-use winit::{event_loop::ActiveEventLoop, window::WindowAttributes};
+use winit::{
+    event_loop::ActiveEventLoop,
+    window::{CursorIcon, WindowAttributes},
+};
 
 use crate::geometry::Rect;
 use crate::geometry::area;
 use crate::native;
 use crate::render;
+use crate::ui;
 
 pub type Handle = Arc<winit::window::Window>;
 
@@ -73,6 +77,15 @@ impl Window {
                 rect.area.height().max(1.0) as f64,
             ),
         );
+    }
+
+    pub fn set_cursor(&self, cursor: ui::Cursor) {
+        let icon = match cursor {
+            ui::Cursor::Default => CursorIcon::Default,
+            ui::Cursor::Text => CursorIcon::Text,
+        };
+
+        self.handle.set_cursor(icon);
     }
 
     pub fn canvas(&self) -> &render::Canvas {

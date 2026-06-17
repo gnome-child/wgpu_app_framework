@@ -11,6 +11,7 @@ pub struct Node {
     layout: Layout,
     style: Style,
     interactivity: Interactivity,
+    cursor: Cursor,
     intent: Option<Intent>,
     action: Option<action::Id>,
     command_subject: CommandSubject,
@@ -84,6 +85,13 @@ pub struct Interactivity {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Cursor {
+    #[default]
+    Default,
+    Text,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum CommandSubject {
     #[default]
     Origin,
@@ -122,6 +130,7 @@ impl Node {
             layout: Layout::default(),
             style: Style::default(),
             interactivity: Interactivity::default(),
+            cursor: Cursor::default(),
             intent: None,
             action: None,
             command_subject: CommandSubject::default(),
@@ -161,6 +170,10 @@ impl Node {
 
     pub fn interactivity(&self) -> Interactivity {
         self.interactivity
+    }
+
+    pub fn cursor(&self) -> Cursor {
+        self.cursor
     }
 
     pub fn action(&self) -> Option<action::Id> {
@@ -460,6 +473,11 @@ impl Node {
 
     pub fn with_interactivity(mut self, interactivity: Interactivity) -> Self {
         self.interactivity = interactivity;
+        self
+    }
+
+    pub fn with_cursor(mut self, cursor: Cursor) -> Self {
+        self.cursor = cursor;
         self
     }
 
