@@ -1,4 +1,4 @@
-use crate::{geometry, layout, paint};
+use crate::{geometry, layout, paint, text};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Theme {
@@ -387,6 +387,41 @@ impl Text {
     pub fn icon_size(self) -> f32 {
         self.icon_size
     }
+
+    pub fn style(self, role: text::Role) -> text::Style {
+        text::Style::default()
+            .with_size(self.size_for_role(role))
+            .with_color(self.color_for_role(role))
+    }
+
+    pub fn document(
+        self,
+        role: text::Role,
+        label: impl Into<String>,
+        color: paint::Color,
+    ) -> text::Document {
+        let mut block = text::Block::new(text::Align::Start);
+        block.push_run(text::Run::new(label, self.style(role).with_color(color)));
+        text::Document::from_block(block)
+    }
+
+    fn size_for_role(self, role: text::Role) -> f32 {
+        match role {
+            text::Role::Body => self.body_size,
+            text::Role::Label => self.label_size,
+            text::Role::Control | text::Role::Placeholder => self.control_size,
+            text::Role::Menu => self.menu_size,
+        }
+    }
+
+    fn color_for_role(self, role: text::Role) -> paint::Color {
+        match role {
+            text::Role::Placeholder => self.disabled,
+            text::Role::Body | text::Role::Label | text::Role::Control | text::Role::Menu => {
+                self.primary
+            }
+        }
+    }
 }
 
 impl Density {
@@ -689,6 +724,36 @@ mod tests {
 
         assert_eq!(theme.density().menu_row_height(), 22.0);
         assert_eq!(theme.text().menu_size(), 13.0);
+    }
+
+    #[test]
+    fn text_roles_resolve_to_theme_metrics() {
+        let theme = Theme::default_dark();
+        let text = theme.text();
+
+        assert_eq!(text.style(text::Role::Body).size(), text.body_size());
+        assert_eq!(text.style(text::Role::Control).size(), text.control_size());
+        assert_eq!(text.style(text::Role::Menu).size(), text.menu_size());
+        assert_eq!(text.style(text::Role::Label).size(), text.label_size());
+        assert_eq!(
+            text.style(text::Role::Placeholder).size(),
+            text.control_size()
+        );
+        assert_eq!(text.style(text::Role::Placeholder).color(), text.disabled());
+    }
+
+    #[test]
+    fn text_role_document_uses_role_size_and_requested_color() {
+        let theme = Theme::default_dark();
+        let document =
+            theme
+                .text()
+                .document(text::Role::Control, "Control", theme.text().secondary());
+        let run = &document.blocks()[0].runs()[0];
+
+        assert_eq!(run.text(), "Control");
+        assert_eq!(run.style().size(), theme.text().control_size());
+        assert_eq!(run.style().color(), theme.text().secondary());
     }
 
     #[test]

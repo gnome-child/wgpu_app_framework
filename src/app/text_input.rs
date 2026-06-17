@@ -2,19 +2,42 @@ use crate::{action, text, ui, window};
 
 use super::state::WindowState;
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Session {
+    target: Option<ui::Path>,
+}
+
+impl Session {
+    pub fn target(&self) -> Option<&ui::Path> {
+        self.target.as_ref()
+    }
+
+    fn set_target(&mut self, target: Option<ui::Path>) -> bool {
+        if self.target == target {
+            return false;
+        }
+
+        self.target = target;
+        true
+    }
+}
+
+pub fn sync_session(state: &mut WindowState) -> bool {
+    let target = resolve_session_target(state);
+
+    state.text_input_session.set_target(target)
+}
+
 pub fn editing_target(state: &WindowState) -> Option<ui::Path> {
     state
-        .composition
-        .as_ref()?
-        .text_fields()
-        .keys()
-        .find(|path| is_editing_target(state, path))
+        .text_input_session
+        .target()
+        .filter(|target| state.is_selectable_text_field(target))
         .cloned()
 }
 
 pub fn is_editing_target(state: &WindowState, target: &ui::Path) -> bool {
-    state.is_selectable_text_field(target)
-        && (state.focused_path().as_ref() == Some(target) || state.focus.restores_to(target))
+    state.text_input_session.target() == Some(target) && state.is_selectable_text_field(target)
 }
 
 pub fn command_state(
@@ -42,16 +65,20 @@ pub fn can_apply_command(
     }
 
     match command {
-        text::Command::Undo => field.is_editable()
-            && state
-                .text_field_states
-                .get(target)
-                .is_some_and(text::TextFieldState::can_undo),
-        text::Command::Redo => field.is_editable()
-            && state
-                .text_field_states
-                .get(target)
-                .is_some_and(text::TextFieldState::can_redo),
+        text::Command::Undo => {
+            field.is_editable()
+                && state
+                    .text_field_states
+                    .get(target)
+                    .is_some_and(text::TextFieldState::can_undo)
+        }
+        text::Command::Redo => {
+            field.is_editable()
+                && state
+                    .text_field_states
+                    .get(target)
+                    .is_some_and(text::TextFieldState::can_redo)
+        }
         other => command_would_do_work(field, other),
     }
 }
@@ -86,6 +113,18 @@ pub fn publish_action_states<T>(
     changed
 }
 
+pub fn command_for_action(action: action::Id) -> Option<text::Command> {
+    match action {
+        action::SELECT_ALL => Some(text::Command::SelectAll),
+        action::COPY => Some(text::Command::Copy),
+        action::CUT => Some(text::Command::Cut),
+        action::PASTE => Some(text::Command::Paste),
+        action::UNDO => Some(text::Command::Undo),
+        action::REDO => Some(text::Command::Redo),
+        _ => None,
+    }
+}
+
 fn command_would_do_work(field: &text::Field, command: text::Command) -> bool {
     let buffer = field.buffer();
 
@@ -108,6 +147,34 @@ fn command_would_do_work(field: &text::Field, command: text::Command) -> bool {
     }
 }
 
+fn resolve_session_target(state: &WindowState) -> Option<ui::Path> {
+    if let Some(path) = state
+        .focused_path()
+        .filter(|path| state.is_selectable_text_field(path))
+    {
+        return Some(path);
+    }
+
+    if let Some(target) = state
+        .text_input_session
+        .target()
+        .filter(|target| state.is_selectable_text_field(target))
+        && state
+            .focused_path()
+            .is_some_and(|path| state.focus_preserves_text_input_session(&path))
+    {
+        return Some(target.clone());
+    }
+
+    state
+        .composition
+        .as_ref()?
+        .text_fields()
+        .keys()
+        .find(|path| state.focus.restores_to(path) && state.is_selectable_text_field(path))
+        .cloned()
+}
+
 #[cfg(test)]
 mod tests {
     use glyphon::cosmic_text::Motion;
@@ -115,16 +182,29 @@ mod tests {
     use crate::app::focus;
     use crate::app::state::{Focus, FocusState};
     use crate::geometry::area;
+    use crate::widget::menu;
     use crate::{Action, layout, widget};
 
     use super::*;
 
     const FIELD: ui::Id = ui::Id::new("field");
+    const OTHER_FIELD: ui::Id = ui::Id::new("other_field");
+    const ROOT: ui::Id = ui::Id::new("root");
+    const MENU_BAR: ui::Id = ui::Id::new("menu_bar");
     const MENU_POPUP: ui::Id = ui::Id::new("menu_popup");
+    const FILE: menu::Id = menu::Id::new("file");
     const SELECT_ALL: action::Id = action::SELECT_ALL;
 
     fn path(id: ui::Id) -> ui::Path {
         ui::Path::from(id)
+    }
+
+    fn child_path(id: ui::Id) -> ui::Path {
+        ui::Path::new(vec![ROOT, id])
+    }
+
+    fn menu_title_path(menu: menu::Id) -> ui::Path {
+        ui::Path::new(vec![ROOT, MENU_BAR, ui::Id::new(menu.as_str())])
     }
 
     fn window() -> window::Id {
@@ -171,7 +251,7 @@ mod tests {
             )
             .expect("text field tree should compose");
 
-        WindowState {
+        let mut state = WindowState {
             composition: Some(composition),
             focus: if focused {
                 FocusState::focused(Focus::new(
@@ -183,7 +263,9 @@ mod tests {
                 FocusState::default()
             },
             ..WindowState::default()
-        }
+        };
+        sync_session(&mut state);
+        state
     }
 
     fn state_with_open_menu(buffer: text::Buffer) -> WindowState {
@@ -197,8 +279,102 @@ mod tests {
             ui::focus::Reason::Keyboard,
             ui::focus::Visibility::Visible,
         ));
+        sync_session(&mut state);
 
         state
+    }
+
+    fn two_field_state(focused: ui::Id) -> WindowState {
+        let mut tree = ui::Tree::new();
+        let mut registry = action::Registry::<()>::new();
+        let mut text_engine = text::Engine::new();
+
+        tree.set_root(
+            ui::Node::container(ROOT, layout::Axis::Vertical)
+                .with_child(
+                    widget::text_field(FIELD, text::Buffer::from_text("first"))
+                        .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(32.0)),
+                )
+                .with_child(
+                    widget::text_field(OTHER_FIELD, text::Buffer::from_text("second"))
+                        .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(32.0)),
+                ),
+        );
+        let composition = tree
+            .compose(
+                window(),
+                area::logical(120.0, 64.0),
+                &mut registry,
+                &action::Context::window(window()),
+                None,
+                None,
+                &mut text_engine,
+            )
+            .expect("two-field tree should compose");
+
+        let mut state = WindowState {
+            composition: Some(composition),
+            focus: FocusState::focused(Focus::new(
+                child_path(focused),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            ..WindowState::default()
+        };
+        sync_session(&mut state);
+        state
+    }
+
+    fn two_field_menu_state(focused: ui::Id) -> (WindowState, action::Registry<()>) {
+        let mut tree = ui::Tree::new();
+        let mut registry = action::Registry::<()>::new();
+        let mut text_engine = text::Engine::new();
+
+        registry.register(Action::new(SELECT_ALL, "Select All"));
+        tree.set_root(
+            ui::Node::container(ROOT, layout::Axis::Vertical)
+                .with_child(widget::menu_bar(
+                    MENU_BAR,
+                    menu::Bar::new().menu(
+                        menu::Menu::new(FILE, "File")
+                            .section(menu::Section::new().item(menu::Item::new(SELECT_ALL))),
+                    ),
+                ))
+                .with_child(
+                    widget::text_field(FIELD, text::Buffer::from_text("first"))
+                        .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(32.0)),
+                )
+                .with_child(
+                    widget::text_field(OTHER_FIELD, text::Buffer::from_text("second"))
+                        .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(32.0)),
+                ),
+        );
+        let composition = tree
+            .compose(
+                window(),
+                area::logical(200.0, 96.0),
+                &mut registry,
+                &action::Context::window(window()),
+                None,
+                None,
+                &mut text_engine,
+            )
+            .expect("two-field menu tree should compose");
+
+        let mut state = WindowState {
+            composition: Some(composition),
+            focus: FocusState::focused(Focus::new(
+                child_path(focused),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            command_subject: Some(action::Scope::Path(child_path(focused))),
+            ..WindowState::default()
+        };
+        sync_session(&mut state);
+        publish_action_states(&state, &mut registry, window());
+
+        (state, registry)
     }
 
     #[test]
@@ -240,7 +416,10 @@ mod tests {
 
     #[test]
     fn selected_read_only_field_enables_copy_only_for_selected_text() {
-        let state = state(text::Field::new(buffer_with_partial_selection()).read_only(), true);
+        let state = state(
+            text::Field::new(buffer_with_partial_selection()).read_only(),
+            true,
+        );
 
         assert!(command_state(&state, &path(FIELD), text::Command::Copy).is_enabled());
         assert!(!command_state(&state, &path(FIELD), text::Command::Cut).is_enabled());
@@ -261,7 +440,10 @@ mod tests {
 
     #[test]
     fn disabled_field_disables_all_text_commands() {
-        let state = state(text::Field::new(buffer_with_partial_selection()).disabled(), false);
+        let state = state(
+            text::Field::new(buffer_with_partial_selection()).disabled(),
+            false,
+        );
 
         for command in [
             text::Command::SelectAll,
@@ -327,6 +509,69 @@ mod tests {
 
         assert_eq!(editing_target(&state), Some(path(FIELD)));
         assert!(command_state(&state, &path(FIELD), text::Command::SelectAll).is_enabled());
+    }
+
+    #[test]
+    fn focus_move_changes_session_target() {
+        let mut state = two_field_state(FIELD);
+
+        assert_eq!(editing_target(&state), Some(child_path(FIELD)));
+
+        assert!(state.set_focus(
+            child_path(OTHER_FIELD),
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible,
+        ));
+
+        assert_eq!(editing_target(&state), Some(child_path(OTHER_FIELD)));
+    }
+
+    #[test]
+    fn stale_command_subject_cannot_override_text_session() {
+        let mut state = two_field_state(OTHER_FIELD);
+        state.command_subject = Some(action::Scope::Path(child_path(FIELD)));
+
+        assert_eq!(editing_target(&state), Some(child_path(OTHER_FIELD)));
+        assert_eq!(
+            state.command_context(window()),
+            action::Context::path(window(), child_path(OTHER_FIELD))
+        );
+        assert!(!command_state(&state, &child_path(FIELD), text::Command::SelectAll).is_enabled());
+        assert!(
+            command_state(&state, &child_path(OTHER_FIELD), text::Command::SelectAll).is_enabled()
+        );
+    }
+
+    #[test]
+    fn closed_menu_title_focus_does_not_leave_stale_text_restore_scope() {
+        let (mut state, registry) = two_field_menu_state(FIELD);
+        let menu_title = menu_title_path(FILE);
+
+        assert!(state.set_focus(
+            menu_title.clone(),
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible,
+        ));
+        assert_eq!(editing_target(&state), Some(child_path(FIELD)));
+        assert!(!state.focus.restores_to(&child_path(FIELD)));
+
+        assert!(state.set_focus(
+            child_path(OTHER_FIELD),
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible,
+        ));
+        assert_eq!(editing_target(&state), Some(child_path(OTHER_FIELD)));
+
+        assert!(state.set_focus(
+            menu_title,
+            ui::focus::Reason::Keyboard,
+            ui::focus::Visibility::Visible,
+        ));
+        assert_eq!(editing_target(&state), Some(child_path(OTHER_FIELD)));
+
+        assert!(state.toggle_menu(FILE, &registry, window()));
+        assert!(state.focus.restores_to(&child_path(OTHER_FIELD)));
+        assert!(!state.focus.restores_to(&child_path(FIELD)));
     }
 
     #[test]

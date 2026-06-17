@@ -11,9 +11,15 @@ pub fn text_with_theme(
     label: impl Into<text::Document>,
     theme: &theme::Theme,
 ) -> ui::Node {
+    let style = theme.text().style(text::Role::Label);
     foundation::content_colors(
         ui::Node::leaf(id)
-            .with_label(label.into().with_color(theme.text().primary()))
+            .with_label(
+                label
+                    .into()
+                    .with_size(style.size())
+                    .with_color(style.color()),
+            )
             .with_size(
                 layout::Size::Fit,
                 layout::Size::Fixed(theme.density().label_height()),
@@ -31,9 +37,15 @@ pub fn paragraph_with_theme(
     label: impl Into<text::Document>,
     theme: &theme::Theme,
 ) -> ui::Node {
+    let style = theme.text().style(text::Role::Body);
     foundation::content_colors(
         ui::Node::leaf(id)
-            .with_label(label.into().with_color(theme.text().primary()))
+            .with_label(
+                label
+                    .into()
+                    .with_size(style.size())
+                    .with_color(style.color()),
+            )
             .with_size(layout::Size::Fill, layout::Size::Fit),
         theme,
     )
@@ -50,6 +62,7 @@ pub fn text_field_with_theme(
 ) -> ui::Node {
     let field = field.into();
     let label = text_field_document(&field, theme);
+    let outline = theme.control().focus_outline();
     let mut interactivity = ui::Interactivity::NONE.with_hit_test(true);
     if field.is_selectable() {
         interactivity = interactivity.with_focusable(true);
@@ -64,7 +77,8 @@ pub fn text_field_with_theme(
             theme,
         ),
         theme,
-    );
+    )
+    .with_focus_outline(outline.brush(), outline.width(), outline.offset());
 
     if field.is_editable() {
         node = node
@@ -81,8 +95,7 @@ pub fn text_field_with_theme(
             .with_responder(action::COPY);
     }
 
-    node
-    .with_padding(layout::Insets {
+    node.with_padding(layout::Insets {
         left: theme.density().app_padding(),
         top: 0.0,
         right: theme.density().app_padding(),
@@ -94,7 +107,11 @@ fn text_field_document(field: &text::Field, theme: &theme::Theme) -> text::Docum
     if field.buffer().is_empty()
         && let Some(placeholder) = field.placeholder()
     {
-        return placeholder.clone().with_color(theme.text().disabled());
+        return theme.text().document(
+            text::Role::Placeholder,
+            placeholder,
+            theme.text().disabled(),
+        );
     }
 
     let color = if field.is_disabled() {
@@ -102,13 +119,7 @@ fn text_field_document(field: &text::Field, theme: &theme::Theme) -> text::Docum
     } else {
         theme.text().primary()
     };
-    let mut block = text::Block::new(text::Align::Start);
-    block.push_run(text::Run::new(
-        field.presentation_text(),
-        text::Style::default()
-            .with_size(theme.text().control_size())
-            .with_color(color),
-    ));
-
-    text::Document::from_block(block)
+    theme
+        .text()
+        .document(text::Role::Control, field.presentation_text(), color)
 }

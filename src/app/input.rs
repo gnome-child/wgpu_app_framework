@@ -197,11 +197,20 @@ pub fn pointer_released<T>(
     let request = invoke_target.and_then(|target| {
         activation_request(registry, state, window, target, action::Source::Pointer)
     });
+    let menu_restore_visibility =
+        request
+            .as_ref()
+            .and_then(|request| match request.target().scope() {
+                action::Scope::Path(target) => {
+                    Some(state.focus_visibility_for_activation(target, action::Source::Pointer))
+                }
+                action::Scope::Window => Some(ui::focus::Visibility::Hidden),
+            });
     let closed_menu = request
         .as_ref()
         .and_then(action::Request::origin)
         .is_some_and(|origin| state.is_menu_path(origin))
-        && state.close_menu_with_focus_visibility(Some(ui::focus::Visibility::Hidden));
+        && state.close_menu_with_focus_visibility(menu_restore_visibility);
     let restored_focus = request.as_ref().is_some_and(|request| {
         restore_action_target_focus(state, request, action::Source::Pointer)
     });
@@ -590,10 +599,7 @@ fn restore_action_target_focus(
         return false;
     }
 
-    let visibility = match source {
-        action::Source::Keyboard => ui::focus::Visibility::Visible,
-        _ => ui::focus::Visibility::Hidden,
-    };
+    let visibility = state.focus_visibility_for_activation(target, source);
 
     state.set_focus(target.clone(), ui::focus::Reason::Programmatic, visibility)
 }
@@ -939,12 +945,10 @@ mod tests {
         let mut registry = action::Registry::<()>::new();
         let mut measurer = crate::text::Engine::new();
 
-        tree.set_root(
-            widget::text_field(CHILD, field).with_size(
-                crate::layout::Size::Fixed(100.0),
-                crate::layout::Size::Fixed(24.0),
-            ),
-        );
+        tree.set_root(widget::text_field(CHILD, field).with_size(
+            crate::layout::Size::Fixed(100.0),
+            crate::layout::Size::Fixed(24.0),
+        ));
 
         let composition = tree
             .compose(
@@ -994,7 +998,7 @@ mod tests {
             )
             .expect("text field tree should compose");
 
-        let state = WindowState {
+        let mut state = WindowState {
             composition: Some(composition),
             focus: FocusState::focused(Focus::new(
                 path(CHILD),
@@ -1003,6 +1007,7 @@ mod tests {
             )),
             ..WindowState::default()
         };
+        crate::app::text_input::sync_session(&mut state);
         crate::app::text_input::publish_action_states(&state, registry, window);
         state
     }
@@ -1077,6 +1082,7 @@ mod tests {
         };
         state.update_command_scope_captures(window);
         state.sync_menu_focus_scopes();
+        crate::app::text_input::sync_session(&mut state);
         state
     }
 
@@ -1374,7 +1380,7 @@ mod tests {
 
         assert_eq!(state.open_menu, None);
         assert_eq!(state.focused_path(), Some(field.clone()));
-        assert_eq!(state.focus_visibility(), ui::focus::Visibility::Hidden);
+        assert_eq!(state.focus_visibility(), ui::focus::Visibility::Visible);
         assert_eq!(
             outcome.request.as_ref().map(action::Request::target),
             Some(&action::Context::path(window, field))
@@ -1433,7 +1439,7 @@ mod tests {
         );
 
         assert_eq!(state.focused_path(), Some(field.clone()));
-        assert_eq!(state.focus_visibility(), ui::focus::Visibility::Hidden);
+        assert_eq!(state.focus_visibility(), ui::focus::Visibility::Visible);
         assert_eq!(
             outcome.request.as_ref().map(action::Request::target),
             Some(&action::Context::path(window, field))
@@ -1536,10 +1542,12 @@ mod tests {
             false,
         );
 
-        assert!(!outcome
-            .events
-            .iter()
-            .any(|event| matches!(event, ui::Event::TextEditRequested { .. })));
+        assert!(
+            !outcome
+                .events
+                .iter()
+                .any(|event| matches!(event, ui::Event::TextEditRequested { .. }))
+        );
     }
 
     #[test]
@@ -2474,7 +2482,8 @@ mod tests {
         registry.register(
             Action::new(action::UNDO, "Undo").with_shortcut(action::Shortcut::control('z')),
         );
-        let result = engine.apply_text_edit_with_result(&mut buffer, crate::text::Edit::insert("!"));
+        let result =
+            engine.apply_text_edit_with_result(&mut buffer, crate::text::Edit::insert("!"));
         let mut state = text_field_state_with_registry(buffer, &mut registry);
         state.record_text_field_history(
             &path(CHILD),
@@ -2513,7 +2522,8 @@ mod tests {
                 .with_shortcut(action::Shortcut::control_shift('z'))
                 .with_shortcut(action::Shortcut::control('y')),
         );
-        let result = engine.apply_text_edit_with_result(&mut buffer, crate::text::Edit::insert("!"));
+        let result =
+            engine.apply_text_edit_with_result(&mut buffer, crate::text::Edit::insert("!"));
         let mut state = text_field_state_with_registry(buffer.clone(), &mut registry);
         state.record_text_field_history(
             &path(CHILD),

@@ -58,8 +58,9 @@ pub fn labeled_button_with_theme(
     let mut block = text::Block::new(text::Align::Center);
     block.push_run(text::Run::new(
         label,
-        text::Style::default()
-            .with_size(theme.text().control_size())
+        theme
+            .text()
+            .style(text::Role::Control)
             .with_color(theme.text().primary()),
     ));
 

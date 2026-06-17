@@ -13,6 +13,7 @@ pub fn compose<T>(
     frame: animation::Frame,
 ) -> paint::Scene {
     let mut scene = paint::Scene::new();
+    text_input::sync_session(state);
     let command_subject = state.command_context(window);
 
     if let Some(composition) = tree.compose(
@@ -30,6 +31,7 @@ pub fn compose<T>(
         state.sync_menu_focus_scopes();
         state.clear_stale_focus();
         state.clear_stale_command_subject();
+        text_input::sync_session(state);
         state.update_command_scope_captures(window);
         state.sync_text_field_states(text_engine);
         text_input::publish_action_states(state, actions, window);
@@ -62,6 +64,7 @@ pub fn compose<T>(
         }
     } else {
         state.composition = None;
+        text_input::sync_session(state);
         state.sync_text_field_states(text_engine);
         state.clear_focus();
         state.clear_command_subject();

@@ -478,7 +478,14 @@ fn resolved_text_field_label(
         }
 
         if let Some(placeholder) = field.placeholder() {
-            return Some(placeholder.clone().with_color(disabled_color));
+            let placeholder_style = node
+                .label()
+                .and_then(text::Document::first_style)
+                .unwrap_or_default()
+                .with_color(disabled_color);
+            let mut block = text::Block::new(text::Align::Start);
+            block.push_run(text::Run::new(placeholder, placeholder_style));
+            return Some(text::Document::from_block(block));
         }
     }
 

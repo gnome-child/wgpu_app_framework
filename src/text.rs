@@ -12,6 +12,15 @@ const TEXT_FIELD_CARET_BLINK_INTERVAL: Duration = Duration::from_millis(500);
 pub type Cursor = glyphon::Cursor;
 pub type Selection = glyphon::cosmic_text::Selection;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Role {
+    Body,
+    Label,
+    Control,
+    Menu,
+    Placeholder,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Document {
     blocks: Vec<Block>,
@@ -81,7 +90,7 @@ pub struct Field {
     buffer: Buffer,
     mode: FieldMode,
     obscuring: Obscuring,
-    placeholder: Option<Document>,
+    placeholder: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -229,7 +238,8 @@ impl TextEditResult {
 
     fn from_snapshots(before: BufferSnapshot, after: BufferSnapshot) -> Self {
         let text_changed = before.text != after.text;
-        let selection_changed = before.cursor != after.cursor || before.selection != after.selection;
+        let selection_changed =
+            before.cursor != after.cursor || before.selection != after.selection;
         let change = text_changed.then_some(TextChange { before, after });
 
         Self {
@@ -336,6 +346,16 @@ impl Document {
         self
     }
 
+    pub fn with_size(mut self, size: f32) -> Self {
+        for block in &mut self.blocks {
+            for run in &mut block.runs {
+                run.style = run.style.with_size(size);
+            }
+        }
+
+        self
+    }
+
     pub fn is_empty(&self) -> bool {
         self.blocks.iter().all(Block::is_empty)
     }
@@ -394,7 +414,8 @@ impl Engine {
     }
 
     pub fn apply_text_edit(&mut self, buffer: &mut Buffer, edit: Edit) -> bool {
-        self.apply_text_edit_with_result(buffer, edit).buffer_changed()
+        self.apply_text_edit_with_result(buffer, edit)
+            .buffer_changed()
     }
 
     pub(crate) fn apply_text_edit_with_result(
@@ -626,9 +647,7 @@ impl Engine {
         result.text_changed = before.text != after.text;
         result.selection_changed =
             before.cursor != after.cursor || before.selection != after.selection;
-        let change = result
-            .text_changed
-            .then_some(TextChange { before, after });
+        let change = result.text_changed.then_some(TextChange { before, after });
 
         TextCommandOutcome { result, change }
     }
@@ -1117,8 +1136,8 @@ impl Field {
         self.obscuring
     }
 
-    pub fn placeholder(&self) -> Option<&Document> {
-        self.placeholder.as_ref()
+    pub fn placeholder(&self) -> Option<&str> {
+        self.placeholder.as_deref()
     }
 
     pub fn with_mode(mut self, mode: FieldMode) -> Self {
@@ -1143,7 +1162,7 @@ impl Field {
         self.with_obscuring(Obscuring::Dot)
     }
 
-    pub fn with_placeholder(mut self, placeholder: impl Into<Document>) -> Self {
+    pub fn with_placeholder(mut self, placeholder: impl Into<String>) -> Self {
         self.placeholder = Some(placeholder.into());
         self
     }
@@ -1310,10 +1329,8 @@ impl FieldProjection {
 
                 if let Some((start, end)) = field.buffer.selection_bounds() {
                     buffer.cursor = Self::display_cursor(&source_boundaries, end);
-                    buffer.selection = Selection::Normal(Self::display_cursor(
-                        &source_boundaries,
-                        start,
-                    ));
+                    buffer.selection =
+                        Selection::Normal(Self::display_cursor(&source_boundaries, start));
                 } else {
                     buffer.cursor = Self::display_cursor(&source_boundaries, field.buffer.cursor);
                     buffer.selection = Selection::None;
@@ -1434,7 +1451,11 @@ impl EditHistory {
             return;
         }
 
-        if self.current.as_ref().is_some_and(|current| current != &change.before) {
+        if self
+            .current
+            .as_ref()
+            .is_some_and(|current| current != &change.before)
+        {
             self.undo.clear();
             self.redo.clear();
         }
@@ -2006,6 +2027,20 @@ mod tests {
             document.blocks()[0].runs()[0].style().color(),
             paint::Color::BLACK
         );
+    }
+
+    #[test]
+    fn document_size_can_be_overridden() {
+        let document = Document::plain("Label").with_size(12.5);
+
+        assert_eq!(document.blocks()[0].runs()[0].style().size(), 12.5);
+    }
+
+    #[test]
+    fn plain_document_keeps_raw_default_style() {
+        let document = Document::plain("Label");
+
+        assert_eq!(document.blocks()[0].runs()[0].style(), Style::default());
     }
 
     #[test]

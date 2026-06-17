@@ -1355,12 +1355,9 @@ fn read_only_text_field_paint_omits_caret_even_when_focused() {
 #[test]
 fn empty_text_field_paints_placeholder_until_preedit_starts() {
     let theme = theme::Theme::default_dark();
-    let root = widget::text_field_with_theme(
-        A,
-        text::Field::new("").with_placeholder("Search"),
-        &theme,
-    )
-    .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
+    let root =
+        widget::text_field_with_theme(A, text::Field::new("").with_placeholder("Search"), &theme)
+            .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let registry = action::Registry::<()>::new();
@@ -1393,6 +1390,40 @@ fn empty_text_field_paints_placeholder_until_preedit_starts() {
         placeholder.document.blocks()[0].runs()[0].style().color(),
         theme.text().disabled()
     );
+    let placeholder_size = placeholder.document.blocks()[0].runs()[0].style().size();
+    assert_eq!(placeholder_size, theme.text().control_size());
+
+    let filled_root = widget::text_field_with_theme(
+        A,
+        text::Field::new("Search").with_placeholder("Search"),
+        &theme,
+    )
+    .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
+    let mut filled_tree = Tree::new();
+    let mut filled_scene = paint::Scene::new();
+    filled_tree.set_root(filled_root);
+    let filled_layout = self::layout(&filled_tree);
+    filled_tree.paint_with_text_engine(
+        &filled_layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None),
+        &states,
+        &mut text_engine,
+        &mut filled_scene,
+    );
+    let content = filled_scene
+        .items()
+        .iter()
+        .find_map(|item| match item {
+            paint::Item::Text(text) => Some(text),
+            _ => None,
+        })
+        .expect("content text should paint");
+    assert_eq!(
+        content.document.blocks()[0].runs()[0].style().size(),
+        placeholder_size
+    );
 
     let mut preedit_scene = paint::Scene::new();
     let preedit_states = HashMap::from([(
@@ -1409,10 +1440,12 @@ fn empty_text_field_paints_placeholder_until_preedit_starts() {
         &mut preedit_scene,
     );
 
-    assert!(!preedit_scene
-        .items()
-        .iter()
-        .any(|item| matches!(item, paint::Item::Text(_))));
+    assert!(
+        !preedit_scene
+            .items()
+            .iter()
+            .any(|item| matches!(item, paint::Item::Text(_)))
+    );
 }
 
 #[test]
@@ -1889,6 +1922,31 @@ fn hidden_focus_does_not_emit_outline() {
     );
 
     assert!(matches!(scene.items(), [paint::Item::Quad(_)]));
+}
+
+#[test]
+fn visible_focus_on_text_field_emits_outline() {
+    let root = widget::text_field(A, text::Buffer::from_text("hello"));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None)
+            .with_focus_visibility(focus::Visibility::Visible),
+        &mut scene,
+    );
+
+    assert!(scene
+        .items()
+        .iter()
+        .any(|item| matches!(item, paint::Item::Outline(_))));
 }
 
 #[test]

@@ -61,7 +61,12 @@ pub fn label(id: ui::Id, label: impl Into<String>) -> ui::Node {
 
 pub fn label_with_theme(id: ui::Id, label: impl Into<String>, theme: &theme::Theme) -> ui::Node {
     foundation::content_colors(ui::Node::leaf(id), theme)
-        .with_label(document_with_theme(label, theme, text_model::Align::Center))
+        .with_label(document_with_theme(
+            label,
+            theme,
+            text_model::Align::Center,
+            text_model::Role::Label,
+        ))
         .with_label_color(theme.text().secondary())
         .with_size(
             layout::Size::Fill,
@@ -137,13 +142,14 @@ fn document_with_theme(
     label: impl Into<String>,
     theme: &theme::Theme,
     align: text_model::Align,
+    role: text_model::Role,
 ) -> text_model::Document {
-    foundation::document(
+    let mut block = text_model::Block::new(align);
+    block.push_run(text_model::Run::new(
         label,
-        align,
-        theme.text().menu_size(),
-        theme.text().primary(),
-    )
+        theme.text().style(role).with_color(theme.text().primary()),
+    ));
+    text_model::Document::from_block(block)
 }
 
 fn menu_title(menu: &menu::Menu, theme: &theme::Theme) -> ui::Node {
@@ -157,6 +163,7 @@ fn menu_title(menu: &menu::Menu, theme: &theme::Theme) -> ui::Node {
             menu.label(),
             theme,
             text_model::Align::Center,
+            text_model::Role::Menu,
         ))
         .with_background(theme.menu().title_background())
         .with_hover_tint(theme.menu().title_hover_tint())
@@ -341,6 +348,10 @@ mod tests {
             label.blocks()[0].runs()[0].style().color(),
             theme.text().primary()
         );
+        assert_eq!(
+            label.blocks()[0].runs()[0].style().size(),
+            theme.text().label_size()
+        );
         assert_eq!(node.style().label_color(), Some(theme.text().primary()));
         assert_eq!(node.layout().width(), layout::Size::Fit);
         assert_eq!(
@@ -353,10 +364,27 @@ mod tests {
     fn paragraph_widget_is_fill_width_and_fit_height() {
         let theme = theme::Theme::default_dark();
         let node = paragraph_with_theme(ROOT, "Paragraph text", &theme);
+        let label = node.label().expect("paragraph should store a label");
 
         assert_eq!(node.layout().width(), layout::Size::Fill);
         assert_eq!(node.layout().height(), layout::Size::Fit);
         assert_eq!(node.style().label_color(), Some(theme.text().primary()));
+        assert_eq!(
+            label.blocks()[0].runs()[0].style().size(),
+            theme.text().body_size()
+        );
+    }
+
+    #[test]
+    fn labeled_button_uses_control_typography_role() {
+        let theme = theme::Theme::default_dark();
+        let node = labeled_button_with_theme(ROOT, action::Id::new("button_action"), "Run", &theme);
+        let label = node.label().expect("button should store a label");
+
+        assert_eq!(
+            label.blocks()[0].runs()[0].style().size(),
+            theme.text().control_size()
+        );
     }
 
     #[test]
@@ -365,8 +393,15 @@ mod tests {
         let buffer = text_model::Buffer::from_text("Editable");
         let node = text_field_with_theme(ROOT, buffer.clone(), &theme);
 
-        assert_eq!(node.text_field().map(text_model::Field::buffer), Some(&buffer));
-        assert!(node.label().is_some());
+        assert_eq!(
+            node.text_field().map(text_model::Field::buffer),
+            Some(&buffer)
+        );
+        let label = node.label().expect("text field should store a label");
+        assert_eq!(
+            label.blocks()[0].runs()[0].style().size(),
+            theme.text().control_size()
+        );
         assert!(node.interactivity().hit_test());
         assert!(node.interactivity().focusable());
         assert!(!node.interactivity().actionable());

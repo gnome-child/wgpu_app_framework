@@ -2,8 +2,7 @@ use crate::geometry::{Rect, area, point, rect};
 use crate::{action, icon, layout, paint, text, theme, ui};
 
 use super::{
-    MENU_POPUP, MENU_SUBMENU_POPUP, Popup, floating_panel_with_theme, foundation, menu,
-    separator_with_theme,
+    MENU_POPUP, MENU_SUBMENU_POPUP, Popup, floating_panel_with_theme, menu, separator_with_theme,
 };
 
 const SEPARATOR_LINE_HEIGHT: f32 = 1.0;
@@ -392,7 +391,12 @@ fn document(
     align: text::Align,
     color: paint::Color,
 ) -> text::Document {
-    foundation::document(label, align, theme.text().menu_size(), color)
+    let mut block = text::Block::new(align);
+    block.push_run(text::Run::new(
+        label,
+        theme.text().style(text::Role::Menu).with_color(color),
+    ));
+    text::Document::from_block(block)
 }
 
 fn popup_chrome<T>(
@@ -696,6 +700,14 @@ mod tests {
 
         assert_eq!(label.blocks()[0].align(), text::Align::Start);
         assert_eq!(shortcut.blocks()[0].align(), text::Align::End);
+        assert_eq!(
+            label.blocks()[0].runs()[0].style().size(),
+            theme.text().menu_size()
+        );
+        assert_eq!(
+            shortcut.blocks()[0].runs()[0].style().size(),
+            theme.text().menu_size()
+        );
     }
 
     #[test]

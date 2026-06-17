@@ -6,7 +6,7 @@ use crate::geometry::{Rect, point};
 use crate::widget::menu;
 use crate::{action, pointer, text, ui, widget, window};
 
-use super::{command, focus};
+use super::{command, focus, text_input};
 
 pub use focus::Focus;
 #[cfg(test)]
@@ -29,6 +29,7 @@ pub struct WindowState {
     pub command_scope_captures: HashMap<ui::Path, action::Context>,
     pub pointer_capture: Option<pointer::Capture>,
     pub composition: Option<ui::Composition>,
+    pub text_input_session: text_input::Session,
     pub text_field_states: HashMap<ui::Path, text::TextFieldState>,
     pub last_text_field_click: Option<TextFieldClick>,
     pub text_field_drag: Option<ui::Path>,
@@ -303,12 +304,13 @@ impl WindowState {
             self.text_field_states.clear();
             self.last_text_field_click = None;
             self.text_field_drag = None;
-            return changed;
+            let session_changed = text_input::sync_session(self);
+            return changed || session_changed;
         };
 
         let mut changed = composition.sync_text_field_states(
             &mut self.text_field_states,
-            self.focus.as_ref().map(|focus| &focus.path),
+            self.text_input_session.target(),
             text_engine,
         );
 
@@ -471,11 +473,8 @@ impl WindowState {
         button: pointer::Button,
     ) -> ui::Event {
         if let Some(path) = target.as_ref().filter(|target| self.is_focusable(target)) {
-            self.set_focus(
-                path.clone(),
-                ui::focus::Reason::Pointer,
-                ui::focus::Visibility::Hidden,
-            );
+            let visibility = self.focus_visibility_for_activation(path, action::Source::Pointer);
+            self.set_focus(path.clone(), ui::focus::Reason::Pointer, visibility);
         } else {
             self.clear_focus();
         }
@@ -493,6 +492,20 @@ impl WindowState {
             delta,
             target,
             button,
+        }
+    }
+
+    pub fn focus_visibility_for_activation(
+        &self,
+        target: &ui::Path,
+        source: action::Source,
+    ) -> ui::focus::Visibility {
+        match source {
+            action::Source::Keyboard => ui::focus::Visibility::Visible,
+            action::Source::Pointer if self.is_selectable_text_field(target) => {
+                ui::focus::Visibility::Visible
+            }
+            _ => ui::focus::Visibility::Hidden,
         }
     }
 
@@ -598,9 +611,13 @@ impl WindowState {
     ) -> bool {
         let changed = self.open_submenu.is_some();
         self.open_submenu = None;
-        self.focus
+        let closed = self
+            .focus
             .close_transient(focus::TransientScope::Submenu, visibility)
-            || changed
+            || changed;
+        let session_changed = text_input::sync_session(self);
+
+        closed || session_changed
     }
 
     pub fn close_menu(&mut self) -> bool {
@@ -621,7 +638,9 @@ impl WindowState {
             .focus
             .close_transient(focus::TransientScope::Menu, visibility);
 
-        changed || closed_submenu || closed_menu
+        let session_changed = text_input::sync_session(self);
+
+        changed || closed_submenu || closed_menu || session_changed
     }
 
     pub fn dismiss_menu_for_target(&mut self, target: Option<&ui::Path>) -> bool {
@@ -661,6 +680,14 @@ impl WindowState {
             .any(|id| *id == widget::MENU_SUBMENU_POPUP)
     }
 
+    pub fn focus_preserves_text_input_session(&self, path: &ui::Path) -> bool {
+        self.is_menu_path(path)
+            || matches!(
+                self.command_subject(path),
+                ui::CommandSubject::Current | ui::CommandSubject::Captured
+            )
+    }
+
     pub fn focused_path(&self) -> Option<ui::Path> {
         self.focus.path()
     }
@@ -684,23 +711,30 @@ impl WindowState {
 
         let subject_changed = command::set_subject_from_path(self, &path);
         if self.focus.as_ref() == Some(&focus) {
-            return subject_changed;
+            return subject_changed || text_input::sync_session(self);
         }
 
         self.focus.set(focus);
         self.reset_text_field_caret_blink(&path, Instant::now());
+        text_input::sync_session(self);
         true
     }
 
     pub fn clear_focus(&mut self) -> bool {
-        self.focus.clear()
+        let changed = self.focus.clear();
+        let session_changed = text_input::sync_session(self);
+
+        changed || session_changed
     }
 
     pub fn clear_stale_focus(&mut self) -> bool {
         let focusable = self
             .focused_path()
             .is_some_and(|path| self.is_focusable(&path));
-        self.focus.clear_stale(|_| focusable)
+        let changed = self.focus.clear_stale(|_| focusable);
+        let session_changed = text_input::sync_session(self);
+
+        changed || session_changed
     }
 
     pub fn sync_menu_focus_scopes(&mut self) -> bool {
@@ -750,7 +784,7 @@ impl WindowState {
     }
 
     fn prepare_focus_scope_for_path(&mut self, path: &ui::Path) {
-        if self.is_menu_path(path) {
+        if self.open_menu.is_some() && self.is_dropdown_path(path) {
             self.begin_menu_focus_scope(path.clone());
         }
 
@@ -760,8 +794,16 @@ impl WindowState {
     }
 
     fn begin_menu_focus_scope(&mut self, root: ui::Path) -> bool {
+        let restore = text_input::editing_target(self)
+            .map(|target| {
+                let visibility =
+                    self.focus_visibility_for_activation(&target, action::Source::Pointer);
+                Focus::new(target, ui::focus::Reason::Programmatic, visibility)
+            })
+            .or_else(|| self.focus.as_ref().cloned());
+
         self.focus
-            .begin_transient(focus::TransientScope::Menu, root)
+            .begin_transient_with_restore(focus::TransientScope::Menu, root, restore)
     }
 
     fn begin_submenu_focus_scope(&mut self, root: ui::Path) -> bool {
@@ -856,8 +898,43 @@ impl WindowState {
             );
             let request = self.resolve_request(request);
 
-            registry.can_execute(&request)
+            self.can_execute_menu_action(registry, &request)
         })
+    }
+
+    fn can_execute_menu_action<T>(
+        &self,
+        registry: &action::Registry<T>,
+        request: &action::Request,
+    ) -> bool {
+        let Some(definition) = registry.action(request.action()) else {
+            return false;
+        };
+
+        if !definition.payload().accepts(request.payload()) {
+            return false;
+        }
+
+        if registry
+            .state(request.action(), request.target().clone())
+            .is_busy()
+        {
+            return false;
+        }
+
+        let Some(command) = text_input::command_for_action(request.action()) else {
+            return registry.can_execute(request);
+        };
+
+        let action::Scope::Path(target) = request.target().scope() else {
+            return false;
+        };
+
+        let Some(field) = self.text_field(target) else {
+            return registry.can_execute(request);
+        };
+
+        text_input::can_apply_command(self, target, field, command)
     }
 }
 
@@ -936,13 +1013,13 @@ mod tests {
         }
     }
 
-    fn text_field_window_state(buffer: text::Buffer, epoch: Instant) -> WindowState {
+    fn text_field_window_state(field: impl Into<text::Field>, epoch: Instant) -> WindowState {
         let window = window::Id::new(1);
         let mut tree = ui::Tree::new();
         let mut registry = action::Registry::<()>::new();
         let mut text_engine = text::Engine::new();
 
-        tree.set_root(widget::text_field(CHILD, buffer).with_size(
+        tree.set_root(widget::text_field(CHILD, field).with_size(
             crate::layout::Size::Fixed(120.0),
             crate::layout::Size::Fixed(32.0),
         ));
@@ -959,7 +1036,7 @@ mod tests {
             )
             .expect("text field tree should compose");
 
-        WindowState {
+        let mut state = WindowState {
             focus: FocusState::focused(Focus::new(
                 path(CHILD),
                 ui::focus::Reason::Keyboard,
@@ -971,7 +1048,9 @@ mod tests {
                 text::TextFieldState::new_at(0.0, epoch),
             )]),
             ..WindowState::default()
-        }
+        };
+        text_input::sync_session(&mut state);
+        state
     }
 
     #[test]
@@ -1030,6 +1109,57 @@ mod tests {
                 button: pointer::Button::Primary
             }
         );
+    }
+
+    #[test]
+    fn pointer_down_on_editable_text_field_shows_focus_ring() {
+        let mut state = text_field_window_state(text::Buffer::from_text("hello"), Instant::now());
+
+        state.pointer_down(
+            point::logical(1.0, 2.0),
+            point::logical(0.0, 0.0),
+            Some(path(CHILD)),
+            pointer::Button::Primary,
+        );
+
+        assert_eq!(state.focused_path(), Some(path(CHILD)));
+        assert_eq!(
+            state.focus.as_ref().map(|focus| focus.reason),
+            Some(ui::focus::Reason::Pointer)
+        );
+        assert_eq!(state.focus_visibility(), ui::focus::Visibility::Visible);
+    }
+
+    #[test]
+    fn pointer_down_on_read_only_text_field_shows_focus_ring() {
+        let mut state =
+            text_field_window_state(text::Field::new("hello").read_only(), Instant::now());
+
+        state.pointer_down(
+            point::logical(1.0, 2.0),
+            point::logical(0.0, 0.0),
+            Some(path(CHILD)),
+            pointer::Button::Primary,
+        );
+
+        assert_eq!(state.focused_path(), Some(path(CHILD)));
+        assert_eq!(state.focus_visibility(), ui::focus::Visibility::Visible);
+    }
+
+    #[test]
+    fn pointer_down_on_disabled_text_field_does_not_focus() {
+        let mut state =
+            text_field_window_state(text::Field::new("hello").disabled(), Instant::now());
+
+        state.pointer_down(
+            point::logical(1.0, 2.0),
+            point::logical(0.0, 0.0),
+            Some(path(CHILD)),
+            pointer::Button::Primary,
+        );
+
+        assert_eq!(state.focused_path(), None);
+        assert_eq!(state.pressed, Some(path(CHILD)));
     }
 
     #[test]

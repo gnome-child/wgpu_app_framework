@@ -1,8 +1,14 @@
 use crate::{action, ui, window};
 
-use super::state::WindowState;
+use super::{state::WindowState, text_input};
 
 pub fn context(state: &WindowState, window: window::Id) -> action::Context {
+    if let Some(target) = text_input::editing_target(state)
+        && state.has_responder(&target)
+    {
+        return action::Context::path(window, target);
+    }
+
     if let Some(scope) = state.command_subject.clone() {
         return action::Context::with_scope(window, scope);
     }
@@ -131,6 +137,13 @@ fn context_outside_scope(
     window: window::Id,
     scope: &ui::Path,
 ) -> Option<action::Context> {
+    if let Some(target) = text_input::editing_target(state)
+        && !target.is_descendant_of(scope)
+        && state.has_responder(&target)
+    {
+        return Some(action::Context::path(window, target));
+    }
+
     if let Some(action::Scope::Path(path)) = state.command_subject.as_ref()
         && !path.is_descendant_of(scope)
     {

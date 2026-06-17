@@ -92,6 +92,15 @@ impl State {
     }
 
     pub fn begin_transient(&mut self, id: TransientScope, root: ui::Path) -> bool {
+        self.begin_transient_with_restore(id, root, self.current.clone())
+    }
+
+    pub fn begin_transient_with_restore(
+        &mut self,
+        id: TransientScope,
+        root: ui::Path,
+        restore: Option<Focus>,
+    ) -> bool {
         if let Some(scope) = self
             .transient_scopes
             .iter_mut()
@@ -103,7 +112,7 @@ impl State {
         self.transient_scopes.push(Scope {
             id,
             roots: vec![root],
-            restore: self.current.clone(),
+            restore,
         });
         true
     }
