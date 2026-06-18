@@ -362,6 +362,100 @@ fn scroll_offset_shifts_child_layout_and_paint_positions() {
 }
 
 #[test]
+fn cursor_overlay_text_paints_after_tree_content_and_follows_pointer() {
+    let root = Node::leaf(ROOT)
+        .with_background(paint::Color::RED)
+        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(80.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let mut text_engine = text::Engine::new();
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint_with_text_engine(
+        &layout,
+        &registry,
+        window::Id::new(1),
+        Interaction::default()
+            .with_pointer_position(Some(point::logical(20.0, 10.0)))
+            .with_cursor_overlay(Some(CursorOverlay::text("drag"))),
+        &HashMap::new(),
+        &mut text_engine,
+        &mut scene,
+    );
+
+    assert!(matches!(scene.items()[0], paint::Item::Quad(_)));
+    let overlay = text(&scene, scene.items().len() - 1);
+    assert_eq!(overlay.wrap, paint::TextWrap::None);
+    assert_eq!(overlay.rect.origin, point::logical(32.0, 26.0));
+    assert_eq!(overlay.document.blocks()[0].runs()[0].text(), "drag");
+    assert_eq!(
+        overlay.document.blocks()[0].runs()[0].style().size(),
+        theme::Theme::default_dark().text().control_size()
+    );
+    assert!(
+        (overlay.document.blocks()[0].runs()[0].style().color().a - 0.65).abs() <= f32::EPSILON
+    );
+}
+
+#[test]
+fn cursor_overlay_clamps_to_root_rect() {
+    let root = Node::leaf(ROOT)
+        .with_background(paint::Color::RED)
+        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(80.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let mut text_engine = text::Engine::new();
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint_with_text_engine(
+        &layout,
+        &registry,
+        window::Id::new(1),
+        Interaction::default()
+            .with_pointer_position(Some(point::logical(98.0, 78.0)))
+            .with_cursor_overlay(Some(CursorOverlay::text("drag"))),
+        &HashMap::new(),
+        &mut text_engine,
+        &mut scene,
+    );
+
+    let overlay = text(&scene, scene.items().len() - 1);
+    assert!(overlay.rect.origin.x() + overlay.rect.area.width() <= 100.0);
+    assert!(overlay.rect.origin.y() + overlay.rect.area.height() <= 80.0);
+}
+
+#[test]
+fn no_cursor_overlay_paints_no_extra_text() {
+    let root = Node::leaf(ROOT)
+        .with_background(paint::Color::RED)
+        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(80.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+
+    tree.set_root(root);
+    let layout = layout(&tree);
+    tree.paint(
+        &layout,
+        &registry,
+        window::Id::new(1),
+        Interaction::default().with_pointer_position(Some(point::logical(20.0, 10.0))),
+        &mut scene,
+    );
+
+    assert!(
+        !scene
+            .items()
+            .iter()
+            .any(|item| matches!(item, paint::Item::Text(_)))
+    );
+}
+
+#[test]
 fn vertical_scrollbar_reserves_right_gutter() {
     let root = widget::scroll_view(ROOT)
         .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(20.0)));

@@ -91,6 +91,48 @@ pub enum Cursor {
     Text,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum CursorOverlay {
+    Text(CursorOverlayText),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct CursorOverlayText {
+    text: String,
+    offset: geometry::point::Logical,
+    max_width: f32,
+    alpha: f32,
+}
+
+impl CursorOverlay {
+    pub(crate) fn text(text: impl Into<String>) -> Self {
+        Self::Text(CursorOverlayText {
+            text: text.into(),
+            offset: geometry::point::logical(12.0, 16.0),
+            max_width: 240.0,
+            alpha: 0.65,
+        })
+    }
+}
+
+impl CursorOverlayText {
+    pub(crate) fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub(crate) fn offset(&self) -> geometry::point::Logical {
+        self.offset
+    }
+
+    pub(crate) fn max_width(&self) -> f32 {
+        self.max_width
+    }
+
+    pub(crate) fn alpha(&self) -> f32 {
+        self.alpha
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum CommandSubject {
     #[default]
@@ -122,6 +164,8 @@ pub struct Interaction {
     pointer_position: Option<geometry::point::Logical>,
     pointer_capture: Option<pointer::Capture>,
     text_drop_caret: Option<(Path, geometry::Rect)>,
+    drag_drop_operation: crate::ui::drag_drop::Operation,
+    cursor_overlay: Option<CursorOverlay>,
 }
 
 impl Node {
@@ -824,6 +868,8 @@ impl Interaction {
             pointer_position: None,
             pointer_capture: None,
             text_drop_caret: None,
+            drag_drop_operation: crate::ui::drag_drop::Operation::None,
+            cursor_overlay: None,
         }
     }
 
@@ -872,6 +918,16 @@ impl Interaction {
         self
     }
 
+    pub fn with_drag_drop_operation(mut self, operation: crate::ui::drag_drop::Operation) -> Self {
+        self.drag_drop_operation = operation;
+        self
+    }
+
+    pub(crate) fn with_cursor_overlay(mut self, overlay: Option<CursorOverlay>) -> Self {
+        self.cursor_overlay = overlay;
+        self
+    }
+
     pub fn hovered(&self) -> Option<&Path> {
         self.hovered.as_ref()
     }
@@ -916,6 +972,14 @@ impl Interaction {
         self.text_drop_caret
             .as_ref()
             .map(|(path, rect)| (path, *rect))
+    }
+
+    pub fn drag_drop_operation(&self) -> crate::ui::drag_drop::Operation {
+        self.drag_drop_operation
+    }
+
+    pub(crate) fn cursor_overlay(&self) -> Option<&CursorOverlay> {
+        self.cursor_overlay.as_ref()
     }
 
     pub fn captured_command_subject(&self, path: &Path) -> Option<&action::Context> {

@@ -329,6 +329,8 @@ impl Tree {
                     );
                 }
             }
+
+            painting::cursor_overlay(layout, &interaction, text_engine, scene);
         }
     }
 

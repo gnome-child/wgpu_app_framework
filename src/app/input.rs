@@ -88,13 +88,13 @@ pub fn pointer_moved_with_text_engine(
         target,
     });
 
-    let text_drag_redraw = state.try_start_text_drag(position, text_engine);
+    let _text_drag_redraw = state.update_text_drag(position, text_engine);
     if state.drag_drop.active_text().is_some() {
         return Outcome {
             events,
             request: None,
             intent,
-            redraw: redraw || text_drag_redraw,
+            redraw: true,
         };
     }
 
@@ -230,7 +230,14 @@ pub fn pointer_released<T>(
     } else {
         false
     };
-    state.end_text_selection_drag();
+    let text_click_event = if button == pointer::Button::Primary && text_drop_event.is_none() {
+        state
+            .finish_text_pointer_gesture()
+            .map(|(target, edit)| ui::Event::TextEditRequested { target, edit })
+    } else {
+        state.cancel_text_pointer_gesture();
+        None
+    };
 
     if let Some(capture) = state.pointer_capture.clone() {
         state.clear_pointer_capture();
@@ -286,9 +293,13 @@ pub fn pointer_released<T>(
     let restored_focus = request.as_ref().is_some_and(|request| {
         restore_action_target_focus(state, request, action::Source::Pointer)
     });
+    let mut events = vec![event];
+    if let Some(text_click_event) = text_click_event {
+        events.push(text_click_event);
+    }
 
     Outcome {
-        events: vec![event],
+        events,
         request,
         intent,
         redraw: true || closed_menu || restored_focus || cleared_text_drag,
@@ -308,7 +319,7 @@ pub fn pointer_button(button: MouseButton) -> pointer::Button {
 
 pub fn pointer_left(state: &mut WindowState) -> Outcome {
     state.pointer.handle_event(pointer::Event::Left);
-    state.end_text_selection_drag();
+    let cleared_text_gesture = state.cancel_text_pointer_gesture();
     let cleared_text_drag = state.clear_text_drag_drop();
     let events = state.set_hovered(None);
     let cleared_capture = state.clear_pointer_capture();
@@ -321,7 +332,11 @@ pub fn pointer_left(state: &mut WindowState) -> Outcome {
     };
 
     Outcome {
-        redraw: !events.is_empty() || cleared_pressed || cleared_capture || cleared_text_drag,
+        redraw: !events.is_empty()
+            || cleared_pressed
+            || cleared_capture
+            || cleared_text_drag
+            || cleared_text_gesture,
         events,
         request: None,
         intent: None,
@@ -915,6 +930,15 @@ mod tests {
         ui::Path::new([ROOT, id])
     }
 
+    fn text_drag_copy_modifier() -> ui::Modifiers {
+        ui::Modifiers::new(
+            false,
+            !cfg!(target_os = "macos"),
+            cfg!(target_os = "macos"),
+            false,
+        )
+    }
+
     fn scroll_state(offset: point::Logical) -> WindowState {
         let mut tree = ui::Tree::new();
         tree.set_root(
@@ -1104,6 +1128,48 @@ mod tests {
         }
     }
 
+    fn two_text_field_state(
+        first: impl Into<crate::text::Field>,
+        second: impl Into<crate::text::Field>,
+    ) -> WindowState {
+        let window = window::Id::new(1);
+        let mut tree = ui::Tree::new();
+        let mut registry = action::Registry::<()>::new();
+        let mut measurer = crate::text::Engine::new();
+
+        tree.set_root(
+            ui::Node::container(ROOT, crate::layout::Axis::Vertical)
+                .with_child(widget::text_field(CHILD, first).with_size(
+                    crate::layout::Size::Fixed(100.0),
+                    crate::layout::Size::Fixed(24.0),
+                ))
+                .with_child(widget::text_field(SECOND, second).with_size(
+                    crate::layout::Size::Fixed(100.0),
+                    crate::layout::Size::Fixed(24.0),
+                )),
+        );
+
+        let composition = tree
+            .compose(
+                window,
+                crate::geometry::area::logical(100.0, 48.0),
+                &mut registry,
+                &[],
+                &mut measurer,
+            )
+            .expect("two text field tree should compose");
+
+        WindowState {
+            composition: Some(composition),
+            focus: FocusState::focused(Focus::new(
+                root_path(CHILD),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            ..WindowState::default()
+        }
+    }
+
     fn text_field_state_with_registry(
         buffer: crate::text::Buffer,
         registry: &mut action::Registry<()>,
@@ -1249,6 +1315,39 @@ mod tests {
             button,
             &mut text_engine,
         )
+    }
+
+    fn primary_click_for_test(
+        state: &mut WindowState,
+        text_engine: &mut crate::text::Engine,
+        position: point::Logical,
+    ) -> Outcome {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let outcome = pointer_pressed(
+            state,
+            window,
+            position,
+            pointer::Button::Primary,
+            text_engine,
+        );
+
+        pointer_released(&registry, state, window, position, pointer::Button::Primary);
+        outcome
+    }
+
+    fn assert_text_pointer_kind(outcome: &Outcome, expected: crate::text::PointerEditKind) {
+        assert!(
+            outcome.events.iter().any(|event| matches!(
+                event,
+                ui::Event::TextEditRequested {
+                    edit: crate::text::Edit::Pointer { kind, .. },
+                    ..
+                } if *kind == expected
+            )),
+            "expected {expected:?} in events: {:?}",
+            outcome.events
+        );
     }
 
     #[test]
@@ -1979,6 +2078,43 @@ mod tests {
     }
 
     #[test]
+    fn repeated_text_clicks_cycle_word_and_full_selection_after_triple_click() {
+        let mut state = text_field_state();
+        let mut text_engine = crate::text::Engine::new();
+
+        let first =
+            primary_click_for_test(&mut state, &mut text_engine, point::logical(10.0, 12.0));
+        let second =
+            primary_click_for_test(&mut state, &mut text_engine, point::logical(10.0, 12.0));
+        let third =
+            primary_click_for_test(&mut state, &mut text_engine, point::logical(10.0, 12.0));
+        let fourth =
+            primary_click_for_test(&mut state, &mut text_engine, point::logical(10.0, 12.0));
+        let fifth =
+            primary_click_for_test(&mut state, &mut text_engine, point::logical(10.0, 12.0));
+
+        assert_text_pointer_kind(&first, crate::text::PointerEditKind::Click);
+        assert_text_pointer_kind(&second, crate::text::PointerEditKind::DoubleClick);
+        assert_text_pointer_kind(&third, crate::text::PointerEditKind::TripleClick);
+        assert_text_pointer_kind(&fourth, crate::text::PointerEditKind::DoubleClick);
+        assert_text_pointer_kind(&fifth, crate::text::PointerEditKind::TripleClick);
+    }
+
+    #[test]
+    fn text_click_count_resets_when_pointer_moves_too_far() {
+        let mut state = text_field_state();
+        let mut text_engine = crate::text::Engine::new();
+
+        let first =
+            primary_click_for_test(&mut state, &mut text_engine, point::logical(10.0, 12.0));
+        let second =
+            primary_click_for_test(&mut state, &mut text_engine, point::logical(30.0, 12.0));
+
+        assert_text_pointer_kind(&first, crate::text::PointerEditKind::Click);
+        assert_text_pointer_kind(&second, crate::text::PointerEditKind::Click);
+    }
+
+    #[test]
     fn secondary_click_on_text_field_opens_context_menu_without_moving_caret() {
         let mut state = text_field_state();
 
@@ -2082,13 +2218,10 @@ mod tests {
             pointer::Button::Primary,
         );
 
-        assert_eq!(state.text_selection_drag, None);
+        assert_eq!(state.text_pointer_gesture, None);
     }
 
-    #[test]
-    fn pointer_drag_inside_selected_text_starts_text_drop_session() {
-        let window = window::Id::new(1);
-        let registry = action::Registry::<()>::new();
+    fn selected_text_buffer(selection_end: usize) -> crate::text::Buffer {
         let mut text_engine = crate::text::Engine::new();
         let mut buffer = crate::text::Buffer::from_text("hello");
         text_engine.apply_text_edit(
@@ -2099,10 +2232,145 @@ mod tests {
             &mut buffer,
             crate::text::Edit::pointer(
                 crate::text::PointerEditKind::Drag,
-                crate::text::Cursor::new(0, 2),
+                crate::text::Cursor::new(0, selection_end),
             ),
         );
-        let mut state = text_field_state_with_field(buffer);
+        buffer
+    }
+
+    #[test]
+    fn click_inside_fully_selected_text_collapses_selection_on_release() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut text_engine = crate::text::Engine::new();
+        let mut state = text_field_state_with_field(selected_text_buffer(5));
+
+        let pressed = pointer_pressed(
+            &mut state,
+            window,
+            point::logical(10.0, 12.0),
+            pointer::Button::Primary,
+            &mut text_engine,
+        );
+        assert!(
+            !pressed
+                .events
+                .iter()
+                .any(|event| matches!(event, ui::Event::TextEditRequested { .. }))
+        );
+
+        let released = pointer_released(
+            &registry,
+            &mut state,
+            window,
+            point::logical(10.0, 12.0),
+            pointer::Button::Primary,
+        );
+
+        assert!(released.events.iter().any(|event| matches!(
+            event,
+            ui::Event::TextEditRequested {
+                target,
+                edit: crate::text::Edit::Pointer {
+                    kind: crate::text::PointerEditKind::Click,
+                    ..
+                },
+            } if target == &path(CHILD)
+        )));
+        assert_eq!(state.text_pointer_gesture, None);
+        assert!(state.drag_drop.active_text().is_none());
+    }
+
+    #[test]
+    fn click_inside_partially_selected_text_places_caret_on_release() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut text_engine = crate::text::Engine::new();
+        let mut state = text_field_state_with_field(selected_text_buffer(2));
+
+        pointer_pressed(
+            &mut state,
+            window,
+            point::logical(10.0, 12.0),
+            pointer::Button::Primary,
+            &mut text_engine,
+        );
+        let released = pointer_released(
+            &registry,
+            &mut state,
+            window,
+            point::logical(10.0, 12.0),
+            pointer::Button::Primary,
+        );
+
+        assert!(released.events.iter().any(|event| matches!(
+            event,
+            ui::Event::TextEditRequested {
+                target,
+                edit: crate::text::Edit::Pointer {
+                    kind: crate::text::PointerEditKind::Click,
+                    cursor,
+                },
+            } if target == &path(CHILD) && cursor.line == 0 && cursor.index <= 2
+        )));
+        assert_eq!(state.text_pointer_gesture, None);
+        assert!(state.drag_drop.active_text().is_none());
+    }
+
+    #[test]
+    fn movement_below_text_drag_threshold_still_resolves_as_click() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut text_engine = crate::text::Engine::new();
+        let mut state = text_field_state_with_field(selected_text_buffer(2));
+
+        pointer_pressed(
+            &mut state,
+            window,
+            point::logical(10.0, 12.0),
+            pointer::Button::Primary,
+            &mut text_engine,
+        );
+        let moved = pointer_moved_with_text_engine(
+            &mut state,
+            point::logical(12.0, 12.0),
+            &mut text_engine,
+        );
+        assert!(state.drag_drop.active_text().is_none());
+        assert!(
+            !moved
+                .events
+                .iter()
+                .any(|event| matches!(event, ui::Event::TextEditRequested { .. }))
+        );
+
+        let released = pointer_released(
+            &registry,
+            &mut state,
+            window,
+            point::logical(12.0, 12.0),
+            pointer::Button::Primary,
+        );
+
+        assert!(released.events.iter().any(|event| matches!(
+            event,
+            ui::Event::TextEditRequested {
+                target,
+                edit: crate::text::Edit::Pointer {
+                    kind: crate::text::PointerEditKind::Click,
+                    ..
+                },
+            } if target == &path(CHILD)
+        )));
+        assert_eq!(state.text_pointer_gesture, None);
+    }
+
+    #[test]
+    fn pointer_drag_inside_selected_text_starts_text_drop_session() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut text_engine = crate::text::Engine::new();
+        let mut state = text_field_state_with_field(selected_text_buffer(2));
 
         let pressed = pointer_pressed(
             &mut state,
@@ -2126,7 +2394,8 @@ mod tests {
 
         assert!(state.drag_drop.active_text().is_some());
         assert!(state.drag_drop.text_target().is_some());
-        assert_eq!(state.text_selection_drag, None);
+        assert!(state.text_drop_caret().is_some());
+        assert_eq!(state.text_pointer_gesture, None);
         assert!(
             !moved
                 .events
@@ -2145,7 +2414,7 @@ mod tests {
         assert!(released.events.iter().any(|event| matches!(
             event,
             ui::Event::TextDropRequested {
-                source: None,
+                source_cleanup: None,
                 target,
                 edit: crate::text::Edit::MoveRange { range, .. },
                 operation: ui::drag_drop::Operation::Move,
@@ -2153,6 +2422,302 @@ mod tests {
         )));
         assert!(state.drag_drop.active_text().is_none());
         assert!(state.drag_drop.text_target().is_none());
+    }
+
+    #[test]
+    fn active_text_drag_retargets_after_starting_inside_original_selection() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut text_engine = crate::text::Engine::new();
+        let mut state = text_field_state_with_field(selected_text_buffer(2));
+
+        pointer_pressed(
+            &mut state,
+            window,
+            point::logical(10.0, 12.0),
+            pointer::Button::Primary,
+            &mut text_engine,
+        );
+        pointer_moved_with_text_engine(&mut state, point::logical(15.0, 12.0), &mut text_engine);
+
+        assert!(state.drag_drop.active_text().is_some());
+        assert_eq!(
+            state.drag_drop.resolved_operation(),
+            ui::drag_drop::Operation::None
+        );
+        assert!(state.drag_drop.text_target().is_none());
+        assert_eq!(state.text_drop_caret(), None);
+
+        pointer_moved_with_text_engine(&mut state, point::logical(80.0, 12.0), &mut text_engine);
+
+        assert_eq!(
+            state.drag_drop.resolved_operation(),
+            ui::drag_drop::Operation::Move
+        );
+        assert!(state.drag_drop.text_target().is_some());
+        assert!(state.text_drop_caret().is_some());
+
+        let released = pointer_released(
+            &registry,
+            &mut state,
+            window,
+            point::logical(80.0, 12.0),
+            pointer::Button::Primary,
+        );
+
+        assert!(released.events.iter().any(|event| matches!(
+            event,
+            ui::Event::TextDropRequested {
+                target,
+                edit: crate::text::Edit::MoveRange { range, .. },
+                operation: ui::drag_drop::Operation::Move,
+                ..
+            } if target == &path(CHILD) && range == &(0..2)
+        )));
+    }
+
+    #[test]
+    fn active_text_drag_retargets_from_invalid_to_valid_cross_field_target() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut text_engine = crate::text::Engine::new();
+        let mut state = two_text_field_state(
+            selected_text_buffer(2),
+            crate::text::Buffer::from_text("world"),
+        );
+
+        pointer_pressed(
+            &mut state,
+            window,
+            point::logical(10.0, 12.0),
+            pointer::Button::Primary,
+            &mut text_engine,
+        );
+        pointer_moved_with_text_engine(&mut state, point::logical(80.0, 80.0), &mut text_engine);
+
+        assert!(state.drag_drop.active_text().is_some());
+        assert_eq!(
+            state.drag_drop.resolved_operation(),
+            ui::drag_drop::Operation::None
+        );
+        assert!(state.drag_drop.text_target().is_none());
+
+        pointer_moved_with_text_engine(&mut state, point::logical(80.0, 36.0), &mut text_engine);
+
+        assert_eq!(
+            state.drag_drop.resolved_operation(),
+            ui::drag_drop::Operation::Move
+        );
+        assert!(state.drag_drop.text_target().is_some());
+
+        let released = pointer_released(
+            &registry,
+            &mut state,
+            window,
+            point::logical(80.0, 36.0),
+            pointer::Button::Primary,
+        );
+
+        assert!(released.events.iter().any(|event| matches!(
+            event,
+            ui::Event::TextDropRequested {
+                source_cleanup: Some((source, _)),
+                target,
+                operation: ui::drag_drop::Operation::Move,
+                ..
+            } if source == &root_path(CHILD) && target == &root_path(SECOND)
+        )));
+    }
+
+    #[test]
+    fn active_text_drag_requests_redraw_even_when_drop_target_is_unchanged() {
+        let window = window::Id::new(1);
+        let mut text_engine = crate::text::Engine::new();
+        let mut state = text_field_state_with_field(selected_text_buffer(2));
+
+        pointer_pressed(
+            &mut state,
+            window,
+            point::logical(10.0, 12.0),
+            pointer::Button::Primary,
+            &mut text_engine,
+        );
+        pointer_moved_with_text_engine(&mut state, point::logical(80.0, 80.0), &mut text_engine);
+
+        assert!(state.drag_drop.active_text().is_some());
+        assert!(state.drag_drop.text_target().is_none());
+
+        let moved = pointer_moved_with_text_engine(
+            &mut state,
+            point::logical(80.0, 80.0),
+            &mut text_engine,
+        );
+
+        assert!(moved.redraw);
+        assert!(state.drag_drop.active_text().is_some());
+        assert!(state.drag_drop.text_target().is_none());
+    }
+
+    #[test]
+    fn cross_field_text_drop_moves_by_default() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut text_engine = crate::text::Engine::new();
+        let mut buffer = crate::text::Buffer::from_text("hello");
+        text_engine.apply_text_edit(
+            &mut buffer,
+            crate::text::Edit::set_cursor(crate::text::Cursor::new(0, 0)),
+        );
+        text_engine.apply_text_edit(
+            &mut buffer,
+            crate::text::Edit::pointer(
+                crate::text::PointerEditKind::Drag,
+                crate::text::Cursor::new(0, 2),
+            ),
+        );
+        let mut state = two_text_field_state(buffer, crate::text::Buffer::from_text("world"));
+
+        pointer_pressed(
+            &mut state,
+            window,
+            point::logical(10.0, 12.0),
+            pointer::Button::Primary,
+            &mut text_engine,
+        );
+        pointer_moved_with_text_engine(&mut state, point::logical(80.0, 36.0), &mut text_engine);
+        assert_eq!(
+            state.drag_drop.resolved_operation(),
+            ui::drag_drop::Operation::Move
+        );
+
+        let released = pointer_released(
+            &registry,
+            &mut state,
+            window,
+            point::logical(80.0, 36.0),
+            pointer::Button::Primary,
+        );
+
+        assert!(released.events.iter().any(|event| matches!(
+            event,
+            ui::Event::TextDropRequested {
+                source_cleanup: Some((source, crate::text::Edit::ReplaceRange { range, text })),
+                target,
+                edit: crate::text::Edit::ReplaceRange { .. },
+                operation: ui::drag_drop::Operation::Move,
+            } if source == &root_path(CHILD)
+                && target == &root_path(SECOND)
+                && range == &(0..2)
+                && text.is_empty()
+        )));
+    }
+
+    #[test]
+    fn cross_field_text_drop_copy_modifier_preserves_source() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut text_engine = crate::text::Engine::new();
+        let mut buffer = crate::text::Buffer::from_text("hello");
+        text_engine.apply_text_edit(
+            &mut buffer,
+            crate::text::Edit::set_cursor(crate::text::Cursor::new(0, 0)),
+        );
+        text_engine.apply_text_edit(
+            &mut buffer,
+            crate::text::Edit::pointer(
+                crate::text::PointerEditKind::Drag,
+                crate::text::Cursor::new(0, 2),
+            ),
+        );
+        let mut state = two_text_field_state(buffer, crate::text::Buffer::from_text("world"));
+        state.modifiers = text_drag_copy_modifier();
+
+        pointer_pressed(
+            &mut state,
+            window,
+            point::logical(10.0, 12.0),
+            pointer::Button::Primary,
+            &mut text_engine,
+        );
+        pointer_moved_with_text_engine(&mut state, point::logical(80.0, 36.0), &mut text_engine);
+        assert_eq!(
+            state.drag_drop.resolved_operation(),
+            ui::drag_drop::Operation::Copy
+        );
+
+        let released = pointer_released(
+            &registry,
+            &mut state,
+            window,
+            point::logical(80.0, 36.0),
+            pointer::Button::Primary,
+        );
+
+        assert!(released.events.iter().any(|event| matches!(
+            event,
+            ui::Event::TextDropRequested {
+                source_cleanup: None,
+                target,
+                edit: crate::text::Edit::ReplaceRange { .. },
+                operation: ui::drag_drop::Operation::Copy,
+            } if target == &root_path(SECOND)
+        )));
+    }
+
+    #[test]
+    fn text_drop_on_read_only_target_is_rejected() {
+        let window = window::Id::new(1);
+        let registry = action::Registry::<()>::new();
+        let mut text_engine = crate::text::Engine::new();
+        let mut buffer = crate::text::Buffer::from_text("hello");
+        text_engine.apply_text_edit(
+            &mut buffer,
+            crate::text::Edit::set_cursor(crate::text::Cursor::new(0, 0)),
+        );
+        text_engine.apply_text_edit(
+            &mut buffer,
+            crate::text::Edit::pointer(
+                crate::text::PointerEditKind::Drag,
+                crate::text::Cursor::new(0, 2),
+            ),
+        );
+        let mut state = two_text_field_state(
+            buffer,
+            crate::text::Field::new(crate::text::Buffer::from_text("world")).read_only(),
+        );
+
+        pointer_pressed(
+            &mut state,
+            window,
+            point::logical(10.0, 12.0),
+            pointer::Button::Primary,
+            &mut text_engine,
+        );
+        pointer_moved_with_text_engine(&mut state, point::logical(80.0, 36.0), &mut text_engine);
+
+        assert!(state.drag_drop.active_text().is_some());
+        assert_eq!(
+            state.drag_drop.resolved_operation(),
+            ui::drag_drop::Operation::None
+        );
+        assert!(state.drag_drop.text_target().is_none());
+        assert_eq!(state.text_drop_caret(), None);
+
+        let released = pointer_released(
+            &registry,
+            &mut state,
+            window,
+            point::logical(80.0, 36.0),
+            pointer::Button::Primary,
+        );
+
+        assert!(
+            !released
+                .events
+                .iter()
+                .any(|event| matches!(event, ui::Event::TextDropRequested { .. }))
+        );
+        assert!(state.drag_drop.active_text().is_none());
     }
 
     #[test]

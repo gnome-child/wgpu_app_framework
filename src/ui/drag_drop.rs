@@ -5,11 +5,33 @@ pub enum Payload {
     Text(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Operation {
+    #[default]
+    None,
     Move,
     Copy,
-    None,
+    Link,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Operations {
+    copy: bool,
+    move_: bool,
+    link: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Boundary {
+    #[default]
+    Internal,
+    External,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropResult {
+    Rejected,
+    Completed { operation: Operation },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,5 +75,54 @@ impl Target {
 
     pub fn operation(&self) -> Operation {
         self.operation
+    }
+}
+
+impl Operations {
+    pub const NONE: Self = Self {
+        copy: false,
+        move_: false,
+        link: false,
+    };
+    pub const COPY: Self = Self {
+        copy: true,
+        move_: false,
+        link: false,
+    };
+    pub const MOVE: Self = Self {
+        copy: false,
+        move_: true,
+        link: false,
+    };
+    pub const LINK: Self = Self {
+        copy: false,
+        move_: false,
+        link: true,
+    };
+    pub const COPY_MOVE: Self = Self {
+        copy: true,
+        move_: true,
+        link: false,
+    };
+
+    pub const fn contains(self, operation: Operation) -> bool {
+        match operation {
+            Operation::None => false,
+            Operation::Copy => self.copy,
+            Operation::Move => self.move_,
+            Operation::Link => self.link,
+        }
+    }
+
+    pub const fn is_empty(self) -> bool {
+        !self.copy && !self.move_ && !self.link
+    }
+
+    pub const fn intersection(self, other: Self) -> Self {
+        Self {
+            copy: self.copy && other.copy,
+            move_: self.move_ && other.move_,
+            link: self.link && other.link,
+        }
     }
 }

@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use crate::animation::Frame as AnimationFrame;
-use crate::{action, geometry, paint, text, ui, widget, window};
+use crate::{action, geometry, paint, text, theme, ui, widget, window};
+
+const CURSOR_OVERLAY_MIN_SIZE: f32 = 1.0;
 
 pub fn tree<T>(
     root: &ui::Node,
@@ -33,6 +35,78 @@ pub fn tree<T>(
     for outline in overlays {
         scene.push_outline(outline);
     }
+}
+
+pub(crate) fn cursor_overlay(
+    layout: &ui::Frame,
+    interaction: &ui::Interaction,
+    text_engine: &mut text::Engine,
+    scene: &mut paint::Scene,
+) {
+    let Some(pointer) = interaction.pointer_position() else {
+        return;
+    };
+
+    let Some(overlay) = interaction.cursor_overlay() else {
+        return;
+    };
+
+    match overlay {
+        ui::CursorOverlay::Text(text_overlay) => {
+            paint_cursor_overlay_text(layout.rect(), pointer, text_overlay, text_engine, scene);
+        }
+    }
+}
+
+fn paint_cursor_overlay_text(
+    root_rect: geometry::Rect,
+    pointer: geometry::point::Logical,
+    overlay: &ui::CursorOverlayText,
+    text_engine: &mut text::Engine,
+    scene: &mut paint::Scene,
+) {
+    if overlay.text().is_empty() {
+        return;
+    }
+
+    let theme = theme::Theme::default_dark();
+    let mut color = theme.text().primary();
+    color.a *= overlay.alpha();
+    let document = theme
+        .text()
+        .document(text::Role::Control, overlay.text().to_owned(), color);
+    let metrics = text_engine.measure(&document, text::Measure::unbounded());
+    let width = metrics
+        .width()
+        .min(overlay.max_width())
+        .max(CURSOR_OVERLAY_MIN_SIZE);
+    let height = metrics.height().max(CURSOR_OVERLAY_MIN_SIZE);
+    let offset = overlay.offset();
+    let origin = geometry::point::logical(
+        clamp_overlay_axis(
+            pointer.x() + offset.x(),
+            root_rect.origin.x(),
+            root_rect.area.width(),
+            width,
+        ),
+        clamp_overlay_axis(
+            pointer.y() + offset.y(),
+            root_rect.origin.y(),
+            root_rect.area.height(),
+            height,
+        ),
+    );
+
+    scene.push_text(paint::Text {
+        rect: geometry::Rect::new(origin, geometry::area::logical(width, height)),
+        document,
+        wrap: paint::TextWrap::None,
+    });
+}
+
+fn clamp_overlay_axis(value: f32, min: f32, available: f32, extent: f32) -> f32 {
+    let max = min + (available - extent).max(0.0);
+    value.clamp(min, max)
 }
 
 fn node<T>(

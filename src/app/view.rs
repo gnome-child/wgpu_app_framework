@@ -48,7 +48,9 @@ pub fn compose<T>(
         .with_open_submenu(state.open_submenu)
         .with_pointer_position(state.pointer.position())
         .with_pointer_capture(state.pointer_capture.clone())
-        .with_text_drop_caret(state.text_drop_caret());
+        .with_text_drop_caret(state.text_drop_caret())
+        .with_drag_drop_operation(state.drag_drop.resolved_operation())
+        .with_cursor_overlay(state.drag_drop.cursor_overlay());
 
         if let Some(composition) = state.composition.as_ref() {
             composition.paint_at(

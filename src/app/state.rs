@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Range;
 use std::time::{Duration, Instant};
 
 use crate::animation;
@@ -12,8 +13,9 @@ pub use focus::Focus;
 #[cfg(test)]
 pub(crate) use focus::State as FocusState;
 
-const MULTI_CLICK_MAX_INTERVAL: Duration = Duration::from_millis(500);
+const MULTI_CLICK_MAX_INTERVAL: Duration = Duration::from_millis(350);
 const MULTI_CLICK_MAX_DISTANCE: f32 = 4.0;
+const TEXT_DRAG_THRESHOLD: f32 = 4.0;
 
 #[derive(Debug, Default)]
 pub struct WindowState {
@@ -34,7 +36,7 @@ pub struct WindowState {
     pub drag_drop: drag_drop::State,
     pub text_field_states: HashMap<ui::Path, text::TextFieldState>,
     pub last_text_field_click: Option<TextFieldClick>,
-    pub text_selection_drag: Option<ui::Path>,
+    pub text_pointer_gesture: Option<TextPointerGesture>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,7 +50,47 @@ pub struct TextFieldClick {
     path: ui::Path,
     position: point::Logical,
     at: Instant,
-    count: u8,
+    count: u16,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TextPointerGesture {
+    SelectionDrag(ui::Path),
+    DragCandidate(TextDragCandidate),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextDragCandidate {
+    path: ui::Path,
+    start_position: point::Logical,
+    selected_range: Range<usize>,
+    selected_text: String,
+    source_editable: bool,
+    click_edit: text::Edit,
+}
+
+impl TextDragCandidate {
+    fn new(
+        path: ui::Path,
+        start_position: point::Logical,
+        selected_range: Range<usize>,
+        selected_text: String,
+        source_editable: bool,
+        click_edit: text::Edit,
+    ) -> Self {
+        Self {
+            path,
+            start_position,
+            selected_range,
+            selected_text,
+            source_editable,
+            click_edit,
+        }
+    }
+
+    fn crosses_drag_threshold(&self, position: point::Logical) -> bool {
+        point_distance(self.start_position, position) >= TEXT_DRAG_THRESHOLD
+    }
 }
 
 impl WindowState {
@@ -284,21 +326,6 @@ impl WindowState {
         }
 
         let kind = self.text_field_click_kind(target, position);
-        if kind == text::PointerEditKind::Click
-            && let Some((range, selected_text, source_editable)) =
-                self.text_drag_source_at(target, position, text_engine)
-        {
-            self.drag_drop.begin_text(
-                target.clone(),
-                position,
-                range,
-                selected_text,
-                source_editable,
-            );
-            self.reset_text_field_caret_blink(target, Instant::now());
-            return None;
-        }
-
         let edit = self.composition.as_ref()?.text_field_edit_at(
             target,
             position,
@@ -309,7 +336,25 @@ impl WindowState {
                 .unwrap_or_default(),
             text_engine,
         )?;
-        self.text_selection_drag = Some(target.clone());
+
+        if kind == text::PointerEditKind::Click
+            && let Some((range, selected_text, source_editable)) =
+                self.text_drag_source_at(target, position, text_engine)
+        {
+            self.text_pointer_gesture =
+                Some(TextPointerGesture::DragCandidate(TextDragCandidate::new(
+                    target.clone(),
+                    position,
+                    range,
+                    selected_text,
+                    source_editable,
+                    edit,
+                )));
+            self.reset_text_field_caret_blink(target, Instant::now());
+            return None;
+        }
+
+        self.text_pointer_gesture = Some(TextPointerGesture::SelectionDrag(target.clone()));
         self.reset_text_field_caret_blink(target, Instant::now());
 
         Some(edit)
@@ -320,7 +365,10 @@ impl WindowState {
         position: point::Logical,
         text_engine: &mut text::Engine,
     ) -> Option<(ui::Path, text::Edit)> {
-        let target = self.text_selection_drag.as_ref()?.clone();
+        let target = match self.text_pointer_gesture.as_ref()? {
+            TextPointerGesture::SelectionDrag(target) => target.clone(),
+            TextPointerGesture::DragCandidate(_) => return None,
+        };
         if !self.is_selectable_text_field(&target) {
             return None;
         }
@@ -339,24 +387,58 @@ impl WindowState {
         Some((target, edit))
     }
 
-    pub fn end_text_selection_drag(&mut self) {
-        self.text_selection_drag = None;
+    pub fn finish_text_pointer_gesture(&mut self) -> Option<(ui::Path, text::Edit)> {
+        let Some(TextPointerGesture::DragCandidate(candidate)) = self.text_pointer_gesture.take()
+        else {
+            self.text_pointer_gesture = None;
+            return None;
+        };
+
+        self.reset_text_field_caret_blink(&candidate.path, Instant::now());
+
+        Some((candidate.path, candidate.click_edit))
     }
 
-    pub fn try_start_text_drag(
+    pub fn cancel_text_pointer_gesture(&mut self) -> bool {
+        let changed = self.text_pointer_gesture.is_some();
+        self.text_pointer_gesture = None;
+        changed
+    }
+
+    pub fn update_text_drag(
         &mut self,
         position: point::Logical,
         text_engine: &mut text::Engine,
     ) -> bool {
-        let was_active = self.drag_drop.active_text().is_some();
-        let active = self.drag_drop.try_start_text_drag(position);
-        let changed = active && !was_active;
-
-        if active {
-            return self.update_text_drop_target(position, text_engine) || changed;
+        if self.drag_drop.active_text().is_some() {
+            return self.update_text_drop_target(position, text_engine);
         }
 
-        changed
+        let Some(TextPointerGesture::DragCandidate(candidate)) = self.text_pointer_gesture.as_ref()
+        else {
+            return false;
+        };
+
+        if !candidate.crosses_drag_threshold(position) {
+            return false;
+        }
+
+        self.last_text_field_click = None;
+
+        let candidate = match self.text_pointer_gesture.take() {
+            Some(TextPointerGesture::DragCandidate(candidate)) => candidate,
+            _ => return false,
+        };
+        let was_active = self.drag_drop.active_text().is_some();
+        self.drag_drop.start_text(
+            candidate.path,
+            candidate.selected_range,
+            candidate.selected_text,
+            candidate.source_editable,
+        );
+        let changed = !was_active;
+
+        self.update_text_drop_target(position, text_engine) || changed
     }
 
     pub fn update_text_drop_target(
@@ -379,7 +461,10 @@ impl WindowState {
             return self.drag_drop.clear_text_target();
         };
 
-        let operation = drag_drop::text_operation(&source, &target, true, self.modifiers);
+        let target_operations = ui::drag_drop::Operations::COPY_MOVE;
+        let operation = self
+            .drag_drop
+            .operation_for_target(target_operations, self.modifiers);
         if operation == ui::drag_drop::Operation::None
             || (operation == ui::drag_drop::Operation::Move
                 && source.path() == &target
@@ -393,26 +478,27 @@ impl WindowState {
             return self.drag_drop.clear_text_target();
         };
 
-        self.drag_drop
-            .set_text_target(Some(drag_drop::TextTarget::new(
-                target, cursor, operation, caret_rect,
-            )))
+        self.drag_drop.set_text_target(
+            Some(drag_drop::TextTarget::new(target, cursor, caret_rect)),
+            target_operations,
+            self.modifiers,
+        )
     }
 
     pub fn finish_text_drop(&mut self) -> Option<ui::Event> {
         let source = self.drag_drop.active_text().cloned()?;
         let target = self.drag_drop.text_target().cloned()?;
-        let operation = target.operation();
+        let operation = self.drag_drop.resolved_operation();
 
         if operation == ui::drag_drop::Operation::None {
-            self.drag_drop.clear();
+            self.drag_drop.reject();
             return None;
         }
 
         let text = source.selected_text().to_owned();
         let source_range = source.selected_range();
         let source_edit = if operation == ui::drag_drop::Operation::Move
-            && source.source_editable()
+            && source.can_move()
             && source.path() != target.path()
         {
             Some((
@@ -430,7 +516,7 @@ impl WindowState {
             };
         let target_path = target.path().clone();
         let event = ui::Event::TextDropRequested {
-            source: source_edit,
+            source_cleanup: source_edit,
             target: target_path.clone(),
             edit: target_edit,
             operation,
@@ -443,7 +529,7 @@ impl WindowState {
         );
         command::set_subject_from_path(self, &target_path);
         text_input::sync_session(self);
-        self.drag_drop.clear();
+        self.drag_drop.complete();
         Some(event)
     }
 
@@ -518,7 +604,7 @@ impl WindowState {
             let changed = !self.text_field_states.is_empty();
             self.text_field_states.clear();
             self.last_text_field_click = None;
-            self.text_selection_drag = None;
+            self.text_pointer_gesture = None;
             self.drag_drop.clear();
             let session_changed = text_input::sync_session(self);
             return changed || session_changed;
@@ -645,7 +731,7 @@ impl WindowState {
                     && now.duration_since(click.at) <= MULTI_CLICK_MAX_INTERVAL
                     && point_distance(click.position, position) <= MULTI_CLICK_MAX_DISTANCE
             })
-            .map_or(1, |click| (click.count + 1).min(3));
+            .map_or(1, |click| click.count.saturating_add(1));
 
         self.last_text_field_click = Some(TextFieldClick {
             path: target.clone(),
@@ -657,6 +743,8 @@ impl WindowState {
         match count {
             1 => text::PointerEditKind::Click,
             2 => text::PointerEditKind::DoubleClick,
+            3 => text::PointerEditKind::TripleClick,
+            _ if count % 2 == 0 => text::PointerEditKind::DoubleClick,
             _ => text::PointerEditKind::TripleClick,
         }
     }

@@ -80,7 +80,7 @@ pub enum Event {
         edit: text::Edit,
     },
     TextDropRequested {
-        source: Option<(Path, text::Edit)>,
+        source_cleanup: Option<(Path, text::Edit)>,
         target: Path,
         edit: text::Edit,
         operation: drag_drop::Operation,

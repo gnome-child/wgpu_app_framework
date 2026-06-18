@@ -165,17 +165,16 @@ impl app::Application for Editor {
                 window: event_window,
                 event:
                     ui::Event::TextDropRequested {
-                        source,
+                        source_cleanup,
                         target,
                         edit,
                         ..
                     },
             } if event_window == window => {
-                let mut changed = false;
-                if let Some((source, edit)) = source {
+                let mut changed = self.apply_edit(cx, &target, edit, "drag/drop");
+                if changed && let Some((source, edit)) = source_cleanup {
                     changed |= self.apply_edit(cx, &source, edit, "drag/drop");
                 }
-                changed |= self.apply_edit(cx, &target, edit, "drag/drop");
 
                 if changed {
                     cx.request_redraw(window);
