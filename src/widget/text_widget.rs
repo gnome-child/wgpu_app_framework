@@ -55,6 +55,10 @@ pub fn text_field(id: ui::Id, field: impl Into<text::Field>) -> ui::Node {
     text_field_with_theme(id, field, &theme::Theme::default_dark())
 }
 
+pub fn text_area(id: ui::Id, area: impl Into<text::Area>) -> ui::Node {
+    text_area_with_theme(id, area, &theme::Theme::default_dark())
+}
+
 pub fn text_field_with_theme(
     id: ui::Id,
     field: impl Into<text::Field>,
@@ -70,7 +74,7 @@ pub fn text_field_with_theme(
         cursor = ui::Cursor::Text;
     }
 
-    let mut node = foundation::control_chrome(
+    let node = foundation::control_chrome(
         foundation::content_colors(
             ui::Node::leaf(id)
                 .with_text_field(field.clone())
@@ -83,27 +87,70 @@ pub fn text_field_with_theme(
     )
     .with_focus_outline(outline.brush(), outline.width(), outline.offset());
 
-    if field.is_editable() {
-        node = node
-            .with_responder(action::SELECT_ALL)
-            .with_responder(action::COPY)
-            .with_responder(action::CUT)
-            .with_responder(action::PASTE)
-            .with_responder(action::UNDO)
-            .with_responder(action::REDO)
-            .with_responder(action::INSERT_TEXT);
-    } else if field.is_read_only() {
-        node = node
-            .with_responder(action::SELECT_ALL)
-            .with_responder(action::COPY);
+    bind_text_surface_responders(
+        node.with_padding(layout::Insets {
+            left: theme.density().app_padding(),
+            top: 0.0,
+            right: theme.density().app_padding(),
+            bottom: 0.0,
+        }),
+        &text::Surface::Field(field),
+    )
+}
+
+pub fn text_area_with_theme(
+    id: ui::Id,
+    area: impl Into<text::Area>,
+    theme: &theme::Theme,
+) -> ui::Node {
+    let area = area.into();
+    let label = text_area_document(&area, theme);
+    let outline = theme.control().focus_outline();
+    let mut interactivity = ui::Interactivity::NONE.with_hit_test(true);
+    let mut cursor = ui::Cursor::Default;
+    if area.is_selectable() {
+        interactivity = interactivity.with_focusable(true);
+        cursor = ui::Cursor::Text;
     }
 
-    node.with_padding(layout::Insets {
+    let surface = text::Surface::Area(area.clone());
+    let scroll = theme.scroll();
+    let text_scroll = super::Scroll::new()
+        .with_bars(super::scroll::Bars::both())
+        .with_style(super::scroll::Style::new(
+            scroll.thickness(),
+            scroll.min_thumb_length(),
+            scroll.track(),
+            scroll.thumb(),
+            scroll.thumb_hover_tint(),
+            scroll.thumb_pressed_tint(),
+            scroll.corner(),
+        ));
+    let node = foundation::control_chrome(
+        foundation::content_colors(
+            ui::Node::leaf(id)
+                .with_text_area(area)
+                .with_text_scroll(text_scroll)
+                .with_label(label)
+                .with_interactivity(interactivity)
+                .with_cursor(cursor),
+            theme,
+        ),
+        theme,
+    )
+    .with_focus_outline(outline.brush(), outline.width(), outline.offset())
+    .with_size(
+        layout::Size::Fill,
+        layout::Size::Fixed(theme.density().control_height() * 6.0),
+    )
+    .with_padding(layout::Insets {
         left: theme.density().app_padding(),
-        top: 0.0,
+        top: theme.density().app_padding(),
         right: theme.density().app_padding(),
-        bottom: 0.0,
-    })
+        bottom: theme.density().app_padding(),
+    });
+
+    bind_text_surface_responders(node, &surface)
 }
 
 fn text_field_document(field: &text::Field, theme: &theme::Theme) -> text::Document {
@@ -125,4 +172,42 @@ fn text_field_document(field: &text::Field, theme: &theme::Theme) -> text::Docum
     theme
         .text()
         .document(text::Role::Control, field.presentation_text(), color)
+}
+
+fn text_area_document(area: &text::Area, theme: &theme::Theme) -> text::Document {
+    if area.buffer().is_empty()
+        && let Some(placeholder) = area.placeholder()
+    {
+        return theme.text().document(
+            text::Role::Placeholder,
+            placeholder,
+            theme.text().disabled(),
+        );
+    }
+
+    let color = if area.is_disabled() {
+        theme.text().disabled()
+    } else {
+        theme.text().primary()
+    };
+    theme.text().document(text::Role::Control, "", color)
+}
+
+fn bind_text_surface_responders(mut node: ui::Node, surface: &text::Surface) -> ui::Node {
+    if surface.is_editable() {
+        node = node
+            .with_responder(action::SELECT_ALL)
+            .with_responder(action::COPY)
+            .with_responder(action::CUT)
+            .with_responder(action::PASTE)
+            .with_responder(action::UNDO)
+            .with_responder(action::REDO)
+            .with_responder(action::INSERT_TEXT);
+    } else if surface.is_read_only() {
+        node = node
+            .with_responder(action::SELECT_ALL)
+            .with_responder(action::COPY);
+    }
+
+    node
 }

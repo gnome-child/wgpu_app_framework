@@ -33,6 +33,8 @@ pub fn compose<T>(
         state.sync_text_field_states(text_engine);
         text_input::publish_action_states(state, actions, window);
         state.focus_first_floating_row(actions, window);
+        state.sync_scroll_projections(text_engine, frame.now());
+        state.refine_idle_scroll_models(text_engine, frame.now());
         let command_subject = state.command_context(window);
 
         let interaction = ui::Interaction::new(
@@ -60,6 +62,7 @@ pub fn compose<T>(
                 &state.text_field_states,
                 text_engine,
                 frame,
+                Some(&state.scroll),
                 &mut scene,
             );
         }
@@ -70,6 +73,7 @@ pub fn compose<T>(
         state.clear_focus();
         state.clear_command_subject();
         state.command_scope_captures.clear();
+        state.scroll.clear();
     }
 
     scene

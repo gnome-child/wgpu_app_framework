@@ -19,12 +19,13 @@ pub struct Node {
     responder_bindings: Vec<action::Binding>,
     command_scope: bool,
     label: Option<text::Document>,
-    text_field: Option<text::Field>,
+    text_surface: Option<text::Surface>,
     icon: Option<icon::Icon>,
     icon_size: Option<f32>,
     menu_bar: Option<menu::Bar>,
     clip: bool,
     scroll: Option<widget::Scroll>,
+    text_scroll: Option<widget::Scroll>,
     children: Vec<Node>,
 }
 
@@ -183,12 +184,13 @@ impl Node {
             responder_bindings: Vec::new(),
             command_scope: false,
             label: None,
-            text_field: None,
+            text_surface: None,
             icon: None,
             icon_size: None,
             menu_bar: None,
             clip: false,
             scroll: None,
+            text_scroll: None,
             children: Vec::new(),
         }
     }
@@ -250,7 +252,15 @@ impl Node {
     }
 
     pub fn text_field(&self) -> Option<&text::Field> {
-        self.text_field.as_ref()
+        self.text_surface.as_ref().and_then(text::Surface::as_field)
+    }
+
+    pub fn text_area(&self) -> Option<&text::Area> {
+        self.text_surface.as_ref().and_then(text::Surface::as_area)
+    }
+
+    pub fn text_surface(&self) -> Option<&text::Surface> {
+        self.text_surface.as_ref()
     }
 
     pub fn icon(&self) -> Option<icon::Icon> {
@@ -271,6 +281,10 @@ impl Node {
 
     pub fn scroll(&self) -> Option<widget::Scroll> {
         self.scroll
+    }
+
+    pub fn text_scroll(&self) -> Option<widget::Scroll> {
+        self.text_scroll
     }
 
     pub fn children(&self) -> &[Node] {
@@ -456,13 +470,23 @@ impl Node {
         self
     }
 
+    pub fn with_text_scroll(mut self, scroll: widget::Scroll) -> Self {
+        self.text_scroll = Some(scroll);
+        self
+    }
+
     pub fn with_label(mut self, label: text::Document) -> Self {
         self.label = Some(label);
         self
     }
 
     pub fn with_text_field(mut self, field: impl Into<text::Field>) -> Self {
-        self.text_field = Some(field.into());
+        self.text_surface = Some(text::Surface::Field(field.into()));
+        self
+    }
+
+    pub fn with_text_area(mut self, area: impl Into<text::Area>) -> Self {
+        self.text_surface = Some(text::Surface::Area(area.into()));
         self
     }
 

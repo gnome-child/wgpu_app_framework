@@ -18,6 +18,8 @@ pub enum Key {
     ArrowDown,
     Home,
     End,
+    PageUp,
+    PageDown,
     F10,
     ContextMenu,
     Character(char),

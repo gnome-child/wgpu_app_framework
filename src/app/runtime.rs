@@ -228,6 +228,7 @@ impl<A: Application> Runtime<A> {
 
             self.app.view(&mut cx, window, &mut tree);
         }
+        self.text_engine.reset_diagnostics();
 
         let Some(native_window) = self.windows.get(window) else {
             return;
@@ -371,12 +372,17 @@ impl<A: Application> Runtime<A> {
             }
         };
 
-        let Some(state) = self.window_states.get(&window) else {
+        let Some(state) = self.window_states.get_mut(&window) else {
             return;
         };
-        let outcome = input::scroll_wheel(state, position, delta);
+        let outcome = input::scroll_wheel(state, position, delta, &mut self.text_engine);
 
         self.dispatch_ui_events(event_loop, window, outcome.events);
+        if outcome.redraw {
+            self.windows.request_redraw(window);
+        }
+        self.sync_ime_for_window(window);
+        self.sync_cursor_for_window(window);
     }
 
     fn modifiers_changed(&mut self, window: window::Id, modifiers: winit::event::Modifiers) {

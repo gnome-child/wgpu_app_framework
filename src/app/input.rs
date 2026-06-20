@@ -53,14 +53,19 @@ pub fn pointer_moved_with_text_engine(
         .handle_event(pointer::Event::Moved { position });
     let delta = state.pointer.delta();
 
-    if let Some((target, offset)) = state.pointer_capture_offset(position) {
+    if let Some((target, offset)) = state.pointer_capture_offset(position, text_engine) {
         let mut events = vec![ui::Event::PointerMoved {
             position,
             delta,
             target: Some(target.clone()),
         }];
         if state
-            .scroll_metrics(&target)
+            .text_surface(&target)
+            .is_some_and(text::Surface::is_area)
+        {
+            state.scroll_text_area_to(&target, offset, text_engine);
+        } else if state
+            .scroll_metrics_for(&target, text_engine)
             .is_some_and(|metrics| metrics.offset() != offset)
         {
             events.push(ui::Event::ScrollRequested { target, offset });
@@ -100,6 +105,12 @@ pub fn pointer_moved_with_text_engine(
 
     if let Some((target, edit)) = state.text_field_drag_edit_at(position, text_engine) {
         events.push(ui::Event::TextEditRequested { target, edit });
+        return Outcome {
+            events,
+            request: None,
+            intent,
+            redraw: true,
+        };
     }
 
     Outcome {
@@ -123,7 +134,7 @@ pub fn pointer_pressed(
     });
 
     if button == pointer::Button::Primary
-        && let Some(hit) = state.widget_hit(position)
+        && let Some(hit) = state.widget_hit(position, text_engine)
     {
         state.dismiss_menu_for_target(Some(hit.target()));
         let mut events = vec![ui::Event::PointerDown {
@@ -133,7 +144,7 @@ pub fn pointer_pressed(
             button,
         }];
 
-        if state.start_pointer_capture(&hit, button, position) {
+        if state.start_pointer_capture(&hit, button, position, text_engine) {
             return Outcome {
                 events,
                 request: None,
@@ -143,16 +154,23 @@ pub fn pointer_pressed(
         }
 
         if let Some(part) = hit.part().scroll()
-            && let Some(metrics) = state.scroll_metrics(hit.target())
+            && let Some(metrics) = state.scroll_metrics_for(hit.target(), text_engine)
             && let Some(offset) = metrics.page_offset(part, position)
             && offset != metrics.offset()
         {
             state.pressed = Some(hit.target().clone());
             state.pressed_source = Some(PressSource::Pointer);
-            events.push(ui::Event::ScrollRequested {
-                target: hit.target().clone(),
-                offset,
-            });
+            if state
+                .text_surface(hit.target())
+                .is_some_and(text::Surface::is_area)
+            {
+                state.scroll_text_area_to(hit.target(), offset, text_engine);
+            } else {
+                events.push(ui::Event::ScrollRequested {
+                    target: hit.target().clone(),
+                    offset,
+                });
+            }
         }
 
         return Outcome {
@@ -344,19 +362,26 @@ pub fn pointer_left(state: &mut WindowState) -> Outcome {
 }
 
 pub fn scroll_wheel(
-    state: &WindowState,
+    state: &mut WindowState,
     position: point::Logical,
     delta: point::Logical,
+    text_engine: &mut text::Engine,
 ) -> Outcome {
-    let target = state.scroll_target(position);
+    let target = state.scroll_target(position, text_engine);
+    let area_scrolled = target.as_ref().is_some_and(|target| {
+        state
+            .text_surface(target)
+            .is_some_and(text::Surface::is_area)
+    }) && state.scroll_text_area_at(position, delta, text_engine);
     let mut events = vec![ui::Event::ScrollWheel {
         position,
         delta,
         target: target.clone(),
     }];
 
-    if let Some(target) = target
-        && let Some(metrics) = state.scroll_metrics(&target)
+    if !area_scrolled
+        && let Some(target) = target
+        && let Some(metrics) = state.scroll_metrics_for(&target, text_engine)
     {
         let offset = metrics.wheel_offset(delta);
         if offset != metrics.offset() {
@@ -368,7 +393,7 @@ pub fn scroll_wheel(
         events,
         request: None,
         intent: None,
-        redraw: false,
+        redraw: area_scrolled,
     }
 }
 
@@ -395,6 +420,8 @@ pub fn key(key: &WinitKey) -> ui::Key {
         WinitKey::Named(NamedKey::ArrowDown) => ui::Key::ArrowDown,
         WinitKey::Named(NamedKey::Home) => ui::Key::Home,
         WinitKey::Named(NamedKey::End) => ui::Key::End,
+        WinitKey::Named(NamedKey::PageUp) => ui::Key::PageUp,
+        WinitKey::Named(NamedKey::PageDown) => ui::Key::PageDown,
         WinitKey::Named(NamedKey::F10) => ui::Key::F10,
         WinitKey::Named(NamedKey::ContextMenu) => ui::Key::ContextMenu,
         WinitKey::Character(value) => {
@@ -417,6 +444,7 @@ fn text_edit_for_key(
     key: ui::Key,
     modifiers: ui::Modifiers,
     inserted_text: Option<&str>,
+    multiline: bool,
 ) -> Option<text::Edit> {
     if modifiers.super_key() {
         return None;
@@ -424,20 +452,26 @@ fn text_edit_for_key(
 
     let jump = jump_modifier_pressed(modifiers);
     let motion = match key {
-        ui::Key::ArrowLeft if jump => Some(glyphon::cosmic_text::Motion::LeftWord),
-        ui::Key::ArrowRight if jump => Some(glyphon::cosmic_text::Motion::RightWord),
-        ui::Key::ArrowLeft => Some(glyphon::cosmic_text::Motion::Left),
-        ui::Key::ArrowRight => Some(glyphon::cosmic_text::Motion::Right),
-        ui::Key::Home => Some(glyphon::cosmic_text::Motion::Home),
-        ui::Key::End => Some(glyphon::cosmic_text::Motion::End),
+        ui::Key::ArrowLeft if jump => Some(text::TextMotion::WordPrevious),
+        ui::Key::ArrowRight if jump => Some(text::TextMotion::WordNext),
+        ui::Key::ArrowLeft => Some(text::TextMotion::VisualLeft),
+        ui::Key::ArrowRight => Some(text::TextMotion::VisualRight),
+        ui::Key::ArrowUp if multiline => Some(text::TextMotion::VisualUp),
+        ui::Key::ArrowDown if multiline => Some(text::TextMotion::VisualDown),
+        ui::Key::PageUp if multiline => Some(text::TextMotion::PageUp),
+        ui::Key::PageDown if multiline => Some(text::TextMotion::PageDown),
+        ui::Key::Home if multiline && jump => Some(text::TextMotion::DocumentStart),
+        ui::Key::End if multiline && jump => Some(text::TextMotion::DocumentEnd),
+        ui::Key::Home => Some(text::TextMotion::LineStart),
+        ui::Key::End => Some(text::TextMotion::LineEnd),
         _ => None,
     };
 
     if let Some(motion) = motion {
         return Some(if modifiers.shift() {
-            text::Edit::extend_motion(motion)
+            text::Edit::extend_position(motion)
         } else {
-            text::Edit::motion(motion)
+            text::Edit::move_position(motion)
         });
     }
 
@@ -445,8 +479,9 @@ fn text_edit_for_key(
         ui::Key::Backspace if jump => Some(text::Edit::delete_word_backward()),
         ui::Key::Delete if jump => Some(text::Edit::delete_word_forward()),
         _ if modifiers.control() || modifiers.alt() => None,
-        ui::Key::Backspace => Some(text::Edit::action(glyphon::Action::Backspace)),
-        ui::Key::Delete => Some(text::Edit::action(glyphon::Action::Delete)),
+        ui::Key::Backspace => Some(text::Edit::backspace()),
+        ui::Key::Delete => Some(text::Edit::delete()),
+        ui::Key::Enter if multiline => Some(text::Edit::insert_line_break()),
         _ if inserted_text.is_some_and(|text| text.chars().all(|c| !c.is_control())) => {
             Some(text::Edit::insert(inserted_text.unwrap_or_default()))
         }
@@ -500,7 +535,12 @@ pub fn key_pressed_with_text<T>(
     };
     let mut events = vec![event];
 
-    if let Some(edit) = text_edit_for_key(key, state.modifiers, inserted_text)
+    let target_is_multiline = target
+        .as_ref()
+        .and_then(|target| state.text_surface(target))
+        .is_some_and(|surface| surface.buffer().is_multiline());
+
+    if let Some(edit) = text_edit_for_key(key, state.modifiers, inserted_text, target_is_multiline)
         && let Some(target) = target
             .as_ref()
             .filter(|target| state.can_apply_text_edit(target, &edit))
@@ -513,15 +553,9 @@ pub fn key_pressed_with_text<T>(
             edit,
         });
 
-        let request = if !repeat {
-            shortcut_request(registry, state, window, key)
-        } else {
-            None
-        };
-
         return Outcome {
             events,
-            request,
+            request: None,
             intent: None,
             redraw: true,
         };
@@ -1436,9 +1470,15 @@ mod tests {
 
     #[test]
     fn wheel_event_routes_to_scrollable_under_pointer() {
-        let state = scroll_state(point::logical(0.0, 12.0));
+        let mut state = scroll_state(point::logical(0.0, 12.0));
+        let mut text_engine = text::Engine::new();
 
-        let outcome = scroll_wheel(&state, point::logical(1.0, 1.0), point::logical(0.0, -20.0));
+        let outcome = scroll_wheel(
+            &mut state,
+            point::logical(1.0, 1.0),
+            point::logical(0.0, -20.0),
+            &mut text_engine,
+        );
 
         assert!(!outcome.redraw);
         assert_eq!(
@@ -1459,12 +1499,14 @@ mod tests {
 
     #[test]
     fn wheel_event_outside_scrollable_has_no_target() {
-        let state = scroll_state(point::logical(0.0, 12.0));
+        let mut state = scroll_state(point::logical(0.0, 12.0));
+        let mut text_engine = text::Engine::new();
 
         let outcome = scroll_wheel(
-            &state,
+            &mut state,
             point::logical(50.0, 50.0),
             point::logical(0.0, -20.0),
+            &mut text_engine,
         );
 
         assert_eq!(
@@ -1528,7 +1570,13 @@ mod tests {
         assert!(state.pointer_capture.is_none());
         assert_eq!(requested_offset(&thumb.events), None);
 
-        let wheel = scroll_wheel(&state, point::logical(1.0, 1.0), point::logical(0.0, -20.0));
+        let mut text_engine = text::Engine::new();
+        let wheel = scroll_wheel(
+            &mut state,
+            point::logical(1.0, 1.0),
+            point::logical(0.0, -20.0),
+            &mut text_engine,
+        );
         assert_eq!(requested_offset(&wheel.events), None);
     }
 
@@ -1827,6 +1875,32 @@ mod tests {
             edit: crate::text::Edit::insert("A"),
         }));
     }
+    #[test]
+    fn focused_text_field_plain_character_edit_consumes_matching_shortcut() {
+        let window = window::Id::new(1);
+        let mut registry = action::Registry::<()>::new();
+        let mut state = text_field_state();
+        registry.register(Action::new(action::SELECT_ALL, "Plain A").with_shortcut(
+            action::Shortcut::new(
+                ui::Key::Character('a'),
+                ui::Modifiers::new(false, false, false, false),
+            ),
+        ));
+
+        let outcome = key_pressed(
+            &registry,
+            &mut state,
+            window,
+            ui::Key::Character('a'),
+            false,
+        );
+
+        assert_eq!(outcome.request, None);
+        assert!(outcome.events.contains(&ui::Event::TextEditRequested {
+            target: path(CHILD),
+            edit: crate::text::Edit::insert("a"),
+        }));
+    }
 
     #[test]
     fn read_only_text_field_suppresses_character_edit_requests() {
@@ -2069,11 +2143,10 @@ mod tests {
                 target,
                 edit: crate::text::Edit::Pointer {
                     kind: crate::text::PointerEditKind::Click,
-                    cursor
+                    position
                 }
             } if target == &path(CHILD)
-                && cursor.line == 0
-                && cursor.index <= "hello".len()
+                && position.index <= "hello".len()
         )));
     }
 
@@ -2203,11 +2276,10 @@ mod tests {
                 target,
                 edit: crate::text::Edit::Pointer {
                     kind: crate::text::PointerEditKind::Drag,
-                    cursor
+                    position
                 }
             } if target == &path(CHILD)
-                && cursor.line == 0
-                && cursor.index <= "hello".len()
+                && position.index <= "hello".len()
         )));
 
         pointer_released(
@@ -2309,9 +2381,9 @@ mod tests {
                 target,
                 edit: crate::text::Edit::Pointer {
                     kind: crate::text::PointerEditKind::Click,
-                    cursor,
+                    position,
                 },
-            } if target == &path(CHILD) && cursor.line == 0 && cursor.index <= 2
+            } if target == &path(CHILD) && position.index <= 2
         )));
         assert_eq!(state.text_pointer_gesture, None);
         assert!(state.drag_drop.active_text().is_none());
@@ -2365,6 +2437,38 @@ mod tests {
         assert_eq!(state.text_pointer_gesture, None);
     }
 
+    #[test]
+    fn selection_drag_pointer_move_requests_redraw() {
+        let window = window::Id::new(1);
+        let mut text_engine = crate::text::Engine::new();
+        let mut state = text_field_state();
+        state.hovered = Some(path(CHILD));
+
+        pointer_pressed(
+            &mut state,
+            window,
+            point::logical(4.0, 12.0),
+            pointer::Button::Primary,
+            &mut text_engine,
+        );
+        let moved = pointer_moved_with_text_engine(
+            &mut state,
+            point::logical(80.0, 12.0),
+            &mut text_engine,
+        );
+
+        assert!(moved.redraw);
+        assert!(moved.events.iter().any(|event| matches!(
+            event,
+            ui::Event::TextEditRequested {
+                target,
+                edit: crate::text::Edit::Pointer {
+                    kind: crate::text::PointerEditKind::Drag,
+                    ..
+                },
+            } if target == &path(CHILD)
+        )));
+    }
     #[test]
     fn pointer_drag_inside_selected_text_starts_text_drop_session() {
         let window = window::Id::new(1);
@@ -3417,7 +3521,8 @@ mod tests {
         state.record_text_field_history(
             &path(CHILD),
             result.change.expect("insert should change text"),
-            crate::text::HistoryKind::Typing,
+            crate::text::HistoryKind::Typing("!".to_owned()),
+            Instant::now(),
         );
         crate::app::text_input::publish_action_states(&state, &mut registry, window);
         state.modifiers = ui::Modifiers::new(false, true, false, false);
@@ -3457,7 +3562,8 @@ mod tests {
         state.record_text_field_history(
             &path(CHILD),
             result.change.expect("insert should change text"),
-            crate::text::HistoryKind::Typing,
+            crate::text::HistoryKind::Typing("!".to_owned()),
+            Instant::now(),
         );
         state.apply_text_history_command(&path(CHILD), &mut buffer, crate::text::Command::Undo);
         crate::app::text_input::publish_action_states(&state, &mut registry, window);

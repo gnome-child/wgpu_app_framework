@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use crate::animation::Frame as AnimationFrame;
+use crate::app::scroll;
 use crate::geometry::{Rect, area, point};
 use crate::widget::menu;
 use crate::{action, paint, text, widget, window};
@@ -32,6 +33,7 @@ pub struct Composition {
     command_scopes: Vec<Path>,
     command_scope_contexts: HashMap<Path, action::Context>,
     text_fields: HashMap<Path, text::Field>,
+    text_surfaces: HashMap<Path, text::Surface>,
     interactivity: HashMap<Path, Interactivity>,
     cursors: HashMap<Path, Cursor>,
     widget_metrics: HashMap<Path, widget::Metrics>,
@@ -301,6 +303,31 @@ impl Tree {
         frame: AnimationFrame,
         scene: &mut paint::Scene,
     ) {
+        self.paint_with_scroll_projections_at(
+            layout,
+            actions,
+            window,
+            interaction,
+            text_field_states,
+            text_engine,
+            frame,
+            None,
+            scene,
+        );
+    }
+
+    pub(crate) fn paint_with_scroll_projections_at<T>(
+        &self,
+        layout: &Frame,
+        actions: &action::Registry<T>,
+        window: window::Id,
+        interaction: Interaction,
+        text_field_states: &HashMap<Path, text::TextFieldState>,
+        text_engine: &mut text::Engine,
+        frame: AnimationFrame,
+        scroll_projections: Option<&scroll::State>,
+        scene: &mut paint::Scene,
+    ) {
         if let Some(root) = self.root.as_ref() {
             painting::tree(
                 root,
@@ -311,6 +338,7 @@ impl Tree {
                 text_field_states,
                 text_engine,
                 frame,
+                scroll_projections,
                 scene,
             );
             for popup in &self.popups {
@@ -325,6 +353,7 @@ impl Tree {
                         text_field_states,
                         text_engine,
                         frame,
+                        scroll_projections,
                         scene,
                     );
                 }
@@ -410,13 +439,11 @@ fn text_content_rect(node: &Node, layout: &Frame) -> crate::geometry::Rect {
     let rect = layout.rect();
     let padding = node.style().padding();
     let x = rect.origin.x() + padding.left;
-    let y = rect.origin.y();
+    let y = rect.origin.y() + padding.top;
     let width = (rect.area.width() - padding.left - padding.right).max(0.0);
+    let height = (rect.area.height() - padding.top - padding.bottom).max(0.0);
 
-    crate::geometry::Rect::new(
-        point::logical(x, y),
-        area::logical(width, rect.area.height()),
-    )
+    crate::geometry::Rect::new(point::logical(x, y), area::logical(width, height))
 }
 
 fn popup_scope_path(tree: &Tree, popup_root: super::Id) -> Option<Path> {
@@ -451,6 +478,7 @@ impl Composition {
             command_scopes: index.command_scopes,
             command_scope_contexts,
             text_fields: index.text_fields,
+            text_surfaces: index.text_surfaces,
             interactivity: index.interactivity,
             cursors: index.cursors,
             widget_metrics,
@@ -537,11 +565,27 @@ impl Composition {
     }
 
     pub fn text_field(&self, path: &Path) -> Option<&text::Field> {
-        self.text_fields.get(path)
+        self.text_surfaces
+            .get(path)
+            .and_then(text::Surface::as_field)
+    }
+
+    pub fn text_area(&self, path: &Path) -> Option<&text::Area> {
+        self.text_surfaces
+            .get(path)
+            .and_then(text::Surface::as_area)
+    }
+
+    pub fn text_surface(&self, path: &Path) -> Option<&text::Surface> {
+        self.text_surfaces.get(path)
     }
 
     pub fn text_fields(&self) -> &HashMap<Path, text::Field> {
         &self.text_fields
+    }
+
+    pub fn text_surfaces(&self) -> &HashMap<Path, text::Surface> {
+        &self.text_surfaces
     }
 
     pub fn text_field_edit_at(
@@ -553,44 +597,42 @@ impl Composition {
         text_engine: &mut text::Engine,
     ) -> Option<text::Edit> {
         let node = self.node(path)?;
-        let field = node.text_field()?;
-        let layout = self.layout.find_path(path)?;
-        let rect = text_content_rect(node, layout);
+        let surface = node.text_surface()?;
         let style = node
             .label()
             .and_then(text::Document::first_style)
             .unwrap_or_default();
+        let rect = self.text_content_rect_for_state(path, state.clone(), text_engine)?;
         let position = point::logical(
             position.x() - rect.origin.x(),
             position.y() - rect.origin.y(),
         );
-        let cursor =
-            text_engine.text_field_cursor_at_for_field(field, style, rect.area, position, state)?;
+        let position =
+            text_engine.text_position_at_for_surface(surface, style, rect.area, position, state)?;
 
-        Some(text::Edit::pointer(kind, cursor))
+        Some(text::Edit::pointer(kind, position))
     }
 
-    pub fn text_field_cursor_at(
+    pub fn text_field_position_at(
         &self,
         path: &Path,
         position: point::Logical,
         state: text::TextFieldState,
         text_engine: &mut text::Engine,
-    ) -> Option<text::Cursor> {
+    ) -> Option<text::TextPosition> {
         let node = self.node(path)?;
-        let field = node.text_field()?;
-        let layout = self.layout.find_path(path)?;
-        let rect = text_content_rect(node, layout);
+        let surface = node.text_surface()?;
         let style = node
             .label()
             .and_then(text::Document::first_style)
             .unwrap_or_default();
+        let rect = self.text_content_rect_for_state(path, state.clone(), text_engine)?;
         let position = point::logical(
             position.x() - rect.origin.x(),
             position.y() - rect.origin.y(),
         );
 
-        text_engine.text_field_cursor_at_for_field(field, style, rect.area, position, state)
+        text_engine.text_position_at_for_surface(surface, style, rect.area, position, state)
     }
 
     pub fn text_field_caret_rect(
@@ -600,14 +642,20 @@ impl Composition {
         text_engine: &mut text::Engine,
     ) -> Option<Rect> {
         let node = self.node(path)?;
-        let field = node.text_field()?;
-        let layout = self.layout.find_path(path)?;
-        let rect = text_content_rect(node, layout);
+        let surface = node.text_surface()?;
         let style = node
             .label()
             .and_then(text::Document::first_style)
             .unwrap_or_default();
-        let caret = text_engine.text_field_caret_for_field(field, style, rect.area, state)?;
+        let rect = self.text_content_rect_for_state(path, state.clone(), text_engine)?;
+        let caret = match surface {
+            text::Surface::Field(field) => {
+                text_engine.text_field_caret_for_field(field, style, rect.area, state)
+            }
+            text::Surface::Area(area) => {
+                text_engine.text_area_caret_for_area(area, style, rect.area, state)
+            }
+        }?;
 
         Some(Rect::new(
             point::logical(rect.origin.x() + caret.x(), rect.origin.y() + caret.y()),
@@ -615,24 +663,33 @@ impl Composition {
         ))
     }
 
-    pub fn text_field_caret_rect_at_cursor(
+    pub fn text_field_caret_rect_at_position(
         &self,
         path: &Path,
-        cursor: text::Cursor,
+        position: text::TextPosition,
         state: text::TextFieldState,
         text_engine: &mut text::Engine,
     ) -> Option<Rect> {
         let node = self.node(path)?;
-        let field = node.text_field()?;
-        let layout = self.layout.find_path(path)?;
-        let rect = text_content_rect(node, layout);
+        let surface = node.text_surface()?;
         let style = node
             .label()
             .and_then(text::Document::first_style)
             .unwrap_or_default();
-        let mut buffer = field.buffer().clone();
-        text_engine.apply_text_edit(&mut buffer, text::Edit::set_cursor(cursor));
-        let caret = text_engine.text_field_caret(&buffer, style, rect.area, state)?;
+        let rect = self.text_content_rect_for_state(path, state.clone(), text_engine)?;
+        let mut buffer = surface.buffer().clone();
+        text_engine.apply_text_edit(&mut buffer, text::Edit::set_position(position));
+        let caret = match surface {
+            text::Surface::Field(_) => {
+                text_engine.text_field_caret(&buffer, style, rect.area, state)
+            }
+            text::Surface::Area(area) => {
+                let area = text::Area::new(buffer)
+                    .with_mode(area.mode())
+                    .with_wrap(area.wrap());
+                text_engine.text_area_caret_for_area(&area, style, rect.area, state)
+            }
+        }?;
 
         Some(Rect::new(
             point::logical(rect.origin.x() + caret.x(), rect.origin.y() + caret.y()),
@@ -648,40 +705,45 @@ impl Composition {
     ) -> bool {
         let mut changed = false;
         let old_len = states.len();
-        states.retain(|path, _| self.text_fields.contains_key(path));
+        states.retain(|path, _| self.text_surfaces.contains_key(path));
         changed |= old_len != states.len();
 
-        for path in self.text_fields.keys() {
+        for path in self.text_surfaces.keys() {
             if !states.contains_key(path) {
                 states.insert(path.clone(), text::TextFieldState::default());
                 changed = true;
             }
         }
 
-        let Some(focused) = focused.filter(|path| self.text_fields.contains_key(*path)) else {
+        let Some(focused) = focused.filter(|path| self.text_surfaces.contains_key(*path)) else {
             return changed;
         };
         let Some(node) = self.node(focused) else {
             return changed;
         };
-        let Some(field) = node.text_field() else {
+        let Some(surface) = node.text_surface() else {
             return changed;
         };
-        let Some(layout) = self.layout.find_path(focused) else {
+        let current = states.get(focused).cloned().unwrap_or_default();
+        if surface.is_area() && !current.reveal_pending() {
             return changed;
-        };
-        let rect = text_content_rect(node, layout);
+        }
+
         let style = node
             .label()
             .and_then(text::Document::first_style)
             .unwrap_or_default();
-        let current = states.get(focused).cloned().unwrap_or_default();
-        let next = text_engine.text_field_reveal_scroll_for_field(
-            field,
-            style,
-            rect.area,
-            current.clone(),
-        );
+        let Some(rect) = self.text_content_rect_for_state(focused, current.clone(), text_engine)
+        else {
+            return changed;
+        };
+        let next = if surface.is_field() || current.reveal_pending() {
+            text_engine
+                .text_reveal_scroll_for_surface(surface, style, rect.area, current.clone())
+                .clear_reveal_pending()
+        } else {
+            current.clone()
+        };
 
         if next != current {
             states.insert(focused.clone(), next);
@@ -689,6 +751,296 @@ impl Composition {
         }
 
         changed
+    }
+
+    pub fn text_area_wheel_scroll(
+        &self,
+        path: &Path,
+        delta: point::Logical,
+        horizontal_from_vertical: bool,
+        state: text::TextFieldState,
+        text_engine: &mut text::Engine,
+    ) -> Option<text::TextFieldState> {
+        let node = self.node(path)?;
+        node.text_area()?;
+        let layout = self.layout.find_path(path)?;
+        let (delta_x, delta_y) = if horizontal_from_vertical {
+            (delta.y(), delta.x())
+        } else {
+            (delta.x(), delta.y())
+        };
+        let metrics = self.text_area_scroll_metrics_for_node(
+            node,
+            layout,
+            state.clone(),
+            text_engine,
+            Instant::now(),
+        )?;
+        let offset = metrics.wheel_offset(point::logical(delta_x, delta_y));
+
+        Some(state.with_scroll(offset.x(), offset.y()))
+    }
+
+    pub fn text_area_scroll_metrics(
+        &self,
+        path: &Path,
+        state: text::TextFieldState,
+        text_engine: &mut text::Engine,
+    ) -> Option<widget::scroll::Metrics> {
+        let node = self.node(path)?;
+        let layout = self.layout.find_path(path)?;
+
+        self.text_area_scroll_metrics_for_node(node, layout, state, text_engine, Instant::now())
+    }
+
+    pub(crate) fn text_area_scroll_paint_layout_with_content_hint(
+        &self,
+        path: &Path,
+        state: text::TextFieldState,
+        text_engine: &mut text::Engine,
+        now: Instant,
+        content_hint: Option<(text::AreaScrollKey, area::Logical)>,
+    ) -> Option<(
+        widget::scroll::Metrics,
+        text::TextAreaPaintLayout,
+        text::AreaScrollKey,
+        area::Logical,
+    )> {
+        let node = self.node(path)?;
+        let layout = self.layout.find_path(path)?;
+
+        self.text_area_scroll_paint_layout_for_node_with_content_hint(
+            node,
+            layout,
+            state,
+            text_engine,
+            now,
+            content_hint,
+        )
+    }
+
+    pub(crate) fn text_area_scroll_metrics_with_content_hint(
+        &self,
+        path: &Path,
+        state: text::TextFieldState,
+        text_engine: &mut text::Engine,
+        now: Instant,
+        content_hint: Option<(text::AreaScrollKey, area::Logical)>,
+    ) -> Option<(widget::scroll::Metrics, text::AreaScrollKey, area::Logical)> {
+        let node = self.node(path)?;
+        let layout = self.layout.find_path(path)?;
+
+        self.text_area_scroll_metrics_for_node_with_content_hint(
+            node,
+            layout,
+            state,
+            text_engine,
+            now,
+            content_hint,
+        )
+    }
+
+    pub fn reveal_text_surface(
+        &self,
+        path: &Path,
+        state: text::TextFieldState,
+        text_engine: &mut text::Engine,
+    ) -> Option<text::TextFieldState> {
+        let node = self.node(path)?;
+        let surface = node.text_surface()?;
+        let style = node
+            .label()
+            .and_then(text::Document::first_style)
+            .unwrap_or_default();
+
+        if let text::Surface::Area(area_model) = surface {
+            let layout = self.layout.find_path(path)?;
+            let (metrics, _) = self.text_area_scroll_paint_layout_for_node(
+                node,
+                layout,
+                state.clone(),
+                text_engine,
+                Instant::now(),
+            )?;
+            return Some(text_engine.text_area_reveal_scroll_for_area(
+                area_model,
+                style,
+                metrics.viewport().area,
+                state,
+            ));
+        }
+
+        let rect = self.text_content_rect_for_state(path, state.clone(), text_engine)?;
+        Some(text_engine.text_reveal_scroll_for_surface(surface, style, rect.area, state))
+    }
+
+    fn text_content_rect_for_state(
+        &self,
+        path: &Path,
+        state: text::TextFieldState,
+        text_engine: &mut text::Engine,
+    ) -> Option<Rect> {
+        let node = self.node(path)?;
+        let layout = self.layout.find_path(path)?;
+        let base = text_content_rect(node, layout);
+
+        if node.text_area().is_none() {
+            return Some(base);
+        }
+
+        self.text_area_scroll_metrics_for_node(node, layout, state, text_engine, Instant::now())
+            .map(|metrics| metrics.viewport())
+            .or(Some(base))
+    }
+
+    fn text_area_scroll_metrics_for_node(
+        &self,
+        node: &Node,
+        layout: &Frame,
+        state: text::TextFieldState,
+        text_engine: &mut text::Engine,
+        now: Instant,
+    ) -> Option<widget::scroll::Metrics> {
+        self.text_area_scroll_paint_layout_for_node(node, layout, state, text_engine, now)
+            .map(|(metrics, _)| metrics)
+    }
+
+    fn text_area_scroll_paint_layout_for_node(
+        &self,
+        node: &Node,
+        layout: &Frame,
+        state: text::TextFieldState,
+        text_engine: &mut text::Engine,
+        now: Instant,
+    ) -> Option<(widget::scroll::Metrics, text::TextAreaPaintLayout)> {
+        self.text_area_scroll_paint_layout_for_node_with_content_hint(
+            node,
+            layout,
+            state,
+            text_engine,
+            now,
+            None,
+        )
+        .map(|(metrics, paint_layout, _, _)| (metrics, paint_layout))
+    }
+
+    fn text_area_scroll_paint_layout_for_node_with_content_hint(
+        &self,
+        node: &Node,
+        layout: &Frame,
+        state: text::TextFieldState,
+        text_engine: &mut text::Engine,
+        now: Instant,
+        content_hint: Option<(text::AreaScrollKey, area::Logical)>,
+    ) -> Option<(
+        widget::scroll::Metrics,
+        text::TextAreaPaintLayout,
+        text::AreaScrollKey,
+        area::Logical,
+    )> {
+        let (metrics, key, content_area) = self
+            .text_area_scroll_metrics_for_node_with_content_hint(
+                node,
+                layout,
+                state.clone(),
+                text_engine,
+                now,
+                content_hint,
+            )?;
+        let area_model = node.text_area()?;
+        let style = node
+            .label()
+            .and_then(text::Document::first_style)
+            .unwrap_or_default();
+        let viewport = widget::scroll::viewport_rect_for_axes(
+            text_content_rect(node, layout),
+            node.text_scroll()?.style(),
+            metrics.active_axes(),
+        );
+        let paint_layout = text_engine.text_area_paint_layout_for_area_at(
+            area_model,
+            style,
+            viewport.area,
+            state,
+            now,
+        );
+
+        Some((metrics, paint_layout, key, content_area))
+    }
+
+    fn text_area_scroll_metrics_for_node_with_content_hint(
+        &self,
+        node: &Node,
+        layout: &Frame,
+        state: text::TextFieldState,
+        text_engine: &mut text::Engine,
+        now: Instant,
+        content_hint: Option<(text::AreaScrollKey, area::Logical)>,
+    ) -> Option<(widget::scroll::Metrics, text::AreaScrollKey, area::Logical)> {
+        let area_model = node.text_area()?;
+        let scroll = node.text_scroll()?;
+        if !scroll.bars().is_enabled() {
+            return None;
+        }
+
+        let viewport_base = text_content_rect(node, layout);
+        let style = node
+            .label()
+            .and_then(text::Document::first_style)
+            .unwrap_or_default();
+        let (key, base_content) =
+            text::text_area_scroll_base_content_area(area_model, style, viewport_base.area);
+        let hint = content_hint
+            .filter(|(hint_key, _)| *hint_key == key)
+            .map(|(_, content)| content);
+        let mut content_area = text::stable_text_area_content_area(
+            base_content,
+            hint,
+            area::logical(0.0, 0.0),
+            viewport_base.area,
+        );
+        let mut axes = scroll
+            .bars()
+            .active_axes(viewport_base, scroll.style(), content_area);
+        for _ in 0..3 {
+            let viewport =
+                widget::scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
+            let candidate = text_engine.text_area_metrics_layout_for_area_at(
+                area_model,
+                style,
+                viewport.area,
+                state.clone(),
+                now,
+            );
+            let next_content = text::stable_text_area_content_area(
+                base_content,
+                Some(content_area),
+                candidate.content_area(),
+                viewport.area,
+            );
+            let next_axes = scroll
+                .bars()
+                .active_axes(viewport_base, scroll.style(), next_content);
+
+            content_area = next_content;
+
+            if next_axes == axes {
+                break;
+            }
+
+            axes = next_axes;
+        }
+
+        let metrics = widget::scroll::Metrics::resolve(
+            layout.rect(),
+            viewport_base,
+            content_area,
+            point::logical(state.scroll_x(), state.scroll_y()),
+            scroll.bars(),
+            scroll.style(),
+        );
+
+        Some((metrics, key, content_area))
     }
 
     pub fn interactivity(&self, path: &Path) -> Option<Interactivity> {
@@ -731,6 +1083,7 @@ impl Composition {
             text_field_states,
             text_engine,
             AnimationFrame::new(Instant::now(), None),
+            None,
             scene,
         );
     }
@@ -743,9 +1096,10 @@ impl Composition {
         text_field_states: &HashMap<Path, text::TextFieldState>,
         text_engine: &mut text::Engine,
         frame: AnimationFrame,
+        scroll_projections: Option<&scroll::State>,
         scene: &mut paint::Scene,
     ) {
-        self.tree.paint_with_text_engine_at(
+        self.tree.paint_with_scroll_projections_at(
             &self.layout,
             actions,
             window,
@@ -753,6 +1107,7 @@ impl Composition {
             text_field_states,
             text_engine,
             frame,
+            scroll_projections,
             scene,
         );
     }
@@ -804,6 +1159,7 @@ impl Composition {
             command_scopes,
             command_scope_contexts: HashMap::new(),
             text_fields: HashMap::new(),
+            text_surfaces: HashMap::new(),
             interactivity,
             cursors: HashMap::new(),
             widget_metrics,
@@ -821,6 +1177,7 @@ struct TreeIndex {
     responder_bindings: HashMap<Path, Vec<action::Binding>>,
     command_scopes: Vec<Path>,
     text_fields: HashMap<Path, text::Field>,
+    text_surfaces: HashMap<Path, text::Surface>,
     interactivity: HashMap<Path, Interactivity>,
     cursors: HashMap<Path, Cursor>,
 }
@@ -851,8 +1208,11 @@ impl TreeIndex {
             self.command_scopes.push(path.clone());
         }
 
-        if let Some(buffer) = node.text_field() {
-            self.text_fields.insert(path.clone(), buffer.clone());
+        if let Some(surface) = node.text_surface() {
+            if let Some(field) = surface.as_field() {
+                self.text_fields.insert(path.clone(), field.clone());
+            }
+            self.text_surfaces.insert(path.clone(), surface.clone());
         }
 
         self.interactivity

@@ -9,6 +9,7 @@ mod input;
 mod mailbox;
 mod rendering;
 mod runtime;
+pub(crate) mod scroll;
 mod sender;
 mod state;
 mod task_runner;
@@ -19,7 +20,7 @@ mod windows;
 use crate::{event, native, render, ui, window};
 use thiserror::Error;
 
-pub use context::{ActionState, Context};
+pub use context::{ActionState, Context, Diagnostics, ScrollDiagnostics};
 pub use sender::{SendError, Sender};
 
 use mailbox::Message;

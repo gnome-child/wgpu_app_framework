@@ -338,8 +338,9 @@ fn scroll_offset_shifts_child_layout_and_paint_positions() {
         .with_child(
             Node::leaf(A)
                 .with_background(paint::Color::RED)
-                .with_size(layout::Size::Fill, layout::Size::Fixed(30.0)),
-        );
+                .with_size(layout::Size::Fill, layout::Size::Fixed(70.0)),
+        )
+        .with_child(Node::leaf(B).with_size(layout::Size::Fill, layout::Size::Fixed(70.0)));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let registry = action::Registry::<()>::new();
@@ -456,9 +457,19 @@ fn no_cursor_overlay_paints_no_extra_text() {
 }
 
 #[test]
-fn vertical_scrollbar_reserves_right_gutter() {
+fn vertical_scrollbar_auto_reserves_right_gutter_only_with_overflow() {
     let root = widget::scroll_view(ROOT)
         .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(20.0)));
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+    let layout = layout_area(&tree, area::logical(80.0, 60.0));
+
+    assert_eq!(layout.children()[0].rect().area.width(), 80.0);
+
+    let root = widget::scroll_view(ROOT)
+        .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(40.0)))
+        .with_child(Node::leaf(B).with_size(layout::Size::Fill, layout::Size::Fixed(40.0)));
     let mut tree = Tree::new();
 
     tree.set_root(root);
@@ -484,7 +495,12 @@ fn disabled_scrollbar_axis_reserves_no_gutter() {
 fn horizontal_scrollbar_reserves_bottom_gutter() {
     let root = widget::scroll_view(ROOT)
         .with_scroll_bars(widget::scroll::Bars::horizontal())
-        .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fill));
+        .with_child(
+            Node::container(A, layout::Axis::Horizontal)
+                .with_size(layout::Size::Fill, layout::Size::Fill)
+                .with_child(Node::leaf(B).with_size(layout::Size::Fixed(50.0), layout::Size::Fill))
+                .with_child(Node::leaf(C).with_size(layout::Size::Fixed(50.0), layout::Size::Fill)),
+        );
     let mut tree = Tree::new();
 
     tree.set_root(root);
@@ -497,7 +513,30 @@ fn horizontal_scrollbar_reserves_bottom_gutter() {
 fn both_scrollbar_axes_leave_corner_cell_and_trim_tracks() {
     let root = widget::scroll_view(ROOT)
         .with_scroll_bars(widget::scroll::Bars::both())
-        .with_child(Node::leaf(A).with_size(layout::Size::Fixed(30.0), layout::Size::Fixed(30.0)));
+        .with_child(
+            Node::container(A, layout::Axis::Vertical)
+                .with_size(layout::Size::Fill, layout::Size::Fill)
+                .with_child(
+                    Node::container(B, layout::Axis::Horizontal)
+                        .with_size(layout::Size::Fill, layout::Size::Fixed(40.0))
+                        .with_child(
+                            Node::leaf(D).with_size(layout::Size::Fixed(50.0), layout::Size::Fill),
+                        )
+                        .with_child(
+                            Node::leaf(E).with_size(layout::Size::Fixed(50.0), layout::Size::Fill),
+                        ),
+                )
+                .with_child(
+                    Node::container(C, layout::Axis::Horizontal)
+                        .with_size(layout::Size::Fill, layout::Size::Fixed(40.0))
+                        .with_child(
+                            Node::leaf(F).with_size(layout::Size::Fixed(50.0), layout::Size::Fill),
+                        )
+                        .with_child(
+                            Node::leaf(G).with_size(layout::Size::Fixed(50.0), layout::Size::Fill),
+                        ),
+                ),
+        );
     let mut tree = Tree::new();
 
     tree.set_root(root);
@@ -588,8 +627,30 @@ fn scroll_view_paints_track_corner_and_thumb_chrome() {
     let root = widget::scroll_view(ROOT)
         .with_scroll_bars(widget::scroll::Bars::both())
         .with_background(paint::Color::BLACK)
-        .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(30.0)))
-        .with_child(Node::leaf(B).with_size(layout::Size::Fill, layout::Size::Fixed(30.0)));
+        .with_child(
+            Node::container(A, layout::Axis::Vertical)
+                .with_size(layout::Size::Fill, layout::Size::Fill)
+                .with_child(
+                    Node::container(B, layout::Axis::Horizontal)
+                        .with_size(layout::Size::Fill, layout::Size::Fixed(40.0))
+                        .with_child(
+                            Node::leaf(D).with_size(layout::Size::Fixed(50.0), layout::Size::Fill),
+                        )
+                        .with_child(
+                            Node::leaf(E).with_size(layout::Size::Fixed(50.0), layout::Size::Fill),
+                        ),
+                )
+                .with_child(
+                    Node::container(C, layout::Axis::Horizontal)
+                        .with_size(layout::Size::Fill, layout::Size::Fixed(40.0))
+                        .with_child(
+                            Node::leaf(F).with_size(layout::Size::Fixed(50.0), layout::Size::Fill),
+                        )
+                        .with_child(
+                            Node::leaf(G).with_size(layout::Size::Fixed(50.0), layout::Size::Fill),
+                        ),
+                ),
+        );
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let registry = action::Registry::<()>::new();
@@ -708,7 +769,30 @@ fn scrollbar_thumb_hover_tint_requires_pointer_hit() {
 fn scroll_view_clip_uses_viewport_minus_enabled_gutters() {
     let root = widget::scroll_view(ROOT)
         .with_scroll_bars(widget::scroll::Bars::both())
-        .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(30.0)));
+        .with_child(
+            Node::container(A, layout::Axis::Vertical)
+                .with_size(layout::Size::Fill, layout::Size::Fill)
+                .with_child(
+                    Node::container(B, layout::Axis::Horizontal)
+                        .with_size(layout::Size::Fill, layout::Size::Fixed(40.0))
+                        .with_child(
+                            Node::leaf(D).with_size(layout::Size::Fixed(50.0), layout::Size::Fill),
+                        )
+                        .with_child(
+                            Node::leaf(E).with_size(layout::Size::Fixed(50.0), layout::Size::Fill),
+                        ),
+                )
+                .with_child(
+                    Node::container(C, layout::Axis::Horizontal)
+                        .with_size(layout::Size::Fill, layout::Size::Fixed(40.0))
+                        .with_child(
+                            Node::leaf(F).with_size(layout::Size::Fixed(50.0), layout::Size::Fill),
+                        )
+                        .with_child(
+                            Node::leaf(G).with_size(layout::Size::Fixed(50.0), layout::Size::Fill),
+                        ),
+                ),
+        );
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let registry = action::Registry::<()>::new();
@@ -817,7 +901,9 @@ fn tree_collects_widget_scroll_metrics_with_root_prefixed_path() {
     tree.set_root(Node::leaf(ROOT));
     tree.push_popup(widget::Popup::new(
         Rect::new(point::logical(0.0, 0.0), area::logical(40.0, 40.0)),
-        widget::scroll_view(B).with_scroll_offset(point::logical(0.0, 12.0)),
+        widget::scroll_view(B)
+            .with_scroll_offset(point::logical(0.0, 12.0))
+            .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(80.0))),
     ));
     let layout = layout_area(&tree, area::logical(100.0, 100.0));
     let widget_metrics = tree.widget_metrics(&layout);
@@ -827,7 +913,7 @@ fn tree_collects_widget_scroll_metrics_with_root_prefixed_path() {
             .get(&Path::new([ROOT, B]))
             .and_then(|metrics| metrics.scroll())
             .map(|metrics| metrics.offset()),
-        Some(point::logical(0.0, 0.0))
+        Some(point::logical(0.0, 12.0))
     );
     assert!(
         widget_metrics
@@ -1568,12 +1654,15 @@ fn empty_text_field_paints_placeholder_until_preedit_starts() {
         &mut preedit_scene,
     );
 
-    assert!(
-        !preedit_scene
-            .items()
-            .iter()
-            .any(|item| matches!(item, paint::Item::Text(_)))
-    );
+    let preedit_content = preedit_scene
+        .items()
+        .iter()
+        .find_map(|item| match item {
+            paint::Item::Text(text) => Some(text),
+            _ => None,
+        })
+        .expect("preedit text should paint");
+    assert_eq!(preedit_content.document.blocks()[0].runs()[0].text(), "s");
 }
 
 #[test]

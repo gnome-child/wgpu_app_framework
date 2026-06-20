@@ -3,6 +3,8 @@ use wgpu_l3::{
 };
 
 const INSERT_SAMPLE: action::Id = action::Id::new("insert_sample_text");
+const LOAD_STRESS_TEXT: action::Id = action::Id::new("load_stress_text");
+const CLEAR_EDITOR: action::Id = action::Id::new("clear_editor");
 
 const ROOT: ui::Id = ui::Id::new("root");
 const MENU_BAR: ui::Id = ui::Id::new("menu_bar");
@@ -21,6 +23,8 @@ const DISABLED_LABEL: ui::Id = ui::Id::new("disabled_label");
 const DISABLED_FIELD: ui::Id = ui::Id::new("disabled_field");
 const STATUS: ui::Id = ui::Id::new("status");
 const COMMAND_ROW: ui::Id = ui::Id::new("command_row");
+const LOAD_STRESS_BUTTON: ui::Id = ui::Id::new("load_stress_button");
+const CLEAR_BUTTON: ui::Id = ui::Id::new("clear_button");
 
 const FILE_MENU: widget::menu::Id = widget::menu::Id::new("file");
 const EDIT_MENU: widget::menu::Id = widget::menu::Id::new("edit");
@@ -52,14 +56,16 @@ enum AppEvent {
         command: text::Command,
         label: &'static str,
     },
+    LoadStressText,
+    ClearEditor,
 }
 
 impl Default for Editor {
     fn default() -> Self {
         Self {
             window: None,
-            buffer: text::Buffer::from_text(
-                "Click the field, type text, then use Edit > Select All or Ctrl+A.",
+            buffer: text::Buffer::from_multiline_text(
+                "Click the editor, type text, and press Enter for a new line.\nTry undo/redo, context menu, drag/drop selected text, paste multiline text, and wheel scrolling.",
             ),
             placeholder_buffer: text::Buffer::new(),
             read_only_buffer: text::Buffer::from_text("Selectable read-only value"),
@@ -133,11 +139,15 @@ impl app::Application for Editor {
             Action::new(INSERT_SAMPLE, "Insert Sample Text").emit(|invocation| {
                 AppEvent::ApplyEdit {
                     target: invocation.context().clone(),
-                    edit: text::Edit::insert(" sample"),
+                    edit: text::Edit::insert("\nA sample line inserted through the edit command."),
                     label: "insert sample",
                 }
             }),
         );
+        cx.register_action(
+            Action::new(LOAD_STRESS_TEXT, "Load Stress Text").emit(|_| AppEvent::LoadStressText),
+        );
+        cx.register_action(Action::new(CLEAR_EDITOR, "Clear").emit(|_| AppEvent::ClearEditor));
 
         let theme = Theme::default_dark();
         self.window = Some(cx.open_window(window::Options {
@@ -203,6 +213,18 @@ impl app::Application for Editor {
                     cx.request_redraw(window);
                 }
             }
+            Event::App(AppEvent::LoadStressText) => {
+                self.buffer = text::Buffer::from_multiline_text(stress_text(20_000));
+                self.edit_count += 1;
+                self.last_action = "loaded 20k-line stress text".to_owned();
+                cx.request_redraw(window);
+            }
+            Event::App(AppEvent::ClearEditor) => {
+                self.buffer = text::Buffer::from_multiline_text("");
+                self.edit_count += 1;
+                self.last_action = "cleared editor".to_owned();
+                cx.request_redraw(window);
+            }
         }
     }
 
@@ -229,10 +251,21 @@ impl app::Application for Editor {
         cx.action(window, INSERT_SAMPLE)
             .enabled(false)
             .active(false);
+        cx.action(window, LOAD_STRESS_TEXT)
+            .enabled(true)
+            .active(false);
+        cx.action(window, CLEAR_EDITOR).enabled(true).active(false);
 
         let theme = Theme::default_dark();
+        let diagnostics = cx.diagnostics(window);
         tree.clear_popups();
-        tree.set_root(root_view(&theme, self, self.edit_count, &self.last_action));
+        tree.set_root(root_view(
+            &theme,
+            self,
+            self.edit_count,
+            &self.last_action,
+            diagnostics,
+        ));
     }
 }
 
@@ -295,7 +328,13 @@ impl Editor {
     }
 }
 
-fn root_view(theme: &Theme, editor: &Editor, edit_count: u32, last_action: &str) -> ui::Node {
+fn root_view(
+    theme: &Theme,
+    editor: &Editor,
+    edit_count: u32,
+    last_action: &str,
+    diagnostics: app::Diagnostics,
+) -> ui::Node {
     ui::Node::container(ROOT, layout::Axis::Vertical)
         .with_background(theme.surfaces().app())
         .with_child(widget::menu_bar_with_theme(MENU_BAR, edit_menu(), theme))
@@ -305,7 +344,13 @@ fn root_view(theme: &Theme, editor: &Editor, edit_count: u32, last_action: &str)
                 .with_padding(layout::Insets::splat(theme.density().app_padding()))
                 .with_gap(theme.density().app_padding())
                 .with_child(editor_panel(theme, editor))
-                .with_child(status_panel(theme, edit_count, last_action)),
+                .with_child(status_panel(
+                    theme,
+                    editor,
+                    edit_count,
+                    last_action,
+                    diagnostics,
+                )),
         )
 }
 
@@ -316,22 +361,22 @@ fn editor_panel(theme: &Theme, editor: &Editor) -> ui::Node {
         .with_gap(10.0)
         .with_child(widget::text_with_theme(
             TITLE,
-            "Text field semantics",
+            "Text editing semantics",
             theme,
         ))
         .with_child(field_label(
             EDITABLE_LABEL,
-            "Editable with undo/redo",
+            "Multiline editor with undo/redo, context menu, drag/drop, and scrolling",
             theme,
         ))
         .with_child(
-            widget::text_field_with_theme(
+            widget::text_area_with_theme(
                 FIELD,
-                text::Field::new(editor.buffer.clone()).with_placeholder("Type editable text"),
+                text::Area::new(editor.buffer.clone()).with_placeholder("Type editable text"),
                 theme,
             )
             .with_responder_binding(action::Binding::new(INSERT_SAMPLE).enabled(true))
-            .with_size(layout::Size::Fill, layout::Size::Fixed(36.0)),
+            .with_size(layout::Size::Fill, layout::Size::Fixed(220.0)),
         )
         .with_child(field_label(
             PLACEHOLDER_LABEL,
@@ -386,7 +431,20 @@ fn editor_panel(theme: &Theme, editor: &Editor) -> ui::Node {
                     layout::Size::Fill,
                     layout::Size::Fixed(theme.density().control_height()),
                 )
-                .with_gap(8.0),
+                .with_gap(8.0)
+                .with_child(
+                    widget::labeled_button_with_theme(
+                        LOAD_STRESS_BUTTON,
+                        LOAD_STRESS_TEXT,
+                        "Load 20k lines",
+                        theme,
+                    )
+                    .with_size(layout::Size::Fixed(136.0), layout::Size::Fill),
+                )
+                .with_child(
+                    widget::labeled_button_with_theme(CLEAR_BUTTON, CLEAR_EDITOR, "Clear", theme)
+                        .with_size(layout::Size::Fixed(80.0), layout::Size::Fill),
+                ),
         )
 }
 
@@ -395,18 +453,52 @@ fn field_label(id: ui::Id, label: &'static str, theme: &Theme) -> ui::Node {
         .with_size(layout::Size::Fill, layout::Size::Fixed(20.0))
 }
 
-fn status_panel(theme: &Theme, edit_count: u32, last_action: &str) -> ui::Node {
+fn status_panel(
+    theme: &Theme,
+    editor: &Editor,
+    edit_count: u32,
+    last_action: &str,
+    diagnostics: app::Diagnostics,
+) -> ui::Node {
+    let text = diagnostics.text;
+    let scroll = diagnostics.scroll;
     widget::panel_with_theme(STATUS, theme)
         .with_size(layout::Size::Fill, layout::Size::Fit)
         .with_padding(layout::Insets::splat(theme.density().panel_padding()))
         .with_label(document(
             format!(
-                "Edits: {edit_count}\nLast action: {last_action}\nCut, Copy, and Paste use the system clipboard."
+                "Document: {} lines, {} bytes\nEdits: {edit_count}\nLast action: {last_action}\nLast frame text: paint {}, metrics {}, line cache {}/{}, shaped lines {}, visible lines {}, highlight scans {}\nLast frame scroll: projections {}, text targets {}, resolves {}, skipped {}, reuses {}, idle refinements {}",
+                editor.buffer.logical_line_count(),
+                editor.buffer.len(),
+                text.text_area_paint_layout_calls,
+                text.text_area_metrics_layout_calls,
+                text.text_area_line_cache_hits,
+                text.text_area_line_cache_misses,
+                text.text_area_shaped_logical_lines,
+                text.text_area_visible_logical_lines,
+                text.highlight_run_scans,
+                scroll.projection_count,
+                scroll.text_area_targets,
+                scroll.text_area_resolves,
+                scroll.text_area_skipped_by_filter,
+                scroll.text_area_model_reuses,
+                scroll.text_area_idle_refinements,
             ),
             text::Align::Start,
             theme.text().body_size(),
             theme.text().secondary(),
         ))
+}
+
+fn stress_text(lines: usize) -> String {
+    (0..lines)
+        .map(|line| {
+            format!(
+                "line {line:05}: stress text for scrolling, editing, wrapping, selection, and undo/redo responsiveness"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn edit_menu() -> widget::menu::Bar {

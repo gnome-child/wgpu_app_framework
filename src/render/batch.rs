@@ -11,6 +11,7 @@ pub enum ItemBatch<'a> {
 #[derive(Debug, Clone, Copy)]
 pub enum Glyph<'a> {
     Text(&'a paint::Text),
+    TextSurface(&'a paint::TextSurface),
     Icon(&'a paint::Icon),
 }
 
@@ -28,6 +29,7 @@ pub fn item_batches(items: &[paint::Item]) -> Vec<ItemBatch<'_>> {
         match item {
             paint::Item::Quad(quad) => push_shape(&mut batches, Shape::Quad(quad)),
             paint::Item::Text(text) => push_glyph(&mut batches, Glyph::Text(text)),
+            paint::Item::TextSurface(text) => push_glyph(&mut batches, Glyph::TextSurface(text)),
             paint::Item::Icon(icon) => push_glyph(&mut batches, Glyph::Icon(icon)),
             paint::Item::Shadow(shadow) => push_shape(&mut batches, Shape::Shadow(shadow)),
             paint::Item::Tint(tint) => push_shape(&mut batches, Shape::Tint(tint)),
@@ -88,6 +90,7 @@ mod tests {
             rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
             document: text::Document::plain("Label"),
             wrap: paint::TextWrap::WordOrGlyph,
+            vertical_align: paint::TextVerticalAlign::Center,
         }
     }
 

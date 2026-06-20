@@ -83,6 +83,8 @@ impl Shortcut {
             ui::Key::ArrowDown => "Down".to_owned(),
             ui::Key::Home => "Home".to_owned(),
             ui::Key::End => "End".to_owned(),
+            ui::Key::PageUp => "PageUp".to_owned(),
+            ui::Key::PageDown => "PageDown".to_owned(),
             ui::Key::F10 => "F10".to_owned(),
             ui::Key::ContextMenu => "Menu".to_owned(),
             ui::Key::Character(character) => character.to_ascii_uppercase().to_string(),

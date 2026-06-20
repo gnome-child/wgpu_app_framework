@@ -5,14 +5,28 @@ use super::Frame;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Bars {
-    vertical: bool,
-    horizontal: bool,
+    vertical: Policy,
+    horizontal: Policy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Axis {
     Vertical,
     Horizontal,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Policy {
+    #[default]
+    Never,
+    Auto,
+    Always,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ActiveAxes {
+    vertical: bool,
+    horizontal: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,37 +65,123 @@ pub struct Metrics {
 impl Bars {
     pub const fn none() -> Self {
         Self {
-            vertical: false,
-            horizontal: false,
+            vertical: Policy::Never,
+            horizontal: Policy::Never,
         }
     }
 
     pub const fn vertical() -> Self {
         Self {
-            vertical: true,
-            horizontal: false,
+            vertical: Policy::Auto,
+            horizontal: Policy::Never,
         }
     }
 
     pub const fn horizontal() -> Self {
         Self {
-            vertical: false,
-            horizontal: true,
+            vertical: Policy::Never,
+            horizontal: Policy::Auto,
         }
     }
 
     pub const fn both() -> Self {
         Self {
-            vertical: true,
-            horizontal: true,
+            vertical: Policy::Auto,
+            horizontal: Policy::Auto,
+        }
+    }
+
+    pub const fn vertical_always() -> Self {
+        Self {
+            vertical: Policy::Always,
+            horizontal: Policy::Never,
+        }
+    }
+
+    pub const fn horizontal_always() -> Self {
+        Self {
+            vertical: Policy::Never,
+            horizontal: Policy::Always,
+        }
+    }
+
+    pub const fn both_always() -> Self {
+        Self {
+            vertical: Policy::Always,
+            horizontal: Policy::Always,
         }
     }
 
     pub const fn vertical_enabled(self) -> bool {
-        self.vertical
+        !matches!(self.vertical, Policy::Never)
     }
 
     pub const fn horizontal_enabled(self) -> bool {
+        !matches!(self.horizontal, Policy::Never)
+    }
+
+    pub const fn is_enabled(self) -> bool {
+        self.vertical_enabled() || self.horizontal_enabled()
+    }
+
+    pub const fn vertical_policy(self) -> Policy {
+        self.vertical
+    }
+
+    pub const fn horizontal_policy(self) -> Policy {
+        self.horizontal
+    }
+
+    pub fn active_axes(
+        self,
+        viewport_base: Rect,
+        style: Style,
+        content_size: area::Logical,
+    ) -> ActiveAxes {
+        let mut axes = ActiveAxes {
+            vertical: matches!(self.vertical, Policy::Always),
+            horizontal: matches!(self.horizontal, Policy::Always),
+        };
+
+        for _ in 0..4 {
+            let viewport = viewport_rect_for_axes(viewport_base, style, axes);
+            let next = ActiveAxes {
+                vertical: match self.vertical {
+                    Policy::Never => false,
+                    Policy::Always => true,
+                    Policy::Auto => content_size.height() > viewport.area.height(),
+                },
+                horizontal: match self.horizontal {
+                    Policy::Never => false,
+                    Policy::Always => true,
+                    Policy::Auto => content_size.width() > viewport.area.width(),
+                },
+            };
+
+            if next == axes {
+                return axes;
+            }
+
+            axes = next;
+        }
+
+        axes
+    }
+}
+
+impl ActiveAxes {
+    pub const fn new(vertical: bool, horizontal: bool) -> Self {
+        Self {
+            vertical,
+            horizontal,
+        }
+    }
+
+    pub const fn vertical(self) -> bool {
+        self.vertical
+    }
+
+    pub const fn horizontal(self) -> bool {
         self.horizontal
     }
 
@@ -157,6 +257,83 @@ impl Default for Style {
 }
 
 impl Metrics {
+    pub fn resolve(
+        outer: Rect,
+        viewport_base: Rect,
+        content_size: area::Logical,
+        offset: point::Logical,
+        bars: Bars,
+        style: Style,
+    ) -> Self {
+        let axes = bars.active_axes(viewport_base, style, content_size);
+        let viewport = viewport_rect_for_axes(viewport_base, style, axes);
+        let max_offset = point::logical(
+            (content_size.width() - viewport.area.width()).max(0.0),
+            (content_size.height() - viewport.area.height()).max(0.0),
+        );
+        let offset = point::logical(
+            offset.x().clamp(0.0, max_offset.x()),
+            offset.y().clamp(0.0, max_offset.y()),
+        );
+        let vertical_track = axes
+            .vertical()
+            .then(|| vertical_track(viewport_base, style, axes));
+        let horizontal_track = axes
+            .horizontal()
+            .then(|| horizontal_track(viewport_base, style, axes));
+        let vertical_thumb = vertical_track.map(|track| {
+            thumb_rect(
+                track,
+                viewport.area.height(),
+                content_size.height(),
+                offset.y(),
+                max_offset.y(),
+                Axis::Vertical,
+                style.min_thumb_length(),
+            )
+        });
+        let horizontal_thumb = horizontal_track.map(|track| {
+            thumb_rect(
+                track,
+                viewport.area.width(),
+                content_size.width(),
+                offset.x(),
+                max_offset.x(),
+                Axis::Horizontal,
+                style.min_thumb_length(),
+            )
+        });
+        let corner = (axes.vertical() && axes.horizontal()).then(|| {
+            let thickness = style.thickness();
+            Rect::new(
+                point::logical(
+                    viewport_base.origin.x() + viewport_base.area.width() - thickness,
+                    viewport_base.origin.y() + viewport_base.area.height() - thickness,
+                ),
+                area::logical(thickness, thickness),
+            )
+        });
+
+        Self {
+            frame: Frame::new(outer, viewport, content_size),
+            offset,
+            max_offset,
+            vertical_track,
+            vertical_thumb,
+            horizontal_track,
+            horizontal_thumb,
+            corner,
+            style,
+        }
+    }
+
+    pub fn active_axes(self) -> ActiveAxes {
+        ActiveAxes {
+            vertical: self.vertical_track.is_some(),
+            horizontal: self.horizontal_track.is_some(),
+        }
+    }
+
     pub fn frame(self) -> Frame {
         self.frame
     }
@@ -179,6 +356,39 @@ impl Metrics {
 
     pub fn max_offset(self) -> point::Logical {
         self.max_offset
+    }
+
+    pub fn with_offset(self, offset: point::Logical) -> Self {
+        let offset = self.clamp_offset(offset);
+        let vertical_thumb = self.vertical_track.map(|track| {
+            thumb_rect(
+                track,
+                self.viewport().area.height(),
+                self.content_size().height(),
+                offset.y(),
+                self.max_offset.y(),
+                Axis::Vertical,
+                self.style.min_thumb_length(),
+            )
+        });
+        let horizontal_thumb = self.horizontal_track.map(|track| {
+            thumb_rect(
+                track,
+                self.viewport().area.width(),
+                self.content_size().width(),
+                offset.x(),
+                self.max_offset.x(),
+                Axis::Horizontal,
+                self.style.min_thumb_length(),
+            )
+        });
+
+        Self {
+            offset,
+            vertical_thumb,
+            horizontal_thumb,
+            ..self
+        }
     }
 
     pub fn vertical_track(self) -> Option<Rect> {
@@ -337,66 +547,17 @@ pub fn metrics(node: &ui::Node, layout: &ui::Frame) -> Option<Metrics> {
     }
 
     let style = scroll.style();
-    let viewport = viewport_rect(node, layout.rect());
-    let content_size = content_size(node, layout, viewport);
-    let max_offset = point::logical(
-        (content_size.width() - viewport.area.width()).max(0.0),
-        (content_size.height() - viewport.area.height()).max(0.0),
-    );
-    let offset = scroll.offset();
-    let offset = point::logical(
-        offset.x().clamp(0.0, max_offset.x()),
-        offset.y().clamp(0.0, max_offset.y()),
-    );
-    let vertical_track = vertical_track(node, layout.rect());
-    let horizontal_track = horizontal_track(node, layout.rect());
-    let vertical_thumb = vertical_track.map(|track| {
-        thumb_rect(
-            track,
-            viewport.area.height(),
-            content_size.height(),
-            offset.y(),
-            max_offset.y(),
-            Axis::Vertical,
-            style.min_thumb_length(),
-        )
-    });
-    let horizontal_thumb = horizontal_track.map(|track| {
-        thumb_rect(
-            track,
-            viewport.area.width(),
-            content_size.width(),
-            offset.x(),
-            max_offset.x(),
-            Axis::Horizontal,
-            style.min_thumb_length(),
-        )
-    });
-    let corner = if scrollbars.vertical_enabled() && scrollbars.horizontal_enabled() {
-        let padding = node.style().padding();
-        let thickness = style.thickness();
-        Some(Rect::new(
-            point::logical(
-                layout.rect().origin.x() + layout.rect().area.width() - padding.right - thickness,
-                layout.rect().origin.y() + layout.rect().area.height() - padding.bottom - thickness,
-            ),
-            area::logical(thickness, thickness),
-        ))
-    } else {
-        None
-    };
+    let viewport_base = viewport_rect(node, layout.rect());
+    let content_size = content_size(node, layout, viewport_base);
 
-    Some(Metrics {
-        frame: Frame::new(layout.rect(), viewport, content_size),
-        offset,
-        max_offset,
-        vertical_track,
-        vertical_thumb,
-        horizontal_track,
-        horizontal_thumb,
-        corner,
+    Some(Metrics::resolve(
+        layout.rect(),
+        viewport_base,
+        content_size,
+        scroll.offset(),
+        scrollbars,
         style,
-    })
+    ))
 }
 
 pub fn paint_chrome(
@@ -409,6 +570,15 @@ pub fn paint_chrome(
         return;
     };
 
+    paint_metrics_chrome(layout.path(), metrics, interaction, scene);
+}
+
+pub fn paint_metrics_chrome(
+    path: &ui::Path,
+    metrics: Metrics,
+    interaction: &ui::Interaction,
+    scene: &mut paint::Scene,
+) {
     let style = metrics.style();
 
     if let Some(track) = metrics.vertical_track() {
@@ -428,7 +598,7 @@ pub fn paint_chrome(
         push_thumb_tint(
             scene,
             metrics,
-            layout.path(),
+            path,
             thumb,
             Part::VerticalThumb,
             interaction,
@@ -440,7 +610,7 @@ pub fn paint_chrome(
         push_thumb_tint(
             scene,
             metrics,
-            layout.path(),
+            path,
             thumb,
             Part::HorizontalThumb,
             interaction,
@@ -450,19 +620,6 @@ pub fn paint_chrome(
 
 pub fn viewport_rect(node: &ui::Node, rect: Rect) -> Rect {
     let padding = node.style().padding();
-    let scroll = node.scroll();
-    let scrollbars = scroll.map_or_else(Bars::none, |scroll| scroll.bars());
-    let style = scroll.map_or_else(Style::default, |scroll| scroll.style());
-    let vertical_gutter = if scrollbars.vertical_enabled() {
-        style.thickness()
-    } else {
-        0.0
-    };
-    let horizontal_gutter = if scrollbars.horizontal_enabled() {
-        style.thickness()
-    } else {
-        0.0
-    };
 
     Rect::rounded(
         point::logical(
@@ -470,10 +627,32 @@ pub fn viewport_rect(node: &ui::Node, rect: Rect) -> Rect {
             rect.origin.y() + padding.top,
         ),
         area::logical(
-            (rect.area.width() - padding.horizontal() - vertical_gutter).max(0.0),
-            (rect.area.height() - padding.vertical() - horizontal_gutter).max(0.0),
+            (rect.area.width() - padding.horizontal()).max(0.0),
+            (rect.area.height() - padding.vertical()).max(0.0),
         ),
         node.style().rounding(),
+    )
+}
+
+pub fn viewport_rect_for_axes(viewport_base: Rect, style: Style, axes: ActiveAxes) -> Rect {
+    let vertical_gutter = if axes.vertical() {
+        style.thickness()
+    } else {
+        0.0
+    };
+    let horizontal_gutter = if axes.horizontal() {
+        style.thickness()
+    } else {
+        0.0
+    };
+
+    Rect::rounded(
+        viewport_base.origin,
+        area::logical(
+            (viewport_base.area.width() - vertical_gutter).max(0.0),
+            (viewport_base.area.height() - horizontal_gutter).max(0.0),
+        ),
+        viewport_base.rounding,
     )
 }
 
@@ -521,10 +700,23 @@ fn content_size(node: &ui::Node, layout: &ui::Frame, viewport: Rect) -> area::Lo
     let offset = node
         .scroll()
         .map_or_else(|| point::logical(0.0, 0.0), |scroll| scroll.offset());
-    let mut width = viewport.area.width();
-    let mut height = viewport.area.height();
+    let mut width: f32 = 0.0;
+    let mut height: f32 = 0.0;
 
     extend_content_size(layout.children(), viewport, offset, &mut width, &mut height);
+
+    area::logical(width.max(0.0), height.max(0.0))
+}
+
+pub(crate) fn content_size_from_children(
+    children: &[ui::Frame],
+    viewport: Rect,
+    offset: point::Logical,
+) -> area::Logical {
+    let mut width: f32 = 0.0;
+    let mut height: f32 = 0.0;
+
+    extend_content_size(children, viewport, offset, &mut width, &mut height);
 
     area::logical(width.max(0.0), height.max(0.0))
 }
@@ -548,56 +740,42 @@ fn extend_content_size(
     }
 }
 
-fn vertical_track(node: &ui::Node, rect: Rect) -> Option<Rect> {
-    let scroll = node.scroll()?;
-    if !scroll.bars().vertical_enabled() {
-        return None;
-    }
-
-    let padding = node.style().padding();
-    let style = scroll.style();
-    let horizontal_gutter = if scroll.bars().horizontal_enabled() {
+fn vertical_track(viewport_base: Rect, style: Style, axes: ActiveAxes) -> Rect {
+    let horizontal_gutter = if axes.horizontal() {
         style.thickness()
     } else {
         0.0
     };
 
-    Some(Rect::new(
+    Rect::new(
         point::logical(
-            rect.origin.x() + rect.area.width() - padding.right - style.thickness(),
-            rect.origin.y() + padding.top,
+            viewport_base.origin.x() + viewport_base.area.width() - style.thickness(),
+            viewport_base.origin.y(),
         ),
         area::logical(
             style.thickness(),
-            (rect.area.height() - padding.vertical() - horizontal_gutter).max(0.0),
+            (viewport_base.area.height() - horizontal_gutter).max(0.0),
         ),
-    ))
+    )
 }
 
-fn horizontal_track(node: &ui::Node, rect: Rect) -> Option<Rect> {
-    let scroll = node.scroll()?;
-    if !scroll.bars().horizontal_enabled() {
-        return None;
-    }
-
-    let padding = node.style().padding();
-    let style = scroll.style();
-    let vertical_gutter = if scroll.bars().vertical_enabled() {
+fn horizontal_track(viewport_base: Rect, style: Style, axes: ActiveAxes) -> Rect {
+    let vertical_gutter = if axes.vertical() {
         style.thickness()
     } else {
         0.0
     };
 
-    Some(Rect::new(
+    Rect::new(
         point::logical(
-            rect.origin.x() + padding.left,
-            rect.origin.y() + rect.area.height() - padding.bottom - style.thickness(),
+            viewport_base.origin.x(),
+            viewport_base.origin.y() + viewport_base.area.height() - style.thickness(),
         ),
         area::logical(
-            (rect.area.width() - padding.horizontal() - vertical_gutter).max(0.0),
+            (viewport_base.area.width() - vertical_gutter).max(0.0),
             style.thickness(),
         ),
-    ))
+    )
 }
 
 fn thumb_rect(

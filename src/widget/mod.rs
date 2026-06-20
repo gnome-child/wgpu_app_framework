@@ -19,7 +19,8 @@ pub use control::{
     icon_button_with_theme, labeled_button, labeled_button_with_theme, panel, panel_with_theme,
 };
 pub use text_widget::{
-    paragraph, paragraph_with_theme, text, text_field, text_field_with_theme, text_with_theme,
+    paragraph, paragraph_with_theme, text, text_area, text_area_with_theme, text_field,
+    text_field_with_theme, text_with_theme,
 };
 
 pub const MENU_POPUP: ui::Id = ui::Id::new("__menu_popup");

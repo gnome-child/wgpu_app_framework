@@ -90,7 +90,6 @@ pub fn prepare_document_buffer(
     let first_style = block.runs().iter().find(|run| !run.is_empty())?.style();
     let font_size = first_style.size().max(1.0);
     let line_height = font_size * 1.25;
-    let buffer_height = height.min(line_height);
     let mut buffer = Buffer::new(font_system, Metrics::relative(font_size, 1.25));
 
     set_document_buffer(
@@ -99,7 +98,7 @@ pub fn prepare_document_buffer(
         block,
         first_style,
         Some(width.max(0.0)),
-        Some(buffer_height.max(0.0)),
+        Some(height.max(0.0)),
         wrap,
     );
 
@@ -175,7 +174,7 @@ fn set_document_buffer(
         spans,
         &default_attrs,
         Shaping::Advanced,
-        Some(align(block.align())),
+        Some(align(block.align(), text::block_direction(block))),
     );
     buffer.shape_until_scroll(font_system, false);
 }
@@ -195,10 +194,15 @@ pub fn attrs_for_icon(glyph: icon::Glyph, size: f32, color: paint::Color) -> Att
         .metrics(Metrics::relative(size.max(1.0), 1.0))
 }
 
-pub fn align(align: text::Align) -> glyphon::cosmic_text::Align {
+pub fn align(
+    align: text::Align,
+    direction: text::ResolvedTextDirection,
+) -> glyphon::cosmic_text::Align {
     match align {
+        text::Align::Start if direction.is_rtl() => glyphon::cosmic_text::Align::Right,
         text::Align::Start => glyphon::cosmic_text::Align::Left,
         text::Align::Center => glyphon::cosmic_text::Align::Center,
+        text::Align::End if direction.is_rtl() => glyphon::cosmic_text::Align::Left,
         text::Align::End => glyphon::cosmic_text::Align::Right,
     }
 }

@@ -48,8 +48,8 @@ pub fn command_state(
     let enabled = state
         .composition
         .as_ref()
-        .and_then(|composition| composition.text_field(target))
-        .is_some_and(|field| can_apply_command(state, target, field, command));
+        .and_then(|composition| composition.text_surface(target))
+        .is_some_and(|surface| can_apply_command(state, target, surface, command));
 
     action::State::new(enabled, false)
 }
@@ -57,7 +57,7 @@ pub fn command_state(
 pub fn can_apply_command(
     state: &WindowState,
     target: &ui::Path,
-    field: &text::Field,
+    surface: &text::Surface,
     command: text::Command,
 ) -> bool {
     if !is_editing_target(state, target) {
@@ -66,20 +66,20 @@ pub fn can_apply_command(
 
     match command {
         text::Command::Undo => {
-            field.is_editable()
+            surface.is_editable()
                 && state
                     .text_field_states
                     .get(target)
                     .is_some_and(text::TextFieldState::can_undo)
         }
         text::Command::Redo => {
-            field.is_editable()
+            surface.is_editable()
                 && state
                     .text_field_states
                     .get(target)
                     .is_some_and(text::TextFieldState::can_redo)
         }
-        other => command_would_do_work(field, other),
+        other => command_would_do_work(surface, other),
     }
 }
 
@@ -94,7 +94,7 @@ pub fn publish_action_states<T>(
 
     let mut changed = false;
 
-    for path in composition.text_fields().keys() {
+    for path in composition.text_surfaces().keys() {
         let context = action::Context::path(window, path.clone());
 
         for (action, command) in [
@@ -125,23 +125,23 @@ pub fn command_for_action(action: action::Id) -> Option<text::Command> {
     }
 }
 
-fn command_would_do_work(field: &text::Field, command: text::Command) -> bool {
-    let buffer = field.buffer();
+fn command_would_do_work(surface: &text::Surface, command: text::Command) -> bool {
+    let buffer = surface.buffer();
 
-    if field.is_disabled() {
+    if surface.is_disabled() {
         return false;
     }
 
     match command {
-        text::Command::Copy => field.allows_copy() && buffer.has_selection(),
-        text::Command::Cut => field.allows_cut() && buffer.has_selection(),
-        text::Command::Paste => field.is_editable(),
+        text::Command::Copy => surface.allows_copy() && buffer.has_selection(),
+        text::Command::Cut => surface.allows_cut() && buffer.has_selection(),
+        text::Command::Paste => surface.is_editable(),
         text::Command::SelectAll => {
-            field.is_selectable()
+            surface.is_selectable()
                 && !buffer.is_empty()
                 && buffer
                     .selected_range()
-                    .is_none_or(|range| range.start != 0 || range.end != buffer.text().len())
+                    .is_none_or(|range| range.start != 0 || range.end != buffer.len())
         }
         text::Command::Undo | text::Command::Redo => false,
     }
@@ -169,7 +169,7 @@ fn resolve_session_target(state: &WindowState) -> Option<ui::Path> {
     state
         .composition
         .as_ref()?
-        .text_fields()
+        .text_surfaces()
         .keys()
         .find(|path| state.focus.restores_to(path) && state.is_selectable_text_field(path))
         .cloned()
@@ -481,7 +481,8 @@ mod tests {
         state.record_text_field_history(
             &path(FIELD),
             result.change.expect("insert should change text"),
-            text::HistoryKind::Typing,
+            text::HistoryKind::Typing("!".to_owned()),
+            std::time::Instant::now(),
         );
 
         assert!(command_state(&state, &path(FIELD), text::Command::Undo).is_enabled());

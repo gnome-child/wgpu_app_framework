@@ -1,6 +1,9 @@
 use crate::geometry::{Rect, point};
 use crate::icon;
 use crate::text;
+use std::cell::RefCell;
+use std::fmt;
+use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scene {
@@ -32,6 +35,10 @@ impl Scene {
         if !text.document.is_empty() {
             self.items.push(Item::Text(text));
         }
+    }
+
+    pub fn push_text_surface(&mut self, text: TextSurface) {
+        self.items.push(Item::TextSurface(text));
     }
 
     pub fn push_icon(&mut self, icon: Icon) {
@@ -81,6 +88,7 @@ impl Default for Scene {
 pub enum Item {
     Quad(Quad),
     Text(Text),
+    TextSurface(TextSurface),
     Icon(Icon),
     Shadow(Shadow),
     Tint(Tint),
@@ -130,12 +138,41 @@ pub struct Text {
     pub rect: Rect,
     pub document: text::Document,
     pub wrap: TextWrap,
+    pub vertical_align: TextVerticalAlign,
+}
+
+#[derive(Clone)]
+pub struct TextSurface {
+    pub rect: Rect,
+    pub buffer: Rc<RefCell<glyphon::Buffer>>,
+    pub default_color: Color,
+}
+
+impl fmt::Debug for TextSurface {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TextSurface")
+            .field("rect", &self.rect)
+            .field("default_color", &self.default_color)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for TextSurface {
+    fn eq(&self, other: &Self) -> bool {
+        self.rect == other.rect && self.default_color == other.default_color
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextWrap {
     WordOrGlyph,
     None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextVerticalAlign {
+    Start,
+    Center,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -438,6 +475,7 @@ mod tests {
             rect: Rect::new(point::logical(1.5, 0.0), area::logical(10.0, 10.0)),
             document: text::Document::plain("Label"),
             wrap: TextWrap::WordOrGlyph,
+            vertical_align: TextVerticalAlign::Center,
         };
         let icon = Icon {
             rect: Rect::new(point::logical(1.6, 0.0), area::logical(10.0, 10.0)),
@@ -626,6 +664,7 @@ mod tests {
             rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
             document: text::Document::plain(""),
             wrap: TextWrap::WordOrGlyph,
+            vertical_align: TextVerticalAlign::Center,
         });
 
         assert!(scene.items().is_empty());

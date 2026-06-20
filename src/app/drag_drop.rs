@@ -31,7 +31,8 @@ pub struct TextSource {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextTarget {
     path: ui::Path,
-    cursor: text::Cursor,
+    position: text::TextPosition,
+    insert_index: usize,
     caret_rect: Rect,
 }
 
@@ -246,10 +247,16 @@ impl TextSource {
 }
 
 impl TextTarget {
-    pub fn new(path: ui::Path, cursor: text::Cursor, caret_rect: Rect) -> Self {
+    pub fn new(
+        path: ui::Path,
+        position: text::TextPosition,
+        insert_index: usize,
+        caret_rect: Rect,
+    ) -> Self {
         Self {
             path,
-            cursor,
+            position,
+            insert_index,
             caret_rect,
         }
     }
@@ -258,8 +265,8 @@ impl TextTarget {
         &self.path
     }
 
-    pub fn cursor(&self) -> text::Cursor {
-        self.cursor
+    pub fn insert_index(&self) -> usize {
+        self.insert_index
     }
 
     pub fn caret_rect(&self) -> Rect {

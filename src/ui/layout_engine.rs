@@ -129,10 +129,84 @@ fn apply_scroll_layout(
     frame: layout::Frame<ui::Path>,
     adapter: &mut UiMeasurer<'_, '_>,
 ) -> layout::Frame<ui::Path> {
-    let viewport = widget::scroll::viewport_rect(node, frame.rect());
-    let offset = node
-        .scroll()
-        .map_or_else(|| point::logical(0.0, 0.0), |scroll| scroll.offset());
+    let Some(scroll) = node.scroll() else {
+        return frame;
+    };
+    let viewport_base = widget::scroll::viewport_rect(node, frame.rect());
+    let mut axes = widget::scroll::ActiveAxes::new(
+        matches!(
+            scroll.bars().vertical_policy(),
+            widget::scroll::Policy::Always
+        ),
+        matches!(
+            scroll.bars().horizontal_policy(),
+            widget::scroll::Policy::Always
+        ),
+    );
+    let mut content_size = viewport_base.area;
+
+    for _ in 0..4 {
+        let (_, viewport, measured) =
+            layout_scroll_children(node, &frame, axes, scroll.offset(), adapter);
+        let next = scroll
+            .bars()
+            .active_axes(viewport_base, scroll.style(), measured);
+        content_size = measured;
+
+        if next == axes {
+            let metrics = widget::scroll::Metrics::resolve(
+                frame.rect(),
+                viewport_base,
+                content_size,
+                scroll.offset(),
+                scroll.bars(),
+                scroll.style(),
+            );
+            let (children, _, _) = layout_scroll_children(
+                node,
+                &frame,
+                metrics.active_axes(),
+                metrics.offset(),
+                adapter,
+            );
+            return frame.with_children(children);
+        }
+
+        axes = next;
+        let _ = viewport;
+    }
+
+    let metrics = widget::scroll::Metrics::resolve(
+        frame.rect(),
+        viewport_base,
+        content_size,
+        scroll.offset(),
+        scroll.bars(),
+        scroll.style(),
+    );
+    let (children, _, _) = layout_scroll_children(
+        node,
+        &frame,
+        metrics.active_axes(),
+        metrics.offset(),
+        adapter,
+    );
+
+    frame.with_children(children)
+}
+
+fn layout_scroll_children(
+    node: &ui::Node,
+    frame: &layout::Frame<ui::Path>,
+    axes: widget::scroll::ActiveAxes,
+    offset: point::Logical,
+    adapter: &mut UiMeasurer<'_, '_>,
+) -> (Vec<layout::Frame<ui::Path>>, Rect, area::Logical) {
+    let Some(scroll) = node.scroll() else {
+        return (frame.children().to_vec(), frame.rect(), frame.rect().area);
+    };
+    let viewport_base = widget::scroll::viewport_rect(node, frame.rect());
+    let viewport = widget::scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
     let path = frame.path().clone();
     let item = layout::Item::new(path.clone())
         .with_box_model(layout::BoxModel::new(
@@ -144,16 +218,56 @@ fn apply_scroll_layout(
     let inner = layout::Engine::new().layout(&item, viewport.area, adapter);
     let dx = viewport.origin.x() - offset.x();
     let dy = viewport.origin.y() - offset.y();
-    let children = node
+    let children: Vec<_> = node
         .children()
         .iter()
         .zip(inner.children())
         .map(|(child, child_frame)| {
-            apply_widget_layout(child, translate_frame(child_frame.clone(), dx, dy), adapter)
+            expand_to_descendants(apply_widget_layout(
+                child,
+                translate_frame(child_frame.clone(), dx, dy),
+                adapter,
+            ))
         })
         .collect();
+    let content_size = widget::scroll::content_size_from_children(&children, viewport, offset);
 
-    frame.with_children(children)
+    (children, viewport, content_size)
+}
+
+fn expand_to_descendants(frame: layout::Frame<ui::Path>) -> layout::Frame<ui::Path> {
+    let children: Vec<_> = frame
+        .children()
+        .iter()
+        .cloned()
+        .map(expand_to_descendants)
+        .collect();
+    let rect = expand_rect_to_children(frame.rect(), &children);
+    let content_rect = expand_rect_to_children(frame.content_rect(), &children);
+
+    layout::Frame::with_content_rect(frame.path().clone(), rect, content_rect, children)
+}
+
+fn expand_rect_to_children(rect: Rect, children: &[layout::Frame<ui::Path>]) -> Rect {
+    let right = children
+        .iter()
+        .fold(rect.origin.x() + rect.area.width(), |right, child| {
+            right.max(child.rect().origin.x() + child.rect().area.width())
+        });
+    let bottom = children
+        .iter()
+        .fold(rect.origin.y() + rect.area.height(), |bottom, child| {
+            bottom.max(child.rect().origin.y() + child.rect().area.height())
+        });
+
+    Rect::rounded(
+        rect.origin,
+        area::logical(
+            (right - rect.origin.x()).max(rect.area.width()),
+            (bottom - rect.origin.y()).max(rect.area.height()),
+        ),
+        rect.rounding,
+    )
 }
 
 fn translate_frame(frame: layout::Frame<ui::Path>, dx: f32, dy: f32) -> layout::Frame<ui::Path> {

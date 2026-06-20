@@ -3,6 +3,8 @@ use crate::render;
 use crate::render::batch;
 use crate::text_system;
 
+use std::cell::Ref;
+
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -24,12 +26,26 @@ pub struct TextRenderer {
     swash_cache: glyphon::SwashCache,
 }
 
-struct PreparedText {
-    buffer: glyphon::cosmic_text::Buffer,
+struct PreparedText<'a> {
+    buffer: PreparedTextBuffer<'a>,
     left: f32,
     top: f32,
     bounds: glyphon::TextBounds,
     default_color: glyphon::Color,
+}
+
+enum PreparedTextBuffer<'a> {
+    Owned(glyphon::cosmic_text::Buffer),
+    Shared(Ref<'a, glyphon::cosmic_text::Buffer>),
+}
+
+impl<'a> PreparedTextBuffer<'a> {
+    fn as_ref(&self) -> &glyphon::cosmic_text::Buffer {
+        match self {
+            Self::Owned(buffer) => buffer,
+            Self::Shared(buffer) => buffer,
+        }
+    }
 }
 
 impl TextRenderer {
@@ -79,6 +95,7 @@ impl TextRenderer {
         for glyph in glyphs {
             let glyph = match glyph {
                 batch::Glyph::Text(text) => prepare_text(&mut self.font_system, text, scale_factor),
+                batch::Glyph::TextSurface(text) => prepare_text_surface(text, scale_factor),
                 batch::Glyph::Icon(icon) => prepare_icon(&mut self.font_system, icon, scale_factor),
             };
 
@@ -92,7 +109,7 @@ impl TextRenderer {
         }
 
         let text_areas = prepared.iter().map(|text| glyphon::TextArea {
-            buffer: &text.buffer,
+            buffer: text.buffer.as_ref(),
             left: text.left,
             top: text.top,
             scale: scale_factor,
@@ -151,7 +168,7 @@ fn prepare_text(
     font_system: &mut glyphon::FontSystem,
     text: &paint::Text,
     scale_factor: f32,
-) -> Option<PreparedText> {
+) -> Option<PreparedText<'static>> {
     let width = text.rect.area.width().max(0.0);
     let height = text.rect.area.height().max(0.0);
     let prepared = text_system::prepare_document_buffer(
@@ -161,17 +178,21 @@ fn prepare_text(
         height,
         wrap(text.wrap),
     )?;
-    let buffer_height = height.min(prepared.line_height);
 
     let clip_left = text.rect.origin.x() * scale_factor;
     let clip_top = text.rect.origin.y() * scale_factor;
     let clip_right = clip_left + width * scale_factor;
     let clip_bottom = clip_top + height * scale_factor;
     let left = clip_left;
-    let top = (text.rect.origin.y() + (height - buffer_height).max(0.0) * 0.5) * scale_factor;
+    let top = match text.vertical_align {
+        paint::TextVerticalAlign::Start => text.rect.origin.y(),
+        paint::TextVerticalAlign::Center => {
+            text.rect.origin.y() + (height - height.min(prepared.line_height)).max(0.0) * 0.5
+        }
+    } * scale_factor;
 
     Some(PreparedText {
-        buffer: prepared.buffer,
+        buffer: PreparedTextBuffer::Owned(prepared.buffer),
         left,
         top,
         bounds: glyphon::TextBounds {
@@ -181,6 +202,35 @@ fn prepare_text(
             bottom: clip_bottom.ceil() as i32,
         },
         default_color: prepared.default_color,
+    })
+}
+
+fn prepare_text_surface<'a>(
+    text: &'a paint::TextSurface,
+    scale_factor: f32,
+) -> Option<PreparedText<'a>> {
+    let width = text.rect.area.width().max(0.0);
+    let height = text.rect.area.height().max(0.0);
+    if width <= 0.0 || height <= 0.0 {
+        return None;
+    }
+
+    let clip_left = text.rect.origin.x() * scale_factor;
+    let clip_top = text.rect.origin.y() * scale_factor;
+    let clip_right = clip_left + width * scale_factor;
+    let clip_bottom = clip_top + height * scale_factor;
+
+    Some(PreparedText {
+        buffer: PreparedTextBuffer::Shared(text.buffer.borrow()),
+        left: clip_left,
+        top: clip_top,
+        bounds: glyphon::TextBounds {
+            left: clip_left.floor() as i32,
+            top: clip_top.floor() as i32,
+            right: clip_right.ceil() as i32,
+            bottom: clip_bottom.ceil() as i32,
+        },
+        default_color: text_system::color(text.default_color),
     })
 }
 
@@ -195,7 +245,7 @@ fn prepare_icon(
     font_system: &mut glyphon::FontSystem,
     icon: &paint::Icon,
     scale_factor: f32,
-) -> Option<PreparedText> {
+) -> Option<PreparedText<'static>> {
     let Some(glyph) = icon.icon.glyph() else {
         log::debug!("skipping missing icon glyph: {:?}", icon.icon);
         return None;
@@ -215,7 +265,7 @@ fn prepare_icon(
     let top = (icon.rect.origin.y() + (height - buffer_height).max(0.0) * 0.5) * scale_factor;
 
     Some(PreparedText {
-        buffer: prepared.buffer,
+        buffer: PreparedTextBuffer::Owned(prepared.buffer),
         left,
         top,
         bounds: glyphon::TextBounds {

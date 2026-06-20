@@ -40,6 +40,41 @@ pub struct Parts<'a, T: Send + 'static> {
     pub event_loop: &'a ActiveEventLoop,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Diagnostics {
+    pub text: text::Diagnostics,
+    pub scroll: ScrollDiagnostics,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ScrollDiagnostics {
+    pub generic_scroll_projections: usize,
+    pub text_area_surfaces: usize,
+    pub text_area_targets: usize,
+    pub text_area_skipped_by_filter: usize,
+    pub text_area_resolves: usize,
+    pub text_area_model_reuses: usize,
+    pub text_area_model_updates: usize,
+    pub text_area_idle_refinements: usize,
+    pub projection_count: usize,
+}
+
+impl ScrollDiagnostics {
+    fn from_scroll(value: crate::app::scroll::Diagnostics) -> Self {
+        Self {
+            generic_scroll_projections: value.generic_scroll_projections,
+            text_area_surfaces: value.text_area_surfaces,
+            text_area_targets: value.text_area_targets,
+            text_area_skipped_by_filter: value.text_area_skipped_by_filter,
+            text_area_resolves: value.text_area_resolves,
+            text_area_model_reuses: value.text_area_model_reuses,
+            text_area_model_updates: value.text_area_model_updates,
+            text_area_idle_refinements: value.text_area_idle_refinements,
+            projection_count: value.projection_count,
+        }
+    }
+}
+
 pub fn new<T: Send + 'static>(parts: Parts<'_, T>) -> Context<'_, T> {
     Context {
         rendering: parts.rendering,
@@ -125,6 +160,17 @@ impl<T: Send + 'static> Context<'_, T> {
         self.actions.state(action, context)
     }
 
+    pub fn diagnostics(&self, window: window::Id) -> Diagnostics {
+        Diagnostics {
+            text: self.text_engine.diagnostics(),
+            scroll: self
+                .window_states
+                .get(&window)
+                .map(|state| ScrollDiagnostics::from_scroll(state.scroll.diagnostics()))
+                .unwrap_or_default(),
+        }
+    }
+
     pub fn emit(&mut self, event: T) {
         self.mailbox.push_app(event);
     }
@@ -152,18 +198,24 @@ impl<T: Send + 'static> Context<'_, T> {
         }
 
         let history_kind = edit.history_kind();
+        let reveal_caret = text_edit_reveals_caret(&edit);
+        let now = Instant::now();
         let result = self.text_engine.apply_text_edit_with_result(buffer, edit);
 
         if let Some(change) = result.change.clone() {
             for state in self.window_states.values_mut() {
-                state.record_text_field_history(target, change.clone(), history_kind);
+                state.record_text_field_history(target, change.clone(), history_kind.clone(), now);
             }
         }
 
         if result.buffer_changed() {
-            let now = Instant::now();
             for state in self.window_states.values_mut() {
-                state.reset_text_field_caret_blink(target, now);
+                if reveal_caret {
+                    state.reset_text_field_caret_blink_if_needed(target, now);
+                    state.reveal_text_field_caret(target, &mut self.text_engine);
+                } else {
+                    state.reset_text_field_caret_blink_without_reveal(target, now);
+                }
             }
         }
 
@@ -178,11 +230,11 @@ impl<T: Send + 'static> Context<'_, T> {
     ) -> text::CommandResult {
         if matches!(command, text::Command::Undo | text::Command::Redo) {
             let Some(result) = self.window_states.values_mut().find_map(|state| {
-                let can_apply = state.text_field(target).is_some_and(|field| {
-                    text_input::can_apply_command(state, target, field, command)
+                let can_apply = state.text_surface(target).is_some_and(|surface| {
+                    text_input::can_apply_command(state, target, surface, command.clone())
                 });
 
-                can_apply.then(|| state.apply_text_history_command(target, buffer, command))
+                can_apply.then(|| state.apply_text_history_command(target, buffer, command.clone()))
             }) else {
                 return text::CommandResult {
                     unavailable: true,
@@ -191,9 +243,11 @@ impl<T: Send + 'static> Context<'_, T> {
             };
 
             if result.buffer_changed() {
+                self.text_engine.invalidate_text_area_surfaces_for(buffer);
                 let now = Instant::now();
                 for state in self.window_states.values_mut() {
-                    state.reset_text_field_caret_blink(target, now);
+                    state.reset_text_field_caret_blink_if_needed(target, now);
+                    state.reveal_text_field_caret(target, &mut self.text_engine);
                 }
             }
 
@@ -201,9 +255,9 @@ impl<T: Send + 'static> Context<'_, T> {
         }
 
         if !self.window_states.values().any(|state| {
-            state
-                .text_field(target)
-                .is_some_and(|field| text_input::can_apply_command(state, target, field, command))
+            state.text_surface(target).is_some_and(|surface| {
+                text_input::can_apply_command(state, target, surface, command.clone())
+            })
         }) {
             return text::CommandResult {
                 unavailable: true,
@@ -211,25 +265,32 @@ impl<T: Send + 'static> Context<'_, T> {
             };
         }
 
+        let reveal_caret = text_command_reveals_caret(command);
         let outcome =
             self.text_engine
                 .apply_text_command_with_result(buffer, command, self.clipboard);
         let result = outcome.result;
 
+        let now = Instant::now();
         if let Some(change) = outcome.change {
             for state in self.window_states.values_mut() {
                 state.record_text_field_history(
                     target,
                     change.clone(),
                     text::HistoryKind::Boundary,
+                    now,
                 );
             }
         }
 
         if result.buffer_changed() {
-            let now = Instant::now();
             for state in self.window_states.values_mut() {
-                state.reset_text_field_caret_blink(target, now);
+                if reveal_caret {
+                    state.reset_text_field_caret_blink_if_needed(target, now);
+                    state.reveal_text_field_caret(target, &mut self.text_engine);
+                } else {
+                    state.reset_text_field_caret_blink_without_reveal(target, now);
+                }
             }
         }
 
@@ -390,4 +451,29 @@ impl<T> Drop for ActionState<'_, T> {
             self.windows.request_redraw(self.window);
         }
     }
+}
+
+fn text_edit_reveals_caret(edit: &text::Edit) -> bool {
+    matches!(
+        edit,
+        text::Edit::Insert(_)
+            | text::Edit::ImeCommit(_)
+            | text::Edit::ReplaceRange { .. }
+            | text::Edit::MoveRange { .. }
+            | text::Edit::Backspace
+            | text::Edit::Delete
+            | text::Edit::InsertLineBreak
+            | text::Edit::MovePosition(_)
+            | text::Edit::ExtendPosition(_)
+            | text::Edit::DeleteWordBackward
+            | text::Edit::DeleteWordForward
+            | text::Edit::SetPosition(_)
+    )
+}
+
+fn text_command_reveals_caret(command: text::Command) -> bool {
+    matches!(
+        command,
+        text::Command::Cut | text::Command::Paste | text::Command::Undo | text::Command::Redo
+    )
 }

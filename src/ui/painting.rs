@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::animation::Frame as AnimationFrame;
+use crate::app::scroll;
 use crate::{action, geometry, paint, text, theme, ui, widget, window};
 
 const CURSOR_OVERLAY_MIN_SIZE: f32 = 1.0;
@@ -14,6 +15,7 @@ pub fn tree<T>(
     text_field_states: &HashMap<ui::Path, text::TextFieldState>,
     text_engine: &mut text::Engine,
     frame: AnimationFrame,
+    scroll_projections: Option<&scroll::State>,
     scene: &mut paint::Scene,
 ) {
     let mut overlays = Vec::new();
@@ -28,6 +30,7 @@ pub fn tree<T>(
         text_field_states,
         text_engine,
         frame,
+        scroll_projections,
         scene,
         &mut overlays,
     );
@@ -101,6 +104,7 @@ fn paint_cursor_overlay_text(
         rect: geometry::Rect::new(origin, geometry::area::logical(width, height)),
         document,
         wrap: paint::TextWrap::None,
+        vertical_align: paint::TextVerticalAlign::Center,
     });
 }
 
@@ -119,6 +123,7 @@ fn node<T>(
     text_field_states: &HashMap<ui::Path, text::TextFieldState>,
     text_engine: &mut text::Engine,
     frame: AnimationFrame,
+    scroll_projections: Option<&scroll::State>,
     scene: &mut paint::Scene,
     overlays: &mut Vec<paint::Outline>,
 ) {
@@ -155,62 +160,142 @@ fn node<T>(
         scene.push_icon(icon);
     }
 
-    let label = node.text_field().map_or_else(
+    let text_surface = node.text_surface();
+    let label = text_surface.map_or_else(
         || resolved_label(node, &content_visual),
-        |field| resolved_text_field_label(node, field, &content_visual, &text_field_state),
+        |surface| resolved_text_surface_label(node, surface, &content_visual, &text_field_state),
     );
-    let text_field_layout = node.text_field().map(|field| {
-        let style = label
-            .as_ref()
-            .or_else(|| node.label())
-            .and_then(text::Document::first_style)
-            .unwrap_or_default();
-        text_engine.text_field_layout_for_field_at(
-            field,
-            style,
-            text_content_rect(node, layout).area,
-            text_field_state.clone(),
-            frame.now(),
-        )
-    });
+    let text_style = label
+        .as_ref()
+        .or_else(|| node.label())
+        .and_then(text::Document::first_style)
+        .unwrap_or_default();
+    let text_area_scroll_projection =
+        text_surface
+            .and_then(text::Surface::as_area)
+            .and_then(|area| {
+                scroll_projections
+                    .and_then(|projections| projections.text_area(layout.path()).cloned())
+                    .or_else(|| {
+                        text_area_scroll_projection(
+                            node,
+                            layout,
+                            area,
+                            text_style,
+                            &text_field_state,
+                            text_engine,
+                            frame.now(),
+                        )
+                    })
+            });
+    let text_scroll_metrics = text_area_scroll_projection
+        .as_ref()
+        .map(|projection| projection.metrics());
+    let text_rect = text_scroll_metrics
+        .map(widget::scroll::Metrics::viewport)
+        .unwrap_or_else(|| text_content_rect(node, layout));
+    let text_area_layout_ref = text_area_scroll_projection
+        .as_ref()
+        .map(|projection| projection.layout());
+    let text_field_layout_owned = if text_area_layout_ref.is_none() {
+        text_surface.map(|surface| {
+            let style = label
+                .as_ref()
+                .or_else(|| node.label())
+                .and_then(text::Document::first_style)
+                .unwrap_or_default();
+            text_engine.text_layout_for_surface_at(
+                surface,
+                style,
+                text_rect.area,
+                text_field_state.clone(),
+                frame.now(),
+            )
+        })
+    } else {
+        None
+    };
+    let text_field_layout = text_area_layout_ref.or(text_field_layout_owned.as_ref());
 
-    if node.text_field().is_some() {
-        scene.push_clip(paint::Clip {
-            rect: text_content_rect(node, layout),
-        });
+    if text_surface.is_some() {
+        scene.push_clip(paint::Clip { rect: text_rect });
     }
 
-    paint_text_field_selection(node, layout, interaction, text_field_layout.as_ref(), scene);
+    paint_text_field_selection(
+        node,
+        layout,
+        text_rect,
+        interaction,
+        text_field_layout,
+        scene,
+    );
+    paint_text_preedit_selection(layout, text_rect, interaction, text_field_layout, scene);
 
-    if let Some(document) = label {
+    if text_surface
+        .and_then(text::Surface::as_area)
+        .is_some_and(|area| !area.buffer().is_empty() || text_field_state.preedit().is_some())
+        && let Some(projection) = text_area_scroll_projection.as_ref()
+    {
+        for surface in projection.surfaces() {
+            scene.push_text_surface(paint::TextSurface {
+                rect: geometry::Rect::new(
+                    geometry::point::logical(
+                        text_rect.origin.x() + surface.x(),
+                        text_rect.origin.y() + surface.y(),
+                    ),
+                    geometry::area::logical(surface.width(), surface.height()),
+                ),
+                buffer: surface.buffer(),
+                default_color: surface.default_color(),
+            });
+        }
+    } else if let Some(document) = label {
         let scroll_x = text_field_layout
-            .as_ref()
             .map(text::TextFieldLayout::scroll_x)
             .unwrap_or(0.0);
+        let scroll_y = text_field_layout
+            .map(text::TextFieldLayout::scroll_y)
+            .unwrap_or(0.0);
         scene.push_text(paint::Text {
-            rect: if node.text_field().is_some() {
-                scrolled_text_rect(node, layout, scroll_x)
+            rect: if text_surface.is_some() {
+                scrolled_text_rect(text_rect, scroll_x, scroll_y)
             } else {
                 layout.rect()
             },
             document,
-            wrap: if node.text_field().is_some() {
-                paint::TextWrap::None
-            } else {
-                paint::TextWrap::WordOrGlyph
-            },
+            wrap: text_surface
+                .map(text_surface_wrap)
+                .unwrap_or(paint::TextWrap::WordOrGlyph),
+            vertical_align: text_surface
+                .map(text_surface_vertical_align)
+                .unwrap_or(paint::TextVerticalAlign::Center),
         });
     }
 
     paint_text_drop_caret(node, layout, interaction, scene);
-    paint_text_field_caret(node, layout, &visual, text_field_layout.as_ref(), scene);
+    paint_text_preedit_underline(
+        node,
+        layout,
+        text_rect,
+        interaction,
+        text_field_layout,
+        scene,
+    );
+    paint_text_field_caret(node, text_rect, &visual, text_field_layout, scene);
 
-    if node.text_field().is_some() {
+    if text_surface.is_some() {
         scene.pop_clip();
     }
 
+    if let Some(metrics) = text_scroll_metrics {
+        widget::scroll::paint_metrics_chrome(layout.path(), metrics, interaction, scene);
+    }
+
     let clip_rect = if node.clips() {
-        Some(widget::scroll::metrics(node, layout).map_or(rect, |metrics| metrics.viewport()))
+        Some(
+            scroll_metrics_for_node(node, layout, scroll_projections)
+                .map_or(rect, |metrics| metrics.viewport()),
+        )
     } else {
         None
     };
@@ -230,6 +315,7 @@ fn node<T>(
             text_field_states,
             text_engine,
             frame,
+            scroll_projections,
             scene,
             overlays,
         );
@@ -239,7 +325,9 @@ fn node<T>(
         scene.pop_clip();
     }
 
-    widget::scroll::paint_chrome(node, layout, interaction, scene);
+    if let Some(metrics) = scroll_metrics_for_node(node, layout, scroll_projections) {
+        widget::scroll::paint_metrics_chrome(layout.path(), metrics, interaction, scene);
+    }
 
     if let Some(outline) = resolved_focus_outline(node, rect, visual) {
         overlays.push(outline);
@@ -524,9 +612,9 @@ fn resolved_label(
     Some(document)
 }
 
-fn resolved_text_field_label(
+fn resolved_text_surface_label(
     node: &ui::Node,
-    field: &text::Field,
+    surface: &text::Surface,
     content_visual: &ContentVisualState,
     state: &text::TextFieldState,
 ) -> Option<crate::text::Document> {
@@ -541,18 +629,30 @@ fn resolved_text_field_label(
             .busy_label_color()
             .or(style.label_color())
             .unwrap_or(default_color)
-    } else if !content_visual.enabled || field.is_disabled() {
+    } else if !content_visual.enabled || surface.is_disabled() {
         disabled_color
     } else {
         style.label_color().unwrap_or(default_color)
     };
 
-    if field.buffer().is_empty() {
-        if state.preedit().is_some() {
+    if state.preedit().is_some() {
+        let text = surface.presentation_text_for_state(state);
+        if text.is_empty() {
             return None;
         }
 
-        if let Some(placeholder) = field.placeholder() {
+        let preedit_style = node
+            .label()
+            .and_then(text::Document::first_style)
+            .unwrap_or_default()
+            .with_color(normal_color);
+        let mut block = text::Block::new(text::Align::Start);
+        block.push_run(text::Run::new(text, preedit_style));
+        return Some(text::Document::from_block(block));
+    }
+
+    if surface.buffer().is_empty() {
+        if let Some(placeholder) = surface.placeholder() {
             let placeholder_style = node
                 .label()
                 .and_then(text::Document::first_style)
@@ -607,15 +707,16 @@ fn resolved_icon_color(node: &ui::Node, content_visual: &ContentVisualState) -> 
 fn paint_text_field_selection(
     node: &ui::Node,
     layout: &ui::Frame,
+    rect: geometry::Rect,
     interaction: &ui::Interaction,
     text_field_layout: Option<&text::TextFieldLayout>,
     scene: &mut paint::Scene,
 ) {
-    let Some(field) = node.text_field() else {
+    let Some(surface) = node.text_surface() else {
         return;
     };
 
-    if !field.is_selectable() || !field.buffer().has_selection() {
+    if !surface.is_selectable() || !surface.buffer().has_selection() {
         return;
     }
 
@@ -623,7 +724,6 @@ fn paint_text_field_selection(
         return;
     }
 
-    let rect = text_content_rect(node, layout);
     let Some(text_field_layout) = text_field_layout else {
         return;
     };
@@ -647,14 +747,89 @@ fn paint_text_field_selection(
     }
 }
 
-fn paint_text_field_caret(
+fn paint_text_preedit_selection(
+    layout: &ui::Frame,
+    rect: geometry::Rect,
+    interaction: &ui::Interaction,
+    text_field_layout: Option<&text::TextFieldLayout>,
+    scene: &mut paint::Scene,
+) {
+    if interaction.text_editing_target() != Some(layout.path()) {
+        return;
+    }
+
+    let Some(text_field_layout) = text_field_layout else {
+        return;
+    };
+
+    for span in text_field_layout.preedit_selection_spans() {
+        scene.push_quad(paint::Quad {
+            rect: geometry::Rect::rounded(
+                geometry::point::logical(rect.origin.x() + span.x(), rect.origin.y() + span.y()),
+                geometry::area::logical(span.width().max(1.0), span.height()),
+                geometry::rect::Rounding::fixed(2.0),
+            ),
+            rasterization: paint::Rasterization::default(),
+            style: paint::Style {
+                fill: Some(paint::Fill::Brush(
+                    paint::Color::rgba(0.18, 0.42, 0.86, 0.32).into(),
+                )),
+                stroke: None,
+                tint: None,
+            },
+        });
+    }
+}
+
+fn paint_text_preedit_underline(
     node: &ui::Node,
     layout: &ui::Frame,
+    rect: geometry::Rect,
+    interaction: &ui::Interaction,
+    text_field_layout: Option<&text::TextFieldLayout>,
+    scene: &mut paint::Scene,
+) {
+    if node.text_surface().is_none() || interaction.text_editing_target() != Some(layout.path()) {
+        return;
+    }
+
+    let Some(text_field_layout) = text_field_layout else {
+        return;
+    };
+
+    let color = node
+        .style()
+        .label_color()
+        .unwrap_or_else(|| text::Style::default().color());
+
+    for span in text_field_layout.preedit_underline_spans() {
+        let y = rect.origin.y() + span.y() + span.height().max(1.0) - 2.0;
+        scene.push_quad(paint::Quad {
+            rect: geometry::Rect::new(
+                geometry::point::logical(rect.origin.x() + span.x(), y),
+                geometry::area::logical(span.width().max(1.0), 1.0),
+            ),
+            rasterization: paint::Rasterization {
+                snapping: paint::Snapping::FixedWidth { width_px: 1 },
+                edge_mode: paint::EdgeMode::Hard,
+            },
+            style: paint::Style {
+                fill: Some(paint::Fill::Brush(color.into())),
+                stroke: None,
+                tint: None,
+            },
+        });
+    }
+}
+
+fn paint_text_field_caret(
+    node: &ui::Node,
+    rect: geometry::Rect,
     visual: &VisualState,
     text_field_layout: Option<&text::TextFieldLayout>,
     scene: &mut paint::Scene,
 ) {
-    if node.text_field().is_none() {
+    if node.text_surface().is_none() {
         return;
     }
 
@@ -662,7 +837,6 @@ fn paint_text_field_caret(
         return;
     }
 
-    let rect = text_content_rect(node, layout);
     let Some(caret) = text_field_layout.and_then(text::TextFieldLayout::caret) else {
         return;
     };
@@ -695,7 +869,7 @@ fn paint_text_drop_caret(
     interaction: &ui::Interaction,
     scene: &mut paint::Scene,
 ) {
-    if node.text_field().is_none() {
+    if node.text_surface().is_none() {
         return;
     }
 
@@ -733,23 +907,129 @@ fn text_content_rect(node: &ui::Node, layout: &ui::Frame) -> geometry::Rect {
     let rect = layout.rect();
     let padding = node.style().padding();
     let x = rect.origin.x() + padding.left;
-    let y = rect.origin.y();
+    let y = rect.origin.y() + padding.top;
     let width = (rect.area.width() - padding.left - padding.right).max(0.0);
+    let height = (rect.area.height() - padding.top - padding.bottom).max(0.0);
 
     geometry::Rect::new(
         geometry::point::logical(x, y),
-        geometry::area::logical(width, rect.area.height()),
+        geometry::area::logical(width, height),
     )
 }
 
-fn scrolled_text_rect(node: &ui::Node, layout: &ui::Frame, scroll_x: f32) -> geometry::Rect {
-    let rect = text_content_rect(node, layout);
+fn scrolled_text_rect(rect: geometry::Rect, scroll_x: f32, scroll_y: f32) -> geometry::Rect {
     let scroll_x = scroll_x.max(0.0);
+    let scroll_y = scroll_y.max(0.0);
 
     geometry::Rect::new(
-        geometry::point::logical(rect.origin.x() - scroll_x, rect.origin.y()),
-        geometry::area::logical(rect.area.width() + scroll_x, rect.area.height()),
+        geometry::point::logical(rect.origin.x() - scroll_x, rect.origin.y() - scroll_y),
+        geometry::area::logical(rect.area.width() + scroll_x, rect.area.height() + scroll_y),
     )
+}
+
+fn text_area_scroll_projection(
+    node: &ui::Node,
+    layout: &ui::Frame,
+    area_model: &text::Area,
+    style: text::Style,
+    state: &text::TextFieldState,
+    text_engine: &mut text::Engine,
+    now: std::time::Instant,
+) -> Option<scroll::TextAreaProjection> {
+    let scroll = node.text_scroll()?;
+    if !scroll.bars().is_enabled() {
+        return None;
+    }
+
+    let viewport_base = text_content_rect(node, layout);
+    let (_, base_content) =
+        text::text_area_scroll_base_content_area(area_model, style, viewport_base.area);
+    let mut content_area = text::stable_text_area_content_area(
+        base_content,
+        None,
+        geometry::area::logical(0.0, 0.0),
+        viewport_base.area,
+    );
+    let mut axes = scroll
+        .bars()
+        .active_axes(viewport_base, scroll.style(), content_area);
+    for _ in 0..3 {
+        let viewport = widget::scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
+        let candidate = text_engine.text_area_metrics_layout_for_area_at(
+            area_model,
+            style,
+            viewport.area,
+            state.clone(),
+            now,
+        );
+        let next_content = text::stable_text_area_content_area(
+            base_content,
+            Some(content_area),
+            candidate.content_area(),
+            viewport.area,
+        );
+        let next = scroll
+            .bars()
+            .active_axes(viewport_base, scroll.style(), next_content);
+        content_area = next_content;
+
+        if next == axes {
+            break;
+        }
+
+        axes = next;
+    }
+
+    let metrics = widget::scroll::Metrics::resolve(
+        layout.rect(),
+        viewport_base,
+        content_area,
+        geometry::point::logical(state.scroll_x(), state.scroll_y()),
+        scroll.bars(),
+        scroll.style(),
+    );
+    let viewport = widget::scroll::viewport_rect_for_axes(
+        viewport_base,
+        scroll.style(),
+        metrics.active_axes(),
+    );
+    let paint_layout = text_engine.text_area_paint_layout_for_area_at(
+        area_model,
+        style,
+        viewport.area,
+        state.clone(),
+        now,
+    );
+    let (layout, surfaces) = paint_layout.into_parts();
+
+    Some(scroll::TextAreaProjection::new(metrics, layout, surfaces))
+}
+
+fn scroll_metrics_for_node(
+    node: &ui::Node,
+    layout: &ui::Frame,
+    scroll_projections: Option<&scroll::State>,
+) -> Option<widget::scroll::Metrics> {
+    scroll_projections
+        .and_then(|projections| projections.metrics(layout.path()))
+        .or_else(|| widget::scroll::metrics(node, layout))
+}
+
+fn text_surface_wrap(surface: &text::Surface) -> paint::TextWrap {
+    match surface {
+        text::Surface::Field(_) => paint::TextWrap::None,
+        text::Surface::Area(area) => match area.wrap() {
+            text::AreaWrap::None => paint::TextWrap::None,
+            text::AreaWrap::WordOrGlyph => paint::TextWrap::WordOrGlyph,
+        },
+    }
+}
+
+fn text_surface_vertical_align(surface: &text::Surface) -> paint::TextVerticalAlign {
+    match surface {
+        text::Surface::Field(_) => paint::TextVerticalAlign::Center,
+        text::Surface::Area(_) => paint::TextVerticalAlign::Start,
+    }
 }
 
 fn normalized(value: bool) -> f32 {
