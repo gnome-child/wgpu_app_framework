@@ -57,7 +57,7 @@ pub fn menu_popup<T>(
     surface: &ui::floating::Surface,
     menu: &menu::Menu,
     actions: &action::Registry<T>,
-    measurer: &mut text::Engine,
+    measurer: &mut text::layout::Engine,
 ) -> Option<Popup> {
     let theme = theme::Theme::default_dark();
     let anchor = anchor_rect(tree, layout, menu.id(), AnchorKind::TopLevel)?;
@@ -88,7 +88,7 @@ pub fn submenu_popup<T>(
     surface: &ui::floating::Surface,
     menu: &menu::Menu,
     actions: &action::Registry<T>,
-    measurer: &mut text::Engine,
+    measurer: &mut text::layout::Engine,
 ) -> Option<Popup> {
     let theme = theme::Theme::default_dark();
     let anchor = anchor_rect(tree, layout, menu.id(), AnchorKind::Submenu)?;
@@ -120,7 +120,7 @@ pub fn submenu_popup<T>(
 pub fn text_context_menu_popup<T>(
     surface: &ui::floating::Surface,
     actions: &action::Registry<T>,
-    measurer: &mut text::Engine,
+    measurer: &mut text::layout::Engine,
     bounds: Rect,
 ) -> Option<Popup> {
     surface.context_menu_target()?;
@@ -295,7 +295,7 @@ fn item_node<T>(
         .with_child(text_cell(
             ROW_LABEL,
             item_label(item, actions),
-            text::Align::Start,
+            text::document::Align::Start,
             layout::Size::Fill,
             color,
             theme,
@@ -303,7 +303,7 @@ fn item_node<T>(
         .with_child(text_cell(
             ROW_SHORTCUT,
             shortcut.unwrap_or_default(),
-            text::Align::End,
+            text::document::Align::End,
             layout::Size::Fixed(chrome.shortcut_width),
             color,
             theme,
@@ -343,7 +343,7 @@ fn submenu_node<T>(
         .with_child(text_cell(
             ROW_LABEL,
             menu.label(),
-            text::Align::Start,
+            text::document::Align::Start,
             layout::Size::Fill,
             color,
             theme,
@@ -415,7 +415,7 @@ fn glyph_cell(
 fn text_cell(
     id: ui::Id,
     label: impl Into<String>,
-    align: text::Align,
+    align: text::document::Align,
     width: layout::Size,
     color: paint::Color,
     theme: &theme::Theme,
@@ -462,22 +462,25 @@ fn shortcut_label<T>(action: action::Id, actions: &action::Registry<T>) -> Optio
 fn document(
     label: impl Into<String>,
     theme: &theme::Theme,
-    align: text::Align,
+    align: text::document::Align,
     color: paint::Color,
-) -> text::Document {
-    let mut block = text::Block::new(align);
-    block.push_run(text::Run::new(
+) -> text::document::Document {
+    let mut block = text::document::Block::new(align);
+    block.push_run(text::document::Run::new(
         label,
-        theme.text().style(text::Role::Menu).with_color(color),
+        theme
+            .text()
+            .style(text::document::Role::Menu)
+            .with_color(color),
     ));
-    text::Document::from_block(block)
+    text::document::Document::from_block(block)
 }
 
 fn popup_chrome<T>(
     menu: &menu::Menu,
     actions: &action::Registry<T>,
     theme: &theme::Theme,
-    measurer: &mut text::Engine,
+    measurer: &mut text::layout::Engine,
 ) -> PopupChrome {
     let mut label_width = 0.0_f32;
     let mut shortcut_width = 0.0_f32;
@@ -546,12 +549,17 @@ fn row_rounding(theme: &theme::Theme, popup_area: area::Logical, padding: f32) -
 fn measure_label(
     label: impl Into<String>,
     theme: &theme::Theme,
-    measurer: &mut text::Engine,
+    measurer: &mut text::layout::Engine,
 ) -> f32 {
     measurer
         .measure(
-            &document(label, theme, text::Align::Start, theme.text().primary()),
-            text::Measure::unbounded(),
+            &document(
+                label,
+                theme,
+                text::document::Align::Start,
+                theme.text().primary(),
+            ),
+            text::layout::Measure::unbounded(),
         )
         .width()
 }
@@ -583,7 +591,7 @@ mod tests {
     fn menu_separator_occupies_normal_row_height() {
         let theme = theme::Theme::default_dark();
         let registry = action::Registry::<()>::new();
-        let mut measurer = text::Engine::new();
+        let mut measurer = text::layout::Engine::new();
         let menu = menu::Menu::new(menu::Id::new("test"), "Test").section(
             menu::Section::new()
                 .action(ACTION_A)
@@ -602,7 +610,7 @@ mod tests {
     fn menu_popup_width_respects_theme_minimum() {
         let theme = theme::Theme::default_dark();
         let registry = action::Registry::<()>::new();
-        let mut measurer = text::Engine::new();
+        let mut measurer = text::layout::Engine::new();
         let menu = menu::Menu::new(menu::Id::new("test"), "Test")
             .section(menu::Section::new().separator());
         let metrics = popup_chrome(&menu, &registry, &theme, &mut measurer);
@@ -614,7 +622,7 @@ mod tests {
     fn menu_popup_width_grows_for_long_labels_and_shortcuts() {
         let theme = theme::Theme::default_dark();
         let mut registry = action::Registry::<()>::new();
-        let mut measurer = text::Engine::new();
+        let mut measurer = text::layout::Engine::new();
         let short = menu::Menu::new(menu::Id::new("short"), "Short")
             .section(menu::Section::new().action(ACTION_A));
         let long = menu::Menu::new(menu::Id::new("long"), "Long").section(
@@ -640,7 +648,7 @@ mod tests {
     fn ordinary_menu_popup_uses_wider_default_floor_when_content_is_narrow() {
         let theme = theme::Theme::default_dark();
         let registry = action::Registry::<()>::new();
-        let mut measurer = text::Engine::new();
+        let mut measurer = text::layout::Engine::new();
         let menu = menu::Menu::new(menu::Id::new("preview"), "Preview").section(
             menu::Section::new().item(menu::Item::new(ACTION_A).with_label("Toggle Preview")),
         );
@@ -678,7 +686,7 @@ mod tests {
     fn menu_row_rounding_derives_from_popup_rounding_minus_padding() {
         let theme = theme::Theme::default_dark();
         let registry = action::Registry::<()>::new();
-        let mut measurer = text::Engine::new();
+        let mut measurer = text::layout::Engine::new();
         let menu = menu::Menu::new(menu::Id::new("test"), "Test").section(
             menu::Section::new()
                 .action(ACTION_A)
@@ -715,7 +723,7 @@ mod tests {
     fn menu_popup_bottom_empty_space_matches_side_inset() {
         let theme = theme::Theme::default_dark();
         let registry = action::Registry::<()>::new();
-        let mut measurer = text::Engine::new();
+        let mut measurer = text::layout::Engine::new();
         let menu = menu::Menu::new(menu::Id::new("test"), "Test").section(
             menu::Section::new()
                 .action(ACTION_A)
@@ -732,7 +740,7 @@ mod tests {
     fn menu_popup_metrics_reuse_cached_label_and_shortcut_measurements() {
         let theme = theme::Theme::default_dark();
         let mut registry = action::Registry::<()>::new();
-        let mut measurer = text::Engine::new();
+        let mut measurer = text::layout::Engine::new();
         let menu = menu::Menu::new(menu::Id::new("test"), "Test").section(
             menu::Section::new().item(menu::Item::new(ACTION_A).with_label("Measured Menu Item")),
         );
@@ -777,8 +785,8 @@ mod tests {
             .label()
             .expect("menu row should have a shortcut document");
 
-        assert_eq!(label.blocks()[0].align(), text::Align::Start);
-        assert_eq!(shortcut.blocks()[0].align(), text::Align::End);
+        assert_eq!(label.blocks()[0].align(), text::document::Align::Start);
+        assert_eq!(shortcut.blocks()[0].align(), text::document::Align::End);
         assert_eq!(
             label.blocks()[0].runs()[0].style().size(),
             theme.text().menu_size()
@@ -877,7 +885,7 @@ mod tests {
             &theme,
         );
         let mut tree = ui::Tree::new();
-        let mut measurer = text::Engine::new();
+        let mut measurer = text::layout::Engine::new();
         let mut scene = paint::Scene::new();
 
         tree.set_root(row);
@@ -932,7 +940,7 @@ mod tests {
             &theme,
         );
         let mut tree = ui::Tree::new();
-        let mut measurer = text::Engine::new();
+        let mut measurer = text::layout::Engine::new();
         let mut scene = paint::Scene::new();
 
         tree.set_root(row);
@@ -987,7 +995,7 @@ mod tests {
             &theme,
         );
         let mut tree = ui::Tree::new();
-        let mut measurer = text::Engine::new();
+        let mut measurer = text::layout::Engine::new();
         let mut scene = paint::Scene::new();
 
         tree.set_root(row);
@@ -1031,7 +1039,7 @@ mod tests {
             &theme,
         );
         let mut tree = ui::Tree::new();
-        let mut measurer = text::Engine::new();
+        let mut measurer = text::layout::Engine::new();
         let mut scene = paint::Scene::new();
 
         tree.set_root(row);

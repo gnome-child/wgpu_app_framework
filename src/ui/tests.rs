@@ -22,7 +22,7 @@ fn layout(tree: &Tree) -> Frame {
 }
 
 fn layout_area(tree: &Tree, area: area::Logical) -> Frame {
-    let mut measurer = text::Engine::new();
+    let mut measurer = text::layout::Engine::new();
 
     tree.layout(area, &mut measurer)
         .expect("tree should have root")
@@ -44,6 +44,28 @@ fn text(scene: &paint::Scene, index: usize) -> &paint::Text {
         Some(paint::Item::Text(text)) => text,
         item => panic!("expected text item at {index}, got {item:?}"),
     }
+}
+
+fn first_text(scene: &paint::Scene) -> &paint::Text {
+    scene
+        .items()
+        .iter()
+        .find_map(|item| match item {
+            paint::Item::Text(text) => Some(text),
+            _ => None,
+        })
+        .expect("scene should contain text")
+}
+
+fn first_text_surface(scene: &paint::Scene) -> &paint::TextSurface {
+    scene
+        .items()
+        .iter()
+        .find_map(|item| match item {
+            paint::Item::TextSurface(surface) => Some(surface),
+            _ => None,
+        })
+        .expect("scene should contain a text surface")
 }
 
 fn caret_quad_count(scene: &paint::Scene) -> usize {
@@ -298,7 +320,7 @@ fn cross_axis_alignment_positions_and_stretches_children() {
 fn text_and_icon_nodes_provide_fit_content_measurements() {
     let label = Node::leaf(A)
         .with_size(layout::Size::Fit, layout::Size::Fit)
-        .with_label(text::Document::plain("Hi"));
+        .with_label(text::document::Document::plain("Hi"));
     let icon = Node::leaf(B)
         .with_size(layout::Size::Fit, layout::Size::Fit)
         .with_icon(check_icon())
@@ -370,7 +392,7 @@ fn cursor_overlay_text_paints_after_tree_content_and_follows_pointer() {
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let registry = action::Registry::<()>::new();
-    let mut text_engine = text::Engine::new();
+    let mut text_engine = text::layout::Engine::new();
 
     tree.set_root(root);
     let layout = layout(&tree);
@@ -408,7 +430,7 @@ fn cursor_overlay_clamps_to_root_rect() {
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let registry = action::Registry::<()>::new();
-    let mut text_engine = text::Engine::new();
+    let mut text_engine = text::layout::Engine::new();
 
     tree.set_root(root);
     let layout = layout(&tree);
@@ -1080,7 +1102,7 @@ fn labeled_button_stores_label_document() {
     let button = widget::labeled_button(A, CLICK, "Activate");
 
     let label = button.label().expect("button should have a label");
-    assert_eq!(label.blocks()[0].align(), text::Align::Center);
+    assert_eq!(label.blocks()[0].align(), text::document::Align::Center);
     assert_eq!(label.blocks()[0].runs()[0].text(), "Activate");
 }
 
@@ -1296,7 +1318,7 @@ fn composition_indexes_node_cursors_by_path() {
         .with_child(Node::leaf(B));
     let mut tree = Tree::new();
     let mut registry = action::Registry::<()>::new();
-    let mut measurer = text::Engine::new();
+    let mut measurer = text::layout::Engine::new();
     let window = window::Id::new(1);
 
     tree.set_root(root);
@@ -1416,6 +1438,38 @@ fn tree_paint_emits_label_after_node_background() {
 }
 
 #[test]
+fn label_paint_respects_node_padding() {
+    let root = Node::leaf(ROOT)
+        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(40.0))
+        .with_padding(layout::Insets {
+            left: 12.0,
+            top: 6.0,
+            right: 8.0,
+            bottom: 4.0,
+        })
+        .with_label(text::document::Document::plain("Padded"));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+
+    tree.set_root(root);
+    let layout = layout_area(&tree, area::logical(100.0, 40.0));
+    tree.paint(
+        &layout,
+        &registry,
+        window,
+        Interaction::default(),
+        &mut scene,
+    );
+
+    assert_eq!(
+        text(&scene, 0).rect,
+        Rect::new(point::logical(12.0, 6.0), area::logical(80.0, 30.0))
+    );
+}
+
+#[test]
 fn text_field_paint_clips_content_and_offsets_scrolled_text() {
     let root = widget::text_field(A, text::Buffer::from_text("hello world"))
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
@@ -1423,8 +1477,8 @@ fn text_field_paint_clips_content_and_offsets_scrolled_text() {
     let mut scene = paint::Scene::new();
     let registry = action::Registry::<()>::new();
     let window = window::Id::new(1);
-    let mut text_engine = text::Engine::new();
-    let states = HashMap::from([(path(A), text::TextFieldState::new(12.0))]);
+    let mut text_engine = text::layout::Engine::new();
+    let states = HashMap::from([(path(A), text::view::TextViewState::new(12.0))]);
 
     tree.set_root(root);
     let layout = layout(&tree);
@@ -1473,8 +1527,8 @@ fn text_field_paint_emits_caret_during_visible_blink_phase() {
     let mut scene = paint::Scene::new();
     let registry = action::Registry::<()>::new();
     let window = window::Id::new(1);
-    let mut text_engine = text::Engine::new();
-    let states = HashMap::from([(path(A), text::TextFieldState::new_at(0.0, epoch))]);
+    let mut text_engine = text::layout::Engine::new();
+    let states = HashMap::from([(path(A), text::view::TextViewState::new_at(0.0, epoch))]);
 
     tree.set_root(root);
     let layout = layout(&tree);
@@ -1518,8 +1572,8 @@ fn text_field_paint_omits_caret_during_hidden_blink_phase() {
     let mut scene = paint::Scene::new();
     let registry = action::Registry::<()>::new();
     let window = window::Id::new(1);
-    let mut text_engine = text::Engine::new();
-    let states = HashMap::from([(path(A), text::TextFieldState::new_at(0.0, epoch))]);
+    let mut text_engine = text::layout::Engine::new();
+    let states = HashMap::from([(path(A), text::view::TextViewState::new_at(0.0, epoch))]);
     let hidden = epoch + Duration::from_millis(500);
 
     tree.set_root(root);
@@ -1547,8 +1601,8 @@ fn read_only_text_field_paint_omits_caret_even_when_focused() {
     let mut scene = paint::Scene::new();
     let registry = action::Registry::<()>::new();
     let window = window::Id::new(1);
-    let mut text_engine = text::Engine::new();
-    let states = HashMap::from([(path(A), text::TextFieldState::new_at(0.0, epoch))]);
+    let mut text_engine = text::layout::Engine::new();
+    let states = HashMap::from([(path(A), text::view::TextViewState::new_at(0.0, epoch))]);
 
     tree.set_root(root);
     let layout = layout(&tree);
@@ -1576,7 +1630,7 @@ fn empty_text_field_paints_placeholder_until_preedit_starts() {
     let mut scene = paint::Scene::new();
     let registry = action::Registry::<()>::new();
     let window = window::Id::new(1);
-    let mut text_engine = text::Engine::new();
+    let mut text_engine = text::layout::Engine::new();
     let states = HashMap::new();
 
     tree.set_root(root.clone());
@@ -1591,14 +1645,7 @@ fn empty_text_field_paints_placeholder_until_preedit_starts() {
         &mut scene,
     );
 
-    let placeholder = scene
-        .items()
-        .iter()
-        .find_map(|item| match item {
-            paint::Item::Text(text) => Some(text),
-            _ => None,
-        })
-        .expect("placeholder text should paint");
+    let placeholder = first_text(&scene);
     assert_eq!(placeholder.document.blocks()[0].runs()[0].text(), "Search");
     assert_eq!(
         placeholder.document.blocks()[0].runs()[0].style().color(),
@@ -1607,12 +1654,9 @@ fn empty_text_field_paints_placeholder_until_preedit_starts() {
     let placeholder_size = placeholder.document.blocks()[0].runs()[0].style().size();
     assert_eq!(placeholder_size, theme.text().control_size());
 
-    let filled_root = widget::text_field_with_theme(
-        A,
-        text::Field::new("Search").with_placeholder("Search"),
-        &theme,
-    )
-    .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
+    let filled_root =
+        widget::text_field_with_theme(A, text::Field::new("S").with_placeholder("Search"), &theme)
+            .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut filled_tree = Tree::new();
     let mut filled_scene = paint::Scene::new();
     filled_tree.set_root(filled_root);
@@ -1626,23 +1670,22 @@ fn empty_text_field_paints_placeholder_until_preedit_starts() {
         &mut text_engine,
         &mut filled_scene,
     );
-    let content = filled_scene
-        .items()
-        .iter()
-        .find_map(|item| match item {
-            paint::Item::Text(text) => Some(text),
-            _ => None,
-        })
-        .expect("content text should paint");
+    let content = first_text(&filled_scene);
+    assert_eq!(content.document.blocks()[0].runs()[0].text(), "S");
     assert_eq!(
         content.document.blocks()[0].runs()[0].style().size(),
         placeholder_size
+    );
+    assert_eq!(
+        content.document.blocks()[0].runs()[0].style().color(),
+        theme.text().primary()
     );
 
     let mut preedit_scene = paint::Scene::new();
     let preedit_states = HashMap::from([(
         path(A),
-        text::TextFieldState::default().with_preedit(Some(text::Preedit::new("s", Some((0, 1))))),
+        text::view::TextViewState::default()
+            .with_preedit(Some(text::Preedit::new("s", Some((0, 1))))),
     )]);
     tree.paint_with_text_engine(
         &layout,
@@ -1654,15 +1697,91 @@ fn empty_text_field_paints_placeholder_until_preedit_starts() {
         &mut preedit_scene,
     );
 
-    let preedit_content = preedit_scene
-        .items()
-        .iter()
-        .find_map(|item| match item {
-            paint::Item::Text(text) => Some(text),
-            _ => None,
-        })
-        .expect("preedit text should paint");
+    let preedit_content = first_text(&preedit_scene);
     assert_eq!(preedit_content.document.blocks()[0].runs()[0].text(), "s");
+    assert_eq!(
+        preedit_content.document.blocks()[0].runs()[0]
+            .style()
+            .color(),
+        theme.text().primary()
+    );
+}
+
+#[test]
+fn empty_text_area_paints_placeholder_without_changing_content_style() {
+    let theme = theme::Theme::default_dark();
+    let empty_area =
+        text::Area::new(text::Buffer::from_multiline_text("")).with_placeholder("Note");
+    let root = widget::text_area_with_theme(A, empty_area, &theme)
+        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(80.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+    let mut text_engine = text::layout::Engine::new();
+    let states = HashMap::new();
+
+    tree.set_root(root);
+    let layout = self::layout(&tree);
+    tree.paint_with_text_engine(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None),
+        &states,
+        &mut text_engine,
+        &mut scene,
+    );
+
+    let placeholder = first_text(&scene);
+    assert_eq!(placeholder.document.blocks()[0].runs()[0].text(), "Note");
+    assert_eq!(
+        placeholder.document.blocks()[0].runs()[0].style().color(),
+        theme.text().disabled()
+    );
+    assert_eq!(
+        placeholder.document.blocks()[0].runs()[0].style().size(),
+        theme.text().control_size()
+    );
+    assert!(
+        !scene
+            .items()
+            .iter()
+            .any(|item| matches!(item, paint::Item::TextSurface(_))),
+        "empty placeholder area should paint placeholder text, not content surfaces"
+    );
+
+    let filled_area =
+        text::Area::new(text::Buffer::from_multiline_text("N")).with_placeholder("Note");
+    let filled_root = widget::text_area_with_theme(A, filled_area, &theme)
+        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(80.0));
+    let mut filled_tree = Tree::new();
+    let mut filled_scene = paint::Scene::new();
+    filled_tree.set_root(filled_root);
+    let filled_layout = self::layout(&filled_tree);
+    filled_tree.paint_with_text_engine(
+        &filled_layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None),
+        &states,
+        &mut text_engine,
+        &mut filled_scene,
+    );
+
+    let content = first_text_surface(&filled_scene);
+    assert_eq!(content.default_color, theme.text().primary());
+    assert_eq!(
+        content.buffer.borrow().metrics().font_size,
+        theme.text().control_size()
+    );
+    assert!(
+        !filled_scene
+            .items()
+            .iter()
+            .any(|item| matches!(item, paint::Item::Text(_))),
+        "filled text area should paint shaped content, not placeholder text"
+    );
 }
 
 #[test]
@@ -1673,7 +1792,7 @@ fn obscured_text_field_paints_dot_glyphs_instead_of_source_text() {
     let mut scene = paint::Scene::new();
     let registry = action::Registry::<()>::new();
     let window = window::Id::new(1);
-    let mut text_engine = text::Engine::new();
+    let mut text_engine = text::layout::Engine::new();
 
     tree.set_root(root);
     let layout = layout(&tree);
@@ -1701,8 +1820,9 @@ fn obscured_text_field_paints_dot_glyphs_instead_of_source_text() {
 #[test]
 fn text_field_paint_omits_selection_without_text_editing_target() {
     let mut buffer = text::Buffer::from_text("hello");
-    let mut engine = text::Engine::new();
-    engine.apply_text_edit(&mut buffer, text::Edit::SelectAll);
+    let mut engine = text::layout::Engine::new();
+    let mut editor = text::edit::Editor::new();
+    editor.apply_text_edit(&mut buffer, text::edit::Edit::SelectAll);
     let root = widget::text_field(A, buffer)
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut tree = Tree::new();
@@ -1729,8 +1849,9 @@ fn text_field_paint_omits_selection_without_text_editing_target() {
 #[test]
 fn text_field_paint_emits_selection_for_text_editing_target() {
     let mut buffer = text::Buffer::from_text("hello");
-    let mut engine = text::Engine::new();
-    engine.apply_text_edit(&mut buffer, text::Edit::SelectAll);
+    let mut engine = text::layout::Engine::new();
+    let mut editor = text::edit::Editor::new();
+    editor.apply_text_edit(&mut buffer, text::edit::Edit::SelectAll);
     let root = widget::text_field(A, buffer)
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut tree = Tree::new();
@@ -2119,6 +2240,89 @@ fn open_submenu_row_emits_active_tint() {
 }
 
 #[test]
+fn disabled_path_state_removes_interactivity_and_interactive_paint() {
+    let theme = theme::Theme::default_dark();
+    let file = menu::Id::new("file");
+    let hover_tint = paint::Color::rgba(0.1, 0.2, 0.3, 0.5);
+    let pressed_tint = paint::Color::rgba(0.3, 0.2, 0.1, 0.5);
+    let active_tint = paint::Color::rgba(0.2, 0.3, 0.1, 0.5);
+    let root = Node::leaf(A)
+        .with_background(paint::Color::BLACK)
+        .with_hover_tint(hover_tint)
+        .with_pressed_tint(pressed_tint)
+        .with_active_tint(active_tint)
+        .with_focus_outline(theme.palette().accent(), 1.0, 0.0)
+        .with_intent(Intent::OpenMenu(file))
+        .with_interactivity(Interactivity::CONTROL)
+        .with_label(text::document::Document::plain("File"))
+        .with_label_color(theme.text().primary())
+        .with_disabled_label_color(theme.text().disabled());
+    let mut tree = Tree::new();
+    let mut registry = action::Registry::<()>::new();
+    let mut text_engine = text::layout::Engine::new();
+    let window = window::Id::new(1);
+
+    tree.set_root(root);
+    let mut composition = tree
+        .compose(
+            window,
+            area::logical(100.0, 80.0),
+            &mut registry,
+            &[],
+            &mut text_engine,
+        )
+        .expect("composition");
+
+    assert_eq!(composition.focus_order(), &[path(A)]);
+    assert!(composition.set_path_states(HashMap::from([(path(A), action::State::disabled(),)])));
+
+    assert_eq!(
+        composition.path_state(&path(A)),
+        Some(action::State::disabled())
+    );
+    assert_eq!(
+        composition.interactivity(&path(A)),
+        Some(Interactivity::NONE)
+    );
+    assert!(composition.focus_order().is_empty());
+    assert_eq!(
+        composition
+            .layout()
+            .hit_test_where(point::logical(1.0, 1.0), |path| {
+                composition
+                    .interactivity(path)
+                    .is_some_and(|interactivity| interactivity.hit_test())
+            }),
+        None
+    );
+
+    let mut scene = paint::Scene::new();
+    composition.paint(
+        &registry,
+        window,
+        Interaction::new(Some(path(A)), Some(path(A)), Some(path(A)))
+            .with_open_menu(Some(file))
+            .with_focus_visibility(focus::Visibility::Visible),
+        &HashMap::new(),
+        &mut text_engine,
+        &mut scene,
+    );
+
+    assert_eq!(
+        first_text(&scene).document.blocks()[0].runs()[0]
+            .style()
+            .color(),
+        theme.text().disabled()
+    );
+    assert!(
+        scene
+            .items()
+            .iter()
+            .all(|item| !matches!(item, paint::Item::Tint(_) | paint::Item::Outline(_)))
+    );
+}
+
+#[test]
 fn hidden_focus_does_not_emit_outline() {
     let root = widget::button(A, CLICK);
     let mut tree = Tree::new();
@@ -2458,7 +2662,7 @@ fn disabled_actionable_parent_paints_child_label_with_disabled_color() {
         .with_action(CLICK)
         .with_child(
             Node::leaf(B)
-                .with_label(text::Document::plain("Unavailable"))
+                .with_label(text::document::Document::plain("Unavailable"))
                 .with_label_color(theme.text().primary())
                 .with_disabled_label_color(theme.text().disabled()),
         );
@@ -2533,7 +2737,7 @@ fn enabled_actionable_parent_paints_child_content_with_normal_color() {
         .with_action(CLICK)
         .with_child(
             Node::leaf(B)
-                .with_label(text::Document::plain("Available"))
+                .with_label(text::document::Document::plain("Available"))
                 .with_label_color(theme.text().primary())
                 .with_disabled_label_color(theme.text().disabled()),
         )
@@ -2576,7 +2780,7 @@ fn child_action_uses_own_state_instead_of_inherited_disabled_state() {
         .with_child(
             Node::leaf(B)
                 .with_action(OTHER_CLICK)
-                .with_label(text::Document::plain("Child"))
+                .with_label(text::document::Document::plain("Child"))
                 .with_label_color(theme.text().primary())
                 .with_disabled_label_color(theme.text().disabled()),
         );

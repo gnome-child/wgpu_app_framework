@@ -43,7 +43,7 @@ pub fn is_editing_target(state: &WindowState, target: &ui::Path) -> bool {
 pub fn command_state(
     state: &WindowState,
     target: &ui::Path,
-    command: text::Command,
+    command: text::edit::Command,
 ) -> action::State {
     let enabled = state
         .composition
@@ -58,26 +58,26 @@ pub fn can_apply_command(
     state: &WindowState,
     target: &ui::Path,
     surface: &text::Surface,
-    command: text::Command,
+    command: text::edit::Command,
 ) -> bool {
     if !is_editing_target(state, target) {
         return false;
     }
 
     match command {
-        text::Command::Undo => {
+        text::edit::Command::Undo => {
             surface.is_editable()
                 && state
                     .text_field_states
                     .get(target)
-                    .is_some_and(text::TextFieldState::can_undo)
+                    .is_some_and(text::view::TextViewState::can_undo)
         }
-        text::Command::Redo => {
+        text::edit::Command::Redo => {
             surface.is_editable()
                 && state
                     .text_field_states
                     .get(target)
-                    .is_some_and(text::TextFieldState::can_redo)
+                    .is_some_and(text::view::TextViewState::can_redo)
         }
         other => command_would_do_work(surface, other),
     }
@@ -98,12 +98,12 @@ pub fn publish_action_states<T>(
         let context = action::Context::path(window, path.clone());
 
         for (action, command) in [
-            (action::SELECT_ALL, text::Command::SelectAll),
-            (action::COPY, text::Command::Copy),
-            (action::CUT, text::Command::Cut),
-            (action::PASTE, text::Command::Paste),
-            (action::UNDO, text::Command::Undo),
-            (action::REDO, text::Command::Redo),
+            (action::SELECT_ALL, text::edit::Command::SelectAll),
+            (action::COPY, text::edit::Command::Copy),
+            (action::CUT, text::edit::Command::Cut),
+            (action::PASTE, text::edit::Command::Paste),
+            (action::UNDO, text::edit::Command::Undo),
+            (action::REDO, text::edit::Command::Redo),
         ] {
             changed |=
                 actions.set_state(action, context.clone(), command_state(state, path, command));
@@ -113,19 +113,19 @@ pub fn publish_action_states<T>(
     changed
 }
 
-pub fn command_for_action(action: action::Id) -> Option<text::Command> {
+pub fn command_for_action(action: action::Id) -> Option<text::edit::Command> {
     match action {
-        action::SELECT_ALL => Some(text::Command::SelectAll),
-        action::COPY => Some(text::Command::Copy),
-        action::CUT => Some(text::Command::Cut),
-        action::PASTE => Some(text::Command::Paste),
-        action::UNDO => Some(text::Command::Undo),
-        action::REDO => Some(text::Command::Redo),
+        action::SELECT_ALL => Some(text::edit::Command::SelectAll),
+        action::COPY => Some(text::edit::Command::Copy),
+        action::CUT => Some(text::edit::Command::Cut),
+        action::PASTE => Some(text::edit::Command::Paste),
+        action::UNDO => Some(text::edit::Command::Undo),
+        action::REDO => Some(text::edit::Command::Redo),
         _ => None,
     }
 }
 
-fn command_would_do_work(surface: &text::Surface, command: text::Command) -> bool {
+fn command_would_do_work(surface: &text::Surface, command: text::edit::Command) -> bool {
     let buffer = surface.buffer();
 
     if surface.is_disabled() {
@@ -133,17 +133,17 @@ fn command_would_do_work(surface: &text::Surface, command: text::Command) -> boo
     }
 
     match command {
-        text::Command::Copy => surface.allows_copy() && buffer.has_selection(),
-        text::Command::Cut => surface.allows_cut() && buffer.has_selection(),
-        text::Command::Paste => surface.is_editable(),
-        text::Command::SelectAll => {
+        text::edit::Command::Copy => surface.allows_copy() && buffer.has_selection(),
+        text::edit::Command::Cut => surface.allows_cut() && buffer.has_selection(),
+        text::edit::Command::Paste => surface.is_editable(),
+        text::edit::Command::SelectAll => {
             surface.is_selectable()
                 && !buffer.is_empty()
                 && buffer
                     .selected_range()
                     .is_none_or(|range| range.start != 0 || range.end != buffer.len())
         }
-        text::Command::Undo | text::Command::Redo => false,
+        text::edit::Command::Undo | text::edit::Command::Redo => false,
     }
 }
 
@@ -212,20 +212,23 @@ mod tests {
     }
 
     fn buffer_with_partial_selection() -> text::Buffer {
-        let mut engine = text::Engine::new();
+        let mut editor = text::edit::Editor::new();
         let mut buffer = text::Buffer::from_text("hello");
 
-        engine.apply_text_edit(&mut buffer, text::Edit::set_cursor(text::Cursor::new(0, 2)));
-        engine.apply_text_edit(&mut buffer, text::Edit::extend_motion(Motion::Right));
+        editor.apply_text_edit(
+            &mut buffer,
+            text::edit::Edit::set_cursor(text::buffer::Cursor::new(0, 2)),
+        );
+        editor.apply_text_edit(&mut buffer, text::edit::Edit::extend_motion(Motion::Right));
 
         buffer
     }
 
     fn buffer_with_full_selection() -> text::Buffer {
-        let mut engine = text::Engine::new();
+        let mut editor = text::edit::Editor::new();
         let mut buffer = text::Buffer::from_text("hello");
 
-        engine.apply_text_edit(&mut buffer, text::Edit::SelectAll);
+        editor.apply_text_edit(&mut buffer, text::edit::Edit::SelectAll);
 
         buffer
     }
@@ -233,7 +236,7 @@ mod tests {
     fn state(field: impl Into<text::Field>, focused: bool) -> WindowState {
         let mut tree = ui::Tree::new();
         let mut registry = action::Registry::<()>::new();
-        let mut text_engine = text::Engine::new();
+        let mut text_engine = text::layout::Engine::new();
 
         tree.set_root(
             widget::text_field(FIELD, field)
@@ -285,7 +288,7 @@ mod tests {
     fn two_field_state(focused: ui::Id) -> WindowState {
         let mut tree = ui::Tree::new();
         let mut registry = action::Registry::<()>::new();
-        let mut text_engine = text::Engine::new();
+        let mut text_engine = text::layout::Engine::new();
 
         tree.set_root(
             ui::Node::container(ROOT, layout::Axis::Vertical)
@@ -324,7 +327,7 @@ mod tests {
     fn two_field_menu_state(focused: ui::Id) -> (WindowState, action::Registry<()>) {
         let mut tree = ui::Tree::new();
         let mut registry = action::Registry::<()>::new();
-        let mut text_engine = text::Engine::new();
+        let mut text_engine = text::layout::Engine::new();
 
         registry.register(Action::new(SELECT_ALL, "Select All"));
         tree.set_root(
@@ -376,12 +379,12 @@ mod tests {
         let state = state(text::Buffer::from_text("hello"), false);
 
         for command in [
-            text::Command::SelectAll,
-            text::Command::Copy,
-            text::Command::Cut,
-            text::Command::Paste,
-            text::Command::Undo,
-            text::Command::Redo,
+            text::edit::Command::SelectAll,
+            text::edit::Command::Copy,
+            text::edit::Command::Cut,
+            text::edit::Command::Paste,
+            text::edit::Command::Undo,
+            text::edit::Command::Redo,
         ] {
             assert!(!command_state(&state, &path(FIELD), command).is_enabled());
         }
@@ -391,21 +394,21 @@ mod tests {
     fn focused_caret_only_field_enables_select_all_and_paste() {
         let state = state(text::Buffer::from_text("hello"), true);
 
-        assert!(command_state(&state, &path(FIELD), text::Command::SelectAll).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::Command::Paste).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::Command::Copy).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::Command::Cut).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Paste).is_enabled());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Copy).is_enabled());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Cut).is_enabled());
     }
 
     #[test]
     fn read_only_field_enables_selection_commands_but_not_mutation_commands() {
         let state = state(text::Field::new("hello").read_only(), true);
 
-        assert!(command_state(&state, &path(FIELD), text::Command::SelectAll).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::Command::Paste).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::Command::Cut).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::Command::Undo).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::Command::Redo).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_enabled());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Paste).is_enabled());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Cut).is_enabled());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Undo).is_enabled());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Redo).is_enabled());
     }
 
     #[test]
@@ -415,8 +418,8 @@ mod tests {
             true,
         );
 
-        assert!(command_state(&state, &path(FIELD), text::Command::Copy).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::Command::Cut).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Copy).is_enabled());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Cut).is_enabled());
     }
 
     #[test]
@@ -426,10 +429,10 @@ mod tests {
             true,
         );
 
-        assert!(!command_state(&state, &path(FIELD), text::Command::Copy).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::Command::Cut).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::Command::Paste).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::Command::SelectAll).is_enabled());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Copy).is_enabled());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Cut).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Paste).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_enabled());
     }
 
     #[test]
@@ -440,12 +443,12 @@ mod tests {
         );
 
         for command in [
-            text::Command::SelectAll,
-            text::Command::Copy,
-            text::Command::Cut,
-            text::Command::Paste,
-            text::Command::Undo,
-            text::Command::Redo,
+            text::edit::Command::SelectAll,
+            text::edit::Command::Copy,
+            text::edit::Command::Cut,
+            text::edit::Command::Paste,
+            text::edit::Command::Undo,
+            text::edit::Command::Redo,
         ] {
             assert!(!command_state(&state, &path(FIELD), command).is_enabled());
         }
@@ -455,47 +458,47 @@ mod tests {
     fn fully_selected_field_disables_select_all() {
         let state = state(buffer_with_full_selection(), true);
 
-        assert!(!command_state(&state, &path(FIELD), text::Command::SelectAll).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::Command::Copy).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::Command::Cut).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::Command::Paste).is_enabled());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Copy).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Cut).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Paste).is_enabled());
     }
 
     #[test]
     fn partially_selected_field_keeps_select_all_enabled() {
         let state = state(buffer_with_partial_selection(), true);
 
-        assert!(command_state(&state, &path(FIELD), text::Command::SelectAll).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::Command::Copy).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::Command::Cut).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::Command::Paste).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Copy).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Cut).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Paste).is_enabled());
     }
 
     #[test]
     fn undo_redo_availability_follows_active_field_history() {
         let mut state = state(text::Buffer::from_text("hello!"), true);
-        let mut engine = text::Engine::new();
+        let mut editor = text::edit::Editor::new();
         let mut before = text::Buffer::from_text("hello");
-        let result = engine.apply_text_edit_with_result(&mut before, text::Edit::insert("!"));
+        let result = editor.apply_text_edit_with_result(&mut before, text::edit::Edit::insert("!"));
 
         state.record_text_field_history(
             &path(FIELD),
             result.change.expect("insert should change text"),
-            text::HistoryKind::Typing("!".to_owned()),
+            text::edit::HistoryKind::Typing("!".to_owned()),
             std::time::Instant::now(),
         );
 
-        assert!(command_state(&state, &path(FIELD), text::Command::Undo).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::Command::Redo).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Undo).is_enabled());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Redo).is_enabled());
 
         state.apply_text_history_command(
             &path(FIELD),
             &mut text::Buffer::from_text("hello!"),
-            text::Command::Undo,
+            text::edit::Command::Undo,
         );
 
-        assert!(!command_state(&state, &path(FIELD), text::Command::Undo).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::Command::Redo).is_enabled());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Undo).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Redo).is_enabled());
     }
 
     #[test]
@@ -503,7 +506,7 @@ mod tests {
         let state = state_with_open_menu(text::Buffer::from_text("hello"));
 
         assert_eq!(editing_target(&state), Some(path(FIELD)));
-        assert!(command_state(&state, &path(FIELD), text::Command::SelectAll).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_enabled());
     }
 
     #[test]
@@ -531,9 +534,16 @@ mod tests {
             state.command_context(window()),
             action::Context::path(window(), child_path(OTHER_FIELD))
         );
-        assert!(!command_state(&state, &child_path(FIELD), text::Command::SelectAll).is_enabled());
         assert!(
-            command_state(&state, &child_path(OTHER_FIELD), text::Command::SelectAll).is_enabled()
+            !command_state(&state, &child_path(FIELD), text::edit::Command::SelectAll).is_enabled()
+        );
+        assert!(
+            command_state(
+                &state,
+                &child_path(OTHER_FIELD),
+                text::edit::Command::SelectAll
+            )
+            .is_enabled()
         );
     }
 

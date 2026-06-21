@@ -19,8 +19,9 @@ pub struct Context<'a, T: Send + 'static> {
     windows: &'a mut Windows,
     window_states: &'a mut std::collections::HashMap<window::Id, WindowState>,
     actions: &'a mut action::Registry<T>,
-    text_engine: &'a mut text::Engine,
-    clipboard: &'a mut dyn text::Clipboard,
+    text_editor: &'a mut text::edit::Editor,
+    text_engine: &'a mut text::layout::Engine,
+    clipboard: &'a mut dyn text::edit::Clipboard,
     mailbox: &'a mut Mailbox<T>,
     sender: Sender<T>,
     redraw_on_action_state_change: bool,
@@ -32,8 +33,9 @@ pub struct Parts<'a, T: Send + 'static> {
     pub windows: &'a mut Windows,
     pub window_states: &'a mut std::collections::HashMap<window::Id, WindowState>,
     pub actions: &'a mut action::Registry<T>,
-    pub text_engine: &'a mut text::Engine,
-    pub clipboard: &'a mut dyn text::Clipboard,
+    pub text_editor: &'a mut text::edit::Editor,
+    pub text_engine: &'a mut text::layout::Engine,
+    pub clipboard: &'a mut dyn text::edit::Clipboard,
     pub mailbox: &'a mut Mailbox<T>,
     pub sender: Sender<T>,
     pub redraw_on_action_state_change: bool,
@@ -43,6 +45,7 @@ pub struct Parts<'a, T: Send + 'static> {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Diagnostics {
     pub text: text::Diagnostics,
+    pub edit: text::edit::Diagnostics,
     pub scroll: ScrollDiagnostics,
 }
 
@@ -81,6 +84,7 @@ pub fn new<T: Send + 'static>(parts: Parts<'_, T>) -> Context<'_, T> {
         windows: parts.windows,
         window_states: parts.window_states,
         actions: parts.actions,
+        text_editor: parts.text_editor,
         text_engine: parts.text_engine,
         clipboard: parts.clipboard,
         mailbox: parts.mailbox,
@@ -88,6 +92,19 @@ pub fn new<T: Send + 'static>(parts: Parts<'_, T>) -> Context<'_, T> {
         redraw_on_action_state_change: parts.redraw_on_action_state_change,
         event_loop: parts.event_loop,
     }
+}
+
+fn text_edit_should_ensure_caret_visible(
+    pointer_placement: bool,
+    text_changed: bool,
+    selection_changed: bool,
+    selection_only: bool,
+) -> bool {
+    if pointer_placement || selection_only {
+        return false;
+    }
+
+    text_changed || selection_changed
 }
 
 impl<T: Send + 'static> Context<'_, T> {
@@ -163,6 +180,7 @@ impl<T: Send + 'static> Context<'_, T> {
     pub fn diagnostics(&self, window: window::Id) -> Diagnostics {
         Diagnostics {
             text: self.text_engine.diagnostics(),
+            edit: self.text_editor.diagnostics(),
             scroll: self
                 .window_states
                 .get(&window)
@@ -179,15 +197,20 @@ impl<T: Send + 'static> Context<'_, T> {
         task_runner::spawn(task, self.sender.clone());
     }
 
-    pub fn apply_text_edit(&mut self, buffer: &mut text::Buffer, edit: text::Edit) -> bool {
-        self.text_engine.apply_text_edit(buffer, edit)
+    pub fn apply_text_edit(&mut self, buffer: &mut text::Buffer, edit: text::edit::Edit) -> bool {
+        let result = self.text_editor.apply_text_edit_with_result(buffer, edit);
+        if result.text_changed {
+            self.text_engine
+                .invalidate_text_area_for_edit(buffer, &result.impacts);
+        }
+        result.buffer_changed()
     }
 
     pub fn apply_text_edit_for(
         &mut self,
         target: &ui::Path,
         buffer: &mut text::Buffer,
-        edit: text::Edit,
+        edit: text::edit::Edit,
     ) -> bool {
         if !self
             .window_states
@@ -198,9 +221,19 @@ impl<T: Send + 'static> Context<'_, T> {
         }
 
         let history_kind = edit.history_kind();
-        let reveal_caret = text_edit_reveals_caret(&edit);
+        let pointer_placement = matches!(edit, text::edit::Edit::Pointer { .. });
+        let selection_only = matches!(edit, text::edit::Edit::SelectAll);
+        let scroll_anchors = self
+            .window_states
+            .iter()
+            .map(|(window, state)| (*window, state.text_area_scroll_anchor(target)))
+            .collect::<std::collections::HashMap<_, _>>();
         let now = Instant::now();
-        let result = self.text_engine.apply_text_edit_with_result(buffer, edit);
+        let result = self.text_editor.apply_text_edit_with_result(buffer, edit);
+        if result.text_changed {
+            self.text_engine
+                .invalidate_text_area_for_edit(buffer, &result.impacts);
+        }
 
         if let Some(change) = result.change.clone() {
             for state in self.window_states.values_mut() {
@@ -209,12 +242,22 @@ impl<T: Send + 'static> Context<'_, T> {
         }
 
         if result.buffer_changed() {
-            for state in self.window_states.values_mut() {
-                if reveal_caret {
-                    state.reset_text_field_caret_blink_if_needed(target, now);
-                    state.reveal_text_field_caret(target, &mut self.text_engine);
+            let ensure_caret = text_edit_should_ensure_caret_visible(
+                pointer_placement,
+                result.text_changed,
+                result.selection_changed,
+                selection_only,
+            );
+            for (window, state) in self.window_states.iter_mut() {
+                if ensure_caret {
+                    state.ensure_text_caret_visible_after_edit(
+                        target,
+                        now,
+                        &mut self.text_engine,
+                        scroll_anchors.get(window).copied().flatten(),
+                    );
                 } else {
-                    state.reset_text_field_caret_blink_without_reveal(target, now);
+                    state.reset_text_field_caret_blink_without_scroll(target, now);
                 }
             }
         }
@@ -226,9 +269,17 @@ impl<T: Send + 'static> Context<'_, T> {
         &mut self,
         target: &ui::Path,
         buffer: &mut text::Buffer,
-        command: text::Command,
-    ) -> text::CommandResult {
-        if matches!(command, text::Command::Undo | text::Command::Redo) {
+        command: text::edit::Command,
+    ) -> text::edit::CommandResult {
+        if matches!(
+            command,
+            text::edit::Command::Undo | text::edit::Command::Redo
+        ) {
+            let scroll_anchors = self
+                .window_states
+                .iter()
+                .map(|(window, state)| (*window, state.text_area_scroll_anchor(target)))
+                .collect::<std::collections::HashMap<_, _>>();
             let Some(result) = self.window_states.values_mut().find_map(|state| {
                 let can_apply = state.text_surface(target).is_some_and(|surface| {
                     text_input::can_apply_command(state, target, surface, command.clone())
@@ -236,18 +287,22 @@ impl<T: Send + 'static> Context<'_, T> {
 
                 can_apply.then(|| state.apply_text_history_command(target, buffer, command.clone()))
             }) else {
-                return text::CommandResult {
+                return text::edit::CommandResult {
                     unavailable: true,
-                    ..text::CommandResult::default()
+                    ..text::edit::CommandResult::default()
                 };
             };
 
             if result.buffer_changed() {
                 self.text_engine.invalidate_text_area_surfaces_for(buffer);
                 let now = Instant::now();
-                for state in self.window_states.values_mut() {
-                    state.reset_text_field_caret_blink_if_needed(target, now);
-                    state.reveal_text_field_caret(target, &mut self.text_engine);
+                for (window, state) in self.window_states.iter_mut() {
+                    state.ensure_text_caret_visible_after_edit(
+                        target,
+                        now,
+                        &mut self.text_engine,
+                        scroll_anchors.get(window).copied().flatten(),
+                    );
                 }
             }
 
@@ -259,16 +314,25 @@ impl<T: Send + 'static> Context<'_, T> {
                 text_input::can_apply_command(state, target, surface, command.clone())
             })
         }) {
-            return text::CommandResult {
+            return text::edit::CommandResult {
                 unavailable: true,
-                ..text::CommandResult::default()
+                ..text::edit::CommandResult::default()
             };
         }
 
-        let reveal_caret = text_command_reveals_caret(command);
+        let selection_only = matches!(command, text::edit::Command::SelectAll);
+        let scroll_anchors = self
+            .window_states
+            .iter()
+            .map(|(window, state)| (*window, state.text_area_scroll_anchor(target)))
+            .collect::<std::collections::HashMap<_, _>>();
         let outcome =
-            self.text_engine
+            self.text_editor
                 .apply_text_command_with_result(buffer, command, self.clipboard);
+        if outcome.result.text_changed {
+            self.text_engine
+                .invalidate_text_area_for_edit(buffer, &outcome.impacts);
+        }
         let result = outcome.result;
 
         let now = Instant::now();
@@ -277,19 +341,25 @@ impl<T: Send + 'static> Context<'_, T> {
                 state.record_text_field_history(
                     target,
                     change.clone(),
-                    text::HistoryKind::Boundary,
+                    text::edit::HistoryKind::Boundary,
                     now,
                 );
             }
         }
 
         if result.buffer_changed() {
-            for state in self.window_states.values_mut() {
-                if reveal_caret {
-                    state.reset_text_field_caret_blink_if_needed(target, now);
-                    state.reveal_text_field_caret(target, &mut self.text_engine);
+            for (window, state) in self.window_states.iter_mut() {
+                if selection_only {
+                    state.reset_text_field_caret_blink_without_scroll(target, now);
+                } else if result.text_changed || result.selection_changed {
+                    state.ensure_text_caret_visible_after_edit(
+                        target,
+                        now,
+                        &mut self.text_engine,
+                        scroll_anchors.get(window).copied().flatten(),
+                    );
                 } else {
-                    state.reset_text_field_caret_blink_without_reveal(target, now);
+                    state.reset_text_field_caret_blink_without_scroll(target, now);
                 }
             }
         }
@@ -453,27 +523,28 @@ impl<T> Drop for ActionState<'_, T> {
     }
 }
 
-fn text_edit_reveals_caret(edit: &text::Edit) -> bool {
-    matches!(
-        edit,
-        text::Edit::Insert(_)
-            | text::Edit::ImeCommit(_)
-            | text::Edit::ReplaceRange { .. }
-            | text::Edit::MoveRange { .. }
-            | text::Edit::Backspace
-            | text::Edit::Delete
-            | text::Edit::InsertLineBreak
-            | text::Edit::MovePosition(_)
-            | text::Edit::ExtendPosition(_)
-            | text::Edit::DeleteWordBackward
-            | text::Edit::DeleteWordForward
-            | text::Edit::SetPosition(_)
-    )
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn text_command_reveals_caret(command: text::Command) -> bool {
-    matches!(
-        command,
-        text::Command::Cut | text::Command::Paste | text::Command::Undo | text::Command::Redo
-    )
+    #[test]
+    fn pointer_text_edits_do_not_request_caret_visibility_scroll() {
+        assert!(!text_edit_should_ensure_caret_visible(
+            true, false, true, false,
+        ));
+    }
+
+    #[test]
+    fn keyboard_caret_edits_still_request_caret_visibility_scroll() {
+        assert!(text_edit_should_ensure_caret_visible(
+            false, false, true, false,
+        ));
+    }
+
+    #[test]
+    fn select_all_does_not_request_caret_visibility_scroll() {
+        assert!(!text_edit_should_ensure_caret_visible(
+            false, false, true, true,
+        ));
+    }
 }

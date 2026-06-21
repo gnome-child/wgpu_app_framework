@@ -12,10 +12,11 @@ pub fn tree<T>(
     actions: &action::Registry<T>,
     window: window::Id,
     interaction: &ui::Interaction,
-    text_field_states: &HashMap<ui::Path, text::TextFieldState>,
-    text_engine: &mut text::Engine,
+    text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
+    text_engine: &mut text::layout::Engine,
     frame: AnimationFrame,
     scroll_projections: Option<&scroll::State>,
+    path_states: &HashMap<ui::Path, action::State>,
     scene: &mut paint::Scene,
 ) {
     let mut overlays = Vec::new();
@@ -31,6 +32,7 @@ pub fn tree<T>(
         text_engine,
         frame,
         scroll_projections,
+        path_states,
         scene,
         &mut overlays,
     );
@@ -43,7 +45,7 @@ pub fn tree<T>(
 pub(crate) fn cursor_overlay(
     layout: &ui::Frame,
     interaction: &ui::Interaction,
-    text_engine: &mut text::Engine,
+    text_engine: &mut text::layout::Engine,
     scene: &mut paint::Scene,
 ) {
     let Some(pointer) = interaction.pointer_position() else {
@@ -65,7 +67,7 @@ fn paint_cursor_overlay_text(
     root_rect: geometry::Rect,
     pointer: geometry::point::Logical,
     overlay: &ui::CursorOverlayText,
-    text_engine: &mut text::Engine,
+    text_engine: &mut text::layout::Engine,
     scene: &mut paint::Scene,
 ) {
     if overlay.text().is_empty() {
@@ -75,10 +77,12 @@ fn paint_cursor_overlay_text(
     let theme = theme::Theme::default_dark();
     let mut color = theme.text().primary();
     color.a *= overlay.alpha();
-    let document = theme
-        .text()
-        .document(text::Role::Control, overlay.text().to_owned(), color);
-    let metrics = text_engine.measure(&document, text::Measure::unbounded());
+    let document = theme.text().document(
+        text::document::Role::Control,
+        overlay.text().to_owned(),
+        color,
+    );
+    let metrics = text_engine.measure(&document, text::layout::Measure::unbounded());
     let width = metrics
         .width()
         .min(overlay.max_width())
@@ -120,14 +124,15 @@ fn node<T>(
     actions: &action::Registry<T>,
     window: window::Id,
     interaction: &ui::Interaction,
-    text_field_states: &HashMap<ui::Path, text::TextFieldState>,
-    text_engine: &mut text::Engine,
+    text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
+    text_engine: &mut text::layout::Engine,
     frame: AnimationFrame,
     scroll_projections: Option<&scroll::State>,
+    path_states: &HashMap<ui::Path, action::State>,
     scene: &mut paint::Scene,
     overlays: &mut Vec<paint::Outline>,
 ) {
-    let visual = visual_state(node, layout, actions, window, interaction);
+    let visual = visual_state(node, layout, actions, window, interaction, path_states);
     let content_visual = content_visual_state(node, &visual, inherited_content);
     let text_field_state = text_field_states
         .get(layout.path())
@@ -168,7 +173,7 @@ fn node<T>(
     let text_style = label
         .as_ref()
         .or_else(|| node.label())
-        .and_then(text::Document::first_style)
+        .and_then(text::document::Document::first_style)
         .unwrap_or_default();
     let text_area_scroll_projection =
         text_surface
@@ -202,7 +207,7 @@ fn node<T>(
             let style = label
                 .as_ref()
                 .or_else(|| node.label())
-                .and_then(text::Document::first_style)
+                .and_then(text::document::Document::first_style)
                 .unwrap_or_default();
             text_engine.text_layout_for_surface_at(
                 surface,
@@ -251,16 +256,16 @@ fn node<T>(
         }
     } else if let Some(document) = label {
         let scroll_x = text_field_layout
-            .map(text::TextFieldLayout::scroll_x)
+            .map(text::layout::TextFieldLayout::scroll_x)
             .unwrap_or(0.0);
         let scroll_y = text_field_layout
-            .map(text::TextFieldLayout::scroll_y)
+            .map(text::layout::TextFieldLayout::scroll_y)
             .unwrap_or(0.0);
         scene.push_text(paint::Text {
             rect: if text_surface.is_some() {
                 scrolled_text_rect(text_rect, scroll_x, scroll_y)
             } else {
-                layout.rect()
+                text_content_rect(node, layout)
             },
             document,
             wrap: text_surface
@@ -316,6 +321,7 @@ fn node<T>(
             text_engine,
             frame,
             scroll_projections,
+            path_states,
             scene,
             overlays,
         );
@@ -427,19 +433,26 @@ fn visual_state<T>(
     actions: &action::Registry<T>,
     window: window::Id,
     interaction: &ui::Interaction,
+    path_states: &HashMap<ui::Path, action::State>,
 ) -> VisualState {
-    let action_state = node
-        .action()
-        .map(|action| actions.state(action, action_context(node, layout, window, interaction)))
+    let action_state = path_states
+        .get(layout.path())
+        .copied()
+        .or_else(|| {
+            node.action().map(|action| {
+                actions.state(action, action_context(node, layout, window, interaction))
+            })
+        })
         .unwrap_or_default();
     let enabled = action_state.is_enabled();
     let busy = action_state.is_busy();
     let interactive = enabled && !busy;
-    let active = action_state.is_active() || menu_intent_active(node.intent(), interaction);
+    let active =
+        enabled && (action_state.is_active() || menu_intent_active(node.intent(), interaction));
     let hovered = interaction.hovered() == Some(layout.path());
     let pressed = interaction.pressed() == Some(layout.path());
     let focused = interaction.focused() == Some(layout.path());
-    let focus_visible = focused && interaction.focus_visibility().is_visible();
+    let focus_visible = enabled && focused && interaction.focus_visibility().is_visible();
 
     VisualState {
         enabled,
@@ -585,7 +598,7 @@ fn resolved_backdrop(node: &ui::Node, rect: crate::geometry::Rect) -> Option<pai
 fn resolved_label(
     node: &ui::Node,
     content_visual: &ContentVisualState,
-) -> Option<crate::text::Document> {
+) -> Option<crate::text::document::Document> {
     let style = node.style();
     let mut document = node.label().cloned()?;
 
@@ -616,10 +629,10 @@ fn resolved_text_surface_label(
     node: &ui::Node,
     surface: &text::Surface,
     content_visual: &ContentVisualState,
-    state: &text::TextFieldState,
-) -> Option<crate::text::Document> {
+    state: &text::view::TextViewState,
+) -> Option<crate::text::document::Document> {
     let style = node.style();
-    let default_color = text::Style::default().color();
+    let default_color = text::document::Style::default().color();
     let disabled_color = style
         .disabled_label_color()
         .or(style.label_color())
@@ -643,24 +656,24 @@ fn resolved_text_surface_label(
 
         let preedit_style = node
             .label()
-            .and_then(text::Document::first_style)
+            .and_then(text::document::Document::first_style)
             .unwrap_or_default()
             .with_color(normal_color);
-        let mut block = text::Block::new(text::Align::Start);
-        block.push_run(text::Run::new(text, preedit_style));
-        return Some(text::Document::from_block(block));
+        let mut block = text::document::Block::new(text::document::Align::Start);
+        block.push_run(text::document::Run::new(text, preedit_style));
+        return Some(text::document::Document::from_block(block));
     }
 
     if surface.buffer().is_empty() {
         if let Some(placeholder) = surface.placeholder() {
             let placeholder_style = node
                 .label()
-                .and_then(text::Document::first_style)
+                .and_then(text::document::Document::first_style)
                 .unwrap_or_default()
                 .with_color(disabled_color);
-            let mut block = text::Block::new(text::Align::Start);
-            block.push_run(text::Run::new(placeholder, placeholder_style));
-            return Some(text::Document::from_block(block));
+            let mut block = text::document::Block::new(text::document::Align::Start);
+            block.push_run(text::document::Run::new(placeholder, placeholder_style));
+            return Some(text::document::Document::from_block(block));
         }
     }
 
@@ -685,7 +698,7 @@ fn resolved_icon(
 
 fn resolved_icon_color(node: &ui::Node, content_visual: &ContentVisualState) -> paint::Color {
     let style = node.style();
-    let fallback = crate::text::Style::default().color();
+    let fallback = crate::text::document::Style::default().color();
 
     if content_visual.busy {
         return style
@@ -709,7 +722,7 @@ fn paint_text_field_selection(
     layout: &ui::Frame,
     rect: geometry::Rect,
     interaction: &ui::Interaction,
-    text_field_layout: Option<&text::TextFieldLayout>,
+    text_field_layout: Option<&text::layout::TextFieldLayout>,
     scene: &mut paint::Scene,
 ) {
     let Some(surface) = node.text_surface() else {
@@ -751,7 +764,7 @@ fn paint_text_preedit_selection(
     layout: &ui::Frame,
     rect: geometry::Rect,
     interaction: &ui::Interaction,
-    text_field_layout: Option<&text::TextFieldLayout>,
+    text_field_layout: Option<&text::layout::TextFieldLayout>,
     scene: &mut paint::Scene,
 ) {
     if interaction.text_editing_target() != Some(layout.path()) {
@@ -786,7 +799,7 @@ fn paint_text_preedit_underline(
     layout: &ui::Frame,
     rect: geometry::Rect,
     interaction: &ui::Interaction,
-    text_field_layout: Option<&text::TextFieldLayout>,
+    text_field_layout: Option<&text::layout::TextFieldLayout>,
     scene: &mut paint::Scene,
 ) {
     if node.text_surface().is_none() || interaction.text_editing_target() != Some(layout.path()) {
@@ -800,7 +813,7 @@ fn paint_text_preedit_underline(
     let color = node
         .style()
         .label_color()
-        .unwrap_or_else(|| text::Style::default().color());
+        .unwrap_or_else(|| text::document::Style::default().color());
 
     for span in text_field_layout.preedit_underline_spans() {
         let y = rect.origin.y() + span.y() + span.height().max(1.0) - 2.0;
@@ -826,7 +839,7 @@ fn paint_text_field_caret(
     node: &ui::Node,
     rect: geometry::Rect,
     visual: &VisualState,
-    text_field_layout: Option<&text::TextFieldLayout>,
+    text_field_layout: Option<&text::layout::TextFieldLayout>,
     scene: &mut paint::Scene,
 ) {
     if node.text_surface().is_none() {
@@ -837,7 +850,7 @@ fn paint_text_field_caret(
         return;
     }
 
-    let Some(caret) = text_field_layout.and_then(text::TextFieldLayout::caret) else {
+    let Some(caret) = text_field_layout.and_then(text::layout::TextFieldLayout::caret) else {
         return;
     };
 
@@ -854,7 +867,7 @@ fn paint_text_field_caret(
             fill: Some(paint::Fill::Brush(
                 node.style()
                     .label_color()
-                    .unwrap_or_else(|| text::Style::default().color())
+                    .unwrap_or_else(|| text::document::Style::default().color())
                     .into(),
             )),
             stroke: None,
@@ -894,7 +907,7 @@ fn paint_text_drop_caret(
             fill: Some(paint::Fill::Brush(
                 node.style()
                     .label_color()
-                    .unwrap_or_else(|| text::Style::default().color())
+                    .unwrap_or_else(|| text::document::Style::default().color())
                     .into(),
             )),
             stroke: None,
@@ -931,9 +944,9 @@ fn text_area_scroll_projection(
     node: &ui::Node,
     layout: &ui::Frame,
     area_model: &text::Area,
-    style: text::Style,
-    state: &text::TextFieldState,
-    text_engine: &mut text::Engine,
+    style: text::document::Style,
+    state: &text::view::TextViewState,
+    text_engine: &mut text::layout::Engine,
     now: std::time::Instant,
 ) -> Option<scroll::TextAreaProjection> {
     let scroll = node.text_scroll()?;
@@ -943,8 +956,9 @@ fn text_area_scroll_projection(
 
     let viewport_base = text_content_rect(node, layout);
     let (_, base_content) =
-        text::text_area_scroll_base_content_area(area_model, style, viewport_base.area);
-    let mut content_area = text::stable_text_area_content_area(
+        text::layout::text_area_scroll_base_content_area(area_model, style, viewport_base.area);
+    let mut content_area = text::layout::stable_text_area_content_area(
+        area_model.wrap(),
         base_content,
         None,
         geometry::area::logical(0.0, 0.0),
@@ -962,7 +976,8 @@ fn text_area_scroll_projection(
             state.clone(),
             now,
         );
-        let next_content = text::stable_text_area_content_area(
+        let next_content = text::layout::stable_text_area_content_area(
+            area_model.wrap(),
             base_content,
             Some(content_area),
             candidate.content_area(),
@@ -980,6 +995,22 @@ fn text_area_scroll_projection(
         axes = next;
     }
 
+    if state.caret_visibility_pending() {
+        let viewport = widget::scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
+        let width = match area_model.wrap() {
+            text::AreaWrap::None => content_area
+                .width()
+                .max(state.scroll_x() + viewport.area.width()),
+            text::AreaWrap::WordOrGlyph => viewport.area.width().max(0.0),
+        };
+        content_area = geometry::area::logical(
+            width,
+            content_area
+                .height()
+                .max(state.scroll_y() + viewport.area.height()),
+        );
+    }
+
     let metrics = widget::scroll::Metrics::resolve(
         layout.rect(),
         viewport_base,
@@ -993,11 +1024,14 @@ fn text_area_scroll_projection(
         scroll.style(),
         metrics.active_axes(),
     );
+    let resolved_state = state
+        .clone()
+        .with_scroll(metrics.offset().x(), metrics.offset().y());
     let paint_layout = text_engine.text_area_paint_layout_for_area_at(
         area_model,
         style,
         viewport.area,
-        state.clone(),
+        resolved_state,
         now,
     );
     let (layout, surfaces) = paint_layout.into_parts();

@@ -135,17 +135,17 @@ pub struct Shadow {
 impl Theme {
     pub fn default_dark() -> Self {
         let accent = srgb8(10, 132, 255);
-        let accent_subtle = srgba8(10, 132, 255, 0.24);
-        let warning = srgb8(255, 190, 80);
-        let scroll_track = paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.60));
+        let accent_subtle = srgba8(10, 132, 255, 0.20);
+        let warning = srgb8(255, 214, 10);
+        let scroll_track = paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.42));
         let popup_shadow = Shadow {
             brush: paint::Brush::linear_gradient(
-                paint::Color::rgba(0.0, 0.0, 0.0, 0.24),
-                paint::Color::rgba(0.0, 0.0, 0.0, 0.58),
+                paint::Color::rgba(0.0, 0.0, 0.0, 0.18),
+                paint::Color::rgba(0.0, 0.0, 0.0, 0.50),
             ),
-            blur: 18.0,
-            spread: 1.0,
-            offset: geometry::point::logical(0.0, 7.0),
+            blur: 24.0,
+            spread: 0.5,
+            offset: geometry::point::logical(0.0, 10.0),
         };
 
         Self {
@@ -155,23 +155,23 @@ impl Theme {
                 warning,
             },
             surfaces: Surfaces {
-                canvas: srgb8(14, 15, 18),
-                app: paint::Brush::linear_gradient(srgb8(14, 15, 18), srgb8(20, 22, 26)),
+                canvas: srgb8(17, 17, 19),
+                app: paint::Brush::linear_gradient(srgb8(17, 17, 19), srgb8(28, 28, 30)),
                 panel: paint::Brush::linear_gradient(
-                    srgba8(31, 33, 39, 0.98),
-                    srgba8(24, 26, 31, 0.98),
+                    srgba8(28, 28, 30, 0.94),
+                    srgba8(36, 36, 38, 0.92),
                 ),
                 panel_stroke: paint::Brush::linear_gradient(
-                    paint::Color::rgba(1.0, 1.0, 1.0, 0.07),
-                    paint::Color::rgba(1.0, 1.0, 1.0, 0.13),
+                    paint::Color::rgba(1.0, 1.0, 1.0, 0.08),
+                    paint::Color::rgba(1.0, 1.0, 1.0, 0.14),
                 ),
-                separator: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.11)),
+                separator: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.12)),
             },
             text: Text {
-                primary: srgb8(232, 233, 236),
-                secondary: srgb8(166, 168, 174),
-                disabled: srgb8(140, 142, 148),
-                busy: srgb8(255, 218, 138),
+                primary: srgb8(242, 242, 247),
+                secondary: srgb8(174, 174, 178),
+                disabled: srgb8(158, 158, 163),
+                busy: warning,
                 body_size: 13.0,
                 control_size: 13.0,
                 menu_size: 13.0,
@@ -198,58 +198,58 @@ impl Theme {
             },
             control: Control {
                 background: paint::Brush::linear_gradient(
-                    srgba8(38, 40, 47, 0.96),
-                    srgba8(29, 31, 37, 0.96),
+                    srgba8(44, 44, 46, 0.90),
+                    srgba8(36, 36, 38, 0.88),
                 ),
                 stroke: paint::Stroke {
                     brush: paint::Brush::linear_gradient(
-                        paint::Color::rgba(1.0, 1.0, 1.0, 0.08),
-                        paint::Color::rgba(1.0, 1.0, 1.0, 0.16),
+                        paint::Color::rgba(1.0, 1.0, 1.0, 0.10),
+                        paint::Color::rgba(1.0, 1.0, 1.0, 0.18),
                     ),
                     width: 1.0,
                 },
-                hover_tint: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.07)),
-                pressed_tint: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.18)),
+                hover_tint: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.06)),
+                pressed_tint: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.16)),
                 active_tint: paint::Brush::solid(accent_subtle),
-                busy_tint: paint::Brush::solid(srgba8(255, 184, 46, 0.30)),
-                disabled_tint: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.38)),
+                busy_tint: paint::Brush::solid(srgba8(255, 214, 10, 0.24)),
+                disabled_tint: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.34)),
                 focus_outline: Outline {
-                    brush: paint::Brush::solid(paint::Color::rgba(0.18, 0.52, 1.0, 0.78)),
+                    brush: paint::Brush::solid(srgba8(10, 132, 255, 0.74)),
                     width: 1.0,
                     offset: 2.0,
                 },
             },
             menu: Menu {
-                bar_background: paint::Brush::solid(srgba8(19, 20, 24, 0.96)),
+                bar_background: paint::Brush::solid(srgba8(28, 28, 30, 0.88)),
                 bar_stroke: paint::Stroke {
-                    brush: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.09)),
+                    brush: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.08)),
                     width: 1.0,
                 },
                 title_background: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.0)),
-                title_hover_tint: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.08)),
-                title_pressed_tint: paint::Brush::solid(paint::Color::rgba(0.25, 0.25, 0.25, 0.18)),
-                title_active_tint: paint::Brush::solid(srgba8(10, 132, 255, 0.22)),
+                title_hover_tint: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.07)),
+                title_pressed_tint: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.14)),
+                title_active_tint: paint::Brush::solid(srgba8(10, 132, 255, 0.18)),
                 title_focus_outline: Outline {
-                    brush: paint::Brush::solid(srgba8(10, 132, 255, 0.72)),
+                    brush: paint::Brush::solid(srgba8(10, 132, 255, 0.68)),
                     width: 1.0,
                     offset: 1.0,
                 },
                 row_background: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.0)),
-                row_hover_tint: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.09)),
-                row_pressed_tint: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.17)),
+                row_hover_tint: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.08)),
+                row_pressed_tint: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.14)),
             },
             floating_panel: FloatingPanel {
                 backdrop_fill: paint::Brush::linear_gradient(
-                    srgba8(24, 26, 32, 0.56),
-                    srgba8(36, 40, 50, 0.66),
+                    srgba8(28, 28, 30, 0.34),
+                    srgba8(44, 44, 46, 0.46),
                 ),
-                backdrop_blur: 0.92,
+                backdrop_blur: 0.86,
                 stroke: paint::Stroke {
                     brush: paint::Brush::linear_gradient(
-                        paint::Color::rgba(1.0, 1.0, 1.0, 0.10),
-                        paint::Color::rgba(1.0, 1.0, 1.0, 0.22),
+                        paint::Color::rgba(1.0, 1.0, 1.0, 0.16),
+                        paint::Color::rgba(1.0, 1.0, 1.0, 0.28),
                     ),
-                    width: 1.0,
+                    width: 1.00,
                 },
                 shadow: popup_shadow,
                 rounding: geometry::rect::Rounding::fixed(10.0),
@@ -259,9 +259,9 @@ impl Theme {
                 thickness: 10.0,
                 min_thumb_length: 18.0,
                 track: scroll_track,
-                thumb: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.24)),
-                thumb_hover_tint: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.10)),
-                thumb_pressed_tint: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.18)),
+                thumb: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.28)),
+                thumb_hover_tint: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.12)),
+                thumb_pressed_tint: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.16)),
                 corner: scroll_track,
             },
             effects: Effects { popup_shadow },
@@ -388,38 +388,42 @@ impl Text {
         self.icon_size
     }
 
-    pub fn style(self, role: text::Role) -> text::Style {
-        text::Style::default()
+    pub fn style(self, role: text::document::Role) -> text::document::Style {
+        text::document::Style::default()
             .with_size(self.size_for_role(role))
             .with_color(self.color_for_role(role))
     }
 
     pub fn document(
         self,
-        role: text::Role,
+        role: text::document::Role,
         label: impl Into<String>,
         color: paint::Color,
-    ) -> text::Document {
-        let mut block = text::Block::new(text::Align::Start);
-        block.push_run(text::Run::new(label, self.style(role).with_color(color)));
-        text::Document::from_block(block)
+    ) -> text::document::Document {
+        let mut block = text::document::Block::new(text::document::Align::Start);
+        block.push_run(text::document::Run::new(
+            label,
+            self.style(role).with_color(color),
+        ));
+        text::document::Document::from_block(block)
     }
 
-    fn size_for_role(self, role: text::Role) -> f32 {
+    fn size_for_role(self, role: text::document::Role) -> f32 {
         match role {
-            text::Role::Body => self.body_size,
-            text::Role::Label => self.label_size,
-            text::Role::Control | text::Role::Placeholder => self.control_size,
-            text::Role::Menu => self.menu_size,
+            text::document::Role::Body => self.body_size,
+            text::document::Role::Label => self.label_size,
+            text::document::Role::Control | text::document::Role::Placeholder => self.control_size,
+            text::document::Role::Menu => self.menu_size,
         }
     }
 
-    fn color_for_role(self, role: text::Role) -> paint::Color {
+    fn color_for_role(self, role: text::document::Role) -> paint::Color {
         match role {
-            text::Role::Placeholder => self.disabled,
-            text::Role::Body | text::Role::Label | text::Role::Control | text::Role::Menu => {
-                self.primary
-            }
+            text::document::Role::Placeholder => self.disabled,
+            text::document::Role::Body
+            | text::document::Role::Label
+            | text::document::Role::Control
+            | text::document::Role::Menu => self.primary,
         }
     }
 }
@@ -727,28 +731,67 @@ mod tests {
     }
 
     #[test]
+    fn default_dark_uses_cupertino_inspired_neutral_tones() {
+        let theme = Theme::default_dark();
+
+        assert_eq!(theme.palette().accent(), srgb8(10, 132, 255));
+        assert_eq!(theme.surfaces().canvas(), srgb8(17, 17, 19));
+        assert_eq!(theme.text().primary(), srgb8(242, 242, 247));
+        assert_eq!(theme.text().secondary(), srgb8(174, 174, 178));
+        assert_eq!(theme.text().disabled(), srgb8(158, 158, 163));
+        assert_eq!(theme.palette().warning(), srgb8(255, 214, 10));
+    }
+
+    #[test]
+    fn floating_panel_glass_stays_translucent() {
+        let floating = Theme::default_dark().floating_panel();
+        let (from, to) = linear_gradient_stops(floating.backdrop_fill());
+
+        assert!(from.a <= 0.36);
+        assert!(to.a <= 0.48);
+        assert!(floating.backdrop_blur() > 0.80);
+        assert!(floating.backdrop_blur() < 0.95);
+    }
+
+    #[test]
     fn text_roles_resolve_to_theme_metrics() {
         let theme = Theme::default_dark();
         let text = theme.text();
 
-        assert_eq!(text.style(text::Role::Body).size(), text.body_size());
-        assert_eq!(text.style(text::Role::Control).size(), text.control_size());
-        assert_eq!(text.style(text::Role::Menu).size(), text.menu_size());
-        assert_eq!(text.style(text::Role::Label).size(), text.label_size());
         assert_eq!(
-            text.style(text::Role::Placeholder).size(),
+            text.style(text::document::Role::Body).size(),
+            text.body_size()
+        );
+        assert_eq!(
+            text.style(text::document::Role::Control).size(),
             text.control_size()
         );
-        assert_eq!(text.style(text::Role::Placeholder).color(), text.disabled());
+        assert_eq!(
+            text.style(text::document::Role::Menu).size(),
+            text.menu_size()
+        );
+        assert_eq!(
+            text.style(text::document::Role::Label).size(),
+            text.label_size()
+        );
+        assert_eq!(
+            text.style(text::document::Role::Placeholder).size(),
+            text.control_size()
+        );
+        assert_eq!(
+            text.style(text::document::Role::Placeholder).color(),
+            text.disabled()
+        );
     }
 
     #[test]
     fn text_role_document_uses_role_size_and_requested_color() {
         let theme = Theme::default_dark();
-        let document =
-            theme
-                .text()
-                .document(text::Role::Control, "Control", theme.text().secondary());
+        let document = theme.text().document(
+            text::document::Role::Control,
+            "Control",
+            theme.text().secondary(),
+        );
         let run = &document.blocks()[0].runs()[0];
 
         assert_eq!(run.text(), "Control");
@@ -763,5 +806,13 @@ mod tests {
         assert!(canvas.r < 0.01);
         assert!(canvas.g < 0.01);
         assert!(canvas.b < 0.01);
+    }
+
+    fn linear_gradient_stops(brush: paint::Brush) -> (paint::Color, paint::Color) {
+        let paint::Brush::Gradient(paint::Gradient::Linear(gradient)) = brush else {
+            panic!("expected linear gradient brush");
+        };
+
+        (gradient.from(), gradient.to())
     }
 }

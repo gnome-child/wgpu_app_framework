@@ -8,6 +8,7 @@ pub struct PreparedBuffer {
     pub buffer: Buffer,
     pub default_color: glyphon::Color,
     pub line_height: f32,
+    pub content_height: f32,
 }
 
 pub fn font_system() -> FontSystem {
@@ -26,9 +27,9 @@ pub fn font_system() -> FontSystem {
 
 pub fn measure_document(
     font_system: &mut FontSystem,
-    document: &text::Document,
-    measure: text::Measure,
-) -> text::Metrics {
+    document: &text::document::Document,
+    measure: text::layout::Measure,
+) -> text::layout::Metrics {
     let mut width = 0.0_f32;
     let mut height = 0.0_f32;
     let mut line_count = 0_usize;
@@ -38,7 +39,7 @@ pub fn measure_document(
             .runs()
             .iter()
             .find(|run| !run.is_empty())
-            .map(text::Run::style)
+            .map(text::document::Run::style)
         else {
             continue;
         };
@@ -76,12 +77,12 @@ pub fn measure_document(
         line_count += block_lines;
     }
 
-    text::Metrics::new(crate::geometry::area::logical(width, height), line_count)
+    text::layout::Metrics::new(crate::geometry::area::logical(width, height), line_count)
 }
 
 pub fn prepare_document_buffer(
     font_system: &mut FontSystem,
-    document: &text::Document,
+    document: &text::document::Document,
     width: f32,
     height: f32,
     wrap: glyphon::Wrap,
@@ -102,10 +103,13 @@ pub fn prepare_document_buffer(
         wrap,
     );
 
+    let content_height = prepared_content_height(&buffer, line_height);
+
     Some(PreparedBuffer {
         buffer,
         default_color: color(first_style.color()),
         line_height,
+        content_height,
     })
 }
 
@@ -147,14 +151,27 @@ pub fn prepare_icon_buffer(
         buffer,
         default_color: self::color(color),
         line_height,
+        content_height: line_height,
     })
+}
+
+fn prepared_content_height(buffer: &Buffer, fallback: f32) -> f32 {
+    let mut height = 0.0_f32;
+    let mut line_count = 0_usize;
+
+    for run in buffer.layout_runs() {
+        height = height.max(run.line_top + run.line_height);
+        line_count += 1;
+    }
+
+    if line_count == 0 { fallback } else { height }
 }
 
 fn set_document_buffer(
     font_system: &mut FontSystem,
     buffer: &mut Buffer,
-    block: &text::Block,
-    first_style: text::Style,
+    block: &text::document::Block,
+    first_style: text::document::Style,
     width: Option<f32>,
     height: Option<f32>,
     wrap: glyphon::Wrap,
@@ -174,12 +191,12 @@ fn set_document_buffer(
         spans,
         &default_attrs,
         Shaping::Advanced,
-        Some(align(block.align(), text::block_direction(block))),
+        Some(align(block.align(), text::document::block_direction(block))),
     );
     buffer.shape_until_scroll(font_system, false);
 }
 
-pub fn attrs_for_style(style: text::Style) -> Attrs<'static> {
+pub fn attrs_for_style(style: text::document::Style) -> Attrs<'static> {
     Attrs::new()
         .family(Family::SansSerif)
         .weight(weight(style.weight()))
@@ -195,23 +212,23 @@ pub fn attrs_for_icon(glyph: icon::Glyph, size: f32, color: paint::Color) -> Att
 }
 
 pub fn align(
-    align: text::Align,
-    direction: text::ResolvedTextDirection,
+    align: text::document::Align,
+    direction: text::document::ResolvedTextDirection,
 ) -> glyphon::cosmic_text::Align {
     match align {
-        text::Align::Start if direction.is_rtl() => glyphon::cosmic_text::Align::Right,
-        text::Align::Start => glyphon::cosmic_text::Align::Left,
-        text::Align::Center => glyphon::cosmic_text::Align::Center,
-        text::Align::End if direction.is_rtl() => glyphon::cosmic_text::Align::Left,
-        text::Align::End => glyphon::cosmic_text::Align::Right,
+        text::document::Align::Start if direction.is_rtl() => glyphon::cosmic_text::Align::Right,
+        text::document::Align::Start => glyphon::cosmic_text::Align::Left,
+        text::document::Align::Center => glyphon::cosmic_text::Align::Center,
+        text::document::Align::End if direction.is_rtl() => glyphon::cosmic_text::Align::Left,
+        text::document::Align::End => glyphon::cosmic_text::Align::Right,
     }
 }
 
-pub fn weight(weight: text::Weight) -> glyphon::Weight {
+pub fn weight(weight: text::document::Weight) -> glyphon::Weight {
     match weight {
-        text::Weight::Normal => glyphon::Weight::NORMAL,
-        text::Weight::Medium => glyphon::Weight::MEDIUM,
-        text::Weight::Bold => glyphon::Weight::BOLD,
+        text::document::Weight::Normal => glyphon::Weight::NORMAL,
+        text::document::Weight::Medium => glyphon::Weight::MEDIUM,
+        text::document::Weight::Bold => glyphon::Weight::BOLD,
     }
 }
 

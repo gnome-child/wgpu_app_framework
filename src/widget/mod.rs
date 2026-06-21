@@ -19,8 +19,9 @@ pub use control::{
     icon_button_with_theme, labeled_button, labeled_button_with_theme, panel, panel_with_theme,
 };
 pub use text_widget::{
-    paragraph, paragraph_with_theme, text, text_area, text_area_with_theme, text_field,
-    text_field_with_theme, text_with_theme,
+    paragraph, paragraph_with_theme, text, text_area, text_area_surface,
+    text_area_surface_with_theme, text_area_with_theme, text_field, text_field_with_theme,
+    text_with_theme,
 };
 
 pub const MENU_POPUP: ui::Id = ui::Id::new("__menu_popup");
@@ -173,6 +174,7 @@ fn menu_title(menu: &menu::Menu, theme: &theme::Theme) -> ui::Node {
         .with_active_tint(theme.menu().title_active_tint())
         .with_focus_outline(outline.brush(), outline.width(), outline.offset())
         .with_label_color(theme.text().primary())
+        .with_disabled_label_color(theme.text().disabled())
         .with_rounding(theme.roundings().menu_title())
         .with_padding(layout::Insets {
             left: horizontal_padding,
@@ -294,6 +296,7 @@ impl Hit {
 mod tests {
     use super::*;
     use crate::action;
+    use crate::geometry::rect;
     use crate::paint;
     use crate::text as text_model;
 
@@ -328,6 +331,111 @@ mod tests {
         assert!(scroll::Bars::horizontal().horizontal_enabled());
         assert!(scroll::Bars::both().vertical_enabled());
         assert!(scroll::Bars::both().horizontal_enabled());
+    }
+
+    #[test]
+    fn text_area_scrollbars_follow_wrap_mode() {
+        let theme = theme::Theme::default_dark();
+        let wrapped = text_area_with_theme(
+            ROOT,
+            text_model::Area::new(text_model::Buffer::from_multiline_text("wrapped")),
+            &theme,
+        );
+        let unwrapped = text_area_with_theme(
+            ROOT,
+            text_model::Area::new(text_model::Buffer::from_multiline_text("unwrapped")).no_wrap(),
+            &theme,
+        );
+
+        assert_eq!(
+            wrapped.text_scroll().map(Scroll::bars),
+            Some(scroll::Bars::vertical())
+        );
+        assert_eq!(
+            unwrapped.text_scroll().map(Scroll::bars),
+            Some(scroll::Bars::both())
+        );
+    }
+
+    #[test]
+    fn text_area_surface_is_bare_focusable_text_surface() {
+        let theme = theme::Theme::default_dark();
+        let wrapped = text_area_surface_with_theme(
+            ROOT,
+            text_model::Area::new(text_model::Buffer::from_multiline_text("Editable")),
+            &theme,
+        );
+        let unwrapped = text_area_surface_with_theme(
+            ROOT,
+            text_model::Area::new(text_model::Buffer::from_multiline_text("Editable")).no_wrap(),
+            &theme,
+        );
+
+        assert_eq!(
+            wrapped.text_area().map(|area| area.buffer().text()),
+            Some("Editable".to_owned())
+        );
+        assert_eq!(
+            wrapped
+                .label()
+                .and_then(text_model::Document::first_style)
+                .map(|style| style.size()),
+            Some(theme.text().control_size())
+        );
+        assert!(wrapped.interactivity().hit_test());
+        assert!(wrapped.interactivity().focusable());
+        assert!(!wrapped.interactivity().actionable());
+        assert_eq!(wrapped.cursor(), ui::Cursor::Text);
+        assert!(wrapped.responders().contains(&action::SELECT_ALL));
+        assert!(wrapped.responders().contains(&action::INSERT_TEXT));
+        assert_eq!(
+            wrapped.text_scroll().map(Scroll::bars),
+            Some(scroll::Bars::vertical())
+        );
+        assert_eq!(
+            unwrapped.text_scroll().map(Scroll::bars),
+            Some(scroll::Bars::both())
+        );
+
+        assert_eq!(wrapped.style().background(), None);
+        assert_eq!(wrapped.style().stroke(), None);
+        assert_eq!(wrapped.style().rounding(), rect::Rounding::none());
+        assert_eq!(wrapped.style().focus_outline(), None);
+        assert_eq!(wrapped.style().padding(), layout::Insets::ZERO);
+        assert_eq!(wrapped.style().hover_tint(), None);
+        assert_eq!(wrapped.style().pressed_tint(), None);
+        assert_eq!(wrapped.style().active_tint(), None);
+    }
+
+    #[test]
+    fn text_area_with_theme_preserves_control_chrome() {
+        let theme = theme::Theme::default_dark();
+        let node = text_area_with_theme(
+            ROOT,
+            text_model::Area::new(text_model::Buffer::from_multiline_text("Editable")),
+            &theme,
+        );
+
+        assert_eq!(
+            node.style().background(),
+            Some(theme.control().background())
+        );
+        assert_eq!(node.style().stroke(), Some(theme.control().stroke()));
+        assert_eq!(node.style().rounding(), theme.roundings().control());
+        assert!(node.style().focus_outline().is_some());
+        assert_eq!(
+            node.style().padding(),
+            layout::Insets {
+                left: theme.density().app_padding(),
+                top: theme.density().app_padding(),
+                right: theme.density().app_padding(),
+                bottom: theme.density().app_padding(),
+            }
+        );
+        assert_eq!(
+            node.layout().height(),
+            layout::Size::Fixed(theme.density().control_height() * 6.0)
+        );
     }
 
     #[test]
@@ -411,6 +519,76 @@ mod tests {
         assert_eq!(node.cursor(), ui::Cursor::Text);
         assert!(node.responders().contains(&action::SELECT_ALL));
         assert!(node.responders().contains(&action::INSERT_TEXT));
+    }
+
+    #[test]
+    fn text_area_content_and_placeholder_share_control_typography() {
+        let theme = theme::Theme::default_dark();
+        let content = text_area_with_theme(
+            ROOT,
+            text_model::Area::new(text_model::Buffer::from_multiline_text("Editable")),
+            &theme,
+        );
+        let placeholder = text_area_with_theme(
+            ROOT,
+            text_model::Area::new(text_model::Buffer::from_multiline_text(""))
+                .with_placeholder("Hint"),
+            &theme,
+        );
+
+        assert_eq!(
+            content
+                .label()
+                .and_then(text_model::Document::first_style)
+                .map(|style| style.size()),
+            Some(theme.text().control_size())
+        );
+        assert_eq!(
+            placeholder
+                .label()
+                .expect("placeholder text area should store a content style carrier")
+                .blocks()[0]
+                .runs()[0]
+                .text(),
+            ""
+        );
+        assert_eq!(
+            placeholder
+                .label()
+                .and_then(text_model::Document::first_style)
+                .map(|style| style.size()),
+            Some(theme.text().control_size())
+        );
+        assert_eq!(
+            placeholder
+                .label()
+                .and_then(text_model::Document::first_style)
+                .map(|style| style.color()),
+            Some(theme.text().primary())
+        );
+    }
+
+    #[test]
+    fn text_field_placeholder_stores_content_style_carrier() {
+        let theme = theme::Theme::default_dark();
+        let node = text_field_with_theme(
+            ROOT,
+            text_model::Field::new("").with_placeholder("Hint"),
+            &theme,
+        );
+        let label = node
+            .label()
+            .expect("placeholder text field should store a content style carrier");
+
+        assert_eq!(label.blocks()[0].runs()[0].text(), "");
+        assert_eq!(
+            label.first_style().map(|style| style.size()),
+            Some(theme.text().control_size())
+        );
+        assert_eq!(
+            label.first_style().map(|style| style.color()),
+            Some(theme.text().primary())
+        );
     }
 
     #[test]

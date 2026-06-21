@@ -6,7 +6,7 @@ use crate::{layout, text, ui, widget};
 pub fn tree(
     root: &ui::Node,
     area: area::Logical,
-    measurer: &mut text::Engine,
+    measurer: &mut text::layout::Engine,
 ) -> layout::Frame<ui::Path> {
     let mut nodes = HashMap::new();
     collect_nodes(root, &ui::Path::root(root.id()), &mut nodes);
@@ -22,7 +22,7 @@ pub fn subtree_at(
     root: &ui::Node,
     path: ui::Path,
     rect: Rect,
-    measurer: &mut text::Engine,
+    measurer: &mut text::layout::Engine,
 ) -> layout::Frame<ui::Path> {
     let mut nodes = HashMap::new();
     collect_nodes(root, &path, &mut nodes);
@@ -42,7 +42,7 @@ pub fn subtree_at(
 
 struct UiMeasurer<'a, 'm> {
     nodes: HashMap<ui::Path, &'a ui::Node>,
-    measurer: &'m mut text::Engine,
+    measurer: &'m mut text::layout::Engine,
 }
 
 impl layout::Measurer<ui::Path> for UiMeasurer<'_, '_> {
@@ -56,7 +56,7 @@ impl layout::Measurer<ui::Path> for UiMeasurer<'_, '_> {
             .label()
             .map(|document| {
                 self.measurer
-                    .measure(document, text::Measure::bounded(max))
+                    .measure(document, text::layout::Measure::bounded(max))
                     .area()
             })
             .unwrap_or_else(|| area::logical(0.0, 0.0));

@@ -2,16 +2,16 @@ use crate::{action, layout, text, theme, ui};
 
 use super::foundation;
 
-pub fn text(id: ui::Id, label: impl Into<text::Document>) -> ui::Node {
+pub fn text(id: ui::Id, label: impl Into<text::document::Document>) -> ui::Node {
     text_with_theme(id, label, &theme::Theme::default_dark())
 }
 
 pub fn text_with_theme(
     id: ui::Id,
-    label: impl Into<text::Document>,
+    label: impl Into<text::document::Document>,
     theme: &theme::Theme,
 ) -> ui::Node {
-    let style = theme.text().style(text::Role::Label);
+    let style = theme.text().style(text::document::Role::Label);
     foundation::content_colors(
         ui::Node::leaf(id)
             .with_label(
@@ -28,16 +28,16 @@ pub fn text_with_theme(
     )
 }
 
-pub fn paragraph(id: ui::Id, label: impl Into<text::Document>) -> ui::Node {
+pub fn paragraph(id: ui::Id, label: impl Into<text::document::Document>) -> ui::Node {
     paragraph_with_theme(id, label, &theme::Theme::default_dark())
 }
 
 pub fn paragraph_with_theme(
     id: ui::Id,
-    label: impl Into<text::Document>,
+    label: impl Into<text::document::Document>,
     theme: &theme::Theme,
 ) -> ui::Node {
-    let style = theme.text().style(text::Role::Body);
+    let style = theme.text().style(text::document::Role::Body);
     foundation::content_colors(
         ui::Node::leaf(id)
             .with_label(
@@ -57,6 +57,10 @@ pub fn text_field(id: ui::Id, field: impl Into<text::Field>) -> ui::Node {
 
 pub fn text_area(id: ui::Id, area: impl Into<text::Area>) -> ui::Node {
     text_area_with_theme(id, area, &theme::Theme::default_dark())
+}
+
+pub fn text_area_surface(id: ui::Id, area: impl Into<text::Area>) -> ui::Node {
+    text_area_surface_with_theme(id, area, &theme::Theme::default_dark())
 }
 
 pub fn text_field_with_theme(
@@ -103,9 +107,32 @@ pub fn text_area_with_theme(
     area: impl Into<text::Area>,
     theme: &theme::Theme,
 ) -> ui::Node {
+    let outline = theme.control().focus_outline();
+
+    text_area_surface_with_theme(id, area, theme)
+        .with_background(theme.control().background())
+        .with_stroke(theme.control().stroke())
+        .with_rounding(theme.roundings().control())
+        .with_focus_outline(outline.brush(), outline.width(), outline.offset())
+        .with_size(
+            layout::Size::Fill,
+            layout::Size::Fixed(theme.density().control_height() * 6.0),
+        )
+        .with_padding(layout::Insets {
+            left: theme.density().app_padding(),
+            top: theme.density().app_padding(),
+            right: theme.density().app_padding(),
+            bottom: theme.density().app_padding(),
+        })
+}
+
+pub fn text_area_surface_with_theme(
+    id: ui::Id,
+    area: impl Into<text::Area>,
+    theme: &theme::Theme,
+) -> ui::Node {
     let area = area.into();
     let label = text_area_document(&area, theme);
-    let outline = theme.control().focus_outline();
     let mut interactivity = ui::Interactivity::NONE.with_hit_test(true);
     let mut cursor = ui::Cursor::Default;
     if area.is_selectable() {
@@ -116,7 +143,7 @@ pub fn text_area_with_theme(
     let surface = text::Surface::Area(area.clone());
     let scroll = theme.scroll();
     let text_scroll = super::Scroll::new()
-        .with_bars(super::scroll::Bars::both())
+        .with_bars(text_area_scroll_bars(&area))
         .with_style(super::scroll::Style::new(
             scroll.thickness(),
             scroll.min_thumb_length(),
@@ -126,71 +153,48 @@ pub fn text_area_with_theme(
             scroll.thumb_pressed_tint(),
             scroll.corner(),
         ));
-    let node = foundation::control_chrome(
-        foundation::content_colors(
-            ui::Node::leaf(id)
-                .with_text_area(area)
-                .with_text_scroll(text_scroll)
-                .with_label(label)
-                .with_interactivity(interactivity)
-                .with_cursor(cursor),
-            theme,
-        ),
+    let node = foundation::content_colors(
+        ui::Node::leaf(id)
+            .with_text_area(area)
+            .with_text_scroll(text_scroll)
+            .with_label(label)
+            .with_interactivity(interactivity)
+            .with_cursor(cursor),
         theme,
-    )
-    .with_focus_outline(outline.brush(), outline.width(), outline.offset())
-    .with_size(
-        layout::Size::Fill,
-        layout::Size::Fixed(theme.density().control_height() * 6.0),
-    )
-    .with_padding(layout::Insets {
-        left: theme.density().app_padding(),
-        top: theme.density().app_padding(),
-        right: theme.density().app_padding(),
-        bottom: theme.density().app_padding(),
-    });
+    );
 
     bind_text_surface_responders(node, &surface)
 }
 
-fn text_field_document(field: &text::Field, theme: &theme::Theme) -> text::Document {
-    if field.buffer().is_empty()
-        && let Some(placeholder) = field.placeholder()
-    {
-        return theme.text().document(
-            text::Role::Placeholder,
-            placeholder,
-            theme.text().disabled(),
-        );
-    }
-
+fn text_field_document(field: &text::Field, theme: &theme::Theme) -> text::document::Document {
     let color = if field.is_disabled() {
+        theme.text().disabled()
+    } else {
+        theme.text().primary()
+    };
+    theme.text().document(
+        text::document::Role::Control,
+        field.presentation_text(),
+        color,
+    )
+}
+
+fn text_area_document(area: &text::Area, theme: &theme::Theme) -> text::document::Document {
+    let color = if area.is_disabled() {
         theme.text().disabled()
     } else {
         theme.text().primary()
     };
     theme
         .text()
-        .document(text::Role::Control, field.presentation_text(), color)
+        .document(text::document::Role::Control, "", color)
 }
 
-fn text_area_document(area: &text::Area, theme: &theme::Theme) -> text::Document {
-    if area.buffer().is_empty()
-        && let Some(placeholder) = area.placeholder()
-    {
-        return theme.text().document(
-            text::Role::Placeholder,
-            placeholder,
-            theme.text().disabled(),
-        );
+fn text_area_scroll_bars(area: &text::Area) -> super::scroll::Bars {
+    match area.wrap() {
+        text::AreaWrap::None => super::scroll::Bars::both(),
+        text::AreaWrap::WordOrGlyph => super::scroll::Bars::vertical(),
     }
-
-    let color = if area.is_disabled() {
-        theme.text().disabled()
-    } else {
-        theme.text().primary()
-    };
-    theme.text().document(text::Role::Control, "", color)
 }
 
 fn bind_text_surface_responders(mut node: ui::Node, surface: &text::Surface) -> ui::Node {

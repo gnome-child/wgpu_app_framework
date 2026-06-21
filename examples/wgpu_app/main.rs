@@ -505,7 +505,7 @@ fn command_section(theme: &Theme, model: &ViewModel) -> ui::Node {
         )
         .with_label(document(
             format!("Document responder | {}", model.last_select),
-            text::Align::Center,
+            text::document::Align::Center,
             theme.text().body_size(),
             theme.text().primary(),
         ));
@@ -656,7 +656,7 @@ fn text_section(theme: &Theme) -> ui::Node {
     .with_child(
         widget::paragraph_with_theme(
             TEXT_PARAGRAPH,
-            "paragraph() measures through text::Engine and wraps as layout constraints change.",
+            "paragraph() measures through text::layout::Engine and wraps as layout constraints change.",
             theme,
         )
         .with_label_color(theme.text().secondary()),
@@ -678,7 +678,7 @@ fn document_scroll(theme: &Theme, offset: f32) -> ui::Node {
                 .with_size(layout::Size::Fill, layout::Size::Fixed(SCROLL_ROW_HEIGHT))
                 .with_label(document(
                     format!("Scrollable row {}", index + 1),
-                    text::Align::Center,
+                    text::document::Align::Center,
                     theme.text().body_size(),
                     theme.text().primary(),
                 )),
@@ -757,7 +757,7 @@ fn popup_panel(theme: &Theme, model: &ViewModel) -> ui::Node {
             } else {
                 "Local responder"
             },
-            text::Align::Center,
+            text::document::Align::Center,
             theme.text().body_size(),
             theme.text().primary(),
         ));
@@ -820,7 +820,7 @@ fn section_header(id: ui::Id, title: impl Into<String>, theme: &Theme) -> ui::No
     ui::Node::leaf(id)
         .with_label(document(
             title,
-            text::Align::Start,
+            text::document::Align::Start,
             theme.text().label_size(),
             theme.text().secondary(),
         ))
@@ -835,7 +835,7 @@ fn info_panel(id: ui::Id, label: impl Into<String>, theme: &Theme) -> ui::Node {
         .with_size(layout::Size::Fill, layout::Size::Fill)
         .with_label(document(
             label,
-            text::Align::Center,
+            text::document::Align::Center,
             theme.text().body_size(),
             theme.text().secondary(),
         ))
@@ -896,17 +896,19 @@ fn header_id(id: ui::Id) -> ui::Id {
 
 fn document(
     label: impl Into<String>,
-    align: text::Align,
+    align: text::document::Align,
     size: f32,
     color: paint::Color,
-) -> text::Document {
-    let mut block = text::Block::new(align);
-    block.push_run(text::Run::new(
+) -> text::document::Document {
+    let mut block = text::document::Block::new(align);
+    block.push_run(text::document::Run::new(
         label,
-        text::Style::default().with_size(size).with_color(color),
+        text::document::Style::default()
+            .with_size(size)
+            .with_color(color),
     ));
 
-    text::Document::from_block(block)
+    text::document::Document::from_block(block)
 }
 
 fn subject_stroke(theme: &Theme) -> paint::Stroke {

@@ -33,13 +33,13 @@ pub struct Projection {
 #[derive(Debug, Clone)]
 pub struct TextAreaProjection {
     metrics: widget::scroll::Metrics,
-    layout: text::TextFieldLayout,
-    surfaces: Vec<text::TextAreaSurface>,
+    layout: text::layout::TextFieldLayout,
+    surfaces: Vec<text::layout::TextAreaSurface>,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct TextAreaModel {
-    key: text::AreaScrollKey,
+    key: text::layout::AreaScrollKey,
     content_size: area::Logical,
 }
 
@@ -47,8 +47,8 @@ impl State {
     #[cfg(test)]
     pub fn resolve(
         composition: &ui::Composition,
-        text_field_states: &HashMap<ui::Path, text::TextFieldState>,
-        text_engine: &mut text::Engine,
+        text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
+        text_engine: &mut text::layout::Engine,
         now: Instant,
     ) -> Self {
         let mut state = Self::default();
@@ -60,8 +60,8 @@ impl State {
     pub fn sync(
         &mut self,
         composition: &ui::Composition,
-        text_field_states: &HashMap<ui::Path, text::TextFieldState>,
-        text_engine: &mut text::Engine,
+        text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
+        text_engine: &mut text::layout::Engine,
         now: Instant,
     ) {
         self.sync_filtered(composition, text_field_states, text_engine, now, None);
@@ -70,8 +70,8 @@ impl State {
     pub fn sync_filtered(
         &mut self,
         composition: &ui::Composition,
-        text_field_states: &HashMap<ui::Path, text::TextFieldState>,
-        text_engine: &mut text::Engine,
+        text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
+        text_engine: &mut text::layout::Engine,
         now: Instant,
         text_area_targets: Option<&HashSet<ui::Path>>,
     ) {
@@ -149,8 +149,8 @@ impl State {
     pub fn refine_idle_text_area_models(
         &mut self,
         composition: &ui::Composition,
-        text_field_states: &HashMap<ui::Path, text::TextFieldState>,
-        text_engine: &mut text::Engine,
+        text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
+        text_engine: &mut text::layout::Engine,
         now: Instant,
         max_refinements: usize,
     ) -> bool {
@@ -288,8 +288,8 @@ impl Projection {
 impl TextAreaProjection {
     pub fn new(
         metrics: widget::scroll::Metrics,
-        layout: text::TextFieldLayout,
-        surfaces: Vec<text::TextAreaSurface>,
+        layout: text::layout::TextFieldLayout,
+        surfaces: Vec<text::layout::TextAreaSurface>,
     ) -> Self {
         Self {
             metrics,
@@ -302,12 +302,21 @@ impl TextAreaProjection {
         self.metrics
     }
 
-    pub fn layout(&self) -> &text::TextFieldLayout {
+    pub fn layout(&self) -> &text::layout::TextFieldLayout {
         &self.layout
     }
 
-    pub fn surfaces(&self) -> &[text::TextAreaSurface] {
+    pub fn surfaces(&self) -> &[text::layout::TextAreaSurface] {
         &self.surfaces
+    }
+
+    pub fn observed_area(&self) -> text::view::ObservedArea<'_> {
+        text::view::ObservedArea::new(
+            self.metrics.viewport(),
+            self.metrics.offset(),
+            self.layout.content_area(),
+            &self.surfaces,
+        )
     }
 
     #[cfg(test)]
@@ -320,7 +329,7 @@ impl TextAreaProjection {
 }
 
 impl TextAreaModel {
-    fn hint(&self) -> (text::AreaScrollKey, area::Logical) {
+    fn hint(&self) -> (text::layout::AreaScrollKey, area::Logical) {
         (self.key, self.content_size)
     }
 }
@@ -350,20 +359,30 @@ mod tests {
     const ROOT: ui::Id = ui::Id::new("root");
     const AREA: ui::Id = ui::Id::new("area");
 
-    fn text_area_composition() -> (ui::Composition, text::Engine, ui::Path) {
+    fn long_text_area_buffer() -> text::Buffer {
         let text = (0..40)
-            .map(|line| format!("line {line} with enough text to overflow horizontally"))
+            .map(|line| {
+                format!(
+                    "line {line} with enough text to overflow horizontally across a narrow area"
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n");
+        text::Buffer::from_multiline_text(text)
+    }
+
+    fn text_area_composition_for(
+        area_model: text::Area,
+    ) -> (ui::Composition, text::layout::Engine, ui::Path) {
         let root = ui::Node::container(ROOT, layout::Axis::Vertical)
             .with_size(layout::Size::Fill, layout::Size::Fill)
             .with_child(
-                widget::text_area(AREA, text::Buffer::from_multiline_text(text))
+                widget::text_area(AREA, area_model)
                     .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(56.0)),
             );
         let mut tree = ui::Tree::new();
         let mut actions = action::Registry::<()>::new();
-        let mut text_engine = text::Engine::new();
+        let mut text_engine = text::layout::Engine::new();
 
         tree.set_root(root);
         let composition = tree
@@ -378,6 +397,10 @@ mod tests {
         let path = ui::Path::from(ROOT).child(AREA);
 
         (composition, text_engine, path)
+    }
+
+    fn text_area_composition() -> (ui::Composition, text::layout::Engine, ui::Path) {
+        text_area_composition_for(text::Area::new(long_text_area_buffer()))
     }
 
     #[test]
@@ -397,6 +420,71 @@ mod tests {
         assert!(metrics.max_offset().y() > 0.0);
         assert!(metrics.vertical_thumb().is_some());
         assert!(metrics.content_size().height() > metrics.viewport().area.height());
+    }
+
+    #[test]
+    fn wrapped_text_area_vertical_overflow_does_not_activate_horizontal_scrollbar() {
+        let (composition, mut text_engine, path) = text_area_composition();
+        let mut projections = State::resolve(
+            &composition,
+            &HashMap::new(),
+            &mut text_engine,
+            Instant::now(),
+        );
+        let metrics = projections.metrics(&path).expect("metrics should exist");
+
+        assert!(metrics.max_offset().y() > 0.0);
+        assert_eq!(metrics.max_offset().x(), 0.0);
+        assert!(metrics.vertical_thumb().is_some());
+        assert!(metrics.horizontal_thumb().is_none());
+
+        assert!(projections.refine_idle_text_area_models(
+            &composition,
+            &HashMap::new(),
+            &mut text_engine,
+            Instant::now(),
+            1,
+        ));
+        let refined = projections.metrics(&path).expect("metrics should remain");
+
+        assert_eq!(refined.max_offset().x(), 0.0);
+        assert!(refined.horizontal_thumb().is_none());
+    }
+
+    #[test]
+    fn wrapped_text_area_pending_caret_visibility_clamps_stale_horizontal_scroll() {
+        let (composition, mut text_engine, path) = text_area_composition();
+        let now = Instant::now();
+        let state = text::view::TextViewState::default()
+            .with_scroll(80.0, 0.0)
+            .ensure_caret_visible(now);
+        let projections = State::resolve(
+            &composition,
+            &HashMap::from([(path.clone(), state)]),
+            &mut text_engine,
+            now,
+        );
+        let metrics = projections.metrics(&path).expect("metrics should exist");
+
+        assert_eq!(metrics.offset().x(), 0.0);
+        assert_eq!(metrics.max_offset().x(), 0.0);
+        assert!(metrics.horizontal_thumb().is_none());
+    }
+
+    #[test]
+    fn no_wrap_text_area_long_line_activates_horizontal_scrollbar() {
+        let area_model = text::Area::new(long_text_area_buffer()).no_wrap();
+        let (composition, mut text_engine, path) = text_area_composition_for(area_model);
+        let projections = State::resolve(
+            &composition,
+            &HashMap::new(),
+            &mut text_engine,
+            Instant::now(),
+        );
+        let metrics = projections.metrics(&path).expect("metrics should exist");
+
+        assert!(metrics.max_offset().x() > 0.0);
+        assert!(metrics.horizontal_thumb().is_some());
     }
 
     #[test]
@@ -474,7 +562,7 @@ mod tests {
             &composition,
             &HashMap::from([(
                 path.clone(),
-                text::TextFieldState::default().with_scroll_y(120.0),
+                text::view::TextViewState::default().with_scroll_y(120.0),
             )]),
             &mut text_engine,
             Instant::now(),
@@ -497,7 +585,7 @@ mod tests {
             .expect("initial thumb");
         states.insert(
             path.clone(),
-            text::TextFieldState::default().with_scroll_y(200.0),
+            text::view::TextViewState::default().with_scroll_y(200.0),
         );
         projections.sync(&composition, &states, &mut text_engine, Instant::now());
         let after = projections

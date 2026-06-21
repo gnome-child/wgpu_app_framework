@@ -55,16 +55,16 @@ pub fn labeled_button_with_theme(
     label: impl Into<String>,
     theme: &theme::Theme,
 ) -> ui::Node {
-    let mut block = text::Block::new(text::Align::Center);
-    block.push_run(text::Run::new(
+    let mut block = text::document::Block::new(text::document::Align::Center);
+    block.push_run(text::document::Run::new(
         label,
         theme
             .text()
-            .style(text::Role::Control)
+            .style(text::document::Role::Control)
             .with_color(theme.text().primary()),
     ));
 
-    button_with_theme(id, action, theme).with_label(text::Document::from_block(block))
+    button_with_theme(id, action, theme).with_label(text::document::Document::from_block(block))
 }
 
 pub fn icon_button(id: ui::Id, action: action::Id, icon: icon::Icon) -> ui::Node {

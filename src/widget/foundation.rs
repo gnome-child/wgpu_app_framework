@@ -2,17 +2,19 @@ use crate::{action, layout, paint, text, theme, ui};
 
 pub fn document(
     label: impl Into<String>,
-    align: text::Align,
+    align: text::document::Align,
     size: f32,
     color: paint::Color,
-) -> text::Document {
-    let mut block = text::Block::new(align);
-    block.push_run(text::Run::new(
+) -> text::document::Document {
+    let mut block = text::document::Block::new(align);
+    block.push_run(text::document::Run::new(
         label,
-        text::Style::default().with_size(size).with_color(color),
+        text::document::Style::default()
+            .with_size(size)
+            .with_color(color),
     ));
 
-    text::Document::from_block(block)
+    text::document::Document::from_block(block)
 }
 
 pub fn content_colors(node: ui::Node, theme: &theme::Theme) -> ui::Node {

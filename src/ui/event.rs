@@ -79,12 +79,12 @@ pub enum Event {
     },
     TextEditRequested {
         target: Path,
-        edit: text::Edit,
+        edit: text::edit::Edit,
     },
     TextDropRequested {
-        source_cleanup: Option<(Path, text::Edit)>,
+        source_cleanup: Option<(Path, text::edit::Edit)>,
         target: Path,
-        edit: text::Edit,
+        edit: text::edit::Edit,
         operation: drag_drop::Operation,
     },
     KeyDown {

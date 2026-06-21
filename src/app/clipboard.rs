@@ -11,14 +11,14 @@ impl SystemClipboard {
         }
     }
 
-    fn clipboard(&mut self) -> text::ClipboardResult<&mut arboard::Clipboard> {
+    fn clipboard(&mut self) -> text::edit::ClipboardResult<&mut arboard::Clipboard> {
         if self.clipboard.is_none() {
             self.clipboard = arboard::Clipboard::new().ok();
         }
 
         self.clipboard
             .as_mut()
-            .ok_or(text::ClipboardError::Unavailable)
+            .ok_or(text::edit::ClipboardError::Unavailable)
     }
 }
 
@@ -28,18 +28,18 @@ impl Default for SystemClipboard {
     }
 }
 
-impl text::Clipboard for SystemClipboard {
-    fn read_text(&mut self) -> text::ClipboardResult<Option<String>> {
+impl text::edit::Clipboard for SystemClipboard {
+    fn read_text(&mut self) -> text::edit::ClipboardResult<Option<String>> {
         match self.clipboard()?.get_text() {
             Ok(text) => Ok((!text.is_empty()).then_some(text)),
             Err(arboard::Error::ContentNotAvailable) => Ok(None),
-            Err(_) => Err(text::ClipboardError::Unavailable),
+            Err(_) => Err(text::edit::ClipboardError::Unavailable),
         }
     }
 
-    fn write_text(&mut self, text: &str) -> text::ClipboardResult<()> {
+    fn write_text(&mut self, text: &str) -> text::edit::ClipboardResult<()> {
         self.clipboard()?
             .set_text(text.to_owned())
-            .map_err(|_| text::ClipboardError::Unavailable)
+            .map_err(|_| text::edit::ClipboardError::Unavailable)
     }
 }

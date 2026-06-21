@@ -35,7 +35,7 @@ pub struct WindowState {
     pub scroll: scroll::State,
     pub text_input_session: text_input::Session,
     pub drag_drop: drag_drop::State,
-    pub text_field_states: HashMap<ui::Path, text::TextFieldState>,
+    pub text_field_states: HashMap<ui::Path, text::view::TextViewState>,
     pub last_text_field_click: Option<TextFieldClick>,
     pub text_pointer_gesture: Option<TextPointerGesture>,
 }
@@ -67,7 +67,7 @@ pub struct TextDragCandidate {
     selected_range: Range<usize>,
     selected_text: String,
     source_editable: bool,
-    click_edit: text::Edit,
+    click_edit: text::edit::Edit,
 }
 
 impl TextDragCandidate {
@@ -77,7 +77,7 @@ impl TextDragCandidate {
         selected_range: Range<usize>,
         selected_text: String,
         source_editable: bool,
-        click_edit: text::Edit,
+        click_edit: text::edit::Edit,
     ) -> Self {
         Self {
             path,
@@ -109,7 +109,7 @@ impl WindowState {
     pub fn scroll_target(
         &self,
         position: point::Logical,
-        text_engine: &mut text::Engine,
+        text_engine: &mut text::layout::Engine,
     ) -> Option<ui::Path> {
         let layout = self.composition.as_ref()?.layout();
 
@@ -140,7 +140,7 @@ impl WindowState {
     pub fn widget_hit(
         &self,
         position: point::Logical,
-        text_engine: &mut text::Engine,
+        text_engine: &mut text::layout::Engine,
     ) -> Option<widget::Hit> {
         if !self.scroll.is_empty()
             && let Some(hit) = self.scroll.widget_hit(position)
@@ -190,7 +190,7 @@ impl WindowState {
     pub fn scroll_metrics_for(
         &self,
         target: &ui::Path,
-        text_engine: &mut text::Engine,
+        text_engine: &mut text::layout::Engine,
     ) -> Option<widget::scroll::Metrics> {
         self.scroll
             .metrics(target)
@@ -201,7 +201,7 @@ impl WindowState {
     pub fn text_area_scroll_metrics(
         &self,
         target: &ui::Path,
-        text_engine: &mut text::Engine,
+        text_engine: &mut text::layout::Engine,
     ) -> Option<widget::scroll::Metrics> {
         if let Some(metrics) = self.scroll.metrics(target) {
             return Some(metrics);
@@ -223,7 +223,7 @@ impl WindowState {
         hit: &widget::Hit,
         button: pointer::Button,
         position: point::Logical,
-        text_engine: &mut text::Engine,
+        text_engine: &mut text::layout::Engine,
     ) -> bool {
         let Some(metrics) = self.scroll_metrics_for(hit.target(), text_engine) else {
             return false;
@@ -248,7 +248,7 @@ impl WindowState {
     pub fn pointer_capture_offset(
         &self,
         position: point::Logical,
-        text_engine: &mut text::Engine,
+        text_engine: &mut text::layout::Engine,
     ) -> Option<(ui::Path, point::Logical)> {
         let capture = self.pointer_capture.as_ref()?;
         let part = capture.part().scroll()?;
@@ -332,7 +332,10 @@ impl WindowState {
         self.focused_editable_text_field().is_some()
     }
 
-    pub fn focused_text_field_caret_rect(&self, text_engine: &mut text::Engine) -> Option<Rect> {
+    pub fn focused_text_field_caret_rect(
+        &self,
+        text_engine: &mut text::layout::Engine,
+    ) -> Option<Rect> {
         let target = self.focused_selectable_text_field()?;
         let state = self
             .text_field_states
@@ -389,25 +392,17 @@ impl WindowState {
         &mut self,
         target: &ui::Path,
         position: point::Logical,
-        text_engine: &mut text::Engine,
-    ) -> Option<text::Edit> {
+        text_engine: &mut text::layout::Engine,
+    ) -> Option<text::edit::Edit> {
         if !self.is_selectable_text_field(target) {
             return None;
         }
 
         let kind = self.text_field_click_kind(target, position);
-        let edit = self.composition.as_ref()?.text_field_edit_at(
-            target,
-            position,
-            kind.clone(),
-            self.text_field_states
-                .get(target)
-                .cloned()
-                .unwrap_or_default(),
-            text_engine,
-        )?;
+        let text_position = self.text_field_position_at(target, position, text_engine)?;
+        let edit = text::edit::Edit::pointer(kind.clone(), text_position);
 
-        if kind == text::PointerEditKind::Click
+        if kind == text::edit::PointerEditKind::Click
             && let Some((range, selected_text, source_editable)) =
                 self.text_drag_source_at(target, position, text_engine)
         {
@@ -433,8 +428,8 @@ impl WindowState {
     pub fn text_field_drag_edit_at(
         &mut self,
         position: point::Logical,
-        text_engine: &mut text::Engine,
-    ) -> Option<(ui::Path, text::Edit)> {
+        text_engine: &mut text::layout::Engine,
+    ) -> Option<(ui::Path, text::edit::Edit)> {
         let target = match self.text_pointer_gesture.as_ref()? {
             TextPointerGesture::SelectionDrag(target) => target.clone(),
             TextPointerGesture::DragCandidate(_) => return None,
@@ -442,22 +437,14 @@ impl WindowState {
         if !self.is_selectable_text_field(&target) {
             return None;
         }
-        let edit = self.composition.as_ref()?.text_field_edit_at(
-            &target,
-            position,
-            text::PointerEditKind::Drag,
-            self.text_field_states
-                .get(&target)
-                .cloned()
-                .unwrap_or_default(),
-            text_engine,
-        )?;
+        let text_position = self.text_field_position_at(&target, position, text_engine)?;
+        let edit = text::edit::Edit::pointer(text::edit::PointerEditKind::Drag, text_position);
         self.reset_text_field_caret_blink(&target, Instant::now());
 
         Some((target, edit))
     }
 
-    pub fn finish_text_pointer_gesture(&mut self) -> Option<(ui::Path, text::Edit)> {
+    pub fn finish_text_pointer_gesture(&mut self) -> Option<(ui::Path, text::edit::Edit)> {
         let Some(TextPointerGesture::DragCandidate(candidate)) = self.text_pointer_gesture.take()
         else {
             self.text_pointer_gesture = None;
@@ -478,7 +465,7 @@ impl WindowState {
     pub fn update_text_drag(
         &mut self,
         position: point::Logical,
-        text_engine: &mut text::Engine,
+        text_engine: &mut text::layout::Engine,
     ) -> bool {
         if self.drag_drop.active_text().is_some() {
             return self.update_text_drop_target(position, text_engine);
@@ -514,7 +501,7 @@ impl WindowState {
     pub fn update_text_drop_target(
         &mut self,
         position: point::Logical,
-        text_engine: &mut text::Engine,
+        text_engine: &mut text::layout::Engine,
     ) -> bool {
         let Some(source) = self.drag_drop.active_text().cloned() else {
             return self.drag_drop.clear_text_target();
@@ -581,16 +568,16 @@ impl WindowState {
         {
             Some((
                 source.path().clone(),
-                text::Edit::replace_range(source_range.clone(), ""),
+                text::edit::Edit::replace_range(source_range.clone(), ""),
             ))
         } else {
             None
         };
         let target_edit =
             if operation == ui::drag_drop::Operation::Move && source.path() == target.path() {
-                text::Edit::move_range(source_range, target.insert_index())
+                text::edit::Edit::move_range(source_range, target.insert_index())
             } else {
-                text::Edit::insert_at(target.insert_index(), text)
+                text::edit::Edit::insert_at(target.insert_index(), text)
             };
         let target_path = target.path().clone();
         let event = ui::Event::TextDropRequested {
@@ -625,7 +612,7 @@ impl WindowState {
         &mut self,
         position: point::Logical,
         delta: point::Logical,
-        text_engine: &mut text::Engine,
+        text_engine: &mut text::layout::Engine,
     ) -> bool {
         let Some(target) = self.hit_test(position).filter(|target| {
             self.text_surface(target)
@@ -650,7 +637,7 @@ impl WindowState {
         let next = current
             .clone()
             .with_scroll(offset.x(), offset.y())
-            .clear_reveal_pending();
+            .clear_caret_visibility_pending();
 
         if next == current {
             return false;
@@ -665,7 +652,7 @@ impl WindowState {
         &mut self,
         target: &ui::Path,
         offset: point::Logical,
-        text_engine: &mut text::Engine,
+        text_engine: &mut text::layout::Engine,
     ) -> bool {
         if !self
             .text_surface(target)
@@ -686,7 +673,7 @@ impl WindowState {
         let next = current
             .clone()
             .with_scroll(offset.x(), offset.y())
-            .clear_reveal_pending();
+            .clear_caret_visibility_pending();
 
         if next == current {
             return false;
@@ -697,37 +684,100 @@ impl WindowState {
         true
     }
 
-    pub fn reveal_text_field_caret(
+    pub fn text_selection_drag_autoscroll_offset(
+        &self,
+        position: point::Logical,
+    ) -> Option<(ui::Path, point::Logical)> {
+        let target = match self.text_pointer_gesture.as_ref()? {
+            TextPointerGesture::SelectionDrag(target) => target.clone(),
+            TextPointerGesture::DragCandidate(_) => return None,
+        };
+        if !self
+            .text_surface(&target)
+            .is_some_and(text::Surface::is_area)
+        {
+            return None;
+        }
+
+        let projection = self.scroll.text_area(&target)?;
+        let offset =
+            text::View::selection_drag_autoscroll_offset(projection.observed_area(), position)?;
+
+        Some((target, offset))
+    }
+
+    pub fn text_selection_drag_autoscroll_at(
+        &mut self,
+        position: point::Logical,
+        text_engine: &mut text::layout::Engine,
+    ) -> Option<(ui::Path, point::Logical)> {
+        let (target, offset) = self.text_selection_drag_autoscroll_offset(position)?;
+        if !self.scroll_text_area_to(&target, offset, text_engine) {
+            return None;
+        }
+
+        self.sync_scroll_projections(text_engine, Instant::now());
+        Some((target, offset))
+    }
+
+    pub(crate) fn text_area_scroll_anchor(&self, target: &ui::Path) -> Option<text::ScrollAnchor> {
+        let area_model = self.text_surface(target)?.as_area()?;
+        let projection = self.scroll.text_area(target)?;
+        text::View::scroll_anchor_for_observed_area(area_model, projection.observed_area())
+    }
+
+    pub(crate) fn ensure_text_caret_visible_after_edit(
         &mut self,
         target: &ui::Path,
-        text_engine: &mut text::Engine,
+        now: Instant,
+        text_engine: &mut text::layout::Engine,
+        scroll_anchor: Option<text::ScrollAnchor>,
     ) -> bool {
-        let Some(composition) = self.composition.as_ref() else {
+        if !self.is_text_field(target) && !self.text_field_states.contains_key(target) {
             return false;
-        };
+        }
+
         let current = self
             .text_field_states
             .get(target)
             .cloned()
-            .unwrap_or_default();
-        let Some(next) = composition
-            .reveal_text_surface(target, current.clone(), text_engine)
-            .map(text::TextFieldState::clear_reveal_pending)
-        else {
-            return false;
-        };
+            .unwrap_or_else(|| text::view::TextViewState::new_at(0.0, now));
+        let mut next = current.clone();
+        let mut offset = None;
+
+        if let Some(anchor) = scroll_anchor
+            && let Some(composition) = self.composition.as_ref()
+            && let Some(scroll_y) =
+                composition.text_area_scroll_y_for_anchor(target, next.clone(), anchor, text_engine)
+        {
+            next = next.with_scroll_y(scroll_y);
+        }
+
+        next = text::View::state_after_text_edit(next, now);
+
+        if let Some(composition) = self.composition.as_ref()
+            && let Some(ensured) =
+                composition.ensure_caret_visible_for_text_surface(target, next.clone(), text_engine)
+        {
+            next = ensured.clear_caret_visibility_pending();
+            offset = Some(point::logical(next.scroll_x(), next.scroll_y()));
+        }
 
         if next == current {
             return false;
         }
 
-        let offset = point::logical(next.scroll_x(), next.scroll_y());
         self.text_field_states.insert(target.clone(), next);
-        self.scroll.update_offset(target, offset);
+        if let Some(offset) = offset {
+            self.scroll.update_offset(target, offset);
+        }
         true
     }
-
-    pub fn sync_scroll_projections(&mut self, text_engine: &mut text::Engine, now: Instant) {
+    pub fn sync_scroll_projections(
+        &mut self,
+        text_engine: &mut text::layout::Engine,
+        now: Instant,
+    ) {
         if let Some(composition) = self.composition.as_ref() {
             let targets = self.scroll_projection_targets();
             self.scroll.sync_filtered(
@@ -744,7 +794,7 @@ impl WindowState {
 
     pub fn refine_idle_scroll_models(
         &mut self,
-        text_engine: &mut text::Engine,
+        text_engine: &mut text::layout::Engine,
         now: Instant,
     ) -> bool {
         if !self.can_refine_idle_scroll_models() {
@@ -792,6 +842,10 @@ impl WindowState {
         if let Some(target) = self.drag_drop.text_target() {
             targets.insert(target.path().clone());
         }
+        if let Some(TextPointerGesture::SelectionDrag(target)) = self.text_pointer_gesture.as_ref()
+        {
+            targets.insert(target.clone());
+        }
 
         targets.retain(|path| self.text_surface(path).is_some_and(text::Surface::is_area));
         targets
@@ -801,7 +855,7 @@ impl WindowState {
         &self,
         target: &ui::Path,
         position: point::Logical,
-        text_engine: &mut text::Engine,
+        text_engine: &mut text::layout::Engine,
     ) -> Option<(std::ops::Range<usize>, String, bool)> {
         let surface = self.text_surface(target)?;
         if !surface.allows_copy() {
@@ -824,24 +878,39 @@ impl WindowState {
         &self,
         target: &ui::Path,
         position: point::Logical,
-        text_engine: &mut text::Engine,
+        text_engine: &mut text::layout::Engine,
     ) -> Option<text::TextPosition> {
-        self.composition.as_ref()?.text_field_position_at(
-            target,
-            position,
-            self.text_field_states
-                .get(target)
-                .cloned()
-                .unwrap_or_default(),
-            text_engine,
-        )
+        let state = self
+            .text_field_states
+            .get(target)
+            .cloned()
+            .unwrap_or_default();
+
+        if let Some(surface) = self.text_surface(target)
+            && let Some(area_model) = surface.as_area()
+            && let Some(projection) = self.scroll.text_area(target)
+        {
+            if let Some(position) = text::View::position_at_observed_area(
+                text_engine,
+                area_model,
+                state.clone(),
+                projection.observed_area(),
+                position,
+            ) {
+                return Some(position);
+            }
+        }
+
+        self.composition
+            .as_ref()?
+            .text_field_position_at(target, position, state, text_engine)
     }
 
     fn text_field_caret_rect_at_position(
         &self,
         target: &ui::Path,
         position: text::TextPosition,
-        text_engine: &mut text::Engine,
+        text_engine: &mut text::layout::Engine,
     ) -> Option<Rect> {
         self.composition
             .as_ref()?
@@ -856,7 +925,7 @@ impl WindowState {
             )
     }
 
-    pub fn sync_text_field_states(&mut self, text_engine: &mut text::Engine) -> bool {
+    pub fn sync_text_field_states(&mut self, text_engine: &mut text::layout::Engine) -> bool {
         let Some(composition) = self.composition.as_ref() else {
             let changed = !self.text_field_states.is_empty();
             self.text_field_states.clear();
@@ -891,8 +960,8 @@ impl WindowState {
             .text_field_states
             .get(target)
             .cloned()
-            .unwrap_or_else(|| text::TextFieldState::new_at(0.0, now));
-        let next = current.clone().reset_caret_blink(now);
+            .unwrap_or_else(|| text::view::TextViewState::new_at(0.0, now));
+        let next = text::View::state_after_caret_blink_reset(current.clone(), now);
 
         if next == current {
             return false;
@@ -902,7 +971,7 @@ impl WindowState {
         true
     }
 
-    pub(crate) fn reset_text_field_caret_blink_if_needed(
+    pub(crate) fn reset_text_field_caret_blink_without_scroll(
         &mut self,
         target: &ui::Path,
         now: Instant,
@@ -915,31 +984,8 @@ impl WindowState {
             .text_field_states
             .get(target)
             .cloned()
-            .unwrap_or_else(|| text::TextFieldState::new_at(0.0, now));
-        let next = current.clone().reset_caret_blink_if_needed(now);
-
-        if next == current {
-            return false;
-        }
-
-        self.text_field_states.insert(target.clone(), next);
-        true
-    }
-    pub(crate) fn reset_text_field_caret_blink_without_reveal(
-        &mut self,
-        target: &ui::Path,
-        now: Instant,
-    ) -> bool {
-        if !self.is_text_field(target) && !self.text_field_states.contains_key(target) {
-            return false;
-        }
-
-        let current = self
-            .text_field_states
-            .get(target)
-            .cloned()
-            .unwrap_or_else(|| text::TextFieldState::new_at(0.0, now));
-        let next = current.clone().reset_caret_blink_without_reveal(now);
+            .unwrap_or_else(|| text::view::TextViewState::new_at(0.0, now));
+        let next = text::View::state_after_selection_only_change(current.clone(), now);
 
         if next == current {
             return false;
@@ -952,8 +998,8 @@ impl WindowState {
     pub(crate) fn record_text_field_history(
         &mut self,
         target: &ui::Path,
-        change: text::TextChange,
-        kind: text::HistoryKind,
+        change: text::buffer::TextChange,
+        kind: text::edit::HistoryKind,
         now: Instant,
     ) -> bool {
         if !self.is_text_field(target) && !self.text_field_states.contains_key(target) {
@@ -967,7 +1013,7 @@ impl WindowState {
         true
     }
 
-    pub(crate) fn can_apply_text_edit(&self, target: &ui::Path, edit: &text::Edit) -> bool {
+    pub(crate) fn can_apply_text_edit(&self, target: &ui::Path, edit: &text::edit::Edit) -> bool {
         let Some(surface) = self.text_surface(target) else {
             return false;
         };
@@ -983,26 +1029,35 @@ impl WindowState {
         &mut self,
         target: &ui::Path,
         buffer: &mut text::Buffer,
-        command: text::Command,
-    ) -> text::CommandResult {
+        command: text::edit::Command,
+    ) -> text::edit::CommandResult {
         let Some(state) = self.text_field_states.get_mut(target) else {
-            return text::CommandResult {
+            return text::edit::CommandResult {
                 unavailable: true,
-                ..text::CommandResult::default()
+                ..text::edit::CommandResult::default()
             };
         };
 
         match command {
-            text::Command::Undo => state.apply_undo(buffer),
-            text::Command::Redo => state.apply_redo(buffer),
-            _ => text::CommandResult {
+            text::edit::Command::Undo => state.apply_undo(buffer),
+            text::edit::Command::Redo => state.apply_redo(buffer),
+            _ => text::edit::CommandResult {
                 unavailable: true,
-                ..text::CommandResult::default()
+                ..text::edit::CommandResult::default()
             },
         }
     }
 
     pub fn animation_schedule(&self, now: Instant) -> animation::Schedule {
+        if self
+            .pointer
+            .position()
+            .and_then(|position| self.text_selection_drag_autoscroll_offset(position))
+            .is_some()
+        {
+            return animation::Schedule::NextFrame;
+        }
+
         let Some(focus) = self.focus.as_ref() else {
             return animation::Schedule::Idle;
         };
@@ -1027,7 +1082,7 @@ impl WindowState {
         &mut self,
         target: &ui::Path,
         position: point::Logical,
-    ) -> text::PointerEditKind {
+    ) -> text::edit::PointerEditKind {
         let now = Instant::now();
         let count = self
             .last_text_field_click
@@ -1047,11 +1102,11 @@ impl WindowState {
         });
 
         match count {
-            1 => text::PointerEditKind::Click,
-            2 => text::PointerEditKind::DoubleClick,
-            3 => text::PointerEditKind::TripleClick,
-            _ if count % 2 == 0 => text::PointerEditKind::DoubleClick,
-            _ => text::PointerEditKind::TripleClick,
+            1 => text::edit::PointerEditKind::Click,
+            2 => text::edit::PointerEditKind::DoubleClick,
+            3 => text::edit::PointerEditKind::TripleClick,
+            _ if count % 2 == 0 => text::edit::PointerEditKind::DoubleClick,
+            _ => text::edit::PointerEditKind::TripleClick,
         }
     }
 
@@ -1459,6 +1514,46 @@ impl WindowState {
         )
     }
 
+    pub(crate) fn sync_menu_title_states<T>(
+        &mut self,
+        registry: &action::Registry<T>,
+        window: window::Id,
+    ) -> bool {
+        let Some(composition) = self.composition.as_ref() else {
+            return false;
+        };
+
+        let menu_titles = composition
+            .intents()
+            .iter()
+            .filter_map(|(path, intent)| match intent {
+                ui::Intent::OpenMenu(menu) => composition
+                    .menu(*menu)
+                    .map(|menu| (path.clone(), menu.clone())),
+                ui::Intent::Action(_) | ui::Intent::OpenSubmenu(_) | ui::Intent::CloseSubmenu => {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let path_states = menu_titles
+            .into_iter()
+            .map(|(path, menu)| {
+                let state = if self.menu_can_open(&menu, registry, window) {
+                    action::State::enabled()
+                } else {
+                    action::State::disabled()
+                };
+
+                (path, state)
+            })
+            .collect::<HashMap<_, _>>();
+
+        self.composition
+            .as_mut()
+            .is_some_and(|composition| composition.set_path_states(path_states))
+    }
+
     pub fn open_text_context_menu(
         &mut self,
         window: window::Id,
@@ -1634,7 +1729,7 @@ fn scroll_target_in_frame(
     state: &WindowState,
     frame: &ui::Frame,
     position: point::Logical,
-    text_engine: &mut text::Engine,
+    text_engine: &mut text::layout::Engine,
 ) -> Option<ui::Path> {
     if !rect_contains(frame.rect(), position) {
         return None;
@@ -1840,7 +1935,7 @@ mod tests {
         let window = window::Id::new(1);
         let mut tree = ui::Tree::new();
         let mut registry = action::Registry::<()>::new();
-        let mut text_engine = text::Engine::new();
+        let mut text_engine = text::layout::Engine::new();
 
         tree.set_root(widget::text_field(CHILD, field).with_size(
             crate::layout::Size::Fixed(120.0),
@@ -1866,7 +1961,7 @@ mod tests {
             composition: Some(composition),
             text_field_states: HashMap::from([(
                 path(CHILD),
-                text::TextFieldState::new_at(0.0, epoch),
+                text::view::TextViewState::new_at(0.0, epoch),
             )]),
             ..WindowState::default()
         };
@@ -1878,7 +1973,7 @@ mod tests {
         let window = window::Id::new(1);
         let mut tree = ui::Tree::new();
         let mut registry = action::Registry::<()>::new();
-        let mut text_engine = text::Engine::new();
+        let mut text_engine = text::layout::Engine::new();
 
         tree.set_root(root);
         let composition = tree
@@ -1895,6 +1990,365 @@ mod tests {
             composition: Some(composition),
             ..WindowState::default()
         }
+    }
+
+    fn line_start(lines: &[String], line: usize) -> usize {
+        lines.iter().take(line).map(|line| line.len() + 1).sum()
+    }
+
+    fn text_area_lines(count: usize) -> Vec<String> {
+        (0..count)
+            .map(|line| format!("line {line:02} abcdefghijklmnopqrstuvwxyz"))
+            .collect()
+    }
+
+    fn text_area_window_state(
+        buffer: text::Buffer,
+        scroll_y: f32,
+    ) -> (WindowState, text::layout::Engine, ui::Path) {
+        text_area_window_state_for_area(text::Area::new(buffer), scroll_y)
+    }
+
+    fn text_area_window_state_for_area(
+        area_model: text::Area,
+        scroll_y: f32,
+    ) -> (WindowState, text::layout::Engine, ui::Path) {
+        let window = window::Id::new(1);
+        let mut tree = ui::Tree::new();
+        let mut registry = action::Registry::<()>::new();
+        let mut text_engine = text::layout::Engine::new();
+        let root = ui::Node::container(ROOT, crate::layout::Axis::Vertical)
+            .with_size(crate::layout::Size::Fill, crate::layout::Size::Fill)
+            .with_child(widget::text_area(CHILD, area_model).with_size(
+                crate::layout::Size::Fixed(140.0),
+                crate::layout::Size::Fixed(60.0),
+            ));
+        tree.set_root(root);
+        let composition = tree
+            .compose(
+                window,
+                area::logical(180.0, 90.0),
+                &mut registry,
+                &[],
+                &mut text_engine,
+            )
+            .expect("text area tree should compose");
+        let path = ui::Path::from(ROOT).child(CHILD);
+        let mut state = WindowState {
+            composition: Some(composition),
+            text_field_states: HashMap::from([(
+                path.clone(),
+                text::view::TextViewState::default().with_scroll_y(scroll_y),
+            )]),
+            ..WindowState::default()
+        };
+        sync_text_area_projection(&mut state, &mut text_engine);
+
+        (state, text_engine, path)
+    }
+
+    fn sync_text_area_projection(state: &mut WindowState, text_engine: &mut text::layout::Engine) {
+        state.scroll.sync(
+            state
+                .composition
+                .as_ref()
+                .expect("composition should exist"),
+            &state.text_field_states,
+            text_engine,
+            Instant::now(),
+        );
+    }
+
+    fn first_visible_text_area_surface(
+        state: &WindowState,
+        path: &ui::Path,
+    ) -> text::layout::TextAreaSurface {
+        let projection = state
+            .scroll
+            .text_area(path)
+            .expect("text area projection should exist");
+        let viewport_height = projection.metrics().viewport().area.height();
+        projection
+            .surfaces()
+            .iter()
+            .filter(|surface| {
+                surface.y() + surface.height().max(1.0) > 0.0 && surface.y() < viewport_height
+            })
+            .min_by(|a, b| a.y().total_cmp(&b.y()))
+            .cloned()
+            .expect("projection should include a visible text surface")
+    }
+
+    fn click_in_surface(
+        state: &WindowState,
+        path: &ui::Path,
+        surface: &text::layout::TextAreaSurface,
+    ) -> point::Logical {
+        let viewport = state
+            .scroll
+            .text_area(path)
+            .expect("text area projection should exist")
+            .metrics()
+            .viewport();
+        point::logical(
+            viewport.origin.x() + surface.x() + 4.0,
+            viewport.origin.y() + surface.y() + surface.height().max(1.0) * 0.5,
+        )
+    }
+
+    fn text_area_scroll_offsets(state: &WindowState, path: &ui::Path) -> (f32, f32) {
+        let state_y = state
+            .text_field_states
+            .get(path)
+            .expect("text area state should exist")
+            .scroll_y();
+        let projection_y = state
+            .scroll
+            .text_area(path)
+            .expect("text area projection should exist")
+            .metrics()
+            .offset()
+            .y();
+        (state_y, projection_y)
+    }
+
+    fn assert_pointer_edit_hits_surface(
+        edit: text::edit::Edit,
+        surface: &text::layout::TextAreaSurface,
+    ) {
+        let text::edit::Edit::Pointer { position, .. } = edit else {
+            panic!("expected pointer edit");
+        };
+        let line_range =
+            surface.source_start()..=surface.source_start() + surface.source_text_len();
+        assert!(
+            line_range.contains(&position.index),
+            "hit index {} should land inside painted surface range {:?}",
+            position.index,
+            line_range
+        );
+    }
+
+    #[test]
+    fn text_area_click_uses_painted_projection_after_line_delete_above() {
+        let lines = text_area_lines(80);
+        let text = lines.join("\n");
+        let mut buffer = text::Buffer::from_multiline_text(text);
+        let (mut state, mut text_engine, path) = text_area_window_state(buffer.clone(), 260.0);
+        let delete_len = line_start(&lines, 6);
+        let mut editor = text::edit::Editor::new();
+        let result = editor.apply_text_edit_with_result(
+            &mut buffer,
+            text::edit::Edit::replace_range(0..delete_len, ""),
+        );
+        assert!(result.text_changed);
+        text_engine.invalidate_text_area_for_edit(&buffer, &result.impacts);
+        sync_text_area_projection(&mut state, &mut text_engine);
+
+        let surface = first_visible_text_area_surface(&state, &path);
+        let click = click_in_surface(&state, &path, &surface);
+        let before_scroll = text_area_scroll_offsets(&state, &path);
+        text_engine.reset_diagnostics();
+        let edit = state
+            .text_field_edit_at(&path, click, &mut text_engine)
+            .expect("painted text-area click should resolve");
+
+        assert_pointer_edit_hits_surface(edit, &surface);
+        assert_eq!(text_area_scroll_offsets(&state, &path), before_scroll);
+        assert_eq!(text_engine.diagnostics().text_area_paint_layout_calls, 0);
+    }
+
+    #[test]
+    fn text_area_click_uses_painted_projection_after_line_insert_above() {
+        let lines = text_area_lines(80);
+        let text = lines.join("\n");
+        let mut buffer = text::Buffer::from_multiline_text(text);
+        let (mut state, mut text_engine, path) = text_area_window_state(buffer.clone(), 260.0);
+        let inserted = (0..5)
+            .map(|line| format!("inserted {line:02}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        let mut editor = text::edit::Editor::new();
+        let result = editor.apply_text_edit_with_result(
+            &mut buffer,
+            text::edit::Edit::replace_range(0..0, inserted),
+        );
+        assert!(result.text_changed);
+        text_engine.invalidate_text_area_for_edit(&buffer, &result.impacts);
+        sync_text_area_projection(&mut state, &mut text_engine);
+
+        let surface = first_visible_text_area_surface(&state, &path);
+        let click = click_in_surface(&state, &path, &surface);
+        let before_scroll = text_area_scroll_offsets(&state, &path);
+        text_engine.reset_diagnostics();
+        let edit = state
+            .text_field_edit_at(&path, click, &mut text_engine)
+            .expect("painted text-area click should resolve");
+
+        assert_pointer_edit_hits_surface(edit, &surface);
+        assert_eq!(text_area_scroll_offsets(&state, &path), before_scroll);
+        assert_eq!(text_engine.diagnostics().text_area_paint_layout_calls, 0);
+    }
+
+    #[test]
+    fn selection_drag_above_text_area_autoscrolls_up_from_painted_projection() {
+        let lines = text_area_lines(80);
+        let buffer = text::Buffer::from_multiline_text(lines.join("\n"));
+        let (mut state, mut text_engine, path) = text_area_window_state(buffer, 260.0);
+        let viewport = state
+            .scroll
+            .text_area(&path)
+            .expect("text area projection should exist")
+            .metrics()
+            .viewport();
+        let before_offset = state
+            .scroll
+            .text_area(&path)
+            .expect("text area projection should exist")
+            .metrics()
+            .offset()
+            .y();
+        let position = point::logical(viewport.origin.x() + 10.0, viewport.origin.y() - 24.0);
+        state.text_pointer_gesture = Some(TextPointerGesture::SelectionDrag(path.clone()));
+
+        let (target, offset) = state
+            .text_selection_drag_autoscroll_at(position, &mut text_engine)
+            .expect("drag above a scrolled text area should autoscroll upward");
+        let projection = state
+            .scroll
+            .text_area(&path)
+            .expect("autoscroll should refresh the painted projection");
+
+        assert_eq!(target, path);
+        assert!(
+            offset.y() < before_offset,
+            "offset should move upward from {before_offset} to {}",
+            offset.y()
+        );
+        assert_eq!(projection.metrics().offset(), offset);
+        assert!(
+            !projection.surfaces().is_empty(),
+            "autoscroll should leave an observed text-area layout for drag hit testing"
+        );
+
+        let (_, edit) = state
+            .text_field_drag_edit_at(position, &mut text_engine)
+            .expect("drag after autoscroll should still resolve against the refreshed projection");
+        assert!(matches!(
+            edit,
+            text::edit::Edit::Pointer {
+                kind: text::edit::PointerEditKind::Drag,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn selection_drag_autoscroll_schedules_frames_only_when_scroll_can_move() {
+        let lines = text_area_lines(80);
+        let buffer = text::Buffer::from_multiline_text(lines.join("\n"));
+        let (mut state, _text_engine, path) = text_area_window_state(buffer, 260.0);
+        let viewport = state
+            .scroll
+            .text_area(&path)
+            .expect("text area projection should exist")
+            .metrics()
+            .viewport();
+        let position = point::logical(viewport.origin.x() + 10.0, viewport.origin.y() - 24.0);
+        state.text_pointer_gesture = Some(TextPointerGesture::SelectionDrag(path.clone()));
+        state
+            .pointer
+            .handle_event(pointer::Event::Moved { position });
+
+        assert_eq!(
+            state.animation_schedule(Instant::now()),
+            animation::Schedule::NextFrame
+        );
+
+        state.text_field_states.insert(
+            path.clone(),
+            text::view::TextViewState::default().with_scroll_y(0.0),
+        );
+        state.scroll.update_offset(&path, point::logical(0.0, 0.0));
+
+        assert_eq!(
+            state.animation_schedule(Instant::now()),
+            animation::Schedule::Idle
+        );
+    }
+
+    #[test]
+    fn text_area_scroll_anchor_preserves_surviving_top_line_after_delete_above() {
+        let lines = text_area_lines(80);
+        let text = lines.join("\n");
+        let mut buffer = text::Buffer::from_multiline_text(text);
+        let (mut state, mut text_engine, path) =
+            text_area_window_state_for_area(text::Area::new(buffer.clone()).no_wrap(), 500.0);
+        let before_surface = first_visible_text_area_surface(&state, &path);
+        let before_y = before_surface.y();
+        let before_text = buffer.text()[before_surface.source_start()
+            ..before_surface.source_start() + before_surface.source_text_len()]
+            .to_owned();
+        let anchor = state
+            .text_area_scroll_anchor(&path)
+            .expect("visible text area should capture a scroll anchor");
+        let delete_lines = before_surface.source_line().saturating_sub(1).min(6);
+        assert!(
+            delete_lines > 0,
+            "test must scroll below the first logical line"
+        );
+        let delete_len = line_start(&lines, delete_lines);
+        let mut editor = text::edit::Editor::new();
+        let result = editor.apply_text_edit_with_result(
+            &mut buffer,
+            text::edit::Edit::replace_range(0..delete_len, ""),
+        );
+        assert!(result.text_changed);
+        text_engine.invalidate_text_area_for_edit(&buffer, &result.impacts);
+
+        let current = state
+            .text_field_states
+            .get(&path)
+            .cloned()
+            .unwrap_or_default();
+        let scroll_y = state
+            .composition
+            .as_ref()
+            .and_then(|composition| {
+                composition.text_area_scroll_y_for_anchor(&path, current, anchor, &mut text_engine)
+            })
+            .expect("surviving anchor line should resolve");
+        state.text_field_states.insert(
+            path.clone(),
+            text::view::TextViewState::default()
+                .with_scroll_y(scroll_y)
+                .ensure_caret_visible(Instant::now()),
+        );
+        sync_text_area_projection(&mut state, &mut text_engine);
+
+        let text = buffer.text();
+        let after_surface = state
+            .scroll
+            .text_area(&path)
+            .expect("text area projection should exist")
+            .surfaces()
+            .iter()
+            .find(|surface| {
+                text[surface.source_start()..surface.source_start() + surface.source_text_len()]
+                    == before_text
+            })
+            .expect("anchored line should still be painted after anchor restore");
+
+        assert!(
+            (after_surface.y() - before_y).abs() <= 1.0,
+            "anchored y changed from {} to {}, before source line {}, delete lines {}, resolved scroll {}",
+            before_y,
+            after_surface.y(),
+            before_surface.source_line(),
+            delete_lines,
+            scroll_y
+        );
     }
 
     #[test]
@@ -2105,9 +2559,9 @@ mod tests {
     #[test]
     fn selected_text_field_has_idle_animation_schedule() {
         let epoch = Instant::now();
-        let mut engine = text::Engine::new();
+        let mut editor = text::edit::Editor::new();
         let mut buffer = text::Buffer::from_text("hello");
-        engine.apply_text_edit(&mut buffer, text::Edit::SelectAll);
+        editor.apply_text_edit(&mut buffer, text::edit::Edit::SelectAll);
         let state = text_field_window_state(buffer, epoch);
 
         assert_eq!(state.animation_schedule(epoch), animation::Schedule::Idle);

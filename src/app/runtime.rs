@@ -12,6 +12,7 @@ use crate::app::action_executor;
 use crate::app::clipboard::SystemClipboard;
 use crate::app::context;
 use crate::app::input;
+use crate::app::key_repeat;
 use crate::app::mailbox::{Mailbox, Message};
 use crate::app::rendering::Driver;
 use crate::app::sender::Sender;
@@ -21,7 +22,7 @@ use crate::app::windows::Windows;
 use crate::geometry::{area, point};
 use crate::{action, event, text, ui, window};
 
-use super::{Application, Error};
+use super::{Application, Error, Options};
 
 pub struct Runtime<A: Application> {
     app: A,
@@ -29,10 +30,13 @@ pub struct Runtime<A: Application> {
     windows: Windows,
     window_states: HashMap<window::Id, WindowState>,
     actions: action::Registry<A::Event>,
-    text_engine: text::Engine,
+    text_editor: text::edit::Editor,
+    text_engine: text::layout::Engine,
     clipboard: SystemClipboard,
     mailbox: Mailbox<A::Event>,
     sender: Sender<A::Event>,
+    key_repeat_policy: key_repeat::KeyRepeatPolicy,
+    key_repeat: key_repeat::State,
     animation_schedules: HashMap<window::Id, animation::Schedule>,
     last_frames: HashMap<window::Id, Instant>,
     cursors: HashMap<window::Id, ui::Cursor>,
@@ -41,17 +45,22 @@ pub struct Runtime<A: Application> {
 }
 
 impl<A: Application> Runtime<A> {
-    pub fn new(app: A, sender: Sender<A::Event>) -> Self {
+    pub fn new(app: A, sender: Sender<A::Event>, options: Options) -> Self {
         Self {
             app,
             rendering: Driver::new(),
             windows: Windows::new(),
             window_states: HashMap::new(),
             actions: action::Registry::new(),
-            text_engine: text::Engine::new(),
+            text_editor: text::edit::Editor::new(),
+            text_engine: text::layout::Engine::new(),
             clipboard: SystemClipboard::new(),
             mailbox: Mailbox::new(),
             sender,
+            key_repeat_policy: options.key_repeat,
+            key_repeat: key_repeat::State::new(
+                options.key_repeat.timer_settings().unwrap_or_default(),
+            ),
             animation_schedules: HashMap::new(),
             last_frames: HashMap::new(),
             cursors: HashMap::new(),
@@ -100,6 +109,7 @@ impl<A: Application> Runtime<A> {
                         windows: &mut self.windows,
                         window_states: &mut self.window_states,
                         actions: &mut self.actions,
+                        text_editor: &mut self.text_editor,
                         text_engine: &mut self.text_engine,
                         clipboard: &mut self.clipboard,
                         mailbox: &mut self.mailbox,
@@ -208,6 +218,14 @@ impl<A: Application> Runtime<A> {
         }
 
         let frame = self.frame_for_window(window);
+        if self
+            .animation_schedules
+            .get(&window)
+            .is_some_and(|schedule| schedule.is_due(frame.now()))
+        {
+            self.advance_text_selection_drag_autoscroll(event_loop, window);
+        }
+
         let mut tree = ui::Tree::new();
 
         self.actions.clear_context_states(window);
@@ -218,6 +236,7 @@ impl<A: Application> Runtime<A> {
                 windows: &mut self.windows,
                 window_states: &mut self.window_states,
                 actions: &mut self.actions,
+                text_editor: &mut self.text_editor,
                 text_engine: &mut self.text_engine,
                 clipboard: &mut self.clipboard,
                 mailbox: &mut self.mailbox,
@@ -228,6 +247,7 @@ impl<A: Application> Runtime<A> {
 
             self.app.view(&mut cx, window, &mut tree);
         }
+        self.text_editor.reset_diagnostics();
         self.text_engine.reset_diagnostics();
 
         let Some(native_window) = self.windows.get(window) else {
@@ -266,7 +286,27 @@ impl<A: Application> Runtime<A> {
         self.drain_mailbox(event_loop);
     }
 
+    fn advance_text_selection_drag_autoscroll(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window: window::Id,
+    ) {
+        let Some(state) = self.window_states.get_mut(&window) else {
+            return;
+        };
+        let outcome =
+            input::text_selection_drag_autoscroll_with_text_engine(state, &mut self.text_engine);
+
+        if outcome.redraw {
+            self.windows.request_redraw(window);
+        }
+
+        self.sync_cursor_for_window(window);
+        self.dispatch_ui_events(event_loop, window, outcome.events);
+    }
+
     fn close_window(&mut self, event_loop: &ActiveEventLoop, window: window::Id) {
+        self.key_repeat.clear_window(window);
         self.windows.remove(window);
         self.window_states.remove(&window);
         self.animation_schedules.remove(&window);
@@ -399,24 +439,63 @@ impl<A: Application> Runtime<A> {
         window: window::Id,
         event: KeyEvent,
     ) {
+        let use_client_timer = self.key_repeat_policy.uses_client_timer();
+        let suppress_backend_repeat = !self.key_repeat_policy.accepts_backend_repeat();
+
+        if event.state == ElementState::Pressed && event.repeat && suppress_backend_repeat {
+            return;
+        }
+
         let key = input::key(&event.logical_key);
+        let physical_key = event.physical_key;
+        let inserted_text = event.text.as_deref();
+        let repeat_text = event.text.as_ref().map(ToString::to_string);
+        let now = Instant::now();
+
+        if event.state == ElementState::Released {
+            self.key_repeat.release(window, physical_key);
+        }
+
         let Some(state) = self.window_states.get_mut(&window) else {
             return;
         };
 
         let outcome = match event.state {
-            ElementState::Pressed => input::key_pressed_with_text(
-                &self.actions,
-                state,
-                window,
-                key,
-                event.text.as_deref(),
-                event.repeat,
-                &mut self.text_engine,
-            ),
+            ElementState::Pressed => {
+                let repeat = self.key_repeat_policy.accepts_backend_repeat() && event.repeat;
+                let outcome = input::key_pressed_with_text(
+                    &self.actions,
+                    state,
+                    window,
+                    key,
+                    inserted_text,
+                    repeat,
+                    &mut self.text_engine,
+                );
+                if use_client_timer {
+                    self.key_repeat.press(
+                        window,
+                        physical_key,
+                        key,
+                        repeat_text,
+                        outcome.repeatable_key,
+                        now,
+                    );
+                }
+                outcome
+            }
             ElementState::Released => input::key_released(&self.actions, state, window, key),
         };
 
+        self.finish_keyboard_outcome(event_loop, window, outcome);
+    }
+
+    fn finish_keyboard_outcome(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window: window::Id,
+        outcome: input::Outcome,
+    ) {
         self.dispatch_ui_events(event_loop, window, outcome.events);
 
         if let Some(request) = outcome.request {
@@ -431,6 +510,37 @@ impl<A: Application> Runtime<A> {
             self.windows.request_redraw(window);
         }
         self.sync_ime_for_window(window);
+    }
+
+    fn dispatch_due_key_repeat(&mut self, event_loop: &ActiveEventLoop, now: Instant) {
+        if !self.key_repeat_policy.uses_client_timer() {
+            return;
+        }
+
+        let Some(pulse) = self.key_repeat.due(now) else {
+            return;
+        };
+
+        if !self.windows.contains(pulse.window) {
+            self.key_repeat.clear_window(pulse.window);
+            return;
+        }
+
+        let Some(state) = self.window_states.get_mut(&pulse.window) else {
+            self.key_repeat.clear_window(pulse.window);
+            return;
+        };
+        let outcome = input::key_pressed_with_text(
+            &self.actions,
+            state,
+            pulse.window,
+            pulse.key,
+            pulse.text.as_deref(),
+            true,
+            &mut self.text_engine,
+        );
+
+        self.finish_keyboard_outcome(event_loop, pulse.window, outcome);
     }
 
     fn ime_input(
@@ -551,6 +661,7 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
             windows: &mut self.windows,
             window_states: &mut self.window_states,
             actions: &mut self.actions,
+            text_editor: &mut self.text_editor,
             text_engine: &mut self.text_engine,
             clipboard: &mut self.clipboard,
             mailbox: &mut self.mailbox,
@@ -615,6 +726,9 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
                 );
             }
             WindowEvent::Focused(focused) => {
+                if !focused {
+                    self.key_repeat.clear_window(window);
+                }
                 self.dispatch_ui_event(event_loop, window, ui::Event::Focused(focused));
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -673,8 +787,16 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
+        self.dispatch_due_key_repeat(event_loop, now);
         self.request_due_animation_redraws(now);
-        let schedule = self.refresh_animation_schedules(now);
+        let key_repeat_schedule = if self.key_repeat_policy.uses_client_timer() {
+            self.key_repeat.schedule()
+        } else {
+            animation::Schedule::Idle
+        };
+        let schedule = self
+            .refresh_animation_schedules(now)
+            .merge(key_repeat_schedule);
 
         event_loop.set_control_flow(schedule.control_flow(now));
     }

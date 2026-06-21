@@ -18,7 +18,7 @@ pub struct Node {
     responders: Vec<action::Id>,
     responder_bindings: Vec<action::Binding>,
     command_scope: bool,
-    label: Option<text::Document>,
+    label: Option<text::document::Document>,
     text_surface: Option<text::Surface>,
     icon: Option<icon::Icon>,
     icon_size: Option<f32>,
@@ -247,7 +247,7 @@ impl Node {
         self.command_scope
     }
 
-    pub fn label(&self) -> Option<&text::Document> {
+    pub fn label(&self) -> Option<&text::document::Document> {
         self.label.as_ref()
     }
 
@@ -475,7 +475,7 @@ impl Node {
         self
     }
 
-    pub fn with_label(mut self, label: text::Document) -> Self {
+    pub fn with_label(mut self, label: text::document::Document) -> Self {
         self.label = Some(label);
         self
     }

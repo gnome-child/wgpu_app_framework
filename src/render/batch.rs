@@ -88,7 +88,7 @@ mod tests {
     fn label(x: f32) -> paint::Text {
         paint::Text {
             rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
-            document: text::Document::plain("Label"),
+            document: text::document::Document::plain("Label"),
             wrap: paint::TextWrap::WordOrGlyph,
             vertical_align: paint::TextVerticalAlign::Center,
         }

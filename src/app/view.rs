@@ -8,7 +8,7 @@ pub fn compose<T>(
     tree: &ui::Tree,
     state: &mut WindowState,
     actions: &mut action::Registry<T>,
-    text_engine: &mut text::Engine,
+    text_engine: &mut text::layout::Engine,
     logical_area: area::Logical,
     frame: animation::Frame,
 ) -> paint::Scene {
@@ -32,6 +32,8 @@ pub fn compose<T>(
         state.update_command_scope_captures(window);
         state.sync_text_field_states(text_engine);
         text_input::publish_action_states(state, actions, window);
+        state.sync_menu_title_states(actions, window);
+        state.clear_stale_focus();
         state.focus_first_floating_row(actions, window);
         state.sync_scroll_projections(text_engine, frame.now());
         state.refine_idle_scroll_models(text_engine, frame.now());
@@ -105,7 +107,7 @@ mod tests {
         actions: &mut action::Registry<T>,
         logical_area: area::Logical,
     ) -> paint::Scene {
-        let mut text_engine = text::Engine::new();
+        let mut text_engine = text::layout::Engine::new();
 
         super::compose(
             window,
@@ -147,6 +149,21 @@ mod tests {
             action::Source::Pointer,
         );
         state.sync_open_menu_mirrors();
+    }
+
+    fn text_color_for(scene: &paint::Scene, label: &str) -> Option<paint::Color> {
+        scene.items().iter().find_map(|item| {
+            let paint::Item::Text(text) = item else {
+                return None;
+            };
+
+            text.document.blocks().iter().find_map(|block| {
+                block
+                    .runs()
+                    .iter()
+                    .find_map(|run| (run.text() == label).then_some(run.style().color()))
+            })
+        })
     }
 
     #[test]
@@ -409,7 +426,7 @@ mod tests {
     fn open_menu_projects_disabled_select_all_when_text_is_fully_selected() {
         let window = window::Id::new(1);
         let field = ui::Path::new([ROOT, CHILD]);
-        let mut engine = text::Engine::new();
+        let mut editor = text::edit::Editor::new();
         let mut buffer = text::Buffer::from_text("hello");
         let mut state = WindowState {
             focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
@@ -422,7 +439,7 @@ mod tests {
         let mut registry = action::Registry::<()>::new();
         let mut tree = ui::Tree::new();
 
-        engine.apply_text_edit(&mut buffer, text::Edit::SelectAll);
+        editor.apply_text_edit(&mut buffer, text::edit::Edit::SelectAll);
         registry.register(Action::new(action::SELECT_ALL, "Select All"));
         tree.set_root(
             widget::panel(ROOT)
@@ -630,6 +647,138 @@ mod tests {
         assert_eq!(
             quad.style.fill,
             Some(paint::Fill::Brush(theme.floating_panel().backdrop_fill()))
+        );
+    }
+
+    #[test]
+    fn compose_disables_top_level_menu_with_no_available_commands() {
+        let window = window::Id::new(1);
+        let mut state = WindowState::default();
+        let mut registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+        let menu_title = ui::Path::new([ROOT, MENU_BAR, ui::Id::new("file")]);
+
+        tree.set_root(widget::panel(ROOT).with_child(
+            widget::menu_bar(
+                MENU_BAR,
+                menu::Bar::new().menu(
+                    menu::Menu::new(FILE, "File").section(menu::Section::new().action(CLICK)),
+                ),
+            ),
+        ));
+
+        let scene = compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(300.0, 180.0),
+        );
+
+        let composition = state.composition.as_ref().expect("composition");
+        assert_eq!(
+            composition.path_state(&menu_title),
+            Some(action::State::disabled())
+        );
+        assert_eq!(
+            composition.interactivity(&menu_title),
+            Some(ui::Interactivity::NONE)
+        );
+        assert!(!composition.focus_order().contains(&menu_title));
+        assert_eq!(
+            text_color_for(&scene, "File"),
+            Some(crate::theme::Theme::default_dark().text().disabled())
+        );
+        let title_rect = composition
+            .layout()
+            .find_path(&menu_title)
+            .expect("menu title layout")
+            .rect();
+        let title_center = point::logical(
+            title_rect.origin.x() + title_rect.area.width() * 0.5,
+            title_rect.origin.y() + title_rect.area.height() * 0.5,
+        );
+
+        assert_ne!(state.hit_test(title_center), Some(menu_title));
+        assert!(!state.toggle_menu(FILE, &registry, window, action::Source::Pointer));
+    }
+
+    #[test]
+    fn compose_enables_top_level_menu_when_descendant_command_can_run() {
+        let window = window::Id::new(1);
+        let mut state = WindowState::default();
+        let mut registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+        let menu_title = ui::Path::new([ROOT, MENU_BAR, ui::Id::new("file")]);
+
+        registry.register(Action::new(CLICK, "Click"));
+        tree.set_root(widget::panel(ROOT).with_child(
+            widget::menu_bar(
+                MENU_BAR,
+                menu::Bar::new().menu(
+                    menu::Menu::new(FILE, "File").section(menu::Section::new().action(CLICK)),
+                ),
+            ),
+        ));
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(300.0, 180.0),
+        );
+
+        let composition = state.composition.as_ref().expect("composition");
+        assert_eq!(
+            composition.path_state(&menu_title),
+            Some(action::State::enabled())
+        );
+        assert!(
+            composition
+                .interactivity(&menu_title)
+                .is_some_and(|interactivity| interactivity.hit_test()
+                    && interactivity.focusable()
+                    && interactivity.actionable())
+        );
+        assert!(composition.focus_order().contains(&menu_title));
+    }
+
+    #[test]
+    fn compose_counts_submenu_descendant_commands_for_top_level_availability() {
+        let window = window::Id::new(1);
+        let mut state = WindowState::default();
+        let mut registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+        let menu_title = ui::Path::new([ROOT, MENU_BAR, ui::Id::new("file")]);
+
+        registry.register(Action::new(CLICK, "Click"));
+        tree.set_root(widget::panel(ROOT).with_child(widget::menu_bar(
+            MENU_BAR,
+            menu::Bar::new().menu(menu::Menu::new(FILE, "File").section(
+                menu::Section::new().submenu(
+                    menu::Menu::new(PANELS, "Panels").section(menu::Section::new().action(CLICK)),
+                ),
+            )),
+        )));
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(300.0, 180.0),
+        );
+
+        let composition = state.composition.as_ref().expect("composition");
+        assert_eq!(
+            composition.path_state(&menu_title),
+            Some(action::State::enabled())
+        );
+        assert!(
+            composition
+                .interactivity(&menu_title)
+                .is_some_and(|interactivity| interactivity.actionable())
         );
     }
 

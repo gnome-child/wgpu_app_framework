@@ -1,33 +1,32 @@
+use std::path::{Path, PathBuf};
+
 use wgpu_l3::{
-    Action, Event, Theme, action, app, geometry::area, layout, paint, text, ui, widget, window,
+    Action, Event, Task, Theme, action, app, geometry::area, layout, paint, text, ui, widget,
+    window,
 };
 
-const INSERT_SAMPLE: action::Id = action::Id::new("insert_sample_text");
+const NEW_FILE: action::Id = action::Id::new("new_file");
+const OPEN_FILE: action::Id = action::Id::new("open_file");
+const SAVE_FILE: action::Id = action::Id::new("save_file");
+const SAVE_AS_FILE: action::Id = action::Id::new("save_as_file");
+const EXIT_APP: action::Id = action::Id::new("exit_app");
+const DELETE_TEXT: action::Id = action::Id::new("delete_text");
+const TOGGLE_WRAP_TEXT: action::Id = action::Id::new("toggle_wrap_text");
+const TOGGLE_DEBUG_PANEL: action::Id = action::Id::new("toggle_debug_panel");
 const LOAD_STRESS_TEXT: action::Id = action::Id::new("load_stress_text");
-const CLEAR_EDITOR: action::Id = action::Id::new("clear_editor");
 
 const ROOT: ui::Id = ui::Id::new("root");
+const APP_SHELL: ui::Id = ui::Id::new("app_shell");
 const MENU_BAR: ui::Id = ui::Id::new("menu_bar");
-const CONTENT: ui::Id = ui::Id::new("content");
-const EDITOR_PANEL: ui::Id = ui::Id::new("editor_panel");
-const TITLE: ui::Id = ui::Id::new("title");
-const EDITABLE_LABEL: ui::Id = ui::Id::new("editable_label");
-const FIELD: ui::Id = ui::Id::new("field");
-const PLACEHOLDER_LABEL: ui::Id = ui::Id::new("placeholder_label");
-const PLACEHOLDER_FIELD: ui::Id = ui::Id::new("placeholder_field");
-const READ_ONLY_LABEL: ui::Id = ui::Id::new("read_only_label");
-const READ_ONLY_FIELD: ui::Id = ui::Id::new("read_only_field");
-const OBSCURED_LABEL: ui::Id = ui::Id::new("obscured_label");
-const OBSCURED_FIELD: ui::Id = ui::Id::new("obscured_field");
-const DISABLED_LABEL: ui::Id = ui::Id::new("disabled_label");
-const DISABLED_FIELD: ui::Id = ui::Id::new("disabled_field");
+const EDITOR_CANVAS: ui::Id = ui::Id::new("editor_canvas");
+const EDITOR: ui::Id = ui::Id::new("editor");
+const DEBUG_OVERLAY: ui::Id = ui::Id::new("debug_overlay");
 const STATUS: ui::Id = ui::Id::new("status");
-const COMMAND_ROW: ui::Id = ui::Id::new("command_row");
-const LOAD_STRESS_BUTTON: ui::Id = ui::Id::new("load_stress_button");
-const CLEAR_BUTTON: ui::Id = ui::Id::new("clear_button");
+const STATUS_TEXT: ui::Id = ui::Id::new("status_text");
 
 const FILE_MENU: widget::menu::Id = widget::menu::Id::new("file");
 const EDIT_MENU: widget::menu::Id = widget::menu::Id::new("edit");
+const VIEW_MENU: widget::menu::Id = widget::menu::Id::new("view");
 
 fn main() -> app::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
@@ -38,40 +37,51 @@ fn main() -> app::Result<()> {
 struct Editor {
     window: Option<window::Id>,
     buffer: text::Buffer,
-    placeholder_buffer: text::Buffer,
-    read_only_buffer: text::Buffer,
-    obscured_buffer: text::Buffer,
+    path: Option<PathBuf>,
+    dirty: bool,
+    wrap_text: bool,
+    show_debug_panel: bool,
     edit_count: u32,
-    last_action: String,
+    last_status: String,
 }
 
 enum AppEvent {
     ApplyEdit {
         target: action::Context,
-        edit: text::Edit,
+        edit: text::edit::Edit,
         label: &'static str,
     },
     ApplyCommand {
         target: action::Context,
-        command: text::Command,
+        command: text::edit::Command,
         label: &'static str,
     },
+    NewFile,
+    OpenPathSelected(Option<PathBuf>),
+    SaveRequested,
+    SaveAsRequested,
+    SaveAsPathSelected(Option<PathBuf>),
+    FileSaved {
+        path: PathBuf,
+        result: Result<(), String>,
+    },
     LoadStressText,
-    ClearEditor,
+    ToggleWrapText,
+    ToggleDebugPanel,
+    Exit,
 }
 
 impl Default for Editor {
     fn default() -> Self {
         Self {
             window: None,
-            buffer: text::Buffer::from_multiline_text(
-                "Click the editor, type text, and press Enter for a new line.\nTry undo/redo, context menu, drag/drop selected text, paste multiline text, and wheel scrolling.",
-            ),
-            placeholder_buffer: text::Buffer::new(),
-            read_only_buffer: text::Buffer::from_text("Selectable read-only value"),
-            obscured_buffer: text::Buffer::from_text("secret"),
+            buffer: text::Buffer::new(),
+            path: None,
+            dirty: false,
+            wrap_text: true,
+            show_debug_panel: true,
             edit_count: 0,
-            last_action: "none".to_owned(),
+            last_status: "ready".to_owned(),
         }
     }
 }
@@ -80,79 +90,14 @@ impl app::Application for Editor {
     type Event = AppEvent;
 
     fn started(&mut self, cx: &mut app::Context<'_, Self::Event>) {
-        cx.register_action(
-            Action::new(action::UNDO, "Undo")
-                .with_shortcut(action::Shortcut::control('z'))
-                .emit(|invocation| AppEvent::ApplyCommand {
-                    target: invocation.context().clone(),
-                    command: text::Command::Undo,
-                    label: "undo",
-                }),
-        );
-        cx.register_action(
-            Action::new(action::REDO, "Redo")
-                .with_shortcut(action::Shortcut::control_shift('z'))
-                .with_shortcut(action::Shortcut::control('y'))
-                .emit(|invocation| AppEvent::ApplyCommand {
-                    target: invocation.context().clone(),
-                    command: text::Command::Redo,
-                    label: "redo",
-                }),
-        );
-        cx.register_action(
-            Action::new(action::SELECT_ALL, "Select All")
-                .with_shortcut(action::Shortcut::control('a'))
-                .emit(|invocation| AppEvent::ApplyCommand {
-                    target: invocation.context().clone(),
-                    command: text::Command::SelectAll,
-                    label: "select all",
-                }),
-        );
-        cx.register_action(
-            Action::new(action::CUT, "Cut")
-                .with_shortcut(action::Shortcut::control('x'))
-                .emit(|invocation| AppEvent::ApplyCommand {
-                    target: invocation.context().clone(),
-                    command: text::Command::Cut,
-                    label: "cut",
-                }),
-        );
-        cx.register_action(
-            Action::new(action::COPY, "Copy")
-                .with_shortcut(action::Shortcut::control('c'))
-                .emit(|invocation| AppEvent::ApplyCommand {
-                    target: invocation.context().clone(),
-                    command: text::Command::Copy,
-                    label: "copy",
-                }),
-        );
-        cx.register_action(
-            Action::new(action::PASTE, "Paste")
-                .with_shortcut(action::Shortcut::control('v'))
-                .emit(|invocation| AppEvent::ApplyCommand {
-                    target: invocation.context().clone(),
-                    command: text::Command::Paste,
-                    label: "paste",
-                }),
-        );
-        cx.register_action(
-            Action::new(INSERT_SAMPLE, "Insert Sample Text").emit(|invocation| {
-                AppEvent::ApplyEdit {
-                    target: invocation.context().clone(),
-                    edit: text::Edit::insert("\nA sample line inserted through the edit command."),
-                    label: "insert sample",
-                }
-            }),
-        );
-        cx.register_action(
-            Action::new(LOAD_STRESS_TEXT, "Load Stress Text").emit(|_| AppEvent::LoadStressText),
-        );
-        cx.register_action(Action::new(CLEAR_EDITOR, "Clear").emit(|_| AppEvent::ClearEditor));
+        register_file_actions(cx);
+        register_edit_actions(cx);
+        register_view_actions(cx);
 
         let theme = Theme::default_dark();
         self.window = Some(cx.open_window(window::Options {
-            title: "wgpu_l3 text editor".to_owned(),
-            inner_area: area::physical(820, 620),
+            title: "wgpu_l3 Notepad".to_owned(),
+            inner_area: area::physical(920, 680),
             canvas_color: theme.surfaces().canvas(),
         }));
     }
@@ -167,7 +112,7 @@ impl app::Application for Editor {
                 window: event_window,
                 event: ui::Event::TextEditRequested { target, edit },
             } if event_window == window => {
-                if self.apply_edit(cx, &target, edit, "keyboard/pointer") {
+                if self.apply_edit(cx, &target, edit, "edit") {
                     cx.request_redraw(window);
                 }
             }
@@ -183,7 +128,7 @@ impl app::Application for Editor {
             } if event_window == window => {
                 let mut changed = self.apply_edit(cx, &target, edit, "drag/drop");
                 if changed && let Some((source, edit)) = source_cleanup {
-                    changed |= self.apply_edit(cx, &source, edit, "drag/drop");
+                    changed |= self.apply_edit(cx, &source, edit, "drag/drop cleanup");
                 }
 
                 if changed {
@@ -213,17 +158,61 @@ impl app::Application for Editor {
                     cx.request_redraw(window);
                 }
             }
-            Event::App(AppEvent::LoadStressText) => {
-                self.buffer = text::Buffer::from_multiline_text(stress_text(20_000));
-                self.edit_count += 1;
-                self.last_action = "loaded 20k-line stress text".to_owned();
+            Event::App(AppEvent::NewFile) => {
+                self.new_file();
                 cx.request_redraw(window);
             }
-            Event::App(AppEvent::ClearEditor) => {
-                self.buffer = text::Buffer::from_multiline_text("");
-                self.edit_count += 1;
-                self.last_action = "cleared editor".to_owned();
+            Event::App(AppEvent::OpenPathSelected(path)) => {
+                self.open_path(path);
                 cx.request_redraw(window);
+            }
+            Event::App(AppEvent::SaveRequested) => {
+                self.save(cx);
+                cx.request_redraw(window);
+            }
+            Event::App(AppEvent::SaveAsRequested) => {
+                self.last_status = "choosing save location".to_owned();
+                cx.spawn(Task::future(async {
+                    AppEvent::SaveAsPathSelected(save_path_dialog().await)
+                }));
+                cx.request_redraw(window);
+            }
+            Event::App(AppEvent::SaveAsPathSelected(path)) => {
+                self.save_as(cx, path);
+                cx.request_redraw(window);
+            }
+            Event::App(AppEvent::FileSaved { path, result }) => {
+                self.finish_save(path, result);
+                cx.request_redraw(window);
+            }
+            Event::App(AppEvent::LoadStressText) => {
+                self.buffer = text::Buffer::from_multiline_text(stress_text(20_000));
+                self.path = None;
+                self.dirty = true;
+                self.edit_count = 0;
+                self.last_status = "loaded generated 20k-line stress document".to_owned();
+                cx.request_redraw(window);
+            }
+            Event::App(AppEvent::ToggleWrapText) => {
+                self.wrap_text = !self.wrap_text;
+                self.last_status = if self.wrap_text {
+                    "wrap text enabled".to_owned()
+                } else {
+                    "wrap text disabled".to_owned()
+                };
+                cx.request_redraw(window);
+            }
+            Event::App(AppEvent::ToggleDebugPanel) => {
+                self.show_debug_panel = !self.show_debug_panel;
+                self.last_status = if self.show_debug_panel {
+                    "debug panel shown".to_owned()
+                } else {
+                    "debug panel hidden".to_owned()
+                };
+                cx.request_redraw(window);
+            }
+            Event::App(AppEvent::Exit) => {
+                cx.close_window(window);
             }
         }
     }
@@ -238,6 +227,15 @@ impl app::Application for Editor {
             return;
         }
 
+        cx.action(window, NEW_FILE).enabled(true).active(false);
+        cx.action(window, OPEN_FILE).enabled(true).active(false);
+        cx.action(window, SAVE_FILE).enabled(true).active(false);
+        cx.action(window, SAVE_AS_FILE).enabled(true).active(false);
+        cx.action(window, EXIT_APP).enabled(true).active(false);
+        cx.action(window, LOAD_STRESS_TEXT)
+            .enabled(true)
+            .active(false);
+
         cx.action(window, action::SELECT_ALL)
             .enabled(false)
             .active(false);
@@ -248,24 +246,18 @@ impl app::Application for Editor {
         cx.action(window, action::PASTE)
             .enabled(false)
             .active(false);
-        cx.action(window, INSERT_SAMPLE)
-            .enabled(false)
-            .active(false);
-        cx.action(window, LOAD_STRESS_TEXT)
+        cx.action(window, DELETE_TEXT).enabled(false).active(false);
+        cx.action(window, TOGGLE_WRAP_TEXT)
             .enabled(true)
-            .active(false);
-        cx.action(window, CLEAR_EDITOR).enabled(true).active(false);
+            .active(self.wrap_text);
+        cx.action(window, TOGGLE_DEBUG_PANEL)
+            .enabled(true)
+            .active(self.show_debug_panel);
 
         let theme = Theme::default_dark();
         let diagnostics = cx.diagnostics(window);
         tree.clear_popups();
-        tree.set_root(root_view(
-            &theme,
-            self,
-            self.edit_count,
-            &self.last_action,
-            diagnostics,
-        ));
+        tree.set_root(root_view(&theme, self, diagnostics));
     }
 }
 
@@ -274,19 +266,23 @@ impl Editor {
         &mut self,
         cx: &mut app::Context<'_, AppEvent>,
         target: &ui::Path,
-        edit: text::Edit,
+        edit: text::edit::Edit,
         label: &'static str,
     ) -> bool {
-        let Some(buffer) = self.buffer_for_path_mut(target) else {
-            return false;
-        };
-
-        if !cx.apply_text_edit_for(target, buffer, edit) {
+        if target != &editor_path() {
             return false;
         }
 
-        self.edit_count += 1;
-        self.last_action = label.to_owned();
+        let mutates_text = edit_mutates_text(&edit);
+        if !cx.apply_text_edit_for(target, &mut self.buffer, edit) {
+            return false;
+        }
+
+        if mutates_text {
+            self.dirty = true;
+            self.edit_count += 1;
+        }
+        self.last_status = label.to_owned();
         true
     }
 
@@ -294,182 +290,271 @@ impl Editor {
         &mut self,
         cx: &mut app::Context<'_, AppEvent>,
         target: &ui::Path,
-        command: text::Command,
+        command: text::edit::Command,
         label: &'static str,
     ) {
-        let Some(buffer) = self.buffer_for_path_mut(target) else {
+        if target != &editor_path() {
             return;
-        };
+        }
 
-        let result = cx.apply_text_command_for(target, buffer, command);
+        let result = cx.apply_text_command_for(target, &mut self.buffer, command);
 
-        if result.buffer_changed() {
+        if result.text_changed {
+            self.dirty = true;
             self.edit_count += 1;
         }
-        self.last_action = if result.unavailable {
+        self.last_status = if result.unavailable {
             format!("{label} unavailable")
         } else {
             label.to_owned()
         };
     }
 
-    fn buffer_for_path_mut(&mut self, target: &ui::Path) -> Option<&mut text::Buffer> {
-        if target == &field_path(FIELD) {
-            Some(&mut self.buffer)
-        } else if target == &field_path(PLACEHOLDER_FIELD) {
-            Some(&mut self.placeholder_buffer)
-        } else if target == &field_path(READ_ONLY_FIELD) {
-            Some(&mut self.read_only_buffer)
-        } else if target == &field_path(OBSCURED_FIELD) {
-            Some(&mut self.obscured_buffer)
-        } else {
-            None
+    fn new_file(&mut self) {
+        self.buffer = text::Buffer::new();
+        self.path = None;
+        self.dirty = false;
+        self.edit_count = 0;
+        self.last_status = "new file".to_owned();
+    }
+
+    fn open_path(&mut self, path: Option<PathBuf>) {
+        let Some(path) = path else {
+            self.last_status = "open canceled".to_owned();
+            return;
+        };
+
+        match text::Buffer::from_mapped_file(&path) {
+            Ok(buffer) => {
+                self.buffer = buffer;
+                self.path = Some(path.clone());
+                self.dirty = false;
+                self.edit_count = 0;
+                self.last_status = format!("opened {}", compact_path(&path));
+            }
+            Err(error) => {
+                self.last_status = format!("open failed: {error}");
+            }
+        }
+    }
+
+    fn save(&mut self, cx: &app::Context<'_, AppEvent>) {
+        let Some(path) = self.path.clone() else {
+            self.last_status = "choosing save location".to_owned();
+            cx.spawn(Task::future(async {
+                AppEvent::SaveAsPathSelected(save_path_dialog().await)
+            }));
+            return;
+        };
+
+        self.spawn_save(cx, path);
+    }
+
+    fn save_as(&mut self, cx: &app::Context<'_, AppEvent>, path: Option<PathBuf>) {
+        let Some(path) = path else {
+            self.last_status = "save canceled".to_owned();
+            return;
+        };
+
+        self.spawn_save(cx, path);
+    }
+
+    fn spawn_save(&mut self, cx: &app::Context<'_, AppEvent>, path: PathBuf) {
+        let text = self.buffer.text();
+        self.last_status = format!("saving {}", compact_path(&path));
+        cx.spawn(Task::future(async move {
+            let result = std::fs::write(&path, text).map_err(|error| error.to_string());
+            AppEvent::FileSaved { path, result }
+        }));
+    }
+
+    fn finish_save(&mut self, path: PathBuf, result: Result<(), String>) {
+        match result {
+            Ok(()) => {
+                self.path = Some(path.clone());
+                self.dirty = false;
+                self.last_status = format!("saved {}", compact_path(&path));
+            }
+            Err(error) => {
+                self.last_status = format!("save failed: {error}");
+            }
         }
     }
 }
 
-fn root_view(
-    theme: &Theme,
-    editor: &Editor,
-    edit_count: u32,
-    last_action: &str,
-    diagnostics: app::Diagnostics,
-) -> ui::Node {
-    ui::Node::container(ROOT, layout::Axis::Vertical)
+fn register_file_actions(cx: &mut app::Context<'_, AppEvent>) {
+    cx.register_action(
+        Action::new(NEW_FILE, "New")
+            .with_shortcut(action::Shortcut::control('n'))
+            .emit(|_| AppEvent::NewFile),
+    );
+    cx.register_action(
+        Action::new(OPEN_FILE, "Open...")
+            .with_shortcut(action::Shortcut::control('o'))
+            .task(|_| Task::future(async { AppEvent::OpenPathSelected(open_path_dialog().await) })),
+    );
+    cx.register_action(
+        Action::new(SAVE_FILE, "Save")
+            .with_shortcut(action::Shortcut::control('s'))
+            .emit(|_| AppEvent::SaveRequested),
+    );
+    cx.register_action(
+        Action::new(SAVE_AS_FILE, "Save As...")
+            .with_shortcut(action::Shortcut::control_shift('s'))
+            .emit(|_| AppEvent::SaveAsRequested),
+    );
+    cx.register_action(Action::new(EXIT_APP, "Exit").emit(|_| AppEvent::Exit));
+    cx.register_action(
+        Action::new(LOAD_STRESS_TEXT, "Load Stress Text").emit(|_| AppEvent::LoadStressText),
+    );
+}
+
+fn register_edit_actions(cx: &mut app::Context<'_, AppEvent>) {
+    cx.register_action(
+        Action::new(action::UNDO, "Undo")
+            .with_shortcut(action::Shortcut::control('z'))
+            .emit(|invocation| AppEvent::ApplyCommand {
+                target: invocation.context().clone(),
+                command: text::edit::Command::Undo,
+                label: "undo",
+            }),
+    );
+    cx.register_action(
+        Action::new(action::REDO, "Redo")
+            .with_shortcut(action::Shortcut::control_shift('z'))
+            .with_shortcut(action::Shortcut::control('y'))
+            .emit(|invocation| AppEvent::ApplyCommand {
+                target: invocation.context().clone(),
+                command: text::edit::Command::Redo,
+                label: "redo",
+            }),
+    );
+    cx.register_action(
+        Action::new(action::SELECT_ALL, "Select All")
+            .with_shortcut(action::Shortcut::control('a'))
+            .emit(|invocation| AppEvent::ApplyCommand {
+                target: invocation.context().clone(),
+                command: text::edit::Command::SelectAll,
+                label: "select all",
+            }),
+    );
+    cx.register_action(
+        Action::new(action::CUT, "Cut")
+            .with_shortcut(action::Shortcut::control('x'))
+            .emit(|invocation| AppEvent::ApplyCommand {
+                target: invocation.context().clone(),
+                command: text::edit::Command::Cut,
+                label: "cut",
+            }),
+    );
+    cx.register_action(
+        Action::new(action::COPY, "Copy")
+            .with_shortcut(action::Shortcut::control('c'))
+            .emit(|invocation| AppEvent::ApplyCommand {
+                target: invocation.context().clone(),
+                command: text::edit::Command::Copy,
+                label: "copy",
+            }),
+    );
+    cx.register_action(
+        Action::new(action::PASTE, "Paste")
+            .with_shortcut(action::Shortcut::control('v'))
+            .emit(|invocation| AppEvent::ApplyCommand {
+                target: invocation.context().clone(),
+                command: text::edit::Command::Paste,
+                label: "paste",
+            }),
+    );
+    cx.register_action(
+        Action::new(DELETE_TEXT, "Delete").emit(|invocation| AppEvent::ApplyEdit {
+            target: invocation.context().clone(),
+            edit: text::edit::Edit::delete(),
+            label: "delete",
+        }),
+    );
+}
+
+fn register_view_actions(cx: &mut app::Context<'_, AppEvent>) {
+    cx.register_action(
+        Action::new(TOGGLE_WRAP_TEXT, "Wrap text").emit(|_| AppEvent::ToggleWrapText),
+    );
+    cx.register_action(
+        Action::new(TOGGLE_DEBUG_PANEL, "Debug panel").emit(|_| AppEvent::ToggleDebugPanel),
+    );
+}
+
+fn root_view(theme: &Theme, editor: &Editor, diagnostics: app::Diagnostics) -> ui::Node {
+    let app_shell = ui::Node::container(APP_SHELL, layout::Axis::Vertical)
+        .with_size(layout::Size::Fill, layout::Size::Fill)
+        .with_child(widget::menu_bar_with_theme(MENU_BAR, notepad_menu(), theme))
+        .with_child(editor_area(theme, editor));
+
+    let root = ui::Node::new(ROOT)
         .with_background(theme.surfaces().app())
-        .with_child(widget::menu_bar_with_theme(MENU_BAR, edit_menu(), theme))
+        .with_child(app_shell);
+
+    if editor.show_debug_panel {
+        root.with_child(debug_overlay(theme, editor, diagnostics))
+    } else {
+        root
+    }
+}
+
+fn editor_area(theme: &Theme, editor: &Editor) -> ui::Node {
+    let wrap = if editor.wrap_text {
+        text::AreaWrap::WordOrGlyph
+    } else {
+        text::AreaWrap::None
+    };
+    let area = text::Area::new(editor.buffer.clone()).with_wrap(wrap);
+
+    ui::Node::container(EDITOR_CANVAS, layout::Axis::Vertical)
+        .with_background(theme.surfaces().canvas())
+        .with_size(layout::Size::Fill, layout::Size::Fill)
         .with_child(
-            ui::Node::container(CONTENT, layout::Axis::Vertical)
-                .with_size(layout::Size::Fill, layout::Size::Fill)
-                .with_padding(layout::Insets::splat(theme.density().app_padding()))
-                .with_gap(theme.density().app_padding())
-                .with_child(editor_panel(theme, editor))
-                .with_child(status_panel(
-                    theme,
-                    editor,
-                    edit_count,
-                    last_action,
-                    diagnostics,
-                )),
+            widget::text_area_surface_with_theme(EDITOR, area, theme)
+                .with_responder_binding(action::Binding::new(DELETE_TEXT).enabled(true))
+                .with_size(layout::Size::Fill, layout::Size::Fill),
         )
 }
 
-fn editor_panel(theme: &Theme, editor: &Editor) -> ui::Node {
-    widget::panel_with_theme(EDITOR_PANEL, theme)
-        .with_size(layout::Size::Fill, layout::Size::Fit)
-        .with_padding(layout::Insets::splat(theme.density().panel_padding()))
-        .with_gap(10.0)
-        .with_child(widget::text_with_theme(
-            TITLE,
-            "Text editing semantics",
-            theme,
-        ))
-        .with_child(field_label(
-            EDITABLE_LABEL,
-            "Multiline editor with undo/redo, context menu, drag/drop, and scrolling",
-            theme,
-        ))
-        .with_child(
-            widget::text_area_with_theme(
-                FIELD,
-                text::Area::new(editor.buffer.clone()).with_placeholder("Type editable text"),
-                theme,
-            )
-            .with_responder_binding(action::Binding::new(INSERT_SAMPLE).enabled(true))
-            .with_size(layout::Size::Fill, layout::Size::Fixed(220.0)),
-        )
-        .with_child(field_label(
-            PLACEHOLDER_LABEL,
-            "Editable placeholder",
-            theme,
-        ))
-        .with_child(
-            widget::text_field_with_theme(
-                PLACEHOLDER_FIELD,
-                text::Field::new(editor.placeholder_buffer.clone())
-                    .with_placeholder("Placeholder disappears when you type"),
-                theme,
-            )
-            .with_size(layout::Size::Fill, layout::Size::Fixed(36.0)),
-        )
-        .with_child(field_label(
-            READ_ONLY_LABEL,
-            "Read-only, selectable, copyable",
-            theme,
-        ))
-        .with_child(
-            widget::text_field_with_theme(
-                READ_ONLY_FIELD,
-                text::Field::new(editor.read_only_buffer.clone()).read_only(),
-                theme,
-            )
-            .with_size(layout::Size::Fill, layout::Size::Fixed(36.0)),
-        )
-        .with_child(field_label(OBSCURED_LABEL, "Obscured dot field", theme))
-        .with_child(
-            widget::text_field_with_theme(
-                OBSCURED_FIELD,
-                text::Field::new(editor.obscured_buffer.clone())
-                    .obscured_dot()
-                    .with_placeholder("Password"),
-                theme,
-            )
-            .with_size(layout::Size::Fill, layout::Size::Fixed(36.0)),
-        )
-        .with_child(field_label(DISABLED_LABEL, "Disabled field", theme))
-        .with_child(
-            widget::text_field_with_theme(
-                DISABLED_FIELD,
-                text::Field::new("Disabled fields do not focus or edit").disabled(),
-                theme,
-            )
-            .with_size(layout::Size::Fill, layout::Size::Fixed(36.0)),
-        )
-        .with_child(
-            ui::Node::container(COMMAND_ROW, layout::Axis::Horizontal)
-                .with_size(
-                    layout::Size::Fill,
-                    layout::Size::Fixed(theme.density().control_height()),
-                )
-                .with_gap(8.0)
-                .with_child(
-                    widget::labeled_button_with_theme(
-                        LOAD_STRESS_BUTTON,
-                        LOAD_STRESS_TEXT,
-                        "Load 20k lines",
-                        theme,
-                    )
-                    .with_size(layout::Size::Fixed(136.0), layout::Size::Fill),
-                )
-                .with_child(
-                    widget::labeled_button_with_theme(CLEAR_BUTTON, CLEAR_EDITOR, "Clear", theme)
-                        .with_size(layout::Size::Fixed(80.0), layout::Size::Fill),
-                ),
-        )
+fn debug_overlay(theme: &Theme, editor: &Editor, diagnostics: app::Diagnostics) -> ui::Node {
+    ui::Node::container(DEBUG_OVERLAY, layout::Axis::Vertical)
+        .with_size(layout::Size::Fill, layout::Size::Fill)
+        .with_padding(layout::Insets::splat(theme.density().app_padding() * 2.0))
+        .with_align(layout::Align::End)
+        .with_cross_align(layout::Align::Stretch)
+        .with_child(debug_panel(theme, editor, diagnostics))
 }
 
-fn field_label(id: ui::Id, label: &'static str, theme: &Theme) -> ui::Node {
-    widget::text_with_theme(id, label, theme)
-        .with_size(layout::Size::Fill, layout::Size::Fixed(20.0))
-}
-
-fn status_panel(
-    theme: &Theme,
-    editor: &Editor,
-    edit_count: u32,
-    last_action: &str,
-    diagnostics: app::Diagnostics,
-) -> ui::Node {
+fn debug_panel(theme: &Theme, editor: &Editor, diagnostics: app::Diagnostics) -> ui::Node {
     let text = diagnostics.text;
     let scroll = diagnostics.scroll;
-    widget::panel_with_theme(STATUS, theme)
+    let dirty = if editor.dirty { "modified" } else { "saved" };
+    let path = editor
+        .path
+        .as_deref()
+        .map(compact_path)
+        .unwrap_or_else(|| "Untitled".to_owned());
+    let storage = if editor.path.is_some() {
+        "mapped original + owned edits"
+    } else {
+        "owned buffer"
+    };
+    let wrap = if editor.wrap_text { "on" } else { "off" };
+
+    widget::floating_panel_with_theme(STATUS, theme)
         .with_size(layout::Size::Fill, layout::Size::Fit)
-        .with_padding(layout::Insets::splat(theme.density().panel_padding()))
-        .with_label(document(
+        .with_child(
+            ui::Node::leaf(STATUS_TEXT)
+                .with_size(layout::Size::Fill, layout::Size::Fit)
+                .with_label(document(
             format!(
-                "Document: {} lines, {} bytes\nEdits: {edit_count}\nLast action: {last_action}\nLast frame text: paint {}, metrics {}, line cache {}/{}, shaped lines {}, visible lines {}, highlight scans {}\nLast frame scroll: projections {}, text targets {}, resolves {}, skipped {}, reuses {}, idle refinements {}",
+                "File: {path} ({dirty}) | Storage: {storage} | Wrap: {wrap}\nDocument: {} lines, {} bytes | Text edits: {} | Status: {}\nLast frame text: paint {}, metrics {}, line cache {}/{}, shaped lines {}, visible lines {}, highlight scans {}\nLast frame scroll: projections {}, text targets {}, resolves {}, skipped {}, reuses {}, idle refinements {}",
                 editor.buffer.logical_line_count(),
                 editor.buffer.len(),
+                editor.edit_count,
+                editor.last_status,
                 text.text_area_paint_layout_calls,
                 text.text_area_metrics_layout_calls,
                 text.text_area_line_cache_hits,
@@ -484,10 +569,63 @@ fn status_panel(
                 scroll.text_area_model_reuses,
                 scroll.text_area_idle_refinements,
             ),
-            text::Align::Start,
+            text::document::Align::Center,
             theme.text().body_size(),
             theme.text().secondary(),
-        ))
+                )),
+        )
+}
+
+fn notepad_menu() -> widget::menu::Bar {
+    widget::menu::Bar::new()
+        .menu(
+            widget::Menu::new(FILE_MENU, "File").section(
+                widget::menu::Section::new()
+                    .item(widget::menu::Item::new(NEW_FILE))
+                    .item(widget::menu::Item::new(OPEN_FILE))
+                    .item(widget::menu::Item::new(SAVE_FILE))
+                    .item(widget::menu::Item::new(SAVE_AS_FILE))
+                    .separator()
+                    .item(widget::menu::Item::new(LOAD_STRESS_TEXT))
+                    .separator()
+                    .item(widget::menu::Item::new(EXIT_APP)),
+            ),
+        )
+        .menu(
+            widget::Menu::new(EDIT_MENU, "Edit").section(
+                widget::menu::Section::new()
+                    .item(widget::menu::Item::new(action::UNDO))
+                    .item(widget::menu::Item::new(action::REDO))
+                    .separator()
+                    .item(widget::menu::Item::new(action::CUT))
+                    .item(widget::menu::Item::new(action::COPY))
+                    .item(widget::menu::Item::new(action::PASTE))
+                    .item(widget::menu::Item::new(DELETE_TEXT))
+                    .separator()
+                    .item(widget::menu::Item::new(action::SELECT_ALL)),
+            ),
+        )
+        .menu(
+            widget::Menu::new(VIEW_MENU, "View").section(
+                widget::menu::Section::new()
+                    .item(widget::menu::Item::new(TOGGLE_WRAP_TEXT))
+                    .item(widget::menu::Item::new(TOGGLE_DEBUG_PANEL)),
+            ),
+        )
+}
+
+async fn open_path_dialog() -> Option<PathBuf> {
+    rfd::AsyncFileDialog::new()
+        .pick_file()
+        .await
+        .map(|file| file.path().to_path_buf())
+}
+
+async fn save_path_dialog() -> Option<PathBuf> {
+    rfd::AsyncFileDialog::new()
+        .save_file()
+        .await
+        .map(|file| file.path().to_path_buf())
 }
 
 fn stress_text(lines: usize) -> String {
@@ -501,41 +639,56 @@ fn stress_text(lines: usize) -> String {
         .join("\n")
 }
 
-fn edit_menu() -> widget::menu::Bar {
-    widget::menu::Bar::new()
-        .menu(widget::Menu::new(FILE_MENU, "File").section(widget::menu::Section::new()))
-        .menu(
-            widget::Menu::new(EDIT_MENU, "Edit").section(
-                widget::menu::Section::new()
-                    .item(widget::menu::Item::new(action::UNDO))
-                    .item(widget::menu::Item::new(action::REDO))
-                    .separator()
-                    .item(widget::menu::Item::new(action::SELECT_ALL))
-                    .separator()
-                    .item(widget::menu::Item::new(action::CUT))
-                    .item(widget::menu::Item::new(action::COPY))
-                    .item(widget::menu::Item::new(action::PASTE))
-                    .separator()
-                    .item(widget::menu::Item::new(INSERT_SAMPLE)),
-            ),
-        )
+fn edit_mutates_text(edit: &text::edit::Edit) -> bool {
+    matches!(
+        edit,
+        text::edit::Edit::Insert(_)
+            | text::edit::Edit::ImeCommit(_)
+            | text::edit::Edit::ReplaceRange { .. }
+            | text::edit::Edit::MoveRange { .. }
+            | text::edit::Edit::Backspace
+            | text::edit::Edit::Delete
+            | text::edit::Edit::InsertLineBreak
+            | text::edit::Edit::DeleteWordBackward
+            | text::edit::Edit::DeleteWordForward
+    )
+}
+
+fn compact_path(path: &Path) -> String {
+    let path = path.display().to_string();
+    let max_chars = 120;
+    if path.chars().count() <= max_chars {
+        return path;
+    }
+
+    let suffix = path
+        .chars()
+        .rev()
+        .take(max_chars - 3)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<String>();
+    format!("...{suffix}")
 }
 
 fn document(
     label: impl Into<String>,
-    align: text::Align,
+    align: text::document::Align,
     size: f32,
     color: paint::Color,
-) -> text::Document {
-    let mut block = text::Block::new(align);
-    block.push_run(text::Run::new(
+) -> text::document::Document {
+    let mut block = text::document::Block::new(align);
+    block.push_run(text::document::Run::new(
         label,
-        text::Style::default().with_size(size).with_color(color),
+        text::document::Style::default()
+            .with_size(size)
+            .with_color(color),
     ));
 
-    text::Document::from_block(block)
+    text::document::Document::from_block(block)
 }
 
-fn field_path(field: ui::Id) -> ui::Path {
-    ui::Path::new([ROOT, CONTENT, EDITOR_PANEL, field])
+fn editor_path() -> ui::Path {
+    ui::Path::new([ROOT, APP_SHELL, EDITOR_CANVAS, EDITOR])
 }

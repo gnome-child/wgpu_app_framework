@@ -6,6 +6,7 @@ mod drag_drop;
 mod floating;
 mod focus;
 mod input;
+mod key_repeat;
 mod mailbox;
 mod rendering;
 mod runtime;
@@ -21,6 +22,7 @@ use crate::{event, native, render, ui, window};
 use thiserror::Error;
 
 pub use context::{ActionState, Context, Diagnostics, ScrollDiagnostics};
+pub use key_repeat::{KeyRepeat, KeyRepeatPolicy};
 pub use sender::{SendError, Sender};
 
 use mailbox::Message;
@@ -56,15 +58,24 @@ pub trait Application {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Options {
+    pub key_repeat: KeyRepeatPolicy,
+}
+
 trait MailboxSender<T: Send + 'static> {
     fn send_message(&self, message: Message<T>) -> std::result::Result<(), SendError>;
 }
 
 pub fn run<A: Application>(app: A) -> Result<()> {
+    run_with_options(app, Options::default())
+}
+
+pub fn run_with_options<A: Application>(app: A, options: Options) -> Result<()> {
     let event_loop =
         winit::event_loop::EventLoop::<Message<A::Event>>::with_user_event().build()?;
     let sender = sender::new(event_loop.create_proxy());
-    let mut runtime = Runtime::new(app, sender);
+    let mut runtime = Runtime::new(app, sender, options);
 
     event_loop.run_app(&mut runtime)?;
 

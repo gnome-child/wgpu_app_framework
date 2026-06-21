@@ -136,7 +136,7 @@ pub enum EdgeMode {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Text {
     pub rect: Rect,
-    pub document: text::Document,
+    pub document: text::document::Document,
     pub wrap: TextWrap,
     pub vertical_align: TextVerticalAlign,
 }
@@ -473,7 +473,7 @@ mod tests {
         };
         let text = Text {
             rect: Rect::new(point::logical(1.5, 0.0), area::logical(10.0, 10.0)),
-            document: text::Document::plain("Label"),
+            document: text::document::Document::plain("Label"),
             wrap: TextWrap::WordOrGlyph,
             vertical_align: TextVerticalAlign::Center,
         };
@@ -662,7 +662,7 @@ mod tests {
 
         scene.push_text(Text {
             rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
-            document: text::Document::plain(""),
+            document: text::document::Document::plain(""),
             wrap: TextWrap::WordOrGlyph,
             vertical_align: TextVerticalAlign::Center,
         });

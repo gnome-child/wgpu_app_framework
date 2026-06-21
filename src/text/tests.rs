@@ -1,0 +1,2996 @@
+#![allow(unused_imports)]
+
+use std::rc::Rc;
+use std::time::{Duration, Instant};
+
+use crate::{
+    geometry::{area, point},
+    paint, text_system,
+};
+
+use super::buffer::{
+    Cursor, Selection, TEXT_DOCUMENT_BLOCK_TARGET_LINES, TextDocumentStatsSnapshot, TextEditKind,
+    buffer_text_len, clamp_cursor_in_buffer, clamp_selection_in_buffer,
+    collapsed_cursor_for_motion, cosmic_buffer_from_text, cursor_for_text_index,
+    cursor_for_text_index_in_buffer, cursor_position, fast_selection_bounds_in_buffer,
+    floor_text_index_in_buffer, has_non_empty_selection_in_buffer, line_start_offsets_for_buffer,
+    normalized_range_in_buffer, selection_anchor, text_index_for_cursor_in_buffer,
+    text_position_for_motion_in_buffer, text_range_for_cursors, word_selection_cursors,
+};
+use super::document::ResolvedTextDirection;
+use super::edit::{HistoryKind, TYPING_UNDO_COALESCE_WINDOW, TextEditResult};
+use super::layout::{
+    HighlightStats, TEXT_AREA_FRAME_MAX_LOGICAL_LINES, TEXT_AREA_FRAME_MIN_OVERSCAN_LINES,
+    TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY, TEXT_FIELD_CARET_MARGIN,
+    TEXT_LAYOUT_VISUAL_LINE_EPSILON, TextLayoutMap, VisualLineGroup,
+    text_area_estimated_line_height,
+};
+use super::*;
+
+fn surface_line_text(surfaces: &[TextAreaSurface], line: usize) -> String {
+    surfaces
+        .get(line)
+        .and_then(|surface| {
+            let buffer = surface.buffer.borrow();
+            buffer.lines.first().map(|line| line.text().to_owned())
+        })
+        .unwrap_or_default()
+}
+
+fn surface_visual_runs(surfaces: &[TextAreaSurface]) -> usize {
+    surfaces
+        .iter()
+        .map(|surface| surface.buffer.borrow().layout_runs().count())
+        .sum()
+}
+
+fn visual_group_source_range(
+    runs: &[glyphon::cosmic_text::LayoutRun<'_>],
+    group: VisualLineGroup,
+    source_start: usize,
+) -> Option<std::ops::Range<usize>> {
+    let mut start = usize::MAX;
+    let mut end = 0usize;
+    for run in &runs[group.start..group.end] {
+        for glyph in run.glyphs {
+            start = start.min(source_start + glyph.start.min(glyph.end));
+            end = end.max(source_start + glyph.start.max(glyph.end));
+        }
+    }
+    (start < end).then_some(start..end)
+}
+#[derive(Debug, Default)]
+struct MockClipboard {
+    text: Option<String>,
+    unavailable: bool,
+}
+
+impl MockClipboard {
+    fn with_text(text: &str) -> Self {
+        Self {
+            text: Some(text.to_owned()),
+            unavailable: false,
+        }
+    }
+
+    fn unavailable() -> Self {
+        Self {
+            text: None,
+            unavailable: true,
+        }
+    }
+}
+
+impl Clipboard for MockClipboard {
+    fn read_text(&mut self) -> ClipboardResult<Option<String>> {
+        if self.unavailable {
+            Err(ClipboardError::Unavailable)
+        } else {
+            Ok(self.text.clone())
+        }
+    }
+
+    fn write_text(&mut self, text: &str) -> ClipboardResult<()> {
+        if self.unavailable {
+            Err(ClipboardError::Unavailable)
+        } else {
+            self.text = Some(text.to_owned());
+            Ok(())
+        }
+    }
+}
+
+fn record_edit(
+    editor: &mut Editor,
+    state: &mut TextViewState,
+    buffer: &mut Buffer,
+    edit: Edit,
+) -> TextEditResult {
+    record_edit_at(editor, state, buffer, edit, Instant::now())
+}
+
+fn record_edit_at(
+    editor: &mut Editor,
+    state: &mut TextViewState,
+    buffer: &mut Buffer,
+    edit: Edit,
+    now: Instant,
+) -> TextEditResult {
+    state.sync_history(buffer);
+    let kind = edit.history_kind();
+    let result = editor.apply_text_edit_with_result(buffer, edit);
+    if let Some(change) = result.change.clone() {
+        state.record_history_at(change, kind, now);
+    }
+    result
+}
+
+fn record_command(
+    editor: &mut Editor,
+    state: &mut TextViewState,
+    buffer: &mut Buffer,
+    command: Command,
+    clipboard: &mut dyn Clipboard,
+) -> CommandResult {
+    state.sync_history(buffer);
+    let outcome = editor.apply_text_command_with_result(buffer, command, clipboard);
+    if let Some(change) = outcome.change.clone() {
+        state.record_history_at(change, HistoryKind::Boundary, Instant::now());
+    }
+    outcome.result
+}
+
+#[test]
+fn document_stores_block_run_and_style_data() {
+    let style = Style::default()
+        .with_size(18.0)
+        .with_color(paint::Color::RED)
+        .with_weight(Weight::Bold);
+    let mut block = Block::new(Align::Center);
+    block.push_run(Run::new("Label", style));
+    let document = Document::from_block(block);
+
+    assert_eq!(document.blocks().len(), 1);
+    assert_eq!(document.blocks()[0].align(), Align::Center);
+    assert_eq!(document.blocks()[0].runs()[0].text(), "Label");
+    assert_eq!(document.blocks()[0].runs()[0].style(), style);
+}
+
+#[test]
+fn empty_document_is_empty() {
+    assert!(Document::new().is_empty());
+    assert!(Document::plain("").is_empty());
+    assert!(!Document::plain("x").is_empty());
+}
+
+#[test]
+fn document_color_can_be_overridden() {
+    let document = Document::plain("Label").with_color(paint::Color::BLACK);
+
+    assert_eq!(
+        document.blocks()[0].runs()[0].style().color(),
+        paint::Color::BLACK
+    );
+}
+
+#[test]
+fn document_size_can_be_overridden() {
+    let document = Document::plain("Label").with_size(12.5);
+
+    assert_eq!(document.blocks()[0].runs()[0].style().size(), 12.5);
+}
+
+#[test]
+fn plain_document_keeps_raw_default_style() {
+    let document = Document::plain("Label");
+
+    assert_eq!(document.blocks()[0].runs()[0].style(), Style::default());
+}
+
+#[test]
+fn document_first_style_preserves_empty_style_carrier() {
+    let empty_style = Style::default().with_size(13.0);
+    let text_style = Style::default().with_size(18.0);
+    let mut empty_block = Block::new(Align::Start);
+    empty_block.push_run(Run::new("", empty_style));
+    let empty_document = Document::from_block(empty_block);
+
+    assert_eq!(empty_document.first_style(), Some(empty_style));
+
+    let mut mixed_block = Block::new(Align::Start);
+    mixed_block.push_run(Run::new("", empty_style));
+    mixed_block.push_run(Run::new("Label", text_style));
+    let mixed_document = Document::from_block(mixed_block);
+
+    assert_eq!(mixed_document.first_style(), Some(text_style));
+}
+
+#[test]
+fn engine_returns_non_zero_metrics_for_non_empty_text() {
+    let mut engine = Engine::new();
+    let metrics = engine.measure(&Document::plain("Label"), Measure::unbounded());
+
+    assert!(metrics.width() > 0.0);
+    assert!(metrics.height() > 0.0);
+    assert_eq!(metrics.line_count(), 1);
+}
+
+#[test]
+fn longer_text_measures_wider_than_shorter_text() {
+    let mut engine = Engine::new();
+    let short = engine.measure(&Document::plain("Run"), Measure::unbounded());
+    let long = engine.measure(&Document::plain("Run workspace task"), Measure::unbounded());
+
+    assert!(long.width() > short.width());
+    assert!(long.height() >= short.height());
+}
+
+#[test]
+fn cloning_buffer_preserves_identity_without_copying_text_state() {
+    let buffer = Buffer::from_multiline_text("one\ntwo\nthree");
+    let clone = buffer.clone();
+
+    assert!(Rc::ptr_eq(&buffer.inner, &clone.inner));
+    assert_eq!(buffer.id(), clone.id());
+    assert_eq!(buffer.revision(), clone.revision());
+}
+
+#[test]
+fn typing_edit_records_transaction_delta() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_multiline_text("one\ntwo\nthree");
+    let before_revision = buffer.revision();
+    let result = editor.apply_text_edit_with_result(&mut buffer, Edit::insert("!"));
+    let change = result.change.expect("typing should produce an undo delta");
+
+    assert!(result.text_changed);
+    assert!(buffer.revision() > before_revision);
+    assert_eq!(change.transaction.deltas.len(), 1);
+    assert_eq!(change.transaction.deltas[0].kind, TextEditKind::Insert);
+    assert_eq!(change.transaction.deltas[0].inserted, "!");
+}
+
+#[test]
+fn text_area_frame_cache_reuses_unchanged_frame_and_rebuilds_after_typing() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_multiline_text("one\ntwo\nthree");
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(240.0, 120.0);
+    let state = TextViewState::default();
+    let now = Instant::now();
+
+    let first = engine
+        .text_area_paint_layout_for_area_at(
+            &Area::new(buffer.clone()),
+            style,
+            viewport,
+            state.clone(),
+            now,
+        )
+        .into_parts()
+        .1;
+    let second = engine
+        .text_area_paint_layout_for_area_at(
+            &Area::new(buffer.clone()),
+            style,
+            viewport,
+            state.clone(),
+            now,
+        )
+        .into_parts()
+        .1;
+    assert_eq!(surface_line_text(&first, 2), surface_line_text(&second, 2));
+    assert!(engine.text_area_line_displays.len() > 0);
+
+    editor.apply_text_edit(&mut buffer, Edit::insert("!"));
+    let third = engine
+        .text_area_paint_layout_for_area_at(&Area::new(buffer), style, viewport, state, now)
+        .into_parts()
+        .1;
+    assert_eq!(surface_line_text(&third, 2), "three!");
+}
+
+#[test]
+fn text_diagnostics_record_visible_text_area_cache_work() {
+    let mut engine = Engine::new();
+    let buffer = Buffer::from_multiline_text("one\ntwo\nthree");
+    let area_model = Area::new(buffer);
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(240.0, 120.0);
+    let state = TextViewState::default();
+    let now = Instant::now();
+
+    engine.reset_diagnostics();
+    engine.text_area_paint_layout_for_area_at(&area_model, style, viewport, state.clone(), now);
+    let first = engine.diagnostics();
+    assert_eq!(first.text_area_paint_layout_calls, 1);
+    assert!(first.text_area_line_cache_misses > 0);
+    assert!(first.text_area_line_shape_calls > 0);
+    assert!(first.text_area_visible_logical_lines > 0);
+
+    engine.reset_diagnostics();
+    engine.text_area_paint_layout_for_area_at(&area_model, style, viewport, state, now);
+    let cached = engine.diagnostics();
+    assert_eq!(cached.text_area_paint_layout_calls, 1);
+    assert!(cached.text_area_line_cache_hits > 0);
+    assert_eq!(cached.text_area_line_shape_calls, 0);
+}
+
+#[test]
+fn text_area_frame_cache_is_bounded() {
+    let mut engine = Engine::new();
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(240.0, 80.0);
+    let state = TextViewState::default();
+    let now = Instant::now();
+
+    for index in 0..(TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY + 16) {
+        let buffer = Buffer::from_multiline_text(format!("line {index}\nnext"));
+        engine.text_area_paint_layout_for_area_at(
+            &Area::new(buffer),
+            style,
+            viewport,
+            state.clone(),
+            now,
+        );
+    }
+
+    assert_eq!(
+        engine.text_area_line_displays.len(),
+        TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY
+    );
+}
+
+#[test]
+fn text_area_preedit_projection_is_not_cached() {
+    let mut engine = Engine::new();
+    let buffer = Buffer::from_multiline_text("hello");
+    let area_model = Area::new(buffer.clone());
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(240.0, 80.0);
+    let state = TextViewState::default();
+    let now = Instant::now();
+    let committed = engine
+        .text_area_paint_layout_for_area_at(&area_model, style, viewport, state.clone(), now)
+        .into_parts()
+        .1;
+    let preedit_state = state.with_preedit(Some(Preedit::new("x", None)));
+    let preedit = engine
+        .text_area_paint_layout_for_area_at(&area_model, style, viewport, preedit_state, now)
+        .into_parts()
+        .1;
+    let after = engine
+        .text_area_paint_layout_for_area_at(
+            &Area::new(buffer),
+            style,
+            viewport,
+            TextViewState::default(),
+            now,
+        )
+        .into_parts()
+        .1;
+
+    assert_eq!(surface_line_text(&preedit, 0), "hellox");
+    assert_eq!(
+        surface_line_text(&committed, 0),
+        surface_line_text(&after, 0)
+    );
+    assert_eq!(surface_line_text(&after, 0), "hello");
+    assert!(engine.text_area_line_displays.len() > 0);
+}
+
+#[test]
+fn text_area_prepared_frame_is_bounded_to_viewport_window() {
+    let mut engine = Engine::new();
+    let text = (0..1_000)
+        .map(|index| format!("line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let buffer = Buffer::from_multiline_text(text);
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(240.0, 52.0);
+    let state = TextViewState::default();
+    let now = Instant::now();
+    let (layout, surfaces) = engine
+        .text_area_paint_layout_for_area_at(&Area::new(buffer), style, viewport, state, now)
+        .into_parts();
+
+    assert!(surfaces.len() <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
+    assert!(surfaces.len() < 1_000);
+    assert!(layout.content_area().height() > viewport.height());
+}
+#[test]
+fn large_text_area_scroll_and_highlight_work_are_viewport_bounded() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let text = (0..100_000)
+        .map(|index| format!("line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut buffer = Buffer::from_multiline_text(text);
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    let area_model = Area::new(buffer);
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(240.0, 52.0);
+    let state = TextViewState::default().with_scroll_y(13.0 * 1.25 * 50_000.0);
+
+    engine.reset_interaction_stats();
+    engine.reset_highlight_stats();
+    let (layout, surfaces) = engine
+        .text_area_paint_layout_for_area_at(&area_model, style, viewport, state, Instant::now())
+        .into_parts();
+    let interaction_stats = engine.interaction_stats();
+    let highlight_stats = engine.highlight_stats();
+    let visible_runs = surface_visual_runs(&surfaces);
+
+    assert!(!layout.selection_spans().is_empty());
+    assert!(surfaces.len() <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
+    assert!(interaction_stats.text_area_frame_shape_calls <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
+    assert!(
+        interaction_stats.text_area_frame_shaped_logical_lines <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES
+    );
+    assert_eq!(interaction_stats.text_area_shape_until_scroll_calls, 0);
+    assert_eq!(highlight_stats.run_scans, visible_runs);
+    assert_eq!(highlight_stats.highlight_calls, 0);
+}
+#[test]
+fn piece_tree_insert_updates_touched_storage_without_full_materialization() {
+    let mut editor = Editor::new();
+    let text = (0..100_000)
+        .map(|index| format!("line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut buffer = Buffer::from_multiline_text(text);
+    let paste = (0..512)
+        .map(|index| format!("paste {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    buffer.reset_document_stats();
+    editor.apply_text_edit(&mut buffer, Edit::insert(paste.clone()));
+    let stats = buffer.document_stats();
+    let (_owned, _mapped, add) = buffer.document_piece_source_lengths();
+
+    assert_eq!(stats.full_materializations, 0);
+    assert_eq!(stats.total_document_scans, 0);
+    assert_eq!(stats.piece_tree_updates, 1);
+    assert!(add >= paste.lines().map(str::len).sum::<usize>());
+}
+
+#[test]
+fn marks_round_trip_through_line_identity() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_multiline_text("alpha\nbeta\ngamma");
+    let beta = "alpha\nbe".len();
+
+    editor.apply_text_edit(&mut buffer, Edit::set_position(TextPosition::new(beta)));
+    let anchor = buffer.mark().expect("cursor should map to a stable anchor");
+    editor.apply_text_edit(&mut buffer, Edit::insert("X"));
+    let after = buffer
+        .mark()
+        .expect("edited cursor should still map to an anchor");
+
+    assert_eq!(anchor.line_id, after.line_id);
+    assert!(after.byte_offset > anchor.byte_offset);
+}
+
+#[test]
+fn mapped_file_buffer_uses_original_mapped_pieces() {
+    let path = std::env::temp_dir().join(format!(
+        "wgpu_l3_text_mapped_{}_{}.txt",
+        std::process::id(),
+        Instant::now().elapsed().as_nanos()
+    ));
+    std::fs::write(&path, "one\ntwo\nthree").expect("temp mapped text should be writable");
+
+    let buffer = Buffer::from_mapped_file(&path).expect("mapped text buffer should open");
+    let stats = buffer.document_stats();
+    let (owned, mapped, add) = buffer.document_piece_source_lengths();
+
+    assert_eq!(buffer.to_plain_text(), "one\ntwo\nthree");
+    assert_eq!(buffer.original_len(), "one\ntwo\nthree".len());
+    assert_eq!(owned, 0);
+    assert!(mapped >= "onetwothree".len());
+    assert_eq!(add, 0);
+    assert!(stats.mapped_index_pages_scanned >= 1);
+
+    let _ = std::fs::remove_file(path);
+}
+#[test]
+fn piece_tree_seek_handles_summary_block_boundaries() {
+    let lines = (0..300)
+        .map(|index| format!("line-{index:03}"))
+        .collect::<Vec<_>>();
+    let text = lines.join("\n");
+    let buffer = Buffer::from_multiline_text(text);
+    let boundary_line = TEXT_DOCUMENT_BLOCK_TARGET_LINES;
+    let boundary_index = lines
+        .iter()
+        .take(boundary_line)
+        .map(|line| line.len() + 1)
+        .sum::<usize>();
+
+    let cursor = buffer.cursor_for_text_index(boundary_index);
+    let position = buffer.position_for_text_index(boundary_index);
+
+    assert_eq!(cursor.line, boundary_line);
+    assert_eq!(cursor.index, 0);
+    assert_eq!(position.index, boundary_index);
+}
+#[test]
+fn larger_font_measures_taller_than_smaller_font() {
+    let mut engine = Engine::new();
+    let small = Document::from_block({
+        let mut block = Block::new(Align::Start);
+        block.push_run(Run::new("Label", Style::default().with_size(10.0)));
+        block
+    });
+    let large = Document::from_block({
+        let mut block = Block::new(Align::Start);
+        block.push_run(Run::new("Label", Style::default().with_size(24.0)));
+        block
+    });
+
+    let small = engine.measure(&small, Measure::unbounded());
+    let large = engine.measure(&large, Measure::unbounded());
+
+    assert!(large.height() > small.height());
+}
+
+#[test]
+fn repeated_measurement_reuses_cached_metrics() {
+    let mut engine = Engine::new();
+    let document = Document::plain("Cached Label");
+
+    let first = engine.measure(&document, Measure::unbounded());
+    let second = engine.measure(&document, Measure::unbounded());
+
+    assert_eq!(first, second);
+    assert_eq!(engine.uncached_measure_count(), 1);
+    assert_eq!(engine.cache_len(), 1);
+}
+
+#[test]
+fn color_only_changes_reuse_cached_metrics() {
+    let mut engine = Engine::new();
+    let red = Document::plain("Cached Label").with_color(paint::Color::RED);
+    let black = Document::plain("Cached Label").with_color(paint::Color::BLACK);
+
+    let red = engine.measure(&red, Measure::unbounded());
+    let black = engine.measure(&black, Measure::unbounded());
+
+    assert_eq!(red, black);
+    assert_eq!(engine.uncached_measure_count(), 1);
+}
+
+#[test]
+fn shaping_relevant_document_and_bounds_changes_use_distinct_cache_keys() {
+    let mut engine = Engine::new();
+    let base = styled_document("Cached Label", Align::Start, 16.0, Weight::Normal);
+    let text = styled_document("Different Label", Align::Start, 16.0, Weight::Normal);
+    let size = styled_document("Cached Label", Align::Start, 20.0, Weight::Normal);
+    let weight = styled_document("Cached Label", Align::Start, 16.0, Weight::Bold);
+    let align = styled_document("Cached Label", Align::End, 16.0, Weight::Normal);
+
+    engine.measure(&base, Measure::unbounded());
+    engine.measure(&text, Measure::unbounded());
+    engine.measure(&size, Measure::unbounded());
+    engine.measure(&weight, Measure::unbounded());
+    engine.measure(&align, Measure::unbounded());
+    engine.measure(&base, Measure::bounded(area::logical(40.0, 100.0)));
+
+    assert_eq!(engine.uncached_measure_count(), 6);
+    assert_eq!(engine.cache_len(), 6);
+}
+
+#[test]
+fn bounded_fifo_cache_evicts_oldest_entries() {
+    let mut engine = Engine::with_cache_capacity(2);
+    let first = Document::plain("First");
+    let second = Document::plain("Second");
+    let third = Document::plain("Third");
+
+    engine.measure(&first, Measure::unbounded());
+    engine.measure(&second, Measure::unbounded());
+    engine.measure(&third, Measure::unbounded());
+    engine.measure(&first, Measure::unbounded());
+
+    assert_eq!(engine.cache_len(), 2);
+    assert_eq!(engine.uncached_measure_count(), 4);
+}
+
+#[test]
+fn buffer_inserts_and_deletes_text() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("ab");
+
+    editor.apply_text_edit(&mut buffer, Edit::insert("c"));
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::motion(glyphon::cosmic_text::Motion::Left),
+    );
+    editor.apply_text_edit(&mut buffer, Edit::action(glyphon::Action::Backspace));
+
+    assert_eq!(buffer.text(), "ac");
+    assert_eq!(buffer.cursor().index, 1);
+
+    editor.apply_text_edit(&mut buffer, Edit::action(glyphon::Action::Delete));
+
+    assert_eq!(buffer.text(), "a");
+    assert_eq!(buffer.cursor().index, 1);
+}
+
+#[test]
+fn buffer_select_all_replaces_selection() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("hello");
+
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    assert_eq!(buffer.selected_range(), Some(TextRange::new(0, 5)));
+
+    editor.apply_text_edit(&mut buffer, Edit::insert("hi"));
+
+    assert_eq!(buffer.text(), "hi");
+    assert_eq!(buffer.cursor().index, 2);
+    assert_eq!(buffer.selected_range(), None);
+}
+
+#[test]
+fn replace_range_normalizes_inserted_text_and_restores_caret() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("hello world");
+
+    assert!(editor.apply_text_edit(&mut buffer, Edit::replace_range(6..11, "there\nfriend")));
+
+    assert_eq!(buffer.text(), "hello there friend");
+    assert_eq!(buffer.cursor(), Cursor::new(0, "hello there friend".len()));
+    assert_eq!(buffer.selected_range(), None);
+}
+
+#[test]
+fn move_range_adjusts_forward_drop_position() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("abcdef");
+
+    assert!(editor.apply_text_edit(&mut buffer, Edit::move_range(1..3, 5)));
+
+    assert_eq!(buffer.text(), "adebcf");
+    assert_eq!(buffer.cursor(), Cursor::new(0, 5));
+    assert_eq!(buffer.selected_range(), None);
+}
+
+#[test]
+fn text_command_copy_writes_selection_without_mutating_buffer() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("hello");
+    let mut clipboard = MockClipboard::default();
+
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    let result = editor.apply_text_command(&mut buffer, Command::Copy, &mut clipboard);
+
+    assert_eq!(clipboard.text.as_deref(), Some("hello"));
+    assert_eq!(buffer.text(), "hello");
+    assert_eq!(buffer.selected_range(), Some(TextRange::new(0, 5)));
+    assert!(result.clipboard_changed);
+    assert!(!result.buffer_changed());
+    assert!(!result.unavailable);
+}
+
+#[test]
+fn text_command_cut_copies_and_deletes_selection() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("hello");
+    let mut clipboard = MockClipboard::default();
+
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    let result = editor.apply_text_command(&mut buffer, Command::Cut, &mut clipboard);
+
+    assert_eq!(clipboard.text.as_deref(), Some("hello"));
+    assert_eq!(buffer.text(), "");
+    assert_eq!(buffer.selected_range(), None);
+    assert!(result.clipboard_changed);
+    assert!(result.text_changed);
+    assert!(result.selection_changed);
+    assert!(!result.unavailable);
+}
+
+#[test]
+fn text_command_paste_replaces_selection_and_normalizes_line_endings() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("hello");
+    let mut clipboard = MockClipboard::with_text("a\nb\rc");
+
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    let result = editor.apply_text_command(&mut buffer, Command::Paste, &mut clipboard);
+
+    assert_eq!(buffer.text(), "a b c");
+    assert_eq!(buffer.selected_range(), None);
+    assert!(result.text_changed);
+    assert!(result.selection_changed);
+    assert!(!result.clipboard_changed);
+    assert!(!result.unavailable);
+}
+
+#[test]
+fn repeated_large_paste_updates_line_index_without_full_rebuild() {
+    let mut editor = Editor::new();
+    let text = (0..100_000)
+        .map(|line| format!("line {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut buffer = Buffer::from_multiline_text(text);
+    let block = (0..64)
+        .map(|line| format!("paste {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let end = TextPosition::new(buffer.len());
+
+    editor.apply_text_edit(&mut buffer, Edit::set_position(end));
+    buffer.reset_line_index_stats();
+
+    assert!(editor.apply_text_edit(&mut buffer, Edit::insert(format!("\n{block}"))));
+    assert!(editor.apply_text_edit(&mut buffer, Edit::insert(format!("\n{block}"))));
+
+    let (full_rebuilds, splice_updates) = buffer.line_index_stats();
+    assert_eq!(full_rebuilds, 0);
+    assert_eq!(splice_updates, 2);
+    assert_eq!(buffer.logical_line_count(), 100_000 + 128);
+    assert!(buffer.text().ends_with("paste 63"));
+}
+#[test]
+fn text_command_paste_without_text_or_clipboard_does_not_mutate() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("hello");
+    let mut empty_clipboard = MockClipboard::default();
+
+    let empty = editor.apply_text_command(&mut buffer, Command::Paste, &mut empty_clipboard);
+
+    assert_eq!(buffer.text(), "hello");
+    assert!(!empty.changed());
+    assert!(!empty.unavailable);
+
+    let mut unavailable_clipboard = MockClipboard::unavailable();
+    let unavailable =
+        editor.apply_text_command(&mut buffer, Command::Paste, &mut unavailable_clipboard);
+
+    assert_eq!(buffer.text(), "hello");
+    assert!(!unavailable.changed());
+    assert!(unavailable.unavailable);
+}
+
+#[test]
+fn text_history_coalesces_typing_into_one_undo_step() {
+    let mut editor = Editor::new();
+    let mut state = TextViewState::default();
+    let mut buffer = Buffer::new();
+
+    record_edit(&mut editor, &mut state, &mut buffer, Edit::insert("a"));
+    record_edit(&mut editor, &mut state, &mut buffer, Edit::insert("b"));
+    record_edit(&mut editor, &mut state, &mut buffer, Edit::insert("c"));
+
+    assert_eq!(buffer.text(), "abc");
+    assert_eq!(state.history_undo_len(), 1);
+    assert!(state.can_undo());
+
+    let undo = state.apply_undo(&mut buffer);
+    assert_eq!(buffer.text(), "");
+    assert!(undo.text_changed);
+    assert!(state.can_redo());
+
+    let redo = state.apply_redo(&mut buffer);
+    assert_eq!(buffer.text(), "abc");
+    assert!(redo.text_changed);
+}
+#[test]
+fn text_history_splits_typing_after_coalesce_timeout() {
+    let mut editor = Editor::new();
+    let mut state = TextViewState::default();
+    let mut buffer = Buffer::new();
+    let start = Instant::now();
+
+    record_edit_at(
+        &mut editor,
+        &mut state,
+        &mut buffer,
+        Edit::insert("a"),
+        start,
+    );
+    record_edit_at(
+        &mut editor,
+        &mut state,
+        &mut buffer,
+        Edit::insert("b"),
+        start + TYPING_UNDO_COALESCE_WINDOW + Duration::from_millis(1),
+    );
+
+    assert_eq!(buffer.text(), "ab");
+    assert_eq!(state.history_undo_len(), 2);
+}
+
+#[test]
+fn text_history_splits_typing_at_whitespace_and_punctuation() {
+    let mut editor = Editor::new();
+    let mut state = TextViewState::default();
+    let mut buffer = Buffer::new();
+
+    record_edit(&mut editor, &mut state, &mut buffer, Edit::insert("a"));
+    record_edit(&mut editor, &mut state, &mut buffer, Edit::insert(" "));
+    record_edit(&mut editor, &mut state, &mut buffer, Edit::insert("b"));
+    record_edit(&mut editor, &mut state, &mut buffer, Edit::insert("."));
+
+    assert_eq!(buffer.text(), "a b.");
+    assert_eq!(state.history_undo_len(), 4);
+}
+
+#[test]
+fn text_history_splits_typing_after_cursor_movement() {
+    let mut editor = Editor::new();
+    let mut state = TextViewState::default();
+    let mut buffer = Buffer::new();
+
+    record_edit(&mut editor, &mut state, &mut buffer, Edit::insert("a"));
+    editor.apply_text_edit(&mut buffer, Edit::set_cursor(Cursor::new(0, 0)));
+    record_edit(&mut editor, &mut state, &mut buffer, Edit::insert("b"));
+
+    assert_eq!(buffer.text(), "ba");
+    assert_eq!(state.history_undo_len(), 2);
+    state.apply_undo(&mut buffer);
+    assert_eq!(buffer.text(), "a");
+}
+
+#[test]
+fn text_history_keeps_paste_cut_delete_word_delete_and_ime_as_separate_steps() {
+    let mut editor = Editor::new();
+    let mut state = TextViewState::default();
+    let mut buffer = Buffer::from_text("hello");
+    let mut clipboard = MockClipboard::with_text(" pasted");
+
+    record_command(
+        &mut editor,
+        &mut state,
+        &mut buffer,
+        Command::Paste,
+        &mut clipboard,
+    );
+    record_edit(
+        &mut editor,
+        &mut state,
+        &mut buffer,
+        Edit::action(glyphon::Action::Backspace),
+    );
+    record_edit(
+        &mut editor,
+        &mut state,
+        &mut buffer,
+        Edit::delete_word_backward(),
+    );
+    record_edit(&mut editor, &mut state, &mut buffer, Edit::ime_commit("x"));
+
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    let mut clipboard = MockClipboard::default();
+    record_command(
+        &mut editor,
+        &mut state,
+        &mut buffer,
+        Command::Cut,
+        &mut clipboard,
+    );
+
+    assert_eq!(state.history_undo_len(), 5);
+}
+
+#[test]
+fn text_history_undo_restores_text_cursor_and_selection() {
+    let mut editor = Editor::new();
+    let mut state = TextViewState::default();
+    let mut buffer = Buffer::from_text("hello");
+
+    state.sync_history(&buffer);
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    record_edit(&mut editor, &mut state, &mut buffer, Edit::insert("x"));
+
+    assert_eq!(buffer.text(), "x");
+    assert!(!buffer.has_selection());
+
+    let undo = state.apply_undo(&mut buffer);
+    assert_eq!(buffer.text(), "hello");
+    assert_eq!(buffer.selected_text().as_deref(), Some("hello"));
+    assert!(undo.text_changed);
+    assert!(undo.selection_changed);
+
+    let redo = state.apply_redo(&mut buffer);
+    assert_eq!(buffer.text(), "x");
+    assert!(!buffer.has_selection());
+    assert!(redo.text_changed);
+}
+
+#[test]
+fn text_history_new_edit_after_undo_clears_redo() {
+    let mut editor = Editor::new();
+    let mut state = TextViewState::default();
+    let mut buffer = Buffer::new();
+
+    record_edit(&mut editor, &mut state, &mut buffer, Edit::insert("a"));
+    state.apply_undo(&mut buffer);
+    assert!(state.can_redo());
+
+    record_edit(&mut editor, &mut state, &mut buffer, Edit::insert("b"));
+
+    assert_eq!(buffer.text(), "b");
+    assert!(!state.can_redo());
+    assert!(state.can_undo());
+}
+
+#[test]
+fn text_history_external_buffer_replacement_clears_stale_history() {
+    let mut editor = Editor::new();
+    let mut state = TextViewState::default();
+    let mut buffer = Buffer::new();
+
+    record_edit(&mut editor, &mut state, &mut buffer, Edit::insert("a"));
+    assert!(state.can_undo());
+
+    let external = Buffer::from_text("external");
+    assert!(state.sync_history(&external));
+    assert!(!state.can_undo());
+    assert!(!state.can_redo());
+}
+
+#[test]
+fn buffer_shift_motion_extends_selection() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("hello");
+
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::extend_motion(glyphon::cosmic_text::Motion::Left),
+    );
+
+    assert_eq!(buffer.cursor().index, 4);
+    assert_eq!(buffer.selected_range(), Some(TextRange::new(4, 5)));
+
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::extend_motion(glyphon::cosmic_text::Motion::Home),
+    );
+
+    assert_eq!(buffer.cursor().index, 0);
+    assert_eq!(buffer.selected_range(), Some(TextRange::new(0, 5)));
+}
+
+#[test]
+fn buffer_plain_motion_collapses_selection() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("hello");
+
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::motion(glyphon::cosmic_text::Motion::Left),
+    );
+
+    assert_eq!(buffer.cursor().index, 0);
+    assert_eq!(buffer.selected_range(), None);
+
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::motion(glyphon::cosmic_text::Motion::Right),
+    );
+
+    assert_eq!(buffer.cursor().index, 5);
+    assert_eq!(buffer.selected_range(), None);
+}
+
+#[test]
+fn buffer_word_delete_uses_cosmic_word_motion() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("hello world again");
+
+    editor.apply_text_edit(&mut buffer, Edit::delete_word_backward());
+
+    assert_eq!(buffer.text(), "hello world ");
+    assert_eq!(buffer.cursor().index, "hello world ".len());
+
+    editor.apply_text_edit(&mut buffer, Edit::set_cursor(Cursor::new(0, 0)));
+    editor.apply_text_edit(&mut buffer, Edit::delete_word_forward());
+
+    assert_eq!(buffer.text(), " world ");
+    assert_eq!(buffer.cursor().index, 0);
+}
+
+#[test]
+fn buffer_pointer_double_click_selects_word_and_triple_click_selects_all() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("hello world");
+
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::pointer(PointerEditKind::DoubleClick, Cursor::new(0, 1)),
+    );
+
+    assert_eq!(buffer.selected_range(), Some(TextRange::new(0, 5)));
+
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::pointer(PointerEditKind::TripleClick, Cursor::new(0, 7)),
+    );
+
+    assert_eq!(
+        buffer.selected_range(),
+        Some(TextRange::new(0, "hello world".len()))
+    );
+}
+
+#[test]
+fn buffer_pointer_drag_extends_from_click_anchor() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("hello world");
+
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::pointer(PointerEditKind::Click, Cursor::new(0, 0)),
+    );
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::pointer(PointerEditKind::Drag, Cursor::new(0, 5)),
+    );
+
+    assert_eq!(buffer.selected_range(), Some(TextRange::new(0, 5)));
+}
+
+#[test]
+fn buffer_edits_preserve_unicode_boundaries() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("aé🙂");
+
+    editor.apply_text_edit(&mut buffer, Edit::set_cursor(Cursor::new(0, 3)));
+    assert_eq!(buffer.cursor().index, "aé".len());
+
+    editor.apply_text_edit(&mut buffer, Edit::action(glyphon::Action::Backspace));
+    assert_eq!(buffer.text(), "a🙂");
+
+    editor.apply_text_edit(&mut buffer, Edit::motion(glyphon::cosmic_text::Motion::End));
+    editor.apply_text_edit(&mut buffer, Edit::action(glyphon::Action::Backspace));
+    assert_eq!(buffer.text(), "a");
+    assert!(buffer.text().is_char_boundary(buffer.cursor().index));
+}
+#[test]
+fn byte_index_edits_snap_to_grapheme_boundaries() {
+    let mut editor = Editor::new();
+    let combining = "e\u{301}";
+    let family = "👨‍👩‍👧‍👦";
+    let flag = "🇺🇸";
+
+    let mut replace = Buffer::from_text(format!("a{combining}b"));
+    assert!(editor.apply_text_edit(&mut replace, Edit::replace_range(2..3, "X")));
+    assert_eq!(replace.text(), "aXb");
+
+    let mut insert = Buffer::from_text(format!("a{family}b"));
+    let inside_family = 1 + "👨".len();
+    assert!(editor.apply_text_edit(&mut insert, Edit::insert_at(inside_family, "X")));
+    assert_eq!(insert.text(), format!("aX{family}b"));
+
+    let flag_source = format!("a{flag}bc");
+    let mut moved = Buffer::from_text(flag_source.clone());
+    assert!(editor.apply_text_edit(&mut moved, Edit::move_range(3..6, flag_source.len())));
+    assert_eq!(moved.text(), format!("abc{flag}"));
+
+    let cursor_buffer = Buffer::from_text(format!("a{family}b"));
+    let cursor = cursor_buffer.cursor_for_text_index(inside_family);
+    assert_eq!(cursor_buffer.text_index_for_cursor(cursor), 1);
+    assert_eq!(
+        Field::new(format!("{combining}{family}{flag}"))
+            .obscured_dot()
+            .presentation_text(),
+        "•••"
+    );
+}
+
+#[test]
+fn logical_motion_respects_grapheme_boundaries() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let family = "👨‍👩‍👧‍👦";
+    let mut buffer = Buffer::from_text(format!("a{family}b"));
+
+    let end = buffer.text().len();
+    editor.apply_text_edit(&mut buffer, Edit::set_position(end));
+    engine.reset_interaction_stats();
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::move_position(TextMotion::LogicalPrevious),
+    );
+    assert_eq!(buffer.position().index, 1 + family.len());
+
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::move_position(TextMotion::LogicalPrevious),
+    );
+    assert_eq!(buffer.position().index, 1);
+    assert_eq!(editor.diagnostics().aggregate_buffer_fallbacks, 0);
+}
+
+#[test]
+fn unicode_word_boundaries_drive_selection_and_delete() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("hello שלום again");
+    let hebrew_start = "hello ".len();
+
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::pointer(
+            PointerEditKind::DoubleClick,
+            TextPosition::new(hebrew_start + 2),
+        ),
+    );
+    assert_eq!(buffer.selected_text().as_deref(), Some("שלום"));
+    assert_eq!(
+        buffer.selected_range(),
+        Some(TextRange::new(hebrew_start, hebrew_start + "שלום".len()))
+    );
+
+    let end = buffer.text().len();
+    editor.apply_text_edit(&mut buffer, Edit::set_position(end));
+    engine.reset_interaction_stats();
+    editor.apply_text_edit(&mut buffer, Edit::delete_word_backward());
+    assert_eq!(buffer.text(), "hello שלום ");
+}
+
+#[test]
+fn bidi_hit_testing_preserves_visual_affinity() {
+    let mut engine = Engine::new();
+    let buffer = Buffer::from_text("abc אבג");
+    let prepared = engine.prepare_text_field_buffer(
+        &buffer,
+        Style::default().with_size(18.0),
+        area::logical(400.0, 32.0),
+    );
+    let prepared = prepared.0;
+    let map = TextLayoutMap::new(&prepared);
+    let rtl_glyph = prepared
+        .layout_runs()
+        .flat_map(|run| {
+            let line_start = map.line_starts.get(run.line_i).copied().unwrap_or(0);
+            run.glyphs
+                .iter()
+                .map(move |glyph| (run.line_top, run.line_height, line_start, glyph))
+        })
+        .find(|(_, _, _, glyph)| glyph.level.is_rtl())
+        .expect("mixed Hebrew text should produce an RTL glyph");
+    let (line_top, line_height, line_start, glyph) = rtl_glyph;
+    let y = line_top + line_height * 0.5;
+
+    let left = map
+        .hit(&prepared, glyph.x + glyph.w * 0.25, y)
+        .expect("left half should hit the RTL glyph");
+    let right = map
+        .hit(&prepared, glyph.x + glyph.w * 0.75, y)
+        .expect("right half should hit the RTL glyph");
+
+    assert_eq!(
+        left,
+        TextPosition::with_affinity(line_start + glyph.end, TextAffinity::Upstream)
+    );
+    assert_eq!(
+        right,
+        TextPosition::with_affinity(line_start + glyph.start, TextAffinity::Downstream)
+    );
+}
+
+#[test]
+fn start_end_alignment_resolves_against_base_direction() {
+    assert_eq!(
+        text_system::align(Align::Start, ResolvedTextDirection::Ltr),
+        glyphon::cosmic_text::Align::Left
+    );
+    assert_eq!(
+        text_system::align(Align::Start, ResolvedTextDirection::Rtl),
+        glyphon::cosmic_text::Align::Right
+    );
+    assert_eq!(
+        text_system::align(Align::End, ResolvedTextDirection::Rtl),
+        glyphon::cosmic_text::Align::Left
+    );
+}
+
+#[test]
+fn mixed_direction_preedit_spans_are_projected_inline() {
+    let mut engine = Engine::new();
+    let buffer = Buffer::from_text("abc אבג");
+    let state =
+        TextViewState::default().with_preedit(Some(Preedit::new("שלום", Some((0, "של".len())))));
+    let layout = engine.text_field_layout_at(
+        &buffer,
+        Style::default().with_size(18.0),
+        area::logical(400.0, 32.0),
+        state,
+        Instant::now(),
+    );
+
+    assert!(layout.caret().is_some());
+    assert!(!layout.preedit_underline_spans().is_empty());
+    assert!(!layout.preedit_selection_spans().is_empty());
+}
+#[test]
+fn buffer_normalizes_inserted_line_endings_to_spaces() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("a\nb");
+
+    assert_eq!(buffer.text(), "a b");
+
+    editor.apply_text_edit(&mut buffer, Edit::insert("\nc\r"));
+
+    assert_eq!(buffer.text(), "a b c ");
+}
+
+#[test]
+fn text_field_selection_layout_uses_shaped_text_span() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("hello");
+
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+
+    let layout = engine.text_field_layout(
+        &buffer,
+        Style::default().with_size(16.0),
+        area::logical(240.0, 32.0),
+        TextViewState::default(),
+    );
+    let span = layout
+        .selection_spans()
+        .first()
+        .expect("select all should create a highlight span");
+
+    assert!(span.width() > 0.0);
+    assert!(span.width() < 240.0);
+    assert!(span.x() >= 0.0);
+}
+#[test]
+fn text_field_preedit_renders_inline_text_spans_and_commit_clears_projection() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("hello");
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    let state = TextViewState::default().with_preedit(Some(Preedit::new("xy", Some((0, 1)))));
+    let field = Field::new(buffer.clone());
+
+    assert_eq!(field.presentation_text_for_state(&state), "xy");
+
+    let layout = engine.text_field_layout_at(
+        &buffer,
+        Style::default().with_size(16.0),
+        area::logical(240.0, 32.0),
+        state,
+        Instant::now(),
+    );
+
+    assert!(layout.caret().is_some());
+    assert!(!layout.preedit_underline_spans().is_empty());
+    assert!(!layout.preedit_selection_spans().is_empty());
+
+    editor.apply_text_edit(&mut buffer, Edit::ime_commit("xy"));
+    let committed = engine.text_field_layout(
+        &buffer,
+        Style::default().with_size(16.0),
+        area::logical(240.0, 32.0),
+        TextViewState::default(),
+    );
+
+    assert_eq!(buffer.text(), "xy");
+    assert!(committed.preedit_underline_spans().is_empty());
+    assert!(committed.preedit_selection_spans().is_empty());
+}
+
+#[test]
+fn text_field_preedit_caret_uses_composed_projection() {
+    let mut engine = Engine::new();
+    let buffer = Buffer::from_text("hello");
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(240.0, 32.0);
+    let now = Instant::now();
+    let committed = engine
+        .text_field_layout_at(&buffer, style, viewport, TextViewState::default(), now)
+        .caret()
+        .expect("committed caret should be visible");
+    let composed = engine
+        .text_field_layout_at(
+            &buffer,
+            style,
+            viewport,
+            TextViewState::default().with_preedit(Some(Preedit::new(" world", None))),
+            now,
+        )
+        .caret()
+        .expect("preedit caret should be visible");
+
+    assert!(composed.x() > committed.x());
+}
+
+#[test]
+fn text_area_metrics_layout_skips_highlight_overlay_work() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let text = (0..1_000)
+        .map(|index| format!("line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut buffer = Buffer::from_multiline_text(text);
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    let area_model = Area::new(buffer);
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(240.0, 52.0);
+
+    engine.reset_highlight_stats();
+    engine.reset_interaction_stats();
+    let layout = engine.text_area_metrics_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        TextViewState::default(),
+        Instant::now(),
+    );
+
+    assert_eq!(engine.highlight_stats(), HighlightStats::default());
+    let interaction_stats = engine.interaction_stats();
+    assert_eq!(interaction_stats.text_area_frame_shape_calls, 0);
+    assert_eq!(interaction_stats.text_area_shape_until_scroll_calls, 0);
+    assert!(layout.selection_spans().is_empty());
+    assert!(layout.preedit_underline_spans().is_empty());
+    assert!(layout.preedit_selection_spans().is_empty());
+}
+
+#[test]
+fn text_area_paint_layout_computes_highlight_overlays_from_visible_surfaces() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let text = (0..1_000)
+        .map(|index| format!("line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut buffer = Buffer::from_multiline_text(text);
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    let area_model = Area::new(buffer);
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(240.0, 52.0);
+    let state = TextViewState::default();
+    let now = Instant::now();
+
+    engine.reset_highlight_stats();
+    let (layout, surfaces) = engine
+        .text_area_paint_layout_for_area_at(&area_model, style, viewport, state.clone(), now)
+        .into_parts();
+    let stats = engine.highlight_stats();
+    let visible_runs = surface_visual_runs(&surfaces);
+
+    assert!(!layout.selection_spans().is_empty());
+    assert!(visible_runs <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
+    assert!(visible_runs < 1_000);
+    assert_eq!(stats.run_scans, visible_runs);
+    assert_eq!(stats.highlight_calls, 0);
+    assert_eq!(stats.spans, layout.selection_spans().len());
+
+    engine.reset_highlight_stats();
+    let cached =
+        engine.text_area_paint_layout_for_area_at(&area_model, style, viewport, state, now);
+    let cached_stats = engine.highlight_stats();
+
+    assert!(!cached.layout().selection_spans().is_empty());
+    assert_eq!(cached_stats.run_scans, visible_runs);
+    assert_eq!(cached_stats.highlight_calls, 0);
+    assert_eq!(cached_stats.spans, cached.layout().selection_spans().len());
+}
+
+#[test]
+fn wrapped_text_area_line_displays_do_not_overlap() {
+    let mut engine = Engine::new();
+    let long = "wrap ".repeat(40);
+    let area_model = Area::new(Buffer::from_multiline_text(format!("{long}\nnext")));
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(72.0, 220.0);
+
+    let paint_layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        TextViewState::default(),
+        Instant::now(),
+    );
+    let surfaces = paint_layout.surfaces();
+
+    assert!(surfaces.len() >= 2);
+    assert_eq!(surface_line_text(surfaces, 1), "next");
+    let first_bottom = surfaces[0].y() + surfaces[0].height();
+    assert!(
+        surfaces[1].y() >= first_bottom - 0.5,
+        "next line started at {}, before wrapped first line bottom {}",
+        surfaces[1].y(),
+        first_bottom
+    );
+}
+
+#[test]
+fn wrapped_text_area_hit_testing_uses_clicked_visual_row() {
+    let mut engine = Engine::new();
+    let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu";
+    let buffer = Buffer::from_multiline_text(text);
+    let area_model = Area::new(buffer);
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(86.0, 180.0);
+
+    let (x, y, first_row_end, second_row_start, second_row_end) = {
+        let display = engine.text_area_line_display(
+            &area_model,
+            area_model.buffer(),
+            true,
+            style,
+            viewport,
+            0,
+        );
+        let prepared = display.buffer.borrow();
+        let runs = prepared.layout_runs().collect::<Vec<_>>();
+        let groups = TextLayoutMap::visual_line_groups(&runs);
+        assert!(
+            groups.len() >= 2,
+            "test text should wrap into at least two visual rows"
+        );
+        let first_range = visual_group_source_range(&runs, groups[0], display.source_start)
+            .expect("first visual row should have glyphs");
+        let second_range = visual_group_source_range(&runs, groups[1], display.source_start)
+            .expect("second visual row should have glyphs");
+        let first_run = &runs[groups[1].start];
+        let first_glyph = first_run
+            .glyphs
+            .first()
+            .expect("second visual row should have a first glyph");
+        (
+            first_glyph.x + first_glyph.w * 0.25,
+            (groups[1].top + groups[1].bottom) * 0.5,
+            first_range.end,
+            second_range.start,
+            second_range.end,
+        )
+    };
+
+    assert!(second_row_start >= first_row_end);
+    let hit = engine
+        .text_area_position_at_for_area(
+            &area_model,
+            style,
+            viewport,
+            point::logical(x, y),
+            TextViewState::default(),
+        )
+        .expect("wrapped visual row hit should resolve to a caret");
+
+    assert!(
+        hit.index >= second_row_start && hit.index <= second_row_end,
+        "hit index {} should be inside second visual row range {}..{} instead of first row ending at {}",
+        hit.index,
+        second_row_start,
+        second_row_end,
+        first_row_end
+    );
+}
+
+#[test]
+fn wrapped_text_area_drag_selection_extends_into_lower_visual_row() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu";
+    let mut buffer = Buffer::from_multiline_text(text);
+    let area_model = Area::new(buffer.clone());
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(86.0, 180.0);
+    let (start_point, end_point, first_row_end, second_row_top) = {
+        let display = engine.text_area_line_display(
+            &area_model,
+            area_model.buffer(),
+            true,
+            style,
+            viewport,
+            0,
+        );
+        let prepared = display.buffer.borrow();
+        let runs = prepared.layout_runs().collect::<Vec<_>>();
+        let groups = TextLayoutMap::visual_line_groups(&runs);
+        assert!(
+            groups.len() >= 2,
+            "test text should wrap into at least two visual rows"
+        );
+        let first_range = visual_group_source_range(&runs, groups[0], display.source_start)
+            .expect("first visual row should have glyphs");
+        let first_run = &runs[groups[0].start];
+        let second_run = &runs[groups[1].start];
+        let start_glyph = first_run
+            .glyphs
+            .first()
+            .expect("first visual row should have a first glyph");
+        let end_glyph = second_run
+            .glyphs
+            .last()
+            .expect("second visual row should have a last glyph");
+        (
+            point::logical(
+                start_glyph.x + start_glyph.w * 0.25,
+                (groups[0].top + groups[0].bottom) * 0.5,
+            ),
+            point::logical(
+                end_glyph.x + end_glyph.w * 0.75,
+                (groups[1].top + groups[1].bottom) * 0.5,
+            ),
+            first_range.end,
+            groups[1].top,
+        )
+    };
+
+    let start = engine
+        .text_area_position_at_for_area(
+            &area_model,
+            style,
+            viewport,
+            start_point,
+            TextViewState::default(),
+        )
+        .expect("drag start should resolve to a caret");
+    let end = engine
+        .text_area_position_at_for_area(
+            &area_model,
+            style,
+            viewport,
+            end_point,
+            TextViewState::default(),
+        )
+        .expect("drag end should resolve to a caret");
+
+    editor.apply_text_edit(&mut buffer, Edit::pointer(PointerEditKind::Click, start));
+    editor.apply_text_edit(&mut buffer, Edit::pointer(PointerEditKind::Drag, end));
+
+    let selected = buffer
+        .selected_range()
+        .expect("drag across wrapped rows should create a selection");
+    assert!(
+        selected.end > first_row_end,
+        "selection {:?} should extend beyond first visual row ending at {}",
+        selected,
+        first_row_end
+    );
+
+    let layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        TextViewState::default(),
+        Instant::now(),
+    );
+    assert!(
+        layout
+            .layout()
+            .selection_spans()
+            .iter()
+            .any(|span| (span.y() - second_row_top).abs() <= TEXT_LAYOUT_VISUAL_LINE_EPSILON),
+        "selection highlight should include the lower wrapped visual row"
+    );
+}
+#[test]
+fn text_area_metrics_reuse_measured_wrapped_heights_after_paint() {
+    let mut engine = Engine::new();
+    let long = "wrap ".repeat(40);
+    let area_model = Area::new(Buffer::from_multiline_text(format!("{long}\nnext")));
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(72.0, 24.0);
+    let state = TextViewState::default();
+
+    let cold = engine.text_area_metrics_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        state.clone(),
+        Instant::now(),
+    );
+    let _paint = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        state.clone(),
+        Instant::now(),
+    );
+    let warm = engine.text_area_metrics_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        state,
+        Instant::now(),
+    );
+
+    assert!(
+        warm.content_area().height() > cold.content_area().height(),
+        "painted wrapped line measurements should refine content height from {} to more than it, got {}",
+        cold.content_area().height(),
+        warm.content_area().height()
+    );
+}
+#[test]
+fn text_area_overlay_cache_key_tracks_scroll_window() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let text = (0..1_000)
+        .map(|index| format!("line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut buffer = Buffer::from_multiline_text(text);
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    let area_model = Area::new(buffer);
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(240.0, 52.0);
+    let line_height = 13.0 * 1.25;
+    let now = Instant::now();
+
+    engine.reset_highlight_stats();
+    engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        TextViewState::default(),
+        now,
+    );
+    let first = engine.highlight_stats();
+    assert!(first.run_scans > 0);
+    assert_eq!(first.highlight_calls, 0);
+
+    engine.reset_highlight_stats();
+    let scrolled_state = TextViewState::default().with_scroll_y(line_height * 100.0);
+    engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        scrolled_state.clone(),
+        now,
+    );
+    let scrolled = engine.highlight_stats();
+    assert!(scrolled.run_scans > 0);
+    assert_eq!(scrolled.highlight_calls, 0);
+
+    engine.reset_highlight_stats();
+    engine.text_area_paint_layout_for_area_at(&area_model, style, viewport, scrolled_state, now);
+    let cached = engine.highlight_stats();
+    assert!(cached.run_scans > 0);
+    assert_eq!(cached.highlight_calls, 0);
+}
+#[test]
+fn offscreen_text_area_selection_skips_run_highlight_calls() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let text = (0..1_000)
+        .map(|index| format!("line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut buffer = Buffer::from_multiline_text(text);
+    editor.apply_text_edit(&mut buffer, Edit::set_position(TextPosition::new(0)));
+    editor.apply_text_edit(&mut buffer, Edit::extend_position(TextMotion::WordNext));
+    assert!(buffer.has_selection());
+    let area_model = Area::new(buffer);
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(240.0, 52.0);
+    let state = TextViewState::default().with_scroll_y(13.0 * 1.25 * 500.0);
+
+    engine.reset_highlight_stats();
+    let layout = engine
+        .text_area_paint_layout_for_area_at(&area_model, style, viewport, state, Instant::now())
+        .into_parts()
+        .0;
+    let stats = engine.highlight_stats();
+
+    assert!(layout.selection_spans().is_empty());
+    assert!(stats.run_scans <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
+    assert_eq!(stats.highlight_calls, 0);
+    assert_eq!(stats.spans, 0);
+}
+
+#[test]
+fn fast_selection_check_matches_canonical_selected_range() {
+    fn assert_matches(buffer: &Buffer) {
+        assert_eq!(
+            buffer.has_non_empty_selection(),
+            buffer.selected_range().is_some()
+        );
+    }
+
+    let mut editor = Editor::new();
+
+    let mut collapsed = Buffer::from_text("abc");
+    let cursor = collapsed.cursor_for_text_index(1);
+    collapsed.set_cursor_and_selection(cursor, Selection::Normal(cursor));
+    assert_matches(&collapsed);
+
+    let mut single = Buffer::from_text("hello world");
+    assert_matches(&single);
+    editor.apply_text_edit(&mut single, Edit::SelectAll);
+    assert_matches(&single);
+    editor.apply_text_edit(&mut single, Edit::insert("x"));
+    assert_matches(&single);
+
+    let mut multiline = Buffer::from_multiline_text("one\ntwo\nthree");
+    editor.apply_text_edit(&mut multiline, Edit::set_position(TextPosition::new(0)));
+    editor.apply_text_edit(
+        &mut multiline,
+        Edit::extend_position(TextMotion::DocumentEnd),
+    );
+    assert_matches(&multiline);
+
+    let mut word = Buffer::from_text("hello world");
+    editor.apply_text_edit(
+        &mut word,
+        Edit::pointer(PointerEditKind::DoubleClick, TextPosition::new(1)),
+    );
+    assert_matches(&word);
+}
+#[test]
+fn selection_only_pointer_edits_do_not_bump_revision_or_invalidate_surfaces() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let text = (0..200)
+        .map(|index| format!("line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut buffer = Buffer::from_multiline_text(text);
+    let area_model = Area::new(buffer.clone());
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(240.0, 52.0);
+    engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        TextViewState::default(),
+        Instant::now(),
+    );
+    let revision = buffer.revision();
+    let cached_frames = engine.text_area_line_displays.len();
+
+    let set = editor.apply_text_edit_with_result(&mut buffer, Edit::set_position(0));
+    assert!(set.selection_changed);
+    assert!(!set.text_changed);
+    assert!(set.change.is_none());
+    assert_eq!(buffer.revision(), revision);
+    assert_eq!(engine.text_area_line_displays.len(), cached_frames);
+
+    let drag = editor.apply_text_edit_with_result(
+        &mut buffer,
+        Edit::pointer(PointerEditKind::Drag, TextPosition::new(20)),
+    );
+    assert!(drag.selection_changed);
+    assert!(!drag.text_changed);
+    assert!(drag.change.is_none());
+    assert!(buffer.selected_range().is_some());
+    assert_eq!(buffer.revision(), revision);
+    assert_eq!(engine.text_area_line_displays.len(), cached_frames);
+}
+
+#[test]
+fn text_area_hit_testing_refreshes_cached_line_offsets_after_edit_above() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_multiline_text("abcdefghij\nclick target\nlast line");
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(320.0, 120.0);
+
+    engine.text_area_paint_layout_for_area_at(
+        &Area::new(buffer.clone()),
+        style,
+        viewport,
+        TextViewState::default(),
+        Instant::now(),
+    );
+    assert!(
+        engine.text_area_line_displays.len() >= 2,
+        "warm paint should cache multiple line displays"
+    );
+
+    let result = editor.apply_text_edit_with_result(&mut buffer, Edit::replace_range(0..4, ""));
+    assert!(result.text_changed);
+    let area_model = Area::new(buffer.clone());
+    let paint_layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        TextViewState::default(),
+        Instant::now(),
+    );
+    let target_y = paint_layout
+        .surfaces()
+        .iter()
+        .find(|surface| {
+            let buffer = surface.buffer();
+            let buffer = buffer.borrow();
+            buffer
+                .lines
+                .first()
+                .is_some_and(|line| line.text() == "click target")
+        })
+        .map(|surface| surface.y() + surface.height() * 0.5)
+        .expect("target line should be visible after edit");
+
+    let expected_current_start = "efghij\n".len();
+    let stale_start_before_delete = "abcdefghij\n".len();
+    assert_ne!(expected_current_start, stale_start_before_delete);
+
+    engine.reset_interaction_stats();
+    let hit = engine
+        .text_area_position_at_for_area(
+            &area_model,
+            style,
+            viewport,
+            point::logical(1.0, target_y),
+            TextViewState::default(),
+        )
+        .expect("clicking visible lower line should resolve a caret");
+    let stats = engine.interaction_stats();
+    assert!(
+        stats.text_area_frame_cache_hits > 0,
+        "hit testing should reuse warmed line displays: {stats:?}"
+    );
+    assert_eq!(hit.index, expected_current_start);
+    assert_ne!(hit.index, stale_start_before_delete);
+}
+
+#[test]
+fn text_area_hit_testing_uses_current_line_order_after_line_delete_above() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let lines = (0..80)
+        .map(|line| {
+            if line == 30 {
+                "click target".to_owned()
+            } else {
+                format!("line {line:02}")
+            }
+        })
+        .collect::<Vec<_>>();
+    let text = lines.join("\n");
+    let mut buffer = Buffer::from_multiline_text(text);
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(320.0, 120.0);
+    let state = TextViewState::default().with_scroll(0.0, 500.0);
+    let now = Instant::now();
+
+    engine.text_area_paint_layout_for_area_at(
+        &Area::new(buffer.clone()),
+        style,
+        viewport,
+        state.clone(),
+        now,
+    );
+
+    let delete_len = lines[0].len() + 1 + lines[1].len() + 1 + lines[2].len() + 1;
+    let result =
+        editor.apply_text_edit_with_result(&mut buffer, Edit::replace_range(0..delete_len, ""));
+    assert!(result.text_changed);
+    let expected_current_start = buffer
+        .text()
+        .find("click target")
+        .expect("target should remain after deleting lines above it");
+    let stale_start_before_delete = expected_current_start + delete_len;
+    assert_ne!(expected_current_start, stale_start_before_delete);
+
+    let area_model = Area::new(buffer.clone());
+    engine.reset_interaction_stats();
+    let paint_layout =
+        engine.text_area_paint_layout_for_area_at(&area_model, style, viewport, state.clone(), now);
+    let paint_stats = engine.interaction_stats();
+    assert!(
+        paint_stats.text_area_frame_cache_hits > 0,
+        "line delete should preserve lower-line cache hits: {paint_stats:?}"
+    );
+    let target_y = paint_layout
+        .surfaces()
+        .iter()
+        .find(|surface| {
+            let buffer = surface.buffer();
+            let buffer = buffer.borrow();
+            buffer
+                .lines
+                .first()
+                .is_some_and(|line| line.text() == "click target")
+        })
+        .map(|surface| surface.y() + surface.height() * 0.5)
+        .expect("target line should be visible after deleting lines above it");
+
+    let observed_hit = engine
+        .text_area_position_at_for_paint_layout(
+            &area_model,
+            point::logical(1.0, target_y),
+            state.clone(),
+            &paint_layout,
+        )
+        .expect("observed painted layout should resolve the target line");
+    assert_eq!(observed_hit.index, expected_current_start);
+    assert_ne!(observed_hit.index, stale_start_before_delete);
+
+    engine.reset_interaction_stats();
+    let fallback_hit = engine
+        .text_area_position_at_for_area(
+            &area_model,
+            style,
+            viewport,
+            point::logical(1.0, target_y),
+            state,
+        )
+        .expect("fallback hit testing should resolve the target line");
+    let fallback_stats = engine.interaction_stats();
+    assert!(
+        fallback_stats.text_area_frame_cache_hits > 0,
+        "fallback hit testing should reuse warmed lower-line displays: {fallback_stats:?}"
+    );
+    assert_eq!(fallback_hit.index, expected_current_start);
+    assert_ne!(fallback_hit.index, stale_start_before_delete);
+}
+
+#[test]
+fn text_area_hit_testing_uses_current_line_order_after_line_insert_above() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let lines = (0..80)
+        .map(|line| {
+            if line == 24 {
+                "click target".to_owned()
+            } else {
+                format!("line {line:02}")
+            }
+        })
+        .collect::<Vec<_>>();
+    let text = lines.join("\n");
+    let mut buffer = Buffer::from_multiline_text(text);
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(320.0, 120.0);
+    let state = TextViewState::default().with_scroll(0.0, 480.0);
+    let now = Instant::now();
+
+    engine.text_area_paint_layout_for_area_at(
+        &Area::new(buffer.clone()),
+        style,
+        viewport,
+        state.clone(),
+        now,
+    );
+
+    let inserted = "inserted a\ninserted b\n";
+    let result =
+        editor.apply_text_edit_with_result(&mut buffer, Edit::replace_range(0..0, inserted));
+    assert!(result.text_changed);
+    let expected_current_start = buffer
+        .text()
+        .find("click target")
+        .expect("target should remain after inserting lines above it");
+    let stale_start_before_insert = expected_current_start - inserted.len();
+    assert_ne!(expected_current_start, stale_start_before_insert);
+
+    let area_model = Area::new(buffer.clone());
+    engine.reset_interaction_stats();
+    let paint_layout =
+        engine.text_area_paint_layout_for_area_at(&area_model, style, viewport, state.clone(), now);
+    let paint_stats = engine.interaction_stats();
+    assert!(
+        paint_stats.text_area_frame_cache_hits > 0,
+        "line insert should preserve lower-line cache hits: {paint_stats:?}"
+    );
+    let target_y = paint_layout
+        .surfaces()
+        .iter()
+        .find(|surface| {
+            let buffer = surface.buffer();
+            let buffer = buffer.borrow();
+            buffer
+                .lines
+                .first()
+                .is_some_and(|line| line.text() == "click target")
+        })
+        .map(|surface| surface.y() + surface.height() * 0.5)
+        .expect("target line should be visible after inserting lines above it");
+
+    let observed_hit = engine
+        .text_area_position_at_for_paint_layout(
+            &area_model,
+            point::logical(1.0, target_y),
+            state,
+            &paint_layout,
+        )
+        .expect("observed painted layout should resolve the target line");
+    assert_eq!(observed_hit.index, expected_current_start);
+    assert_ne!(observed_hit.index, stale_start_before_insert);
+}
+#[test]
+fn text_area_hit_testing_uses_nearest_caret_in_empty_space() {
+    let mut engine = Engine::new();
+    let buffer = Buffer::from_multiline_text("one\ntwo");
+    let area_model = Area::new(buffer.clone());
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(240.0, 120.0);
+
+    let below_near_start = engine
+        .text_area_position_at_for_area(
+            &area_model,
+            style,
+            viewport,
+            point::logical(-4.0, 100.0),
+            TextViewState::default(),
+        )
+        .expect("click below short text should resolve on the nearest line");
+    assert_eq!(below_near_start.index, "one\n".len());
+
+    let below_far_right = engine
+        .text_area_position_at_for_area(
+            &area_model,
+            style,
+            viewport,
+            point::logical(220.0, 100.0),
+            TextViewState::default(),
+        )
+        .expect("click below short text should still honor x on the nearest line");
+    assert_eq!(below_far_right.index, buffer.text().len());
+
+    let right_of_first_line = engine
+        .text_area_position_at_for_area(
+            &area_model,
+            style,
+            viewport,
+            point::logical(220.0, 8.0),
+            TextViewState::default(),
+        )
+        .expect("click to the right of a line should resolve to a caret");
+    assert_eq!(right_of_first_line.index, "one".len());
+
+    let above_near_start = engine
+        .text_area_position_at_for_area(
+            &area_model,
+            style,
+            viewport,
+            point::logical(-4.0, -8.0),
+            TextViewState::default(),
+        )
+        .expect("click above text should resolve on the nearest line");
+    assert_eq!(above_near_start.index, 0);
+
+    let above_far_right = engine
+        .text_area_position_at_for_area(
+            &area_model,
+            style,
+            viewport,
+            point::logical(220.0, -8.0),
+            TextViewState::default(),
+        )
+        .expect("click above text should still honor x on the nearest line");
+    assert_eq!(above_far_right.index, "one".len());
+
+    let empty = Area::new(Buffer::from_multiline_text(""));
+    let empty_hit = engine
+        .text_area_position_at_for_area(
+            &empty,
+            style,
+            viewport,
+            point::logical(12.0, 80.0),
+            TextViewState::default(),
+        )
+        .expect("empty text area should still resolve to a caret");
+    assert_eq!(empty_hit.index, 0);
+}
+
+#[test]
+fn mixed_direction_line_edges_preserve_affinity_for_nearest_line_hits() {
+    let mut engine = Engine::new();
+    let buffer = Buffer::from_multiline_text("abc אבג\nxyz");
+    let area_model = Area::new(buffer);
+    let style = Style::default().with_size(18.0);
+    let viewport = area::logical(280.0, 120.0);
+    let display =
+        engine.text_area_line_display(&area_model, area_model.buffer(), true, style, viewport, 0);
+    let prepared = display.buffer.borrow();
+    let map = TextLayoutMap::from_line_starts(Rc::new(vec![display.source_start]));
+    let runs = prepared.layout_runs().collect::<Vec<_>>();
+    assert!(
+        runs.iter()
+            .any(|run| run.glyphs.iter().any(|glyph| glyph.level.is_rtl()))
+    );
+
+    let mut left_edge = None::<(f32, &glyphon::cosmic_text::LayoutRun<'_>)>;
+    let mut right_edge = None::<(f32, &glyphon::cosmic_text::LayoutRun<'_>)>;
+    for run in &runs {
+        let Some((left, right)) = TextLayoutMap::run_visual_bounds(run) else {
+            continue;
+        };
+        if left_edge.is_none_or(|(best, _)| left < best) {
+            left_edge = Some((left, run));
+        }
+        if right_edge.is_none_or(|(best, _)| right > best) {
+            right_edge = Some((right, run));
+        }
+    }
+    let (left, left_run) = left_edge.expect("mixed line should have a left visual edge");
+    let (right, right_run) = right_edge.expect("mixed line should have a right visual edge");
+    let y = runs[0].line_top - runs[0].line_height;
+
+    let left_hit = map
+        .hit(&prepared, left - 8.0, y)
+        .expect("above-line left edge should resolve to a caret");
+    let right_hit = map
+        .hit(&prepared, right + 8.0, y)
+        .expect("above-line right edge should resolve to a caret");
+
+    assert_eq!(left_hit, map.run_edge_position(left_run, true).unwrap());
+    assert_eq!(right_hit, map.run_edge_position(right_run, false).unwrap());
+}
+
+#[test]
+fn repeated_large_text_area_hit_tests_reuse_cached_frame() {
+    let mut engine = Engine::new();
+    let text = (0..5_000)
+        .map(|index| format!("line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let area_model = Area::new(Buffer::from_multiline_text(text));
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(240.0, 52.0);
+    let state = TextViewState::default();
+
+    engine.reset_interaction_stats();
+    let first = engine.text_area_position_at_for_area(
+        &area_model,
+        style,
+        viewport,
+        point::logical(16.0, 18.0),
+        state.clone(),
+    );
+    let second = engine.text_area_position_at_for_area(
+        &area_model,
+        style,
+        viewport,
+        point::logical(18.0, 18.0),
+        state.clone(),
+    );
+    let stats = engine.interaction_stats();
+
+    assert!(first.is_some());
+    assert!(second.is_some());
+    assert!(stats.text_area_frame_cache_misses <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
+    assert!(stats.text_area_frame_cache_hits > 0);
+    assert!(stats.text_area_frame_shape_calls <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
+    assert!(stats.text_area_frame_shaped_logical_lines <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
+    assert_eq!(stats.text_area_shape_until_scroll_calls, 0);
+    assert!(stats.hit_run_scans <= stats.text_area_frame_shaped_visual_lines * 2);
+}
+
+#[test]
+fn warmed_large_text_area_hit_test_does_not_reshape_visible_window() {
+    let mut engine = Engine::new();
+    let text = (0..5_000)
+        .map(|index| format!("line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let area_model = Area::new(Buffer::from_multiline_text(text));
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(240.0, 52.0);
+    let state = TextViewState::default();
+
+    let _ = engine.text_area_position_at_for_area(
+        &area_model,
+        style,
+        viewport,
+        point::logical(16.0, 18.0),
+        state.clone(),
+    );
+    engine.reset_interaction_stats();
+    let hit = engine.text_area_position_at_for_area(
+        &area_model,
+        style,
+        viewport,
+        point::logical(20.0, 18.0),
+        state,
+    );
+    let stats = engine.interaction_stats();
+
+    assert!(hit.is_some());
+    assert_eq!(stats.text_area_shape_until_scroll_calls, 0);
+    assert!(stats.text_area_frame_cache_hits > 0);
+    assert_eq!(stats.text_area_frame_cache_misses, 0);
+    assert_eq!(stats.text_area_frame_shape_calls, 0);
+    assert!(stats.hit_run_scans <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
+}
+
+#[test]
+fn text_area_preedit_reveal_scroll_uses_composed_projection() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_multiline_text("one\ntwo");
+    let end = buffer.position_for_text_index(buffer.text().len());
+    editor.apply_text_edit(&mut buffer, Edit::set_position(end));
+    let area_model = Area::new(buffer);
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(120.0, 36.0);
+    let state =
+        TextViewState::default().with_preedit(Some(Preedit::new("\nthree\nfour\nfive\nsix", None)));
+
+    let revealed =
+        engine.ensure_caret_visible_for_area(&area_model, style, viewport, state.clone(), None);
+    let layout = engine
+        .text_area_paint_layout_for_area_at(
+            &area_model,
+            style,
+            viewport,
+            revealed.clone(),
+            Instant::now(),
+        )
+        .into_parts()
+        .0;
+
+    assert!(revealed.scroll_y() > 0.0);
+    assert!(!layout.preedit_underline_spans().is_empty());
+}
+
+#[test]
+fn obscured_text_field_hit_testing_maps_display_cursor_to_source_cursor() {
+    let mut engine = Engine::new();
+    let field = Field::new("åb").obscured_dot();
+    let position = engine
+        .text_field_position_at_for_field(
+            &field,
+            Style::default().with_size(16.0),
+            area::logical(200.0, 24.0),
+            point::logical(200.0, 8.0),
+            TextViewState::default(),
+        )
+        .expect("hit testing should return a position");
+
+    assert_eq!(field.presentation_text(), "••");
+    assert_eq!(field.buffer().text(), "åb");
+    assert_eq!(position.index, field.buffer().text().len());
+}
+
+#[test]
+fn ensure_caret_visible_keeps_caret_inside_content_rect() {
+    let mut engine = Engine::new();
+    let buffer = Buffer::from_text("hello world this is a long single-line field");
+    let area = area::logical(80.0, 32.0);
+    let state = engine.ensure_caret_visible(
+        &buffer,
+        Style::default().with_size(16.0),
+        area,
+        TextViewState::default(),
+    );
+
+    assert!(state.scroll_x() > 0.0);
+
+    let layout = engine.text_field_layout(&buffer, Style::default().with_size(16.0), area, state);
+    let caret = layout.caret().expect("focused long text should have caret");
+
+    assert!(caret.x() >= 0.0);
+    assert!(caret.x() <= area.width());
+}
+
+#[test]
+fn text_field_caret_visibility_follows_blink_phase() {
+    let mut engine = Engine::new();
+    let buffer = Buffer::from_text("hello");
+    let area = area::logical(100.0, 24.0);
+    let epoch = Instant::now();
+    let state = TextViewState::new_at(0.0, epoch);
+
+    let visible = engine.text_field_layout_at(
+        &buffer,
+        Style::default().with_size(16.0),
+        area,
+        state.clone(),
+        epoch,
+    );
+    let hidden = engine.text_field_layout_at(
+        &buffer,
+        Style::default().with_size(16.0),
+        area,
+        state.clone(),
+        epoch + Duration::from_millis(500),
+    );
+    let visible_again = engine.text_field_layout_at(
+        &buffer,
+        Style::default().with_size(16.0),
+        area,
+        state,
+        epoch + Duration::from_millis(1000),
+    );
+
+    assert!(visible.caret().is_some());
+    assert_eq!(hidden.caret(), None);
+    assert!(visible_again.caret().is_some());
+}
+
+#[test]
+fn text_field_selection_suppresses_caret_layout() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("hello");
+    let area = area::logical(100.0, 24.0);
+    let epoch = Instant::now();
+
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+
+    let layout = engine.text_field_layout_at(
+        &buffer,
+        Style::default().with_size(16.0),
+        area,
+        TextViewState::new_at(0.0, epoch),
+        epoch,
+    );
+
+    assert_eq!(layout.caret(), None);
+    assert!(!layout.selection_spans().is_empty());
+}
+
+#[test]
+fn multiline_buffer_preserves_line_breaks_and_enter_inserts_newline() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_multiline_text("one\r\ntwo\rthree");
+
+    assert_eq!(buffer.text(), "one\ntwo\nthree");
+
+    let end = buffer.position_for_text_index(buffer.text().len());
+    editor.apply_text_edit(&mut buffer, Edit::set_position(end));
+    editor.apply_text_edit(&mut buffer, Edit::insert_line_break());
+    editor.apply_text_edit(&mut buffer, Edit::insert("four\nfive"));
+
+    assert_eq!(buffer.text(), "one\ntwo\nthree\nfour\nfive");
+}
+
+#[test]
+fn multiline_select_all_selects_the_entire_document() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_multiline_text("alpha\nbeta\ngamma");
+
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+
+    assert_eq!(
+        buffer.selected_text(),
+        Some("alpha\nbeta\ngamma".to_owned())
+    );
+    assert_eq!(
+        buffer.selected_range(),
+        Some(TextRange::new(0, "alpha\nbeta\ngamma".len()))
+    );
+}
+
+#[test]
+fn text_area_reveal_scroll_uses_wrapped_visual_caret_row() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu";
+    let mut buffer = Buffer::from_multiline_text(text);
+    let area_model = Area::new(buffer.clone());
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(86.0, 24.0);
+    let (cursor_index, second_row_top, row_height) = {
+        let display = engine.text_area_line_display(
+            &area_model,
+            area_model.buffer(),
+            true,
+            style,
+            viewport,
+            0,
+        );
+        let prepared = display.buffer.borrow();
+        let runs = prepared.layout_runs().collect::<Vec<_>>();
+        let groups = TextLayoutMap::visual_line_groups(&runs);
+        assert!(
+            groups.len() >= 2,
+            "test text should wrap into at least two visual rows"
+        );
+        let second_run = &runs[groups[1].start];
+        let first_glyph = second_run
+            .glyphs
+            .first()
+            .expect("second visual row should have a first glyph");
+        (
+            display.source_start + first_glyph.start,
+            groups[1].top,
+            second_run.line_height,
+        )
+    };
+
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::set_position(TextPosition::new(cursor_index)),
+    );
+    let area_model = Area::new(buffer);
+    let scroll_y = (second_row_top - 2.0).max(0.0);
+    let state = TextViewState::default().with_scroll_y(scroll_y);
+    let revealed = engine.ensure_caret_visible_for_area(&area_model, style, viewport, state, None);
+
+    assert!(
+        (revealed.scroll_y() - scroll_y).abs() <= TEXT_LAYOUT_VISUAL_LINE_EPSILON,
+        "visible wrapped-row caret should not reveal to hard-line top: before {scroll_y}, after {}",
+        revealed.scroll_y()
+    );
+
+    let layout = engine
+        .text_area_paint_layout_for_area_at(
+            &area_model,
+            style,
+            area::logical(viewport.width(), row_height + 4.0),
+            revealed,
+            Instant::now(),
+        )
+        .into_parts()
+        .0;
+    let caret = layout.caret().expect("wrapped row caret should be visible");
+    assert!(caret.y() >= 0.0);
+}
+#[test]
+fn text_area_reveal_scroll_keeps_caret_inside_vertical_viewport() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_multiline_text("one\ntwo\nthree\nfour\nfive\nsix");
+    let end = buffer.position_for_text_index(buffer.text().len());
+    editor.apply_text_edit(&mut buffer, Edit::set_position(end));
+
+    let area_model = Area::new(buffer);
+    let viewport = area::logical(120.0, 36.0);
+    let state = engine.ensure_caret_visible_for_area(
+        &area_model,
+        Style::default().with_size(16.0),
+        viewport,
+        TextViewState::default(),
+        None,
+    );
+
+    assert!(state.scroll_y() > 0.0);
+
+    let paint_layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        Style::default().with_size(16.0),
+        viewport,
+        state,
+        Instant::now(),
+    );
+    let caret = paint_layout
+        .layout()
+        .caret()
+        .expect("area caret should be visible");
+
+    assert!(caret.y() >= 0.0);
+    assert!(caret.y() + caret.height() <= viewport.height() + TEXT_FIELD_CARET_MARGIN);
+}
+
+#[test]
+fn text_area_ensure_caret_visible_preserves_visible_caret_scroll_after_backspace() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let text = (0..40)
+        .map(|line| format!("line {line:02} abc"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut buffer = Buffer::from_multiline_text(text.clone());
+    let cursor_index = text.find("line 20 abc").unwrap() + "line 20 abc".len();
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::set_position(TextPosition::new(cursor_index)),
+    );
+    editor.apply_text_edit(&mut buffer, Edit::backspace());
+
+    let area_model = Area::new(buffer);
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(200.0, 64.0);
+    let scroll_y = text_area_estimated_line_height(style) * 18.0;
+    let state = TextViewState::default()
+        .with_scroll_y(scroll_y)
+        .ensure_caret_visible(Instant::now());
+
+    let revealed = engine.ensure_caret_visible_for_area(&area_model, style, viewport, state, None);
+
+    assert!(
+        (revealed.scroll_y() - scroll_y).abs() <= TEXT_LAYOUT_VISUAL_LINE_EPSILON,
+        "visible caret should preserve scroll after backspace: before {scroll_y}, after {}",
+        revealed.scroll_y()
+    );
+
+    let layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        revealed,
+        Instant::now(),
+    );
+    let caret = layout
+        .layout()
+        .caret()
+        .expect("caret should remain visible after preserving scroll");
+    assert!(caret.y() >= -TEXT_FIELD_CARET_MARGIN);
+    assert!(caret.y() + caret.height() <= viewport.height() + TEXT_FIELD_CARET_MARGIN);
+}
+
+#[test]
+fn large_wrapped_text_area_ensure_caret_visible_uses_observed_visible_caret_after_backspace() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let wrapped = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau";
+    let text = (0..2_000)
+        .map(|line| format!("line {line:04} {wrapped}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let target_line = 900;
+    let needle = format!("line {target_line:04} ");
+    let cursor_index = text.find(&needle).unwrap() + needle.len();
+    let mut buffer = Buffer::from_multiline_text(text);
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::set_position(TextPosition::new(cursor_index)),
+    );
+
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(122.0, 72.0);
+    let initial_scroll_y = text_area_estimated_line_height(style)
+        * (target_line + TEXT_AREA_FRAME_MIN_OVERSCAN_LINES) as f32;
+    let now = Instant::now();
+    let mut state = TextViewState::default()
+        .with_scroll_y(initial_scroll_y)
+        .ensure_caret_visible(now);
+
+    let area_model = Area::new(buffer.clone());
+    let mut warm_layout = None;
+    for _ in 0..8 {
+        let layout = engine.text_area_paint_layout_for_area_at(
+            &area_model,
+            style,
+            viewport,
+            state.clone(),
+            now,
+        );
+        let caret = layout
+            .layout()
+            .caret()
+            .expect("target caret should be in the warmed viewport");
+        let visibility =
+            Viewport::new(viewport, point::logical(state.scroll_x(), state.scroll_y()))
+                .visibility_of_local_caret(caret, TEXT_FIELD_CARET_MARGIN);
+        if visibility.is_visible() {
+            warm_layout = Some(layout);
+            break;
+        }
+
+        let mut next_scroll_y = state.scroll_y();
+        match visibility {
+            Visibility::Above => {
+                next_scroll_y = next_scroll_y + caret.y() - TEXT_FIELD_CARET_MARGIN;
+            }
+            Visibility::Below => {
+                next_scroll_y =
+                    next_scroll_y + caret.y() + caret.height() + TEXT_FIELD_CARET_MARGIN
+                        - viewport.height();
+            }
+            Visibility::Visible | Visibility::Before | Visibility::After | Visibility::Unknown => {}
+        }
+        state = state.with_scroll_y(next_scroll_y.max(0.0));
+    }
+
+    let warm_layout = warm_layout.expect("target caret should settle into view");
+    let warm_caret = warm_layout
+        .layout()
+        .caret()
+        .expect("target caret should be in the warmed viewport");
+    let warm_visibility =
+        Viewport::new(viewport, point::logical(state.scroll_x(), state.scroll_y()))
+            .visibility_of_local_caret(warm_caret, TEXT_FIELD_CARET_MARGIN);
+    assert!(
+        warm_visibility.is_visible(),
+        "warm caret {warm_caret:?} should be visible, got {warm_visibility:?}"
+    );
+    let scroll_y = state.scroll_y();
+
+    let expected_misses_per_backspace = 2;
+    let mut observed = None;
+    for step in 0..3 {
+        let result = editor.apply_text_edit_with_result(&mut buffer, Edit::backspace());
+        assert_eq!(
+            result.impacts.len(),
+            1,
+            "backspace {step} should report one edit impact"
+        );
+        assert_eq!(
+            result.impacts[0].affected_line_count(),
+            1,
+            "backspace {step} should dirty only the edited logical line"
+        );
+        assert!(result.impacts[0].affected_start_line_id.is_some());
+
+        let area_model = Area::new(buffer.clone());
+        engine.reset_interaction_stats();
+        let next = engine.text_area_paint_layout_for_area_at(
+            &area_model,
+            style,
+            viewport,
+            state.clone(),
+            now,
+        );
+        let paint_stats = engine.interaction_stats();
+        assert!(
+            paint_stats.text_area_frame_cache_hits > 0,
+            "backspace {step} should reuse unaffected visible line displays"
+        );
+        assert!(
+            paint_stats.text_area_frame_cache_misses <= expected_misses_per_backspace,
+            "backspace {step} should not cold-cache the whole viewport: {paint_stats:?}"
+        );
+        assert!(
+            paint_stats.text_area_frame_shape_calls <= expected_misses_per_backspace,
+            "backspace {step} should shape only touched lines and edge fill: {paint_stats:?}"
+        );
+        observed = Some(next);
+    }
+
+    let area_model = Area::new(buffer);
+    let observed = observed.expect("backspace loop should produce an observed layout");
+    let observed_caret = observed
+        .layout()
+        .caret()
+        .expect("caret should remain visible after backspace");
+    assert!(
+        Viewport::new(viewport, point::logical(state.scroll_x(), state.scroll_y()))
+            .visibility_of_local_caret(observed_caret, TEXT_FIELD_CARET_MARGIN)
+            .is_visible()
+    );
+
+    engine.reset_interaction_stats();
+    let revealed = engine.ensure_caret_visible_for_area(
+        &area_model,
+        style,
+        viewport,
+        state.clone(),
+        Some(observed.layout()),
+    );
+    let stats = engine.interaction_stats();
+
+    assert!(
+        (revealed.scroll_y() - scroll_y).abs() <= TEXT_LAYOUT_VISUAL_LINE_EPSILON,
+        "observed visible caret should preserve scroll after large wrapped backspace: before {scroll_y}, after {}",
+        revealed.scroll_y()
+    );
+    assert_eq!(stats.text_area_frame_shape_calls, 0);
+    assert_eq!(stats.text_area_frame_cache_misses, 0);
+}
+
+#[test]
+fn text_area_ensure_caret_visible_uses_observed_hidden_caret_minimally() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let text = (0..40)
+        .map(|line| format!("line {line:02}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut buffer = Buffer::from_multiline_text(text.clone());
+    let cursor_index = text.find("line 08").unwrap() + "line 08".len();
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::set_position(TextPosition::new(cursor_index)),
+    );
+
+    let area_model = Area::new(buffer);
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(200.0, 36.0);
+    let now = Instant::now();
+    let state = TextViewState::default().ensure_caret_visible(now);
+    let observed =
+        engine.text_area_paint_layout_for_area_at(&area_model, style, viewport, state.clone(), now);
+    let caret = observed
+        .layout()
+        .caret()
+        .expect("overscan should include the below-viewport caret");
+    assert!(matches!(
+        Viewport::new(viewport, point::logical(state.scroll_x(), state.scroll_y()))
+            .visibility_of_local_caret(caret, TEXT_FIELD_CARET_MARGIN),
+        Visibility::Below
+    ));
+
+    let revealed = engine.ensure_caret_visible_for_area(
+        &area_model,
+        style,
+        viewport,
+        state,
+        Some(observed.layout()),
+    );
+    let expected = caret.y() + caret.height() + TEXT_FIELD_CARET_MARGIN - viewport.height();
+
+    assert!(
+        (revealed.scroll_y() - expected).abs() <= TEXT_LAYOUT_VISUAL_LINE_EPSILON,
+        "observed hidden caret should reveal by the minimal local delta: expected {expected}, got {}",
+        revealed.scroll_y()
+    );
+    let layout =
+        engine.text_area_paint_layout_for_area_at(&area_model, style, viewport, revealed, now);
+    let caret = layout
+        .layout()
+        .caret()
+        .expect("observed hidden caret should be revealed into the painted viewport");
+    assert!(caret.y() >= -TEXT_FIELD_CARET_MARGIN);
+    assert!(caret.y() + caret.height() <= viewport.height() + TEXT_FIELD_CARET_MARGIN);
+}
+#[test]
+fn text_area_ensure_caret_visible_scrolls_hidden_caret_into_view() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let text = (0..40)
+        .map(|line| format!("line {line:02}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut buffer = Buffer::from_multiline_text(text.clone());
+    let cursor_index = text.find("line 30").unwrap() + "line 30".len();
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::set_position(TextPosition::new(cursor_index)),
+    );
+
+    let area_model = Area::new(buffer);
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(200.0, 64.0);
+    let state = TextViewState::default().ensure_caret_visible(Instant::now());
+
+    let revealed = engine.ensure_caret_visible_for_area(&area_model, style, viewport, state, None);
+
+    assert!(revealed.scroll_y() > 0.0);
+    let layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        revealed,
+        Instant::now(),
+    );
+    let caret = layout
+        .layout()
+        .caret()
+        .expect("hidden caret should be revealed into the painted viewport");
+    assert!(caret.y() >= -TEXT_FIELD_CARET_MARGIN);
+    assert!(caret.y() + caret.height() <= viewport.height() + TEXT_FIELD_CARET_MARGIN);
+}
+#[test]
+fn large_wrapped_text_area_ensure_caret_visible_preserves_scroll_after_selection_delete() {
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let wrapped = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau";
+    let text = (0..1_200)
+        .map(|line| format!("line {line:04} {wrapped}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let target_line = 560;
+    let selection_start = text.find(&format!("line {target_line:04}")).unwrap();
+    let selection_end =
+        text.find(&format!("line {:04}", target_line + 3)).unwrap() + "line 0000 alpha beta".len();
+    let mut buffer = Buffer::from_multiline_text(text);
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::set_position(TextPosition::new(selection_start)),
+    );
+
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(126.0, 80.0);
+    let now = Instant::now();
+    let mut state = TextViewState::default()
+        .with_scroll_y(text_area_estimated_line_height(style) * target_line as f32)
+        .ensure_caret_visible(now);
+    let area_model = Area::new(buffer.clone());
+    for _ in 0..8 {
+        let observed = engine.text_area_paint_layout_for_area_at(
+            &area_model,
+            style,
+            viewport,
+            state.clone(),
+            now,
+        );
+        let next = engine.ensure_caret_visible_for_area(
+            &area_model,
+            style,
+            viewport,
+            state.clone(),
+            Some(observed.layout()),
+        );
+        let layout = engine.text_area_paint_layout_for_area_at(
+            &area_model,
+            style,
+            viewport,
+            next.clone(),
+            now,
+        );
+        if let Some(caret) = layout.layout().caret()
+            && Viewport::new(viewport, point::logical(next.scroll_x(), next.scroll_y()))
+                .visibility_of_local_caret(caret, TEXT_FIELD_CARET_MARGIN)
+                .is_visible()
+        {
+            state = next.ensure_caret_visible(now);
+            break;
+        }
+        state = next.ensure_caret_visible(now);
+    }
+    let scroll_y = state.scroll_y();
+
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::pointer(PointerEditKind::Drag, TextPosition::new(selection_end)),
+    );
+    assert!(buffer.has_selection());
+    let result = editor.apply_text_edit_with_result(&mut buffer, Edit::backspace());
+    assert!(result.text_changed);
+    engine.invalidate_text_area_for_edit(&buffer, &result.impacts);
+    assert!(!buffer.has_selection());
+
+    let area_model = Area::new(buffer);
+    let state = state.ensure_caret_visible(now);
+    let observed =
+        engine.text_area_paint_layout_for_area_at(&area_model, style, viewport, state.clone(), now);
+    let ensured = engine.ensure_caret_visible_for_area(
+        &area_model,
+        style,
+        viewport,
+        state,
+        Some(observed.layout()),
+    );
+
+    assert!(
+        (ensured.scroll_y() - scroll_y).abs() <= TEXT_LAYOUT_VISUAL_LINE_EPSILON,
+        "visible collapsed caret should preserve scroll after block delete: before {scroll_y}, after {}",
+        ensured.scroll_y()
+    );
+    let layout =
+        engine.text_area_paint_layout_for_area_at(&area_model, style, viewport, ensured, now);
+    let caret = layout
+        .layout()
+        .caret()
+        .expect("collapsed caret should remain visible after deleting selection");
+    assert!(
+        Viewport::new(viewport, point::logical(0.0, scroll_y))
+            .visibility_of_local_caret(caret, TEXT_FIELD_CARET_MARGIN)
+            .is_visible(),
+        "caret should remain visible after preserving scroll: {caret:?}"
+    );
+}
+
+#[test]
+fn text_area_edit_commands_preserve_scroll_when_resulting_caret_is_visible() {
+    fn assert_command_preserves_scroll(
+        engine: &mut Engine,
+        area_model: &Area,
+        style: Style,
+        viewport: area::Logical,
+        state: TextViewState,
+        scroll_y: f32,
+        now: Instant,
+    ) -> TextViewState {
+        let state = state.ensure_caret_visible(now);
+        let observed = engine.text_area_paint_layout_for_area_at(
+            area_model,
+            style,
+            viewport,
+            state.clone(),
+            now,
+        );
+        let ensured = engine.ensure_caret_visible_for_area(
+            area_model,
+            style,
+            viewport,
+            state,
+            Some(observed.layout()),
+        );
+        assert!(
+            (ensured.scroll_y() - scroll_y).abs() <= TEXT_LAYOUT_VISUAL_LINE_EPSILON,
+            "command ensure should preserve visible caret scroll: before {scroll_y}, after {}",
+            ensured.scroll_y()
+        );
+        ensured
+    }
+
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(240.0, 72.0);
+    let now = Instant::now();
+    let line_height = text_area_estimated_line_height(style);
+    let scroll_y = line_height * 28.0;
+    let text = (0..80)
+        .map(|line| format!("line {line:02} command target"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let target_start = text.find("line 30").unwrap();
+    let target_end = target_start + "line 30".len();
+
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_multiline_text(text.clone());
+    let mut state = TextViewState::default().with_scroll_y(scroll_y);
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::set_position(TextPosition::new(target_start)),
+    );
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::pointer(PointerEditKind::Drag, TextPosition::new(target_end)),
+    );
+    let mut clipboard = MockClipboard::default();
+    let cut = record_command(
+        &mut editor,
+        &mut state,
+        &mut buffer,
+        Command::Cut,
+        &mut clipboard,
+    );
+    assert!(cut.text_changed);
+    let _ = assert_command_preserves_scroll(
+        &mut engine,
+        &Area::new(buffer.clone()),
+        style,
+        viewport,
+        state,
+        scroll_y,
+        now,
+    );
+
+    let mut buffer = Buffer::from_multiline_text(text.clone());
+    let mut state = TextViewState::default().with_scroll_y(scroll_y);
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::set_position(TextPosition::new(target_start)),
+    );
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::pointer(PointerEditKind::Drag, TextPosition::new(target_end)),
+    );
+    let mut clipboard = MockClipboard::with_text("XX");
+    let paste = record_command(
+        &mut editor,
+        &mut state,
+        &mut buffer,
+        Command::Paste,
+        &mut clipboard,
+    );
+    assert!(paste.text_changed);
+    let _ = assert_command_preserves_scroll(
+        &mut engine,
+        &Area::new(buffer.clone()),
+        style,
+        viewport,
+        state,
+        scroll_y,
+        now,
+    );
+
+    let mut buffer = Buffer::from_multiline_text(text);
+    let mut state = TextViewState::default().with_scroll_y(scroll_y);
+    editor.apply_text_edit(
+        &mut buffer,
+        Edit::set_position(TextPosition::new(target_end)),
+    );
+    let edit = record_edit(&mut editor, &mut state, &mut buffer, Edit::insert("!"));
+    assert!(edit.text_changed);
+    let undo = state.apply_undo(&mut buffer);
+    assert!(undo.text_changed);
+    state = assert_command_preserves_scroll(
+        &mut engine,
+        &Area::new(buffer.clone()),
+        style,
+        viewport,
+        state,
+        scroll_y,
+        now,
+    );
+    let redo = state.apply_redo(&mut buffer);
+    assert!(redo.text_changed);
+    let _ = assert_command_preserves_scroll(
+        &mut engine,
+        &Area::new(buffer),
+        style,
+        viewport,
+        state,
+        scroll_y,
+        now,
+    );
+}
+fn styled_document(text: &str, align: Align, size: f32, weight: Weight) -> Document {
+    let mut block = Block::new(align);
+    block.push_run(Run::new(
+        text,
+        Style::default().with_size(size).with_weight(weight),
+    ));
+
+    Document::from_block(block)
+}

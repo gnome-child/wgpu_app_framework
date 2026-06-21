@@ -187,7 +187,7 @@ fn prepare_text(
     let top = match text.vertical_align {
         paint::TextVerticalAlign::Start => text.rect.origin.y(),
         paint::TextVerticalAlign::Center => {
-            text.rect.origin.y() + (height - height.min(prepared.line_height)).max(0.0) * 0.5
+            text.rect.origin.y() + (height - height.min(prepared.content_height)).max(0.0) * 0.5
         }
     } * scale_factor;
 
@@ -203,6 +203,65 @@ fn prepare_text(
         },
         default_color: prepared.default_color,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::geometry::{Rect, area, point};
+    use crate::{paint, text, text_system};
+
+    use super::*;
+
+    fn centered_text(document: text::document::Document, height: f32) -> paint::Text {
+        paint::Text {
+            rect: Rect::new(point::logical(4.0, 7.0), area::logical(240.0, height)),
+            document,
+            wrap: paint::TextWrap::None,
+            vertical_align: paint::TextVerticalAlign::Center,
+        }
+    }
+
+    fn document_height(document: &text::document::Document) -> f32 {
+        let mut font_system = text_system::font_system();
+        text_system::measure_document(
+            &mut font_system,
+            document,
+            text::layout::Measure::bounded(area::logical(240.0, 1_000.0)),
+        )
+        .height()
+    }
+
+    fn assert_close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() <= 0.01,
+            "expected {actual} to be within 0.01 of {expected}"
+        );
+    }
+
+    #[test]
+    fn centered_multiline_text_uses_prepared_content_height() {
+        let document = text::document::Document::plain("one\ntwo\nthree");
+        let content_height = document_height(&document);
+        let text = centered_text(document, content_height);
+        let mut font_system = text_system::font_system();
+
+        let prepared = prepare_text(&mut font_system, &text, 1.0).expect("text should prepare");
+
+        assert_close(prepared.top, text.rect.origin.y());
+    }
+
+    #[test]
+    fn centered_single_line_text_keeps_existing_centering() {
+        let document = text::document::Document::plain("one");
+        let content_height = document_height(&document);
+        let rect_height = content_height + 40.0;
+        let text = centered_text(document, rect_height);
+        let mut font_system = text_system::font_system();
+
+        let prepared = prepare_text(&mut font_system, &text, 1.0).expect("text should prepare");
+
+        assert_close(prepared.top, text.rect.origin.y() + 20.0);
+    }
 }
 
 fn prepare_text_surface<'a>(
