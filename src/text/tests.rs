@@ -2341,6 +2341,50 @@ fn multiline_buffer_preserves_line_breaks_and_enter_inserts_newline() {
 }
 
 #[test]
+fn empty_multiline_buffer_accepts_line_breaks() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::new_multiline();
+
+    assert_eq!(buffer.text(), "");
+    assert!(buffer.is_multiline());
+
+    editor.apply_text_edit(&mut buffer, Edit::insert("one"));
+    editor.apply_text_edit(&mut buffer, Edit::insert_line_break());
+    editor.apply_text_edit(&mut buffer, Edit::insert("two"));
+
+    assert_eq!(buffer.text(), "one\ntwo");
+}
+
+#[test]
+fn text_area_promotes_shared_buffer_to_multiline_without_replacing_identity() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_text("hello");
+    let original_id = buffer.id();
+
+    editor.apply_text_edit(&mut buffer, Edit::set_position(TextPosition::new(0)));
+    editor.apply_text_edit(&mut buffer, Edit::extend_position(TextMotion::WordNext));
+    let before_position = buffer.position();
+    let before_selection = buffer.selected_range();
+
+    let area = Area::new(buffer.clone());
+
+    assert_eq!(area.buffer().id(), original_id);
+    assert_eq!(buffer.id(), original_id);
+    assert!(area.buffer().is_multiline());
+    assert!(buffer.is_multiline());
+    assert_eq!(buffer.text(), "hello");
+    assert_eq!(buffer.position(), before_position);
+    assert_eq!(buffer.selected_range(), before_selection);
+
+    let end = buffer.len();
+    editor.apply_text_edit(&mut buffer, Edit::set_position(TextPosition::new(end)));
+    editor.apply_text_edit(&mut buffer, Edit::insert_line_break());
+
+    assert_eq!(buffer.text(), "hello\n");
+    assert_eq!(area.buffer().text(), "hello\n");
+}
+
+#[test]
 fn multiline_select_all_selects_the_entire_document() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text("alpha\nbeta\ngamma");

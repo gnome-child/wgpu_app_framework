@@ -1313,6 +1313,9 @@ impl Buffer {
     pub fn new() -> Self {
         Self::from_text("")
     }
+    pub fn new_multiline() -> Self {
+        Self::from_multiline_text("")
+    }
     pub fn from_text(text: impl Into<String>) -> Self {
         Self::from_text_with_mode(text, false)
     }
@@ -1407,6 +1410,9 @@ impl Buffer {
     }
     pub fn is_multiline(&self) -> bool {
         self.inner.borrow().multiline
+    }
+    pub(crate) fn promote_to_multiline(&self) {
+        self.inner.borrow_mut().multiline = true;
     }
     pub fn logical_line_count(&self) -> usize {
         self.inner.borrow().document.line_count()

@@ -175,9 +175,9 @@ impl Field {
 
 impl Area {
     pub fn new(buffer: impl Into<Buffer>) -> Self {
-        let mut buffer = buffer.into();
+        let buffer = buffer.into();
         if !buffer.is_multiline() {
-            buffer = Buffer::from_multiline_text(buffer.text());
+            buffer.promote_to_multiline();
         }
 
         Self {

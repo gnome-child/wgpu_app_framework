@@ -75,7 +75,7 @@ impl Default for Editor {
     fn default() -> Self {
         Self {
             window: None,
-            buffer: text::Buffer::new(),
+            buffer: text::Buffer::new_multiline(),
             path: None,
             dirty: false,
             wrap_text: true,
@@ -311,7 +311,7 @@ impl Editor {
     }
 
     fn new_file(&mut self) {
-        self.buffer = text::Buffer::new();
+        self.buffer = text::Buffer::new_multiline();
         self.path = None;
         self.dirty = false;
         self.edit_count = 0;
@@ -691,4 +691,45 @@ fn document(
 
 fn editor_path() -> ui::Path {
     ui::Path::new([ROOT, APP_SHELL, EDITOR_CANVAS, EDITOR])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_editor_buffer_is_multiline() {
+        let editor = Editor::default();
+
+        assert!(editor.buffer.is_multiline());
+        assert_eq!(editor.buffer.text(), "");
+    }
+
+    #[test]
+    fn new_file_resets_to_multiline_buffer() {
+        let mut editor = Editor::default();
+        editor.buffer = text::Buffer::from_text("single line");
+
+        editor.new_file();
+
+        assert!(editor.buffer.is_multiline());
+        assert_eq!(editor.buffer.text(), "");
+    }
+
+    #[test]
+    fn initial_empty_editor_accepts_newlines_and_select_all() {
+        let mut editor = Editor::default();
+        let mut text_editor = text::edit::Editor::new();
+
+        text_editor.apply_text_edit(&mut editor.buffer, text::edit::Edit::insert("alpha"));
+        text_editor.apply_text_edit(&mut editor.buffer, text::edit::Edit::insert_line_break());
+        text_editor.apply_text_edit(&mut editor.buffer, text::edit::Edit::insert("beta"));
+        text_editor.apply_text_edit(&mut editor.buffer, text::edit::Edit::SelectAll);
+
+        assert_eq!(editor.buffer.text(), "alpha\nbeta");
+        assert_eq!(
+            editor.buffer.selected_text(),
+            Some("alpha\nbeta".to_owned())
+        );
+    }
 }
