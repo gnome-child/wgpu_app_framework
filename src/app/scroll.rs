@@ -950,6 +950,8 @@ impl Driver {
         if count > 0 {
             self.pending_diagnostics.pending_scroll_applications += count;
             self.pending_diagnostics.frame_scroll_commits += count;
+            self.last_scroll_diagnostics.scroll_offset_changes += count;
+            self.diagnostics.last_scroll = self.last_scroll_diagnostics;
         }
         pending
     }
@@ -1009,6 +1011,8 @@ impl Driver {
 
     pub fn record_thumb_drag_move(&mut self) {
         self.pending_diagnostics.thumb_drag_moves += 1;
+        self.last_scroll_diagnostics.thumb_drag_moves += 1;
+        self.diagnostics.last_scroll = self.last_scroll_diagnostics;
     }
 
     pub fn record_wheel_event(&mut self, delta: WheelDelta) {
@@ -1418,16 +1422,16 @@ impl Driver {
 
 impl Driver {
     fn publish_diagnostics(&mut self, mut diagnostics: Diagnostics) {
-        if diagnostics.has_scroll_activity() {
-            self.last_scroll_diagnostics = diagnostics.last_scroll_snapshot();
-        }
+        self.last_scroll_diagnostics
+            .record_followup_diagnostics(diagnostics);
         diagnostics.last_scroll = self.last_scroll_diagnostics;
         self.diagnostics = diagnostics;
     }
 
     fn remember_scroll_diagnostics(&mut self) {
         if self.diagnostics.has_scroll_activity() {
-            self.last_scroll_diagnostics = self.diagnostics.last_scroll_snapshot();
+            self.last_scroll_diagnostics
+                .record_followup_diagnostics(self.diagnostics);
             self.diagnostics.last_scroll = self.last_scroll_diagnostics;
         }
     }
@@ -1509,6 +1513,37 @@ impl WheelDelta {
     }
 }
 
+impl LastScrollDiagnostics {
+    fn record_followup_diagnostics(&mut self, diagnostics: Diagnostics) {
+        self.retained_scroll_layer_hits = self
+            .retained_scroll_layer_hits
+            .max(diagnostics.retained_scroll_layer_hits);
+        self.retained_scroll_layer_text_prepare_skips = self
+            .retained_scroll_layer_text_prepare_skips
+            .max(diagnostics.retained_scroll_layer_text_prepare_skips);
+        self.retained_scroll_target_repaint_fallbacks = self
+            .retained_scroll_target_repaint_fallbacks
+            .max(diagnostics.retained_scroll_target_repaint_fallbacks);
+        self.retained_scroll_layer_missing = self
+            .retained_scroll_layer_missing
+            .max(diagnostics.retained_scroll_layer_missing);
+        self.retained_scroll_layer_metrics_misses = self
+            .retained_scroll_layer_metrics_misses
+            .max(diagnostics.retained_scroll_layer_metrics_misses);
+        self.retained_scroll_layer_coverage_misses = self
+            .retained_scroll_layer_coverage_misses
+            .max(diagnostics.retained_scroll_layer_coverage_misses);
+        self.retained_scroll_layer_geometry_misses = self
+            .retained_scroll_layer_geometry_misses
+            .max(diagnostics.retained_scroll_layer_geometry_misses);
+        self.retained_scroll_layer_projection_misses = self
+            .retained_scroll_layer_projection_misses
+            .max(diagnostics.retained_scroll_layer_projection_misses);
+        self.retained_scroll_layer_rebuilds = self
+            .retained_scroll_layer_rebuilds
+            .max(diagnostics.retained_scroll_layer_rebuilds);
+    }
+}
 impl Diagnostics {
     fn has_scroll_activity(self) -> bool {
         self.wheel_events > 0
@@ -1525,27 +1560,6 @@ impl Diagnostics {
             || self.text_area_projection_cold_jumps > 0
             || self.async_scroll_projection_sync_skips > 0
             || self.async_scroll_reconciles > 0
-    }
-
-    fn last_scroll_snapshot(self) -> LastScrollDiagnostics {
-        LastScrollDiagnostics {
-            wheel_events: self.wheel_events,
-            wheel_line_events: self.wheel_line_events,
-            wheel_pixel_events: self.wheel_pixel_events,
-            wheel_pixel_precision_events: self.wheel_pixel_precision_events,
-            wheel_pixel_impulse_events: self.wheel_pixel_impulse_events,
-            thumb_drag_moves: self.thumb_drag_moves,
-            scroll_offset_changes: self.scroll_offset_changes,
-            retained_scroll_layer_hits: self.retained_scroll_layer_hits,
-            retained_scroll_layer_text_prepare_skips: self.retained_scroll_layer_text_prepare_skips,
-            retained_scroll_target_repaint_fallbacks: self.retained_scroll_target_repaint_fallbacks,
-            retained_scroll_layer_missing: self.retained_scroll_layer_missing,
-            retained_scroll_layer_metrics_misses: self.retained_scroll_layer_metrics_misses,
-            retained_scroll_layer_coverage_misses: self.retained_scroll_layer_coverage_misses,
-            retained_scroll_layer_geometry_misses: self.retained_scroll_layer_geometry_misses,
-            retained_scroll_layer_projection_misses: self.retained_scroll_layer_projection_misses,
-            retained_scroll_layer_rebuilds: self.retained_scroll_layer_rebuilds,
-        }
     }
 }
 
@@ -3283,6 +3297,27 @@ mod tests {
         assert_eq!(
             diagnostics.last_scroll.wheel_events, 1,
             "projection sync should not erase the input that drove the scroll frame"
+        );
+        assert_eq!(diagnostics.last_scroll.wheel_line_events, 1);
+    }
+
+    #[test]
+    fn followup_scroll_work_does_not_erase_last_wheel_input() {
+        let mut projections = Driver::default();
+        projections.record_wheel_event(WheelDelta::lines(point::logical(0.0, -1.0)));
+        assert_eq!(projections.diagnostics().last_scroll.wheel_events, 1);
+
+        let mut followup = super::Diagnostics::default();
+        followup.async_scroll_reconciles = 1;
+        followup.text_area_projection_shift_misses = 1;
+        projections.publish_diagnostics(followup);
+
+        let diagnostics = projections.diagnostics();
+        assert_eq!(diagnostics.async_scroll_reconciles, 1);
+        assert_eq!(diagnostics.text_area_projection_shift_misses, 1);
+        assert_eq!(
+            diagnostics.last_scroll.wheel_events, 1,
+            "projection-only follow-up diagnostics must not erase the wheel input that caused the scroll"
         );
         assert_eq!(diagnostics.last_scroll.wheel_line_events, 1);
     }

@@ -1488,15 +1488,9 @@ impl Engine {
         self.diagnostics.text_area_paint_layout_calls += 1;
         let projection = PreeditProjection::new(area_model.buffer(), &state);
         let committed = !projection.has_preedit();
-        let observe = observation == TextAreaObservation::Observe
-            || text_area_state_needs_observation(
-                area_model,
-                &projection,
-                &state,
-                style,
-                viewport,
-                now,
-            );
+
+        let observe = observation == TextAreaObservation::Observe;
+
         let segments = if observe {
             self.text_area_display_segments(
                 area_model,
@@ -2519,35 +2513,6 @@ fn text_area_render_line_window(
 
 fn text_area_render_guard_lines(_visible_lines: usize) -> usize {
     TEXT_AREA_RENDER_GUARD_LINES
-}
-
-fn text_area_state_needs_observation(
-    area_model: &Area,
-    projection: &PreeditProjection,
-    state: &TextViewState,
-    style: Style,
-    viewport: area::Logical,
-    now: Instant,
-) -> bool {
-    if projection.has_preedit()
-        || projection.buffer.has_non_empty_selection()
-        || state.caret_visibility_pending()
-    {
-        return true;
-    }
-
-    if !area_model.paints_caret() || !state.caret_visible(now) {
-        return false;
-    }
-
-    let line_height = text_area_estimated_line_height(style);
-    let cursor_line = projection.buffer.cursor().line as f32;
-    let cursor_top = cursor_line * line_height;
-    let cursor_bottom = cursor_top + line_height;
-    let viewport_top = state.scroll_y().max(0.0);
-    let viewport_bottom = viewport_top + viewport.height().max(0.0);
-
-    cursor_bottom > viewport_top && cursor_top < viewport_bottom
 }
 
 pub(super) fn text_area_estimated_line_height(style: Style) -> f32 {

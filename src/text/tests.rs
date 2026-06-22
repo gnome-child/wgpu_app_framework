@@ -415,6 +415,40 @@ fn text_area_render_buffer_is_shaped_once_and_reused_without_resize() {
 }
 
 #[test]
+fn text_area_render_layout_never_builds_interaction_surfaces() {
+    let mut engine = Engine::new();
+    let mut buffer = Buffer::from_multiline_text(
+        "alpha
+beta
+gamma
+delta",
+    );
+    let mut editor = Editor::new();
+    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    let area_model = Area::new(buffer);
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(240.0, 120.0);
+    let state = TextViewState::default().with_preedit(Some(Preedit::new("x", None)));
+    let content_area = area::logical(240.0, 360.0);
+
+    let layout = engine.text_area_render_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        state,
+        Instant::now(),
+        content_area,
+    );
+
+    assert_eq!(layout.render_surfaces().len(), 1);
+    assert_eq!(
+        layout.interaction_surfaces().len(),
+        0,
+        "render-only layout must not promote itself into observed hit-test/editing layout"
+    );
+}
+
+#[test]
 fn text_area_render_buffer_reuses_chunk_after_small_scroll() {
     let mut engine = Engine::new();
     let text = (0..200)
