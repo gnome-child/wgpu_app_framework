@@ -170,7 +170,7 @@ impl Theme {
             text: Text {
                 primary: srgb8(242, 242, 247),
                 secondary: srgb8(174, 174, 178),
-                disabled: srgb8(158, 158, 163),
+                disabled: srgb8(184, 184, 190),
                 busy: warning,
                 body_size: 13.0,
                 control_size: 13.0,
@@ -735,7 +735,7 @@ mod tests {
         assert_eq!(theme.surfaces().canvas(), srgb8(17, 17, 19));
         assert_eq!(theme.text().primary(), srgb8(242, 242, 247));
         assert_eq!(theme.text().secondary(), srgb8(174, 174, 178));
-        assert_eq!(theme.text().disabled(), srgb8(158, 158, 163));
+        assert_eq!(theme.text().disabled(), srgb8(184, 184, 190));
         assert_eq!(theme.palette().warning(), srgb8(255, 214, 10));
     }
 
