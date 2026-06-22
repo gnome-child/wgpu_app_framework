@@ -1170,13 +1170,9 @@ fn text_area_scroll_projection_for_metrics(
         now,
         metrics.content_size(),
     );
-    let (layout, surfaces, render_surfaces) = paint_layout.into_projection_parts();
-
-    Some(scroll::TextAreaProjection::with_render_surfaces(
+    Some(scroll::TextAreaProjection::from_layout(
         metrics,
-        layout,
-        surfaces,
-        render_surfaces,
+        paint_layout,
     ))
 }
 

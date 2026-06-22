@@ -458,7 +458,7 @@ pub struct Diagnostics {
     pub text_area_visible_logical_lines: usize,
     pub text_area_layout_segments: usize,
     pub text_area_overscan_segments: usize,
-    pub text_area_paint_surfaces: usize,
+    pub text_area_interaction_surfaces: usize,
     pub text_area_hit_run_scans: usize,
     pub text_area_height_index_hits: usize,
     pub text_area_height_index_misses: usize,
@@ -552,7 +552,7 @@ pub struct TextFieldLayout {
 
 pub struct TextAreaPaintLayout {
     pub(super) layout: TextFieldLayout,
-    pub(super) surfaces: Vec<TextAreaSurface>,
+    pub(super) interaction_surfaces: Vec<TextAreaSurface>,
     pub(super) render_surfaces: Vec<TextAreaSurface>,
 }
 
@@ -750,19 +750,19 @@ impl TextAreaPaintLayout {
     pub fn layout(&self) -> &TextFieldLayout {
         &self.layout
     }
-    pub fn surfaces(&self) -> &[TextAreaSurface] {
-        &self.surfaces
+    pub fn interaction_surfaces(&self) -> &[TextAreaSurface] {
+        &self.interaction_surfaces
     }
     pub fn render_surfaces(&self) -> &[TextAreaSurface] {
         &self.render_surfaces
     }
-    pub fn into_parts(self) -> (TextFieldLayout, Vec<TextAreaSurface>) {
-        (self.layout, self.surfaces)
+    pub fn into_interaction_parts(self) -> (TextFieldLayout, Vec<TextAreaSurface>) {
+        (self.layout, self.interaction_surfaces)
     }
     pub fn into_projection_parts(
         self,
     ) -> (TextFieldLayout, Vec<TextAreaSurface>, Vec<TextAreaSurface>) {
-        (self.layout, self.surfaces, self.render_surfaces)
+        (self.layout, self.interaction_surfaces, self.render_surfaces)
     }
 }
 
@@ -1094,7 +1094,7 @@ impl Engine {
             }
             Surface::Area(area_model) => {
                 self.text_area_paint_layout_for_area_at(area_model, style, area, state, now)
-                    .into_parts()
+                    .into_interaction_parts()
                     .0
             }
         }
@@ -1180,7 +1180,7 @@ impl Engine {
         state: TextViewState,
     ) -> Option<Caret> {
         self.text_area_paint_layout_for_area_at(area_model, style, area, state, Instant::now())
-            .into_parts()
+            .into_interaction_parts()
             .0
             .caret()
     }
@@ -1527,7 +1527,7 @@ impl Engine {
             &segments,
             content_area,
         );
-        self.diagnostics.text_area_paint_surfaces += segments.len();
+        self.diagnostics.text_area_interaction_surfaces += segments.len();
         let surfaces = segments
             .iter()
             .map(|segment| text_area_surface_for_segment(segment, style, viewport, &state))
@@ -1542,7 +1542,7 @@ impl Engine {
         );
         TextAreaPaintLayout {
             layout,
-            surfaces,
+            interaction_surfaces: surfaces,
             render_surfaces,
         }
     }
@@ -2183,7 +2183,7 @@ impl Engine {
     ) -> Option<TextPosition> {
         let projection = PreeditProjection::new(area_model.buffer(), &state);
         self.text_area_position_at_for_surfaces(
-            observed_layout.surfaces(),
+            observed_layout.interaction_surfaces(),
             position,
             observed_layout.layout.scroll_x(),
             projection.buffer.len(),

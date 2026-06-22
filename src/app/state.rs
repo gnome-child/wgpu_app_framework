@@ -2419,7 +2419,7 @@ mod tests {
             .expect("text area projection should exist");
         let viewport_height = projection.metrics().viewport().area.height();
         projection
-            .surfaces()
+            .interaction_surfaces()
             .iter()
             .chain(projection.render_surfaces())
             .filter(|surface| {
@@ -2613,7 +2613,7 @@ mod tests {
         );
         assert_eq!(projection.metrics().offset(), offset);
         assert!(
-            !projection.surfaces().is_empty(),
+            !projection.interaction_surfaces().is_empty(),
             "autoscroll should leave an observed text-area layout for drag hit testing"
         );
 

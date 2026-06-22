@@ -268,7 +268,7 @@ fn text_area_frame_cache_reuses_unchanged_frame_and_rebuilds_after_typing() {
             state.clone(),
             now,
         )
-        .into_parts()
+        .into_interaction_parts()
         .1;
     let second = engine
         .text_area_paint_layout_for_area_at(
@@ -278,7 +278,7 @@ fn text_area_frame_cache_reuses_unchanged_frame_and_rebuilds_after_typing() {
             state.clone(),
             now,
         )
-        .into_parts()
+        .into_interaction_parts()
         .1;
     assert_eq!(surface_line_text(&first, 2), surface_line_text(&second, 2));
     assert!(engine.text_area_line_displays.len() > 0);
@@ -286,13 +286,13 @@ fn text_area_frame_cache_reuses_unchanged_frame_and_rebuilds_after_typing() {
     editor.apply_text_edit(&mut buffer, Edit::insert("!"));
     let third = engine
         .text_area_paint_layout_for_area_at(&Area::new(buffer), style, viewport, state, now)
-        .into_parts()
+        .into_interaction_parts()
         .1;
     assert_eq!(surface_line_text(&third, 2), "three!");
 }
 
 #[test]
-fn text_area_surfaces_retain_prepared_viewport_coverage() {
+fn text_area_interaction_surfaces_keep_bounded_observation_coverage() {
     let text = (0..200)
         .map(|line| format!("line {line:03}"))
         .collect::<Vec<_>>()
@@ -315,16 +315,16 @@ fn text_area_surfaces_retain_prepared_viewport_coverage() {
 
     assert!(diagnostics.text_area_visible_logical_lines > 0);
     assert_eq!(
-        diagnostics.text_area_layout_segments, diagnostics.text_area_paint_surfaces,
-        "prepared line coverage is the text viewport cache; rendering clips it to the viewport"
+        diagnostics.text_area_layout_segments, diagnostics.text_area_interaction_surfaces,
+        "observed line coverage is interaction layout; render coverage is a separate window"
     );
     assert_eq!(
-        diagnostics.text_area_paint_surfaces,
-        layout.surfaces().len()
+        diagnostics.text_area_interaction_surfaces,
+        layout.interaction_surfaces().len()
     );
     assert!(
-        diagnostics.text_area_paint_surfaces > diagnostics.text_area_visible_logical_lines,
-        "text viewport surfaces should retain the overscan band for smooth scroll reuse"
+        diagnostics.text_area_interaction_surfaces > diagnostics.text_area_visible_logical_lines,
+        "interaction surfaces should retain an overscan band for smooth overlay and hit-test reuse"
     );
     assert!(
         diagnostics.text_area_overscan_segments > 0,
@@ -382,7 +382,7 @@ fn text_area_render_buffer_is_shaped_once_and_reused_without_resize() {
     );
     let first_diagnostics = engine.diagnostics();
     assert_eq!(first.render_surfaces().len(), 1);
-    assert_eq!(first.surfaces().len(), 0);
+    assert_eq!(first.interaction_surfaces().len(), 0);
     assert_eq!(first_diagnostics.text_area_render_surface_cache_misses, 1);
     assert_eq!(first_diagnostics.text_area_render_surface_cache_hits, 0);
     assert!(
@@ -401,7 +401,7 @@ fn text_area_render_buffer_is_shaped_once_and_reused_without_resize() {
     );
     let cached_diagnostics = engine.diagnostics();
     assert_eq!(cached.render_surfaces().len(), 1);
-    assert_eq!(cached.surfaces().len(), 0);
+    assert_eq!(cached.interaction_surfaces().len(), 0);
     assert_eq!(cached_diagnostics.text_area_render_surface_cache_hits, 1);
     assert_eq!(cached_diagnostics.text_area_render_surface_cache_misses, 0);
     assert_eq!(
@@ -516,12 +516,12 @@ fn text_area_preedit_projection_is_not_cached() {
     let now = Instant::now();
     let committed = engine
         .text_area_paint_layout_for_area_at(&area_model, style, viewport, state.clone(), now)
-        .into_parts()
+        .into_interaction_parts()
         .1;
     let preedit_state = state.with_preedit(Some(Preedit::new("x", None)));
     let preedit = engine
         .text_area_paint_layout_for_area_at(&area_model, style, viewport, preedit_state, now)
-        .into_parts()
+        .into_interaction_parts()
         .1;
     let after = engine
         .text_area_paint_layout_for_area_at(
@@ -531,7 +531,7 @@ fn text_area_preedit_projection_is_not_cached() {
             TextViewState::default(),
             now,
         )
-        .into_parts()
+        .into_interaction_parts()
         .1;
 
     assert_eq!(surface_line_text(&preedit, 0), "hellox");
@@ -557,7 +557,7 @@ fn text_area_prepared_frame_is_bounded_to_viewport_window() {
     let now = Instant::now();
     let (layout, surfaces) = engine
         .text_area_paint_layout_for_area_at(&Area::new(buffer), style, viewport, state, now)
-        .into_parts();
+        .into_interaction_parts();
 
     assert!(surfaces.len() <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
     assert!(surfaces.len() < 1_000);
@@ -582,7 +582,7 @@ fn large_text_area_scroll_and_highlight_work_are_viewport_bounded() {
     engine.reset_highlight_stats();
     let (layout, surfaces) = engine
         .text_area_paint_layout_for_area_at(&area_model, style, viewport, state, Instant::now())
-        .into_parts();
+        .into_interaction_parts();
     let interaction_stats = engine.interaction_stats();
     let highlight_stats = engine.highlight_stats();
     let diagnostics = engine.diagnostics();
@@ -590,10 +590,10 @@ fn large_text_area_scroll_and_highlight_work_are_viewport_bounded() {
 
     assert!(!layout.selection_spans().is_empty());
     assert!(surfaces.len() <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
-    assert_eq!(diagnostics.text_area_paint_surfaces, surfaces.len());
+    assert_eq!(diagnostics.text_area_interaction_surfaces, surfaces.len());
     assert_eq!(
         diagnostics.text_area_layout_segments,
-        diagnostics.text_area_paint_surfaces
+        diagnostics.text_area_interaction_surfaces
     );
     assert!(interaction_stats.text_area_frame_shape_calls <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
     assert!(
@@ -1514,7 +1514,7 @@ fn text_area_metrics_layout_skips_highlight_overlay_work() {
 }
 
 #[test]
-fn text_area_paint_layout_computes_highlight_overlays_from_visible_surfaces() {
+fn text_area_paint_layout_computes_highlight_overlays_from_interaction_surfaces() {
     let mut engine = Engine::new();
     let mut editor = Editor::new();
     let text = (0..1_000)
@@ -1532,16 +1532,16 @@ fn text_area_paint_layout_computes_highlight_overlays_from_visible_surfaces() {
     engine.reset_highlight_stats();
     let (layout, surfaces) = engine
         .text_area_paint_layout_for_area_at(&area_model, style, viewport, state.clone(), now)
-        .into_parts();
+        .into_interaction_parts();
     let stats = engine.highlight_stats();
     let diagnostics = engine.diagnostics();
     let visible_runs = surface_visual_runs(&surfaces);
 
     assert!(!layout.selection_spans().is_empty());
-    assert_eq!(diagnostics.text_area_paint_surfaces, surfaces.len());
+    assert_eq!(diagnostics.text_area_interaction_surfaces, surfaces.len());
     assert_eq!(
         diagnostics.text_area_layout_segments,
-        diagnostics.text_area_paint_surfaces
+        diagnostics.text_area_interaction_surfaces
     );
     assert!(visible_runs <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
     assert!(visible_runs < 1_000);
@@ -1577,7 +1577,7 @@ fn wrapped_text_area_line_displays_do_not_overlap() {
         TextViewState::default(),
         Instant::now(),
     );
-    let surfaces = paint_layout.surfaces();
+    let surfaces = paint_layout.interaction_surfaces();
 
     assert!(surfaces.len() >= 2);
     assert_eq!(surface_line_text(surfaces, 1), "next");
@@ -1858,7 +1858,7 @@ fn offscreen_text_area_selection_skips_run_highlight_calls() {
     engine.reset_highlight_stats();
     let layout = engine
         .text_area_paint_layout_for_area_at(&area_model, style, viewport, state, Instant::now())
-        .into_parts()
+        .into_interaction_parts()
         .0;
     let stats = engine.highlight_stats();
 
@@ -1978,7 +1978,7 @@ fn text_area_hit_testing_refreshes_cached_line_offsets_after_edit_above() {
         Instant::now(),
     );
     let target_y = paint_layout
-        .surfaces()
+        .interaction_surfaces()
         .iter()
         .find(|surface| {
             let buffer = surface.buffer();
@@ -2063,7 +2063,7 @@ fn text_area_hit_testing_uses_current_line_order_after_line_delete_above() {
         "line delete should preserve lower-line cache hits: {paint_stats:?}"
     );
     let target_y = paint_layout
-        .surfaces()
+        .interaction_surfaces()
         .iter()
         .find(|surface| {
             let buffer = surface.buffer();
@@ -2155,7 +2155,7 @@ fn text_area_hit_testing_uses_current_line_order_after_line_insert_above() {
         "line insert should preserve lower-line cache hits: {paint_stats:?}"
     );
     let target_y = paint_layout
-        .surfaces()
+        .interaction_surfaces()
         .iter()
         .find(|surface| {
             let buffer = surface.buffer();
@@ -2441,7 +2441,7 @@ fn text_area_preedit_reveal_scroll_uses_composed_projection() {
             revealed.clone(),
             Instant::now(),
         )
-        .into_parts()
+        .into_interaction_parts()
         .0;
 
     assert!(revealed.scroll_y() > 0.0);
@@ -2681,7 +2681,7 @@ fn text_area_reveal_scroll_uses_wrapped_visual_caret_row() {
             revealed,
             Instant::now(),
         )
-        .into_parts()
+        .into_interaction_parts()
         .0;
     let caret = layout.caret().expect("wrapped row caret should be visible");
     assert!(caret.y() >= 0.0);

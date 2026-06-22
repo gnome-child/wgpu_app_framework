@@ -288,7 +288,7 @@ pub struct Projection {
 pub struct TextAreaProjection {
     metrics: widget::scroll::Metrics,
     layout: text::layout::TextFieldLayout,
-    surfaces: Vec<text::layout::TextAreaSurface>,
+    interaction_surfaces: Vec<text::layout::TextAreaSurface>,
     render_surfaces: Vec<text::layout::TextAreaSurface>,
 }
 
@@ -474,7 +474,7 @@ impl Driver {
                 continue;
             };
             diagnostics.text_area_resolves += 1;
-            let (layout, surfaces, render_surfaces) = paint_layout.into_projection_parts();
+            let text_area = TextAreaProjection::from_layout(metrics, paint_layout);
             self.metrics.insert(path.clone(), metrics);
             self.adjustments.insert(
                 path.clone(),
@@ -500,12 +500,7 @@ impl Driver {
                         .get(&path)
                         .map(Projection::generation)
                         .unwrap_or_default(),
-                    text_area: Some(TextAreaProjection {
-                        metrics,
-                        layout,
-                        surfaces,
-                        render_surfaces,
-                    }),
+                    text_area: Some(text_area),
                 },
             );
         }
@@ -637,7 +632,7 @@ impl Driver {
         else {
             return false;
         };
-        let (layout, surfaces, render_surfaces) = paint_layout.into_projection_parts();
+        let text_area = TextAreaProjection::from_layout(metrics, paint_layout);
         let generation = self
             .projections
             .get(path)
@@ -663,12 +658,7 @@ impl Driver {
             Projection {
                 metrics,
                 generation,
-                text_area: Some(TextAreaProjection {
-                    metrics,
-                    layout,
-                    surfaces,
-                    render_surfaces,
-                }),
+                text_area: Some(text_area),
             },
         );
         true
@@ -1601,16 +1591,15 @@ impl Projection {
 }
 
 impl TextAreaProjection {
-    pub fn with_render_surfaces(
+    pub fn from_layout(
         metrics: widget::scroll::Metrics,
-        layout: text::layout::TextFieldLayout,
-        surfaces: Vec<text::layout::TextAreaSurface>,
-        render_surfaces: Vec<text::layout::TextAreaSurface>,
+        layout: text::layout::TextAreaPaintLayout,
     ) -> Self {
+        let (layout, interaction_surfaces, render_surfaces) = layout.into_projection_parts();
         Self {
             metrics,
             layout,
-            surfaces,
+            interaction_surfaces,
             render_surfaces,
         }
     }
@@ -1624,8 +1613,8 @@ impl TextAreaProjection {
     }
 
     #[cfg(test)]
-    pub fn surfaces(&self) -> &[text::layout::TextAreaSurface] {
-        &self.surfaces
+    pub fn interaction_surfaces(&self) -> &[text::layout::TextAreaSurface] {
+        &self.interaction_surfaces
     }
 
     pub fn render_surfaces(&self) -> impl Iterator<Item = &text::layout::TextAreaSurface> {
@@ -1640,7 +1629,7 @@ impl TextAreaProjection {
             self.metrics.viewport(),
             self.metrics.offset(),
             self.layout.content_area(),
-            &self.surfaces,
+            &self.interaction_surfaces,
         )
     }
 
@@ -1671,12 +1660,14 @@ impl TextAreaProjection {
         let old_offset = old_metrics.offset();
         let new_offset = metrics.offset();
         let viewport = metrics.viewport().area;
-        let surfaces = self
-            .surfaces
+        let interaction_surfaces = self
+            .interaction_surfaces
             .iter()
             .map(|surface| surface.translated_for_scroll(old_offset, new_offset, viewport))
             .collect::<Vec<_>>();
-        if !surfaces.is_empty() && !surfaces_cover_viewport(&surfaces, viewport) {
+        if !interaction_surfaces.is_empty()
+            && !surfaces_cover_viewport(&interaction_surfaces, viewport)
+        {
             return false;
         }
         let render_surfaces = self
@@ -1690,7 +1681,7 @@ impl TextAreaProjection {
         self.layout = self
             .layout
             .translated_for_scroll(new_offset.x(), new_offset.y());
-        self.surfaces = surfaces;
+        self.interaction_surfaces = interaction_surfaces;
         self.render_surfaces = render_surfaces;
         self.metrics = metrics;
         true
@@ -1708,7 +1699,7 @@ impl TextAreaProjection {
             return false;
         }
 
-        if self.surfaces.is_empty() {
+        if self.interaction_surfaces.is_empty() {
             return surfaces_cover_viewport_after_scroll(
                 &self.render_surfaces,
                 old_metrics.offset(),
@@ -1718,7 +1709,7 @@ impl TextAreaProjection {
         }
 
         surfaces_cover_viewport_after_scroll(
-            &self.surfaces,
+            &self.interaction_surfaces,
             old_metrics.offset(),
             metrics.offset(),
             metrics.viewport().area,
@@ -1727,7 +1718,7 @@ impl TextAreaProjection {
 
     #[cfg(test)]
     pub fn buffer(&self) -> std::rc::Rc<std::cell::RefCell<glyphon::Buffer>> {
-        self.surfaces
+        self.interaction_surfaces
             .first()
             .or_else(|| self.render_surfaces.first())
             .expect("text area projection should have at least one surface")
@@ -3365,13 +3356,13 @@ mod tests {
         let projection = projections
             .text_area(&path)
             .expect("text area should have a projection");
-        let retained = projection.surfaces().len();
+        let interaction = projection.interaction_surfaces().len();
         let rendered = projection.render_surfaces().count();
 
         assert_eq!(rendered, 1);
         assert_eq!(
-            retained, 0,
-            "scroll paint should not retain observed line surfaces unless interaction or overlays need them"
+            interaction, 0,
+            "render-only text projection should not carry interaction surfaces unless editing or overlays need them"
         );
         assert!(
             projection

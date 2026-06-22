@@ -47,7 +47,7 @@ pub struct ObservedArea<'a> {
     viewport: Rect,
     scroll: point::Logical,
     content_area: area::Logical,
-    surfaces: &'a [TextAreaSurface],
+    interaction_surfaces: &'a [TextAreaSurface],
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -125,13 +125,13 @@ impl<'a> ObservedArea<'a> {
         viewport: Rect,
         scroll: point::Logical,
         content_area: area::Logical,
-        surfaces: &'a [TextAreaSurface],
+        interaction_surfaces: &'a [TextAreaSurface],
     ) -> Self {
         Self {
             viewport,
             scroll,
             content_area,
-            surfaces,
+            interaction_surfaces,
         }
     }
 
@@ -147,8 +147,8 @@ impl<'a> ObservedArea<'a> {
         self.content_area
     }
 
-    pub fn surfaces(self) -> &'a [TextAreaSurface] {
-        self.surfaces
+    pub fn interaction_surfaces(self) -> &'a [TextAreaSurface] {
+        self.interaction_surfaces
     }
 
     pub fn local_position(self, position: point::Logical) -> point::Logical {
@@ -197,7 +197,7 @@ impl View {
         observed: ObservedArea<'_>,
         position: point::Logical,
     ) -> Option<TextPosition> {
-        if observed.surfaces().is_empty() {
+        if observed.interaction_surfaces().is_empty() {
             return None;
         }
         let local = observed.local_position(position);
@@ -207,7 +207,7 @@ impl View {
             local,
             state,
             scroll.x(),
-            observed.surfaces(),
+            observed.interaction_surfaces(),
         )
     }
 
@@ -215,8 +215,11 @@ impl View {
         area_model: &Area,
         observed: ObservedArea<'_>,
     ) -> Option<ScrollAnchor> {
-        top_visible_surface(observed.surfaces(), observed.viewport().area.height())
-            .and_then(|surface| scroll_anchor_for_surface(area_model, surface))
+        top_visible_surface(
+            observed.interaction_surfaces(),
+            observed.viewport().area.height(),
+        )
+        .and_then(|surface| scroll_anchor_for_surface(area_model, surface))
     }
 
     pub fn scroll_anchor_for_text_area(

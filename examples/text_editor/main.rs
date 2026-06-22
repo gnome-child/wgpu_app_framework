@@ -555,7 +555,7 @@ fn debug_panel(theme: &Theme, editor: &Editor, diagnostics: app::Diagnostics) ->
                 .with_size(layout::Size::Fill, layout::Size::Fit)
                 .with_label(document(
             format!(
-                "File: {path} ({dirty}) | Storage: {storage} | Wrap: {wrap}\nDocument: {} lines, {} bytes | Text edits: {} | Status: {}\nLast frame text: paint {}, metrics {}, line cache {}/{}, shaped lines {}, visible {}, layout {}, overscan {}, paint surfaces {}, highlight scans {}\nLast frame scroll: wheel {}, thumb {}, offsets {}, queued {}, redraws {}, commits {}, pending {}/{}, async {}/{}, projections {}, text resolves/reuses {}/{}, shifts {}/{}, cold {}, idle {}/{}, layers hits {}, items {}, text skips {}, chrome {}, fallbacks {}, miss {}/{}/{}/{}/{}, rebuilds {}\nLast scroll gesture: wheel {}, thumb {}, offsets {}, layer hits {}, text skips {}, fallbacks {}, miss {}/{}/{}/{}/{}, rebuilds {}\nLast scroll frame: text {}us (scene {}, updates {}), render {}us, total {}us, surfaces {}, glyph batches {}, layers {}/{}\nFrames: full {}, scroll-only {} | invalidations {}/{}, native {}, clean skips {}, no-dirty {}, fallbacks {}, render skips {}\nFrame us latest/avg: compose {}/{}, commit {}/{}, sync {}/{}, paint {}/{}, render {}/{}, total {}/{}, input-present {}/{}, dirty-present {}/{}\nRender us latest/avg: acquire {}/{}, batch {}/{}, quads {}/{}, text {}/{} (scene {}/{}, updates {}/{}), backdrop {}/{}, submit {}/{}\nRender stats: scene {}, batches {}, glyph batches {}, text surfaces {}, quad vertices {}, clips {}, backdrops {}, layers {}/{}",
+                "File: {path} ({dirty}) | Storage: {storage} | Wrap: {wrap}\nDocument: {} lines, {} bytes | Text edits: {} | Status: {}\nLast frame text: paint {}, metrics {}, line cache {}/{}, shaped lines {}, visible {}, layout {}, overscan {}, interaction surfaces {}, highlight scans {}\nLast frame scroll: wheel {}, thumb {}, offsets {}, queued {}, redraws {}, commits {}, pending {}/{}, async {}/{}, projections {}, text resolves/reuses {}/{}, shifts {}/{}, cold {}, idle {}/{}, layers hits {}, items {}, text skips {}, chrome {}, fallbacks {}, miss {}/{}/{}/{}/{}, rebuilds {}\nLast scroll gesture: wheel {}, thumb {}, offsets {}, layer hits {}, text skips {}, fallbacks {}, miss {}/{}/{}/{}/{}, rebuilds {}\nLast scroll frame: text {}us (scene {}, updates {}), render {}us, total {}us, surfaces {}, glyph batches {}, layers {}/{}\nFrames: full {}, scroll-only {} | invalidations {}/{}, native {}, clean skips {}, no-dirty {}, fallbacks {}, render skips {}\nFrame us latest/avg: compose {}/{}, commit {}/{}, sync {}/{}, paint {}/{}, render {}/{}, total {}/{}, input-present {}/{}, dirty-present {}/{}\nRender us latest/avg: acquire {}/{}, batch {}/{}, quads {}/{}, text {}/{} (scene {}/{}, updates {}/{}), backdrop {}/{}, submit {}/{}\nRender stats: scene {}, batches {}, glyph batches {}, text surfaces {}, quad vertices {}, clips {}, backdrops {}, layers {}/{}",
                 editor.buffer.logical_line_count(),
                 editor.buffer.len(),
                 editor.edit_count,
@@ -568,7 +568,7 @@ fn debug_panel(theme: &Theme, editor: &Editor, diagnostics: app::Diagnostics) ->
                 text.text_area_visible_logical_lines,
                 text.text_area_layout_segments,
                 text.text_area_overscan_segments,
-                text.text_area_paint_surfaces,
+                text.text_area_interaction_surfaces,
                 text.highlight_run_scans,
                 scroll.wheel_events,
                 scroll.thumb_drag_moves,
