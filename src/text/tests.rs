@@ -21,7 +21,7 @@ use super::document::ResolvedTextDirection;
 use super::edit::{HistoryKind, TYPING_UNDO_COALESCE_WINDOW, TextEditResult};
 use super::layout::{
     HighlightStats, TEXT_AREA_FRAME_MAX_LOGICAL_LINES, TEXT_AREA_FRAME_MIN_OVERSCAN_LINES,
-    TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY, TEXT_FIELD_CARET_MARGIN,
+    TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY, TEXT_AREA_RENDER_GUARD_LINES, TEXT_FIELD_CARET_MARGIN,
     TEXT_LAYOUT_VISUAL_LINE_EPSILON, TextLayoutMap, VisualLineGroup,
     text_area_estimated_line_height,
 };
@@ -411,6 +411,72 @@ fn text_area_render_buffer_is_shaped_once_and_reused_without_resize() {
     assert_eq!(
         cached_diagnostics.text_area_render_surface_shape_us, 0,
         "cache hits must reuse the existing shaped text surface"
+    );
+}
+
+#[test]
+fn text_area_render_buffer_reuses_chunk_after_small_scroll() {
+    let mut engine = Engine::new();
+    let text = (0..200)
+        .map(|line| format!("line {line:03}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let area_model = Area::new(Buffer::from_multiline_text(text)).read_only();
+    let style = Style::default().with_size(13.0);
+    let line_height = text_area_estimated_line_height(style);
+    let viewport = area::logical(240.0, line_height * 8.0);
+    let now = Instant::now();
+    let content_area = area::logical(240.0, line_height * 200.0);
+
+    engine.reset_diagnostics();
+    let first = engine.text_area_render_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        TextViewState::default(),
+        now,
+        content_area,
+    );
+    let first_surface = first
+        .render_surfaces()
+        .first()
+        .expect("initial render layout should prepare one text surface");
+
+    engine.reset_diagnostics();
+    let scrolled = engine.text_area_render_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        TextViewState::default().with_scroll_y(line_height * 4.0),
+        now,
+        content_area,
+    );
+    let diagnostics = engine.diagnostics();
+    let scrolled_surface = scrolled
+        .render_surfaces()
+        .first()
+        .expect("scrolled render layout should prepare one text surface");
+
+    assert_eq!(
+        scrolled_surface.source_line(),
+        first_surface.source_line(),
+        "source windows should be chunked, not rebuilt for every visible line"
+    );
+    assert_eq!(diagnostics.text_area_render_surface_cache_hits, 1);
+    assert_eq!(diagnostics.text_area_render_surface_cache_misses, 0);
+    assert!(
+        diagnostics.text_area_render_surface_source_lines
+            >= diagnostics.text_area_visible_logical_lines + TEXT_AREA_RENDER_GUARD_LINES,
+        "render surface should own a reusable guard band"
+    );
+    assert!(
+        diagnostics.text_area_render_surface_source_lines
+            <= diagnostics.text_area_visible_logical_lines + TEXT_AREA_RENDER_GUARD_LINES * 2,
+        "render surface should not shape an excessive scroll window"
+    );
+    assert_eq!(
+        diagnostics.text_area_render_surface_shape_us, 0,
+        "scrolling inside a render chunk must reuse the shaped glyphon buffer"
     );
 }
 

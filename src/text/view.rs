@@ -215,19 +215,19 @@ impl View {
         area_model: &Area,
         observed: ObservedArea<'_>,
     ) -> Option<ScrollAnchor> {
-        let viewport_height = observed.viewport().area.height().max(0.0);
-        let top_surface = observed
-            .surfaces()
-            .iter()
-            .filter(|surface| {
-                let bottom = surface.y() + surface.height().max(1.0);
-                bottom > 0.0 && surface.y() < viewport_height
-            })
-            .min_by(|a, b| a.y().total_cmp(&b.y()))?;
-        let mark = area_model
-            .buffer()
-            .mark_for_position(TextPosition::new(top_surface.source_start()))?;
-        Some(ScrollAnchor::new(mark, (-top_surface.y()).max(0.0)))
+        top_visible_surface(observed.surfaces(), observed.viewport().area.height())
+            .and_then(|surface| scroll_anchor_for_surface(area_model, surface))
+    }
+
+    pub fn scroll_anchor_for_text_area(
+        area_model: &Area,
+        observed: ObservedArea<'_>,
+        render_surfaces: &[TextAreaSurface],
+    ) -> Option<ScrollAnchor> {
+        Self::scroll_anchor_for_observed_area(area_model, observed).or_else(|| {
+            top_visible_surface(render_surfaces, observed.viewport().area.height())
+                .and_then(|surface| scroll_anchor_for_surface(area_model, surface))
+        })
     }
 
     pub fn state_after_caret_blink_reset(state: TextViewState, now: Instant) -> TextViewState {
@@ -248,6 +248,64 @@ impl View {
     pub fn state_after_text_edit(state: TextViewState, now: Instant) -> TextViewState {
         state.ensure_caret_visible(now)
     }
+}
+
+fn top_visible_surface(
+    surfaces: &[TextAreaSurface],
+    viewport_height: f32,
+) -> Option<&TextAreaSurface> {
+    let viewport_height = viewport_height.max(0.0);
+    surfaces
+        .iter()
+        .filter(|surface| {
+            let bottom = surface.y() + surface.height().max(1.0);
+            bottom > 0.0 && surface.y() < viewport_height
+        })
+        .min_by(|a, b| a.y().total_cmp(&b.y()))
+}
+
+fn scroll_anchor_for_surface(area_model: &Area, surface: &TextAreaSurface) -> Option<ScrollAnchor> {
+    let viewport_y = (-surface.y()).max(0.0);
+    let surface_buffer = surface.buffer();
+    let buffer = surface_buffer.borrow();
+    let mut anchor_run = None::<(f32, f32, usize)>;
+
+    for run in buffer.layout_runs() {
+        let top = run.line_top;
+        let bottom = top + run.line_height.max(1.0);
+        let distance = if viewport_y >= top && viewport_y < bottom {
+            0.0
+        } else if viewport_y < top {
+            top - viewport_y
+        } else {
+            viewport_y - bottom
+        };
+
+        if anchor_run
+            .as_ref()
+            .is_none_or(|(best_distance, best_top, _)| {
+                distance < *best_distance || (distance == *best_distance && top < *best_top)
+            })
+        {
+            anchor_run = Some((distance, top, run.line_i));
+        }
+    }
+    drop(buffer);
+
+    let source = area_model.buffer();
+    let (line_top, source_start) = if let Some((_, line_top, local_line)) = anchor_run {
+        let source_line = surface.source_line().saturating_add(local_line);
+        let source_start = source
+            .line_start_offsets()
+            .get(source_line)
+            .copied()
+            .unwrap_or(surface.source_start());
+        (line_top, source_start)
+    } else {
+        (0.0, surface.source_start())
+    };
+    let mark = source.mark_for_position(TextPosition::new(source_start))?;
+    Some(ScrollAnchor::new(mark, (viewport_y - line_top).max(0.0)))
 }
 
 #[derive(Debug, Clone, PartialEq)]

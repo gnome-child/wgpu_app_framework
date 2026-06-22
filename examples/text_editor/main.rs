@@ -14,6 +14,7 @@ const DELETE_TEXT: action::Id = action::Id::new("delete_text");
 const TOGGLE_WRAP_TEXT: action::Id = action::Id::new("toggle_wrap_text");
 const TOGGLE_DEBUG_PANEL: action::Id = action::Id::new("toggle_debug_panel");
 const LOAD_STRESS_TEXT: action::Id = action::Id::new("load_stress_text");
+const UNICODE_STRESS_TEXT: &str = include_str!("fixtures/unicode_stress_dump.txt");
 
 const ROOT: ui::Id = ui::Id::new("root");
 const APP_SHELL: ui::Id = ui::Id::new("app_shell");
@@ -186,11 +187,14 @@ impl app::Application for Editor {
                 cx.request_redraw(window);
             }
             Event::App(AppEvent::LoadStressText) => {
-                self.buffer = text::Buffer::from_multiline_text(stress_text(20_000));
+                self.buffer = text::Buffer::from_multiline_text(UNICODE_STRESS_TEXT);
                 self.path = None;
                 self.dirty = true;
                 self.edit_count = 0;
-                self.last_status = "loaded generated 20k-line stress document".to_owned();
+                self.last_status = format!(
+                    "loaded Unicode stress fixture ({} lines)",
+                    UNICODE_STRESS_TEXT.lines().count()
+                );
                 cx.request_redraw(window);
             }
             Event::App(AppEvent::ToggleWrapText) => {
@@ -724,17 +728,6 @@ async fn save_path_dialog() -> Option<PathBuf> {
         .save_file()
         .await
         .map(|file| file.path().to_path_buf())
-}
-
-fn stress_text(lines: usize) -> String {
-    (0..lines)
-        .map(|line| {
-            format!(
-                "line {line:05}: stress text for scrolling, editing, wrapping, selection, and undo/redo responsiveness"
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn edit_mutates_text(edit: &text::edit::Edit) -> bool {

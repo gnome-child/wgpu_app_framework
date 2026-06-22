@@ -80,7 +80,7 @@ pub struct Control {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Menu {
     bar_background: paint::Brush,
-    bar_stroke: paint::Stroke,
+    bar_stroke: Option<paint::Stroke>,
     title_background: paint::Brush,
     title_hover_tint: paint::Brush,
     title_pressed_tint: paint::Brush,
@@ -221,10 +221,7 @@ impl Theme {
             },
             menu: Menu {
                 bar_background: paint::Brush::solid(srgba8(28, 28, 30, 0.88)),
-                bar_stroke: paint::Stroke {
-                    brush: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.08)),
-                    width: 1.0,
-                },
+                bar_stroke: None,
                 title_background: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.0)),
                 title_hover_tint: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.07)),
                 title_pressed_tint: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.14)),
@@ -527,7 +524,7 @@ impl Menu {
         self.bar_background
     }
 
-    pub fn bar_stroke(self) -> paint::Stroke {
+    pub fn bar_stroke(self) -> Option<paint::Stroke> {
         self.bar_stroke
     }
 

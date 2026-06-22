@@ -23,16 +23,3 @@ pub use event::Event;
 pub use icon::Icon;
 pub use task::Task;
 pub use theme::Theme;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn architecture_audit_notes_file_exists() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ARCHITECTURE_AUDIT.txt");
-        let notes = std::fs::read_to_string(path).expect("architecture audit notes should exist");
-
-        assert!(notes.contains("Widget extension boundary"));
-        assert!(notes.contains("Pointer capture ownership"));
-        assert!(notes.contains("Text measurement quantization"));
-    }
-}

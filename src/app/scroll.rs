@@ -26,9 +26,7 @@ pub struct Driver {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Motion {
-    wheel_line_viewport_fraction: f32,
-    wheel_line_min_pixels: f32,
-    wheel_line_max_pixels: f32,
+    wheel_line_unit_pixels: f32,
     wheel_snap_duration: Duration,
     wheel_min_snap_duration: Duration,
     wheel_impulse_linear_mix: f32,
@@ -56,8 +54,8 @@ impl Motion {
 
     pub(crate) fn fallback_line_delta_pixels(self, delta: point::Logical) -> point::Logical {
         point::logical(
-            delta.x() * self.wheel_line_min_pixels,
-            delta.y() * self.wheel_line_min_pixels,
+            delta.x() * self.wheel_line_unit_pixels,
+            delta.y() * self.wheel_line_unit_pixels,
         )
     }
 
@@ -103,14 +101,8 @@ impl Motion {
         }
     }
 
-    fn line_stride(self, viewport_extent: f32) -> f32 {
-        let stride = viewport_extent.max(0.0) * self.wheel_line_viewport_fraction;
-
-        stride.clamp(
-            self.wheel_line_min_pixels,
-            self.wheel_line_max_pixels
-                .min(viewport_extent.max(self.wheel_line_min_pixels)),
-        )
+    fn line_stride(self, _viewport_extent: f32) -> f32 {
+        self.wheel_line_unit_pixels
     }
 
     fn pixel_impulse_axis(self, delta: f32, viewport_extent: f32) -> f32 {
@@ -180,9 +172,7 @@ impl Motion {
 impl Default for Motion {
     fn default() -> Self {
         Self {
-            wheel_line_viewport_fraction: 0.24,
-            wheel_line_min_pixels: 100.0,
-            wheel_line_max_pixels: 360.0,
+            wheel_line_unit_pixels: 28.0,
             wheel_snap_duration: Duration::from_millis(140),
             wheel_min_snap_duration: Duration::from_millis(18),
             wheel_impulse_linear_mix: 0.2,
@@ -1032,11 +1022,22 @@ impl Driver {
     }
 
     pub fn record_wheel_event(&mut self, delta: WheelDelta) {
-        self.pending_diagnostics.wheel_events += 1;
-        match delta {
-            WheelDelta::Lines(_) => self.pending_diagnostics.wheel_line_events += 1,
-            WheelDelta::Pixels { .. } => self.pending_diagnostics.wheel_pixel_events += 1,
+        if self.pending_diagnostics.wheel_events == 0 && self.smooth_wheel_scrolls.is_empty() {
+            self.last_scroll_diagnostics = LastScrollDiagnostics::default();
         }
+        self.pending_diagnostics.wheel_events += 1;
+        self.last_scroll_diagnostics.wheel_events += 1;
+        match delta {
+            WheelDelta::Lines(_) => {
+                self.pending_diagnostics.wheel_line_events += 1;
+                self.last_scroll_diagnostics.wheel_line_events += 1;
+            }
+            WheelDelta::Pixels { .. } => {
+                self.pending_diagnostics.wheel_pixel_events += 1;
+                self.last_scroll_diagnostics.wheel_pixel_events += 1;
+            }
+        }
+        self.diagnostics.last_scroll = self.last_scroll_diagnostics;
     }
 
     pub fn record_scroll_redraw_request(&mut self) {
@@ -1643,6 +1644,14 @@ impl TextAreaProjection {
         )
     }
 
+    pub fn scroll_anchor(&self, area_model: &text::Area) -> Option<text::ScrollAnchor> {
+        text::View::scroll_anchor_for_text_area(
+            area_model,
+            self.observed_area(),
+            &self.render_surfaces,
+        )
+    }
+
     fn translate_for_metrics(
         &mut self,
         old_metrics: widget::scroll::Metrics,
@@ -2042,12 +2051,12 @@ mod tests {
     }
 
     #[test]
-    fn motion_line_stride_is_viewport_relative_with_bounds() {
+    fn motion_line_stride_is_platform_line_unit() {
         let motion = Motion::default();
 
-        assert_eq!(motion.line_stride(56.0), 100.0);
-        assert_eq!(motion.line_stride(800.0), 192.0);
-        assert_eq!(motion.line_stride(2_000.0), 360.0);
+        assert_eq!(motion.line_stride(56.0), 28.0);
+        assert_eq!(motion.line_stride(800.0), 28.0);
+        assert_eq!(motion.line_stride(2_000.0), 28.0);
     }
 
     #[test]
@@ -2641,7 +2650,7 @@ mod tests {
     }
 
     #[test]
-    fn wheel_line_delta_uses_target_viewport_stride() {
+    fn wheel_line_delta_uses_platform_line_units() {
         let (composition, mut text_engine, path) = text_area_composition();
         let text_states = HashMap::new();
         let driver = Driver::resolve(&composition, &text_states, &mut text_engine, Instant::now());
@@ -2651,8 +2660,8 @@ mod tests {
 
         assert_eq!(
             driver
-                .wheel_delta_pixels(metrics, WheelDelta::lines(point::logical(0.0, -1.0)), false,),
-            point::logical(0.0, -100.0)
+                .wheel_delta_pixels(metrics, WheelDelta::lines(point::logical(0.0, -3.0)), false,),
+            point::logical(0.0, -84.0)
         );
         assert_eq!(
             driver.wheel_delta_pixels(
@@ -3237,6 +3246,57 @@ mod tests {
     }
 
     #[test]
+    fn projection_sync_preserves_last_scroll_input_diagnostics() {
+        let (composition, mut text_engine, path) = text_area_composition();
+        let initial_state = text::view::TextViewState::default();
+        let now = Instant::now();
+        let mut projections = Driver::resolve(
+            &composition,
+            &HashMap::from([(path.clone(), initial_state.clone())]),
+            &mut text_engine,
+            now,
+        );
+        let metrics = projections
+            .metrics(&path)
+            .expect("text area should have scroll metrics");
+        let delta = WheelDelta::lines(point::logical(0.0, -1.0));
+        let pixels = projections.wheel_delta_pixels(metrics, delta, false);
+        let target = metrics.wheel_offset(pixels);
+
+        projections.record_wheel_event(delta);
+        assert_eq!(projections.diagnostics().last_scroll.wheel_events, 1);
+        assert!(projections.queue_wheel_offset_at(&path, target, now));
+        assert!(
+            projections.advance_smooth_wheel_scrolls(animation::Frame::new(
+                now + Duration::from_millis(16),
+                Some(now),
+            ))
+        );
+        assert_eq!(
+            projections
+                .drain_pending_offsets()
+                .keys()
+                .collect::<Vec<_>>(),
+            vec![&path]
+        );
+        projections.publish_pending_scroll_diagnostics();
+
+        projections.sync(
+            &composition,
+            &HashMap::from([(path.clone(), initial_state.with_scroll_y(target.y()))]),
+            &mut text_engine,
+            now + Duration::from_millis(16),
+        );
+        let diagnostics = projections.diagnostics();
+
+        assert_eq!(
+            diagnostics.last_scroll.wheel_events, 1,
+            "projection sync should not erase the input that drove the scroll frame"
+        );
+        assert_eq!(diagnostics.last_scroll.wheel_line_events, 1);
+    }
+
+    #[test]
     fn vertical_projection_shift_preserves_text_surface_geometry() {
         let (composition, mut text_engine, path) = text_area_composition();
         let mut projections = Driver::resolve(
@@ -3265,6 +3325,34 @@ mod tests {
     }
 
     #[test]
+    fn fast_vertical_projection_shift_uses_text_render_guard() {
+        let (composition, mut text_engine, path) =
+            text_area_composition_for(text::Area::new(multiline_buffer(500)));
+        let mut projections = Driver::resolve(
+            &composition,
+            &HashMap::new(),
+            &mut text_engine,
+            Instant::now(),
+        );
+        let metrics = projections
+            .metrics(&path)
+            .expect("text area should have scroll metrics");
+        let offset = point::logical(0.0, 300.0);
+
+        assert!(
+            metrics.max_offset().y() > offset.y(),
+            "fixture must be tall enough to exercise a fast visual scroll step"
+        );
+        assert!(projections.queue_offset(&path, offset));
+
+        assert!(
+            projections.text_area(&path).is_some(),
+            "a fast scroll step inside the render guard should shift the glyphon surface, not drop the text projection"
+        );
+        assert!(projections.text_area_projection_shifted(&path));
+    }
+
+    #[test]
     fn text_area_projection_keeps_render_surface_without_observed_coverage() {
         let (composition, mut text_engine, path) =
             text_area_composition_for(text::Area::new(multiline_buffer(200)));
@@ -3284,6 +3372,16 @@ mod tests {
         assert_eq!(
             retained, 0,
             "scroll paint should not retain observed line surfaces unless interaction or overlays need them"
+        );
+        assert!(
+            projection
+                .scroll_anchor(
+                    composition
+                        .text_area(&path)
+                        .expect("composition should expose the text area model")
+                )
+                .is_some(),
+            "render-only text projections must still provide a scroll anchor"
         );
     }
 

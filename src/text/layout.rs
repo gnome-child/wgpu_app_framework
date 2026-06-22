@@ -29,7 +29,8 @@ const TEXT_AREA_RENDER_BUFFER_CACHE_CAPACITY: usize = 32;
 const TEXT_AREA_HEIGHT_INDEX_CACHE_CAPACITY: usize = 128;
 const TEXT_AREA_HEIGHT_INDEX_BLOCK_LINES: usize = 128;
 pub(super) const TEXT_AREA_FRAME_MIN_OVERSCAN_LINES: usize = 16;
-const TEXT_AREA_RENDER_OVERSCAN_LINES: usize = 4;
+pub(super) const TEXT_AREA_RENDER_GUARD_LINES: usize = 12;
+pub(super) const TEXT_AREA_RENDER_MAX_WINDOW_LINES: usize = 128;
 const TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN: f32 = 256.0;
 pub(super) const TEXT_AREA_FRAME_MAX_LOGICAL_LINES: usize = 256;
 pub(super) const TEXT_LAYOUT_VISUAL_LINE_EPSILON: f32 = 0.5;
@@ -67,6 +68,12 @@ struct TextAreaRenderAnchor {
     source_line: usize,
     source_line_end: usize,
     y: f32,
+    height: f32,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TextAreaRenderLineWindow {
+    start: usize,
+    end: usize,
 }
 #[derive(Clone)]
 pub(super) struct CachedTextAreaRenderBuffer {
@@ -186,6 +193,41 @@ impl TextAreaRenderBufferKey {
             width: finite_bits(width.max(0.0)),
             wrap: area_model.wrap(),
             direction: style.direction(),
+        }
+    }
+}
+impl TextAreaRenderLineWindow {
+    fn new(visible_start: usize, visible_end: usize, line_count: usize) -> Self {
+        let line_count = line_count.max(1);
+        let visible_start = visible_start.min(line_count.saturating_sub(1));
+        let visible_end = visible_end.min(line_count).max(visible_start + 1);
+        let visible_lines = visible_end.saturating_sub(visible_start).max(1);
+        let guard_lines = text_area_render_guard_lines(visible_lines);
+        let window_lines = visible_lines
+            .saturating_add(guard_lines.saturating_mul(2))
+            .min(TEXT_AREA_RENDER_MAX_WINDOW_LINES)
+            .min(line_count)
+            .max(visible_lines.min(line_count));
+
+        if window_lines >= line_count {
+            return Self {
+                start: 0,
+                end: line_count,
+            };
+        }
+
+        let leading_guard = window_lines.saturating_sub(visible_lines) / 2;
+        let stride = leading_guard.max(1);
+        let desired_start = visible_start.saturating_sub(leading_guard);
+        let mut start = desired_start / stride * stride;
+        if visible_end > start.saturating_add(window_lines) {
+            start = visible_end.saturating_sub(window_lines);
+        }
+        start = start.min(line_count.saturating_sub(window_lines));
+
+        Self {
+            start,
+            end: start + window_lines,
         }
     }
 }
@@ -1711,8 +1753,7 @@ impl Engine {
 
         let font_size = style.size().max(1.0);
         let metrics = glyphon::Metrics::relative(font_size, 1.25);
-        let render_overscan = metrics.line_height * TEXT_AREA_RENDER_OVERSCAN_LINES as f32;
-        let surface_height = (viewport.height() - anchor.y + render_overscan).max(1.0);
+        let surface_height = anchor.height.max(viewport.height() - anchor.y).max(1.0);
         let surface_width = viewport.width().max(1.0)
             + state.scroll_x().max(0.0)
             + TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN;
@@ -1873,13 +1914,13 @@ impl Engine {
         let scroll_y = state.scroll_y().max(0.0);
         let visible_line = height_index.line_at_y(scroll_y);
         let visible_lines = height_index.visible_line_count(scroll_y, viewport.height());
-        let source_line = visible_line.saturating_sub(TEXT_AREA_RENDER_OVERSCAN_LINES);
-        let source_line_end = visible_line
-            .saturating_add(visible_lines)
-            .saturating_add(TEXT_AREA_RENDER_OVERSCAN_LINES)
-            .min(line_count)
-            .max(source_line + 1);
+        let visible_line_end = visible_line.saturating_add(visible_lines).min(line_count);
+        let window = text_area_render_line_window(visible_line, visible_line_end, line_count);
+        let source_line = window.start;
+        let source_line_end = window.end;
         let y = height_index.line_top(source_line) - scroll_y;
+        let height =
+            (height_index.line_top(source_line_end) - height_index.line_top(source_line)).max(1.0);
 
         if committed {
             self.text_area_height_indices.put(height_key, height_index);
@@ -1889,6 +1930,7 @@ impl Engine {
             source_line,
             source_line_end,
             y,
+            height,
         })
     }
 
@@ -2465,6 +2507,18 @@ fn text_area_surface_for_segment(
         buffer: segment.display.buffer.clone(),
         default_color: style.color(),
     }
+}
+
+fn text_area_render_line_window(
+    visible_start: usize,
+    visible_end: usize,
+    line_count: usize,
+) -> TextAreaRenderLineWindow {
+    TextAreaRenderLineWindow::new(visible_start, visible_end, line_count)
+}
+
+fn text_area_render_guard_lines(_visible_lines: usize) -> usize {
+    TEXT_AREA_RENDER_GUARD_LINES
 }
 
 fn text_area_state_needs_observation(

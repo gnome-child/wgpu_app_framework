@@ -982,17 +982,7 @@ impl WindowState {
     pub(crate) fn text_area_scroll_anchor(&self, target: &ui::Path) -> Option<text::ScrollAnchor> {
         let area_model = self.text_surface(target)?.as_area()?;
         let projection = self.scroll.text_area(target)?;
-        text::View::scroll_anchor_for_observed_area(area_model, projection.observed_area()).or_else(
-            || {
-                let surface = projection
-                    .render_surfaces()
-                    .min_by(|left, right| left.y().total_cmp(&right.y()))?;
-                let mark = area_model
-                    .buffer()
-                    .mark_for_position(text::TextPosition::new(surface.source_start()))?;
-                Some(text::ScrollAnchor::new(mark, (-surface.y()).max(0.0)))
-            },
-        )
+        projection.scroll_anchor(area_model)
     }
 
     pub(crate) fn ensure_text_caret_visible_after_edit(
@@ -2736,18 +2726,24 @@ mod tests {
         let lines = text_area_lines(80);
         let text = lines.join("\n");
         let mut buffer = text::Buffer::from_multiline_text(text);
-        let (mut state, mut text_engine, path) =
-            text_area_window_state_for_area(text::Area::new(buffer.clone()).no_wrap(), 500.0);
-        let before_surface = first_visible_text_area_surface(&state, &path);
-        let before_y = before_surface.y();
-        let before_text = buffer.text_for_line_range(
-            before_surface.source_line(),
-            before_surface.source_line() + 1,
+        let initial_scroll_y = 500.0;
+        let (mut state, mut text_engine, path) = text_area_window_state_for_area(
+            text::Area::new(buffer.clone()).no_wrap(),
+            initial_scroll_y,
         );
+        let style = crate::theme::Theme::default_dark()
+            .text()
+            .style(text::document::Role::Control);
+        let line_height = glyphon::Metrics::relative(style.size().max(1.0), 1.25)
+            .line_height
+            .max(1.0);
+        let before_source_line = (initial_scroll_y / line_height).floor() as usize;
+        let before_y = before_source_line as f32 * line_height - initial_scroll_y;
+        let before_text = buffer.text_for_line_range(before_source_line, before_source_line + 1);
         let anchor = state
             .text_area_scroll_anchor(&path)
             .expect("visible text area should capture a scroll anchor");
-        let delete_lines = before_surface.source_line().saturating_sub(1).min(6);
+        let delete_lines = before_source_line.saturating_sub(1).min(6);
         assert!(
             delete_lines > 0,
             "test must scroll below the first logical line"
@@ -2769,43 +2765,45 @@ mod tests {
                 composition.text_area_scroll_y_for_anchor(&path, current, anchor, &mut text_engine)
             })
             .expect("surviving anchor line should resolve");
+        let after_source_line = before_source_line - delete_lines;
+        assert_eq!(
+            buffer.text_for_line_range(after_source_line, after_source_line + 1),
+            before_text,
+            "fixture should delete lines above the anchored row"
+        );
+        let expected_scroll_y = (after_source_line as f32 * line_height - before_y).max(0.0);
+        assert!(
+            (scroll_y - expected_scroll_y).abs() <= 1.0,
+            "anchor resolved scroll {} but expected {} for source line {} after deleting {} lines",
+            scroll_y,
+            expected_scroll_y,
+            after_source_line,
+            delete_lines
+        );
         state
             .scroll
             .update_offset(&path, point::logical(0.0, scroll_y));
         state.text.insert(
             path.clone(),
-            text::view::TextViewState::default().ensure_caret_visible(Instant::now()),
+            text::view::TextViewState::default()
+                .with_scroll_y(scroll_y)
+                .ensure_caret_visible(Instant::now()),
         );
         sync_text_area_projection(&mut state, &mut text_engine);
 
-        let after_surface = state
+        let final_scroll_y = state
             .scroll
             .text_area(&path)
             .expect("text area projection should exist")
-            .surfaces()
-            .iter()
-            .chain(
-                state
-                    .scroll
-                    .text_area(&path)
-                    .expect("text area projection should exist")
-                    .render_surfaces(),
-            )
-            .find(|surface| {
-                let line =
-                    buffer.text_for_line_range(surface.source_line(), surface.source_line() + 1);
-                line == before_text
-            })
-            .expect("anchored line should still be painted after anchor restore");
-
+            .metrics()
+            .offset()
+            .y();
         assert!(
-            (after_surface.y() - before_y).abs() <= 1.0,
-            "anchored y changed from {} to {}, before source line {}, delete lines {}, resolved scroll {}",
+            (final_scroll_y - expected_scroll_y).abs() <= 1.0,
+            "projection scroll {} should keep anchored line at y {} with expected scroll {}",
+            final_scroll_y,
             before_y,
-            after_surface.y(),
-            before_surface.source_line(),
-            delete_lines,
-            scroll_y
+            expected_scroll_y
         );
     }
 

@@ -120,11 +120,13 @@ pub fn menu_bar_with_theme(id: ui::Id, bar: menu::Bar, theme: &theme::Theme) -> 
     let mut node = ui::Node::container(id, layout::Axis::Horizontal)
         .with_menu_bar(bar.clone())
         .with_background(theme.menu().bar_background())
-        .with_stroke(theme.menu().bar_stroke())
         .with_size(
             layout::Size::Fill,
             layout::Size::Fixed(theme.density().menu_bar_height()),
         );
+    if let Some(stroke) = theme.menu().bar_stroke() {
+        node = node.with_stroke(stroke);
+    }
 
     for menu in bar.menus() {
         node.push_child(menu_title(menu, theme));
@@ -686,6 +688,19 @@ mod tests {
         assert!(!node.interactivity().focusable());
         assert_eq!(node.cursor(), ui::Cursor::Default);
         assert!(node.responders().is_empty());
+    }
+
+    #[test]
+    fn menu_bar_is_fill_only_by_default_theme() {
+        let theme = theme::Theme::default_dark();
+        let bar = menu::Bar::new().menu(menu::Menu::new(menu::Id::new("file"), "File"));
+        let node = menu_bar_with_theme(ROOT, bar, &theme);
+
+        assert_eq!(
+            node.style().background(),
+            Some(theme.menu().bar_background())
+        );
+        assert_eq!(node.style().stroke(), None);
     }
 
     #[test]

@@ -2049,7 +2049,7 @@ mod tests {
                 .scroll
                 .target_offset(&path)
                 .expect("smooth wheel target should accumulate before the frame"),
-            point::logical(0.0, 300.0)
+            point::logical(0.0, 84.0)
         );
         assert!(state.smooth_scroll_active());
     }
