@@ -1475,6 +1475,39 @@ impl Engine {
         )
     }
 
+    pub fn text_area_overlay_layout_for_area_at(
+        &mut self,
+        area_model: &Area,
+        style: Style,
+        viewport: area::Logical,
+        state: TextViewState,
+        now: Instant,
+        content_area: area::Logical,
+    ) -> TextFieldLayout {
+        let projection = PreeditProjection::new(area_model.buffer(), &state);
+        let committed = !projection.has_preedit();
+        let segments = self.text_area_display_segments(
+            area_model,
+            &projection.buffer,
+            committed,
+            style,
+            viewport,
+            &state,
+        );
+        let layout = self.text_area_layout_from_segments(
+            area_model,
+            style,
+            viewport,
+            &state,
+            now,
+            &projection,
+            &segments,
+            Some(content_area),
+        );
+        self.diagnostics.text_area_interaction_surfaces += segments.len();
+        layout
+    }
+
     pub fn text_area_overlay_layout_for_surfaces_at(
         &mut self,
         area_model: &Area,

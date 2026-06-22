@@ -463,7 +463,7 @@ impl Driver {
                 diagnostics.text_area_model_reuses += 1;
             }
             let Some((metrics, paint_layout, key, content_size)) = composition
-                .text_area_scroll_paint_layout_with_content_hint(
+                .text_area_scroll_render_layout_with_content_hint(
                     path,
                     layout_state,
                     text_engine,

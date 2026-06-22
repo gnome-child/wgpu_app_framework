@@ -244,13 +244,24 @@ fn node<T>(
             let resolved_state = text_field_state
                 .clone()
                 .with_scroll(metrics.offset().x(), metrics.offset().y());
-            text_engine.text_area_overlay_layout_for_surfaces_at(
-                area,
-                resolved_state,
-                frame.now(),
-                projection.content_area(),
-                projection.interaction_surfaces(),
-            )
+            if projection.interaction_surfaces().is_empty() {
+                text_engine.text_area_overlay_layout_for_area_at(
+                    area,
+                    text_style,
+                    metrics.viewport().area,
+                    resolved_state,
+                    frame.now(),
+                    projection.content_area(),
+                )
+            } else {
+                text_engine.text_area_overlay_layout_for_surfaces_at(
+                    area,
+                    resolved_state,
+                    frame.now(),
+                    projection.content_area(),
+                    projection.interaction_surfaces(),
+                )
+            }
         });
     let text_area_layout_ref = text_area_layout_owned.as_ref();
     let text_field_layout_owned = if text_area_layout_ref.is_none() {
@@ -1176,12 +1187,13 @@ fn text_area_scroll_projection_for_metrics(
     let resolved_state = state
         .clone()
         .with_scroll(metrics.offset().x(), metrics.offset().y());
-    let paint_layout = text_engine.text_area_paint_layout_for_area_at(
+    let paint_layout = text_engine.text_area_render_layout_for_area_at(
         area_model,
         style,
         metrics.viewport().area,
         resolved_state,
         now,
+        metrics.content_size(),
     );
     Some(scroll::TextAreaProjection::from_layout(
         metrics,

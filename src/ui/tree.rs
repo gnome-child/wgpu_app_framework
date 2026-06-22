@@ -906,6 +906,32 @@ impl Composition {
         )
     }
 
+    pub(crate) fn text_area_scroll_render_layout_with_content_hint(
+        &self,
+        path: &Path,
+        state: text::view::TextViewState,
+        text_engine: &mut text::layout::Engine,
+        now: Instant,
+        content_hint: Option<(text::layout::AreaScrollKey, area::Logical)>,
+    ) -> Option<(
+        widget::scroll::Metrics,
+        text::layout::TextAreaPaintLayout,
+        text::layout::AreaScrollKey,
+        area::Logical,
+    )> {
+        let node = self.node(path)?;
+        let layout = self.layout.find_path(path)?;
+
+        self.text_area_scroll_render_layout_for_node_with_content_hint(
+            node,
+            layout,
+            state,
+            text_engine,
+            now,
+            content_hint,
+        )
+    }
+
     pub(crate) fn text_area_scroll_metrics_with_content_hint(
         &self,
         path: &Path,
@@ -1119,6 +1145,52 @@ impl Composition {
             viewport.area,
             resolved_state,
             now,
+        );
+
+        Some((metrics, paint_layout, key, content_area))
+    }
+
+    fn text_area_scroll_render_layout_for_node_with_content_hint(
+        &self,
+        node: &Node,
+        layout: &Frame,
+        state: text::view::TextViewState,
+        text_engine: &mut text::layout::Engine,
+        now: Instant,
+        content_hint: Option<(text::layout::AreaScrollKey, area::Logical)>,
+    ) -> Option<(
+        widget::scroll::Metrics,
+        text::layout::TextAreaPaintLayout,
+        text::layout::AreaScrollKey,
+        area::Logical,
+    )> {
+        let (metrics, key, content_area) = self
+            .text_area_scroll_metrics_for_node_with_content_hint(
+                node,
+                layout,
+                state.clone(),
+                text_engine,
+                now,
+                content_hint,
+            )?;
+        let area_model = node.text_area()?;
+        let style = node
+            .label()
+            .and_then(text::document::Document::first_style)
+            .unwrap_or_default();
+        let viewport = widget::scroll::viewport_rect_for_axes(
+            text_content_rect(node, layout),
+            node.scroll()?.style(),
+            metrics.active_axes(),
+        );
+        let resolved_state = state.with_scroll(metrics.offset().x(), metrics.offset().y());
+        let paint_layout = text_engine.text_area_render_layout_for_area_at(
+            area_model,
+            style,
+            viewport.area,
+            resolved_state,
+            now,
+            metrics.content_size(),
         );
 
         Some((metrics, paint_layout, key, content_area))
