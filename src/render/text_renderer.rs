@@ -68,20 +68,14 @@ impl TextRenderer {
         }
     }
 
-    pub fn prepare_frame(
-        &mut self,
-        render_context: &render::Context,
-        canvas: &render::Canvas,
-        batch_count: usize,
-    ) {
-        self.update_viewport(render_context, canvas);
+    pub fn prepare_frame(&mut self, render_context: &render::Context, batch_count: usize) {
         self.ensure_renderers(batch_count, render_context);
     }
 
     pub fn prepare_batch(
         &mut self,
         render_context: &render::Context,
-        canvas: &render::Canvas,
+        viewport: render::Viewport,
         renderer_index: usize,
         glyphs: &[batch::Glyph<'_>],
     ) -> Result<bool> {
@@ -89,18 +83,30 @@ impl TextRenderer {
             return Ok(false);
         }
 
-        let scale_factor = canvas.scale_factor();
+        self.update_viewport(render_context, viewport);
+        let scale_factor = viewport.scale_factor();
         let mut prepared = Vec::with_capacity(glyphs.len());
 
         for glyph in glyphs {
-            let glyph = match glyph {
-                batch::Glyph::Text(text) => prepare_text(&mut self.font_system, text, scale_factor),
-                batch::Glyph::TextSurface(text) => prepare_text_surface(text, scale_factor),
-                batch::Glyph::Icon(icon) => prepare_icon(&mut self.font_system, icon, scale_factor),
-            };
-
-            if let Some(glyph) = glyph {
-                prepared.push(glyph);
+            match glyph {
+                batch::Glyph::Text(text) => {
+                    if let Some(glyph) = prepare_text(&mut self.font_system, text, scale_factor) {
+                        prepared.push(glyph);
+                    }
+                }
+                batch::Glyph::TextSurface(text) => {
+                    if let Some(glyph) = prepare_text_surface(text, scale_factor) {
+                        prepared.push(glyph);
+                    }
+                }
+                batch::Glyph::TextViewport(text) => {
+                    prepared.extend(prepare_text_viewport(text, scale_factor));
+                }
+                batch::Glyph::Icon(icon) => {
+                    if let Some(glyph) = prepare_icon(&mut self.font_system, icon, scale_factor) {
+                        prepared.push(glyph);
+                    }
+                }
             }
         }
 
@@ -131,7 +137,14 @@ impl TextRenderer {
         Ok(true)
     }
 
-    pub fn render(&self, renderer_index: usize, pass: &mut wgpu::RenderPass<'_>) -> Result<()> {
+    pub fn render(
+        &mut self,
+        render_context: &render::Context,
+        viewport: render::Viewport,
+        renderer_index: usize,
+        pass: &mut wgpu::RenderPass<'_>,
+    ) -> Result<()> {
+        self.update_viewport(render_context, viewport);
         self.renderers[renderer_index]
             .render(&self.atlas, &self.viewport, pass)
             .map_err(Error::from)
@@ -141,8 +154,8 @@ impl TextRenderer {
         self.atlas.trim();
     }
 
-    fn update_viewport(&mut self, render_context: &render::Context, canvas: &render::Canvas) {
-        let physical_area = canvas.physical_area();
+    fn update_viewport(&mut self, render_context: &render::Context, viewport: render::Viewport) {
+        let physical_area = viewport.physical_area();
         self.viewport.update(
             render_context.queue(),
             glyphon::Resolution {
@@ -183,13 +196,14 @@ fn prepare_text(
     let clip_top = text.rect.origin.y() * scale_factor;
     let clip_right = clip_left + width * scale_factor;
     let clip_bottom = clip_top + height * scale_factor;
-    let left = clip_left;
+    let left = snap_text_origin(clip_left);
     let top = match text.vertical_align {
         paint::TextVerticalAlign::Start => text.rect.origin.y(),
         paint::TextVerticalAlign::Center => {
             text.rect.origin.y() + (height - height.min(prepared.content_height)).max(0.0) * 0.5
         }
     } * scale_factor;
+    let top = snap_text_origin(top);
 
     Some(PreparedText {
         buffer: PreparedTextBuffer::Owned(prepared.buffer),
@@ -268,21 +282,40 @@ fn prepare_text_surface<'a>(
     text: &'a paint::TextSurface,
     scale_factor: f32,
 ) -> Option<PreparedText<'a>> {
+    prepare_text_surface_in_bounds(text, text.rect, scale_factor)
+}
+
+fn prepare_text_viewport<'a>(
+    viewport: &'a paint::TextViewport,
+    scale_factor: f32,
+) -> impl Iterator<Item = PreparedText<'a>> + 'a {
+    viewport.surfaces.iter().filter_map(move |surface| {
+        prepare_text_surface_in_bounds(surface, viewport.rect, scale_factor)
+    })
+}
+
+fn prepare_text_surface_in_bounds<'a>(
+    text: &'a paint::TextSurface,
+    bounds_rect: crate::geometry::Rect,
+    scale_factor: f32,
+) -> Option<PreparedText<'a>> {
     let width = text.rect.area.width().max(0.0);
     let height = text.rect.area.height().max(0.0);
     if width <= 0.0 || height <= 0.0 {
         return None;
     }
 
-    let clip_left = text.rect.origin.x() * scale_factor;
-    let clip_top = text.rect.origin.y() * scale_factor;
-    let clip_right = clip_left + width * scale_factor;
-    let clip_bottom = clip_top + height * scale_factor;
+    let clip_left = bounds_rect.origin.x() * scale_factor;
+    let clip_top = bounds_rect.origin.y() * scale_factor;
+    let clip_right = clip_left + bounds_rect.area.width().max(0.0) * scale_factor;
+    let clip_bottom = clip_top + bounds_rect.area.height().max(0.0) * scale_factor;
+    let left = snap_text_origin(text.rect.origin.x() * scale_factor);
+    let top = snap_text_origin(text.rect.origin.y() * scale_factor);
 
     Some(PreparedText {
         buffer: PreparedTextBuffer::Shared(text.buffer.borrow()),
-        left: clip_left,
-        top: clip_top,
+        left,
+        top,
         bounds: glyphon::TextBounds {
             left: clip_left.floor() as i32,
             top: clip_top.floor() as i32,
@@ -291,6 +324,10 @@ fn prepare_text_surface<'a>(
         },
         default_color: text_system::color(text.default_color),
     })
+}
+
+fn snap_text_origin(position: f32) -> f32 {
+    position.round()
 }
 
 fn wrap(wrap: paint::TextWrap) -> glyphon::Wrap {

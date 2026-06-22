@@ -3,6 +3,7 @@ use crate::paint;
 pub enum ItemBatch<'a> {
     Shapes(Vec<Shape<'a>>),
     Backdrop(&'a paint::Backdrop),
+    Layer(&'a paint::Layer),
     Glyphs(Vec<Glyph<'a>>),
     PushClip(&'a paint::Clip),
     PopClip,
@@ -12,6 +13,7 @@ pub enum ItemBatch<'a> {
 pub enum Glyph<'a> {
     Text(&'a paint::Text),
     TextSurface(&'a paint::TextSurface),
+    TextViewport(&'a paint::TextViewport),
     Icon(&'a paint::Icon),
 }
 
@@ -30,11 +32,13 @@ pub fn item_batches(items: &[paint::Item]) -> Vec<ItemBatch<'_>> {
             paint::Item::Quad(quad) => push_shape(&mut batches, Shape::Quad(quad)),
             paint::Item::Text(text) => push_glyph(&mut batches, Glyph::Text(text)),
             paint::Item::TextSurface(text) => push_glyph(&mut batches, Glyph::TextSurface(text)),
+            paint::Item::TextViewport(text) => push_glyph(&mut batches, Glyph::TextViewport(text)),
             paint::Item::Icon(icon) => push_glyph(&mut batches, Glyph::Icon(icon)),
             paint::Item::Shadow(shadow) => push_shape(&mut batches, Shape::Shadow(shadow)),
             paint::Item::Tint(tint) => push_shape(&mut batches, Shape::Tint(tint)),
             paint::Item::Outline(outline) => push_shape(&mut batches, Shape::Outline(outline)),
             paint::Item::Backdrop(backdrop) => batches.push(ItemBatch::Backdrop(backdrop)),
+            paint::Item::Layer(layer) => batches.push(ItemBatch::Layer(layer)),
             paint::Item::Clip(clip) => batches.push(ItemBatch::PushClip(clip)),
             paint::Item::PopClip => batches.push(ItemBatch::PopClip),
         }
@@ -68,6 +72,7 @@ mod tests {
     enum Kind {
         Shapes(usize),
         Backdrop,
+        Layer,
         Glyphs(usize),
         PushClip,
         PopClip,
@@ -126,6 +131,7 @@ mod tests {
             .map(|batch| match batch {
                 ItemBatch::Shapes(shapes) => Kind::Shapes(shapes.len()),
                 ItemBatch::Backdrop(_) => Kind::Backdrop,
+                ItemBatch::Layer(_) => Kind::Layer,
                 ItemBatch::Glyphs(glyphs) => Kind::Glyphs(glyphs.len()),
                 ItemBatch::PushClip(_) => Kind::PushClip,
                 ItemBatch::PopClip => Kind::PopClip,
@@ -191,6 +197,25 @@ mod tests {
                 Kind::Shapes(1),
                 Kind::Glyphs(1)
             ]
+        );
+    }
+
+    #[test]
+    fn layer_batches_as_own_ordered_operation() {
+        let items = vec![
+            paint::Item::Quad(solid_quad(0.0)),
+            paint::Item::Layer(paint::Layer {
+                id: paint::LayerId(7),
+                rect: Rect::new(point::logical(1.0, 0.0), area::logical(10.0, 10.0)),
+                source: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
+                sampling: paint::LayerSampling::PixelAligned,
+            }),
+            paint::Item::Text(label(2.0)),
+        ];
+
+        assert_eq!(
+            kinds(&item_batches(&items)),
+            vec![Kind::Shapes(1), Kind::Layer, Kind::Glyphs(1)]
         );
     }
 

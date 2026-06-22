@@ -197,13 +197,16 @@ impl View {
         observed: ObservedArea<'_>,
         position: point::Logical,
     ) -> Option<TextPosition> {
+        if observed.surfaces().is_empty() {
+            return None;
+        }
         let local = observed.local_position(position);
         let scroll = observed.scroll();
-        let resolved_state = state.with_scroll(scroll.x(), scroll.y());
         text_engine.text_area_position_at_for_observed_surfaces(
             area_model,
             local,
-            resolved_state,
+            state,
+            scroll.x(),
             observed.surfaces(),
         )
     }
@@ -248,7 +251,7 @@ impl View {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct TextViewState {
+pub struct State {
     scroll_x: f32,
     scroll_y: f32,
     caret_epoch: Instant,
@@ -264,7 +267,9 @@ pub struct Preedit {
     selection: Option<(usize, usize)>,
 }
 
-impl TextViewState {
+pub type TextViewState = State;
+
+impl State {
     pub fn new(scroll_x: f32) -> Self {
         Self::new_at(scroll_x, Instant::now())
     }
@@ -289,6 +294,14 @@ impl TextViewState {
         self.scroll_y
     }
 
+    pub fn field_scroll_x(&self) -> f32 {
+        self.scroll_x
+    }
+
+    pub fn field_scroll_y(&self) -> f32 {
+        self.scroll_y
+    }
+
     pub fn with_scroll_x(mut self, scroll_x: f32) -> Self {
         self.scroll_x = scroll_x.max(0.0);
         self
@@ -303,6 +316,34 @@ impl TextViewState {
         self.scroll_x = scroll_x.max(0.0);
         self.scroll_y = scroll_y.max(0.0);
         self
+    }
+
+    pub fn with_field_scroll_x(self, scroll_x: f32) -> Self {
+        self.with_scroll_x(scroll_x)
+    }
+
+    pub fn with_field_scroll_y(self, scroll_y: f32) -> Self {
+        self.with_scroll_y(scroll_y)
+    }
+
+    pub fn with_field_scroll(self, scroll_x: f32, scroll_y: f32) -> Self {
+        self.with_scroll(scroll_x, scroll_y)
+    }
+
+    pub(crate) fn without_scroll(mut self) -> Self {
+        self.scroll_x = 0.0;
+        self.scroll_y = 0.0;
+        self
+    }
+
+    pub(crate) fn same_except_scroll(&self, other: &Self) -> bool {
+        let mut left = self.clone();
+        let mut right = other.clone();
+        left.scroll_x = 0.0;
+        left.scroll_y = 0.0;
+        right.scroll_x = 0.0;
+        right.scroll_y = 0.0;
+        left == right
     }
 
     pub fn reset_caret_blink(mut self, now: Instant) -> Self {
@@ -405,7 +446,7 @@ impl TextViewState {
     }
 }
 
-impl Default for TextViewState {
+impl Default for State {
     fn default() -> Self {
         Self::new(0.0)
     }

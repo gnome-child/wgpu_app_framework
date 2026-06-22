@@ -68,12 +68,12 @@ pub fn pipeline(
 
 pub fn prepare_batch(
     render_context: &render::Context,
-    canvas: &render::Canvas,
+    viewport: render::Viewport,
     shapes: &[batch::Shape<'_>],
 ) -> Option<Batch> {
     let mut vertex_buf = Vec::new();
     for shape in shapes {
-        push_shape_vertices(&mut vertex_buf, canvas, shape);
+        push_shape_vertices(&mut vertex_buf, viewport, shape);
     }
 
     let vertex_count = vertex_buf.len() as u32;
@@ -216,18 +216,18 @@ impl PixelGeometry {
 
 fn push_shape_vertices(
     buffer: &mut Vec<render::primitive::Vertex>,
-    canvas: &render::Canvas,
+    viewport: render::Viewport,
     shape: &batch::Shape<'_>,
 ) {
-    let canvas_area = canvas.logical_area();
-    let pixel_geometry = PixelGeometry::new(canvas.scale_factor());
+    let canvas_area = viewport.logical_area();
+    let pixel_geometry = PixelGeometry::new(viewport.scale_factor());
 
     if canvas_area.width() <= 0.0 || canvas_area.height() <= 0.0 {
         log::debug!("skipping shape draw for zero-size canvas");
         return;
     }
 
-    for shape in analytic_shapes_for_shape(shape, canvas.scale_factor()) {
+    for shape in analytic_shapes_for_shape(shape, viewport.scale_factor()) {
         push_analytic_shape_vertices(buffer, canvas_area, pixel_geometry, shape);
     }
 }

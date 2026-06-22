@@ -292,6 +292,47 @@ fn text_area_frame_cache_reuses_unchanged_frame_and_rebuilds_after_typing() {
 }
 
 #[test]
+fn text_area_surfaces_retain_prepared_viewport_coverage() {
+    let text = (0..200)
+        .map(|line| format!("line {line:03}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let buffer = Buffer::from_multiline_text(text);
+    let area_model = Area::new(buffer).read_only();
+    let style = Style::default();
+    let viewport = area::logical(360.0, 72.0);
+    let state = TextViewState::new_at(0.0, Instant::now()).with_scroll_y(900.0);
+    let mut engine = Engine::new();
+
+    let layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        state,
+        Instant::now(),
+    );
+    let diagnostics = engine.diagnostics();
+
+    assert!(diagnostics.text_area_visible_logical_lines > 0);
+    assert_eq!(
+        diagnostics.text_area_layout_segments, diagnostics.text_area_paint_surfaces,
+        "prepared line coverage is the text viewport cache; rendering clips it to the viewport"
+    );
+    assert_eq!(
+        diagnostics.text_area_paint_surfaces,
+        layout.surfaces().len()
+    );
+    assert!(
+        diagnostics.text_area_paint_surfaces > diagnostics.text_area_visible_logical_lines,
+        "text viewport surfaces should retain the overscan band for smooth scroll reuse"
+    );
+    assert!(
+        diagnostics.text_area_overscan_segments > 0,
+        "overscan should still be retained for cache/layout"
+    );
+}
+
+#[test]
 fn text_diagnostics_record_visible_text_area_cache_work() {
     let mut engine = Engine::new();
     let buffer = Buffer::from_multiline_text("one\ntwo\nthree");
@@ -315,6 +356,62 @@ fn text_diagnostics_record_visible_text_area_cache_work() {
     assert_eq!(cached.text_area_paint_layout_calls, 1);
     assert!(cached.text_area_line_cache_hits > 0);
     assert_eq!(cached.text_area_line_shape_calls, 0);
+}
+
+#[test]
+fn text_area_render_buffer_is_shaped_once_and_reused_without_resize() {
+    let mut engine = Engine::new();
+    let buffer = Buffer::from_multiline_text(
+        "one two three four five\nsix seven eight nine ten\neleven twelve thirteen",
+    );
+    let area_model = Area::new(buffer).read_only();
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(240.0, 120.0);
+    let state = TextViewState::default();
+    let now = Instant::now();
+    let content_area = area::logical(240.0, 360.0);
+
+    engine.reset_diagnostics();
+    let first = engine.text_area_render_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        state.clone(),
+        now,
+        content_area,
+    );
+    let first_diagnostics = engine.diagnostics();
+    assert_eq!(first.render_surfaces().len(), 1);
+    assert_eq!(first.surfaces().len(), 0);
+    assert_eq!(first_diagnostics.text_area_render_surface_cache_misses, 1);
+    assert_eq!(first_diagnostics.text_area_render_surface_cache_hits, 0);
+    assert!(
+        first_diagnostics.text_area_render_surface_shape_us > 0,
+        "a cold render surface should perform the one required text layout pass"
+    );
+
+    engine.reset_diagnostics();
+    let cached = engine.text_area_render_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        state,
+        now,
+        content_area,
+    );
+    let cached_diagnostics = engine.diagnostics();
+    assert_eq!(cached.render_surfaces().len(), 1);
+    assert_eq!(cached.surfaces().len(), 0);
+    assert_eq!(cached_diagnostics.text_area_render_surface_cache_hits, 1);
+    assert_eq!(cached_diagnostics.text_area_render_surface_cache_misses, 0);
+    assert_eq!(
+        cached_diagnostics.text_area_render_surface_size_us, 0,
+        "cache hits must not resize text layout; viewport height is render clipping"
+    );
+    assert_eq!(
+        cached_diagnostics.text_area_render_surface_shape_us, 0,
+        "cache hits must reuse the existing shaped text surface"
+    );
 }
 
 #[test]
@@ -422,16 +519,23 @@ fn large_text_area_scroll_and_highlight_work_are_viewport_bounded() {
         .into_parts();
     let interaction_stats = engine.interaction_stats();
     let highlight_stats = engine.highlight_stats();
+    let diagnostics = engine.diagnostics();
     let visible_runs = surface_visual_runs(&surfaces);
 
     assert!(!layout.selection_spans().is_empty());
     assert!(surfaces.len() <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
+    assert_eq!(diagnostics.text_area_paint_surfaces, surfaces.len());
+    assert_eq!(
+        diagnostics.text_area_layout_segments,
+        diagnostics.text_area_paint_surfaces
+    );
     assert!(interaction_stats.text_area_frame_shape_calls <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
     assert!(
         interaction_stats.text_area_frame_shaped_logical_lines <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES
     );
     assert_eq!(interaction_stats.text_area_shape_until_scroll_calls, 0);
-    assert_eq!(highlight_stats.run_scans, visible_runs);
+    assert!(highlight_stats.run_scans >= visible_runs);
+    assert!(highlight_stats.run_scans <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
     assert_eq!(highlight_stats.highlight_calls, 0);
 }
 #[test]
@@ -1364,12 +1468,19 @@ fn text_area_paint_layout_computes_highlight_overlays_from_visible_surfaces() {
         .text_area_paint_layout_for_area_at(&area_model, style, viewport, state.clone(), now)
         .into_parts();
     let stats = engine.highlight_stats();
+    let diagnostics = engine.diagnostics();
     let visible_runs = surface_visual_runs(&surfaces);
 
     assert!(!layout.selection_spans().is_empty());
+    assert_eq!(diagnostics.text_area_paint_surfaces, surfaces.len());
+    assert_eq!(
+        diagnostics.text_area_layout_segments,
+        diagnostics.text_area_paint_surfaces
+    );
     assert!(visible_runs <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
     assert!(visible_runs < 1_000);
-    assert_eq!(stats.run_scans, visible_runs);
+    assert!(stats.run_scans >= visible_runs);
+    assert!(stats.run_scans <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
     assert_eq!(stats.highlight_calls, 0);
     assert_eq!(stats.spans, layout.selection_spans().len());
 
@@ -1379,7 +1490,8 @@ fn text_area_paint_layout_computes_highlight_overlays_from_visible_surfaces() {
     let cached_stats = engine.highlight_stats();
 
     assert!(!cached.layout().selection_spans().is_empty());
-    assert_eq!(cached_stats.run_scans, visible_runs);
+    assert!(cached_stats.run_scans >= visible_runs);
+    assert!(cached_stats.run_scans <= TEXT_AREA_FRAME_MAX_LOGICAL_LINES);
     assert_eq!(cached_stats.highlight_calls, 0);
     assert_eq!(cached_stats.spans, cached.layout().selection_spans().len());
 }
@@ -2001,6 +2113,48 @@ fn text_area_hit_testing_uses_current_line_order_after_line_insert_above() {
     assert_eq!(observed_hit.index, expected_current_start);
     assert_ne!(observed_hit.index, stale_start_before_insert);
 }
+
+#[test]
+fn text_area_observed_hit_testing_uses_observed_horizontal_scroll() {
+    let mut engine = Engine::new();
+    let buffer = Buffer::from_multiline_text("abcdefghijklmnopqrstuvwxyz");
+    let area_model = Area::new(buffer).no_wrap();
+    let style = Style::default().with_size(16.0);
+    let viewport = area::logical(120.0, 48.0);
+    let observed_state = TextViewState::default().with_scroll(80.0, 0.0);
+    let stale_state = TextViewState::default();
+    let paint_layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        observed_state,
+        Instant::now(),
+    );
+
+    let observed_hit = engine
+        .text_area_position_at_for_paint_layout(
+            &area_model,
+            point::logical(0.0, 8.0),
+            stale_state.clone(),
+            &paint_layout,
+        )
+        .expect("observed paint layout should hit with observed scroll");
+    let stale_hit = engine
+        .text_area_position_at_for_area(
+            &area_model,
+            style,
+            viewport,
+            point::logical(0.0, 8.0),
+            stale_state,
+        )
+        .expect("fallback hit should use state scroll");
+
+    assert!(
+        observed_hit.index > stale_hit.index,
+        "observed hit should use paint-layout scroll, not stale state scroll: observed={observed_hit:?} stale={stale_hit:?}"
+    );
+}
+
 #[test]
 fn text_area_hit_testing_uses_nearest_caret_in_empty_space() {
     let mut engine = Engine::new();

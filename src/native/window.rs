@@ -24,6 +24,17 @@ pub struct Options {
     pub inner_area: area::Physical,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointerCaptureStatus {
+    Active,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointerCaptureKind {
+    EventStream,
+}
+
 impl Window {
     pub fn open(options: Options, event_loop: &ActiveEventLoop) -> native::Result<Handle> {
         let mut window_attributes = WindowAttributes::default()
@@ -88,6 +99,14 @@ impl Window {
         self.handle.set_cursor(icon);
     }
 
+    pub fn capture_pointer(&self, kind: PointerCaptureKind) -> PointerCaptureStatus {
+        winit_pointer_capture_status(kind)
+    }
+
+    pub fn release_pointer_capture(&self) {
+        // Winit does not expose GTK/GDK-style event-stream pointer capture.
+    }
+
     pub fn canvas(&self) -> &render::Canvas {
         &self.canvas
     }
@@ -103,5 +122,24 @@ impl Window {
         scale_factor: f32,
     ) {
         self.canvas.resize(render_context, area, scale_factor);
+    }
+}
+
+fn winit_pointer_capture_status(kind: PointerCaptureKind) -> PointerCaptureStatus {
+    match kind {
+        PointerCaptureKind::EventStream => PointerCaptureStatus::Unsupported,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn winit_event_stream_pointer_capture_is_unsupported() {
+        assert_eq!(
+            winit_pointer_capture_status(PointerCaptureKind::EventStream),
+            PointerCaptureStatus::Unsupported
+        );
     }
 }

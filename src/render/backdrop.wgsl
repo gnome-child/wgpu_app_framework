@@ -1,8 +1,9 @@
 struct Params {
     texture_size: vec2<f32>,
-    canvas_size: vec2<f32>,
+    source_scale: vec2<f32>,
     direction_radius: vec4<f32>,
     rect: vec4<f32>,
+    source_rect: vec4<f32>,
     rounding: vec4<f32>,
 };
 
@@ -138,9 +139,28 @@ fn fs_composite(in: CompositeOut) -> @location(0) vec4<f32> {
         discard;
     }
 
-    let scale_factor = params.direction_radius.w;
-    let uv = in.local_position * scale_factor / max(params.texture_size, vec2<f32>(1.0));
+    let source_position = params.source_rect.xy
+        + (in.local_position - params.rect.xy) * params.source_scale;
+    let uv = source_position / max(params.texture_size, vec2<f32>(1.0));
     let color = textureSample(source_texture, source_sampler, uv);
+    let rgb = select(color.rgb / max(color.a, 0.0001), vec3<f32>(0.0), color.a <= 0.0001);
+
+    return vec4<f32>(rgb, color.a * alpha);
+}
+
+@fragment
+fn fs_composite_pixel(in: CompositeOut) -> @location(0) vec4<f32> {
+    let alpha = coverage(rounded_rect_sdf(in.local_position, in.rect, in.rounding));
+
+    if alpha <= 0.0 {
+        discard;
+    }
+
+    let source_position = params.source_rect.xy
+        + (in.local_position - params.rect.xy) * params.source_scale;
+    let max_position = max(params.texture_size - vec2<f32>(1.0), vec2<f32>(0.0));
+    let texel = vec2<i32>(floor(clamp(source_position, vec2<f32>(0.0), max_position)));
+    let color = textureLoad(source_texture, texel, 0);
     let rgb = select(color.rgb / max(color.a, 0.0001), vec3<f32>(0.0), color.a <= 0.0001);
 
     return vec4<f32>(rgb, color.a * alpha);

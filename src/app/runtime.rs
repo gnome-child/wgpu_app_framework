@@ -1,9 +1,11 @@
-use std::collections::HashMap;
-use std::time::Instant;
+use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, StartCause, WindowEvent},
+    event::{
+        ElementState, KeyEvent, MouseButton, MouseScrollDelta, StartCause, TouchPhase, WindowEvent,
+    },
     event_loop::ActiveEventLoop,
 };
 
@@ -11,6 +13,7 @@ use crate::animation;
 use crate::app::action_executor;
 use crate::app::clipboard::SystemClipboard;
 use crate::app::context;
+use crate::app::frame;
 use crate::app::input;
 use crate::app::key_repeat;
 use crate::app::mailbox::{Mailbox, Message};
@@ -20,7 +23,7 @@ use crate::app::state::WindowState;
 use crate::app::view;
 use crate::app::windows::Windows;
 use crate::geometry::{area, point};
-use crate::{action, event, text, ui, window};
+use crate::{action, event, native, paint, text, ui, window};
 
 use super::{Application, Error, Options};
 
@@ -40,6 +43,7 @@ pub struct Runtime<A: Application> {
     animation_schedules: HashMap<window::Id, animation::Schedule>,
     last_frames: HashMap<window::Id, Instant>,
     cursors: HashMap<window::Id, ui::Cursor>,
+    native_pointer_captures: HashSet<window::Id>,
     started: bool,
     error: Option<Error>,
 }
@@ -64,6 +68,7 @@ impl<A: Application> Runtime<A> {
             animation_schedules: HashMap::new(),
             last_frames: HashMap::new(),
             cursors: HashMap::new(),
+            native_pointer_captures: HashSet::new(),
             started: false,
             error: None,
         }
@@ -140,8 +145,8 @@ impl<A: Application> Runtime<A> {
             .get(&window)
             .map(|state| state.resolve_request(request.clone()))
             .unwrap_or(request);
-        let windows = &self.windows;
-        let mut request_redraw = |window| windows.request_redraw(window);
+        let mut redraws = Vec::new();
+        let mut request_redraw = |window| redraws.push(window);
 
         let sender = self.sender.clone();
         if let Some(effect) = action_executor::execute(
@@ -152,13 +157,19 @@ impl<A: Application> Runtime<A> {
         ) {
             action_executor::enqueue_effect(&mut self.mailbox, effect);
         }
+        for window in redraws {
+            self.invalidate_full(window);
+        }
     }
 
     fn complete_action_task(&mut self, invocation: action::Invocation, event: A::Event) {
-        let windows = &self.windows;
-        let mut request_redraw = |window| windows.request_redraw(window);
+        let mut redraws = Vec::new();
+        let mut request_redraw = |window| redraws.push(window);
 
         action_executor::complete_task(&mut self.actions, invocation, &mut request_redraw);
+        for window in redraws {
+            self.invalidate_full(window);
+        }
         self.mailbox.push_app(event);
     }
 
@@ -173,7 +184,7 @@ impl<A: Application> Runtime<A> {
         animation::Frame::new(now, previous)
     }
 
-    fn request_due_animation_redraws(&mut self, now: Instant) {
+    fn invalidate_due_animation_frames(&mut self, now: Instant) {
         let due = self
             .animation_schedules
             .iter()
@@ -181,10 +192,19 @@ impl<A: Application> Runtime<A> {
             .collect::<Vec<_>>();
 
         for window in due {
-            if self.windows.contains(window) {
-                self.windows.request_redraw(window);
-            } else {
+            if !self.windows.contains(window) {
                 self.animation_schedules.remove(&window);
+                continue;
+            }
+
+            if self
+                .window_states
+                .get(&window)
+                .is_some_and(WindowState::smooth_scroll_active)
+            {
+                self.invalidate_scroll(window);
+            } else {
+                self.invalidate_full(window);
             }
         }
     }
@@ -217,15 +237,161 @@ impl<A: Application> Runtime<A> {
             return;
         }
 
+        let total_start = Instant::now();
         let frame = self.frame_for_window(window);
-        if self
+        let Some(work) = self
+            .window_states
+            .get_mut(&window)
+            .and_then(|state| state.frame.begin_redraw(frame.now()))
+        else {
+            return;
+        };
+        let mut redraw_kind = work.kind();
+        let dirty_to_frame = work.dirty_to_frame();
+
+        let due_selection_drag_autoscroll = self
             .animation_schedules
             .get(&window)
             .is_some_and(|schedule| schedule.is_due(frame.now()))
-        {
+            && self
+                .window_states
+                .get(&window)
+                .is_some_and(WindowState::text_selection_drag_autoscroll_active);
+        if due_selection_drag_autoscroll {
             self.advance_text_selection_drag_autoscroll(event_loop, window);
+            redraw_kind = frame::RedrawKind::Full;
         }
 
+        let can_scroll_only = redraw_kind.is_scroll_only()
+            && self
+                .window_states
+                .get(&window)
+                .is_some_and(|state| state.composition.is_some() && !state.scroll.is_empty());
+
+        let (paint_result, actual_kind) = if can_scroll_only {
+            self.text_editor.reset_diagnostics();
+            self.text_engine.reset_diagnostics();
+            let state = self.window_states.entry(window).or_default();
+            match view::paint_scroll_only(
+                window,
+                state,
+                &mut self.actions,
+                &mut self.text_engine,
+                frame,
+            ) {
+                Some(result) => (result, frame::RedrawKind::ScrollOnly),
+                None => {
+                    if let Some(state) = self.window_states.get_mut(&window) {
+                        state.frame.record_scroll_only_fallback_to_full();
+                    }
+                    (
+                        self.full_redraw(event_loop, window, frame),
+                        frame::RedrawKind::Full,
+                    )
+                }
+            }
+        } else {
+            (
+                self.full_redraw(event_loop, window, frame),
+                frame::RedrawKind::Full,
+            )
+        };
+
+        self.sync_ime_for_window(window);
+        self.sync_cursor_for_window(window);
+
+        let Some(native_window) = self.windows.get_mut(window) else {
+            return;
+        };
+
+        use crate::render::frame::Status::*;
+        let draw_report = match self.rendering.draw(
+            native_window,
+            &paint_result.scene,
+            &paint_result.layer_updates,
+        ) {
+            Ok(report) => report,
+            Err(error) => {
+                self.fail(event_loop, error.into());
+                return;
+            }
+        };
+        let presented = match draw_report.status {
+            Presented => true,
+            Skipped(reason) => {
+                log::warn!("render pass was skipped: {:#?}", reason);
+                if let Some(state) = self.window_states.get_mut(&window) {
+                    state.frame.record_render_skip();
+                    state.invalidate_frame(frame::RedrawKind::Full, Instant::now());
+                }
+                false
+            }
+        };
+
+        if !presented {
+            self.drain_mailbox(event_loop);
+            return;
+        }
+
+        let presented_at = Instant::now();
+        if let Some(state) = self.window_states.get_mut(&window) {
+            let latency = state.take_scroll_input_latency(presented_at);
+            let total = total_start.elapsed();
+            let text_diagnostics = self.text_engine.diagnostics();
+            let scroll_diagnostics = state.scroll.diagnostics();
+            state.frame.record_presented(
+                actual_kind,
+                frame::FrameTimings {
+                    stages: paint_result.timings,
+                    render: draw_report.timings.total,
+                    render_stages: frame::RenderTimings {
+                        acquire: draw_report.timings.surface_acquire,
+                        batching: draw_report.timings.scene_batching,
+                        quad_prepare: draw_report.timings.quad_prepare,
+                        text_prepare: draw_report.timings.text_prepare,
+                        scene_text_prepare: draw_report.timings.scene_text_prepare,
+                        layer_update_text_prepare: draw_report.timings.layer_update_text_prepare,
+                        backdrop_prepare: draw_report.timings.backdrop_prepare,
+                        encode_submit: draw_report.timings.encode_submit,
+                    },
+                    render_stats: frame::RenderStats {
+                        scene_items: draw_report.stats.scene_items,
+                        render_batches: draw_report.stats.render_batches,
+                        glyph_batches: draw_report.stats.glyph_batches,
+                        text_surfaces: draw_report.stats.text_surfaces,
+                        quad_vertices: draw_report.stats.quad_vertices,
+                        clip_batches: draw_report.stats.clip_batches,
+                        backdrops: draw_report.stats.backdrops,
+                        layer_items: draw_report.stats.layer_items,
+                        layer_updates: draw_report.stats.layer_updates,
+                    },
+                    total,
+                    scroll_input_to_present: latency,
+                    dirty_to_present: dirty_to_frame.map(|latency| latency + total),
+                },
+            );
+            trace_presented_scroll_frame(
+                actual_kind,
+                paint_result.timings,
+                draw_report,
+                total,
+                scroll_diagnostics,
+                text_diagnostics,
+            );
+            if state.smooth_scroll_active() {
+                state.invalidate_frame(frame::RedrawKind::ScrollOnly, Instant::now());
+            }
+        }
+
+        self.drain_mailbox(event_loop);
+    }
+
+    fn full_redraw(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window: window::Id,
+        frame: animation::Frame,
+    ) -> view::PaintResult {
         let mut tree = ui::Tree::new();
 
         self.actions.clear_context_states(window);
@@ -251,11 +417,15 @@ impl<A: Application> Runtime<A> {
         self.text_engine.reset_diagnostics();
 
         let Some(native_window) = self.windows.get(window) else {
-            return;
+            return view::PaintResult {
+                scene: paint::Scene::new(),
+                timings: frame::StageTimings::default(),
+                layer_updates: Vec::new(),
+            };
         };
         let logical_area = native_window.canvas().logical_area();
         let state = self.window_states.entry(window).or_default();
-        let scene = view::compose(
+        view::compose_with_timings(
             window,
             &tree,
             state,
@@ -263,50 +433,29 @@ impl<A: Application> Runtime<A> {
             &mut self.text_engine,
             logical_area,
             frame,
-        );
-        self.sync_ime_for_window(window);
-        self.sync_cursor_for_window(window);
-
-        let Some(native_window) = self.windows.get_mut(window) else {
-            return;
-        };
-
-        use crate::render::frame::Status::*;
-        match self.rendering.draw(native_window, &scene) {
-            Ok(Presented) => {}
-            Ok(Skipped(reason)) => {
-                log::warn!("render pass was skipped: {:#?}", reason);
-                native_window.request_redraw();
-            }
-            Err(error) => {
-                self.fail(event_loop, error.into());
-            }
-        }
-
-        self.drain_mailbox(event_loop);
+        )
     }
 
     fn advance_text_selection_drag_autoscroll(
         &mut self,
         event_loop: &ActiveEventLoop,
         window: window::Id,
-    ) {
+    ) -> bool {
         let Some(state) = self.window_states.get_mut(&window) else {
-            return;
+            return false;
         };
         let outcome =
             input::text_selection_drag_autoscroll_with_text_engine(state, &mut self.text_engine);
-
-        if outcome.redraw {
-            self.windows.request_redraw(window);
-        }
+        let redraw = outcome.redraw;
 
         self.sync_cursor_for_window(window);
         self.dispatch_ui_events(event_loop, window, outcome.events);
+        redraw
     }
 
     fn close_window(&mut self, event_loop: &ActiveEventLoop, window: window::Id) {
         self.key_repeat.clear_window(window);
+        self.release_native_pointer_capture(window);
         self.windows.remove(window);
         self.window_states.remove(&window);
         self.animation_schedules.remove(&window);
@@ -329,8 +478,17 @@ impl<A: Application> Runtime<A> {
         };
         let outcome = input::pointer_moved_with_text_engine(state, position, &mut self.text_engine);
 
-        if outcome.redraw {
-            self.windows.request_redraw(window);
+        let has_scroll_capture = self
+            .window_states
+            .get(&window)
+            .is_some_and(WindowState::pointer_capture_is_scroll_thumb);
+        if outcome.redraw && has_scroll_capture {
+            if let Some(state) = self.window_states.get_mut(&window) {
+                state.mark_scroll_input(Instant::now());
+            }
+            self.invalidate_scroll(window);
+        } else if outcome.redraw {
+            self.invalidate_full(window);
         }
 
         self.sync_cursor_for_window(window);
@@ -360,6 +518,7 @@ impl<A: Application> Runtime<A> {
             return;
         };
 
+        let had_scroll_capture = window_state.pointer_capture_is_scroll_thumb();
         let outcome = match state {
             ElementState::Pressed => input::pointer_pressed(
                 window_state,
@@ -372,6 +531,12 @@ impl<A: Application> Runtime<A> {
                 input::pointer_released(&self.actions, window_state, window, position, button)
             }
         };
+        let has_scroll_capture = window_state.pointer_capture_is_scroll_thumb();
+        self.sync_native_pointer_capture_for_capture(
+            window,
+            had_scroll_capture,
+            has_scroll_capture,
+        );
 
         self.dispatch_ui_events(event_loop, window, outcome.events);
 
@@ -384,7 +549,7 @@ impl<A: Application> Runtime<A> {
         }
 
         if outcome.redraw {
-            self.windows.request_redraw(window);
+            self.invalidate_full(window);
         }
         self.sync_ime_for_window(window);
         self.sync_cursor_for_window(window);
@@ -395,6 +560,7 @@ impl<A: Application> Runtime<A> {
         event_loop: &ActiveEventLoop,
         window: window::Id,
         delta: MouseScrollDelta,
+        phase: TouchPhase,
     ) {
         let Some(native_window) = self.windows.get(window) else {
             return;
@@ -406,20 +572,29 @@ impl<A: Application> Runtime<A> {
             .and_then(|state| state.pointer.position())
             .unwrap_or_else(|| point::logical(0.0, 0.0));
         let delta = match delta {
-            MouseScrollDelta::LineDelta(x, y) => point::logical(x * 40.0, y * 40.0),
+            MouseScrollDelta::LineDelta(x, y) => {
+                let delta = point::logical(x, y);
+                trace_scroll_input(format_args!("wheel raw=line {delta:?}"));
+                crate::app::scroll::WheelDelta::lines(delta)
+            }
             MouseScrollDelta::PixelDelta(position) => {
-                point::physical(position.x as f32, position.y as f32).to_logical(scale_factor)
+                let delta =
+                    point::physical(position.x as f32, position.y as f32).to_logical(scale_factor);
+                trace_scroll_input(format_args!("wheel raw=pixel {delta:?} phase={phase:?}"));
+                crate::app::scroll::WheelDelta::pixels_with_phase(delta, wheel_phase(phase))
             }
         };
 
         let Some(state) = self.window_states.get_mut(&window) else {
             return;
         };
-        let outcome = input::scroll_wheel(state, position, delta, &mut self.text_engine);
+        let now = Instant::now();
+        state.mark_scroll_input(now);
+        let outcome = input::scroll_wheel(state, position, delta, &mut self.text_engine, now);
 
         self.dispatch_ui_events(event_loop, window, outcome.events);
         if outcome.redraw {
-            self.windows.request_redraw(window);
+            self.invalidate_scroll(window);
         }
         self.sync_ime_for_window(window);
         self.sync_cursor_for_window(window);
@@ -507,7 +682,7 @@ impl<A: Application> Runtime<A> {
         }
 
         if outcome.redraw {
-            self.windows.request_redraw(window);
+            self.invalidate_full(window);
         }
         self.sync_ime_for_window(window);
     }
@@ -557,7 +732,7 @@ impl<A: Application> Runtime<A> {
         self.dispatch_ui_events(event_loop, window, outcome.events);
 
         if outcome.redraw {
-            self.windows.request_redraw(window);
+            self.invalidate_full(window);
         }
         self.sync_ime_for_window(window);
     }
@@ -571,17 +746,17 @@ impl<A: Application> Runtime<A> {
             ui::Intent::Action(_) => {}
             ui::Intent::OpenMenu(menu) => {
                 if state.toggle_menu(menu, &self.actions, window, request.source) {
-                    self.windows.request_redraw(window);
+                    self.invalidate_full(window);
                 }
             }
             ui::Intent::OpenSubmenu(menu) => {
                 if state.open_submenu(menu, &self.actions, window, request.source) {
-                    self.windows.request_redraw(window);
+                    self.invalidate_full(window);
                 }
             }
             ui::Intent::CloseSubmenu => {
                 if state.close_submenu() {
-                    self.windows.request_redraw(window);
+                    self.invalidate_full(window);
                 }
             }
         }
@@ -609,7 +784,7 @@ impl<A: Application> Runtime<A> {
         let cursor = self
             .window_states
             .get(&window)
-            .map(WindowState::cursor_for_hovered)
+            .map(|state| state.cursor_for_pointer(&mut self.text_engine))
             .unwrap_or_default();
 
         let Some(native_window) = self.windows.get(window) else {
@@ -625,6 +800,109 @@ impl<A: Application> Runtime<A> {
         self.cursors.insert(window, cursor);
     }
 
+    #[track_caller]
+    fn invalidate_scroll(&mut self, window: window::Id) {
+        if self.windows.contains(window) {
+            if std::env::var_os("WGPU_L3_SCROLL_TRACE").is_some() {
+                let location = std::panic::Location::caller();
+                eprintln!(
+                    "[wgpu_l3 frame] invalidate scroll window={window:?} at {}:{}",
+                    location.file(),
+                    location.line()
+                );
+            }
+            self.window_states
+                .entry(window)
+                .or_default()
+                .invalidate_frame(frame::RedrawKind::ScrollOnly, Instant::now());
+        }
+    }
+
+    #[track_caller]
+    fn invalidate_full(&mut self, window: window::Id) {
+        if self.windows.contains(window) {
+            if std::env::var_os("WGPU_L3_SCROLL_TRACE").is_some() {
+                let location = std::panic::Location::caller();
+                eprintln!(
+                    "[wgpu_l3 frame] invalidate full window={window:?} at {}:{}",
+                    location.file(),
+                    location.line()
+                );
+            }
+            self.window_states
+                .entry(window)
+                .or_default()
+                .invalidate_frame(frame::RedrawKind::Full, Instant::now());
+        }
+    }
+
+    fn flush_frame_invalidations(&mut self) {
+        let windows = self.window_states.keys().copied().collect::<Vec<_>>();
+        let mut requests = Vec::new();
+
+        for window in windows {
+            if !self.windows.contains(window) {
+                continue;
+            }
+
+            let Some(state) = self.window_states.get_mut(&window) else {
+                continue;
+            };
+            if !state.frame.needs_native_redraw() {
+                continue;
+            }
+
+            if state.frame.pending_redraw_kind() == Some(frame::RedrawKind::ScrollOnly) {
+                state.scroll.record_scroll_redraw_request();
+            }
+            state.frame.native_redraw_requested();
+            requests.push(window);
+        }
+
+        for window in requests {
+            self.windows.request_redraw(window);
+        }
+    }
+
+    fn sync_native_pointer_capture_for_capture(
+        &mut self,
+        window: window::Id,
+        had_capture: bool,
+        has_capture: bool,
+    ) {
+        if had_capture != has_capture {
+            self.set_native_pointer_capture(window, has_capture);
+        }
+    }
+
+    fn set_native_pointer_capture(&mut self, window: window::Id, captured: bool) {
+        if captured {
+            if self.native_pointer_captures.contains(&window) {
+                return;
+            }
+            let Some(native_window) = self.windows.get(window) else {
+                return;
+            };
+            if native_window.capture_pointer(native::PointerCaptureKind::EventStream)
+                == native::PointerCaptureStatus::Active
+            {
+                self.native_pointer_captures.insert(window);
+            }
+        } else {
+            self.release_native_pointer_capture(window);
+        }
+    }
+
+    fn release_native_pointer_capture(&mut self, window: window::Id) {
+        let was_captured = self.native_pointer_captures.remove(&window);
+        if !was_captured {
+            return;
+        }
+        if let Some(native_window) = self.windows.get(window) {
+            native_window.release_pointer_capture();
+        }
+    }
+
     fn dispatch_ui_events(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -638,9 +916,7 @@ impl<A: Application> Runtime<A> {
 }
 
 impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
-    fn new_events(&mut self, _event_loop: &ActiveEventLoop, _cause: StartCause) {
-        self.request_due_animation_redraws(Instant::now());
-    }
+    fn new_events(&mut self, _event_loop: &ActiveEventLoop, _cause: StartCause) {}
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if !self.rendering.ready() {
@@ -701,7 +977,7 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
 
                 let scale_factor = native_window.scale_factor() as f32;
                 self.rendering.resize(native_window, area, scale_factor);
-                native_window.request_redraw();
+                self.invalidate_full(window);
 
                 self.dispatch_ui_event(
                     event_loop,
@@ -717,7 +993,7 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
                 let area = native_window.inner_area();
                 let scale_factor = scale_factor as f32;
                 self.rendering.resize(native_window, area, scale_factor);
-                native_window.request_redraw();
+                self.invalidate_full(window);
 
                 self.dispatch_ui_event(
                     event_loop,
@@ -728,6 +1004,16 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
             WindowEvent::Focused(focused) => {
                 if !focused {
                     self.key_repeat.clear_window(window);
+                    let had_scroll_capture = self
+                        .window_states
+                        .get(&window)
+                        .is_some_and(WindowState::pointer_capture_is_scroll_thumb);
+                    if let Some(state) = self.window_states.get_mut(&window) {
+                        state.clear_pointer_capture();
+                        state.pressed = None;
+                        state.pressed_source = None;
+                    }
+                    self.sync_native_pointer_capture_for_capture(window, had_scroll_capture, false);
                 }
                 self.dispatch_ui_event(event_loop, window, ui::Event::Focused(focused));
             }
@@ -746,20 +1032,27 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
                     return;
                 };
 
+                let had_scroll_capture = state.pointer_capture_is_scroll_thumb();
                 let outcome = input::pointer_left(state);
+                let has_scroll_capture = state.pointer_capture_is_scroll_thumb();
 
                 if outcome.redraw {
-                    self.windows.request_redraw(window);
+                    self.invalidate_full(window);
                 }
 
+                self.sync_native_pointer_capture_for_capture(
+                    window,
+                    had_scroll_capture,
+                    has_scroll_capture,
+                );
                 self.sync_cursor_for_window(window);
                 self.dispatch_ui_events(event_loop, window, outcome.events);
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 self.pointer_button(event_loop, window, state, button);
             }
-            WindowEvent::MouseWheel { delta, .. } => {
-                self.mouse_wheel(event_loop, window, delta);
+            WindowEvent::MouseWheel { delta, phase, .. } => {
+                self.mouse_wheel(event_loop, window, delta, phase);
             }
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.modifiers_changed(window, modifiers);
@@ -788,7 +1081,7 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
         self.dispatch_due_key_repeat(event_loop, now);
-        self.request_due_animation_redraws(now);
+        self.invalidate_due_animation_frames(now);
         let key_repeat_schedule = if self.key_repeat_policy.uses_client_timer() {
             self.key_repeat.schedule()
         } else {
@@ -798,6 +1091,108 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
             .refresh_animation_schedules(now)
             .merge(key_repeat_schedule);
 
+        self.flush_frame_invalidations();
         event_loop.set_control_flow(schedule.control_flow(now));
     }
+}
+
+fn trace_presented_scroll_frame(
+    kind: frame::RedrawKind,
+    paint_timings: frame::StageTimings,
+    draw_report: crate::render::renderer::DrawReport,
+    total: Duration,
+    scroll: crate::app::scroll::Diagnostics,
+    text: text::layout::Diagnostics,
+) {
+    if kind != frame::RedrawKind::ScrollOnly || std::env::var_os("WGPU_L3_SCROLL_TRACE").is_none() {
+        return;
+    }
+
+    eprintln!(
+        concat!(
+            "[wgpu_l3 scroll-frame] ",
+            "commit={}us projection={}us paint={}us ",
+            "render={}us text={}us scene_text={}us layer_text={}us total={}us ",
+            "items={} text_surfaces={} glyph_batches={} layers={}/{} ",
+            "metrics_calls={} layout_calls={} paint_surfaces={} segments={} overscan={} ",
+            "text_surface_build calls={} hit/miss={}/{} lines={} bytes={} ",
+            "build_us anchor/text/buffer/attrs/size/shape/meta/total={}/{}/{}/{}/{}/{}/{}/{} ",
+            "line_cache={}/{} shaped={} ",
+            "text_projection resolves={} reuses={} shifts={} shift_miss={} cold={} ",
+            "scroll_events wheel={} thumb={} commits={} shifts={} shift_miss={} cold={} ",
+            "retained hit={} miss={}/{}/{}/{} rebuild={} fallback={} skips={}"
+        ),
+        duration_micros(paint_timings.scroll_commit),
+        duration_micros(paint_timings.scroll_projection_sync),
+        duration_micros(paint_timings.paint),
+        duration_micros(draw_report.timings.total),
+        duration_micros(draw_report.timings.text_prepare),
+        duration_micros(draw_report.timings.scene_text_prepare),
+        duration_micros(draw_report.timings.layer_update_text_prepare),
+        duration_micros(total),
+        draw_report.stats.scene_items,
+        draw_report.stats.text_surfaces,
+        draw_report.stats.glyph_batches,
+        draw_report.stats.layer_items,
+        draw_report.stats.layer_updates,
+        text.text_area_metrics_layout_calls,
+        text.text_area_paint_layout_calls,
+        text.text_area_paint_surfaces,
+        text.text_area_layout_segments,
+        text.text_area_overscan_segments,
+        text.text_area_render_surface_calls,
+        text.text_area_render_surface_cache_hits,
+        text.text_area_render_surface_cache_misses,
+        text.text_area_render_surface_source_lines,
+        text.text_area_render_surface_source_bytes,
+        text.text_area_render_surface_anchor_us,
+        text.text_area_render_surface_text_us,
+        text.text_area_render_surface_buffer_us,
+        text.text_area_render_surface_attrs_us,
+        text.text_area_render_surface_size_us,
+        text.text_area_render_surface_shape_us,
+        text.text_area_render_surface_metadata_us,
+        text.text_area_render_surface_total_us,
+        text.text_area_line_cache_hits,
+        text.text_area_line_cache_misses,
+        text.text_area_shaped_visual_lines,
+        scroll.text_area_resolves,
+        scroll.text_area_projection_reuses,
+        scroll.text_area_projection_shifts,
+        scroll.text_area_projection_shift_misses,
+        scroll.text_area_projection_cold_jumps,
+        scroll.last_scroll.wheel_events,
+        scroll.last_scroll.thumb_drag_moves,
+        scroll.frame_scroll_commits,
+        scroll.text_area_projection_shifts,
+        scroll.text_area_projection_shift_misses,
+        scroll.text_area_projection_cold_jumps,
+        scroll.last_scroll.retained_scroll_layer_hits,
+        scroll.last_scroll.retained_scroll_layer_missing,
+        scroll.last_scroll.retained_scroll_layer_metrics_misses,
+        scroll.last_scroll.retained_scroll_layer_coverage_misses,
+        scroll.last_scroll.retained_scroll_layer_geometry_misses,
+        scroll.last_scroll.retained_scroll_layer_rebuilds,
+        scroll.last_scroll.retained_scroll_target_repaint_fallbacks,
+        scroll.async_scroll_projection_sync_skips,
+    );
+}
+
+fn wheel_phase(phase: TouchPhase) -> crate::app::scroll::WheelPhase {
+    match phase {
+        TouchPhase::Started => crate::app::scroll::WheelPhase::Started,
+        TouchPhase::Moved => crate::app::scroll::WheelPhase::Moved,
+        TouchPhase::Ended => crate::app::scroll::WheelPhase::Ended,
+        TouchPhase::Cancelled => crate::app::scroll::WheelPhase::Cancelled,
+    }
+}
+
+fn trace_scroll_input(args: std::fmt::Arguments<'_>) {
+    if std::env::var_os("WGPU_L3_SCROLL_TRACE").is_some() {
+        eprintln!("[wgpu_l3 scroll-input] {args}");
+    }
+}
+
+fn duration_micros(duration: Duration) -> u128 {
+    duration.as_micros()
 }

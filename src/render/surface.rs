@@ -2,6 +2,7 @@ use wgpu::SurfaceTarget;
 
 use crate::geometry::area;
 use crate::render;
+use std::time::Instant;
 
 use thiserror::Error;
 
@@ -114,17 +115,28 @@ impl Surface {
         &mut self,
         render_context: &render::Context,
         encode: impl FnOnce(&mut wgpu::CommandEncoder, &render::Frame),
-    ) -> Result<render::frame::Status> {
+    ) -> Result<render::frame::SurfaceReport> {
+        let total_start = Instant::now();
+        let acquire_start = Instant::now();
         let outcome = self.acquire_frame(render_context)?;
+        let acquire = acquire_start.elapsed();
 
         use render::frame::Outcome::*;
         let frame = match outcome {
             Acquired(frame) => frame,
             Skipped(reason) => {
-                return Ok(render::frame::Status::Skipped(reason));
+                return Ok(render::frame::SurfaceReport {
+                    status: render::frame::Status::Skipped(reason),
+                    timings: render::frame::SurfaceTimings {
+                        acquire,
+                        total: total_start.elapsed(),
+                        ..render::frame::SurfaceTimings::default()
+                    },
+                });
             }
         };
 
+        let encode_start = Instant::now();
         let mut encoder =
             render_context
                 .device()
@@ -137,7 +149,14 @@ impl Surface {
         frame.present();
         self.ready = true;
 
-        Ok(render::frame::Status::Presented)
+        Ok(render::frame::SurfaceReport {
+            status: render::frame::Status::Presented,
+            timings: render::frame::SurfaceTimings {
+                acquire,
+                encode_submit: encode_start.elapsed(),
+                total: total_start.elapsed(),
+            },
+        })
     }
 
     pub fn reconfigure(&self, render_context: &render::Context) {

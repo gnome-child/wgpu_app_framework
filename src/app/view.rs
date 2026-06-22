@@ -1,8 +1,49 @@
 use crate::animation;
-use crate::app::{state::WindowState, text_input};
-use crate::geometry::area;
-use crate::{action, paint, text, ui, window};
+use std::ops::Range;
+use std::time::Instant;
 
+use crate::app::{frame, state::WindowState, text_input};
+use crate::geometry::{Rect, area};
+use crate::{action, paint, text, ui, widget, window};
+
+pub(crate) struct PaintResult {
+    pub scene: paint::Scene,
+    pub timings: frame::StageTimings,
+    pub layer_updates: Vec<paint::LayerUpdate>,
+}
+
+enum ScrollOnlyReplacement {
+    LayerRebuild {
+        target: ui::Path,
+        range: Range<usize>,
+        metrics: widget::scroll::Metrics,
+        tiles: Vec<ScrollLayerTile>,
+        chrome: Vec<paint::Item>,
+    },
+    RepaintTarget {
+        target: ui::Path,
+        range: Range<usize>,
+        items: Vec<paint::Item>,
+        records: ui::ScrollPaintRecords,
+        refresh_layer: bool,
+    },
+}
+
+struct ScrollLayerTile {
+    coverage: Rect,
+    scene: paint::Scene,
+    records: ui::ScrollPaintRecords,
+}
+
+impl ScrollOnlyReplacement {
+    fn range(&self) -> &Range<usize> {
+        match self {
+            Self::LayerRebuild { range, .. } | Self::RepaintTarget { range, .. } => range,
+        }
+    }
+}
+
+#[cfg(test)]
 pub fn compose<T>(
     window: window::Id,
     tree: &ui::Tree,
@@ -12,9 +53,32 @@ pub fn compose<T>(
     logical_area: area::Logical,
     frame: animation::Frame,
 ) -> paint::Scene {
+    compose_with_timings(
+        window,
+        tree,
+        state,
+        actions,
+        text_engine,
+        logical_area,
+        frame,
+    )
+    .scene
+}
+
+pub(crate) fn compose_with_timings<T>(
+    window: window::Id,
+    tree: &ui::Tree,
+    state: &mut WindowState,
+    actions: &mut action::Registry<T>,
+    text_engine: &mut text::layout::Engine,
+    logical_area: area::Logical,
+    frame: animation::Frame,
+) -> PaintResult {
     let mut scene = paint::Scene::new();
+    let mut timings = frame::StageTimings::default();
     text_input::sync_session(state);
 
+    let compose_start = Instant::now();
     if let Some(composition) = tree.compose(
         window,
         logical_area,
@@ -22,6 +86,7 @@ pub fn compose<T>(
         state.floating.surfaces(),
         text_engine,
     ) {
+        timings.compose = compose_start.elapsed();
         state.open_menu = composition.open_menu();
         state.open_submenu = composition.open_submenu();
         state.composition = Some(composition);
@@ -31,54 +96,518 @@ pub fn compose<T>(
         text_input::sync_session(state);
         state.update_command_scope_captures(window);
         state.sync_text_field_states(text_engine);
+
+        let commit_start = Instant::now();
+        state.commit_pending_visual_scroll_offsets(frame);
+        state.reconcile_async_scroll_targets(text_engine, frame.now());
+        timings.scroll_commit = commit_start.elapsed();
+
         text_input::publish_action_states(state, actions, window);
         state.sync_menu_title_states(actions, window);
         state.clear_stale_focus();
         state.focus_first_floating_row(actions, window);
+
+        let sync_start = Instant::now();
         state.sync_scroll_projections(text_engine, frame.now());
+        timings.scroll_projection_sync = sync_start.elapsed();
+
         state.refine_idle_scroll_models(text_engine, frame.now());
-        let command_subject = state.command_context(window);
 
-        let interaction = ui::Interaction::new(
-            state.hovered.clone(),
-            state.focused_path(),
-            state.pressed.clone(),
-        )
-        .with_text_editing_target(text_input::editing_target(state))
-        .with_focus_visibility(state.focus_visibility())
-        .with_command_subject(command_subject)
-        .with_command_scope_captures(state.command_scope_captures.clone())
-        .with_open_menu(state.open_menu)
-        .with_open_submenu(state.open_submenu)
-        .with_pointer_position(state.pointer.position())
-        .with_pointer_capture(state.pointer_capture.clone())
-        .with_text_drop_caret(state.text_drop_caret())
-        .with_drag_drop_operation(state.drag_drop.resolved_operation())
-        .with_cursor_overlay(state.drag_drop.cursor_overlay());
-
-        if let Some(composition) = state.composition.as_ref() {
-            composition.paint_at(
-                actions,
-                window,
-                interaction,
-                &state.text_field_states,
-                text_engine,
-                frame,
-                Some(&state.scroll),
-                &mut scene,
-            );
-        }
+        let paint_start = Instant::now();
+        let scroll_ranges =
+            paint_current_composition(window, state, actions, text_engine, frame, &mut scene, true);
+        timings.paint = paint_start.elapsed();
+        let mut layer_updates = state.retain_paint(scene.clone(), scroll_ranges);
+        layer_updates.extend(refresh_retained_scroll_layers_after_full_paint(
+            window,
+            state,
+            actions,
+            text_engine,
+            frame,
+        ));
+        return PaintResult {
+            scene,
+            timings,
+            layer_updates,
+        };
     } else {
+        timings.compose = compose_start.elapsed();
         state.composition = None;
+        state.clear_paint_cache();
         text_input::sync_session(state);
         state.sync_text_field_states(text_engine);
         state.clear_focus();
         state.clear_command_subject();
         state.command_scope_captures.clear();
         state.scroll.clear();
+        state.clear_async_scroll_targets();
     }
 
-    scene
+    PaintResult {
+        scene,
+        timings,
+        layer_updates: Vec::new(),
+    }
+}
+
+pub(crate) fn paint_scroll_only<T>(
+    window: window::Id,
+    state: &mut WindowState,
+    actions: &mut action::Registry<T>,
+    text_engine: &mut text::layout::Engine,
+    frame: animation::Frame,
+) -> Option<PaintResult> {
+    state.composition.as_ref()?;
+    if state.scroll.is_empty() {
+        return None;
+    }
+
+    if let Some(result) = paint_scroll_only_retained(window, state, actions, text_engine, frame) {
+        return Some(result);
+    }
+
+    let mut scene = paint::Scene::new();
+    let mut timings = frame::StageTimings::default();
+
+    let commit_start = Instant::now();
+    state.commit_pending_visual_scroll_offsets(frame);
+    timings.scroll_commit = commit_start.elapsed();
+
+    let sync_start = Instant::now();
+    state.sync_scroll_projections(text_engine, frame.now());
+    timings.scroll_projection_sync = sync_start.elapsed();
+
+    let paint_start = Instant::now();
+    paint_current_composition(
+        window,
+        state,
+        actions,
+        text_engine,
+        frame,
+        &mut scene,
+        false,
+    );
+    timings.paint = paint_start.elapsed();
+
+    Some(PaintResult {
+        scene,
+        timings,
+        layer_updates: Vec::new(),
+    })
+}
+
+fn paint_scroll_only_retained<T>(
+    window: window::Id,
+    state: &mut WindowState,
+    actions: &action::Registry<T>,
+    text_engine: &mut text::layout::Engine,
+    frame: animation::Frame,
+) -> Option<PaintResult> {
+    state.paint_cache()?;
+
+    let mut timings = frame::StageTimings::default();
+
+    let commit_start = Instant::now();
+    state.commit_pending_visual_scroll_offsets(frame);
+    let targets = state.committed_scroll_targets();
+    timings.scroll_commit = commit_start.elapsed();
+    if targets.is_empty() {
+        return None;
+    }
+
+    let paint_start = Instant::now();
+    let interaction = current_interaction(window, state);
+    let mut replacements = Vec::new();
+    let mut layer_updates = Vec::new();
+    let mut skipped_projection_syncs = 0usize;
+
+    for target in targets {
+        let Some(metrics) = state.scroll.metrics(&target) else {
+            return None;
+        };
+        let text_area_target = state
+            .text_surface(&target)
+            .is_some_and(text::Surface::is_area);
+        let text_projection_shifted =
+            text_area_target && state.scroll.text_area_projection_shifted(&target);
+        if !text_area_target {
+            match try_layer_retained_scroll_target(state, &target, metrics, interaction.clone()) {
+                Ok(()) => {
+                    skipped_projection_syncs += 1;
+                    continue;
+                }
+                Err(miss) => {
+                    trace_scroll(format_args!(
+                        "layer miss target={target:?} offset={:?} miss={miss:?}",
+                        metrics.offset()
+                    ));
+                    state.scroll.record_retained_layer_miss(miss);
+                }
+            }
+        } else {
+            trace_scroll(format_args!(
+                "text target bypasses generic retained layer target={target:?} offset={:?} shifted_projection={text_projection_shifted}",
+                metrics.offset()
+            ));
+        }
+
+        let range = state.paint_cache()?.scroll_range(&target)?;
+        let can_rebuild_layer = !text_area_target
+            && state
+                .paint_cache()
+                .and_then(|cache| cache.scroll_layer_metrics(&target))
+                .is_some();
+        if let Some((metrics, tiles)) = can_rebuild_layer
+            .then(|| {
+                paint_scroll_layer_update_for_target(
+                    window,
+                    state,
+                    actions,
+                    text_engine,
+                    frame,
+                    &target,
+                    metrics,
+                    interaction.clone(),
+                )
+            })
+            .flatten()
+        {
+            skipped_projection_syncs += 1;
+            let mut chrome = paint::Scene::new();
+            widget::scroll::paint_metrics_chrome(&target, metrics, &interaction, &mut chrome);
+            replacements.push(ScrollOnlyReplacement::LayerRebuild {
+                target,
+                range,
+                metrics,
+                tiles,
+                chrome: chrome.items().to_vec(),
+            });
+            continue;
+        }
+
+        if !text_area_target {
+            state.scroll.record_retained_repaint_fallback();
+        }
+        let sync_start = Instant::now();
+        state.reconcile_async_scroll_target(&target, text_engine, frame.now());
+        timings.scroll_projection_sync += sync_start.elapsed();
+
+        let mut replacement = paint::Scene::new();
+        let records = {
+            let composition = state.composition.as_ref()?;
+            composition.paint_scroll_target_recording_at(
+                &target,
+                actions,
+                window,
+                interaction.clone(),
+                state.text.states(),
+                text_engine,
+                frame,
+                Some(&state.scroll),
+                &mut replacement,
+            )?
+        };
+        replacements.push(ScrollOnlyReplacement::RepaintTarget {
+            target,
+            range,
+            items: replacement.items().to_vec(),
+            records,
+            refresh_layer: true,
+        });
+    }
+
+    replacements.sort_by(|left, right| right.range().start.cmp(&left.range().start));
+    let mut layer_rebuilds = 0;
+    {
+        let cache = state.paint_cache_mut()?;
+        for replacement in replacements {
+            let update = match replacement {
+                ScrollOnlyReplacement::LayerRebuild {
+                    target,
+                    metrics,
+                    tiles,
+                    chrome,
+                    ..
+                } => {
+                    let updates = cache.update_scroll_layers_from_recorded_scenes(
+                        &target,
+                        metrics,
+                        tiles
+                            .iter()
+                            .map(|tile| (tile.coverage, &tile.scene, &tile.records)),
+                    );
+                    if !updates.is_empty() {
+                        if cache
+                            .replace_scroll_content_with_current_layer(&target, metrics)
+                            .is_err()
+                        {
+                            return None;
+                        }
+                        if !cache.replace_scroll_chrome(&target, chrome) {
+                            return None;
+                        }
+                    }
+                    updates
+                }
+                ScrollOnlyReplacement::RepaintTarget {
+                    target,
+                    items,
+                    records,
+                    refresh_layer,
+                    ..
+                } => {
+                    if !cache.replace_scroll_target(&target, items, records) {
+                        return None;
+                    }
+                    if refresh_layer {
+                        let update = cache.layer_update_for_path(&target);
+                        update.into_iter().collect()
+                    } else {
+                        cache.remove_scroll_layers(&target);
+                        Vec::new()
+                    }
+                }
+            };
+            if !update.is_empty() {
+                layer_updates.extend(update);
+                layer_rebuilds += 1;
+            }
+        }
+    }
+    let retained = state.paint_cache()?.retained_scroll_layers();
+    state.scroll.set_retained_layers(retained);
+    for _ in 0..layer_rebuilds {
+        state.scroll.record_retained_layer_rebuild();
+    }
+    if skipped_projection_syncs > 0 {
+        state
+            .scroll
+            .record_async_projection_sync_skip(skipped_projection_syncs);
+    }
+    state.clear_committed_scroll_targets();
+
+    let scene = state.paint_cache()?.scene().clone();
+    timings.paint = paint_start.elapsed();
+
+    Some(PaintResult {
+        scene,
+        timings,
+        layer_updates,
+    })
+}
+
+fn refresh_retained_scroll_layers_after_full_paint<T>(
+    window: window::Id,
+    state: &mut WindowState,
+    actions: &action::Registry<T>,
+    text_engine: &mut text::layout::Engine,
+    frame: animation::Frame,
+) -> Vec<paint::LayerUpdate> {
+    let Some(cache) = state.paint_cache() else {
+        return Vec::new();
+    };
+    let targets = cache
+        .scroll_targets()
+        .into_iter()
+        .filter(|target| cache.scroll_layer_eligible(target))
+        .collect::<Vec<_>>();
+    let interaction = current_interaction(window, state);
+    let mut updates = Vec::new();
+
+    for target in targets {
+        let Some(metrics) = state.scroll.metrics(&target) else {
+            continue;
+        };
+        let Some((metrics, tiles)) = paint_scroll_layer_update_for_target(
+            window,
+            state,
+            actions,
+            text_engine,
+            frame,
+            &target,
+            metrics,
+            interaction.clone(),
+        ) else {
+            continue;
+        };
+        let Some(cache) = state.paint_cache_mut() else {
+            continue;
+        };
+        updates.extend(
+            cache.update_scroll_layers_from_recorded_scenes(
+                &target,
+                metrics,
+                tiles
+                    .iter()
+                    .map(|tile| (tile.coverage, &tile.scene, &tile.records)),
+            ),
+        );
+    }
+
+    if let Some(cache) = state.paint_cache() {
+        state
+            .scroll
+            .set_retained_layers(cache.retained_scroll_layers());
+    }
+
+    updates
+}
+
+fn try_layer_retained_scroll_target(
+    state: &mut WindowState,
+    target: &ui::Path,
+    metrics: widget::scroll::Metrics,
+    interaction: ui::Interaction,
+) -> Result<(), crate::app::scroll::RetainedLayerMiss> {
+    let mut chrome = paint::Scene::new();
+    widget::scroll::paint_metrics_chrome(target, metrics, &interaction, &mut chrome);
+    let hit_plan = state.scroll.retained_layer_hit(target, metrics)?;
+    trace_scroll(format_args!(
+        "layer hit target={target:?} offset={:?} viewport={:?} source={:?}",
+        metrics.offset(),
+        metrics.viewport(),
+        hit_plan.source()
+    ));
+    let hit = match {
+        let Some(cache) = state.paint_cache_mut() else {
+            return Err(crate::app::scroll::RetainedLayerMiss::MissingLayer);
+        };
+        let hit = cache.replace_scroll_content_with_layer(target, metrics, hit_plan);
+        if hit.is_ok() {
+            if !cache.replace_scroll_chrome(target, chrome.items().to_vec()) {
+                return Err(crate::app::scroll::RetainedLayerMiss::MissingLayer);
+            }
+        }
+        hit
+    } {
+        Ok(hit) => hit,
+        Err(_) => return Err(crate::app::scroll::RetainedLayerMiss::MissingLayer),
+    };
+    if state
+        .text_surface(target)
+        .is_some_and(text::Surface::is_area)
+        && !state.scroll.text_area_projection_shifted(target)
+    {
+        state.scroll.record_retained_projection_miss();
+    }
+    state.scroll.record_retained_layer_hit(hit);
+    Ok(())
+}
+
+fn paint_scroll_layer_update_for_target<T>(
+    window: window::Id,
+    state: &WindowState,
+    actions: &action::Registry<T>,
+    text_engine: &mut text::layout::Engine,
+    frame: animation::Frame,
+    target: &ui::Path,
+    metrics: widget::scroll::Metrics,
+    interaction: ui::Interaction,
+) -> Option<(widget::scroll::Metrics, Vec<ScrollLayerTile>)> {
+    let composition = state.composition.as_ref()?;
+    let coverages = state.scroll.plan_retained_layer_coverages(target, metrics);
+    trace_scroll(format_args!(
+        "generic layer rebuild target={target:?} offset={:?} viewport={:?} coverages={coverages:?}",
+        metrics.offset(),
+        metrics.viewport(),
+    ));
+    let mut tiles = Vec::new();
+    let viewport = metrics.viewport();
+    for coverage in coverages {
+        let layer_offset = crate::geometry::point::logical(
+            metrics.offset().x() + coverage.origin.x() - viewport.origin.x(),
+            metrics.offset().y() + coverage.origin.y() - viewport.origin.y(),
+        );
+        let layer_metrics = metrics.with_layer_viewport(coverage, layer_offset);
+        let layer_scroll =
+            crate::app::scroll::Driver::from_scroll_metrics(target.clone(), layer_metrics);
+        let mut scene = paint::Scene::new();
+        let records = composition.paint_scroll_target_recording_at(
+            target,
+            actions,
+            window,
+            interaction.clone(),
+            state.text.states(),
+            text_engine,
+            frame,
+            Some(&layer_scroll),
+            &mut scene,
+        )?;
+        tiles.push(ScrollLayerTile {
+            coverage,
+            scene,
+            records,
+        });
+    }
+
+    Some((metrics, tiles))
+}
+
+fn trace_scroll(args: std::fmt::Arguments<'_>) {
+    if std::env::var_os("WGPU_L3_SCROLL_TRACE").is_some() {
+        eprintln!("[wgpu_l3 scroll] {args}");
+    }
+}
+
+fn paint_current_composition<T>(
+    window: window::Id,
+    state: &WindowState,
+    actions: &action::Registry<T>,
+    text_engine: &mut text::layout::Engine,
+    frame: animation::Frame,
+    scene: &mut paint::Scene,
+    record_scroll_ranges: bool,
+) -> ui::ScrollPaintRecords {
+    let command_subject = state.command_context(window);
+
+    let interaction = current_interaction(window, state).with_command_subject(command_subject);
+
+    if let Some(composition) = state.composition.as_ref() {
+        if record_scroll_ranges {
+            return composition.paint_at_recording_scroll_ranges(
+                actions,
+                window,
+                interaction,
+                state.text.states(),
+                text_engine,
+                frame,
+                Some(&state.scroll),
+                scene,
+            );
+        } else {
+            composition.paint_at(
+                actions,
+                window,
+                interaction,
+                state.text.states(),
+                text_engine,
+                frame,
+                Some(&state.scroll),
+                scene,
+            );
+        }
+    }
+
+    ui::ScrollPaintRecords::default()
+}
+
+fn current_interaction(window: window::Id, state: &WindowState) -> ui::Interaction {
+    ui::Interaction::new(
+        state.hovered.clone(),
+        state.focused_path(),
+        state.pressed.clone(),
+    )
+    .with_text_editing_target(text_input::editing_target(state))
+    .with_focus_visibility(state.focus_visibility())
+    .with_command_subject(state.command_context(window))
+    .with_command_scope_captures(state.command_scope_captures.clone())
+    .with_open_menu(state.open_menu)
+    .with_open_submenu(state.open_submenu)
+    .with_pointer_position(state.pointer.position())
+    .with_pointer_capture(state.pointer_capture.clone())
+    .with_text_drop_caret(state.text_drop_caret())
+    .with_drag_drop_operation(state.drag_drop.resolved_operation())
+    .with_cursor_overlay(state.drag_drop.cursor_overlay())
 }
 
 #[cfg(test)]
@@ -166,6 +695,22 @@ mod tests {
         })
     }
 
+    fn glyph_paint_items(scene: &paint::Scene) -> usize {
+        scene
+            .items()
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item,
+                    paint::Item::Text(_)
+                        | paint::Item::TextSurface(_)
+                        | paint::Item::TextViewport(_)
+                        | paint::Item::Icon(_)
+                )
+            })
+            .count()
+    }
+
     #[test]
     fn compose_updates_state_and_preserves_paint_order() {
         let window = window::Id::new(1);
@@ -205,6 +750,632 @@ mod tests {
         assert!(composition.interactivity(&ui::Path::from(ROOT)).is_some());
         assert_eq!(composition.focus_order(), &[ui::Path::new([ROOT, CHILD])]);
         assert_eq!(scene.items().len(), 2);
+    }
+
+    #[test]
+    fn scroll_only_paint_keeps_text_state_async_until_text_boundary() {
+        let window = window::Id::new(1);
+        let path = ui::Path::new([ROOT, CHILD]);
+        let text = (0..80)
+            .map(|line| format!("line {line:02}: scrolling text area content"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let buffer = text::Buffer::from_multiline_text(text);
+        let mut state = WindowState::default();
+        state.hovered = Some(path.clone());
+        let mut registry = action::Registry::<()>::new();
+        let mut text_engine = text::layout::Engine::new();
+        let mut tree = ui::Tree::new();
+        tree.set_root(
+            widget::panel(ROOT).with_child(
+                widget::text_area(CHILD, text::Area::new(buffer))
+                    .with_size(layout::Size::Fill, layout::Size::Fill),
+            ),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(180.0, 90.0),
+        );
+        assert!(state.scroll.text_area(&path).is_some());
+        assert!(state.paint_cache().is_some());
+        assert!(
+            state
+                .paint_cache()
+                .and_then(|cache| cache.scroll_range(&path))
+                .is_some()
+        );
+        let cached_scene_len = state
+            .paint_cache()
+            .expect("full compose should retain paint")
+            .scene()
+            .items()
+            .len();
+
+        let before = state
+            .text
+            .states()
+            .get(&path)
+            .map(|state| state.scroll_y())
+            .unwrap_or_default();
+        assert_eq!(before, 0.0);
+        let now = std::time::Instant::now();
+        assert!(state.queue_text_area_scroll_by_at(
+            &path,
+            crate::app::scroll::WheelDelta::lines(point::logical(0.0, -1.0)),
+            &mut text_engine,
+            now,
+        ));
+        let target_before_paint = state
+            .scroll
+            .target_offset(&path)
+            .expect("smooth wheel should have a target offset");
+        assert!(target_before_paint.y() > 0.0);
+        assert!(state.smooth_scroll_active());
+        assert_eq!(
+            state
+                .text
+                .states()
+                .get(&path)
+                .expect("text area state should exist")
+                .scroll_y(),
+            before
+        );
+
+        text_engine.reset_diagnostics();
+        let result = paint_scroll_only(
+            window,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            crate::animation::Frame::new(now + std::time::Duration::from_millis(16), Some(now)),
+        )
+        .expect("cached composition should support scroll-only paint");
+        let projected = state
+            .scroll
+            .metrics(&path)
+            .expect("projection metrics should advance during scroll-only paint")
+            .offset();
+        assert!(projected.y() > 0.0);
+        assert!(projected.y() < target_before_paint.y());
+        assert!(state.smooth_scroll_active());
+        assert_eq!(
+            state
+                .scroll
+                .target_offset(&path)
+                .expect("smooth target should survive scroll-only paint"),
+            target_before_paint
+        );
+
+        assert!(!result.scene.is_empty());
+        assert_eq!(
+            result.scene.items().len(),
+            state
+                .paint_cache()
+                .expect("scroll-only retained paint should keep cache")
+                .scene()
+                .items()
+                .len()
+        );
+        assert!(result.scene.items().len() >= cached_scene_len);
+        assert!(
+            glyph_paint_items(&result.scene) > 0,
+            "text scroll content should remain in the normal text paint path"
+        );
+        assert_eq!(
+            state
+                .text
+                .states()
+                .get(&path)
+                .expect("text area state should stay layout-scroll stable")
+                .scroll_y(),
+            before
+        );
+        assert_eq!(state.scroll.diagnostics().async_scroll_reconciles, 1);
+        assert!(text_engine.diagnostics().text_area_paint_layout_calls > 0);
+        assert_eq!(
+            state
+                .scroll
+                .diagnostics()
+                .async_scroll_projection_sync_skips,
+            0
+        );
+        assert_eq!(state.scroll.diagnostics().retained_scroll_layer_hits, 0);
+        assert_eq!(
+            state
+                .scroll
+                .diagnostics()
+                .retained_scroll_layer_replaced_items,
+            0
+        );
+        assert_eq!(
+            state
+                .scroll
+                .diagnostics()
+                .retained_scroll_layer_text_prepare_skips,
+            0
+        );
+        assert_eq!(
+            state.scroll.diagnostics().retained_scroll_chrome_repaints,
+            0
+        );
+        assert_eq!(
+            state
+                .scroll
+                .diagnostics()
+                .retained_scroll_target_repaint_fallbacks,
+            0
+        );
+        assert_eq!(state.scroll.diagnostics().retained_scroll_layer_missing, 0);
+
+        assert!(
+            state
+                .text_field_edit_at(&path, point::logical(12.0, 12.0), &mut text_engine)
+                .is_some()
+        );
+        assert_eq!(
+            state
+                .scroll
+                .metrics(&path)
+                .expect("text boundary should keep scroll driver offset")
+                .offset(),
+            projected
+        );
+        assert_eq!(
+            state
+                .text
+                .get(&path)
+                .expect("text boundary should keep text state")
+                .scroll_y(),
+            before
+        );
+        assert_eq!(state.scroll.diagnostics().async_scroll_reconciles, 1);
+    }
+
+    #[test]
+    fn pointer_leave_full_redraw_preserves_text_area_scroll_driver_offset() {
+        let window = window::Id::new(1);
+        let path = ui::Path::new([ROOT, CHILD]);
+        let text = (0..80)
+            .map(|line| format!("line {line:02}: scrolling text area content"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let buffer = text::Buffer::from_multiline_text(text);
+        let mut state = WindowState {
+            hovered: Some(path.clone()),
+            ..WindowState::default()
+        };
+        let mut registry = action::Registry::<()>::new();
+        let mut text_engine = text::layout::Engine::new();
+        let mut tree = ui::Tree::new();
+        tree.set_root(
+            widget::panel(ROOT).with_child(
+                widget::text_area(CHILD, text::Area::new(buffer))
+                    .with_size(layout::Size::Fill, layout::Size::Fill),
+            ),
+        );
+
+        compose_with_timings(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            area::logical(180.0, 90.0),
+            crate::animation::Frame::new(std::time::Instant::now(), None),
+        );
+        assert!(state.queue_text_area_scroll_by(
+            &path,
+            crate::app::scroll::WheelDelta::pixels(point::logical(0.0, -8.0)),
+            &mut text_engine
+        ));
+        let scrolled = state
+            .scroll
+            .metrics(&path)
+            .expect("scroll metrics should update immediately")
+            .offset();
+        assert!(scrolled.y() > 0.0);
+
+        paint_scroll_only(
+            window,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            crate::animation::Frame::new(std::time::Instant::now(), None),
+        )
+        .expect("scroll-only frame should paint");
+
+        state.hovered = None;
+        let result = compose_with_timings(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            area::logical(180.0, 90.0),
+            crate::animation::Frame::new(std::time::Instant::now(), None),
+        );
+
+        assert_eq!(
+            state
+                .scroll
+                .metrics(&path)
+                .expect("scroll metrics should survive pointer leave")
+                .offset(),
+            scrolled
+        );
+        let projection = state
+            .scroll
+            .text_area(&path)
+            .expect("pointer leave should not drop the observed text-area projection");
+        assert_eq!(projection.metrics().offset(), scrolled);
+        assert!(
+            projection
+                .render_surfaces()
+                .any(|surface| surface.y() < 0.0),
+            "full redraw after pointer leave should still paint scrolled text content"
+        );
+        assert!(
+            result
+                .scene
+                .items()
+                .iter()
+                .any(|item| matches!(item, paint::Item::TextViewport(_)))
+        );
+    }
+
+    #[test]
+    fn scroll_only_paint_keeps_overlay_text_in_scene() {
+        let window = window::Id::new(1);
+        let path = ui::Path::new([ROOT, CHILD]);
+        let label = ui::Id::new("status");
+        let text = (0..80)
+            .map(|line| format!("line {line:02}: scrolling text area content"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let buffer = text::Buffer::from_multiline_text(text);
+        let mut state = WindowState::default();
+        let mut registry = action::Registry::<()>::new();
+        let mut text_engine = text::layout::Engine::new();
+        let mut tree = ui::Tree::new();
+        tree.set_root(
+            widget::panel(ROOT)
+                .with_child(widget::label(label, "Diagnostics"))
+                .with_child(
+                    widget::text_area(CHILD, text::Area::new(buffer))
+                        .with_size(layout::Size::Fill, layout::Size::Fill),
+                ),
+        );
+
+        let full_scene = compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(180.0, 120.0),
+        );
+        assert!(glyph_paint_items(&full_scene) > 0);
+        assert!(state.queue_text_area_scroll_by(
+            &path,
+            crate::app::scroll::WheelDelta::pixels(point::logical(0.0, -4.0)),
+            &mut text_engine
+        ));
+        assert!(
+            state.scroll.retained_layer_metrics(&path).is_none(),
+            "text scroll content should not create a generic retained layer"
+        );
+
+        let result = paint_scroll_only(
+            window,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            crate::animation::Frame::new(std::time::Instant::now(), None),
+        )
+        .expect("cached composition should support scroll-only paint");
+
+        assert!(
+            glyph_paint_items(&result.scene) > 0,
+            "{:?} {:?}",
+            result
+                .scene
+                .items()
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| {
+                    matches!(
+                        item,
+                        paint::Item::Text(_)
+                            | paint::Item::TextSurface(_)
+                            | paint::Item::TextViewport(_)
+                            | paint::Item::Icon(_)
+                    )
+                })
+                .collect::<Vec<_>>(),
+            state.scroll.diagnostics()
+        );
+        assert_eq!(state.scroll.diagnostics().retained_scroll_layer_hits, 0);
+        assert_eq!(
+            state
+                .scroll
+                .diagnostics()
+                .retained_scroll_target_repaint_fallbacks,
+            0
+        );
+        assert_eq!(state.scroll.diagnostics().retained_scroll_layer_missing, 0);
+    }
+
+    #[test]
+    fn full_compose_does_not_refresh_retained_layers_for_text_area() {
+        let window = window::Id::new(1);
+        let path = ui::Path::new([ROOT, CHILD]);
+        let text = (0..80)
+            .map(|line| format!("line {line:02}: scrolling text area content"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let buffer = text::Buffer::from_multiline_text(text);
+        let mut state = WindowState::default();
+        let mut registry = action::Registry::<()>::new();
+        let mut text_engine = text::layout::Engine::new();
+        let mut tree = ui::Tree::new();
+        tree.set_root(
+            widget::panel(ROOT).with_child(
+                widget::text_area(CHILD, text::Area::new(buffer))
+                    .with_size(layout::Size::Fill, layout::Size::Fill),
+            ),
+        );
+
+        text_engine.reset_diagnostics();
+        let result = super::compose_with_timings(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            area::logical(180.0, 90.0),
+            crate::animation::Frame::new(std::time::Instant::now(), None),
+        );
+
+        assert!(!result.scene.is_empty());
+        assert!(glyph_paint_items(&result.scene) > 0);
+        assert!(
+            result.layer_updates.is_empty(),
+            "text areas should not build hidden retained-layer updates after visible paint"
+        );
+        assert!(
+            !state
+                .paint_cache()
+                .expect("full compose should retain paint records")
+                .scroll_layer_eligible(&path)
+        );
+        assert!(state.scroll.retained_layer_metrics(&path).is_none());
+        assert_eq!(
+            text_engine.diagnostics().text_area_paint_layout_calls,
+            1,
+            "full compose should paint the visible text area once without a hidden layer refresh"
+        );
+    }
+
+    #[test]
+    fn scroll_only_paint_translates_generic_scroll_view_content() {
+        let window = window::Id::new(1);
+        let path = ui::Path::new([ROOT, CHILD]);
+        let mut state = WindowState::default();
+        let mut registry = action::Registry::<()>::new();
+        let mut text_engine = text::layout::Engine::new();
+        let mut tree = ui::Tree::new();
+        let mut scroll = widget::scroll_view(CHILD)
+            .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(60.0))
+            .with_gap(4.0);
+        for id in [
+            ui::Id::new("row_0"),
+            ui::Id::new("row_1"),
+            ui::Id::new("row_2"),
+            ui::Id::new("row_3"),
+        ]
+        .iter()
+        .copied()
+        {
+            scroll.push_child(
+                ui::Node::leaf(id)
+                    .with_background(paint::Brush::solid(paint::Color::RED))
+                    .with_size(layout::Size::Fill, layout::Size::Fixed(40.0)),
+            );
+        }
+        tree.set_root(widget::panel(ROOT).with_child(scroll));
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(180.0, 120.0),
+        );
+        let metrics = state
+            .scroll
+            .metrics(&path)
+            .expect("generic scroll view should have metrics");
+        assert!(metrics.max_offset().y() > 0.0);
+        assert!(state.paint_cache().is_some());
+        assert!(state.scroll.queue_offset(&path, point::logical(0.0, 18.0)));
+
+        let result = paint_scroll_only(
+            window,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            crate::animation::Frame::new(std::time::Instant::now(), None),
+        )
+        .expect("generic scroll view should support scroll-only paint");
+
+        assert!(!result.scene.is_empty());
+        assert_eq!(state.scroll.diagnostics().retained_scroll_layer_hits, 1);
+        assert!(
+            state
+                .scroll
+                .diagnostics()
+                .retained_scroll_layer_replaced_items
+                > 0
+        );
+        assert_eq!(
+            state
+                .scroll
+                .diagnostics()
+                .retained_scroll_target_repaint_fallbacks,
+            0
+        );
+        assert_eq!(
+            state
+                .scroll
+                .metrics(&path)
+                .expect("metrics should remain")
+                .offset(),
+            point::logical(0.0, 18.0)
+        );
+    }
+
+    #[test]
+    fn scroll_only_paint_falls_back_without_retained_cache() {
+        let window = window::Id::new(1);
+        let path = ui::Path::new([ROOT, CHILD]);
+        let text = (0..80)
+            .map(|line| format!("line {line:02}: scrolling text area content"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let buffer = text::Buffer::from_multiline_text(text);
+        let mut state = WindowState::default();
+        let mut registry = action::Registry::<()>::new();
+        let mut text_engine = text::layout::Engine::new();
+        let mut tree = ui::Tree::new();
+        tree.set_root(
+            widget::panel(ROOT).with_child(
+                widget::text_area(CHILD, text::Area::new(buffer))
+                    .with_size(layout::Size::Fill, layout::Size::Fill),
+            ),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(180.0, 90.0),
+        );
+        state.clear_paint_cache();
+        assert!(state.queue_text_area_scroll_to(
+            &path,
+            point::logical(0.0, 36.0),
+            &mut text_engine
+        ));
+
+        let result = paint_scroll_only(
+            window,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            crate::animation::Frame::new(std::time::Instant::now(), None),
+        )
+        .expect("scroll-only paint should fall back to normal composition paint");
+
+        assert!(!result.scene.is_empty());
+        assert!(state.paint_cache().is_none());
+        assert_eq!(
+            state
+                .scroll
+                .metrics(&path)
+                .expect("scroll metrics should remain available")
+                .offset(),
+            point::logical(0.0, 36.0)
+        );
+    }
+
+    #[test]
+    fn scroll_only_paint_repaints_text_for_large_text_area_jump() {
+        let window = window::Id::new(1);
+        let path = ui::Path::new([ROOT, CHILD]);
+        let text = (0..240)
+            .map(|line| format!("line {line:03}: scrolling text area content"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let buffer = text::Buffer::from_multiline_text(text);
+        let mut state = WindowState::default();
+        state.hovered = Some(path.clone());
+        let mut registry = action::Registry::<()>::new();
+        let mut text_engine = text::layout::Engine::new();
+        let mut tree = ui::Tree::new();
+        tree.set_root(
+            widget::panel(ROOT).with_child(
+                widget::text_area(CHILD, text::Area::new(buffer))
+                    .with_size(layout::Size::Fill, layout::Size::Fill),
+            ),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(180.0, 90.0),
+        );
+        text_engine.reset_diagnostics();
+        assert!(state.queue_text_area_scroll_by(
+            &path,
+            crate::app::scroll::WheelDelta::pixels(point::logical(0.0, -1200.0)),
+            &mut text_engine
+        ));
+
+        let result = paint_scroll_only(
+            window,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            crate::animation::Frame::new(std::time::Instant::now(), None),
+        )
+        .expect("cached composition should support scroll-only paint with fallback");
+
+        assert!(!result.scene.is_empty());
+        assert!(
+            glyph_paint_items(&result.scene) > 0,
+            "text scroll content should repaint through the text renderer"
+        );
+        assert!(result.layer_updates.is_empty());
+        assert_eq!(state.scroll.diagnostics().async_scroll_reconciles, 1);
+        let layout_calls = text_engine.diagnostics().text_area_paint_layout_calls;
+        assert!(layout_calls > 0);
+        assert!(layout_calls <= 3);
+        let diagnostics = state.scroll.diagnostics();
+        assert_eq!(diagnostics.retained_scroll_layer_hits, 0);
+        assert_eq!(diagnostics.retained_scroll_layer_missing, 0);
+        assert_eq!(diagnostics.retained_scroll_layer_coverage_misses, 0);
+        assert_eq!(diagnostics.retained_scroll_target_repaint_fallbacks, 0);
+        assert_eq!(diagnostics.retained_scroll_layer_rebuilds, 0);
+
+        assert!(state.queue_text_area_scroll_by(
+            &path,
+            crate::app::scroll::WheelDelta::pixels(point::logical(0.0, -72.0)),
+            &mut text_engine
+        ));
+
+        let result = paint_scroll_only(
+            window,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            crate::animation::Frame::new(std::time::Instant::now(), None),
+        )
+        .expect("text-area scroll-only repaint should support follow-up scroll");
+
+        assert!(!result.scene.is_empty());
+        assert!(glyph_paint_items(&result.scene) > 0);
+        let diagnostics = state.scroll.diagnostics();
+        assert_eq!(diagnostics.retained_scroll_layer_hits, 0);
+        assert_eq!(diagnostics.retained_scroll_layer_missing, 0);
+        assert_eq!(diagnostics.retained_scroll_layer_coverage_misses, 0);
+        assert_eq!(diagnostics.retained_scroll_target_repaint_fallbacks, 0);
+        assert_eq!(diagnostics.retained_scroll_layer_rebuilds, 0);
     }
 
     #[test]

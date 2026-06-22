@@ -25,7 +25,6 @@ pub struct Node {
     menu_bar: Option<menu::Bar>,
     clip: bool,
     scroll: Option<widget::Scroll>,
-    text_scroll: Option<widget::Scroll>,
     children: Vec<Node>,
 }
 
@@ -190,7 +189,6 @@ impl Node {
             menu_bar: None,
             clip: false,
             scroll: None,
-            text_scroll: None,
             children: Vec::new(),
         }
     }
@@ -281,10 +279,6 @@ impl Node {
 
     pub fn scroll(&self) -> Option<widget::Scroll> {
         self.scroll
-    }
-
-    pub fn text_scroll(&self) -> Option<widget::Scroll> {
-        self.text_scroll
     }
 
     pub fn children(&self) -> &[Node] {
@@ -460,6 +454,11 @@ impl Node {
         self
     }
 
+    pub fn with_scroll_axes(mut self, axes: widget::scroll::Axes) -> Self {
+        self.scroll = Some(self.scroll.unwrap_or_default().with_axes(axes));
+        self
+    }
+
     pub fn with_scroll_bars(mut self, bars: widget::scroll::Bars) -> Self {
         self.scroll = Some(self.scroll.unwrap_or_default().with_bars(bars));
         self
@@ -467,11 +466,6 @@ impl Node {
 
     pub fn with_scroll_style(mut self, style: widget::scroll::Style) -> Self {
         self.scroll = Some(self.scroll.unwrap_or_default().with_style(style));
-        self
-    }
-
-    pub fn with_text_scroll(mut self, scroll: widget::Scroll) -> Self {
-        self.text_scroll = Some(scroll);
         self
     }
 

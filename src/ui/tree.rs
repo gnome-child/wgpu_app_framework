@@ -333,9 +333,38 @@ impl Tree {
         text_field_states: &HashMap<Path, text::view::TextViewState>,
         text_engine: &mut text::layout::Engine,
         frame: AnimationFrame,
-        scroll_projections: Option<&scroll::State>,
+        scroll_projections: Option<&scroll::Driver>,
         path_states: &HashMap<Path, action::State>,
         scene: &mut paint::Scene,
+    ) {
+        self.paint_with_scroll_projections_recording_at(
+            layout,
+            actions,
+            window,
+            interaction,
+            text_field_states,
+            text_engine,
+            frame,
+            scroll_projections,
+            path_states,
+            scene,
+            None,
+        );
+    }
+
+    pub(crate) fn paint_with_scroll_projections_recording_at<T>(
+        &self,
+        layout: &Frame,
+        actions: &action::Registry<T>,
+        window: window::Id,
+        interaction: Interaction,
+        text_field_states: &HashMap<Path, text::view::TextViewState>,
+        text_engine: &mut text::layout::Engine,
+        frame: AnimationFrame,
+        scroll_projections: Option<&scroll::Driver>,
+        path_states: &HashMap<Path, action::State>,
+        scene: &mut paint::Scene,
+        mut scroll_ranges: Option<&mut painting::ScrollPaintRecords>,
     ) {
         if let Some(root) = self.root.as_ref() {
             painting::tree(
@@ -350,6 +379,7 @@ impl Tree {
                 scroll_projections,
                 path_states,
                 scene,
+                scroll_ranges.as_deref_mut(),
             );
             for popup in &self.popups {
                 let path = layout.path().child(popup.root().id());
@@ -366,6 +396,7 @@ impl Tree {
                         scroll_projections,
                         path_states,
                         scene,
+                        scroll_ranges.as_deref_mut(),
                     );
                 }
             }
@@ -651,11 +682,10 @@ impl Composition {
                     position.x() - rect.origin.x(),
                     position.y() - rect.origin.y(),
                 );
-                let resolved_state = state.with_scroll(metrics.offset().x(), metrics.offset().y());
                 return text_engine.text_area_position_at_for_paint_layout(
                     area_model,
                     local,
-                    resolved_state,
+                    state,
                     &paint_layout,
                 );
             }
@@ -876,6 +906,32 @@ impl Composition {
         )
     }
 
+    pub(crate) fn text_area_scroll_render_layout_with_content_hint(
+        &self,
+        path: &Path,
+        state: text::view::TextViewState,
+        text_engine: &mut text::layout::Engine,
+        now: Instant,
+        content_hint: Option<(text::layout::AreaScrollKey, area::Logical)>,
+    ) -> Option<(
+        widget::scroll::Metrics,
+        text::layout::TextAreaPaintLayout,
+        text::layout::AreaScrollKey,
+        area::Logical,
+    )> {
+        let node = self.node(path)?;
+        let layout = self.layout.find_path(path)?;
+
+        self.text_area_scroll_render_layout_for_node_with_content_hint(
+            node,
+            layout,
+            state,
+            text_engine,
+            now,
+            content_hint,
+        )
+    }
+
     pub(crate) fn text_area_scroll_metrics_with_content_hint(
         &self,
         path: &Path,
@@ -899,6 +955,21 @@ impl Composition {
             now,
             content_hint,
         )
+    }
+
+    pub(crate) fn text_area_scroll_key(&self, path: &Path) -> Option<text::layout::AreaScrollKey> {
+        let node = self.node(path)?;
+        let layout = self.layout.find_path(path)?;
+        let area_model = node.text_area()?;
+        let style = node
+            .label()
+            .and_then(text::document::Document::first_style)
+            .unwrap_or_default();
+        let viewport_base = text_content_rect(node, layout);
+        let (key, _) =
+            text::layout::text_area_scroll_base_content_area(area_model, style, viewport_base.area);
+
+        Some(key)
     }
 
     pub fn text_area_scroll_y_for_anchor(
@@ -1004,8 +1075,15 @@ impl Composition {
         text_engine: &mut text::layout::Engine,
         now: Instant,
     ) -> Option<widget::scroll::Metrics> {
-        self.text_area_scroll_paint_layout_for_node(node, layout, state, text_engine, now)
-            .map(|(metrics, _)| metrics)
+        self.text_area_scroll_metrics_for_node_with_content_hint(
+            node,
+            layout,
+            state,
+            text_engine,
+            now,
+            None,
+        )
+        .map(|(metrics, _, _)| metrics)
     }
 
     fn text_area_scroll_paint_layout_for_node(
@@ -1057,7 +1135,7 @@ impl Composition {
             .unwrap_or_default();
         let viewport = widget::scroll::viewport_rect_for_axes(
             text_content_rect(node, layout),
-            node.text_scroll()?.style(),
+            node.scroll()?.style(),
             metrics.active_axes(),
         );
         let resolved_state = state.with_scroll(metrics.offset().x(), metrics.offset().y());
@@ -1067,6 +1145,52 @@ impl Composition {
             viewport.area,
             resolved_state,
             now,
+        );
+
+        Some((metrics, paint_layout, key, content_area))
+    }
+
+    fn text_area_scroll_render_layout_for_node_with_content_hint(
+        &self,
+        node: &Node,
+        layout: &Frame,
+        state: text::view::TextViewState,
+        text_engine: &mut text::layout::Engine,
+        now: Instant,
+        content_hint: Option<(text::layout::AreaScrollKey, area::Logical)>,
+    ) -> Option<(
+        widget::scroll::Metrics,
+        text::layout::TextAreaPaintLayout,
+        text::layout::AreaScrollKey,
+        area::Logical,
+    )> {
+        let (metrics, key, content_area) = self
+            .text_area_scroll_metrics_for_node_with_content_hint(
+                node,
+                layout,
+                state.clone(),
+                text_engine,
+                now,
+                content_hint,
+            )?;
+        let area_model = node.text_area()?;
+        let style = node
+            .label()
+            .and_then(text::document::Document::first_style)
+            .unwrap_or_default();
+        let viewport = widget::scroll::viewport_rect_for_axes(
+            text_content_rect(node, layout),
+            node.scroll()?.style(),
+            metrics.active_axes(),
+        );
+        let resolved_state = state.with_scroll(metrics.offset().x(), metrics.offset().y());
+        let paint_layout = text_engine.text_area_render_layout_for_area_at(
+            area_model,
+            style,
+            viewport.area,
+            resolved_state,
+            now,
+            metrics.content_size(),
         );
 
         Some((metrics, paint_layout, key, content_area))
@@ -1086,8 +1210,8 @@ impl Composition {
         area::Logical,
     )> {
         let area_model = node.text_area()?;
-        let scroll = node.text_scroll()?;
-        if !scroll.bars().is_enabled() {
+        let scroll = node.scroll()?;
+        if !scroll.axes().is_enabled() {
             return None;
         }
 
@@ -1101,6 +1225,8 @@ impl Composition {
         let hint = content_hint
             .filter(|(hint_key, _)| *hint_key == key)
             .map(|(_, content)| content);
+        let stable_hint =
+            hint.is_some() && state.preedit().is_none() && !state.caret_visibility_pending();
         let mut content_area = text::layout::stable_text_area_content_area(
             area_model.wrap(),
             base_content,
@@ -1108,37 +1234,43 @@ impl Composition {
             area::logical(0.0, 0.0),
             viewport_base.area,
         );
-        let mut axes = scroll
-            .bars()
-            .active_axes(viewport_base, scroll.style(), content_area);
-        for _ in 0..3 {
-            let viewport =
-                widget::scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
-            let candidate = text_engine.text_area_metrics_layout_for_area_at(
-                area_model,
-                style,
-                viewport.area,
-                state.clone(),
-                now,
-            );
-            let next_content = text::layout::stable_text_area_content_area(
-                area_model.wrap(),
-                base_content,
-                Some(content_area),
-                candidate.content_area(),
-                viewport.area,
-            );
-            let next_axes = scroll
+        let mut axes =
+            scroll
                 .bars()
-                .active_axes(viewport_base, scroll.style(), next_content);
+                .active_axes(scroll.axes(), viewport_base, scroll.style(), content_area);
+        if !stable_hint {
+            for _ in 0..3 {
+                let viewport =
+                    widget::scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
+                let candidate = text_engine.text_area_metrics_layout_for_area_at(
+                    area_model,
+                    style,
+                    viewport.area,
+                    state.clone(),
+                    now,
+                );
+                let next_content = text::layout::stable_text_area_content_area(
+                    area_model.wrap(),
+                    base_content,
+                    Some(content_area),
+                    candidate.content_area(),
+                    viewport.area,
+                );
+                let next_axes = scroll.bars().active_axes(
+                    scroll.axes(),
+                    viewport_base,
+                    scroll.style(),
+                    next_content,
+                );
 
-            content_area = next_content;
+                content_area = next_content;
 
-            if next_axes == axes {
-                break;
+                if next_axes == axes {
+                    break;
+                }
+
+                axes = next_axes;
             }
-
-            axes = next_axes;
         }
 
         if state.caret_visibility_pending() {
@@ -1163,6 +1295,7 @@ impl Composition {
             viewport_base,
             content_area,
             point::logical(state.scroll_x(), state.scroll_y()),
+            scroll.axes(),
             scroll.bars(),
             scroll.style(),
         );
@@ -1255,7 +1388,7 @@ impl Composition {
         text_field_states: &HashMap<Path, text::view::TextViewState>,
         text_engine: &mut text::layout::Engine,
         frame: AnimationFrame,
-        scroll_projections: Option<&scroll::State>,
+        scroll_projections: Option<&scroll::Driver>,
         scene: &mut paint::Scene,
     ) {
         self.tree.paint_with_scroll_projections_at(
@@ -1270,6 +1403,64 @@ impl Composition {
             &self.path_states,
             scene,
         );
+    }
+
+    pub(crate) fn paint_at_recording_scroll_ranges<T>(
+        &self,
+        actions: &action::Registry<T>,
+        window: window::Id,
+        interaction: Interaction,
+        text_field_states: &HashMap<Path, text::view::TextViewState>,
+        text_engine: &mut text::layout::Engine,
+        frame: AnimationFrame,
+        scroll_projections: Option<&scroll::Driver>,
+        scene: &mut paint::Scene,
+    ) -> painting::ScrollPaintRecords {
+        let mut ranges = painting::ScrollPaintRecords::default();
+        self.tree.paint_with_scroll_projections_recording_at(
+            &self.layout,
+            actions,
+            window,
+            interaction,
+            text_field_states,
+            text_engine,
+            frame,
+            scroll_projections,
+            &self.path_states,
+            scene,
+            Some(&mut ranges),
+        );
+        ranges
+    }
+
+    pub(crate) fn paint_scroll_target_recording_at<T>(
+        &self,
+        target: &Path,
+        actions: &action::Registry<T>,
+        window: window::Id,
+        interaction: Interaction,
+        text_field_states: &HashMap<Path, text::view::TextViewState>,
+        text_engine: &mut text::layout::Engine,
+        frame: AnimationFrame,
+        scroll_projections: Option<&scroll::Driver>,
+        scene: &mut paint::Scene,
+    ) -> Option<painting::ScrollPaintRecords> {
+        let node = self.node(target)?;
+        let layout = self.layout.find_path(target)?;
+
+        Some(painting::scroll_subtree_recording(
+            node,
+            layout,
+            actions,
+            window,
+            &interaction,
+            text_field_states,
+            text_engine,
+            frame,
+            scroll_projections,
+            &self.path_states,
+            scene,
+        ))
     }
 
     fn node(&self, path: &Path) -> Option<&Node> {
@@ -1413,7 +1604,9 @@ fn collect_widget_metrics(
     layout: &Frame,
     metrics: &mut HashMap<Path, widget::Metrics>,
 ) {
-    if let Some(scroll_metrics) = widget::scroll::metrics(node, layout) {
+    if node.text_area().is_none()
+        && let Some(scroll_metrics) = widget::scroll::metrics(node, layout)
+    {
         metrics.insert(
             layout.path().clone(),
             widget::Metrics::Scroll(scroll_metrics),

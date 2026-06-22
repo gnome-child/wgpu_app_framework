@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 pub struct Frame {
     surface_texture: wgpu::SurfaceTexture,
 }
@@ -19,6 +21,19 @@ pub enum Reason {
     Timeout,
     Occluded,
     Validation,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SurfaceTimings {
+    pub acquire: Duration,
+    pub encode_submit: Duration,
+    pub total: Duration,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SurfaceReport {
+    pub status: Status,
+    pub timings: SurfaceTimings,
 }
 
 impl Frame {

@@ -72,7 +72,8 @@ impl Driver {
         &mut self,
         native_window: &mut native::Window,
         scene: &paint::Scene,
-    ) -> render::Result<render::frame::Status> {
+        layer_updates: &[paint::LayerUpdate],
+    ) -> render::Result<render::renderer::DrawReport> {
         let format = native_window.canvas().surface().config().format;
         self.ensure_renderer(format);
 
@@ -85,7 +86,7 @@ impl Driver {
             .as_mut()
             .expect("renderer should be initialized before drawing");
 
-        renderer.draw(context, native_window.canvas_mut(), scene)
+        renderer.draw(context, native_window.canvas_mut(), scene, layer_updates)
     }
 
     pub fn resize(

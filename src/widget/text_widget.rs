@@ -143,6 +143,7 @@ pub fn text_area_surface_with_theme(
     let surface = text::Surface::Area(area.clone());
     let scroll = theme.scroll();
     let text_scroll = super::Scroll::new()
+        .with_axes(text_area_scroll_axes(&area))
         .with_bars(text_area_scroll_bars(&area))
         .with_style(super::scroll::Style::new(
             scroll.thickness(),
@@ -156,7 +157,7 @@ pub fn text_area_surface_with_theme(
     let node = foundation::content_colors(
         ui::Node::leaf(id)
             .with_text_area(area)
-            .with_text_scroll(text_scroll)
+            .with_scroll(text_scroll)
             .with_label(label)
             .with_interactivity(interactivity)
             .with_cursor(cursor),
@@ -194,6 +195,13 @@ fn text_area_scroll_bars(area: &text::Area) -> super::scroll::Bars {
     match area.wrap() {
         text::AreaWrap::None => super::scroll::Bars::both(),
         text::AreaWrap::WordOrGlyph => super::scroll::Bars::vertical(),
+    }
+}
+
+fn text_area_scroll_axes(area: &text::Area) -> super::scroll::Axes {
+    match area.wrap() {
+        text::AreaWrap::None => super::scroll::Axes::both(),
+        text::AreaWrap::WordOrGlyph => super::scroll::Axes::vertical(),
     }
 }
 

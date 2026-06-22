@@ -2777,6 +2777,7 @@ version = "0.1.0"
 dependencies = [
  "arboard",
  "bytemuck",
+ "cosmic-text",
  "env_logger",
  "glyphon",
  "iconflow",

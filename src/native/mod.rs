@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-pub use window::Window;
+pub use window::{PointerCaptureKind, PointerCaptureStatus, Window};
 
 pub mod window;
 

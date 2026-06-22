@@ -1869,6 +1869,17 @@ pub(crate) fn cosmic_buffer_from_text(text: &str) -> glyphon::Buffer {
     let mut buffer = glyphon::Buffer::new_empty(default_text_field_metrics());
     let attrs = glyphon::AttrsList::new(&glyphon::Attrs::new());
 
+    set_cosmic_buffer_text(&mut buffer, text, attrs, glyphon::Shaping::Advanced);
+
+    buffer
+}
+
+pub(crate) fn set_cosmic_buffer_text(
+    buffer: &mut glyphon::Buffer,
+    text: &str,
+    attrs: glyphon::AttrsList,
+    shaping: glyphon::Shaping,
+) {
     buffer.lines.clear();
 
     if text.is_empty() {
@@ -1876,9 +1887,9 @@ pub(crate) fn cosmic_buffer_from_text(text: &str) -> glyphon::Buffer {
             "",
             glyphon::cosmic_text::LineEnding::None,
             attrs,
-            glyphon::Shaping::Advanced,
+            shaping,
         ));
-        return buffer;
+        return;
     }
 
     let mut start = 0;
@@ -1887,7 +1898,7 @@ pub(crate) fn cosmic_buffer_from_text(text: &str) -> glyphon::Buffer {
             &text[start..index],
             glyphon::cosmic_text::LineEnding::Lf,
             attrs.clone(),
-            glyphon::Shaping::Advanced,
+            shaping,
         ));
         start = index + 1;
     }
@@ -1896,10 +1907,8 @@ pub(crate) fn cosmic_buffer_from_text(text: &str) -> glyphon::Buffer {
         &text[start..],
         glyphon::cosmic_text::LineEnding::None,
         attrs,
-        glyphon::Shaping::Advanced,
+        shaping,
     ));
-
-    buffer
 }
 
 fn cosmic_buffer_text(buffer: &glyphon::Buffer) -> String {

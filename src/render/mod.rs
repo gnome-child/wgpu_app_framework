@@ -14,6 +14,7 @@ pub mod frame;
 pub mod primitive;
 mod quad;
 pub mod renderer;
+mod retained;
 pub mod surface;
 mod text_renderer;
 
@@ -23,6 +24,47 @@ pub fn color_to_wgpu(color: crate::paint::Color) -> wgpu::Color {
         g: color.g as f64,
         b: color.b as f64,
         a: color.a as f64,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Viewport {
+    physical_area: crate::geometry::area::Physical,
+    logical_area: crate::geometry::area::Logical,
+    scale_factor: f32,
+}
+
+impl Viewport {
+    pub(crate) fn from_canvas(canvas: &Canvas) -> Self {
+        Self {
+            physical_area: canvas.physical_area(),
+            logical_area: canvas.logical_area(),
+            scale_factor: canvas.scale_factor(),
+        }
+    }
+
+    pub(crate) fn from_logical_area(
+        logical_area: crate::geometry::area::Logical,
+        scale_factor: f32,
+    ) -> Self {
+        let physical_area = logical_area.to_physical(scale_factor).clamp_min(1);
+        Self {
+            physical_area,
+            logical_area,
+            scale_factor,
+        }
+    }
+
+    pub(crate) fn physical_area(self) -> crate::geometry::area::Physical {
+        self.physical_area
+    }
+
+    pub(crate) fn logical_area(self) -> crate::geometry::area::Logical {
+        self.logical_area
+    }
+
+    pub(crate) fn scale_factor(self) -> f32 {
+        self.scale_factor
     }
 }
 
@@ -117,5 +159,19 @@ mod tests {
                 glyphon::RenderError::RemovedFromAtlas
             ))
         ));
+    }
+
+    #[test]
+    fn logical_viewport_preserves_requested_scene_area() {
+        let viewport = Viewport::from_logical_area(crate::geometry::area::logical(10.4, 20.6), 2.0);
+
+        assert_eq!(
+            viewport.physical_area(),
+            crate::geometry::area::physical(21, 41)
+        );
+        assert_eq!(
+            viewport.logical_area(),
+            crate::geometry::area::logical(10.4, 20.6)
+        );
     }
 }

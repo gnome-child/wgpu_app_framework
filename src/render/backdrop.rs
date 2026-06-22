@@ -9,14 +9,18 @@ pub struct Renderer {
     blur_pipeline: wgpu::RenderPipeline,
     blit_pipeline: wgpu::RenderPipeline,
     composite_pipeline: wgpu::RenderPipeline,
+    pixel_composite_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
-    sampler: wgpu::Sampler,
+    filtered_sampler: wgpu::Sampler,
+    pixel_aligned_sampler: wgpu::Sampler,
     textures: Option<Textures>,
     format: wgpu::TextureFormat,
 }
 
 pub struct Layer {
     texture: Texture,
+    area: area::Physical,
+    logical_area: area::Logical,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -42,9 +46,10 @@ struct Texture {
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Params {
     texture_size: [f32; 2],
-    canvas_size: [f32; 2],
+    source_scale: [f32; 2],
     direction_radius: [f32; 4],
     rect: [f32; 4],
+    source_rect: [f32; 4],
     rounding: [f32; 4],
 }
 
@@ -205,23 +210,64 @@ impl Renderer {
                     multiview_mask: None,
                     cache: None,
                 });
-        let sampler = render_context
+        let pixel_composite_pipeline =
+            render_context
+                .device()
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("Pixel Aligned Layer Composite Pipeline"),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some("vs_composite"),
+                        buffers: &[CompositeVertex::layout()],
+                        compilation_options: Default::default(),
+                    },
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some("fs_composite_pixel"),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format,
+                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: Default::default(),
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                });
+        let filtered_sampler = render_context
             .device()
             .create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("Backdrop Sampler"),
+                label: Some("Filtered Backdrop Sampler"),
                 address_mode_u: wgpu::AddressMode::ClampToEdge,
                 address_mode_v: wgpu::AddressMode::ClampToEdge,
                 mag_filter: wgpu::FilterMode::Linear,
                 min_filter: wgpu::FilterMode::Linear,
                 ..Default::default()
             });
+        let pixel_aligned_sampler =
+            render_context
+                .device()
+                .create_sampler(&wgpu::SamplerDescriptor {
+                    label: Some("Pixel Aligned Layer Sampler"),
+                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                    mag_filter: wgpu::FilterMode::Nearest,
+                    min_filter: wgpu::FilterMode::Nearest,
+                    ..Default::default()
+                });
 
         Self {
             blur_pipeline,
             blit_pipeline,
             composite_pipeline,
+            pixel_composite_pipeline,
             bind_group_layout,
-            sampler,
+            filtered_sampler,
+            pixel_aligned_sampler,
             textures: None,
             format,
         }
@@ -250,8 +296,11 @@ impl Renderer {
         target: Target,
         label: &'static str,
     ) -> Layer {
+        let area = target.physical_area.clamp_min(1);
         Layer {
-            texture: self.create_texture(render_context, target.physical_area.clamp_min(1), label),
+            texture: self.create_texture(render_context, area, label),
+            area,
+            logical_area: area.to_logical(target.scale_factor),
         }
     }
 
@@ -265,7 +314,7 @@ impl Renderer {
     }
 
     pub fn draw(
-        &mut self,
+        &self,
         render_context: &render::Context,
         target: Target,
         encoder: &mut wgpu::CommandEncoder,
@@ -281,7 +330,6 @@ impl Renderer {
             return;
         };
 
-        self.ensure_textures(render_context, target.physical_area.clamp_min(1));
         let Some(textures) = self.textures.as_ref() else {
             return;
         };
@@ -310,7 +358,11 @@ impl Renderer {
             &textures.pong.view,
             &textures.composition.view,
             target,
+            target.physical_area.clamp_min(1),
+            target.logical_area,
             prepared,
+            prepared.shape_rect,
+            paint::LayerSampling::Filtered,
             scissor,
             "Backdrop Composite Bind Group",
             "Backdrop Composite Vertex Buffer",
@@ -331,6 +383,7 @@ impl Renderer {
         let Some(prepared) = prepare_clip(clip.rect, target.scale_factor) else {
             return;
         };
+        let source_rect = source_rect_for_prepared_destination(clip.rect, prepared, clip.rect);
 
         self.composite_pass(
             render_context,
@@ -338,7 +391,11 @@ impl Renderer {
             source.view(),
             output,
             target,
+            source.area(),
+            source.logical_area(),
             prepared,
+            source_rect,
+            paint::LayerSampling::PixelAligned,
             scissor,
             "Layer Composite Bind Group",
             "Layer Composite Vertex Buffer",
@@ -359,9 +416,15 @@ impl Renderer {
         let physical_area = target.physical_area.clamp_min(1);
         let params = Params {
             texture_size: [physical_area.width() as f32, physical_area.height() as f32],
-            canvas_size: [target.logical_area.width(), target.logical_area.height()],
-            direction_radius: [0.0, 0.0, 0.0, target.scale_factor],
+            source_scale: [target.scale_factor, target.scale_factor],
+            direction_radius: [0.0, 0.0, 0.0, 0.0],
             rect: [
+                0.0,
+                0.0,
+                target.logical_area.width(),
+                target.logical_area.height(),
+            ],
+            source_rect: [
                 0.0,
                 0.0,
                 target.logical_area.width(),
@@ -373,6 +436,7 @@ impl Renderer {
             render_context,
             &textures.composition.view,
             params,
+            paint::LayerSampling::Filtered,
             "Backdrop Blit Bind Group",
         );
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -456,8 +520,13 @@ impl Renderer {
         direction: [f32; 2],
     ) {
         let params = self.params(target, prepared, direction);
-        let bind_group =
-            self.bind_group(render_context, source, params, "Backdrop Blur Bind Group");
+        let bind_group = self.bind_group(
+            render_context,
+            source,
+            params,
+            paint::LayerSampling::Filtered,
+            "Backdrop Blur Bind Group",
+        );
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Backdrop Blur Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -487,14 +556,27 @@ impl Renderer {
         source: &wgpu::TextureView,
         output: &wgpu::TextureView,
         target: Target,
+        source_area: area::Physical,
+        source_logical_area: area::Logical,
         prepared: PreparedBackdrop,
+        source_rect: Rect,
+        sampling: paint::LayerSampling,
         scissor: Option<render::Scissor>,
         bind_group_label: &'static str,
         vertex_buffer_label: &'static str,
         pass_label: &'static str,
     ) {
-        let params = self.params(target, prepared, [0.0, 0.0]);
-        let bind_group = self.bind_group(render_context, source, params, bind_group_label);
+        let params = self.params_with_texture_area(
+            target.scale_factor,
+            source_area,
+            source_logical_area,
+            prepared,
+            source_rect,
+            [0.0, 0.0],
+            sampling,
+        );
+        let bind_group =
+            self.bind_group(render_context, source, params, sampling, bind_group_label);
         let vertices = composite_vertices(target.logical_area, prepared);
         let vertex_buffer =
             render_context
@@ -521,7 +603,10 @@ impl Renderer {
             multiview_mask: None,
         });
 
-        pass.set_pipeline(&self.composite_pipeline);
+        pass.set_pipeline(match sampling {
+            paint::LayerSampling::Filtered => &self.composite_pipeline,
+            paint::LayerSampling::PixelAligned => &self.pixel_composite_pipeline,
+        });
         pass.set_bind_group(0, &bind_group, &[]);
         pass.set_vertex_buffer(0, vertex_buffer.slice(..));
         if let Some(scissor) = scissor {
@@ -535,6 +620,7 @@ impl Renderer {
         render_context: &render::Context,
         source: &wgpu::TextureView,
         params: Params,
+        sampling: paint::LayerSampling,
         label: &'static str,
     ) -> wgpu::BindGroup {
         let buffer =
@@ -558,7 +644,7 @@ impl Renderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                        resource: wgpu::BindingResource::Sampler(self.sampler(sampling)),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
@@ -568,20 +654,57 @@ impl Renderer {
             })
     }
 
+    fn sampler(&self, sampling: paint::LayerSampling) -> &wgpu::Sampler {
+        match sampling {
+            paint::LayerSampling::Filtered => &self.filtered_sampler,
+            paint::LayerSampling::PixelAligned => &self.pixel_aligned_sampler,
+        }
+    }
+
     fn params(&self, target: Target, prepared: PreparedBackdrop, direction: [f32; 2]) -> Params {
-        let physical_area = target.physical_area.clamp_min(1);
-        let logical_area = target.logical_area;
+        self.params_with_texture_area(
+            target.scale_factor,
+            target.physical_area.clamp_min(1),
+            target.logical_area,
+            prepared,
+            prepared.shape_rect,
+            direction,
+            paint::LayerSampling::Filtered,
+        )
+    }
+
+    fn params_with_texture_area(
+        &self,
+        target_scale_factor: f32,
+        texture_area: area::Physical,
+        texture_logical_area: area::Logical,
+        prepared: PreparedBackdrop,
+        source_rect: Rect,
+        direction: [f32; 2],
+        sampling: paint::LayerSampling,
+    ) -> Params {
+        let physical_area = texture_area.clamp_min(1);
+
+        let source_rect_data = physical_source_rect_data(
+            source_rect,
+            texture_logical_area,
+            physical_area,
+            target_scale_factor,
+            sampling,
+        );
+        let source_scale = source_step_data(
+            source_rect_data,
+            prepared.shape_rect.area,
+            target_scale_factor,
+            sampling,
+        );
 
         Params {
             texture_size: [physical_area.width() as f32, physical_area.height() as f32],
-            canvas_size: [logical_area.width(), logical_area.height()],
-            direction_radius: [
-                direction[0],
-                direction[1],
-                prepared.blur_radius_px,
-                target.scale_factor,
-            ],
+            source_scale,
+            direction_radius: [direction[0], direction[1], prepared.blur_radius_px, 0.0],
             rect: rect_data(prepared.shape_rect),
+            source_rect: source_rect_data,
             rounding: rounding_data(prepared.rounding),
         }
     }
@@ -591,6 +714,14 @@ impl Layer {
     pub fn view(&self) -> &wgpu::TextureView {
         &self.texture.view
     }
+
+    pub fn area(&self) -> area::Physical {
+        self.area
+    }
+
+    pub fn logical_area(&self) -> area::Logical {
+        self.logical_area
+    }
 }
 
 impl Target {
@@ -599,6 +730,14 @@ impl Target {
             physical_area: canvas.physical_area(),
             logical_area: canvas.logical_area(),
             scale_factor: canvas.scale_factor(),
+        }
+    }
+
+    pub fn from_viewport(viewport: render::Viewport) -> Self {
+        Self {
+            physical_area: viewport.physical_area(),
+            logical_area: viewport.logical_area(),
+            scale_factor: viewport.scale_factor(),
         }
     }
 }
@@ -689,6 +828,25 @@ fn prepare_clip(rect: Rect, scale_factor: f32) -> Option<PreparedBackdrop> {
     })
 }
 
+fn source_rect_for_prepared_destination(
+    destination: Rect,
+    prepared: PreparedBackdrop,
+    source: Rect,
+) -> Rect {
+    let origin_delta = point::logical(
+        prepared.shape_rect.origin.x() - destination.origin.x(),
+        prepared.shape_rect.origin.y() - destination.origin.y(),
+    );
+
+    Rect::new(
+        point::logical(
+            source.origin.x() + origin_delta.x(),
+            source.origin.y() + origin_delta.y(),
+        ),
+        prepared.shape_rect.area,
+    )
+}
+
 fn blur_radius_px(amount: f32, scale_factor: f32) -> f32 {
     (amount.clamp(0.0, 1.0) * Renderer::MAX_BLUR_RADIUS_PX * scale_factor)
         .clamp(0.0, Renderer::MAX_BLUR_RADIUS_PX)
@@ -748,6 +906,53 @@ fn rect_data(rect: Rect) -> [f32; 4] {
         rect.area.width(),
         rect.area.height(),
     ]
+}
+
+fn physical_source_rect_data(
+    source_rect: Rect,
+    texture_logical_area: area::Logical,
+    texture_physical_area: area::Physical,
+    target_scale_factor: f32,
+    sampling: paint::LayerSampling,
+) -> [f32; 4] {
+    let [x_scale, y_scale] = match sampling {
+        paint::LayerSampling::PixelAligned => [target_scale_factor, target_scale_factor],
+        paint::LayerSampling::Filtered => {
+            source_scale_data(texture_logical_area, texture_physical_area)
+        }
+    };
+
+    [
+        (source_rect.origin.x() * x_scale).round(),
+        (source_rect.origin.y() * y_scale).round(),
+        (source_rect.area.width() * x_scale).round().max(1.0),
+        (source_rect.area.height() * y_scale).round().max(1.0),
+    ]
+}
+
+fn source_scale_data(
+    texture_logical_area: area::Logical,
+    texture_physical_area: area::Physical,
+) -> [f32; 2] {
+    [
+        texture_physical_area.width() as f32 / texture_logical_area.width().max(1.0),
+        texture_physical_area.height() as f32 / texture_logical_area.height().max(1.0),
+    ]
+}
+
+fn source_step_data(
+    source_rect_data: [f32; 4],
+    destination_area: area::Logical,
+    target_scale_factor: f32,
+    sampling: paint::LayerSampling,
+) -> [f32; 2] {
+    match sampling {
+        paint::LayerSampling::PixelAligned => [target_scale_factor, target_scale_factor],
+        paint::LayerSampling::Filtered => [
+            source_rect_data[2] / destination_area.width().max(1.0),
+            source_rect_data[3] / destination_area.height().max(1.0),
+        ],
+    }
 }
 
 fn rounding_data(rounding: [f32; 4]) -> [f32; 4] {
@@ -826,6 +1031,120 @@ mod tests {
     }
 
     #[test]
+    fn layer_source_rect_tracks_snapped_destination_without_scaling() {
+        let destination = Rect::new(point::logical(10.2, 20.3), area::logical(40.4, 30.8));
+        let source = Rect::new(point::logical(4.0, 8.0), area::logical(40.4, 30.8));
+        let prepared = prepare_clip(destination, 2.0).expect("clip should prepare");
+
+        let source = source_rect_for_prepared_destination(destination, prepared, source);
+
+        assert_eq!(edges(prepared.shape_rect), (10.0, 20.5, 50.5, 51.0));
+        assert_edges_close(edges(source), (3.8, 8.2, 44.3, 38.7));
+        assert_eq!(source.area, prepared.shape_rect.area);
+    }
+
+    #[test]
+    fn layer_source_rect_data_uses_source_texture_scale() {
+        let destination = Rect::new(point::logical(10.2, 20.3), area::logical(40.4, 30.8));
+        let source = Rect::new(point::logical(4.0, 8.0), area::logical(40.4, 30.8));
+        let prepared = prepare_clip(destination, 2.0).expect("clip should prepare");
+        let source = source_rect_for_prepared_destination(destination, prepared, source);
+
+        let source_data = physical_source_rect_data(
+            source,
+            area::logical(100.0, 80.0),
+            area::physical(200, 160),
+            2.0,
+            paint::LayerSampling::Filtered,
+        );
+        let source_size = source.area.to_physical(2.0);
+
+        assert_eq!(source_data[0], 8.0);
+        assert_eq!(source_data[1], 16.0);
+        assert_eq!(source_data[2], source_size.width() as f32);
+        assert_eq!(source_data[3], source_size.height() as f32);
+    }
+
+    #[test]
+    fn layer_source_rect_data_does_not_assume_destination_scale() {
+        let source = Rect::new(point::logical(4.0, 8.0), area::logical(40.0, 30.0));
+
+        let source_data = physical_source_rect_data(
+            source,
+            area::logical(80.0, 100.0),
+            area::physical(100, 150),
+            2.0,
+            paint::LayerSampling::Filtered,
+        );
+
+        assert_eq!(source_data, [5.0, 12.0, 50.0, 45.0]);
+    }
+
+    #[test]
+    fn pixel_aligned_source_rect_data_uses_target_scale() {
+        let source = Rect::new(point::logical(2.0, 4.0), area::logical(801.2, 1047.2));
+
+        let source_data = physical_source_rect_data(
+            source,
+            area::logical(805.2, 2138.4),
+            area::physical(1007, 2673),
+            1.25,
+            paint::LayerSampling::PixelAligned,
+        );
+
+        assert_eq!(source_data, [3.0, 5.0, 1002.0, 1309.0]);
+    }
+
+    #[test]
+    fn retained_layer_composite_uses_source_rect_step_by_axis() {
+        let source_rect_data = [5.0, 12.0, 48.0, 33.0];
+
+        assert_eq!(
+            source_step_data(
+                source_rect_data,
+                area::logical(32.0, 22.0),
+                2.0,
+                paint::LayerSampling::Filtered,
+            ),
+            [1.5, 1.5]
+        );
+    }
+
+    #[test]
+    fn retained_layer_source_step_does_not_assume_whole_texture_scale() {
+        let source_rect_data = [10.0, 20.0, 96.0, 72.0];
+
+        assert_eq!(
+            source_scale_data(area::logical(200.0, 100.0), area::physical(300, 300)),
+            [1.5, 3.0]
+        );
+        assert_eq!(
+            source_step_data(
+                source_rect_data,
+                area::logical(64.0, 48.0),
+                2.0,
+                paint::LayerSampling::Filtered,
+            ),
+            [1.5, 1.5]
+        );
+    }
+
+    #[test]
+    fn pixel_aligned_layer_source_step_uses_target_scale_not_source_size() {
+        let source_rect_data = [10.0, 20.0, 97.0, 73.0];
+
+        assert_eq!(
+            source_step_data(
+                source_rect_data,
+                area::logical(64.0, 48.0),
+                1.25,
+                paint::LayerSampling::PixelAligned,
+            ),
+            [1.25, 1.25]
+        );
+    }
+
+    #[test]
     fn zero_size_backdrops_do_not_prepare() {
         let rect = Rect::new(point::logical(10.0, 20.0), area::logical(0.0, 30.0));
 
@@ -838,5 +1157,13 @@ mod tests {
         assert_eq!(blur_radius_px(0.5, 1.0), 48.0);
         assert_eq!(blur_radius_px(1.0, 1.0), 96.0);
         assert_eq!(blur_radius_px(1.0, 2.0), 96.0);
+    }
+
+    fn assert_edges_close(left: (f32, f32, f32, f32), right: (f32, f32, f32, f32)) {
+        const EPSILON: f32 = 0.0001;
+        assert!((left.0 - right.0).abs() <= EPSILON, "{left:?} != {right:?}");
+        assert!((left.1 - right.1).abs() <= EPSILON, "{left:?} != {right:?}");
+        assert!((left.2 - right.2).abs() <= EPSILON, "{left:?} != {right:?}");
+        assert!((left.3 - right.3).abs() <= EPSILON, "{left:?} != {right:?}");
     }
 }

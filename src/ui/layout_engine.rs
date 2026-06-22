@@ -134,23 +134,26 @@ fn apply_scroll_layout(
     };
     let viewport_base = widget::scroll::viewport_rect(node, frame.rect());
     let mut axes = widget::scroll::ActiveAxes::new(
-        matches!(
-            scroll.bars().vertical_policy(),
-            widget::scroll::Policy::Always
-        ),
-        matches!(
-            scroll.bars().horizontal_policy(),
-            widget::scroll::Policy::Always
-        ),
+        scroll.axes().vertical_enabled()
+            && matches!(
+                scroll.bars().vertical_policy(),
+                widget::scroll::Policy::Always
+            ),
+        scroll.axes().horizontal_enabled()
+            && matches!(
+                scroll.bars().horizontal_policy(),
+                widget::scroll::Policy::Always
+            ),
     );
     let mut content_size = viewport_base.area;
 
     for _ in 0..4 {
         let (_, viewport, measured) =
             layout_scroll_children(node, &frame, axes, scroll.offset(), adapter);
-        let next = scroll
-            .bars()
-            .active_axes(viewport_base, scroll.style(), measured);
+        let next =
+            scroll
+                .bars()
+                .active_axes(scroll.axes(), viewport_base, scroll.style(), measured);
         content_size = measured;
 
         if next == axes {
@@ -159,6 +162,7 @@ fn apply_scroll_layout(
                 viewport_base,
                 content_size,
                 scroll.offset(),
+                scroll.axes(),
                 scroll.bars(),
                 scroll.style(),
             );
@@ -181,6 +185,7 @@ fn apply_scroll_layout(
         viewport_base,
         content_size,
         scroll.offset(),
+        scroll.axes(),
         scroll.bars(),
         scroll.style(),
     );

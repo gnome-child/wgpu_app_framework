@@ -12,7 +12,7 @@ use crate::app::windows::Windows;
 use crate::geometry::area;
 use crate::{Action, Task, action, text, ui, window};
 
-use super::Result;
+use super::{Result, frame};
 
 pub struct Context<'a, T: Send + 'static> {
     rendering: &'a mut rendering::Driver,
@@ -47,33 +47,135 @@ pub struct Diagnostics {
     pub text: text::Diagnostics,
     pub edit: text::edit::Diagnostics,
     pub scroll: ScrollDiagnostics,
+    pub frame: frame::Diagnostics,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ScrollDiagnostics {
+    pub wheel_events: usize,
+    pub thumb_drag_moves: usize,
+    pub scroll_offset_changes: usize,
+    pub scroll_redraw_requests: usize,
+    pub queued_scroll_updates: usize,
+    pub pending_scroll_updates: usize,
+    pub pending_scroll_applications: usize,
+    pub frame_scroll_commits: usize,
     pub generic_scroll_projections: usize,
     pub text_area_surfaces: usize,
     pub text_area_targets: usize,
     pub text_area_skipped_by_filter: usize,
     pub text_area_resolves: usize,
+    pub text_area_projection_reuses: usize,
+    pub text_area_projection_shifts: usize,
+    pub text_area_projection_shift_misses: usize,
+    pub text_area_projection_cold_jumps: usize,
     pub text_area_model_reuses: usize,
     pub text_area_model_updates: usize,
     pub text_area_idle_refinements: usize,
+    pub text_area_idle_refinements_suppressed: usize,
+    pub async_scroll_projection_sync_skips: usize,
+    pub async_scroll_reconciles: usize,
+    pub retained_scroll_translations: usize,
+    pub retained_scroll_translated_items: usize,
+    pub retained_scroll_chrome_repaints: usize,
+    pub retained_scroll_target_repaint_fallbacks: usize,
+    pub retained_scroll_layer_hits: usize,
+    pub retained_scroll_layer_replaced_items: usize,
+    pub retained_scroll_layer_text_prepare_skips: usize,
+    pub retained_scroll_layer_missing: usize,
+    pub retained_scroll_layer_metrics_misses: usize,
+    pub retained_scroll_layer_coverage_misses: usize,
+    pub retained_scroll_layer_geometry_misses: usize,
+    pub retained_scroll_layer_projection_misses: usize,
+    pub retained_scroll_layer_rebuilds: usize,
     pub projection_count: usize,
+    pub last_scroll: LastScrollDiagnostics,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LastScrollDiagnostics {
+    pub wheel_events: usize,
+    pub thumb_drag_moves: usize,
+    pub scroll_offset_changes: usize,
+    pub retained_scroll_layer_hits: usize,
+    pub retained_scroll_layer_text_prepare_skips: usize,
+    pub retained_scroll_target_repaint_fallbacks: usize,
+    pub retained_scroll_layer_missing: usize,
+    pub retained_scroll_layer_metrics_misses: usize,
+    pub retained_scroll_layer_coverage_misses: usize,
+    pub retained_scroll_layer_geometry_misses: usize,
+    pub retained_scroll_layer_projection_misses: usize,
+    pub retained_scroll_layer_rebuilds: usize,
 }
 
 impl ScrollDiagnostics {
     fn from_scroll(value: crate::app::scroll::Diagnostics) -> Self {
         Self {
+            wheel_events: value.wheel_events,
+            thumb_drag_moves: value.thumb_drag_moves,
+            scroll_offset_changes: value.scroll_offset_changes,
+            scroll_redraw_requests: value.scroll_redraw_requests,
+            queued_scroll_updates: value.queued_scroll_updates,
+            pending_scroll_updates: value.pending_scroll_updates,
+            pending_scroll_applications: value.pending_scroll_applications,
+            frame_scroll_commits: value.frame_scroll_commits,
             generic_scroll_projections: value.generic_scroll_projections,
             text_area_surfaces: value.text_area_surfaces,
             text_area_targets: value.text_area_targets,
             text_area_skipped_by_filter: value.text_area_skipped_by_filter,
             text_area_resolves: value.text_area_resolves,
+            text_area_projection_reuses: value.text_area_projection_reuses,
+            text_area_projection_shifts: value.text_area_projection_shifts,
+            text_area_projection_shift_misses: value.text_area_projection_shift_misses,
+            text_area_projection_cold_jumps: value.text_area_projection_cold_jumps,
             text_area_model_reuses: value.text_area_model_reuses,
             text_area_model_updates: value.text_area_model_updates,
             text_area_idle_refinements: value.text_area_idle_refinements,
+            text_area_idle_refinements_suppressed: value.text_area_idle_refinements_suppressed,
+            async_scroll_projection_sync_skips: value.async_scroll_projection_sync_skips,
+            async_scroll_reconciles: value.async_scroll_reconciles,
+            retained_scroll_translations: value.retained_scroll_translations,
+            retained_scroll_translated_items: value.retained_scroll_translated_items,
+            retained_scroll_chrome_repaints: value.retained_scroll_chrome_repaints,
+            retained_scroll_target_repaint_fallbacks: value
+                .retained_scroll_target_repaint_fallbacks,
+            retained_scroll_layer_hits: value.retained_scroll_layer_hits,
+            retained_scroll_layer_replaced_items: value.retained_scroll_layer_replaced_items,
+            retained_scroll_layer_text_prepare_skips: value
+                .retained_scroll_layer_text_prepare_skips,
+            retained_scroll_layer_missing: value.retained_scroll_layer_missing,
+            retained_scroll_layer_metrics_misses: value.retained_scroll_layer_metrics_misses,
+            retained_scroll_layer_coverage_misses: value.retained_scroll_layer_coverage_misses,
+            retained_scroll_layer_geometry_misses: value.retained_scroll_layer_geometry_misses,
+            retained_scroll_layer_projection_misses: value.retained_scroll_layer_projection_misses,
+            retained_scroll_layer_rebuilds: value.retained_scroll_layer_rebuilds,
             projection_count: value.projection_count,
+            last_scroll: LastScrollDiagnostics {
+                wheel_events: value.last_scroll.wheel_events,
+                thumb_drag_moves: value.last_scroll.thumb_drag_moves,
+                scroll_offset_changes: value.last_scroll.scroll_offset_changes,
+                retained_scroll_layer_hits: value.last_scroll.retained_scroll_layer_hits,
+                retained_scroll_layer_text_prepare_skips: value
+                    .last_scroll
+                    .retained_scroll_layer_text_prepare_skips,
+                retained_scroll_target_repaint_fallbacks: value
+                    .last_scroll
+                    .retained_scroll_target_repaint_fallbacks,
+                retained_scroll_layer_missing: value.last_scroll.retained_scroll_layer_missing,
+                retained_scroll_layer_metrics_misses: value
+                    .last_scroll
+                    .retained_scroll_layer_metrics_misses,
+                retained_scroll_layer_coverage_misses: value
+                    .last_scroll
+                    .retained_scroll_layer_coverage_misses,
+                retained_scroll_layer_geometry_misses: value
+                    .last_scroll
+                    .retained_scroll_layer_geometry_misses,
+                retained_scroll_layer_projection_misses: value
+                    .last_scroll
+                    .retained_scroll_layer_projection_misses,
+                retained_scroll_layer_rebuilds: value.last_scroll.retained_scroll_layer_rebuilds,
+            },
         }
     }
 }
@@ -123,8 +225,13 @@ impl<T: Send + 'static> Context<'_, T> {
         Ok(id)
     }
 
-    pub fn request_redraw(&self, window: window::Id) {
-        self.windows.request_redraw(window);
+    pub fn request_redraw(&mut self, window: window::Id) {
+        if self.windows.contains(window) {
+            self.window_states
+                .entry(window)
+                .or_default()
+                .invalidate_frame(frame::RedrawKind::Full, Instant::now());
+        }
     }
 
     pub fn close_window(&mut self, window: window::Id) {
@@ -166,7 +273,7 @@ impl<T: Send + 'static> Context<'_, T> {
     pub fn action(&mut self, window: window::Id, action: action::Id) -> ActionState<'_, T> {
         ActionState::new(
             self.actions,
-            self.windows,
+            self.window_states.get_mut(&window),
             window,
             action,
             self.redraw_on_action_state_change,
@@ -185,6 +292,11 @@ impl<T: Send + 'static> Context<'_, T> {
                 .window_states
                 .get(&window)
                 .map(|state| ScrollDiagnostics::from_scroll(state.scroll.diagnostics()))
+                .unwrap_or_default(),
+            frame: self
+                .window_states
+                .get(&window)
+                .map(WindowState::frame_diagnostics)
                 .unwrap_or_default(),
         }
     }
@@ -457,7 +569,7 @@ impl<T: Send + 'static> Context<'_, T> {
 
 pub struct ActionState<'a, T> {
     actions: &'a mut action::Registry<T>,
-    windows: &'a Windows,
+    window_state: Option<&'a mut WindowState>,
     window: window::Id,
     action: action::Id,
     state: action::State,
@@ -468,7 +580,7 @@ pub struct ActionState<'a, T> {
 impl<'a, T> ActionState<'a, T> {
     fn new(
         actions: &'a mut action::Registry<T>,
-        windows: &'a Windows,
+        window_state: Option<&'a mut WindowState>,
         window: window::Id,
         action: action::Id,
         redraw_on_action_state_change: bool,
@@ -477,7 +589,7 @@ impl<'a, T> ActionState<'a, T> {
 
         Self {
             actions,
-            windows,
+            window_state,
             window,
             action,
             state,
@@ -518,7 +630,9 @@ impl<T> Drop for ActionState<'_, T> {
         );
 
         if changed && self.redraw_on_action_state_change {
-            self.windows.request_redraw(self.window);
+            if let Some(state) = self.window_state.as_mut() {
+                state.invalidate_frame(frame::RedrawKind::Full, Instant::now());
+            }
         }
     }
 }

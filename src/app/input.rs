@@ -9,7 +9,7 @@ use crate::app::state::{PressSource, WindowState, action_request};
 use crate::geometry::point;
 use crate::{action, pointer, text, ui, window};
 
-use super::text_input;
+use super::{scroll, text_input};
 
 #[derive(Debug, Default)]
 pub struct Outcome {
@@ -64,11 +64,13 @@ pub fn pointer_moved_with_text_engine(
             .text_surface(&target)
             .is_some_and(text::Surface::is_area)
         {
-            state.scroll_text_area_to(&target, offset, text_engine);
-        } else if state
-            .scroll_metrics_for(&target, text_engine)
-            .is_some_and(|metrics| metrics.offset() != offset)
+            state.scroll.record_thumb_drag_move();
+            state.queue_text_area_scroll_to(&target, offset, text_engine);
+        } else if let Some(metrics) = state.scroll_metrics_for(&target, text_engine)
+            && metrics.offset() != offset
         {
+            state.scroll.record_thumb_drag_move();
+            state.scroll.queue_offset(&target, offset);
             events.push(ui::Event::ScrollRequested { target, offset });
         }
 
@@ -203,7 +205,7 @@ pub fn pointer_pressed(
                 .text_surface(hit.target())
                 .is_some_and(text::Surface::is_area)
             {
-                state.scroll_text_area_to(hit.target(), offset, text_engine);
+                state.queue_text_area_scroll_to(hit.target(), offset, text_engine);
             } else {
                 events.push(ui::Event::ScrollRequested {
                     target: hit.target().clone(),
@@ -381,18 +383,26 @@ pub fn pointer_button(button: MouseButton) -> pointer::Button {
 }
 
 pub fn pointer_left(state: &mut WindowState) -> Outcome {
-    state.pointer.handle_event(pointer::Event::Left);
+    let preserve_scroll_capture = state.pointer_capture_is_scroll_thumb();
+    if !preserve_scroll_capture {
+        state.pointer.handle_event(pointer::Event::Left);
+    }
     let cleared_text_gesture = state.cancel_text_pointer_gesture();
     let cleared_text_drag = state.clear_text_drag_drop();
     let events = state.set_hovered(None);
-    let cleared_capture = state.clear_pointer_capture();
-    let cleared_pressed = if state.pressed_source == Some(PressSource::Pointer) {
-        state.pressed = None;
-        state.pressed_source = None;
-        true
-    } else {
+    let cleared_capture = if preserve_scroll_capture {
         false
+    } else {
+        state.clear_pointer_capture()
     };
+    let cleared_pressed =
+        if !preserve_scroll_capture && state.pressed_source == Some(PressSource::Pointer) {
+            state.pressed = None;
+            state.pressed_source = None;
+            true
+        } else {
+            false
+        };
 
     Outcome {
         redraw: !events.is_empty()
@@ -410,28 +420,70 @@ pub fn pointer_left(state: &mut WindowState) -> Outcome {
 pub fn scroll_wheel(
     state: &mut WindowState,
     position: point::Logical,
-    delta: point::Logical,
+    delta: scroll::WheelDelta,
     text_engine: &mut text::layout::Engine,
+    now: Instant,
 ) -> Outcome {
+    state.scroll.record_wheel_event(delta);
     let target = state.scroll_target(position, text_engine);
-    let area_scrolled = target.as_ref().is_some_and(|target| {
-        state
-            .text_surface(target)
-            .is_some_and(text::Surface::is_area)
-    }) && state.scroll_text_area_at(position, delta, text_engine);
+    let area_scrolled = target
+        .as_ref()
+        .is_some_and(|target| state.queue_text_area_scroll_by_at(target, delta, text_engine, now));
+    let event_delta = target
+        .as_ref()
+        .and_then(|target| state.scroll_metrics_for(target, text_engine))
+        .map(|metrics| {
+            state
+                .scroll
+                .wheel_delta_pixels(metrics, delta, state.modifiers.shift())
+        })
+        .unwrap_or_else(|| state.scroll.fallback_wheel_delta_pixels(delta));
     let mut events = vec![ui::Event::ScrollWheel {
         position,
-        delta,
+        delta: event_delta,
         target: target.clone(),
     }];
 
+    let mut generic_scrolled = false;
     if !area_scrolled
         && let Some(target) = target
         && let Some(metrics) = state.scroll_metrics_for(&target, text_engine)
     {
-        let offset = metrics.wheel_offset(delta);
-        if offset != metrics.offset() {
+        let smooth = state.scroll.wheel_delta_smooths(&target, delta);
+        let base_metrics = if smooth {
+            state
+                .scroll
+                .target_offset(&target)
+                .map_or(metrics, |offset| metrics.with_offset(offset))
+        } else {
+            metrics
+        };
+        let delta = if smooth {
+            state
+                .scroll
+                .wheel_impulse_delta_pixels(base_metrics, delta, state.modifiers.shift())
+        } else {
+            state
+                .scroll
+                .wheel_delta_pixels(base_metrics, delta, state.modifiers.shift())
+        };
+        let offset = base_metrics.wheel_offset(delta);
+        let current_offset = if smooth {
+            state
+                .scroll
+                .target_offset(&target)
+                .unwrap_or_else(|| metrics.offset())
+        } else {
+            metrics.offset()
+        };
+        if offset != current_offset || (smooth && metrics.offset() != offset) {
+            if smooth {
+                state.scroll.queue_wheel_offset_at(&target, offset, now);
+            } else {
+                state.scroll.queue_offset(&target, offset);
+            }
             events.push(ui::Event::ScrollRequested { target, offset });
+            generic_scrolled = true;
         }
     }
 
@@ -439,7 +491,7 @@ pub fn scroll_wheel(
         events,
         request: None,
         intent: None,
-        redraw: area_scrolled,
+        redraw: area_scrolled || generic_scrolled,
         repeatable_key: false,
     }
 }
@@ -1043,6 +1095,12 @@ mod tests {
         )
     }
 
+    fn text_area_lines(count: usize) -> Vec<String> {
+        (0..count)
+            .map(|line| format!("line {line:02} abcdefghijklmnopqrstuvwxyz"))
+            .collect()
+    }
+
     fn scroll_state(offset: point::Logical) -> WindowState {
         let mut tree = ui::Tree::new();
         tree.set_root(
@@ -1116,6 +1174,50 @@ mod tests {
             widget_metrics,
             Vec::new(),
         )
+    }
+
+    fn hidden_bar_text_area_state() -> WindowState {
+        let window = window::Id::new(1);
+        let mut tree = ui::Tree::new();
+        let mut registry = action::Registry::<()>::new();
+        let buffer = text::Buffer::from_multiline_text(&text_area_lines(40).join("\n"));
+        tree.set_root(
+            ui::Node::container(ROOT, crate::layout::Axis::Vertical)
+                .with_size(crate::layout::Size::Fill, crate::layout::Size::Fill)
+                .with_child(
+                    widget::text_area(CHILD, text::Area::new(buffer))
+                        .with_scroll_bars(widget::scroll::Bars::none())
+                        .with_size(
+                            crate::layout::Size::Fixed(120.0),
+                            crate::layout::Size::Fixed(48.0),
+                        ),
+                ),
+        );
+        let mut text_engine = crate::text::layout::Engine::new();
+        let composition = tree
+            .compose(
+                window,
+                crate::geometry::area::logical(120.0, 48.0),
+                &mut registry,
+                &[],
+                &mut text_engine,
+            )
+            .expect("hidden-bar text area should compose");
+        let mut state = WindowState {
+            composition: Some(composition),
+            ..WindowState::default()
+        };
+        state.hovered = Some(root_path(CHILD));
+        state.scroll.sync(
+            state
+                .composition
+                .as_ref()
+                .expect("composition should exist"),
+            state.text.states(),
+            &mut text_engine,
+            Instant::now(),
+        );
+        state
     }
 
     fn requested_offset(events: &[ui::Event]) -> Option<point::Logical> {
@@ -1306,10 +1408,11 @@ mod tests {
         let path = root_path(CHILD);
         let mut state = WindowState {
             composition: Some(composition),
-            text_field_states: HashMap::from([(
+            text: HashMap::from([(
                 path.clone(),
                 crate::text::view::TextViewState::default().with_scroll_y(scroll_y),
-            )]),
+            )])
+            .into(),
             ..WindowState::default()
         };
         state.scroll.sync(
@@ -1317,7 +1420,7 @@ mod tests {
                 .composition
                 .as_ref()
                 .expect("composition should exist"),
-            &state.text_field_states,
+            state.text.states(),
             &mut text_engine,
             Instant::now(),
         );
@@ -1597,11 +1700,12 @@ mod tests {
         let outcome = scroll_wheel(
             &mut state,
             point::logical(1.0, 1.0),
-            point::logical(0.0, -20.0),
+            scroll::WheelDelta::pixels(point::logical(0.0, -20.0)),
             &mut text_engine,
+            Instant::now(),
         );
 
-        assert!(!outcome.redraw);
+        assert!(outcome.redraw);
         assert_eq!(
             outcome.events,
             vec![
@@ -1626,8 +1730,9 @@ mod tests {
         let outcome = scroll_wheel(
             &mut state,
             point::logical(50.0, 50.0),
-            point::logical(0.0, -20.0),
+            scroll::WheelDelta::pixels(point::logical(0.0, -20.0)),
             &mut text_engine,
+            Instant::now(),
         );
 
         assert_eq!(
@@ -1659,6 +1764,86 @@ mod tests {
         assert_eq!(offset.x(), 0.0);
         assert!((offset.y() - 34.09091).abs() < 0.001);
         assert!(state.pointer_capture.is_some());
+    }
+
+    #[test]
+    fn text_area_thumb_drag_queues_scroll_until_frame_commit() {
+        let (mut state, mut text_engine, path) = text_area_state(0.0);
+        let thumb = state
+            .scroll
+            .metrics(&path)
+            .and_then(widget::scroll::Metrics::vertical_thumb)
+            .expect("text area should expose a vertical thumb");
+        let press = point::logical(thumb.origin.x() + 1.0, thumb.origin.y() + 1.0);
+        let drag = point::logical(press.x(), press.y() + 18.0);
+
+        let pressed = pointer_pressed(
+            &mut state,
+            window::Id::new(1),
+            press,
+            pointer::Button::Primary,
+            &mut text_engine,
+        );
+        assert!(pressed.redraw);
+        assert!(state.pointer_capture_is_scroll_thumb());
+
+        text_engine.reset_diagnostics();
+        let moved = pointer_moved_with_text_engine(&mut state, drag, &mut text_engine);
+        let projected = state
+            .scroll
+            .metrics(&path)
+            .expect("projection metrics should update cheaply")
+            .offset();
+        let canonical = state
+            .text
+            .states()
+            .get(&path)
+            .expect("text area state should exist");
+
+        assert!(moved.redraw);
+        assert_eq!(requested_offset(&moved.events), None);
+        assert!(projected.y() > 0.0);
+        assert_eq!(canonical.scroll_y(), 0.0);
+        assert_eq!(text_engine.diagnostics().text_area_paint_layout_calls, 0);
+
+        assert!(state.commit_pending_scroll_offsets());
+        assert_eq!(
+            state
+                .scroll
+                .metrics(&path)
+                .expect("scroll driver should keep committed offset")
+                .offset(),
+            projected
+        );
+        assert_eq!(
+            state
+                .text
+                .get(&path)
+                .expect("text area state should remain available")
+                .scroll_y(),
+            0.0
+        );
+    }
+
+    #[test]
+    fn pointer_left_preserves_scrollbar_thumb_capture() {
+        let mut state = scroll_state(point::logical(0.0, 0.0));
+
+        let pressed = pointer_pressed_for_test(
+            &mut state,
+            point::logical(35.0, 5.0),
+            pointer::Button::Primary,
+        );
+        assert!(pressed.redraw);
+        assert!(state.pointer_capture_is_scroll_thumb());
+        assert_eq!(state.pressed, Some(path(CHILD)));
+
+        let outcome = pointer_left(&mut state);
+
+        assert!(state.pointer_capture_is_scroll_thumb());
+        assert_eq!(state.pressed, Some(path(CHILD)));
+        assert_eq!(state.pressed_source, Some(PressSource::Pointer));
+        assert_eq!(outcome.events, Vec::new());
     }
 
     #[test]
@@ -1695,10 +1880,178 @@ mod tests {
         let wheel = scroll_wheel(
             &mut state,
             point::logical(1.0, 1.0),
-            point::logical(0.0, -20.0),
+            scroll::WheelDelta::pixels(point::logical(0.0, -20.0)),
             &mut text_engine,
+            Instant::now(),
         );
         assert_eq!(requested_offset(&wheel.events), None);
+    }
+
+    #[test]
+    fn text_area_with_hidden_scrollbars_still_wheel_scrolls() {
+        let mut state = hidden_bar_text_area_state();
+        let mut text_engine = text::layout::Engine::new();
+        let metrics = state
+            .scroll
+            .text_area(&root_path(CHILD))
+            .map(|projection| projection.metrics())
+            .unwrap_or_else(|| {
+                panic!(
+                    "hidden-bar text area should have a projection, diagnostics: {:?}",
+                    state.scroll.diagnostics()
+                )
+            });
+
+        assert!(metrics.max_offset().y() > 0.0);
+        assert_eq!(metrics.vertical_track(), None);
+
+        let outcome = scroll_wheel(
+            &mut state,
+            point::logical(4.0, 4.0),
+            scroll::WheelDelta::pixels(point::logical(0.0, -30.0)),
+            &mut text_engine,
+            Instant::now(),
+        );
+        let projected = state
+            .scroll
+            .metrics(&root_path(CHILD))
+            .expect("text area projection should stay available")
+            .offset();
+        assert_eq!(projected.x(), 0.0);
+        assert!(projected.y() > 0.0);
+        assert!(
+            !state.text.contains(&root_path(CHILD)),
+            "wheel input should defer canonical text view state until compose"
+        );
+
+        assert!(state.commit_pending_scroll_offsets());
+        assert_eq!(
+            state
+                .scroll
+                .metrics(&root_path(CHILD))
+                .expect("scroll driver should keep committed offset")
+                .offset(),
+            projected
+        );
+        assert!(
+            !state.text.contains(&root_path(CHILD)),
+            "hidden-bar wheel scroll should not create duplicate text scroll state"
+        );
+        assert!(outcome.redraw);
+        assert_eq!(
+            state.widget_hit(point::logical(116.0, 4.0), &mut text_engine),
+            None
+        );
+    }
+
+    #[test]
+    fn repeated_text_area_wheel_events_commit_once_before_projection_sync() {
+        let (mut state, mut text_engine, path) = text_area_state(0.0);
+        let position = point::logical(4.0, 4.0);
+        let now = Instant::now();
+
+        text_engine.reset_diagnostics();
+        let first = scroll_wheel(
+            &mut state,
+            position,
+            scroll::WheelDelta::pixels(point::logical(0.0, -10.0)),
+            &mut text_engine,
+            now,
+        );
+        let second = scroll_wheel(
+            &mut state,
+            position,
+            scroll::WheelDelta::pixels(point::logical(0.0, -15.0)),
+            &mut text_engine,
+            now,
+        );
+        let projected = state
+            .scroll
+            .metrics(&path)
+            .expect("projection metrics should update cheaply")
+            .offset();
+        let canonical = state
+            .text
+            .states()
+            .get(&path)
+            .expect("text area state should exist");
+
+        assert!(first.redraw);
+        assert!(second.redraw);
+        assert!(projected.y() > 0.0);
+        assert_eq!(canonical.scroll_y(), 0.0);
+        assert_eq!(text_engine.diagnostics().text_area_paint_layout_calls, 0);
+
+        assert!(state.commit_pending_scroll_offsets());
+        text_engine.reset_diagnostics();
+        state.sync_scroll_projections(&mut text_engine, Instant::now());
+        let diagnostics = state.scroll.diagnostics();
+
+        assert_eq!(diagnostics.wheel_events, 2);
+        assert_eq!(diagnostics.queued_scroll_updates, 2);
+        assert_eq!(diagnostics.pending_scroll_updates, 2);
+        assert_eq!(diagnostics.pending_scroll_applications, 1);
+        assert_eq!(diagnostics.frame_scroll_commits, 1);
+        assert_eq!(diagnostics.text_area_projection_reuses, 0);
+        assert_eq!(diagnostics.text_area_resolves, 1);
+        assert_eq!(text_engine.diagnostics().text_area_paint_layout_calls, 1);
+        assert_eq!(
+            state
+                .scroll
+                .metrics(&path)
+                .expect("scroll driver should remain the source of truth")
+                .offset(),
+            projected
+        );
+        assert_eq!(
+            state
+                .text
+                .get(&path)
+                .expect("text area state should remain")
+                .scroll_y(),
+            0.0
+        );
+    }
+
+    #[test]
+    fn repeated_smooth_wheel_events_accumulate_target_before_frame() {
+        let (mut state, mut text_engine, path) = text_area_state(0.0);
+        let position = point::logical(4.0, 4.0);
+        let now = Instant::now();
+
+        let first = scroll_wheel(
+            &mut state,
+            position,
+            scroll::WheelDelta::lines(point::logical(0.0, -1.0)),
+            &mut text_engine,
+            now,
+        );
+        let second = scroll_wheel(
+            &mut state,
+            position,
+            scroll::WheelDelta::lines(point::logical(0.0, -2.0)),
+            &mut text_engine,
+            now,
+        );
+
+        assert!(first.redraw);
+        assert!(second.redraw);
+        assert_eq!(
+            state
+                .scroll
+                .metrics(&path)
+                .expect("visual metrics should remain at the current frame")
+                .offset(),
+            point::logical(0.0, 0.0)
+        );
+        assert_eq!(
+            state
+                .scroll
+                .target_offset(&path)
+                .expect("smooth wheel target should accumulate before the frame"),
+            point::logical(0.0, 300.0)
+        );
+        assert!(state.smooth_scroll_active());
     }
 
     #[test]
@@ -2077,14 +2430,15 @@ mod tests {
         let registry = action::Registry::<()>::new();
         let mut state = text_field_state();
         let old_epoch = Instant::now() - Duration::from_millis(500);
-        state.text_field_states.insert(
+        state.text.insert(
             path(CHILD),
             crate::text::view::TextViewState::new_at(0.0, old_epoch),
         );
 
         assert!(
             !state
-                .text_field_states
+                .text
+                .states()
                 .get(&path(CHILD))
                 .expect("text field state should exist")
                 .caret_visible(Instant::now())
@@ -2100,7 +2454,8 @@ mod tests {
 
         assert!(
             state
-                .text_field_states
+                .text
+                .states()
                 .get(&path(CHILD))
                 .expect("text field state should exist")
                 .caret_visible(Instant::now())
@@ -2110,7 +2465,7 @@ mod tests {
     #[test]
     fn ime_commit_on_focused_text_field_emits_insert_edit_request() {
         let mut state = text_field_state();
-        state.text_field_states.insert(
+        state.text.insert(
             path(CHILD),
             crate::text::view::TextViewState::default()
                 .with_preedit(Some(crate::text::Preedit::new("preedit", Some((0, 3))))),
@@ -2128,7 +2483,8 @@ mod tests {
         assert!(outcome.redraw);
         assert_eq!(
             state
-                .text_field_states
+                .text
+                .states()
                 .get(&path(CHILD))
                 .and_then(crate::text::view::TextViewState::preedit),
             None
@@ -2143,7 +2499,8 @@ mod tests {
 
         assert!(preedit.redraw);
         let stored = state
-            .text_field_states
+            .text
+            .states()
             .get(&path(CHILD))
             .and_then(crate::text::view::TextViewState::preedit)
             .expect("preedit should be stored on focused text field");
@@ -2155,7 +2512,8 @@ mod tests {
         assert!(disabled.redraw);
         assert_eq!(
             state
-                .text_field_states
+                .text
+                .states()
                 .get(&path(CHILD))
                 .and_then(crate::text::view::TextViewState::preedit),
             None

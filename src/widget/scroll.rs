@@ -9,6 +9,12 @@ pub struct Bars {
     horizontal: Policy,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Axes {
+    vertical: bool,
+    horizontal: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Axis {
     Vertical,
@@ -27,6 +33,14 @@ pub enum Policy {
 pub struct ActiveAxes {
     vertical: bool,
     horizontal: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Adjustment {
+    offset: point::Logical,
+    max_offset: point::Logical,
+    viewport: area::Logical,
+    content_size: area::Logical,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,38 +148,84 @@ impl Bars {
 
     pub fn active_axes(
         self,
+        scroll_axes: Axes,
         viewport_base: Rect,
         style: Style,
         content_size: area::Logical,
     ) -> ActiveAxes {
-        let mut axes = ActiveAxes {
-            vertical: matches!(self.vertical, Policy::Always),
-            horizontal: matches!(self.horizontal, Policy::Always),
+        let mut active_axes = ActiveAxes {
+            vertical: scroll_axes.vertical_enabled() && matches!(self.vertical, Policy::Always),
+            horizontal: scroll_axes.horizontal_enabled()
+                && matches!(self.horizontal, Policy::Always),
         };
 
         for _ in 0..4 {
-            let viewport = viewport_rect_for_axes(viewport_base, style, axes);
+            let viewport = viewport_rect_for_axes(viewport_base, style, active_axes);
             let next = ActiveAxes {
-                vertical: match self.vertical {
-                    Policy::Never => false,
-                    Policy::Always => true,
-                    Policy::Auto => content_size.height() > viewport.area.height(),
-                },
-                horizontal: match self.horizontal {
-                    Policy::Never => false,
-                    Policy::Always => true,
-                    Policy::Auto => content_size.width() > viewport.area.width(),
-                },
+                vertical: scroll_axes.vertical_enabled()
+                    && match self.vertical {
+                        Policy::Never => false,
+                        Policy::Always => true,
+                        Policy::Auto => content_size.height() > viewport.area.height(),
+                    },
+                horizontal: scroll_axes.horizontal_enabled()
+                    && match self.horizontal {
+                        Policy::Never => false,
+                        Policy::Always => true,
+                        Policy::Auto => content_size.width() > viewport.area.width(),
+                    },
             };
 
-            if next == axes {
-                return axes;
+            if next == active_axes {
+                return active_axes;
             }
 
-            axes = next;
+            active_axes = next;
         }
 
-        axes
+        active_axes
+    }
+}
+
+impl Axes {
+    pub const fn none() -> Self {
+        Self {
+            vertical: false,
+            horizontal: false,
+        }
+    }
+
+    pub const fn vertical() -> Self {
+        Self {
+            vertical: true,
+            horizontal: false,
+        }
+    }
+
+    pub const fn horizontal() -> Self {
+        Self {
+            vertical: false,
+            horizontal: true,
+        }
+    }
+
+    pub const fn both() -> Self {
+        Self {
+            vertical: true,
+            horizontal: true,
+        }
+    }
+
+    pub const fn vertical_enabled(self) -> bool {
+        self.vertical
+    }
+
+    pub const fn horizontal_enabled(self) -> bool {
+        self.horizontal
+    }
+
+    pub const fn is_enabled(self) -> bool {
+        self.vertical || self.horizontal
     }
 }
 
@@ -187,6 +247,38 @@ impl ActiveAxes {
 
     pub const fn is_enabled(self) -> bool {
         self.vertical || self.horizontal
+    }
+}
+
+impl Adjustment {
+    pub fn new(
+        offset: point::Logical,
+        max_offset: point::Logical,
+        viewport: area::Logical,
+        content_size: area::Logical,
+    ) -> Self {
+        Self {
+            offset,
+            max_offset,
+            viewport,
+            content_size,
+        }
+    }
+
+    pub fn offset(self) -> point::Logical {
+        self.offset
+    }
+
+    pub fn max_offset(self) -> point::Logical {
+        self.max_offset
+    }
+
+    pub fn viewport(self) -> area::Logical {
+        self.viewport
+    }
+
+    pub fn content_size(self) -> area::Logical {
+        self.content_size
     }
 }
 
@@ -262,25 +354,30 @@ impl Metrics {
         viewport_base: Rect,
         content_size: area::Logical,
         offset: point::Logical,
+        axes: Axes,
         bars: Bars,
         style: Style,
     ) -> Self {
-        let axes = bars.active_axes(viewport_base, style, content_size);
-        let viewport = viewport_rect_for_axes(viewport_base, style, axes);
+        let active_bars = bars.active_axes(axes, viewport_base, style, content_size);
+        let viewport = viewport_rect_for_axes(viewport_base, style, active_bars);
         let max_offset = point::logical(
-            (content_size.width() - viewport.area.width()).max(0.0),
-            (content_size.height() - viewport.area.height()).max(0.0),
+            axes.horizontal_enabled()
+                .then_some((content_size.width() - viewport.area.width()).max(0.0))
+                .unwrap_or(0.0),
+            axes.vertical_enabled()
+                .then_some((content_size.height() - viewport.area.height()).max(0.0))
+                .unwrap_or(0.0),
         );
         let offset = point::logical(
             offset.x().clamp(0.0, max_offset.x()),
             offset.y().clamp(0.0, max_offset.y()),
         );
-        let vertical_track = axes
+        let vertical_track = active_bars
             .vertical()
-            .then(|| vertical_track(viewport_base, style, axes));
-        let horizontal_track = axes
+            .then(|| vertical_track(viewport_base, style, active_bars));
+        let horizontal_track = active_bars
             .horizontal()
-            .then(|| horizontal_track(viewport_base, style, axes));
+            .then(|| horizontal_track(viewport_base, style, active_bars));
         let vertical_thumb = vertical_track.map(|track| {
             thumb_rect(
                 track,
@@ -303,7 +400,7 @@ impl Metrics {
                 style.min_thumb_length(),
             )
         });
-        let corner = (axes.vertical() && axes.horizontal()).then(|| {
+        let corner = (active_bars.vertical() && active_bars.horizontal()).then(|| {
             let thickness = style.thickness();
             Rect::new(
                 point::logical(
@@ -358,6 +455,15 @@ impl Metrics {
         self.max_offset
     }
 
+    pub fn adjustment(self) -> Adjustment {
+        Adjustment::new(
+            self.offset,
+            self.max_offset,
+            self.viewport().area,
+            self.content_size(),
+        )
+    }
+
     pub fn with_offset(self, offset: point::Logical) -> Self {
         let offset = self.clamp_offset(offset);
         let vertical_thumb = self.vertical_track.map(|track| {
@@ -387,6 +493,28 @@ impl Metrics {
             offset,
             vertical_thumb,
             horizontal_thumb,
+            ..self
+        }
+    }
+
+    pub(crate) fn with_layer_viewport(self, viewport: Rect, offset: point::Logical) -> Self {
+        let max_offset = point::logical(
+            self.max_offset
+                .x()
+                .max((self.content_size().width() - viewport.area.width()).max(0.0)),
+            self.max_offset
+                .y()
+                .max((self.content_size().height() - viewport.area.height()).max(0.0)),
+        );
+        let offset = point::logical(
+            offset.x().clamp(0.0, max_offset.x()),
+            offset.y().clamp(0.0, max_offset.y()),
+        );
+
+        Self {
+            frame: Frame::new(self.outer(), viewport, self.content_size()),
+            offset,
+            max_offset,
             ..self
         }
     }
@@ -541,8 +669,8 @@ impl Metrics {
 
 pub fn metrics(node: &ui::Node, layout: &ui::Frame) -> Option<Metrics> {
     let scroll = node.scroll()?;
-    let scrollbars = scroll.bars();
-    if !scrollbars.is_enabled() {
+    let axes = scroll.axes();
+    if !axes.is_enabled() {
         return None;
     }
 
@@ -555,7 +683,8 @@ pub fn metrics(node: &ui::Node, layout: &ui::Frame) -> Option<Metrics> {
         viewport_base,
         content_size,
         scroll.offset(),
-        scrollbars,
+        axes,
+        scroll.bars(),
         style,
     ))
 }

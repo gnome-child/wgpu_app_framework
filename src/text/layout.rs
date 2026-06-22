@@ -11,7 +11,7 @@ use super::buffer::{
     Buffer, Cursor, LineId, LineLayoutIdentity, Selection, TextAffinity, TextEditImpact,
     TextPosition, buffer_text_len, clamp_cursor_in_buffer, clamp_selection_in_buffer,
     cosmic_buffer_from_text, cursor_position, local_cursor_range_for_source_line,
-    text_index_for_cursor_in_buffer,
+    set_cosmic_buffer_text, text_index_for_cursor_in_buffer,
 };
 use super::document::{Align, Block, Document, Run, Style, TextDirection, Weight};
 use super::surface::{
@@ -25,12 +25,22 @@ use lru::LruCache;
 
 const MEASURE_CACHE_CAPACITY: usize = 2048;
 pub(super) const TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY: usize = 2048;
+const TEXT_AREA_RENDER_BUFFER_CACHE_CAPACITY: usize = 32;
 const TEXT_AREA_HEIGHT_INDEX_CACHE_CAPACITY: usize = 128;
 const TEXT_AREA_HEIGHT_INDEX_BLOCK_LINES: usize = 128;
 pub(super) const TEXT_AREA_FRAME_MIN_OVERSCAN_LINES: usize = 16;
+const TEXT_AREA_RENDER_OVERSCAN_LINES: usize = 4;
+const TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN: f32 = 256.0;
 pub(super) const TEXT_AREA_FRAME_MAX_LOGICAL_LINES: usize = 256;
 pub(super) const TEXT_LAYOUT_VISUAL_LINE_EPSILON: f32 = 0.5;
 pub(super) const TEXT_FIELD_CARET_MARGIN: f32 = 5.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextAreaObservation {
+    RenderOnly,
+    Observe,
+}
+
 #[derive(Clone)]
 pub(super) struct CachedTextAreaLineDisplay {
     pub(super) buffer: Rc<RefCell<glyphon::Buffer>>,
@@ -52,6 +62,16 @@ pub(super) struct TextAreaDisplaySegment {
     display: TextAreaLineDisplay,
     y: f32,
 }
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct TextAreaRenderAnchor {
+    source_line: usize,
+    source_line_end: usize,
+    y: f32,
+}
+#[derive(Clone)]
+pub(super) struct CachedTextAreaRenderBuffer {
+    pub(super) buffer: Rc<RefCell<glyphon::Buffer>>,
+}
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct HighlightSpans {
     selection: Vec<SelectionSpan>,
@@ -62,6 +82,17 @@ pub(super) struct HighlightSpans {
 pub(super) struct TextAreaLineDisplayKey {
     buffer_id: u64,
     line: LineLayoutIdentity,
+    style: StyleKey,
+    width: u32,
+    wrap: AreaWrap,
+    direction: TextDirection,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct TextAreaRenderBufferKey {
+    buffer_id: u64,
+    revision: u64,
+    source_line_start: usize,
+    source_line_end: usize,
     style: StyleKey,
     width: u32,
     wrap: AreaWrap,
@@ -137,6 +168,27 @@ impl TextAreaLineDisplayKey {
         })
     }
 }
+impl TextAreaRenderBufferKey {
+    fn new(
+        area_model: &Area,
+        buffer: &Buffer,
+        style: Style,
+        width: f32,
+        source_line_start: usize,
+        source_line_end: usize,
+    ) -> Self {
+        Self {
+            buffer_id: buffer.id(),
+            revision: buffer.revision(),
+            source_line_start,
+            source_line_end,
+            style: StyleKey::new(style),
+            width: finite_bits(width.max(0.0)),
+            wrap: area_model.wrap(),
+            direction: style.direction(),
+        }
+    }
+}
 impl TextAreaHeightKey {
     fn new(area_model: &Area, buffer: &Buffer, style: Style, width: f32) -> Self {
         Self {
@@ -186,6 +238,13 @@ impl TextAreaHeightIndex {
             self.measured.insert(identity, height);
         }
         self.update_resolved_line(line, height);
+    }
+
+    fn line_height(&self, line: usize) -> f32 {
+        self.resolved
+            .get(&line)
+            .copied()
+            .unwrap_or(self.estimated_line_height)
     }
 
     fn update_resolved_line(&mut self, line: usize, height: f32) {
@@ -336,12 +395,28 @@ pub(crate) struct HighlightStats {
 pub struct Diagnostics {
     pub text_area_metrics_layout_calls: usize,
     pub text_area_paint_layout_calls: usize,
+    pub text_area_render_surface_calls: usize,
+    pub text_area_render_surface_cache_hits: usize,
+    pub text_area_render_surface_cache_misses: usize,
+    pub text_area_render_surface_source_lines: usize,
+    pub text_area_render_surface_source_bytes: usize,
+    pub text_area_render_surface_anchor_us: u128,
+    pub text_area_render_surface_text_us: u128,
+    pub text_area_render_surface_buffer_us: u128,
+    pub text_area_render_surface_attrs_us: u128,
+    pub text_area_render_surface_size_us: u128,
+    pub text_area_render_surface_shape_us: u128,
+    pub text_area_render_surface_metadata_us: u128,
+    pub text_area_render_surface_total_us: u128,
     pub text_area_line_cache_hits: usize,
     pub text_area_line_cache_misses: usize,
     pub text_area_line_shape_calls: usize,
     pub text_area_shaped_logical_lines: usize,
     pub text_area_shaped_visual_lines: usize,
     pub text_area_visible_logical_lines: usize,
+    pub text_area_layout_segments: usize,
+    pub text_area_overscan_segments: usize,
+    pub text_area_paint_surfaces: usize,
     pub text_area_hit_run_scans: usize,
     pub text_area_height_index_hits: usize,
     pub text_area_height_index_misses: usize,
@@ -399,6 +474,8 @@ pub struct Engine {
     pub(super) font_system: glyphon::FontSystem,
     pub(super) cache: MeasureCache,
     pub(super) text_area_line_displays: LruCache<TextAreaLineDisplayKey, CachedTextAreaLineDisplay>,
+    pub(super) text_area_render_buffers:
+        LruCache<TextAreaRenderBufferKey, CachedTextAreaRenderBuffer>,
     pub(super) text_area_height_indices: LruCache<TextAreaHeightKey, TextAreaHeightIndex>,
     pub(super) diagnostics: Diagnostics,
     #[cfg(test)]
@@ -434,6 +511,7 @@ pub struct TextFieldLayout {
 pub struct TextAreaPaintLayout {
     pub(super) layout: TextFieldLayout,
     pub(super) surfaces: Vec<TextAreaSurface>,
+    pub(super) render_surfaces: Vec<TextAreaSurface>,
 }
 
 #[derive(Clone)]
@@ -597,6 +675,34 @@ impl TextFieldLayout {
     pub fn content_area(&self) -> area::Logical {
         self.content_area
     }
+
+    pub(crate) fn translated_for_scroll(&self, scroll_x: f32, scroll_y: f32) -> Self {
+        let dx = self.scroll_x - scroll_x;
+        let dy = self.scroll_y - scroll_y;
+        let translate_span = |span: &SelectionSpan| {
+            SelectionSpan::new(span.x + dx, span.y + dy, span.width, span.height)
+        };
+
+        Self {
+            selection_spans: self.selection_spans.iter().map(translate_span).collect(),
+            preedit_underline_spans: self
+                .preedit_underline_spans
+                .iter()
+                .map(translate_span)
+                .collect(),
+            preedit_selection_spans: self
+                .preedit_selection_spans
+                .iter()
+                .map(translate_span)
+                .collect(),
+            caret: self
+                .caret
+                .map(|caret| Caret::new(caret.x + dx, caret.y + dy, caret.height)),
+            scroll_x,
+            scroll_y,
+            content_area: self.content_area,
+        }
+    }
 }
 impl TextAreaPaintLayout {
     pub fn layout(&self) -> &TextFieldLayout {
@@ -605,8 +711,16 @@ impl TextAreaPaintLayout {
     pub fn surfaces(&self) -> &[TextAreaSurface] {
         &self.surfaces
     }
+    pub fn render_surfaces(&self) -> &[TextAreaSurface] {
+        &self.render_surfaces
+    }
     pub fn into_parts(self) -> (TextFieldLayout, Vec<TextAreaSurface>) {
         (self.layout, self.surfaces)
+    }
+    pub fn into_projection_parts(
+        self,
+    ) -> (TextFieldLayout, Vec<TextAreaSurface>, Vec<TextAreaSurface>) {
+        (self.layout, self.surfaces, self.render_surfaces)
     }
 }
 
@@ -649,6 +763,32 @@ impl TextAreaSurface {
 
     pub fn default_color(&self) -> paint::Color {
         self.default_color
+    }
+
+    pub(crate) fn translated_for_scroll(
+        &self,
+        old_scroll: point::Logical,
+        new_scroll: point::Logical,
+        _new_viewport: area::Logical,
+    ) -> Self {
+        let dx = old_scroll.x() - new_scroll.x();
+        let dy = old_scroll.y() - new_scroll.y();
+        self.translated_by(dx, dy)
+    }
+
+    pub(crate) fn translated_by(&self, dx: f32, dy: f32) -> Self {
+        Self {
+            x: self.x + dx,
+            y: self.y + dy,
+            width: self.width,
+            height: self.height,
+            source_line: self.source_line,
+            source_line_id: self.source_line_id,
+            source_start: self.source_start,
+            source_text_len: self.source_text_len,
+            buffer: self.buffer.clone(),
+            default_color: self.default_color,
+        }
     }
 }
 impl SelectionSpan {
@@ -758,6 +898,7 @@ impl Engine {
             font_system: text_system::font_system(),
             cache: MeasureCache::new(MEASURE_CACHE_CAPACITY),
             text_area_line_displays: text_area_line_display_cache(),
+            text_area_render_buffers: text_area_render_buffer_cache(),
             text_area_height_indices: text_area_height_index_cache(),
             diagnostics: Diagnostics::default(),
             #[cfg(test)]
@@ -858,14 +999,14 @@ impl Engine {
             ranges.0,
             ranges.1,
             vertical_offset,
-            state.scroll_x(),
+            state.field_scroll_x(),
             0.0,
         );
         self.add_highlight_stats(stats);
         let caret = (!projection.buffer.has_non_empty_selection() && state.caret_visible(now))
             .then(|| {
                 cursor_position(&prepared, projection.buffer.cursor()).map(|(x, y)| Caret {
-                    x: x as f32 - state.scroll_x(),
+                    x: x as f32 - state.field_scroll_x(),
                     y: vertical_offset + y as f32,
                     height: prepared.metrics().line_height,
                 })
@@ -876,7 +1017,7 @@ impl Engine {
             preedit_underline_spans: spans.preedit_underline,
             preedit_selection_spans: spans.preedit_selection,
             caret,
-            scroll_x: state.scroll_x(),
+            scroll_x: state.field_scroll_x(),
             scroll_y: 0.0,
             content_area: buffer_content_area(&prepared),
         }
@@ -929,7 +1070,7 @@ impl Engine {
             self.prepare_text_field_buffer(&projection.buffer, style, area);
         TextLayoutMap::from_line_starts(projection.buffer.line_start_offsets()).hit_with_observer(
             &prepared,
-            position.x() + state.scroll_x(),
+            position.x() + state.field_scroll_x(),
             position.y() - vertical_offset,
             |_| {},
         )
@@ -1017,10 +1158,10 @@ impl Engine {
         else {
             return state
                 .clone()
-                .with_scroll_x(state.scroll_x().clamp(0.0, max_scroll_x));
+                .with_field_scroll_x(state.field_scroll_x().clamp(0.0, max_scroll_x));
         };
         let caret_layout = CaretLayout::new(Caret::new(
-            caret_x as f32 - state.scroll_x(),
+            caret_x as f32 - state.field_scroll_x(),
             vertical_offset + caret_y as f32,
             prepared.metrics().line_height,
         ));
@@ -1261,17 +1402,79 @@ impl Engine {
         state: TextViewState,
         now: Instant,
     ) -> TextAreaPaintLayout {
+        self.text_area_layout_for_area_at_with_observation(
+            area_model,
+            style,
+            viewport,
+            state,
+            now,
+            TextAreaObservation::Observe,
+            None,
+        )
+    }
+
+    pub fn text_area_render_layout_for_area_at(
+        &mut self,
+        area_model: &Area,
+        style: Style,
+        viewport: area::Logical,
+        state: TextViewState,
+        now: Instant,
+        content_area: area::Logical,
+    ) -> TextAreaPaintLayout {
+        self.text_area_layout_for_area_at_with_observation(
+            area_model,
+            style,
+            viewport,
+            state,
+            now,
+            TextAreaObservation::RenderOnly,
+            Some(content_area),
+        )
+    }
+
+    fn text_area_layout_for_area_at_with_observation(
+        &mut self,
+        area_model: &Area,
+        style: Style,
+        viewport: area::Logical,
+        state: TextViewState,
+        now: Instant,
+        observation: TextAreaObservation,
+        content_area: Option<area::Logical>,
+    ) -> TextAreaPaintLayout {
         self.diagnostics.text_area_paint_layout_calls += 1;
         let projection = PreeditProjection::new(area_model.buffer(), &state);
         let committed = !projection.has_preedit();
-        let segments = self.text_area_display_segments(
-            area_model,
-            &projection.buffer,
-            committed,
-            style,
-            viewport,
-            &state,
-        );
+        let observe = observation == TextAreaObservation::Observe
+            || text_area_state_needs_observation(
+                area_model,
+                &projection,
+                &state,
+                style,
+                viewport,
+                now,
+            );
+        let segments = if observe {
+            self.text_area_display_segments(
+                area_model,
+                &projection.buffer,
+                committed,
+                style,
+                viewport,
+                &state,
+            )
+        } else {
+            self.record_text_area_render_window(
+                area_model,
+                &projection.buffer,
+                committed,
+                style,
+                viewport,
+                &state,
+            );
+            Vec::new()
+        };
         let layout = self.text_area_layout_from_segments(
             area_model,
             style,
@@ -1280,23 +1483,26 @@ impl Engine {
             now,
             &projection,
             &segments,
+            content_area,
         );
+        self.diagnostics.text_area_paint_surfaces += segments.len();
         let surfaces = segments
-            .into_iter()
-            .map(|segment| TextAreaSurface {
-                x: -state.scroll_x(),
-                y: segment.y,
-                width: segment.display.width.max(viewport.width()) + state.scroll_x().max(0.0),
-                height: segment.display.height.max(1.0),
-                source_line: segment.display.source_line,
-                source_line_id: segment.display.source_line_id,
-                source_start: segment.display.source_start,
-                source_text_len: segment.display.source_text_len,
-                buffer: segment.display.buffer,
-                default_color: style.color(),
-            })
+            .iter()
+            .map(|segment| text_area_surface_for_segment(segment, style, viewport, &state))
             .collect();
-        TextAreaPaintLayout { layout, surfaces }
+        let render_surfaces = self.text_area_render_surfaces(
+            area_model,
+            &projection.buffer,
+            committed,
+            style,
+            viewport,
+            &state,
+        );
+        TextAreaPaintLayout {
+            layout,
+            surfaces,
+            render_surfaces,
+        }
     }
 
     #[allow(dead_code)]
@@ -1326,6 +1532,7 @@ impl Engine {
             now,
             &projection,
             &segments,
+            None,
         )
     }
 
@@ -1338,6 +1545,7 @@ impl Engine {
         now: Instant,
         projection: &PreeditProjection,
         segments: &[TextAreaDisplaySegment],
+        content_area: Option<area::Logical>,
     ) -> TextFieldLayout {
         let mut spans = HighlightSpans::default();
         #[allow(unused_mut)]
@@ -1404,16 +1612,18 @@ impl Engine {
         }
 
         self.add_highlight_stats(combined_stats);
-        let content_area = area::logical(
-            text_area_content_width(area_model.wrap(), viewport, observed_width),
-            self.text_area_content_height(
-                area_model,
-                &projection.buffer,
-                !projection.has_preedit(),
-                style,
-                viewport,
-            ),
-        );
+        let content_area = content_area.unwrap_or_else(|| {
+            area::logical(
+                text_area_content_width(area_model.wrap(), viewport, observed_width),
+                self.text_area_content_height(
+                    area_model,
+                    &projection.buffer,
+                    !projection.has_preedit(),
+                    style,
+                    viewport,
+                ),
+            )
+        });
         TextFieldLayout {
             selection_spans: spans.selection,
             preedit_underline_spans: spans.preedit_underline,
@@ -1476,6 +1686,241 @@ impl Engine {
         (line_count as f32 * estimated_line_height).max(viewport.height().max(0.0))
     }
 
+    fn text_area_render_surfaces(
+        &mut self,
+        area_model: &Area,
+        source: &Buffer,
+        committed: bool,
+        style: Style,
+        viewport: area::Logical,
+        state: &TextViewState,
+    ) -> Vec<TextAreaSurface> {
+        let total_started = Instant::now();
+        self.diagnostics.text_area_render_surface_calls += 1;
+
+        let anchor_started = Instant::now();
+        let Some(anchor) =
+            self.text_area_render_anchor(area_model, source, committed, style, viewport, state)
+        else {
+            self.diagnostics.text_area_render_surface_anchor_us += elapsed_micros(anchor_started);
+            self.diagnostics.text_area_render_surface_total_us += elapsed_micros(total_started);
+            return Vec::new();
+        };
+        let anchor_us = elapsed_micros(anchor_started);
+        self.diagnostics.text_area_render_surface_anchor_us += anchor_us;
+
+        let font_size = style.size().max(1.0);
+        let metrics = glyphon::Metrics::relative(font_size, 1.25);
+        let render_overscan = metrics.line_height * TEXT_AREA_RENDER_OVERSCAN_LINES as f32;
+        let surface_height = (viewport.height() - anchor.y + render_overscan).max(1.0);
+        let surface_width = viewport.width().max(1.0)
+            + state.scroll_x().max(0.0)
+            + TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN;
+        let layout_width = match area_model.wrap() {
+            AreaWrap::None => None,
+            AreaWrap::WordOrGlyph => Some(viewport.width().max(0.0)),
+        };
+        let key_width = layout_width.unwrap_or(0.0);
+        let key = TextAreaRenderBufferKey::new(
+            area_model,
+            source,
+            style,
+            key_width,
+            anchor.source_line,
+            anchor.source_line_end,
+        );
+        let source_lines = anchor.source_line_end.saturating_sub(anchor.source_line);
+        self.diagnostics.text_area_render_surface_source_lines += source_lines;
+
+        let mut cache_hit = false;
+        let mut text_us = 0;
+        let mut buffer_us = 0;
+        let mut attrs_us = 0;
+        let mut size_us = 0;
+        let mut shape_us = 0;
+        let buffer = if committed && let Some(cached) = self.text_area_render_buffers.get(&key) {
+            cache_hit = true;
+            self.diagnostics.text_area_render_surface_cache_hits += 1;
+            cached.buffer.clone()
+        } else {
+            self.diagnostics.text_area_render_surface_cache_misses += 1;
+            let attrs = text_system::attrs_for_style(style);
+
+            let text_started = Instant::now();
+            let text = source.text_for_line_range(anchor.source_line, anchor.source_line_end);
+            text_us = elapsed_micros(text_started);
+            self.diagnostics.text_area_render_surface_text_us += text_us;
+
+            let buffer_started = Instant::now();
+            let mut buffer = glyphon::Buffer::new_empty(metrics);
+            buffer_us = elapsed_micros(buffer_started);
+
+            let size_started = Instant::now();
+            buffer.set_wrap(&mut self.font_system, area_model.wrap().into());
+            buffer.set_size(&mut self.font_system, layout_width, None);
+            size_us = elapsed_micros(size_started);
+            self.diagnostics.text_area_render_surface_size_us += size_us;
+
+            let attrs_started = Instant::now();
+            let attrs = glyphon::AttrsList::new(&attrs);
+            attrs_us = elapsed_micros(attrs_started);
+            self.diagnostics.text_area_render_surface_attrs_us += attrs_us;
+
+            let buffer_started = Instant::now();
+            let shaping = text_area_shaping_for_text(style, &text);
+            set_cosmic_buffer_text(&mut buffer, &text, attrs, shaping);
+            buffer_us += elapsed_micros(buffer_started);
+            self.diagnostics.text_area_render_surface_buffer_us += buffer_us;
+
+            let shape_started = Instant::now();
+            buffer.shape_until_scroll(&mut self.font_system, false);
+            shape_us = elapsed_micros(shape_started);
+            self.diagnostics.text_area_render_surface_shape_us += shape_us;
+
+            let buffer = Rc::new(RefCell::new(buffer));
+            if committed {
+                self.text_area_render_buffers.put(
+                    key,
+                    CachedTextAreaRenderBuffer {
+                        buffer: buffer.clone(),
+                    },
+                );
+            }
+            buffer
+        };
+        let metadata_started = Instant::now();
+        let (source_start, source_text_len) = {
+            let inner = source.inner.borrow();
+            let start = inner.document.line_start(anchor.source_line);
+            let end = inner
+                .document
+                .line_start(anchor.source_line_end.min(source.logical_line_count()));
+            (start, end.saturating_sub(start))
+        };
+        let metadata_us = elapsed_micros(metadata_started);
+        self.diagnostics.text_area_render_surface_metadata_us += metadata_us;
+        self.diagnostics.text_area_render_surface_source_bytes += source_text_len;
+        let total_us = elapsed_micros(total_started);
+        self.diagnostics.text_area_render_surface_total_us += total_us;
+
+        if std::env::var_os("WGPU_L3_SCROLL_TRACE").is_some() {
+            eprintln!(
+                concat!(
+                    "[wgpu_l3 text-surface] ",
+                    "lines={}..{} count={} bytes={} cache_hit={} ",
+                    "viewport={:.1}x{:.1} scroll={:.1},{:.1} surface={:.1}x{:.1} ",
+                    "anchor={}us text={}us buffer={}us attrs={}us size={}us shape={}us meta={}us total={}us"
+                ),
+                anchor.source_line,
+                anchor.source_line_end,
+                source_lines,
+                source_text_len,
+                cache_hit,
+                viewport.width(),
+                viewport.height(),
+                state.scroll_x(),
+                state.scroll_y(),
+                surface_width,
+                surface_height,
+                anchor_us,
+                text_us,
+                buffer_us,
+                attrs_us,
+                size_us,
+                shape_us,
+                metadata_us,
+                total_us,
+            );
+        }
+
+        vec![TextAreaSurface {
+            x: -state.scroll_x(),
+            y: anchor.y,
+            width: surface_width,
+            height: surface_height,
+            source_line: anchor.source_line,
+            source_line_id: source
+                .line_layout_identity(anchor.source_line)
+                .map(|identity| identity.id),
+            source_start,
+            source_text_len,
+            buffer,
+            default_color: style.color(),
+        }]
+    }
+
+    fn text_area_render_anchor(
+        &mut self,
+        area_model: &Area,
+        source: &Buffer,
+        committed: bool,
+        style: Style,
+        viewport: area::Logical,
+        state: &TextViewState,
+    ) -> Option<TextAreaRenderAnchor> {
+        let line_count = source.logical_line_count().max(1);
+        let estimated_line_height = text_area_estimated_line_height(style);
+        let height_key = TextAreaHeightKey::new(area_model, source, style, viewport.width());
+        let mut height_index = if committed {
+            self.text_area_height_indices
+                .pop(&height_key)
+                .unwrap_or_else(|| TextAreaHeightIndex::new(line_count, estimated_line_height))
+        } else {
+            TextAreaHeightIndex::new(line_count, estimated_line_height)
+        };
+        height_index.sync(source, line_count, estimated_line_height);
+
+        let scroll_y = state.scroll_y().max(0.0);
+        let visible_line = height_index.line_at_y(scroll_y);
+        let visible_lines = height_index.visible_line_count(scroll_y, viewport.height());
+        let source_line = visible_line.saturating_sub(TEXT_AREA_RENDER_OVERSCAN_LINES);
+        let source_line_end = visible_line
+            .saturating_add(visible_lines)
+            .saturating_add(TEXT_AREA_RENDER_OVERSCAN_LINES)
+            .min(line_count)
+            .max(source_line + 1);
+        let y = height_index.line_top(source_line) - scroll_y;
+
+        if committed {
+            self.text_area_height_indices.put(height_key, height_index);
+        }
+
+        Some(TextAreaRenderAnchor {
+            source_line,
+            source_line_end,
+            y,
+        })
+    }
+
+    fn record_text_area_render_window(
+        &mut self,
+        area_model: &Area,
+        source: &Buffer,
+        committed: bool,
+        style: Style,
+        viewport: area::Logical,
+        state: &TextViewState,
+    ) {
+        let line_count = source.logical_line_count().max(1);
+        let estimated_line_height = text_area_estimated_line_height(style);
+        let height_key = TextAreaHeightKey::new(area_model, source, style, viewport.width());
+        let mut height_index = if committed {
+            self.text_area_height_indices
+                .pop(&height_key)
+                .unwrap_or_else(|| TextAreaHeightIndex::new(line_count, estimated_line_height))
+        } else {
+            TextAreaHeightIndex::new(line_count, estimated_line_height)
+        };
+        height_index.sync(source, line_count, estimated_line_height);
+        let scroll_y = state.scroll_y().max(0.0);
+        let visible_lines = height_index.visible_line_count(scroll_y, viewport.height());
+        self.diagnostics.text_area_visible_logical_lines += visible_lines;
+
+        if committed {
+            self.text_area_height_indices.put(height_key, height_index);
+        }
+    }
+
     pub(super) fn text_area_line_display(
         &mut self,
         area_model: &Area,
@@ -1512,17 +1957,18 @@ impl Engine {
         let metrics = glyphon::Metrics::relative(font_size, 1.25);
         let attrs = text_system::attrs_for_style(style);
         let text = source.text_for_line_range(source_line, source_line + 1);
-        let mut buffer = cosmic_buffer_from_text(&text);
+        let mut buffer = glyphon::Buffer::new_empty(metrics);
         buffer.set_wrap(&mut self.font_system, area_model.wrap().into());
-        buffer.set_metrics_and_size(
+        buffer.set_size(
             &mut self.font_system,
-            metrics,
-            Some(viewport.width().max(0.0)),
+            match area_model.wrap() {
+                AreaWrap::None => None,
+                AreaWrap::WordOrGlyph => Some(viewport.width().max(0.0)),
+            },
             None,
         );
-        for line in &mut buffer.lines {
-            line.set_attrs_list(glyphon::AttrsList::new(&attrs));
-        }
+        let shaping = text_area_shaping_for_text(style, &text);
+        set_cosmic_buffer_text(&mut buffer, &text, glyphon::AttrsList::new(&attrs), shaping);
         buffer.shape_until_scroll(&mut self.font_system, false);
         let content = buffer_content_area(&buffer);
         let visual_runs = buffer.layout_runs().count();
@@ -1546,6 +1992,39 @@ impl Engine {
         }
         display
     }
+
+    fn cached_text_area_line_display(
+        &mut self,
+        area_model: &Area,
+        source: &Buffer,
+        committed: bool,
+        style: Style,
+        viewport: area::Logical,
+        source_line: usize,
+    ) -> Option<TextAreaLineDisplay> {
+        if !committed {
+            return None;
+        }
+        let key = TextAreaLineDisplayKey::new(
+            area_model,
+            source,
+            style,
+            viewport.width().max(0.0),
+            source_line,
+        )?;
+        let cached = self.text_area_line_displays.get(&key)?;
+        self.diagnostics.text_area_line_cache_hits += 1;
+        #[cfg(test)]
+        {
+            self.interaction_stats.text_area_frame_cache_hits += 1;
+        }
+        Some(TextAreaLineDisplay::from_cached(
+            source,
+            source_line,
+            cached.clone(),
+        ))
+    }
+
     fn text_area_display_segments(
         &mut self,
         area_model: &Area,
@@ -1570,7 +2049,11 @@ impl Engine {
         let scroll_y = state.scroll_y().max(0.0);
         let first_visible = height_index.line_at_y(scroll_y);
         let visible_lines = height_index.visible_line_count(scroll_y, viewport.height());
-        let overscan = visible_lines.max(TEXT_AREA_FRAME_MIN_OVERSCAN_LINES);
+        let visible_line_end = first_visible
+            .saturating_add(visible_lines)
+            .saturating_add(1)
+            .min(line_count);
+        let overscan = TEXT_AREA_FRAME_MIN_OVERSCAN_LINES;
         let source_line_start = first_visible
             .saturating_sub(overscan)
             .min(line_count.saturating_sub(1));
@@ -1585,19 +2068,38 @@ impl Engine {
 
         let mut y = height_index.line_top(source_line_start) - scroll_y;
         let mut segments = Vec::with_capacity(source_line_end.saturating_sub(source_line_start));
+        let shape_overscan =
+            state.caret_visibility_pending() || source.has_non_empty_selection() || !committed;
         for line in source_line_start..source_line_end {
+            let visible = line >= first_visible && line < visible_line_end;
             let display =
-                self.text_area_line_display(area_model, source, committed, style, viewport, line);
+                if visible || shape_overscan {
+                    Some(self.text_area_line_display(
+                        area_model, source, committed, style, viewport, line,
+                    ))
+                } else {
+                    self.cached_text_area_line_display(
+                        area_model, source, committed, style, viewport, line,
+                    )
+                };
             let segment_y = y;
-            let display_height = display.height.max(1.0);
-            height_index.update_line(source, line, display_height);
+            let display_height = display
+                .as_ref()
+                .map(|display| display.height.max(1.0))
+                .unwrap_or_else(|| height_index.line_height(line));
+            if let Some(display) = display {
+                height_index.update_line(source, line, display_height);
+                segments.push(TextAreaDisplaySegment {
+                    display,
+                    y: segment_y,
+                });
+            }
             y += display_height;
-            segments.push(TextAreaDisplaySegment {
-                display,
-                y: segment_y,
-            });
         }
-        self.diagnostics.text_area_visible_logical_lines += segments.len();
+        self.diagnostics.text_area_visible_logical_lines += visible_lines;
+        self.diagnostics.text_area_layout_segments += segments.len();
+        self.diagnostics.text_area_overscan_segments +=
+            segments.len().saturating_sub(visible_lines);
 
         if committed {
             self.text_area_height_indices.put(height_key, height_index);
@@ -1637,11 +2139,12 @@ impl Engine {
         state: TextViewState,
         observed_layout: &TextAreaPaintLayout,
     ) -> Option<TextPosition> {
-        self.text_area_position_at_for_observed_surfaces(
-            area_model,
-            position,
-            state,
+        let projection = PreeditProjection::new(area_model.buffer(), &state);
+        self.text_area_position_at_for_surfaces(
             observed_layout.surfaces(),
+            position,
+            observed_layout.layout.scroll_x(),
+            projection.buffer.len(),
         )
     }
 
@@ -1650,13 +2153,14 @@ impl Engine {
         area_model: &Area,
         position: point::Logical,
         state: TextViewState,
+        scroll_x: f32,
         observed_surfaces: &[TextAreaSurface],
     ) -> Option<TextPosition> {
         let projection = PreeditProjection::new(area_model.buffer(), &state);
         self.text_area_position_at_for_surfaces(
             observed_surfaces,
             position,
-            state.scroll_x(),
+            scroll_x,
             projection.buffer.len(),
         )
     }
@@ -1818,6 +2322,7 @@ impl Engine {
         let _ = stats;
     }
 }
+
 impl Default for Engine {
     fn default() -> Self {
         Self::new()
@@ -1927,6 +2432,14 @@ fn text_area_line_display_cache() -> LruCache<TextAreaLineDisplayKey, CachedText
     )
 }
 
+fn text_area_render_buffer_cache() -> LruCache<TextAreaRenderBufferKey, CachedTextAreaRenderBuffer>
+{
+    LruCache::new(
+        NonZeroUsize::new(TEXT_AREA_RENDER_BUFFER_CACHE_CAPACITY)
+            .expect("text area render buffer cache capacity must be non-zero"),
+    )
+}
+
 fn text_area_height_index_cache() -> LruCache<TextAreaHeightKey, TextAreaHeightIndex> {
     LruCache::new(
         NonZeroUsize::new(TEXT_AREA_HEIGHT_INDEX_CACHE_CAPACITY)
@@ -1934,10 +2447,63 @@ fn text_area_height_index_cache() -> LruCache<TextAreaHeightKey, TextAreaHeightI
     )
 }
 
+fn text_area_surface_for_segment(
+    segment: &TextAreaDisplaySegment,
+    style: Style,
+    viewport: area::Logical,
+    state: &TextViewState,
+) -> TextAreaSurface {
+    TextAreaSurface {
+        x: -state.scroll_x(),
+        y: segment.y,
+        width: segment.display.width.max(viewport.width()) + state.scroll_x().max(0.0),
+        height: segment.display.height.max(1.0),
+        source_line: segment.display.source_line,
+        source_line_id: segment.display.source_line_id,
+        source_start: segment.display.source_start,
+        source_text_len: segment.display.source_text_len,
+        buffer: segment.display.buffer.clone(),
+        default_color: style.color(),
+    }
+}
+
+fn text_area_state_needs_observation(
+    area_model: &Area,
+    projection: &PreeditProjection,
+    state: &TextViewState,
+    style: Style,
+    viewport: area::Logical,
+    now: Instant,
+) -> bool {
+    if projection.has_preedit()
+        || projection.buffer.has_non_empty_selection()
+        || state.caret_visibility_pending()
+    {
+        return true;
+    }
+
+    if !area_model.paints_caret() || !state.caret_visible(now) {
+        return false;
+    }
+
+    let line_height = text_area_estimated_line_height(style);
+    let cursor_line = projection.buffer.cursor().line as f32;
+    let cursor_top = cursor_line * line_height;
+    let cursor_bottom = cursor_top + line_height;
+    let viewport_top = state.scroll_y().max(0.0);
+    let viewport_bottom = viewport_top + viewport.height().max(0.0);
+
+    cursor_bottom > viewport_top && cursor_top < viewport_bottom
+}
+
 pub(super) fn text_area_estimated_line_height(style: Style) -> f32 {
     glyphon::Metrics::relative(style.size().max(1.0), 1.25)
         .line_height
         .max(1.0)
+}
+
+fn text_area_shaping_for_text(_style: Style, _text: &str) -> glyphon::Shaping {
+    glyphon::Shaping::Advanced
 }
 
 pub(super) struct TextLayoutMap {
@@ -2386,6 +2952,10 @@ fn text_area_content_width(wrap: AreaWrap, viewport: area::Logical, observed_wid
         AreaWrap::None => observed_width.max(viewport.width().max(0.0)),
         AreaWrap::WordOrGlyph => viewport.width().max(0.0),
     }
+}
+
+fn elapsed_micros(start: Instant) -> u128 {
+    start.elapsed().as_micros()
 }
 
 #[allow(dead_code)]

@@ -17,6 +17,7 @@ pub use node::{
     CommandSubject, Cursor, Intent, Interaction, Interactivity, Layout, Node, Shadow, Style,
 };
 pub(crate) use node::{CursorOverlay, CursorOverlayText};
+pub(crate) use painting::{ScrollPaintRecord, ScrollPaintRecords};
 pub type Frame = crate::layout::Frame<Path>;
 #[doc(hidden)]
 pub use tree::Composition;

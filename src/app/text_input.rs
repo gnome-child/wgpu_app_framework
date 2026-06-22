@@ -68,14 +68,14 @@ pub fn can_apply_command(
         text::edit::Command::Undo => {
             surface.is_editable()
                 && state
-                    .text_field_states
+                    .text
                     .get(target)
                     .is_some_and(text::view::TextViewState::can_undo)
         }
         text::edit::Command::Redo => {
             surface.is_editable()
                 && state
-                    .text_field_states
+                    .text
                     .get(target)
                     .is_some_and(text::view::TextViewState::can_redo)
         }

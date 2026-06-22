@@ -29,6 +29,10 @@ impl Frame {
     pub(crate) fn now(self) -> Instant {
         self.now
     }
+
+    pub(crate) fn delta(self) -> Duration {
+        self.delta
+    }
 }
 
 impl Schedule {

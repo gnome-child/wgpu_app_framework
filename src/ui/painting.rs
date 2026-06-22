@@ -3,8 +3,19 @@ use std::collections::HashMap;
 use crate::animation::Frame as AnimationFrame;
 use crate::app::scroll;
 use crate::{action, geometry, paint, text, theme, ui, widget, window};
+use std::ops::Range;
 
 const CURSOR_OVERLAY_MIN_SIZE: f32 = 1.0;
+
+pub(crate) type ScrollPaintRecords = HashMap<ui::Path, ScrollPaintRecord>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ScrollPaintRecord {
+    pub(crate) target: Range<usize>,
+    pub(crate) content: Range<usize>,
+    pub(crate) chrome: Range<usize>,
+    pub(crate) metrics: widget::scroll::Metrics,
+}
 
 pub fn tree<T>(
     root: &ui::Node,
@@ -15,11 +26,13 @@ pub fn tree<T>(
     text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
     text_engine: &mut text::layout::Engine,
     frame: AnimationFrame,
-    scroll_projections: Option<&scroll::State>,
+    scroll_projections: Option<&scroll::Driver>,
     path_states: &HashMap<ui::Path, action::State>,
     scene: &mut paint::Scene,
+    scroll_ranges: Option<&mut ScrollPaintRecords>,
 ) {
     let mut overlays = Vec::new();
+    let mut scroll_ranges = scroll_ranges;
 
     node(
         root,
@@ -35,6 +48,7 @@ pub fn tree<T>(
         path_states,
         scene,
         &mut overlays,
+        &mut scroll_ranges,
     );
 
     for outline in overlays {
@@ -127,17 +141,28 @@ fn node<T>(
     text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
     text_engine: &mut text::layout::Engine,
     frame: AnimationFrame,
-    scroll_projections: Option<&scroll::State>,
+    scroll_projections: Option<&scroll::Driver>,
     path_states: &HashMap<ui::Path, action::State>,
     scene: &mut paint::Scene,
     overlays: &mut Vec<paint::Outline>,
+    scroll_ranges: &mut Option<&mut ScrollPaintRecords>,
 ) {
     let visual = visual_state(node, layout, actions, window, interaction, path_states);
     let content_visual = content_visual_state(node, &visual, inherited_content);
-    let text_field_state = text_field_states
+    let mut text_field_state = text_field_states
         .get(layout.path())
         .cloned()
         .unwrap_or_default();
+    if node.text_surface().is_some_and(|surface| surface.is_area())
+        && let Some(offset) =
+            scroll_projections.and_then(|projections| projections.visual_offset(layout.path()))
+    {
+        text_field_state = text_field_state.with_scroll(offset.x(), offset.y());
+    }
+    let scroll_metrics = scroll_metrics_for_node(node, layout, scroll_projections);
+    let scroll_range_start = scroll_metrics.map(|_| scene.len());
+    let mut scroll_content_range = None::<Range<usize>>;
+    let mut scroll_chrome_range = None::<Range<usize>>;
 
     let rect = styled_rect(node, layout);
 
@@ -182,6 +207,18 @@ fn node<T>(
                 scroll_projections
                     .and_then(|projections| projections.text_area(layout.path()).cloned())
                     .or_else(|| {
+                        scroll_metrics.and_then(|metrics| {
+                            text_area_scroll_projection_for_metrics(
+                                area,
+                                text_style,
+                                metrics,
+                                &text_field_state,
+                                text_engine,
+                                frame.now(),
+                            )
+                        })
+                    })
+                    .or_else(|| {
                         text_area_scroll_projection(
                             node,
                             layout,
@@ -222,9 +259,12 @@ fn node<T>(
     };
     let text_field_layout = text_area_layout_ref.or(text_field_layout_owned.as_ref());
 
-    if text_surface.is_some() {
+    let text_content_start = if text_surface.is_some() {
         scene.push_clip(paint::Clip { rect: text_rect });
-    }
+        Some(scene.len())
+    } else {
+        None
+    };
 
     paint_text_field_selection(
         node,
@@ -241,19 +281,23 @@ fn node<T>(
         .is_some_and(|area| !area.buffer().is_empty() || text_field_state.preedit().is_some())
         && let Some(projection) = text_area_scroll_projection.as_ref()
     {
-        for surface in projection.surfaces() {
-            scene.push_text_surface(paint::TextSurface {
-                rect: geometry::Rect::new(
-                    geometry::point::logical(
-                        text_rect.origin.x() + surface.x(),
-                        text_rect.origin.y() + surface.y(),
+        scene.push_text_viewport(paint::TextViewport {
+            rect: text_rect,
+            surfaces: projection
+                .render_surfaces()
+                .map(|surface| paint::TextSurface {
+                    rect: geometry::Rect::new(
+                        geometry::point::logical(
+                            text_rect.origin.x() + surface.x(),
+                            text_rect.origin.y() + surface.y(),
+                        ),
+                        geometry::area::logical(surface.width(), surface.height()),
                     ),
-                    geometry::area::logical(surface.width(), surface.height()),
-                ),
-                buffer: surface.buffer(),
-                default_color: surface.default_color(),
-            });
-        }
+                    buffer: surface.buffer(),
+                    default_color: surface.default_color(),
+                })
+                .collect(),
+        });
     } else if let Some(document) = label {
         let scroll_x = text_field_layout
             .map(text::layout::TextFieldLayout::scroll_x)
@@ -289,11 +333,16 @@ fn node<T>(
     paint_text_field_caret(node, text_rect, &visual, text_field_layout, scene);
 
     if text_surface.is_some() {
+        if let (Some(start), Some(_)) = (text_content_start, text_scroll_metrics) {
+            scroll_content_range = Some(start..scene.len());
+        }
         scene.pop_clip();
     }
 
     if let Some(metrics) = text_scroll_metrics {
+        let start = scene.len();
         widget::scroll::paint_metrics_chrome(layout.path(), metrics, interaction, scene);
+        scroll_chrome_range = Some(start..scene.len());
     }
 
     let clip_rect = if node.clips() {
@@ -305,9 +354,14 @@ fn node<T>(
         None
     };
 
-    if let Some(clip_rect) = clip_rect {
+    let child_content_start = if let Some(clip_rect) = clip_rect {
         scene.push_clip(paint::Clip { rect: clip_rect });
-    }
+        Some(scene.len())
+    } else if text_surface.is_none() && scroll_metrics.is_some() {
+        Some(scene.len())
+    } else {
+        None
+    };
 
     for (child, child_layout) in node.children().iter().zip(layout.children()) {
         self::node(
@@ -324,20 +378,91 @@ fn node<T>(
             path_states,
             scene,
             overlays,
+            scroll_ranges,
         );
+    }
+
+    if text_surface.is_none()
+        && scroll_metrics.is_some()
+        && scroll_content_range.is_none()
+        && let Some(start) = child_content_start
+    {
+        scroll_content_range = Some(start..scene.len());
     }
 
     if node.clips() {
         scene.pop_clip();
     }
 
-    if let Some(metrics) = scroll_metrics_for_node(node, layout, scroll_projections) {
+    if text_surface.is_none()
+        && let Some(metrics) = scroll_metrics
+    {
+        let start = scene.len();
         widget::scroll::paint_metrics_chrome(layout.path(), metrics, interaction, scene);
+        scroll_chrome_range = Some(start..scene.len());
+    }
+
+    let recorded_scroll_metrics = text_scroll_metrics.or(scroll_metrics);
+    if let (Some(start), Some(metrics), Some(ranges)) = (
+        scroll_range_start,
+        recorded_scroll_metrics,
+        scroll_ranges.as_mut(),
+    ) {
+        let end = scene.len();
+        let target = start..end;
+        let content = scroll_content_range.unwrap_or(start..start);
+        let chrome = scroll_chrome_range.unwrap_or(end..end);
+        ranges.insert(
+            layout.path().clone(),
+            ScrollPaintRecord {
+                target,
+                content,
+                chrome,
+                metrics,
+            },
+        );
     }
 
     if let Some(outline) = resolved_focus_outline(node, rect, visual) {
         overlays.push(outline);
     }
+}
+
+pub(crate) fn scroll_subtree_recording<T>(
+    root: &ui::Node,
+    layout: &ui::Frame,
+    actions: &action::Registry<T>,
+    window: window::Id,
+    interaction: &ui::Interaction,
+    text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
+    text_engine: &mut text::layout::Engine,
+    frame: AnimationFrame,
+    scroll_projections: Option<&scroll::Driver>,
+    path_states: &HashMap<ui::Path, action::State>,
+    scene: &mut paint::Scene,
+) -> ScrollPaintRecords {
+    let mut overlays = Vec::new();
+    let mut scroll_ranges = ScrollPaintRecords::default();
+    let mut scroll_ranges_option = Some(&mut scroll_ranges);
+
+    node(
+        root,
+        layout,
+        None,
+        actions,
+        window,
+        interaction,
+        text_field_states,
+        text_engine,
+        frame,
+        scroll_projections,
+        path_states,
+        scene,
+        &mut overlays,
+        &mut scroll_ranges_option,
+    );
+
+    scroll_ranges
 }
 
 fn styled_rect(node: &ui::Node, layout: &ui::Frame) -> crate::geometry::Rect {
@@ -949,8 +1074,8 @@ fn text_area_scroll_projection(
     text_engine: &mut text::layout::Engine,
     now: std::time::Instant,
 ) -> Option<scroll::TextAreaProjection> {
-    let scroll = node.text_scroll()?;
-    if !scroll.bars().is_enabled() {
+    let scroll = node.scroll()?;
+    if !scroll.axes().is_enabled() {
         return None;
     }
 
@@ -964,9 +1089,10 @@ fn text_area_scroll_projection(
         geometry::area::logical(0.0, 0.0),
         viewport_base.area,
     );
-    let mut axes = scroll
-        .bars()
-        .active_axes(viewport_base, scroll.style(), content_area);
+    let mut axes =
+        scroll
+            .bars()
+            .active_axes(scroll.axes(), viewport_base, scroll.style(), content_area);
     for _ in 0..3 {
         let viewport = widget::scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
         let candidate = text_engine.text_area_metrics_layout_for_area_at(
@@ -983,9 +1109,10 @@ fn text_area_scroll_projection(
             candidate.content_area(),
             viewport.area,
         );
-        let next = scroll
-            .bars()
-            .active_axes(viewport_base, scroll.style(), next_content);
+        let next =
+            scroll
+                .bars()
+                .active_axes(scroll.axes(), viewport_base, scroll.style(), next_content);
         content_area = next_content;
 
         if next == axes {
@@ -1016,33 +1143,47 @@ fn text_area_scroll_projection(
         viewport_base,
         content_area,
         geometry::point::logical(state.scroll_x(), state.scroll_y()),
+        scroll.axes(),
         scroll.bars(),
         scroll.style(),
     );
-    let viewport = widget::scroll::viewport_rect_for_axes(
-        viewport_base,
-        scroll.style(),
-        metrics.active_axes(),
-    );
+
+    text_area_scroll_projection_for_metrics(area_model, style, metrics, state, text_engine, now)
+}
+
+fn text_area_scroll_projection_for_metrics(
+    area_model: &text::Area,
+    style: text::document::Style,
+    metrics: widget::scroll::Metrics,
+    state: &text::view::TextViewState,
+    text_engine: &mut text::layout::Engine,
+    now: std::time::Instant,
+) -> Option<scroll::TextAreaProjection> {
     let resolved_state = state
         .clone()
         .with_scroll(metrics.offset().x(), metrics.offset().y());
-    let paint_layout = text_engine.text_area_paint_layout_for_area_at(
+    let paint_layout = text_engine.text_area_render_layout_for_area_at(
         area_model,
         style,
-        viewport.area,
+        metrics.viewport().area,
         resolved_state,
         now,
+        metrics.content_size(),
     );
-    let (layout, surfaces) = paint_layout.into_parts();
+    let (layout, surfaces, render_surfaces) = paint_layout.into_projection_parts();
 
-    Some(scroll::TextAreaProjection::new(metrics, layout, surfaces))
+    Some(scroll::TextAreaProjection::with_render_surfaces(
+        metrics,
+        layout,
+        surfaces,
+        render_surfaces,
+    ))
 }
 
 fn scroll_metrics_for_node(
     node: &ui::Node,
     layout: &ui::Frame,
-    scroll_projections: Option<&scroll::State>,
+    scroll_projections: Option<&scroll::Driver>,
 ) -> Option<widget::scroll::Metrics> {
     scroll_projections
         .and_then(|projections| projections.metrics(layout.path()))

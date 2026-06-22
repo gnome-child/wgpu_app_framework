@@ -44,7 +44,6 @@ impl Windows {
             }
         }
         native_window.set_visibility(true);
-        native_window.request_redraw();
 
         self.raw_windows.insert(native_window.raw_id(), id);
         self.windows.insert(id, native_window);

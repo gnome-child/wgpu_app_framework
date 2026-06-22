@@ -31,6 +31,7 @@ pub const TEXT_CONTEXT_MENU_POPUP: ui::Id = ui::Id::new("__text_context_menu_pop
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Scroll {
     offset: point::Logical,
+    axes: scroll::Axes,
     bars: scroll::Bars,
     style: scroll::Style,
 }
@@ -189,6 +190,7 @@ impl Scroll {
     pub fn new() -> Self {
         Self {
             offset: point::logical(0.0, 0.0),
+            axes: scroll::Axes::vertical(),
             bars: scroll::Bars::vertical(),
             style: scroll::Style::default(),
         }
@@ -196,6 +198,10 @@ impl Scroll {
 
     pub fn offset(self) -> point::Logical {
         self.offset
+    }
+
+    pub fn axes(self) -> scroll::Axes {
+        self.axes
     }
 
     pub fn bars(self) -> scroll::Bars {
@@ -208,6 +214,11 @@ impl Scroll {
 
     pub fn with_offset(mut self, offset: point::Logical) -> Self {
         self.offset = offset;
+        self
+    }
+
+    pub fn with_axes(mut self, axes: scroll::Axes) -> Self {
+        self.axes = axes;
         self
     }
 
@@ -314,13 +325,34 @@ mod tests {
             paint::Color::BLACK,
         );
         let scroll = Scroll::new()
+            .with_axes(scroll::Axes::both())
             .with_offset(point::logical(3.0, 9.0))
             .with_bars(scroll::Bars::both())
             .with_style(style);
 
         assert_eq!(scroll.offset(), point::logical(3.0, 9.0));
+        assert_eq!(scroll.axes(), scroll::Axes::both());
         assert_eq!(scroll.bars(), scroll::Bars::both());
         assert_eq!(scroll.style(), style);
+    }
+
+    #[test]
+    fn scroll_metrics_expose_adjustment_values() {
+        let metrics = scroll::Metrics::resolve(
+            Rect::new(point::logical(0.0, 0.0), area::logical(100.0, 80.0)),
+            Rect::new(point::logical(0.0, 0.0), area::logical(100.0, 80.0)),
+            area::logical(140.0, 180.0),
+            point::logical(12.0, 24.0),
+            scroll::Axes::both(),
+            scroll::Bars::both(),
+            scroll::Style::default(),
+        );
+        let adjustment = metrics.adjustment();
+
+        assert_eq!(adjustment.offset(), metrics.offset());
+        assert_eq!(adjustment.max_offset(), metrics.max_offset());
+        assert_eq!(adjustment.viewport(), metrics.viewport().area);
+        assert_eq!(adjustment.content_size(), metrics.content_size());
     }
 
     #[test]
@@ -348,12 +380,20 @@ mod tests {
         );
 
         assert_eq!(
-            wrapped.text_scroll().map(Scroll::bars),
+            wrapped.scroll().map(Scroll::bars),
             Some(scroll::Bars::vertical())
         );
         assert_eq!(
-            unwrapped.text_scroll().map(Scroll::bars),
+            wrapped.scroll().map(Scroll::axes),
+            Some(scroll::Axes::vertical())
+        );
+        assert_eq!(
+            unwrapped.scroll().map(Scroll::bars),
             Some(scroll::Bars::both())
+        );
+        assert_eq!(
+            unwrapped.scroll().map(Scroll::axes),
+            Some(scroll::Axes::both())
         );
     }
 
@@ -389,12 +429,20 @@ mod tests {
         assert!(wrapped.responders().contains(&action::SELECT_ALL));
         assert!(wrapped.responders().contains(&action::INSERT_TEXT));
         assert_eq!(
-            wrapped.text_scroll().map(Scroll::bars),
+            wrapped.scroll().map(Scroll::bars),
             Some(scroll::Bars::vertical())
         );
         assert_eq!(
-            unwrapped.text_scroll().map(Scroll::bars),
+            wrapped.scroll().map(Scroll::axes),
+            Some(scroll::Axes::vertical())
+        );
+        assert_eq!(
+            unwrapped.scroll().map(Scroll::bars),
             Some(scroll::Bars::both())
+        );
+        assert_eq!(
+            unwrapped.scroll().map(Scroll::axes),
+            Some(scroll::Axes::both())
         );
 
         assert_eq!(wrapped.style().background(), None);

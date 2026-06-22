@@ -5,15 +5,18 @@ mod context;
 mod drag_drop;
 mod floating;
 mod focus;
+mod frame;
 mod input;
 mod key_repeat;
 mod mailbox;
+mod paint_cache;
 mod rendering;
 mod runtime;
 pub(crate) mod scroll;
 mod sender;
 mod state;
 mod task_runner;
+mod text;
 mod text_input;
 mod view;
 mod windows;
@@ -22,6 +25,7 @@ use crate::{event, native, render, ui, window};
 use thiserror::Error;
 
 pub use context::{ActionState, Context, Diagnostics, ScrollDiagnostics};
+pub use frame::{CountDiagnostics, Diagnostics as FrameDiagnostics, TimingDiagnostics};
 pub use key_repeat::{KeyRepeat, KeyRepeatPolicy};
 pub use sender::{SendError, Sender};
 

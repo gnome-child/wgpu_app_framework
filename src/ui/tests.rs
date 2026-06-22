@@ -57,15 +57,15 @@ fn first_text(scene: &paint::Scene) -> &paint::Text {
         .expect("scene should contain text")
 }
 
-fn first_text_surface(scene: &paint::Scene) -> &paint::TextSurface {
+fn first_text_viewport(scene: &paint::Scene) -> &paint::TextViewport {
     scene
         .items()
         .iter()
         .find_map(|item| match item {
-            paint::Item::TextSurface(surface) => Some(surface),
+            paint::Item::TextViewport(viewport) => Some(viewport),
             _ => None,
         })
-        .expect("scene should contain a text surface")
+        .expect("scene should contain a text viewport")
 }
 
 fn caret_quad_count(scene: &paint::Scene) -> usize {
@@ -501,21 +501,58 @@ fn vertical_scrollbar_auto_reserves_right_gutter_only_with_overflow() {
 }
 
 #[test]
-fn disabled_scrollbar_axis_reserves_no_gutter() {
+fn hidden_scrollbar_bars_reserve_no_gutter_but_keep_scroll_metrics() {
     let root = widget::scroll_view(ROOT)
         .with_scroll_bars(widget::scroll::Bars::none())
-        .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(20.0)));
+        .with_child(Node::leaf(A).with_size(layout::Size::Fill, layout::Size::Fixed(40.0)))
+        .with_child(Node::leaf(B).with_size(layout::Size::Fill, layout::Size::Fixed(40.0)));
     let mut tree = Tree::new();
 
     tree.set_root(root);
     let layout = layout_area(&tree, area::logical(80.0, 60.0));
+    let widget_metrics = tree.widget_metrics(&layout);
+    let metrics = widget_metrics
+        .get(&path(ROOT))
+        .and_then(|metrics| metrics.scroll())
+        .expect("hidden-bar scroll metrics");
 
     assert_eq!(layout.children()[0].rect().area.width(), 80.0);
+    assert_eq!(metrics.viewport().area, area::logical(80.0, 60.0));
+    assert_eq!(metrics.max_offset(), point::logical(0.0, 20.0));
+    assert_eq!(metrics.vertical_track(), None);
+    assert_eq!(metrics.vertical_thumb(), None);
+    assert_eq!(
+        metrics.hit_test(point::logical(79.0, 20.0)),
+        None,
+        "hidden bars should expose no scrollbar hit regions"
+    );
+}
+
+#[test]
+fn disabled_scroll_axes_clamp_offset_even_when_content_overflows() {
+    let root = widget::scroll_view(ROOT)
+        .with_scroll_axes(widget::scroll::Axes::none())
+        .with_scroll_bars(widget::scroll::Bars::both_always())
+        .with_scroll_offset(point::logical(30.0, 30.0))
+        .with_child(
+            Node::leaf(A).with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(120.0)),
+        );
+    let mut tree = Tree::new();
+
+    tree.set_root(root);
+    let layout = layout_area(&tree, area::logical(80.0, 60.0));
+    let widget_metrics = tree.widget_metrics(&layout);
+
+    assert!(
+        widget_metrics.get(&path(ROOT)).is_none(),
+        "non-scrollable axes should not create scroll metrics"
+    );
 }
 
 #[test]
 fn horizontal_scrollbar_reserves_bottom_gutter() {
     let root = widget::scroll_view(ROOT)
+        .with_scroll_axes(widget::scroll::Axes::horizontal())
         .with_scroll_bars(widget::scroll::Bars::horizontal())
         .with_child(
             Node::container(A, layout::Axis::Horizontal)
@@ -534,6 +571,7 @@ fn horizontal_scrollbar_reserves_bottom_gutter() {
 #[test]
 fn both_scrollbar_axes_leave_corner_cell_and_trim_tracks() {
     let root = widget::scroll_view(ROOT)
+        .with_scroll_axes(widget::scroll::Axes::both())
         .with_scroll_bars(widget::scroll::Bars::both())
         .with_child(
             Node::container(A, layout::Axis::Vertical)
@@ -626,6 +664,7 @@ fn scroll_metrics_include_nested_descendant_overflow() {
                 .with_size(layout::Size::Fill, layout::Size::Fixed(32.0)),
         );
     let root = widget::scroll_view(ROOT)
+        .with_scroll_axes(widget::scroll::Axes::both())
         .with_scroll_bars(widget::scroll::Bars::both())
         .with_child(content);
     let mut tree = Tree::new();
@@ -647,6 +686,7 @@ fn scroll_metrics_include_nested_descendant_overflow() {
 #[test]
 fn scroll_view_paints_track_corner_and_thumb_chrome() {
     let root = widget::scroll_view(ROOT)
+        .with_scroll_axes(widget::scroll::Axes::both())
         .with_scroll_bars(widget::scroll::Bars::both())
         .with_background(paint::Color::BLACK)
         .with_child(
@@ -790,6 +830,7 @@ fn scrollbar_thumb_hover_tint_requires_pointer_hit() {
 #[test]
 fn scroll_view_clip_uses_viewport_minus_enabled_gutters() {
     let root = widget::scroll_view(ROOT)
+        .with_scroll_axes(widget::scroll::Axes::both())
         .with_scroll_bars(widget::scroll::Bars::both())
         .with_child(
             Node::container(A, layout::Axis::Vertical)
@@ -1747,7 +1788,7 @@ fn empty_text_area_paints_placeholder_without_changing_content_style() {
         !scene
             .items()
             .iter()
-            .any(|item| matches!(item, paint::Item::TextSurface(_))),
+            .any(|item| matches!(item, paint::Item::TextViewport(_))),
         "empty placeholder area should paint placeholder text, not content surfaces"
     );
 
@@ -1769,7 +1810,11 @@ fn empty_text_area_paints_placeholder_without_changing_content_style() {
         &mut filled_scene,
     );
 
-    let content = first_text_surface(&filled_scene);
+    let viewport = first_text_viewport(&filled_scene);
+    let content = viewport
+        .surfaces
+        .first()
+        .expect("filled text area should paint content surfaces inside a text viewport");
     assert_eq!(content.default_color, theme.text().primary());
     assert_eq!(
         content.buffer.borrow().metrics().font_size,

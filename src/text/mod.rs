@@ -19,7 +19,10 @@ pub use layout::{
     TextAreaSurface, TextFieldLayout,
 };
 pub use surface::{Area, AreaWrap, Field, FieldMode, Obscuring, Surface};
-pub use view::{Preedit, RevealIntent, ScrollAnchor, TextViewState, View, Viewport, Visibility};
+pub use view::{
+    Preedit, RevealIntent, ScrollAnchor, State as ViewState, TextViewState, View, Viewport,
+    Visibility,
+};
 
 #[cfg(test)]
 mod tests;

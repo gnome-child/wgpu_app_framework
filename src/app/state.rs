@@ -7,7 +7,9 @@ use crate::geometry::{Rect, point};
 use crate::widget::menu;
 use crate::{action, pointer, text, ui, widget, window};
 
-use super::{command, drag_drop, floating, focus, scroll, text_input};
+use super::{
+    command, drag_drop, floating, focus, frame, paint_cache, scroll, text as app_text, text_input,
+};
 
 pub use focus::Focus;
 #[cfg(test)]
@@ -16,6 +18,7 @@ pub(crate) use focus::State as FocusState;
 const MULTI_CLICK_MAX_INTERVAL: Duration = Duration::from_millis(350);
 const MULTI_CLICK_MAX_DISTANCE: f32 = 4.0;
 const TEXT_DRAG_THRESHOLD: f32 = 4.0;
+const SCROLL_IDLE_REFINEMENT_DELAY: Duration = Duration::from_millis(80);
 
 #[derive(Debug, Default)]
 pub struct WindowState {
@@ -32,12 +35,17 @@ pub struct WindowState {
     pub command_scope_captures: HashMap<ui::Path, action::Context>,
     pub pointer_capture: Option<pointer::Capture>,
     pub composition: Option<ui::Composition>,
-    pub scroll: scroll::State,
+    pub(crate) paint_cache: Option<paint_cache::RetainedPaint>,
+    pub scroll: scroll::Driver,
     pub text_input_session: text_input::Session,
     pub drag_drop: drag_drop::State,
-    pub text_field_states: HashMap<ui::Path, text::view::TextViewState>,
+    pub text: app_text::Driver,
     pub last_text_field_click: Option<TextFieldClick>,
     pub text_pointer_gesture: Option<TextPointerGesture>,
+    pub(crate) last_scroll_input_at: Option<Instant>,
+    pub(crate) scroll_commit_targets: HashSet<ui::Path>,
+    pub(crate) async_scroll_targets: HashSet<ui::Path>,
+    pub(crate) frame: frame::State,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +103,57 @@ impl TextDragCandidate {
 }
 
 impl WindowState {
+    pub(crate) fn invalidate_frame(&mut self, kind: frame::RedrawKind, now: Instant) {
+        self.frame.invalidate(kind, now);
+    }
+
+    pub(crate) fn frame_diagnostics(&self) -> frame::Diagnostics {
+        self.frame.diagnostics()
+    }
+
+    pub(crate) fn take_scroll_input_latency(&mut self, now: Instant) -> Option<Duration> {
+        self.last_scroll_input_at
+            .take()
+            .map(|input| now.saturating_duration_since(input))
+    }
+
+    pub(crate) fn retain_paint(
+        &mut self,
+        scene: crate::paint::Scene,
+        scroll_ranges: ui::ScrollPaintRecords,
+    ) -> Vec<crate::paint::LayerUpdate> {
+        let retained = paint_cache::RetainedPaint::new(scene, scroll_ranges);
+        let updates = retained.layer_updates();
+        self.scroll
+            .set_retained_layers(retained.retained_scroll_layers());
+        self.paint_cache = Some(retained);
+        updates
+    }
+
+    pub(crate) fn clear_paint_cache(&mut self) {
+        self.paint_cache = None;
+    }
+
+    pub(crate) fn paint_cache(&self) -> Option<&paint_cache::RetainedPaint> {
+        self.paint_cache.as_ref()
+    }
+
+    pub(crate) fn paint_cache_mut(&mut self) -> Option<&mut paint_cache::RetainedPaint> {
+        self.paint_cache.as_mut()
+    }
+
+    pub(crate) fn committed_scroll_targets(&self) -> Vec<ui::Path> {
+        self.scroll_commit_targets.iter().cloned().collect()
+    }
+
+    pub(crate) fn clear_committed_scroll_targets(&mut self) {
+        self.scroll_commit_targets.clear();
+    }
+
+    pub(crate) fn clear_async_scroll_targets(&mut self) {
+        self.async_scroll_targets.clear();
+    }
+
     pub fn hit_test(&self, position: point::Logical) -> Option<ui::Path> {
         self.composition.as_ref().and_then(|composition| {
             let layout = composition.layout();
@@ -127,6 +186,10 @@ impl WindowState {
             return ui::Cursor::Default;
         };
 
+        if self.pointer_capture_is_scrollbar() {
+            return ui::Cursor::Default;
+        }
+
         if let Some(capture) = self.pointer_capture.as_ref() {
             return composition.cursor(capture.target());
         }
@@ -135,6 +198,22 @@ impl WindowState {
             .as_ref()
             .map(|path| composition.cursor(path))
             .unwrap_or_default()
+    }
+
+    pub fn cursor_for_pointer(&self, text_engine: &mut text::layout::Engine) -> ui::Cursor {
+        if self.pointer_capture_is_scrollbar() {
+            return ui::Cursor::Default;
+        }
+
+        if let Some(position) = self.pointer.position()
+            && self
+                .widget_hit(position, text_engine)
+                .is_some_and(|hit| hit.part().scroll().is_some())
+        {
+            return ui::Cursor::Default;
+        }
+
+        self.cursor_for_hovered()
     }
 
     pub fn widget_hit(
@@ -207,15 +286,47 @@ impl WindowState {
             return Some(metrics);
         }
 
-        let state = self
-            .text_field_states
-            .get(target)
-            .cloned()
-            .unwrap_or_default();
+        let state = self.text_state_for_layout(target);
 
         self.composition
             .as_ref()?
             .text_area_scroll_metrics(target, state, text_engine)
+    }
+
+    pub(crate) fn text_state_for_layout(&self, target: &ui::Path) -> text::view::TextViewState {
+        let state = self.text.get_cloned_or_default(target);
+        if self
+            .text_surface(target)
+            .is_some_and(text::Surface::is_area)
+            && let Some(offset) = self.scroll.visual_offset(target)
+        {
+            return state.with_scroll(offset.x(), offset.y());
+        }
+        state
+    }
+
+    fn text_state_for_storage(
+        &self,
+        target: &ui::Path,
+        state: text::view::TextViewState,
+    ) -> text::view::TextViewState {
+        if self
+            .text_surface(target)
+            .is_some_and(text::Surface::is_area)
+        {
+            state.without_scroll()
+        } else {
+            state
+        }
+    }
+
+    fn store_text_state(
+        &mut self,
+        target: &ui::Path,
+        state: text::view::TextViewState,
+    ) -> Option<text::view::TextViewState> {
+        let state = self.text_state_for_storage(target, state);
+        self.text.insert(target.clone(), state)
     }
 
     pub fn start_pointer_capture(
@@ -262,6 +373,24 @@ impl WindowState {
         let changed = self.pointer_capture.is_some();
         self.pointer_capture = None;
         changed
+    }
+
+    pub fn pointer_capture_is_scrollbar(&self) -> bool {
+        self.pointer_capture
+            .as_ref()
+            .is_some_and(|capture| capture.part().scroll().is_some())
+    }
+
+    pub fn pointer_capture_is_scroll_thumb(&self) -> bool {
+        self.pointer_capture
+            .as_ref()
+            .and_then(|capture| capture.part().scroll())
+            .is_some_and(|part| {
+                matches!(
+                    part,
+                    widget::scroll::Part::VerticalThumb | widget::scroll::Part::HorizontalThumb
+                )
+            })
     }
 
     pub fn is_focusable(&self, target: &ui::Path) -> bool {
@@ -337,11 +466,7 @@ impl WindowState {
         text_engine: &mut text::layout::Engine,
     ) -> Option<Rect> {
         let target = self.focused_selectable_text_field()?;
-        let state = self
-            .text_field_states
-            .get(&target)
-            .cloned()
-            .unwrap_or_default();
+        let state = self.text_state_for_layout(&target);
 
         self.composition
             .as_ref()?
@@ -361,15 +486,11 @@ impl WindowState {
         preedit: Option<text::Preedit>,
     ) -> Option<ui::Path> {
         let target = self.focused_editable_text_field()?;
-        let current = self
-            .text_field_states
-            .get(&target)
-            .cloned()
-            .unwrap_or_default();
+        let current = self.text.get_cloned_or_default(&target);
         let next = current.clone().with_preedit(preedit);
 
         if next != current {
-            self.text_field_states.insert(target.clone(), next);
+            self.store_text_state(&target, next);
         }
 
         Some(target)
@@ -378,14 +499,14 @@ impl WindowState {
     pub fn clear_text_field_preedits(&mut self) -> bool {
         let mut changed = false;
 
-        for state in self.text_field_states.values_mut() {
+        for state in self.text.values_mut() {
             if state.preedit().is_some() {
                 *state = state.clone().with_preedit(None);
                 changed = true;
             }
         }
 
-        changed
+        changed || !self.scroll_commit_targets.is_empty()
     }
 
     pub fn text_field_edit_at(
@@ -608,47 +729,58 @@ impl WindowState {
         Some((target.path().clone(), target.caret_rect()))
     }
 
-    pub fn scroll_text_area_at(
+    #[cfg(test)]
+    pub fn queue_text_area_scroll_by(
         &mut self,
-        position: point::Logical,
-        delta: point::Logical,
+        target: &ui::Path,
+        delta: scroll::WheelDelta,
         text_engine: &mut text::layout::Engine,
     ) -> bool {
-        let Some(target) = self.hit_test(position).filter(|target| {
-            self.text_surface(target)
-                .is_some_and(text::Surface::is_area)
-        }) else {
-            return false;
-        };
-        let current = self
-            .text_field_states
-            .get(&target)
-            .cloned()
-            .unwrap_or_default();
-        let Some(metrics) = self.scroll_metrics_for(&target, text_engine) else {
-            return false;
-        };
-        let (delta_x, delta_y) = if self.modifiers.shift() {
-            (delta.y(), delta.x())
-        } else {
-            (delta.x(), delta.y())
-        };
-        let offset = metrics.wheel_offset(point::logical(delta_x, delta_y));
-        let next = current
-            .clone()
-            .with_scroll(offset.x(), offset.y())
-            .clear_caret_visibility_pending();
-
-        if next == current {
-            return false;
-        }
-
-        self.text_field_states.insert(target.clone(), next);
-        self.scroll.update_offset(&target, offset);
-        true
+        self.queue_text_area_scroll_by_at(target, delta, text_engine, Instant::now())
     }
 
-    pub fn scroll_text_area_to(
+    pub fn queue_text_area_scroll_by_at(
+        &mut self,
+        target: &ui::Path,
+        delta: scroll::WheelDelta,
+        text_engine: &mut text::layout::Engine,
+        now: Instant,
+    ) -> bool {
+        if !self
+            .text_surface(target)
+            .is_some_and(text::Surface::is_area)
+        {
+            return false;
+        }
+        self.ensure_scroll_projection_for(target, text_engine);
+        let Some(metrics) = self.scroll.metrics(target) else {
+            return false;
+        };
+        let smooth = self.scroll.wheel_delta_smooths(target, delta);
+        let base_metrics = if smooth {
+            self.scroll
+                .target_offset(target)
+                .map_or(metrics, |offset| metrics.with_offset(offset))
+        } else {
+            metrics
+        };
+        let delta = if smooth {
+            self.scroll
+                .wheel_impulse_delta_pixels(base_metrics, delta, self.modifiers.shift())
+        } else {
+            self.scroll
+                .wheel_delta_pixels(base_metrics, delta, self.modifiers.shift())
+        };
+        let offset = base_metrics.wheel_offset(delta);
+
+        self.queue_text_area_scroll_to_resolved(target, offset, smooth, Some(now))
+    }
+
+    pub fn mark_scroll_input(&mut self, now: Instant) {
+        self.last_scroll_input_at = Some(now);
+    }
+
+    pub fn queue_text_area_scroll_to(
         &mut self,
         target: &ui::Path,
         offset: point::Logical,
@@ -660,28 +792,155 @@ impl WindowState {
         {
             return false;
         }
-
-        let current = self
-            .text_field_states
-            .get(target)
-            .cloned()
-            .unwrap_or_default();
-        let Some(metrics) = self.scroll_metrics_for(target, text_engine) else {
+        self.ensure_scroll_projection_for(target, text_engine);
+        let Some(metrics) = self.scroll.metrics(target) else {
             return false;
         };
         let offset = metrics.clamp_offset(offset);
-        let next = current
-            .clone()
-            .with_scroll(offset.x(), offset.y())
-            .clear_caret_visibility_pending();
 
-        if next == current {
+        self.queue_text_area_scroll_to_resolved(target, offset, false, None)
+    }
+
+    fn queue_text_area_scroll_to_resolved(
+        &mut self,
+        target: &ui::Path,
+        offset: point::Logical,
+        smooth: bool,
+        now: Option<Instant>,
+    ) -> bool {
+        let Some(metrics) = self.scroll.metrics(target) else {
+            return false;
+        };
+        let target_offset = metrics.clamp_offset(offset);
+        let current_offset = if smooth {
+            self.scroll
+                .target_offset(target)
+                .unwrap_or_else(|| metrics.offset())
+        } else {
+            metrics.offset()
+        };
+        if current_offset == target_offset && (!smooth || metrics.offset() == target_offset) {
             return false;
         }
 
-        self.text_field_states.insert(target.clone(), next);
-        self.scroll.update_offset(target, offset);
+        if smooth {
+            self.scroll.queue_wheel_offset_at(
+                target,
+                target_offset,
+                now.unwrap_or_else(Instant::now),
+            )
+        } else {
+            self.scroll.queue_offset(target, target_offset)
+        }
+    }
+
+    #[cfg(test)]
+    pub fn commit_pending_scroll_offsets(&mut self) -> bool {
+        let pending = self.scroll.drain_pending_offsets();
+        if pending.is_empty() {
+            return false;
+        }
+
+        let mut changed = false;
+        let mut committed = false;
+        for (target, _) in pending {
+            self.scroll_commit_targets.insert(target.clone());
+            committed = true;
+            if !self
+                .text_surface(&target)
+                .is_some_and(text::Surface::is_area)
+            {
+                continue;
+            }
+
+            let current = self.text.get_cloned_or_default(&target);
+            let next = current.clone().clear_caret_visibility_pending();
+
+            if next != current {
+                self.store_text_state(&target, next);
+                changed = true;
+            }
+            self.async_scroll_targets.remove(&target);
+        }
+
+        committed || changed
+    }
+
+    pub fn commit_pending_visual_scroll_offsets(&mut self, frame: animation::Frame) -> bool {
+        self.scroll.advance_smooth_wheel_scrolls(frame);
+        let pending = self.scroll.drain_pending_offsets();
+        if pending.is_empty() {
+            return false;
+        }
+
+        for (target, _) in pending {
+            self.scroll_commit_targets.insert(target.clone());
+            if self
+                .text_surface(&target)
+                .is_some_and(text::Surface::is_area)
+            {
+                self.async_scroll_targets.insert(target);
+            }
+        }
+        self.scroll.publish_pending_scroll_diagnostics();
         true
+    }
+
+    pub fn smooth_scroll_active(&self) -> bool {
+        self.scroll.has_active_smooth_wheel_scrolls()
+    }
+
+    pub fn reconcile_async_scroll_target(
+        &mut self,
+        target: &ui::Path,
+        text_engine: &mut text::layout::Engine,
+        now: Instant,
+    ) -> bool {
+        if !self.async_scroll_targets.remove(target) {
+            return false;
+        }
+
+        if self
+            .text_surface(target)
+            .is_some_and(text::Surface::is_area)
+            && self.scroll.metrics(target).is_some()
+        {
+            let current = self.text.get_cloned_or_default(target);
+            let next = current.clone().clear_caret_visibility_pending();
+            if next != current {
+                self.store_text_state(target, next);
+            }
+        }
+
+        self.scroll_commit_targets.remove(target);
+        if let Some(composition) = self.composition.as_ref() {
+            self.scroll.sync_filtered(
+                composition,
+                self.text.states(),
+                text_engine,
+                now,
+                Some(&HashSet::from([target.clone()])),
+            );
+        }
+        self.scroll.record_async_scroll_reconcile();
+        false
+    }
+
+    pub fn reconcile_async_scroll_targets(
+        &mut self,
+        text_engine: &mut text::layout::Engine,
+        now: Instant,
+    ) -> bool {
+        let targets = self
+            .async_scroll_targets
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut changed = false;
+        for target in targets {
+            changed |= self.reconcile_async_scroll_target(&target, text_engine, now);
+        }
+        changed
     }
 
     pub fn text_selection_drag_autoscroll_offset(
@@ -712,18 +971,28 @@ impl WindowState {
         text_engine: &mut text::layout::Engine,
     ) -> Option<(ui::Path, point::Logical)> {
         let (target, offset) = self.text_selection_drag_autoscroll_offset(position)?;
-        if !self.scroll_text_area_to(&target, offset, text_engine) {
+        if !self.queue_text_area_scroll_to(&target, offset, text_engine) {
             return None;
         }
+        self.observe_scroll_projection_for(&target, text_engine);
 
-        self.sync_scroll_projections(text_engine, Instant::now());
         Some((target, offset))
     }
 
     pub(crate) fn text_area_scroll_anchor(&self, target: &ui::Path) -> Option<text::ScrollAnchor> {
         let area_model = self.text_surface(target)?.as_area()?;
         let projection = self.scroll.text_area(target)?;
-        text::View::scroll_anchor_for_observed_area(area_model, projection.observed_area())
+        text::View::scroll_anchor_for_observed_area(area_model, projection.observed_area()).or_else(
+            || {
+                let surface = projection
+                    .render_surfaces()
+                    .min_by(|left, right| left.y().total_cmp(&right.y()))?;
+                let mark = area_model
+                    .buffer()
+                    .mark_for_position(text::TextPosition::new(surface.source_start()))?;
+                Some(text::ScrollAnchor::new(mark, (-surface.y()).max(0.0)))
+            },
+        )
     }
 
     pub(crate) fn ensure_text_caret_visible_after_edit(
@@ -733,16 +1002,30 @@ impl WindowState {
         text_engine: &mut text::layout::Engine,
         scroll_anchor: Option<text::ScrollAnchor>,
     ) -> bool {
-        if !self.is_text_field(target) && !self.text_field_states.contains_key(target) {
+        self.reconcile_async_scroll_target(target, text_engine, now);
+        if !self.is_text_field(target) && !self.text.contains(target) {
             return false;
         }
 
         let current = self
-            .text_field_states
+            .text
             .get(target)
             .cloned()
             .unwrap_or_else(|| text::view::TextViewState::new_at(0.0, now));
-        let mut next = current.clone();
+        let is_area = self
+            .text_surface(target)
+            .is_some_and(text::Surface::is_area);
+        let current_offset = self
+            .scroll
+            .visual_offset(target)
+            .unwrap_or_else(|| point::logical(current.scroll_x(), current.scroll_y()));
+        let mut next = if is_area {
+            current
+                .clone()
+                .with_scroll(current_offset.x(), current_offset.y())
+        } else {
+            current.clone()
+        };
         let mut offset = None;
 
         if let Some(anchor) = scroll_anchor
@@ -763,11 +1046,13 @@ impl WindowState {
             offset = Some(point::logical(next.scroll_x(), next.scroll_y()));
         }
 
-        if next == current {
+        let stored_next = self.text_state_for_storage(target, next.clone());
+
+        if stored_next == current && offset.is_none() {
             return false;
         }
 
-        self.text_field_states.insert(target.clone(), next);
+        self.store_text_state(target, stored_next);
         if let Some(offset) = offset {
             self.scroll.update_offset(target, offset);
         }
@@ -782,14 +1067,60 @@ impl WindowState {
             let targets = self.scroll_projection_targets();
             self.scroll.sync_filtered(
                 composition,
-                &self.text_field_states,
+                self.text.states(),
                 text_engine,
                 now,
                 Some(&targets),
             );
+            self.scroll_commit_targets.clear();
         } else {
             self.scroll.clear();
+            self.scroll_commit_targets.clear();
+            self.async_scroll_targets.clear();
         }
+    }
+
+    fn ensure_scroll_projection_for(
+        &mut self,
+        target: &ui::Path,
+        text_engine: &mut text::layout::Engine,
+    ) {
+        if self.scroll.metrics(target).is_some()
+            && (!self
+                .text_surface(target)
+                .is_some_and(text::Surface::is_area)
+                || self.scroll.text_area(target).is_some())
+        {
+            return;
+        }
+        let Some(composition) = self.composition.as_ref() else {
+            return;
+        };
+        let targets = HashSet::from([target.clone()]);
+        self.scroll.sync_filtered(
+            composition,
+            self.text.states(),
+            text_engine,
+            Instant::now(),
+            Some(&targets),
+        );
+    }
+
+    fn observe_scroll_projection_for(
+        &mut self,
+        target: &ui::Path,
+        text_engine: &mut text::layout::Engine,
+    ) {
+        let Some(composition) = self.composition.as_ref() else {
+            return;
+        };
+        self.scroll.observe_text_area(
+            composition,
+            self.text.states(),
+            target,
+            text_engine,
+            Instant::now(),
+        );
     }
 
     pub fn refine_idle_scroll_models(
@@ -797,7 +1128,10 @@ impl WindowState {
         text_engine: &mut text::layout::Engine,
         now: Instant,
     ) -> bool {
-        if !self.can_refine_idle_scroll_models() {
+        if !self.can_refine_idle_scroll_models(now) {
+            if self.scroll_input_is_active(now) {
+                self.scroll.record_idle_refinement_suppressed_by_scroll();
+            }
             return false;
         }
 
@@ -807,18 +1141,24 @@ impl WindowState {
 
         self.scroll.refine_idle_text_area_models(
             composition,
-            &self.text_field_states,
+            self.text.states(),
             text_engine,
             now,
             1,
         )
     }
 
-    fn can_refine_idle_scroll_models(&self) -> bool {
+    fn can_refine_idle_scroll_models(&self, now: Instant) -> bool {
         self.pointer_capture.is_none()
             && self.text_pointer_gesture.is_none()
             && self.drag_drop.active_text().is_none()
             && self.drag_drop.text_target().is_none()
+            && !self.scroll_input_is_active(now)
+    }
+
+    fn scroll_input_is_active(&self, now: Instant) -> bool {
+        self.last_scroll_input_at
+            .is_some_and(|last| now.saturating_duration_since(last) < SCROLL_IDLE_REFINEMENT_DELAY)
     }
 
     fn scroll_projection_targets(&self) -> HashSet<ui::Path> {
@@ -846,13 +1186,24 @@ impl WindowState {
         {
             targets.insert(target.clone());
         }
+        targets.extend(self.scroll_commit_targets.iter().cloned());
+        let scroll_driver_text_targets = self
+            .scroll
+            .metric_paths()
+            .filter(|path| self.text_surface(path).is_some_and(text::Surface::is_area))
+            .cloned()
+            .collect::<Vec<_>>();
+        targets.extend(scroll_driver_text_targets);
 
-        targets.retain(|path| self.text_surface(path).is_some_and(text::Surface::is_area));
+        targets.retain(|path| {
+            self.text_surface(path).is_some_and(text::Surface::is_area)
+                || self.scroll.metrics(path).is_some()
+        });
         targets
     }
 
     fn text_drag_source_at(
-        &self,
+        &mut self,
         target: &ui::Path,
         position: point::Logical,
         text_engine: &mut text::layout::Engine,
@@ -864,27 +1215,25 @@ impl WindowState {
 
         let range = surface.buffer().selected_range()?;
         let selected_text = surface.buffer().selected_text()?;
+        let source_editable = surface.allows_cut();
         let text_position = self.text_field_position_at(target, position, text_engine)?;
         let cursor_index = text_position.index;
 
         (range.start <= cursor_index && cursor_index <= range.end).then_some((
             range.as_range(),
             selected_text,
-            surface.allows_cut(),
+            source_editable,
         ))
     }
 
     fn text_field_position_at(
-        &self,
+        &mut self,
         target: &ui::Path,
         position: point::Logical,
         text_engine: &mut text::layout::Engine,
     ) -> Option<text::TextPosition> {
-        let state = self
-            .text_field_states
-            .get(target)
-            .cloned()
-            .unwrap_or_default();
+        self.reconcile_async_scroll_target(target, text_engine, Instant::now());
+        let state = self.text_state_for_layout(target);
 
         if let Some(surface) = self.text_surface(target)
             && let Some(area_model) = surface.as_area()
@@ -917,19 +1266,17 @@ impl WindowState {
             .text_field_caret_rect_at_position(
                 target,
                 position,
-                self.text_field_states
-                    .get(target)
-                    .cloned()
-                    .unwrap_or_default(),
+                self.text_state_for_layout(target),
                 text_engine,
             )
     }
 
     pub fn sync_text_field_states(&mut self, text_engine: &mut text::layout::Engine) -> bool {
         let Some(composition) = self.composition.as_ref() else {
-            let changed = !self.text_field_states.is_empty();
-            self.text_field_states.clear();
+            let changed = !self.text.is_empty();
+            self.text.clear();
             self.scroll.clear();
+            self.async_scroll_targets.clear();
             self.last_text_field_click = None;
             self.text_pointer_gesture = None;
             self.drag_drop.clear();
@@ -938,26 +1285,38 @@ impl WindowState {
         };
 
         let mut changed = composition.sync_text_field_states(
-            &mut self.text_field_states,
+            self.text.states_mut(),
             self.text_input_session.target(),
             text_engine,
         );
 
         for (path, surface) in composition.text_surfaces() {
-            let state = self.text_field_states.entry(path.clone()).or_default();
+            let state = self.text.entry(path.clone()).or_default();
             changed |= state.sync_history(surface.buffer());
+            if surface.is_area() {
+                let next = state.clone().without_scroll();
+                if next != *state {
+                    *state = next;
+                    changed = true;
+                }
+            }
         }
+        self.async_scroll_targets.retain(|path| {
+            composition
+                .text_surface(path)
+                .is_some_and(|surface| surface.is_area())
+        });
 
         changed
     }
 
     pub fn reset_text_field_caret_blink(&mut self, target: &ui::Path, now: Instant) -> bool {
-        if !self.is_text_field(target) && !self.text_field_states.contains_key(target) {
+        if !self.is_text_field(target) && !self.text.contains(target) {
             return false;
         }
 
         let current = self
-            .text_field_states
+            .text
             .get(target)
             .cloned()
             .unwrap_or_else(|| text::view::TextViewState::new_at(0.0, now));
@@ -967,7 +1326,7 @@ impl WindowState {
             return false;
         }
 
-        self.text_field_states.insert(target.clone(), next);
+        self.store_text_state(target, next);
         true
     }
 
@@ -976,12 +1335,12 @@ impl WindowState {
         target: &ui::Path,
         now: Instant,
     ) -> bool {
-        if !self.is_text_field(target) && !self.text_field_states.contains_key(target) {
+        if !self.is_text_field(target) && !self.text.contains(target) {
             return false;
         }
 
         let current = self
-            .text_field_states
+            .text
             .get(target)
             .cloned()
             .unwrap_or_else(|| text::view::TextViewState::new_at(0.0, now));
@@ -991,7 +1350,7 @@ impl WindowState {
             return false;
         }
 
-        self.text_field_states.insert(target.clone(), next);
+        self.store_text_state(target, next);
         true
     }
 
@@ -1002,11 +1361,11 @@ impl WindowState {
         kind: text::edit::HistoryKind,
         now: Instant,
     ) -> bool {
-        if !self.is_text_field(target) && !self.text_field_states.contains_key(target) {
+        if !self.is_text_field(target) && !self.text.contains(target) {
             return false;
         }
 
-        self.text_field_states
+        self.text
             .entry(target.clone())
             .or_default()
             .record_history_at(change, kind, now);
@@ -1031,7 +1390,7 @@ impl WindowState {
         buffer: &mut text::Buffer,
         command: text::edit::Command,
     ) -> text::edit::CommandResult {
-        let Some(state) = self.text_field_states.get_mut(target) else {
+        let Some(state) = self.text.get_mut(target) else {
             return text::edit::CommandResult {
                 unavailable: true,
                 ..text::edit::CommandResult::default()
@@ -1049,12 +1408,11 @@ impl WindowState {
     }
 
     pub fn animation_schedule(&self, now: Instant) -> animation::Schedule {
-        if self
-            .pointer
-            .position()
-            .and_then(|position| self.text_selection_drag_autoscroll_offset(position))
-            .is_some()
-        {
+        if self.text_selection_drag_autoscroll_active() {
+            return animation::Schedule::NextFrame;
+        }
+
+        if self.smooth_scroll_active() {
             return animation::Schedule::NextFrame;
         }
 
@@ -1069,13 +1427,16 @@ impl WindowState {
             return animation::Schedule::Idle;
         }
 
-        let state = self
-            .text_field_states
-            .get(&focus.path)
-            .cloned()
-            .unwrap_or_default();
+        let state = self.text.get(&focus.path).cloned().unwrap_or_default();
 
         animation::Schedule::At(state.next_caret_deadline(now))
+    }
+
+    pub(crate) fn text_selection_drag_autoscroll_active(&self) -> bool {
+        self.pointer
+            .position()
+            .and_then(|position| self.text_selection_drag_autoscroll_offset(position))
+            .is_some()
     }
 
     fn text_field_click_kind(
@@ -1959,10 +2320,8 @@ mod tests {
                 ui::focus::Visibility::Visible,
             )),
             composition: Some(composition),
-            text_field_states: HashMap::from([(
-                path(CHILD),
-                text::view::TextViewState::new_at(0.0, epoch),
-            )]),
+            text: HashMap::from([(path(CHILD), text::view::TextViewState::new_at(0.0, epoch))])
+                .into(),
             ..WindowState::default()
         };
         text_input::sync_session(&mut state);
@@ -2036,10 +2395,11 @@ mod tests {
         let path = ui::Path::from(ROOT).child(CHILD);
         let mut state = WindowState {
             composition: Some(composition),
-            text_field_states: HashMap::from([(
+            text: HashMap::from([(
                 path.clone(),
                 text::view::TextViewState::default().with_scroll_y(scroll_y),
-            )]),
+            )])
+            .into(),
             ..WindowState::default()
         };
         sync_text_area_projection(&mut state, &mut text_engine);
@@ -2053,7 +2413,7 @@ mod tests {
                 .composition
                 .as_ref()
                 .expect("composition should exist"),
-            &state.text_field_states,
+            state.text.states(),
             text_engine,
             Instant::now(),
         );
@@ -2071,6 +2431,7 @@ mod tests {
         projection
             .surfaces()
             .iter()
+            .chain(projection.render_surfaces())
             .filter(|surface| {
                 surface.y() + surface.height().max(1.0) > 0.0 && surface.y() < viewport_height
             })
@@ -2098,7 +2459,8 @@ mod tests {
 
     fn text_area_scroll_offsets(state: &WindowState, path: &ui::Path) -> (f32, f32) {
         let state_y = state
-            .text_field_states
+            .text
+            .states()
             .get(path)
             .expect("text area state should exist")
             .scroll_y();
@@ -2147,15 +2509,17 @@ mod tests {
 
         let surface = first_visible_text_area_surface(&state, &path);
         let click = click_in_surface(&state, &path, &surface);
-        let before_scroll = text_area_scroll_offsets(&state, &path);
+        let before_scroll = text_area_scroll_offsets(&state, &path).1;
         text_engine.reset_diagnostics();
         let edit = state
             .text_field_edit_at(&path, click, &mut text_engine)
             .expect("painted text-area click should resolve");
 
         assert_pointer_edit_hits_surface(edit, &surface);
-        assert_eq!(text_area_scroll_offsets(&state, &path), before_scroll);
-        assert_eq!(text_engine.diagnostics().text_area_paint_layout_calls, 0);
+        let (stored_scroll, driver_scroll) = text_area_scroll_offsets(&state, &path);
+        assert_eq!(stored_scroll, 0.0);
+        assert_eq!(driver_scroll, before_scroll);
+        assert_eq!(text_engine.diagnostics().text_area_paint_layout_calls, 1);
     }
 
     #[test]
@@ -2180,15 +2544,46 @@ mod tests {
 
         let surface = first_visible_text_area_surface(&state, &path);
         let click = click_in_surface(&state, &path, &surface);
-        let before_scroll = text_area_scroll_offsets(&state, &path);
+        let before_scroll = text_area_scroll_offsets(&state, &path).1;
         text_engine.reset_diagnostics();
         let edit = state
             .text_field_edit_at(&path, click, &mut text_engine)
             .expect("painted text-area click should resolve");
 
         assert_pointer_edit_hits_surface(edit, &surface);
-        assert_eq!(text_area_scroll_offsets(&state, &path), before_scroll);
-        assert_eq!(text_engine.diagnostics().text_area_paint_layout_calls, 0);
+        let (stored_scroll, driver_scroll) = text_area_scroll_offsets(&state, &path);
+        assert_eq!(stored_scroll, 0.0);
+        assert_eq!(driver_scroll, before_scroll);
+        assert_eq!(text_engine.diagnostics().text_area_paint_layout_calls, 1);
+    }
+
+    #[test]
+    fn text_area_state_storage_strips_scroll_and_layout_uses_scroll_driver() {
+        let buffer = text::Buffer::from_multiline_text(text_area_lines(20).join("\n"));
+        let (mut state, mut text_engine, path) = text_area_window_state(buffer, 160.0);
+        let driver_offset = state
+            .scroll
+            .metrics(&path)
+            .expect("text area projection should exist")
+            .offset();
+
+        state.store_text_state(
+            &path,
+            text::view::TextViewState::default().with_scroll_y(40.0),
+        );
+
+        let stored = state.text.get(&path).expect("stored text state");
+        assert_eq!(stored.scroll_y(), 0.0);
+        assert_eq!(
+            state.text_state_for_layout(&path).scroll_y(),
+            driver_offset.y()
+        );
+
+        assert!(
+            state
+                .text_field_edit_at(&path, point::logical(4.0, 4.0), &mut text_engine)
+                .is_some()
+        );
     }
 
     #[test]
@@ -2266,7 +2661,7 @@ mod tests {
             animation::Schedule::NextFrame
         );
 
-        state.text_field_states.insert(
+        state.text.insert(
             path.clone(),
             text::view::TextViewState::default().with_scroll_y(0.0),
         );
@@ -2279,6 +2674,64 @@ mod tests {
     }
 
     #[test]
+    fn active_smooth_wheel_scroll_schedules_frames() {
+        let lines = text_area_lines(80);
+        let buffer = text::Buffer::from_multiline_text(lines.join("\n"));
+        let (mut state, _text_engine, path) = text_area_window_state(buffer, 260.0);
+        let now = Instant::now();
+        let metrics = state
+            .scroll
+            .metrics(&path)
+            .expect("text area metrics should exist");
+        let target = point::logical(metrics.offset().x(), metrics.offset().y() + 120.0);
+
+        assert!(state.scroll.queue_wheel_offset_at(&path, target, now));
+
+        assert!(state.smooth_scroll_active());
+        assert_eq!(
+            state.animation_schedule(now),
+            animation::Schedule::NextFrame
+        );
+    }
+
+    #[test]
+    fn async_text_scroll_reconcile_preserves_smooth_wheel_target() {
+        let lines = text_area_lines(80);
+        let buffer = text::Buffer::from_multiline_text(lines.join("\n"));
+        let (mut state, mut text_engine, path) = text_area_window_state(buffer, 260.0);
+        let now = Instant::now();
+        let metrics = state
+            .scroll
+            .metrics(&path)
+            .expect("text area metrics should exist");
+        let target = point::logical(metrics.offset().x(), metrics.offset().y() + 320.0);
+
+        assert!(state.scroll.queue_wheel_offset_at(&path, target, now));
+        assert!(
+            state.commit_pending_visual_scroll_offsets(animation::Frame::new(
+                now + Duration::from_millis(16),
+                Some(now),
+            ))
+        );
+        assert!(state.smooth_scroll_active());
+
+        state.reconcile_async_scroll_target(
+            &path,
+            &mut text_engine,
+            now + Duration::from_millis(16),
+        );
+
+        assert!(state.smooth_scroll_active());
+        assert_eq!(
+            state
+                .scroll
+                .target_offset(&path)
+                .expect("smooth wheel target should survive reconcile"),
+            target
+        );
+    }
+
+    #[test]
     fn text_area_scroll_anchor_preserves_surviving_top_line_after_delete_above() {
         let lines = text_area_lines(80);
         let text = lines.join("\n");
@@ -2287,9 +2740,10 @@ mod tests {
             text_area_window_state_for_area(text::Area::new(buffer.clone()).no_wrap(), 500.0);
         let before_surface = first_visible_text_area_surface(&state, &path);
         let before_y = before_surface.y();
-        let before_text = buffer.text()[before_surface.source_start()
-            ..before_surface.source_start() + before_surface.source_text_len()]
-            .to_owned();
+        let before_text = buffer.text_for_line_range(
+            before_surface.source_line(),
+            before_surface.source_line() + 1,
+        );
         let anchor = state
             .text_area_scroll_anchor(&path)
             .expect("visible text area should capture a scroll anchor");
@@ -2307,11 +2761,7 @@ mod tests {
         assert!(result.text_changed);
         text_engine.invalidate_text_area_for_edit(&buffer, &result.impacts);
 
-        let current = state
-            .text_field_states
-            .get(&path)
-            .cloned()
-            .unwrap_or_default();
+        let current = state.text.get(&path).cloned().unwrap_or_default();
         let scroll_y = state
             .composition
             .as_ref()
@@ -2319,24 +2769,32 @@ mod tests {
                 composition.text_area_scroll_y_for_anchor(&path, current, anchor, &mut text_engine)
             })
             .expect("surviving anchor line should resolve");
-        state.text_field_states.insert(
+        state
+            .scroll
+            .update_offset(&path, point::logical(0.0, scroll_y));
+        state.text.insert(
             path.clone(),
-            text::view::TextViewState::default()
-                .with_scroll_y(scroll_y)
-                .ensure_caret_visible(Instant::now()),
+            text::view::TextViewState::default().ensure_caret_visible(Instant::now()),
         );
         sync_text_area_projection(&mut state, &mut text_engine);
 
-        let text = buffer.text();
         let after_surface = state
             .scroll
             .text_area(&path)
             .expect("text area projection should exist")
             .surfaces()
             .iter()
+            .chain(
+                state
+                    .scroll
+                    .text_area(&path)
+                    .expect("text area projection should exist")
+                    .render_surfaces(),
+            )
             .find(|surface| {
-                text[surface.source_start()..surface.source_start() + surface.source_text_len()]
-                    == before_text
+                let line =
+                    buffer.text_for_line_range(surface.source_line(), surface.source_line() + 1);
+                line == before_text
             })
             .expect("anchored line should still be painted after anchor restore");
 
@@ -2406,7 +2864,7 @@ mod tests {
     }
 
     #[test]
-    fn cursor_for_hovered_prefers_pointer_capture_target() {
+    fn cursor_for_hovered_uses_default_for_scrollbar_capture() {
         let root = ui::Node::container(ROOT, crate::layout::Axis::Vertical)
             .with_child(
                 widget::text_field(CHILD, text::Buffer::from_text("Editable")).with_size(
@@ -2429,7 +2887,50 @@ mod tests {
             point::logical(0.0, 0.0),
         ));
 
-        assert_eq!(state.cursor_for_hovered(), ui::Cursor::Text);
+        assert_eq!(state.cursor_for_hovered(), ui::Cursor::Default);
+    }
+
+    #[test]
+    fn cursor_for_pointer_uses_text_cursor_only_over_text_area_content() {
+        let buffer = text::Buffer::from_multiline_text(&text_area_lines(40).join("\n"));
+        let (mut state, mut text_engine, path) = text_area_window_state(buffer, 0.0);
+
+        state.hovered = Some(path.clone());
+        state.pointer.handle_event(pointer::Event::Moved {
+            position: point::logical(8.0, 8.0),
+        });
+        assert_eq!(
+            state.cursor_for_pointer(&mut text_engine),
+            ui::Cursor::Text,
+            "editable text content should keep the I-beam cursor"
+        );
+
+        let thumb = state
+            .scroll
+            .text_area(&path)
+            .and_then(|projection| projection.metrics().vertical_thumb())
+            .expect("text area should have a visible vertical scrollbar thumb");
+        state.pointer.handle_event(pointer::Event::Moved {
+            position: point::logical(thumb.origin.x() + 1.0, thumb.origin.y() + 1.0),
+        });
+        assert_eq!(
+            state.cursor_for_pointer(&mut text_engine),
+            ui::Cursor::Default,
+            "text-area scrollbar chrome should use the default cursor"
+        );
+
+        state.pointer_capture = Some(pointer::Capture::new(
+            path,
+            widget::Part::Scroll(widget::scroll::Part::VerticalThumb),
+            pointer::Button::Primary,
+            point::logical(135.0, 8.0),
+            point::logical(0.0, 4.0),
+        ));
+        state.hovered = None;
+        assert_eq!(
+            state.cursor_for_pointer(&mut text_engine),
+            ui::Cursor::Default
+        );
     }
 
     #[test]

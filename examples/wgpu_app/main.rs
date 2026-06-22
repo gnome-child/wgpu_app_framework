@@ -690,6 +690,7 @@ fn document_scroll(theme: &Theme, offset: f32) -> ui::Node {
 
 fn both_axis_scroll(theme: &Theme, offset: point::Logical) -> ui::Node {
     widget::scroll_view_with_theme(BOTH_AXIS_SCROLL, theme)
+        .with_scroll_axes(widget::scroll::Axes::both())
         .with_scroll_bars(widget::scroll::Bars::both())
         .with_scroll_offset(offset)
         .with_background(theme.surfaces().panel())
