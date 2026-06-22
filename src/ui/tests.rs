@@ -94,6 +94,18 @@ fn selection_quad_count(scene: &paint::Scene) -> usize {
         .count()
 }
 
+fn preedit_selection_quad_count(scene: &paint::Scene) -> usize {
+    let fill = Some(paint::Fill::Brush(
+        paint::Color::rgba(0.18, 0.42, 0.86, 0.32).into(),
+    ));
+
+    scene
+        .items()
+        .iter()
+        .filter(|item| matches!(item, paint::Item::Quad(quad) if quad.style.fill == fill))
+        .count()
+}
+
 fn icon_item(scene: &paint::Scene, index: usize) -> paint::Icon {
     match scene.items().get(index) {
         Some(paint::Item::Icon(icon)) => *icon,
@@ -1918,6 +1930,152 @@ fn text_field_paint_emits_selection_for_text_editing_target() {
     );
 
     assert_eq!(selection_quad_count(&scene), 1);
+}
+
+#[test]
+fn text_area_paint_emits_selection_for_text_editing_target() {
+    let mut buffer = text::Buffer::from_multiline_text("alpha\nbeta\ngamma");
+    let mut engine = text::layout::Engine::new();
+    let mut editor = text::edit::Editor::new();
+    editor.apply_text_edit(&mut buffer, text::edit::Edit::SelectAll);
+    let root = widget::text_area(A, text::Area::new(buffer))
+        .with_size(layout::Size::Fixed(160.0), layout::Size::Fixed(80.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+    let states = HashMap::new();
+
+    tree.set_root(root);
+    let layout = layout_area(&tree, area::logical(160.0, 80.0));
+    tree.paint_with_text_engine(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, None, None).with_text_editing_target(Some(path(A))),
+        &states,
+        &mut engine,
+        &mut scene,
+    );
+
+    assert!(matches!(
+        first_text_viewport(&scene).surfaces.as_slice(),
+        [_, ..]
+    ));
+    assert!(
+        selection_quad_count(&scene) > 0,
+        "focused text areas must paint selection overlays outside the glyph cache path"
+    );
+}
+
+#[test]
+fn text_area_paint_emits_preedit_overlay_for_text_editing_target() {
+    let buffer = text::Buffer::from_multiline_text("alpha");
+    let mut engine = text::layout::Engine::new();
+    let root = widget::text_area(A, text::Area::new(buffer))
+        .with_size(layout::Size::Fixed(160.0), layout::Size::Fixed(80.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+    let states = HashMap::from([(
+        path(A),
+        text::view::TextViewState::default()
+            .with_preedit(Some(text::Preedit::new("仮", Some((0, 3))))),
+    )]);
+
+    tree.set_root(root);
+    let layout = layout_area(&tree, area::logical(160.0, 80.0));
+    tree.paint_with_text_engine(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, None, None).with_text_editing_target(Some(path(A))),
+        &states,
+        &mut engine,
+        &mut scene,
+    );
+
+    assert!(matches!(
+        first_text_viewport(&scene).surfaces.as_slice(),
+        [_, ..]
+    ));
+    assert!(
+        preedit_selection_quad_count(&scene) > 0,
+        "text-area preedit selection must paint as a dynamic overlay"
+    );
+}
+
+#[test]
+fn text_area_paint_emits_caret_during_visible_blink_phase() {
+    let epoch = Instant::now();
+    let mut buffer = text::Buffer::from_multiline_text("alpha");
+    let mut editor = text::edit::Editor::new();
+    editor.apply_text_edit(
+        &mut buffer,
+        text::edit::Edit::set_cursor(text::buffer::Cursor::new(0, 2)),
+    );
+    let root = widget::text_area(A, text::Area::new(buffer))
+        .with_size(layout::Size::Fixed(160.0), layout::Size::Fixed(80.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+    let mut engine = text::layout::Engine::new();
+    let states = HashMap::from([(path(A), text::view::TextViewState::new_at(0.0, epoch))]);
+
+    tree.set_root(root);
+    let layout = layout_area(&tree, area::logical(160.0, 80.0));
+    tree.paint_with_text_engine_at(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None).with_text_editing_target(Some(path(A))),
+        &states,
+        &mut engine,
+        crate::animation::Frame::new(epoch, None),
+        &mut scene,
+    );
+
+    assert!(matches!(
+        first_text_viewport(&scene).surfaces.as_slice(),
+        [_, ..]
+    ));
+    assert_eq!(caret_quad_count(&scene), 1);
+}
+
+#[test]
+fn text_area_paint_omits_caret_during_hidden_blink_phase() {
+    let epoch = Instant::now();
+    let buffer = text::Buffer::from_multiline_text("alpha");
+    let root = widget::text_area(A, text::Area::new(buffer))
+        .with_size(layout::Size::Fixed(160.0), layout::Size::Fixed(80.0));
+    let mut tree = Tree::new();
+    let mut scene = paint::Scene::new();
+    let registry = action::Registry::<()>::new();
+    let window = window::Id::new(1);
+    let mut engine = text::layout::Engine::new();
+    let states = HashMap::from([(path(A), text::view::TextViewState::new_at(0.0, epoch))]);
+    let hidden = epoch + Duration::from_millis(500);
+
+    tree.set_root(root);
+    let layout = layout_area(&tree, area::logical(160.0, 80.0));
+    tree.paint_with_text_engine_at(
+        &layout,
+        &registry,
+        window,
+        Interaction::new(None, Some(path(A)), None).with_text_editing_target(Some(path(A))),
+        &states,
+        &mut engine,
+        crate::animation::Frame::new(hidden, None),
+        &mut scene,
+    );
+
+    assert!(matches!(
+        first_text_viewport(&scene).surfaces.as_slice(),
+        [_, ..]
+    ));
+    assert_eq!(caret_quad_count(&scene), 0);
 }
 
 #[test]

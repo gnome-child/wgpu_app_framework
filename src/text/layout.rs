@@ -1475,6 +1475,89 @@ impl Engine {
         )
     }
 
+    pub fn text_area_overlay_layout_for_surfaces_at(
+        &mut self,
+        area_model: &Area,
+        state: TextViewState,
+        now: Instant,
+        content_area: area::Logical,
+        surfaces: &[TextAreaSurface],
+    ) -> TextFieldLayout {
+        let projection = PreeditProjection::new(area_model.buffer(), &state);
+        let selection = projection.buffer.selection_bounds();
+        let (preedit_underline, preedit_selection) = projection.highlight_ranges();
+        let mut spans = HighlightSpans::default();
+        #[allow(unused_mut)]
+        let mut combined_stats = HighlightStats::default();
+        let mut caret = None;
+
+        for surface in surfaces {
+            let buffer = surface.buffer.borrow();
+            let selection = selection.and_then(|range| {
+                local_cursor_range_for_source_line(
+                    range,
+                    surface.source_line,
+                    surface.source_text_len,
+                )
+            });
+            let preedit_underline = preedit_underline.and_then(|range| {
+                local_cursor_range_for_source_line(
+                    range,
+                    surface.source_line,
+                    surface.source_text_len,
+                )
+            });
+            let preedit_selection = preedit_selection.and_then(|range| {
+                local_cursor_range_for_source_line(
+                    range,
+                    surface.source_line,
+                    surface.source_text_len,
+                )
+            });
+            let (line_spans, stats) = highlight_spans_for_ranges(
+                &buffer,
+                selection,
+                preedit_underline,
+                preedit_selection,
+                surface.y,
+                -surface.x,
+                0.0,
+            );
+            spans.selection.extend(line_spans.selection);
+            spans.preedit_underline.extend(line_spans.preedit_underline);
+            spans.preedit_selection.extend(line_spans.preedit_selection);
+            #[cfg(test)]
+            combined_stats.add(stats);
+            #[cfg(not(test))]
+            let _ = stats;
+
+            if caret.is_none()
+                && !projection.buffer.has_non_empty_selection()
+                && area_model.paints_caret()
+                && state.caret_visible(now)
+                && projection.buffer.cursor().line == surface.source_line
+            {
+                let cursor = Cursor::new(0, projection.buffer.cursor().index);
+                caret = cursor_position(&buffer, cursor).map(|(x, y)| Caret {
+                    x: x as f32 + surface.x,
+                    y: surface.y + y as f32,
+                    height: buffer.metrics().line_height,
+                });
+            }
+        }
+
+        self.add_highlight_stats(combined_stats);
+        TextFieldLayout {
+            selection_spans: spans.selection,
+            preedit_underline_spans: spans.preedit_underline,
+            preedit_selection_spans: spans.preedit_selection,
+            caret,
+            scroll_x: state.scroll_x(),
+            scroll_y: state.scroll_y(),
+            content_area,
+        }
+    }
+
     fn text_area_layout_for_area_at_with_observation(
         &mut self,
         area_model: &Area,

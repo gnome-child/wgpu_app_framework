@@ -236,9 +236,23 @@ fn node<T>(
     let text_rect = text_scroll_metrics
         .map(widget::scroll::Metrics::viewport)
         .unwrap_or_else(|| text_content_rect(node, layout));
-    let text_area_layout_ref = text_area_scroll_projection
-        .as_ref()
-        .map(|projection| projection.layout());
+    let text_area_layout_owned = text_surface
+        .and_then(text::Surface::as_area)
+        .zip(text_area_scroll_projection.as_ref())
+        .map(|(area, projection)| {
+            let metrics = projection.metrics();
+            let resolved_state = text_field_state
+                .clone()
+                .with_scroll(metrics.offset().x(), metrics.offset().y());
+            text_engine.text_area_overlay_layout_for_surfaces_at(
+                area,
+                resolved_state,
+                frame.now(),
+                projection.content_area(),
+                projection.interaction_surfaces(),
+            )
+        });
+    let text_area_layout_ref = text_area_layout_owned.as_ref();
     let text_field_layout_owned = if text_area_layout_ref.is_none() {
         text_surface.map(|surface| {
             let style = label
@@ -1162,13 +1176,12 @@ fn text_area_scroll_projection_for_metrics(
     let resolved_state = state
         .clone()
         .with_scroll(metrics.offset().x(), metrics.offset().y());
-    let paint_layout = text_engine.text_area_render_layout_for_area_at(
+    let paint_layout = text_engine.text_area_paint_layout_for_area_at(
         area_model,
         style,
         metrics.viewport().area,
         resolved_state,
         now,
-        metrics.content_size(),
     );
     Some(scroll::TextAreaProjection::from_layout(
         metrics,

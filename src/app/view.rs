@@ -711,6 +711,84 @@ mod tests {
             .count()
     }
 
+    fn text_viewport_count(scene: &paint::Scene) -> usize {
+        scene
+            .items()
+            .iter()
+            .filter(|item| matches!(item, paint::Item::TextViewport(_)))
+            .count()
+    }
+
+    fn selection_quad_count(scene: &paint::Scene) -> usize {
+        let fill = Some(paint::Fill::Brush(
+            paint::Color::rgba(0.18, 0.42, 0.86, 0.48).into(),
+        ));
+
+        scene
+            .items()
+            .iter()
+            .filter(|item| matches!(item, paint::Item::Quad(quad) if quad.style.fill == fill))
+            .count()
+    }
+
+    fn caret_quad_count(scene: &paint::Scene) -> usize {
+        let rasterization = paint::Rasterization {
+            snapping: paint::Snapping::FixedWidth { width_px: 2 },
+            edge_mode: paint::EdgeMode::Hard,
+        };
+
+        scene
+            .items()
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item,
+                    paint::Item::Quad(quad)
+                        if (quad.rect.area.width() - 1.0).abs() <= f32::EPSILON
+                            && quad.rasterization == rasterization
+                )
+            })
+            .count()
+    }
+
+    fn large_text_area_buffer(lines: usize) -> text::Buffer {
+        text::Buffer::from_multiline_text(
+            (0..lines)
+                .map(|line| format!("line {line:03}: scrolling text area content"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    }
+
+    fn selected_large_text_area_buffer(lines: usize) -> text::Buffer {
+        let mut buffer = large_text_area_buffer(lines);
+        let mut editor = text::edit::Editor::new();
+        editor.apply_text_edit(&mut buffer, text::edit::Edit::SelectAll);
+        buffer
+    }
+
+    fn large_text_area_buffer_with_cursor(lines: usize, line: usize, index: usize) -> text::Buffer {
+        let content = (0..lines)
+            .map(|line| format!("line {line:03}: scrolling text area content"))
+            .collect::<Vec<_>>();
+        let cursor_index = content
+            .iter()
+            .take(line)
+            .map(|line| line.len() + 1)
+            .sum::<usize>()
+            + content
+                .get(line)
+                .map(|line| index.min(line.len()))
+                .unwrap_or_default();
+        let mut buffer = text::Buffer::from_multiline_text(content.join("\n"));
+        let mut editor = text::edit::Editor::new();
+        editor.apply_text_edit(
+            &mut buffer,
+            text::edit::Edit::set_position(text::TextPosition::new(cursor_index)),
+        );
+        buffer
+    }
+
     #[test]
     fn compose_updates_state_and_preserves_paint_order() {
         let window = window::Id::new(1);
@@ -1106,6 +1184,276 @@ mod tests {
             0
         );
         assert_eq!(state.scroll.diagnostics().retained_scroll_layer_missing, 0);
+    }
+
+    #[test]
+    fn text_area_scroll_only_paint_preserves_selection_overlay() {
+        let window = window::Id::new(1);
+        let path = ui::Path::new([ROOT, CHILD]);
+        let epoch = std::time::Instant::now();
+        let buffer = selected_large_text_area_buffer(120);
+        let mut state = WindowState {
+            focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
+                path.clone(),
+                ui::focus::Reason::Pointer,
+                ui::focus::Visibility::Visible,
+            )),
+            command_subject: Some(action::Scope::Path(path.clone())),
+            ..WindowState::default()
+        };
+        state
+            .text
+            .insert(path.clone(), text::view::TextViewState::new_at(0.0, epoch));
+        let mut registry = action::Registry::<()>::new();
+        let mut text_engine = text::layout::Engine::new();
+        let mut tree = ui::Tree::new();
+        tree.set_root(
+            widget::panel(ROOT).with_child(
+                widget::text_area(CHILD, text::Area::new(buffer))
+                    .with_size(layout::Size::Fill, layout::Size::Fill),
+            ),
+        );
+
+        let full = super::compose_with_timings(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            area::logical(180.0, 90.0),
+            crate::animation::Frame::new(epoch, None),
+        );
+
+        assert_eq!(state.focused_path(), Some(path.clone()));
+        assert!(text_viewport_count(&full.scene) > 0);
+        assert!(
+            selection_quad_count(&full.scene) > 0,
+            "full text-area paint should include selection overlay quads"
+        );
+        assert!(state.queue_text_area_scroll_by_at(
+            &path,
+            crate::app::scroll::WheelDelta::pixels(point::logical(0.0, -8.0)),
+            &mut text_engine,
+            epoch + std::time::Duration::from_millis(1),
+        ));
+        assert!(
+            state.scroll.retained_layer_metrics(&path).is_none(),
+            "text areas should stay out of generic retained scroll layers"
+        );
+
+        let result = paint_scroll_only(
+            window,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            crate::animation::Frame::new(epoch + std::time::Duration::from_millis(16), Some(epoch)),
+        )
+        .expect("text-area scroll-only paint should repaint the text target");
+
+        assert!(text_viewport_count(&result.scene) > 0);
+        assert!(
+            selection_quad_count(&result.scene) > 0,
+            "scroll-only text-area paint should preserve selection overlay quads"
+        );
+        assert_eq!(state.scroll.diagnostics().retained_scroll_layer_hits, 0);
+        assert_eq!(
+            state
+                .scroll
+                .diagnostics()
+                .retained_scroll_target_repaint_fallbacks,
+            0
+        );
+    }
+
+    #[test]
+    fn text_area_scroll_only_paint_preserves_caret_overlay_and_blink_phase() {
+        let window = window::Id::new(1);
+        let path = ui::Path::new([ROOT, CHILD]);
+        let epoch = std::time::Instant::now();
+        let buffer = large_text_area_buffer_with_cursor(120, 0, 5);
+        let mut state = WindowState {
+            focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
+                path.clone(),
+                ui::focus::Reason::Pointer,
+                ui::focus::Visibility::Visible,
+            )),
+            command_subject: Some(action::Scope::Path(path.clone())),
+            ..WindowState::default()
+        };
+        state
+            .text
+            .insert(path.clone(), text::view::TextViewState::new_at(0.0, epoch));
+        let mut registry = action::Registry::<()>::new();
+        let mut text_engine = text::layout::Engine::new();
+        let mut tree = ui::Tree::new();
+        tree.set_root(
+            widget::panel(ROOT).with_child(
+                widget::text_area(CHILD, text::Area::new(buffer))
+                    .with_size(layout::Size::Fill, layout::Size::Fill),
+            ),
+        );
+
+        let full = super::compose_with_timings(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            area::logical(180.0, 90.0),
+            crate::animation::Frame::new(epoch, None),
+        );
+
+        assert_eq!(caret_quad_count(&full.scene), 1);
+        assert!(state.queue_text_area_scroll_by_at(
+            &path,
+            crate::app::scroll::WheelDelta::pixels(point::logical(0.0, -6.0)),
+            &mut text_engine,
+            epoch + std::time::Duration::from_millis(1),
+        ));
+
+        let visible = paint_scroll_only(
+            window,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            crate::animation::Frame::new(epoch + std::time::Duration::from_millis(16), Some(epoch)),
+        )
+        .expect("text-area scroll-only paint should repaint the text target");
+
+        assert_eq!(caret_quad_count(&visible.scene), 1);
+        assert!(state.queue_text_area_scroll_by_at(
+            &path,
+            crate::app::scroll::WheelDelta::pixels(point::logical(0.0, -6.0)),
+            &mut text_engine,
+            epoch + std::time::Duration::from_millis(501),
+        ));
+
+        let hidden = paint_scroll_only(
+            window,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            crate::animation::Frame::new(
+                epoch + std::time::Duration::from_millis(500),
+                Some(epoch + std::time::Duration::from_millis(16)),
+            ),
+        )
+        .expect("text-area scroll-only paint should respect caret blink phase");
+
+        assert_eq!(caret_quad_count(&hidden.scene), 0);
+        assert_eq!(state.scroll.diagnostics().retained_scroll_layer_hits, 0);
+    }
+
+    #[test]
+    fn text_area_full_paint_recomputes_caret_blink_from_reused_projection() {
+        let window = window::Id::new(1);
+        let path = ui::Path::new([ROOT, CHILD]);
+        let epoch = std::time::Instant::now();
+        let buffer = large_text_area_buffer_with_cursor(80, 0, 5);
+        let mut state = WindowState {
+            focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
+                path.clone(),
+                ui::focus::Reason::Pointer,
+                ui::focus::Visibility::Visible,
+            )),
+            command_subject: Some(action::Scope::Path(path.clone())),
+            ..WindowState::default()
+        };
+        state
+            .text
+            .insert(path.clone(), text::view::TextViewState::new_at(0.0, epoch));
+        let mut registry = action::Registry::<()>::new();
+        let mut text_engine = text::layout::Engine::new();
+        let mut tree = ui::Tree::new();
+        tree.set_root(
+            widget::panel(ROOT).with_child(
+                widget::text_area(CHILD, text::Area::new(buffer))
+                    .with_size(layout::Size::Fill, layout::Size::Fill),
+            ),
+        );
+
+        let visible = super::compose_with_timings(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            area::logical(180.0, 90.0),
+            crate::animation::Frame::new(epoch, None),
+        );
+        let hidden = super::compose_with_timings(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            area::logical(180.0, 90.0),
+            crate::animation::Frame::new(epoch + std::time::Duration::from_millis(500), None),
+        );
+
+        assert_eq!(caret_quad_count(&visible.scene), 1);
+        assert_eq!(caret_quad_count(&hidden.scene), 0);
+    }
+
+    #[test]
+    fn text_area_full_paint_reveals_large_document_caret_overlay() {
+        let window = window::Id::new(1);
+        let path = ui::Path::new([ROOT, CHILD]);
+        let epoch = std::time::Instant::now();
+        let buffer = large_text_area_buffer_with_cursor(120, 100, 5);
+        let mut state = WindowState {
+            focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
+                path.clone(),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            command_subject: Some(action::Scope::Path(path.clone())),
+            ..WindowState::default()
+        };
+        state
+            .text
+            .insert(path.clone(), text::view::TextViewState::new_at(0.0, epoch));
+        let mut registry = action::Registry::<()>::new();
+        let mut text_engine = text::layout::Engine::new();
+        let mut tree = ui::Tree::new();
+        tree.set_root(
+            widget::panel(ROOT).with_child(
+                widget::text_area(CHILD, text::Area::new(buffer))
+                    .with_size(layout::Size::Fill, layout::Size::Fill),
+            ),
+        );
+
+        super::compose_with_timings(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            area::logical(180.0, 90.0),
+            crate::animation::Frame::new(epoch, None),
+        );
+        assert!(state.ensure_text_caret_visible_after_edit(&path, epoch, &mut text_engine, None));
+        let result = super::compose_with_timings(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            &mut text_engine,
+            area::logical(180.0, 90.0),
+            crate::animation::Frame::new(epoch, None),
+        );
+
+        assert!(
+            state
+                .scroll
+                .metrics(&path)
+                .expect("large text area should have scroll metrics")
+                .offset()
+                .y()
+                > 0.0,
+            "caret reveal should scroll the large text area"
+        );
+        assert_eq!(caret_quad_count(&result.scene), 1);
     }
 
     #[test]
@@ -2002,6 +2350,62 @@ mod tests {
 
         assert_eq!(state.focused_path(), Some(field));
         assert_eq!(state.focus_visibility(), ui::focus::Visibility::Visible);
+    }
+
+    #[test]
+    fn pointer_opened_menu_preserves_text_area_selection_overlay_after_compose() {
+        let window = window::Id::new(1);
+        let area = ui::Path::new([ROOT, CHILD]);
+        let mut state = WindowState {
+            focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
+                area.clone(),
+                ui::focus::Reason::Pointer,
+                ui::focus::Visibility::Visible,
+            )),
+            command_subject: Some(action::Scope::Path(area.clone())),
+            ..WindowState::default()
+        };
+        let mut registry = action::Registry::<()>::new();
+        let mut tree = ui::Tree::new();
+
+        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        registry.set_state(
+            action::SELECT_ALL,
+            action::Context::path(window, area.clone()),
+            action::State::enabled(),
+        );
+        open_menu_surface(&mut state, window, FILE, area.clone());
+        tree.set_root(
+            widget::panel(ROOT)
+                .with_child(widget::menu_bar(
+                    MENU_BAR,
+                    menu::Bar::new().menu(
+                        menu::Menu::new(FILE, "File").section(
+                            menu::Section::new().item(menu::Item::new(action::SELECT_ALL)),
+                        ),
+                    ),
+                ))
+                .with_child(
+                    widget::text_area(CHILD, text::Area::new(selected_large_text_area_buffer(3)))
+                        .with_size(layout::Size::Fill, layout::Size::Fixed(80.0))
+                        .with_responder(action::SELECT_ALL),
+                ),
+        );
+
+        let scene = compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(300.0, 180.0),
+        );
+
+        assert_eq!(state.focused_path(), Some(area));
+        assert_eq!(state.focus_visibility(), ui::focus::Visibility::Visible);
+        assert!(
+            selection_quad_count(&scene) > 0,
+            "menu-title activation that preserves text focus must keep text-area selection visible"
+        );
     }
 
     #[test]
