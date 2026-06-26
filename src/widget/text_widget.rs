@@ -1,19 +1,19 @@
-use crate::{action, layout, text, theme, ui};
+use crate::{layout, text, theme, ui};
 
 use super::foundation;
 
-pub fn text(id: ui::Id, label: impl Into<text::document::Document>) -> ui::Node {
-    text_with_theme(id, label, &theme::Theme::default_dark())
+pub fn text(label: impl Into<text::document::Document>) -> ui::Node {
+    text_with_theme(label, &theme::Theme::default_dark())
 }
 
 pub fn text_with_theme(
-    id: ui::Id,
     label: impl Into<text::document::Document>,
     theme: &theme::Theme,
 ) -> ui::Node {
     let style = theme.text().style(text::document::Role::Label);
     foundation::content_colors(
-        ui::Node::leaf(id)
+        ui::Node::leaf()
+            .with_kind("text")
             .with_label(
                 label
                     .into()
@@ -28,18 +28,18 @@ pub fn text_with_theme(
     )
 }
 
-pub fn paragraph(id: ui::Id, label: impl Into<text::document::Document>) -> ui::Node {
-    paragraph_with_theme(id, label, &theme::Theme::default_dark())
+pub fn paragraph(label: impl Into<text::document::Document>) -> ui::Node {
+    paragraph_with_theme(label, &theme::Theme::default_dark())
 }
 
 pub fn paragraph_with_theme(
-    id: ui::Id,
     label: impl Into<text::document::Document>,
     theme: &theme::Theme,
 ) -> ui::Node {
     let style = theme.text().style(text::document::Role::Body);
     foundation::content_colors(
-        ui::Node::leaf(id)
+        ui::Node::leaf()
+            .with_kind("paragraph")
             .with_label(
                 label
                     .into()
@@ -51,23 +51,19 @@ pub fn paragraph_with_theme(
     )
 }
 
-pub fn text_field(id: ui::Id, field: impl Into<text::Field>) -> ui::Node {
-    text_field_with_theme(id, field, &theme::Theme::default_dark())
+pub fn text_field(field: impl Into<text::Field>) -> ui::Node {
+    text_field_with_theme(field, &theme::Theme::default_dark())
 }
 
-pub fn text_area(id: ui::Id, area: impl Into<text::Area>) -> ui::Node {
-    text_area_with_theme(id, area, &theme::Theme::default_dark())
+pub fn text_area(area: impl Into<text::Area>) -> ui::Node {
+    text_area_with_theme(area, &theme::Theme::default_dark())
 }
 
-pub fn text_area_surface(id: ui::Id, area: impl Into<text::Area>) -> ui::Node {
-    text_area_surface_with_theme(id, area, &theme::Theme::default_dark())
+pub fn text_area_surface(area: impl Into<text::Area>) -> ui::Node {
+    text_area_surface_with_theme(area, &theme::Theme::default_dark())
 }
 
-pub fn text_field_with_theme(
-    id: ui::Id,
-    field: impl Into<text::Field>,
-    theme: &theme::Theme,
-) -> ui::Node {
+pub fn text_field_with_theme(field: impl Into<text::Field>, theme: &theme::Theme) -> ui::Node {
     let field = field.into();
     let label = text_field_document(&field, theme);
     let outline = theme.control().focus_outline();
@@ -80,7 +76,8 @@ pub fn text_field_with_theme(
 
     let node = foundation::control_chrome(
         foundation::content_colors(
-            ui::Node::leaf(id)
+            ui::Node::leaf()
+                .with_kind("text_field")
                 .with_text_field(field.clone())
                 .with_label(label)
                 .with_interactivity(interactivity)
@@ -102,14 +99,10 @@ pub fn text_field_with_theme(
     )
 }
 
-pub fn text_area_with_theme(
-    id: ui::Id,
-    area: impl Into<text::Area>,
-    theme: &theme::Theme,
-) -> ui::Node {
+pub fn text_area_with_theme(area: impl Into<text::Area>, theme: &theme::Theme) -> ui::Node {
     let outline = theme.control().focus_outline();
 
-    text_area_surface_with_theme(id, area, theme)
+    text_area_surface_with_theme(area, theme)
         .with_background(theme.control().background())
         .with_stroke(theme.control().stroke())
         .with_rounding(theme.roundings().control())
@@ -126,11 +119,7 @@ pub fn text_area_with_theme(
         })
 }
 
-pub fn text_area_surface_with_theme(
-    id: ui::Id,
-    area: impl Into<text::Area>,
-    theme: &theme::Theme,
-) -> ui::Node {
+pub fn text_area_surface_with_theme(area: impl Into<text::Area>, theme: &theme::Theme) -> ui::Node {
     let area = area.into();
     let label = text_area_document(&area, theme);
     let mut interactivity = ui::Interactivity::NONE.with_hit_test(true);
@@ -155,7 +144,8 @@ pub fn text_area_surface_with_theme(
             scroll.corner(),
         ));
     let node = foundation::content_colors(
-        ui::Node::leaf(id)
+        ui::Node::leaf()
+            .with_kind("text_area")
             .with_text_area(area)
             .with_scroll(text_scroll)
             .with_label(label)
@@ -205,21 +195,6 @@ fn text_area_scroll_axes(area: &text::Area) -> super::scroll::Axes {
     }
 }
 
-fn bind_text_surface_responders(mut node: ui::Node, surface: &text::Surface) -> ui::Node {
-    if surface.is_editable() {
-        node = node
-            .with_responder(action::SELECT_ALL)
-            .with_responder(action::COPY)
-            .with_responder(action::CUT)
-            .with_responder(action::PASTE)
-            .with_responder(action::UNDO)
-            .with_responder(action::REDO)
-            .with_responder(action::INSERT_TEXT);
-    } else if surface.is_read_only() {
-        node = node
-            .with_responder(action::SELECT_ALL)
-            .with_responder(action::COPY);
-    }
-
-    node
+fn bind_text_surface_responders(node: ui::Node, surface: &text::Surface) -> ui::Node {
+    node.with_command_targets(surface)
 }

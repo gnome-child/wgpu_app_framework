@@ -4,7 +4,7 @@ use crate::text;
 
 use super::{Path, drag_drop};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Key {
     Tab,
     Enter,
@@ -26,7 +26,7 @@ pub enum Key {
     Other,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Modifiers {
     shift: bool,
     control: bool,

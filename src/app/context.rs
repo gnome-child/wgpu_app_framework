@@ -2,7 +2,8 @@ use std::time::Instant;
 
 use winit::event_loop::ActiveEventLoop;
 
-use crate::app::mailbox::Mailbox;
+use crate::app::MailboxSender;
+use crate::app::mailbox::{Mailbox, Message};
 use crate::app::rendering;
 use crate::app::sender::Sender;
 use crate::app::state::WindowState;
@@ -10,7 +11,7 @@ use crate::app::task_runner;
 use crate::app::text_input;
 use crate::app::windows::Windows;
 use crate::geometry::area;
-use crate::{Action, Task, action, text, ui, window};
+use crate::{Command, Task, command, text, ui, window};
 
 use super::{Result, frame};
 
@@ -18,13 +19,13 @@ pub struct Context<'a, T: Send + 'static> {
     rendering: &'a mut rendering::Driver,
     windows: &'a mut Windows,
     window_states: &'a mut std::collections::HashMap<window::Id, WindowState>,
-    actions: &'a mut action::Registry<T>,
+    commands: &'a mut command::Registry,
     text_editor: &'a mut text::edit::Editor,
     text_engine: &'a mut text::layout::Engine,
     clipboard: &'a mut dyn text::edit::Clipboard,
     mailbox: &'a mut Mailbox<T>,
     sender: Sender<T>,
-    redraw_on_action_state_change: bool,
+    redraw_on_command_state_change: bool,
     event_loop: &'a ActiveEventLoop,
 }
 
@@ -32,14 +33,31 @@ pub struct Parts<'a, T: Send + 'static> {
     pub rendering: &'a mut rendering::Driver,
     pub windows: &'a mut Windows,
     pub window_states: &'a mut std::collections::HashMap<window::Id, WindowState>,
-    pub actions: &'a mut action::Registry<T>,
+    pub commands: &'a mut command::Registry,
     pub text_editor: &'a mut text::edit::Editor,
     pub text_engine: &'a mut text::layout::Engine,
     pub clipboard: &'a mut dyn text::edit::Clipboard,
     pub mailbox: &'a mut Mailbox<T>,
     pub sender: Sender<T>,
-    pub redraw_on_action_state_change: bool,
+    pub redraw_on_command_state_change: bool,
     pub event_loop: &'a ActiveEventLoop,
+}
+
+pub struct CommandDispatch<'a, T: Send + 'static> {
+    cx: Context<'a, T>,
+    call: Option<command::call::Any>,
+    handled: bool,
+}
+
+pub struct CommandStates<'a, T: Send + 'static> {
+    cx: Context<'a, T>,
+    window: window::Id,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextCommandOutcome {
+    command: text::edit::Command,
+    result: text::edit::CommandResult,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -185,14 +203,35 @@ pub fn new<T: Send + 'static>(parts: Parts<'_, T>) -> Context<'_, T> {
         rendering: parts.rendering,
         windows: parts.windows,
         window_states: parts.window_states,
-        actions: parts.actions,
+        commands: parts.commands,
         text_editor: parts.text_editor,
         text_engine: parts.text_engine,
         clipboard: parts.clipboard,
         mailbox: parts.mailbox,
         sender: parts.sender,
-        redraw_on_action_state_change: parts.redraw_on_action_state_change,
+        redraw_on_command_state_change: parts.redraw_on_command_state_change,
         event_loop: parts.event_loop,
+    }
+}
+
+pub(crate) fn command_dispatch<T: Send + 'static>(
+    parts: Parts<'_, T>,
+    call: command::call::Any,
+) -> CommandDispatch<'_, T> {
+    CommandDispatch {
+        cx: new(parts),
+        call: Some(call),
+        handled: false,
+    }
+}
+
+pub(crate) fn command_states<T: Send + 'static>(
+    parts: Parts<'_, T>,
+    window: window::Id,
+) -> CommandStates<'_, T> {
+    CommandStates {
+        cx: new(parts),
+        window,
     }
 }
 
@@ -253,35 +292,69 @@ impl<T: Send + 'static> Context<'_, T> {
         self.windows.get(window).map(|window| window.inner_area())
     }
 
-    pub fn register_action(&mut self, action: Action<T>) {
-        self.actions.register(action);
+    pub fn commands(&mut self, configure: impl FnOnce(&mut command::registry::Commands)) {
+        self.try_commands(configure)
+            .unwrap_or_else(|error| panic!("{error}"));
     }
 
-    pub fn set_action_state(
+    pub fn try_commands(
         &mut self,
-        action: action::Id,
-        context: action::Context,
-        state: action::State,
+        configure: impl FnOnce(&mut command::registry::Commands),
+    ) -> std::result::Result<(), command::registry::RegisterError> {
+        self.commands.try_commands(configure)
+    }
+
+    pub(crate) fn set_command_state_key(
+        &mut self,
+        command: command::Key,
+        context: command::call::Context,
+        state: command::State,
     ) {
         let window = context.window_id();
 
-        if self.actions.set_state(action, context, state) && self.redraw_on_action_state_change {
+        if self.commands.set_state_key(command, context, state)
+            && self.redraw_on_command_state_change
+        {
             self.request_redraw(window);
         }
     }
 
-    pub fn action(&mut self, window: window::Id, action: action::Id) -> ActionState<'_, T> {
-        ActionState::new(
-            self.actions,
+    pub fn set_command_state<C: Command>(
+        &mut self,
+        context: command::call::Context,
+        state: command::State,
+    ) {
+        self.set_command_state_key(command::Key::of::<C>(), context, state);
+    }
+
+    pub(crate) fn command_key(
+        &mut self,
+        window: window::Id,
+        command: command::Key,
+    ) -> CommandState<'_> {
+        CommandState::new(
+            self.commands,
             self.window_states.get_mut(&window),
             window,
-            action,
-            self.redraw_on_action_state_change,
+            command,
+            self.redraw_on_command_state_change,
         )
     }
 
-    pub fn action_state(&self, action: action::Id, context: action::Context) -> action::State {
-        self.actions.state(action, context)
+    pub fn command<C: Command>(&mut self, window: window::Id) -> CommandState<'_> {
+        self.command_key(window, command::Key::of::<C>())
+    }
+
+    pub(crate) fn command_state_key(
+        &self,
+        command: command::Key,
+        context: command::call::Context,
+    ) -> command::State {
+        self.commands.state_key(command, context)
+    }
+
+    pub fn command_state<C: Command>(&self, context: command::call::Context) -> command::State {
+        self.command_state_key(command::Key::of::<C>(), context)
     }
 
     pub fn diagnostics(&self, window: window::Id) -> Diagnostics {
@@ -383,122 +456,100 @@ impl<T: Send + 'static> Context<'_, T> {
         buffer: &mut text::Buffer,
         command: text::edit::Command,
     ) -> text::edit::CommandResult {
-        if matches!(
+        text_input::apply_command_for(
+            self.window_states,
+            self.text_editor,
+            self.text_engine,
+            self.clipboard,
+            target,
+            buffer,
             command,
-            text::edit::Command::Undo | text::edit::Command::Redo
-        ) {
-            let scroll_anchors = self
-                .window_states
-                .iter()
-                .map(|(window, state)| (*window, state.text_area_scroll_anchor(target)))
-                .collect::<std::collections::HashMap<_, _>>();
-            let Some(result) = self.window_states.values_mut().find_map(|state| {
-                let can_apply = state.text_surface(target).is_some_and(|surface| {
-                    text_input::can_apply_command(state, target, surface, command.clone())
-                });
+        )
+    }
 
-                can_apply.then(|| state.apply_text_history_command(target, buffer, command.clone()))
-            }) else {
-                return text::edit::CommandResult {
-                    unavailable: true,
-                    ..text::edit::CommandResult::default()
-                };
-            };
+    pub fn invoke_text_command<C>(
+        &mut self,
+        buffer: &mut text::Buffer,
+        context: command::call::Context,
+        source: command::call::Source,
+    ) -> std::result::Result<
+        command::Response<text::edit::CommandResult>,
+        command::registry::Rejection,
+    >
+    where
+        C: text::command::EditCommand,
+    {
+        let call = command::Call::<C>::for_context_with_target(
+            (),
+            context,
+            text::command::text_target_kind(),
+        )
+        .expect("unit command args should validate")
+        .with_source(source);
+        self.invoke_text_call(buffer, call)
+    }
 
-            if result.buffer_changed() {
-                self.text_engine.invalidate_text_area_surfaces_for(buffer);
-                let now = Instant::now();
-                for (window, state) in self.window_states.iter_mut() {
-                    state.ensure_text_caret_visible_after_edit(
-                        target,
-                        now,
-                        &mut self.text_engine,
-                        scroll_anchors.get(window).copied().flatten(),
-                    );
-                }
-            }
+    pub fn invoke_text_call<C>(
+        &mut self,
+        buffer: &mut text::Buffer,
+        call: command::Call<C>,
+    ) -> std::result::Result<
+        command::Response<text::edit::CommandResult>,
+        command::registry::Rejection,
+    >
+    where
+        C: text::command::EditCommand,
+    {
+        let mut target = text_input::CommandTarget::new(
+            self.window_states,
+            self.text_editor,
+            self.text_engine,
+            self.clipboard,
+            buffer,
+        );
 
-            return result;
-        }
+        self.commands.invoke_on(&mut target, call)
+    }
 
-        if !self.window_states.values().any(|state| {
-            state.text_surface(target).is_some_and(|surface| {
-                text_input::can_apply_command(state, target, surface, command.clone())
-            })
-        }) {
-            return text::edit::CommandResult {
-                unavailable: true,
-                ..text::edit::CommandResult::default()
-            };
-        }
-
-        let selection_only = matches!(command, text::edit::Command::SelectAll);
-        let scroll_anchors = self
-            .window_states
-            .iter()
-            .map(|(window, state)| (*window, state.text_area_scroll_anchor(target)))
-            .collect::<std::collections::HashMap<_, _>>();
-        let outcome =
-            self.text_editor
-                .apply_text_command_with_result(buffer, command, self.clipboard);
-        if outcome.result.text_changed {
-            self.text_engine
-                .invalidate_text_area_for_edit(buffer, &outcome.impacts);
-        }
-        let result = outcome.result;
-
-        let now = Instant::now();
-        if let Some(change) = outcome.change {
-            for state in self.window_states.values_mut() {
-                state.record_text_field_history(
-                    target,
-                    change.clone(),
-                    text::edit::HistoryKind::Boundary,
-                    now,
-                );
-            }
-        }
-
-        if result.buffer_changed() {
-            for (window, state) in self.window_states.iter_mut() {
-                if selection_only {
-                    state.reset_text_field_caret_blink_without_scroll(target, now);
-                } else if result.text_changed || result.selection_changed {
-                    state.ensure_text_caret_visible_after_edit(
-                        target,
-                        now,
-                        &mut self.text_engine,
-                        scroll_anchors.get(window).copied().flatten(),
-                    );
-                } else {
-                    state.reset_text_field_caret_blink_without_scroll(target, now);
-                }
-            }
-        }
-
-        result
+    pub fn invoke_on<C, TTarget>(
+        &mut self,
+        target: &mut TTarget,
+        call: command::Call<C>,
+    ) -> std::result::Result<command::Response<C::Output>, command::registry::Rejection>
+    where
+        C: Command,
+        TTarget: command::Target<C>,
+    {
+        self.commands.invoke_on(target, call)
     }
 
     pub fn sender(&self) -> Sender<T> {
         self.sender.clone()
     }
 
-    pub fn invoke_action(&mut self, action: action::Id, context: action::Context) {
-        self.mailbox.run_action(action::Request::new(
-            action,
-            action::Source::Programmatic,
-            context,
-        ));
+    pub fn invoke_call<C: Command>(&mut self, call: command::Call<C>) {
+        self.mailbox.run_call(call);
     }
 
-    pub fn command_subject(&self, window: window::Id) -> action::Context {
+    pub fn invoke_command<C, TTarget>(&mut self, context: command::call::Context)
+    where
+        C: Command<Args = ()>,
+        TTarget: command::Target<C> + 'static,
+    {
+        self.invoke_call(
+            command::Call::<C>::for_context::<TTarget>((), context)
+                .expect("unit command args should validate"),
+        );
+    }
+
+    pub fn command_subject(&self, window: window::Id) -> command::call::Context {
         self.window_states
             .get(&window)
             .map(|state| state.command_context(window))
-            .unwrap_or_else(|| action::Context::window(window))
+            .unwrap_or_else(|| command::call::Context::window(window))
     }
 
-    pub fn set_command_subject(&mut self, window: window::Id, context: action::Context) {
+    pub fn set_command_subject(&mut self, window: window::Id, context: command::call::Context) {
         if context.window_id() != window {
             return;
         }
@@ -554,82 +605,298 @@ impl<T: Send + 'static> Context<'_, T> {
         }
     }
 
-    pub fn resolve_action_context(
+    pub fn resolve_command_context(
         &self,
         window: window::Id,
-        requested_scope: Option<action::Scope>,
-    ) -> action::Context {
+        requested_scope: Option<command::call::Scope>,
+    ) -> command::call::Context {
         if let Some(scope) = requested_scope {
-            return action::Context::with_scope(window, scope);
+            return command::call::Context::with_scope(window, scope);
         }
 
         self.command_subject(window)
     }
 }
 
-pub struct ActionState<'a, T> {
-    actions: &'a mut action::Registry<T>,
-    window_state: Option<&'a mut WindowState>,
-    window: window::Id,
-    action: action::Id,
-    state: action::State,
-    changed: bool,
-    redraw_on_action_state_change: bool,
-}
+impl<'cx, T: Send + 'static> CommandDispatch<'cx, T> {
+    pub fn target<TTarget>(&mut self, target: &mut TTarget) -> &mut Self
+    where
+        TTarget: 'static,
+    {
+        let target_kind = command::target::Kind::of_type::<TTarget>();
+        if !self
+            .call
+            .as_ref()
+            .is_some_and(|call| call.target() == target_kind)
+        {
+            return self;
+        }
 
-impl<'a, T> ActionState<'a, T> {
-    fn new(
-        actions: &'a mut action::Registry<T>,
-        window_state: Option<&'a mut WindowState>,
-        window: window::Id,
-        action: action::Id,
-        redraw_on_action_state_change: bool,
-    ) -> Self {
-        let state = actions.configured_state(action, action::Context::window(window));
+        let call = self
+            .call
+            .take()
+            .expect("call presence was checked before target dispatch");
+        let command = call.command();
+        let fallback_context = call.context();
 
-        Self {
-            actions,
-            window_state,
-            window,
-            action,
-            state,
-            changed: false,
-            redraw_on_action_state_change,
+        match self.cx.commands.invoke_any_on(target, call) {
+            Ok(response) => {
+                log::debug!(
+                    "command dispatch target accepted command={} context={:?}",
+                    response.command.as_str(),
+                    response.context
+                );
+                self.handled = true;
+                self.request_redraw(response.context.window_id());
+                for effect in response.effects {
+                    self.enqueue_effect(response.command, response.context.clone(), effect);
+                }
+            }
+            Err(error) => {
+                log::debug!(
+                    "command dispatch target rejected command={}: {error}",
+                    command.as_str()
+                );
+                self.handled = true;
+                if let Some(context) = fallback_context {
+                    self.request_redraw(context.window_id());
+                }
+            }
+        }
+
+        self
+    }
+
+    pub fn text_buffer(&mut self, buffer: &mut text::Buffer) -> Option<TextCommandOutcome> {
+        self.text_command::<text::command::Undo>(buffer)
+            .or_else(|| self.text_command::<text::command::Redo>(buffer))
+            .or_else(|| self.text_command::<text::command::SelectAll>(buffer))
+            .or_else(|| self.text_command::<text::command::Cut>(buffer))
+            .or_else(|| self.text_command::<text::command::Delete>(buffer))
+            .or_else(|| self.text_command::<text::command::Copy>(buffer))
+            .or_else(|| self.text_command::<text::command::Paste>(buffer))
+    }
+
+    pub fn request_redraw(&mut self, window: window::Id) {
+        self.cx.request_redraw(window);
+    }
+
+    pub fn close_window(&mut self, window: window::Id) {
+        self.cx.close_window(window);
+    }
+
+    pub fn emit(&mut self, event: T) {
+        self.cx.emit(event);
+    }
+
+    pub fn spawn(&self, task: Task<T>) {
+        self.cx.spawn(task);
+    }
+
+    pub fn sender(&self) -> Sender<T> {
+        self.cx.sender()
+    }
+
+    pub fn apply_text_edit_for(
+        &mut self,
+        target: &ui::Path,
+        buffer: &mut text::Buffer,
+        edit: text::edit::Edit,
+    ) -> bool {
+        self.cx.apply_text_edit_for(target, buffer, edit)
+    }
+
+    pub(crate) fn finish(self) -> (bool, Option<command::call::Any>) {
+        (self.handled, self.call)
+    }
+
+    fn text_command<C>(&mut self, buffer: &mut text::Buffer) -> Option<TextCommandOutcome>
+    where
+        C: text::command::EditCommand,
+    {
+        if !self
+            .call
+            .as_ref()
+            .is_some_and(|call| call.target() == text::command::text_target_kind())
+        {
+            return None;
+        }
+
+        let call = self.take_call::<C>()?;
+        let context = call.requested_context()?;
+        let command = C::edit_command();
+        let result = match self.cx.invoke_text_call::<C>(buffer, call) {
+            Ok(response) => response.into_output(),
+            Err(error) => {
+                log::debug!(
+                    "text command dispatch rejected command={}: {error}",
+                    C::NAME
+                );
+                text::edit::CommandResult {
+                    unavailable: true,
+                    ..text::edit::CommandResult::default()
+                }
+            }
+        };
+
+        self.handled = true;
+        self.request_redraw(context.window_id());
+
+        Some(TextCommandOutcome { command, result })
+    }
+
+    fn take_call<C: Command>(&mut self) -> Option<command::Call<C>> {
+        let call = self.call.take()?;
+        match call.into_call::<C>() {
+            Ok(call) => Some(call),
+            Err(call) => {
+                self.call = Some(call);
+                None
+            }
         }
     }
 
-    pub fn enabled(mut self, enabled: bool) -> Self {
-        self.state = self.state.with_enabled(enabled);
+    fn enqueue_effect(
+        &mut self,
+        command: command::Key,
+        context: command::call::Context,
+        effect: command::Effect,
+    ) {
+        match effect {
+            command::Effect::None => {}
+            command::Effect::Runtime(effect) => match effect {
+                command::effect::RuntimeEffect::Notify(message) => {
+                    log::debug!("command runtime notification: {message}");
+                }
+                command::effect::RuntimeEffect::RequestRedraw => {
+                    self.request_redraw(context.window_id());
+                }
+                command::effect::RuntimeEffect::ClipboardWrite(text) => {
+                    if let Err(error) = self.cx.clipboard.write_text(&text) {
+                        log::debug!("command clipboard write failed: {error:?}");
+                    }
+                }
+            },
+            command::Effect::Batch(effects) => {
+                for effect in effects {
+                    self.enqueue_effect(command, context.clone(), effect);
+                }
+            }
+            command::Effect::Call(call) => {
+                self.cx
+                    .mailbox
+                    .run_any_call(call.with_fallback_window(context.window_id()));
+            }
+            command::Effect::Task(task) => {
+                self.cx
+                    .commands
+                    .set_running_key(command, context.clone(), true);
+                self.request_redraw(context.window_id());
+                let sender = self.cx.sender.clone();
+                std::thread::spawn(move || {
+                    let response = task.run();
+                    let _ = sender.send_message(Message::CommandTaskCompleted {
+                        command,
+                        context,
+                        response,
+                    });
+                });
+            }
+        }
+    }
+}
+
+impl<T: Send + 'static> CommandStates<'_, T> {
+    pub fn target<TTarget>(&mut self, target: &TTarget) -> &mut Self
+    where
+        TTarget: 'static,
+    {
+        if self
+            .cx
+            .commands
+            .project_target_states(target, command::call::Context::window(self.window))
+            && self.cx.redraw_on_command_state_change
+        {
+            self.cx.request_redraw(self.window);
+        }
+
+        self
+    }
+}
+
+impl TextCommandOutcome {
+    pub fn command(self) -> text::edit::Command {
+        self.command
+    }
+
+    pub fn result(self) -> text::edit::CommandResult {
+        self.result
+    }
+}
+
+pub struct CommandState<'a> {
+    commands: &'a mut command::Registry,
+    window_state: Option<&'a mut WindowState>,
+    window: window::Id,
+    command: command::Key,
+    state: command::State,
+    changed: bool,
+    redraw_on_command_state_change: bool,
+}
+
+impl<'a> CommandState<'a> {
+    fn new(
+        commands: &'a mut command::Registry,
+        window_state: Option<&'a mut WindowState>,
+        window: window::Id,
+        command: command::Key,
+        redraw_on_command_state_change: bool,
+    ) -> Self {
+        let state = commands.configured_state_key(command, command::call::Context::window(window));
+
+        Self {
+            commands,
+            window_state,
+            window,
+            command,
+            state,
+            changed: false,
+            redraw_on_command_state_change,
+        }
+    }
+
+    pub fn available(mut self, available: bool) -> Self {
+        self.state = self.state.clone().with_available(available);
         self.changed = true;
         self
     }
 
     pub fn active(mut self, active: bool) -> Self {
-        self.state = self.state.with_active(active);
+        self.state = self.state.clone().with_active(active);
         self.changed = true;
         self
     }
 
-    pub fn busy(mut self, busy: bool) -> Self {
-        self.state = self.state.with_busy(busy);
+    pub fn running(mut self, running: bool) -> Self {
+        self.state = self.state.clone().with_running(running);
         self.changed = true;
         self
     }
 }
 
-impl<T> Drop for ActionState<'_, T> {
+impl Drop for CommandState<'_> {
     fn drop(&mut self) {
         if !self.changed {
             return;
         }
 
-        let changed = self.actions.set_state(
-            self.action,
-            action::Context::window(self.window),
-            self.state,
+        let changed = self.commands.set_state_key(
+            self.command,
+            command::call::Context::window(self.window),
+            self.state.clone(),
         );
 
-        if changed && self.redraw_on_action_state_change {
+        if changed && self.redraw_on_command_state_change {
             if let Some(state) = self.window_state.as_mut() {
                 state.invalidate_frame(frame::RedrawKind::Full, Instant::now());
             }

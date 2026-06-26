@@ -18,6 +18,11 @@ pub use control::{
     button, button_with_theme, floating_panel, floating_panel_with_theme, icon_button,
     icon_button_with_theme, labeled_button, labeled_button_with_theme, panel, panel_with_theme,
 };
+#[cfg(test)]
+pub(crate) use control::{
+    button_key, button_with_theme_key, icon_button_key, icon_button_with_theme_key,
+    labeled_button_key, labeled_button_with_theme_key,
+};
 pub use text_widget::{
     paragraph, paragraph_with_theme, text, text_area, text_area_surface,
     text_area_surface_with_theme, text_area_with_theme, text_field, text_field_with_theme,
@@ -59,12 +64,12 @@ pub struct Hit {
     part: Part,
 }
 
-pub fn label(id: ui::Id, label: impl Into<String>) -> ui::Node {
-    label_with_theme(id, label, &theme::Theme::default_dark())
+pub fn label(label: impl Into<String>) -> ui::Node {
+    label_with_theme(label, &theme::Theme::default_dark())
 }
 
-pub fn label_with_theme(id: ui::Id, label: impl Into<String>, theme: &theme::Theme) -> ui::Node {
-    foundation::content_colors(ui::Node::leaf(id), theme)
+pub fn label_with_theme(label: impl Into<String>, theme: &theme::Theme) -> ui::Node {
+    foundation::content_colors(ui::Node::leaf().with_kind("label"), theme)
         .with_label(document_with_theme(
             label,
             theme,
@@ -78,21 +83,22 @@ pub fn label_with_theme(id: ui::Id, label: impl Into<String>, theme: &theme::The
         )
 }
 
-pub fn separator(id: ui::Id) -> ui::Node {
-    separator_with_theme(id, &theme::Theme::default_dark())
+pub fn separator() -> ui::Node {
+    separator_with_theme(&theme::Theme::default_dark())
 }
 
-pub fn separator_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
-    ui::Node::leaf(id)
+pub fn separator_with_theme(theme: &theme::Theme) -> ui::Node {
+    ui::Node::leaf()
+        .with_kind("separator")
         .with_background(theme.surfaces().separator())
         .with_size(layout::Size::Fill, layout::Size::Fixed(1.0))
 }
 
-pub fn scroll_view(id: ui::Id) -> ui::Node {
-    scroll_view_with_theme(id, &theme::Theme::default_dark())
+pub fn scroll_view() -> ui::Node {
+    scroll_view_with_theme(&theme::Theme::default_dark())
 }
 
-pub fn scroll_view_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
+pub fn scroll_view_with_theme(theme: &theme::Theme) -> ui::Node {
     let scroll = theme.scroll();
     let scroll = Scroll::new()
         .with_bars(scroll::Bars::vertical())
@@ -106,18 +112,20 @@ pub fn scroll_view_with_theme(id: ui::Id, theme: &theme::Theme) -> ui::Node {
             scroll.corner(),
         ));
 
-    ui::Node::container(id, layout::Axis::Vertical)
+    ui::Node::container(layout::Axis::Vertical)
+        .with_kind("scroll_view")
         .clipped()
         .with_scroll(scroll)
         .with_size(layout::Size::Fill, layout::Size::Fill)
 }
 
-pub fn menu_bar(id: ui::Id, bar: menu::Bar) -> ui::Node {
-    menu_bar_with_theme(id, bar, &theme::Theme::default_dark())
+pub fn menu_bar(bar: menu::Bar) -> ui::Node {
+    menu_bar_with_theme(bar, &theme::Theme::default_dark())
 }
 
-pub fn menu_bar_with_theme(id: ui::Id, bar: menu::Bar, theme: &theme::Theme) -> ui::Node {
-    let mut node = ui::Node::container(id, layout::Axis::Horizontal)
+pub fn menu_bar_with_theme(bar: menu::Bar, theme: &theme::Theme) -> ui::Node {
+    let mut node = ui::Node::container(layout::Axis::Horizontal)
+        .with_kind("menu_bar")
         .with_menu_bar(bar.clone())
         .with_background(theme.menu().bar_background())
         .with_size(
@@ -162,7 +170,8 @@ fn menu_title(menu: &menu::Menu, theme: &theme::Theme) -> ui::Node {
     let outline = theme.menu().title_focus_outline();
     let horizontal_padding = theme.density().menu_title_horizontal_padding() * 0.5;
 
-    ui::Node::leaf(ui::Id::new(menu.id().as_str()))
+    ui::Node::leaf()
+        .with_kind("menu_title")
         .with_intent(ui::Intent::OpenMenu(menu.id()))
         .with_interactivity(ui::Interactivity::CONTROL)
         .with_label(document_with_theme(
@@ -308,12 +317,21 @@ impl Hit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action;
     use crate::geometry::rect;
     use crate::paint;
     use crate::text as text_model;
+    use crate::{Command, command};
 
     const ROOT: ui::Id = ui::Id::new("root");
+    struct ButtonCommand;
+
+    impl Command for ButtonCommand {
+        type Args = ();
+        type Output = ();
+
+        const NAME: &'static str = "button_command";
+        const DISPLAY: &'static str = "Button Command";
+    }
 
     #[test]
     fn scroll_stores_offset_bars_and_style() {
@@ -371,15 +389,15 @@ mod tests {
     fn text_area_scrollbars_follow_wrap_mode() {
         let theme = theme::Theme::default_dark();
         let wrapped = text_area_with_theme(
-            ROOT,
             text_model::Area::new(text_model::Buffer::from_multiline_text("wrapped")),
             &theme,
-        );
+        )
+        .key(ROOT);
         let unwrapped = text_area_with_theme(
-            ROOT,
             text_model::Area::new(text_model::Buffer::from_multiline_text("unwrapped")).no_wrap(),
             &theme,
-        );
+        )
+        .key(ROOT);
 
         assert_eq!(
             wrapped.scroll().map(Scroll::bars),
@@ -403,15 +421,15 @@ mod tests {
     fn text_area_surface_is_bare_focusable_text_surface() {
         let theme = theme::Theme::default_dark();
         let wrapped = text_area_surface_with_theme(
-            ROOT,
             text_model::Area::new(text_model::Buffer::from_multiline_text("Editable")),
             &theme,
-        );
+        )
+        .key(ROOT);
         let unwrapped = text_area_surface_with_theme(
-            ROOT,
             text_model::Area::new(text_model::Buffer::from_multiline_text("Editable")).no_wrap(),
             &theme,
-        );
+        )
+        .key(ROOT);
 
         assert_eq!(
             wrapped.text_area().map(|area| area.buffer().text()),
@@ -428,8 +446,16 @@ mod tests {
         assert!(wrapped.interactivity().focusable());
         assert!(!wrapped.interactivity().actionable());
         assert_eq!(wrapped.cursor(), ui::Cursor::Text);
-        assert!(wrapped.responders().contains(&action::SELECT_ALL));
-        assert!(wrapped.responders().contains(&action::INSERT_TEXT));
+        assert!(
+            wrapped
+                .responders()
+                .contains(&command::Key::of::<crate::text::command::SelectAll>())
+        );
+        assert!(
+            wrapped
+                .responders()
+                .contains(&command::Key::of::<crate::text::command::InsertText>())
+        );
         assert_eq!(
             wrapped.scroll().map(Scroll::bars),
             Some(scroll::Bars::vertical())
@@ -461,10 +487,10 @@ mod tests {
     fn text_area_with_theme_preserves_control_chrome() {
         let theme = theme::Theme::default_dark();
         let node = text_area_with_theme(
-            ROOT,
             text_model::Area::new(text_model::Buffer::from_multiline_text("Editable")),
             &theme,
-        );
+        )
+        .key(ROOT);
 
         assert_eq!(
             node.style().background(),
@@ -500,7 +526,7 @@ mod tests {
     #[test]
     fn text_widget_stores_themed_text_document() {
         let theme = theme::Theme::default_dark();
-        let node = text_with_theme(ROOT, "Status", &theme);
+        let node = text_with_theme("Status", &theme).key(ROOT);
         let label = node.label().expect("text widget should store a label");
 
         assert_eq!(label.blocks()[0].runs()[0].text(), "Status");
@@ -524,7 +550,7 @@ mod tests {
     #[test]
     fn paragraph_widget_is_fill_width_and_fit_height() {
         let theme = theme::Theme::default_dark();
-        let node = paragraph_with_theme(ROOT, "Paragraph text", &theme);
+        let node = paragraph_with_theme("Paragraph text", &theme).key(ROOT);
         let label = node.label().expect("paragraph should store a label");
 
         assert_eq!(node.layout().width(), layout::Size::Fill);
@@ -539,7 +565,8 @@ mod tests {
     #[test]
     fn labeled_button_uses_control_typography_role() {
         let theme = theme::Theme::default_dark();
-        let node = labeled_button_with_theme(ROOT, action::Id::new("button_action"), "Run", &theme);
+        let node = labeled_button_with_theme::<ButtonCommand, command::TestTarget>("Run", &theme)
+            .key(ROOT);
         let label = node.label().expect("button should store a label");
 
         assert_eq!(
@@ -552,7 +579,7 @@ mod tests {
     fn text_field_is_focusable_text_bearing_and_responder_bound() {
         let theme = theme::Theme::default_dark();
         let buffer = text_model::Buffer::from_text("Editable");
-        let node = text_field_with_theme(ROOT, buffer.clone(), &theme);
+        let node = text_field_with_theme(buffer.clone(), &theme).key(ROOT);
 
         assert_eq!(
             node.text_field().map(text_model::Field::buffer),
@@ -567,24 +594,30 @@ mod tests {
         assert!(node.interactivity().focusable());
         assert!(!node.interactivity().actionable());
         assert_eq!(node.cursor(), ui::Cursor::Text);
-        assert!(node.responders().contains(&action::SELECT_ALL));
-        assert!(node.responders().contains(&action::INSERT_TEXT));
+        assert!(
+            node.responders()
+                .contains(&command::Key::of::<crate::text::command::SelectAll>())
+        );
+        assert!(
+            node.responders()
+                .contains(&command::Key::of::<crate::text::command::InsertText>())
+        );
     }
 
     #[test]
     fn text_area_content_and_placeholder_share_control_typography() {
         let theme = theme::Theme::default_dark();
         let content = text_area_with_theme(
-            ROOT,
             text_model::Area::new(text_model::Buffer::from_multiline_text("Editable")),
             &theme,
-        );
+        )
+        .key(ROOT);
         let placeholder = text_area_with_theme(
-            ROOT,
             text_model::Area::new(text_model::Buffer::from_multiline_text(""))
                 .with_placeholder("Hint"),
             &theme,
-        );
+        )
+        .key(ROOT);
 
         assert_eq!(
             content
@@ -621,11 +654,9 @@ mod tests {
     #[test]
     fn text_field_placeholder_stores_content_style_carrier() {
         let theme = theme::Theme::default_dark();
-        let node = text_field_with_theme(
-            ROOT,
-            text_model::Field::new("").with_placeholder("Hint"),
-            &theme,
-        );
+        let node =
+            text_field_with_theme(text_model::Field::new("").with_placeholder("Hint"), &theme)
+                .key(ROOT);
         let label = node
             .label()
             .expect("placeholder text field should store a content style carrier");
@@ -644,15 +675,39 @@ mod tests {
     #[test]
     fn text_field_declares_text_command_responders_without_projected_state() {
         let theme = theme::Theme::default_dark();
-        let node = text_field_with_theme(ROOT, text_model::Buffer::from_text("Editable"), &theme);
+        let node =
+            text_field_with_theme(text_model::Buffer::from_text("Editable"), &theme).key(ROOT);
+        let text_target = crate::text::command::text_target_kind();
 
-        assert!(node.responders().contains(&action::SELECT_ALL));
-        assert!(node.responders().contains(&action::COPY));
-        assert!(node.responders().contains(&action::CUT));
-        assert!(node.responders().contains(&action::PASTE));
-        assert!(node.responders().contains(&action::UNDO));
-        assert!(node.responders().contains(&action::REDO));
-        assert!(node.responders().contains(&action::INSERT_TEXT));
+        assert!(node.command_targets().contains(&text_target));
+        assert!(
+            node.responders()
+                .contains(&command::Key::of::<crate::text::command::SelectAll>())
+        );
+        assert!(
+            node.responders()
+                .contains(&command::Key::of::<crate::text::command::Copy>())
+        );
+        assert!(
+            node.responders()
+                .contains(&command::Key::of::<crate::text::command::Cut>())
+        );
+        assert!(
+            node.responders()
+                .contains(&command::Key::of::<crate::text::command::Paste>())
+        );
+        assert!(
+            node.responders()
+                .contains(&command::Key::of::<crate::text::command::Undo>())
+        );
+        assert!(
+            node.responders()
+                .contains(&command::Key::of::<crate::text::command::Redo>())
+        );
+        assert!(
+            node.responders()
+                .contains(&command::Key::of::<crate::text::command::InsertText>())
+        );
         assert!(
             node.responder_bindings()
                 .iter()
@@ -664,25 +719,51 @@ mod tests {
     fn read_only_text_field_is_focusable_and_copy_select_all_responder_bound() {
         let theme = theme::Theme::default_dark();
         let field = text_model::Field::new("Readonly").read_only();
-        let node = text_field_with_theme(ROOT, field, &theme);
+        let node = text_field_with_theme(field, &theme).key(ROOT);
 
         assert!(node.interactivity().hit_test());
         assert!(node.interactivity().focusable());
         assert_eq!(node.cursor(), ui::Cursor::Text);
-        assert!(node.responders().contains(&action::SELECT_ALL));
-        assert!(node.responders().contains(&action::COPY));
-        assert!(!node.responders().contains(&action::CUT));
-        assert!(!node.responders().contains(&action::PASTE));
-        assert!(!node.responders().contains(&action::UNDO));
-        assert!(!node.responders().contains(&action::REDO));
-        assert!(!node.responders().contains(&action::INSERT_TEXT));
+        assert!(
+            node.responders()
+                .contains(&command::Key::of::<crate::text::command::SelectAll>())
+        );
+        assert!(
+            node.responders()
+                .contains(&command::Key::of::<crate::text::command::Copy>())
+        );
+        assert!(
+            !node
+                .responders()
+                .contains(&command::Key::of::<crate::text::command::Cut>())
+        );
+        assert!(
+            !node
+                .responders()
+                .contains(&command::Key::of::<crate::text::command::Paste>())
+        );
+        assert!(
+            !node
+                .responders()
+                .contains(&command::Key::of::<crate::text::command::Undo>())
+        );
+        assert!(
+            !node
+                .responders()
+                .contains(&command::Key::of::<crate::text::command::Redo>())
+        );
+        assert!(
+            !node
+                .responders()
+                .contains(&command::Key::of::<crate::text::command::InsertText>())
+        );
     }
 
     #[test]
     fn disabled_text_field_is_hit_testable_but_not_focusable_or_responder_bound() {
         let theme = theme::Theme::default_dark();
         let field = text_model::Field::new("Disabled").disabled();
-        let node = text_field_with_theme(ROOT, field, &theme);
+        let node = text_field_with_theme(field, &theme).key(ROOT);
 
         assert!(node.interactivity().hit_test());
         assert!(!node.interactivity().focusable());
@@ -693,8 +774,8 @@ mod tests {
     #[test]
     fn menu_bar_is_fill_only_by_default_theme() {
         let theme = theme::Theme::default_dark();
-        let bar = menu::Bar::new().menu(menu::Menu::new(menu::Id::new("file"), "File"));
-        let node = menu_bar_with_theme(ROOT, bar, &theme);
+        let bar = menu::Bar::new().menu(menu::Menu::new("File").key(menu::Id::new("file")));
+        let node = menu_bar_with_theme(bar, &theme).key(ROOT);
 
         assert_eq!(
             node.style().background(),
@@ -706,15 +787,12 @@ mod tests {
     #[test]
     fn menu_title_width_uses_measured_label_content() {
         let bar = menu::Bar::new()
-            .menu(menu::Menu::new(menu::Id::new("a"), "A"))
-            .menu(menu::Menu::new(
-                menu::Id::new("workspace_tools"),
-                "Workspace Tools",
-            ));
+            .menu(menu::Menu::new("A").key(menu::Id::new("a")))
+            .menu(menu::Menu::new("Workspace Tools").key(menu::Id::new("workspace_tools")));
         let mut tree = ui::Tree::new();
         let mut measurer = text_model::Engine::new();
 
-        tree.set_root(menu_bar(ROOT, bar));
+        tree.set_root(menu_bar(bar).key(ROOT));
         let layout = tree
             .layout(area::logical(320.0, 28.0), &mut measurer)
             .expect("menu bar should layout");

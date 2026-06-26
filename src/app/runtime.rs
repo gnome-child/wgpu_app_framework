@@ -10,7 +10,6 @@ use winit::{
 };
 
 use crate::animation;
-use crate::app::action_executor;
 use crate::app::clipboard::SystemClipboard;
 use crate::app::context;
 use crate::app::frame;
@@ -23,7 +22,7 @@ use crate::app::state::WindowState;
 use crate::app::view;
 use crate::app::windows::Windows;
 use crate::geometry::{area, point};
-use crate::{action, event, native, paint, text, ui, window};
+use crate::{command, event, native, paint, text, ui, window};
 
 use super::{Application, Error, Options};
 
@@ -32,7 +31,7 @@ pub struct Runtime<A: Application> {
     rendering: Driver,
     windows: Windows,
     window_states: HashMap<window::Id, WindowState>,
-    actions: action::Registry<A::Event>,
+    commands: command::Registry,
     text_editor: text::edit::Editor,
     text_engine: text::layout::Engine,
     clipboard: SystemClipboard,
@@ -55,7 +54,7 @@ impl<A: Application> Runtime<A> {
             rendering: Driver::new(),
             windows: Windows::new(),
             window_states: HashMap::new(),
-            actions: action::Registry::new(),
+            commands: command::Registry::new(),
             text_editor: text::edit::Editor::new(),
             text_engine: text::layout::Engine::new(),
             clipboard: SystemClipboard::new(),
@@ -113,23 +112,30 @@ impl<A: Application> Runtime<A> {
                         rendering: &mut self.rendering,
                         windows: &mut self.windows,
                         window_states: &mut self.window_states,
-                        actions: &mut self.actions,
+                        commands: &mut self.commands,
                         text_editor: &mut self.text_editor,
                         text_engine: &mut self.text_engine,
                         clipboard: &mut self.clipboard,
                         mailbox: &mut self.mailbox,
                         sender: self.sender.clone(),
-                        redraw_on_action_state_change: true,
+                        redraw_on_command_state_change: true,
                         event_loop,
                     });
 
                     self.app.event(&mut cx, event);
                 }
-                Message::RunAction(request) => {
-                    self.run_action(request);
+                Message::RunCommand(request) => {
+                    self.run_command(event_loop, request);
                 }
-                Message::ActionTaskCompleted { invocation, event } => {
-                    self.complete_action_task(invocation, event);
+                Message::RunCall(call) => {
+                    self.run_any_call(event_loop, call);
+                }
+                Message::CommandTaskCompleted {
+                    command,
+                    context,
+                    response,
+                } => {
+                    self.complete_command_task(event_loop, command, context, response);
                 }
                 Message::AppTaskCompleted(event) => {
                     self.complete_app_task(event);
@@ -138,39 +144,140 @@ impl<A: Application> Runtime<A> {
         }
     }
 
-    fn run_action(&mut self, request: action::Request) {
-        let window = request.target().window_id();
+    fn run_command(&mut self, event_loop: &ActiveEventLoop, request: command::call::Raw) {
+        let window = request.context().window_id();
         let request = self
             .window_states
             .get(&window)
-            .map(|state| state.resolve_request(request.clone()))
+            .map(|state| state.resolve_request(&self.commands, request.clone()))
             .unwrap_or(request);
-        let mut redraws = Vec::new();
-        let mut request_redraw = |window| redraws.push(window);
 
-        let sender = self.sender.clone();
-        if let Some(effect) = action_executor::execute(
-            &mut self.actions,
-            request,
-            |invocation, task| action_executor::spawn_task(invocation, task, sender),
-            &mut request_redraw,
-        ) {
-            action_executor::enqueue_effect(&mut self.mailbox, effect);
-        }
-        for window in redraws {
-            self.invalidate_full(window);
+        match self.commands.prepare_call(request.clone()) {
+            Ok(call) => {
+                let (handled, remaining) = self.dispatch_command_call(event_loop, call);
+                if !handled && let Some(call) = remaining {
+                    log::debug!(
+                        "command request was prepared but no target handled it: {:?}",
+                        call
+                    );
+                }
+            }
+            Err(error) => {
+                log::debug!("command request rejected before dispatch: {error}");
+            }
         }
     }
 
-    fn complete_action_task(&mut self, invocation: action::Invocation, event: A::Event) {
-        let mut redraws = Vec::new();
-        let mut request_redraw = |window| redraws.push(window);
-
-        action_executor::complete_task(&mut self.actions, invocation, &mut request_redraw);
-        for window in redraws {
-            self.invalidate_full(window);
+    fn run_any_call(&mut self, event_loop: &ActiveEventLoop, call: command::call::Any) {
+        let (handled, remaining) = self.dispatch_command_call(event_loop, call);
+        if !handled && let Some(call) = remaining {
+            log::debug!("pending command call had no target: {:?}", call);
         }
-        self.mailbox.push_app(event);
+    }
+
+    fn dispatch_command_call(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        call: command::call::Any,
+    ) -> (bool, Option<command::call::Any>) {
+        let mut dispatch = context::command_dispatch(
+            context::Parts {
+                rendering: &mut self.rendering,
+                windows: &mut self.windows,
+                window_states: &mut self.window_states,
+                commands: &mut self.commands,
+                text_editor: &mut self.text_editor,
+                text_engine: &mut self.text_engine,
+                clipboard: &mut self.clipboard,
+                mailbox: &mut self.mailbox,
+                sender: self.sender.clone(),
+                redraw_on_command_state_change: true,
+                event_loop,
+            },
+            call,
+        );
+
+        self.app.command_targets(&mut dispatch);
+        dispatch.finish()
+    }
+
+    fn complete_command_task(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        command: command::Key,
+        context: command::call::Context,
+        response: Result<command::Response<()>, command::registry::Rejection>,
+    ) {
+        if self
+            .commands
+            .set_running_key(command, context.clone(), false)
+        {
+            self.invalidate_full(context.window_id());
+        }
+
+        match response {
+            Ok(response) => {
+                let (_, effects) = response.into_parts();
+                for effect in effects {
+                    self.enqueue_command_effect(event_loop, context.clone(), effect);
+                }
+            }
+            Err(error) => {
+                log::debug!(
+                    "command task completed with rejection command={} context={context:?}: {error}",
+                    command.as_str()
+                );
+            }
+        }
+    }
+
+    fn enqueue_command_effect(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        context: command::call::Context,
+        effect: command::Effect,
+    ) {
+        match effect {
+            command::Effect::None => {}
+            command::Effect::Runtime(effect) => match effect {
+                command::effect::RuntimeEffect::Notify(message) => {
+                    log::debug!("command runtime notification: {message}");
+                }
+                command::effect::RuntimeEffect::RequestRedraw => {
+                    self.invalidate_full(context.window_id());
+                }
+                command::effect::RuntimeEffect::ClipboardWrite(text) => {
+                    use crate::text::edit::Clipboard;
+
+                    if let Err(error) = self.clipboard.write_text(&text) {
+                        log::debug!("command clipboard write failed: {error:?}");
+                    }
+                }
+            },
+            command::Effect::Batch(effects) => {
+                for effect in effects {
+                    self.enqueue_command_effect(event_loop, context.clone(), effect);
+                }
+            }
+            command::Effect::Call(call) => {
+                self.run_any_call(event_loop, call.with_fallback_window(context.window_id()));
+            }
+            command::Effect::Task(task) => {
+                let sender = self.sender.clone();
+                let command = command::Key::unknown();
+                let task_context = context.clone();
+                std::thread::spawn(move || {
+                    use crate::app::MailboxSender;
+
+                    let response = task.run();
+                    let _ = sender.send_message(Message::CommandTaskCompleted {
+                        command,
+                        context: task_context,
+                        response,
+                    });
+                });
+            }
+        }
     }
 
     fn complete_app_task(&mut self, event: A::Event) {
@@ -275,7 +382,7 @@ impl<A: Application> Runtime<A> {
             match view::paint_scroll_only(
                 window,
                 state,
-                &mut self.actions,
+                &mut self.commands,
                 &mut self.text_engine,
                 frame,
             ) {
@@ -394,24 +501,44 @@ impl<A: Application> Runtime<A> {
     ) -> view::PaintResult {
         let mut tree = ui::Tree::new();
 
-        self.actions.clear_context_states(window);
+        self.commands.clear_context_states(window);
 
         {
             let mut cx = context::new(context::Parts {
                 rendering: &mut self.rendering,
                 windows: &mut self.windows,
                 window_states: &mut self.window_states,
-                actions: &mut self.actions,
+                commands: &mut self.commands,
                 text_editor: &mut self.text_editor,
                 text_engine: &mut self.text_engine,
                 clipboard: &mut self.clipboard,
                 mailbox: &mut self.mailbox,
                 sender: self.sender.clone(),
-                redraw_on_action_state_change: false,
+                redraw_on_command_state_change: false,
                 event_loop,
             });
 
             self.app.view(&mut cx, window, &mut tree);
+        }
+        {
+            let mut states = context::command_states(
+                context::Parts {
+                    rendering: &mut self.rendering,
+                    windows: &mut self.windows,
+                    window_states: &mut self.window_states,
+                    commands: &mut self.commands,
+                    text_editor: &mut self.text_editor,
+                    text_engine: &mut self.text_engine,
+                    clipboard: &mut self.clipboard,
+                    mailbox: &mut self.mailbox,
+                    sender: self.sender.clone(),
+                    redraw_on_command_state_change: false,
+                    event_loop,
+                },
+                window,
+            );
+
+            self.app.command_states(&mut states);
         }
         self.text_editor.reset_diagnostics();
         self.text_engine.reset_diagnostics();
@@ -429,7 +556,7 @@ impl<A: Application> Runtime<A> {
             window,
             &tree,
             state,
-            &mut self.actions,
+            &mut self.commands,
             &mut self.text_engine,
             logical_area,
             frame,
@@ -528,7 +655,7 @@ impl<A: Application> Runtime<A> {
                 &mut self.text_engine,
             ),
             ElementState::Released => {
-                input::pointer_released(&self.actions, window_state, window, position, button)
+                input::pointer_released(&self.commands, window_state, window, position, button)
             }
         };
         let has_scroll_capture = window_state.pointer_capture_is_scroll_thumb();
@@ -541,7 +668,7 @@ impl<A: Application> Runtime<A> {
         self.dispatch_ui_events(event_loop, window, outcome.events);
 
         if let Some(request) = outcome.request {
-            self.dispatch_message(event_loop, Message::RunAction(request));
+            self.dispatch_message(event_loop, Message::RunCommand(request));
         }
 
         if let Some(intent) = outcome.intent {
@@ -639,7 +766,7 @@ impl<A: Application> Runtime<A> {
             ElementState::Pressed => {
                 let repeat = self.key_repeat_policy.accepts_backend_repeat() && event.repeat;
                 let outcome = input::key_pressed_with_text(
-                    &self.actions,
+                    &self.commands,
                     state,
                     window,
                     key,
@@ -659,7 +786,7 @@ impl<A: Application> Runtime<A> {
                 }
                 outcome
             }
-            ElementState::Released => input::key_released(&self.actions, state, window, key),
+            ElementState::Released => input::key_released(&self.commands, state, window, key),
         };
 
         self.finish_keyboard_outcome(event_loop, window, outcome);
@@ -674,7 +801,7 @@ impl<A: Application> Runtime<A> {
         self.dispatch_ui_events(event_loop, window, outcome.events);
 
         if let Some(request) = outcome.request {
-            self.dispatch_message(event_loop, Message::RunAction(request));
+            self.dispatch_message(event_loop, Message::RunCommand(request));
         }
 
         if let Some(intent) = outcome.intent {
@@ -706,7 +833,7 @@ impl<A: Application> Runtime<A> {
             return;
         };
         let outcome = input::key_pressed_with_text(
-            &self.actions,
+            &self.commands,
             state,
             pulse.window,
             pulse.key,
@@ -743,14 +870,14 @@ impl<A: Application> Runtime<A> {
         };
 
         match request.intent {
-            ui::Intent::Action(_) => {}
+            ui::Intent::Command(_) => {}
             ui::Intent::OpenMenu(menu) => {
-                if state.toggle_menu(menu, &self.actions, window, request.source) {
+                if state.toggle_menu(menu, &self.commands, window, request.source) {
                     self.invalidate_full(window);
                 }
             }
             ui::Intent::OpenSubmenu(menu) => {
-                if state.open_submenu(menu, &self.actions, window, request.source) {
+                if state.open_submenu(menu, &self.commands, window, request.source) {
                     self.invalidate_full(window);
                 }
             }
@@ -936,13 +1063,13 @@ impl<A: Application> ApplicationHandler<Message<A::Event>> for Runtime<A> {
             rendering: &mut self.rendering,
             windows: &mut self.windows,
             window_states: &mut self.window_states,
-            actions: &mut self.actions,
+            commands: &mut self.commands,
             text_editor: &mut self.text_editor,
             text_engine: &mut self.text_engine,
             clipboard: &mut self.clipboard,
             mailbox: &mut self.mailbox,
             sender: self.sender.clone(),
-            redraw_on_action_state_change: true,
+            redraw_on_command_state_change: true,
             event_loop,
         });
 

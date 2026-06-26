@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::animation::Frame as AnimationFrame;
 use crate::app::scroll;
-use crate::{action, geometry, paint, text, theme, ui, widget, window};
+use crate::{command, geometry, paint, text, theme, ui, widget, window};
 use std::ops::Range;
 
 const CURSOR_OVERLAY_MIN_SIZE: f32 = 1.0;
@@ -17,17 +17,17 @@ pub(crate) struct ScrollPaintRecord {
     pub(crate) metrics: widget::scroll::Metrics,
 }
 
-pub fn tree<T>(
+pub fn tree(
     root: &ui::Node,
     layout: &ui::Frame,
-    actions: &action::Registry<T>,
+    commands: &command::Registry,
     window: window::Id,
     interaction: &ui::Interaction,
     text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
     text_engine: &mut text::layout::Engine,
     frame: AnimationFrame,
     scroll_projections: Option<&scroll::Driver>,
-    path_states: &HashMap<ui::Path, action::State>,
+    path_states: &HashMap<ui::Path, command::State>,
     scene: &mut paint::Scene,
     scroll_ranges: Option<&mut ScrollPaintRecords>,
 ) {
@@ -38,7 +38,7 @@ pub fn tree<T>(
         root,
         layout,
         None,
-        actions,
+        commands,
         window,
         interaction,
         text_field_states,
@@ -131,23 +131,23 @@ fn clamp_overlay_axis(value: f32, min: f32, available: f32, extent: f32) -> f32 
     value.clamp(min, max)
 }
 
-fn node<T>(
+fn node(
     node: &ui::Node,
     layout: &ui::Frame,
     inherited_content: Option<ContentVisualState>,
-    actions: &action::Registry<T>,
+    commands: &command::Registry,
     window: window::Id,
     interaction: &ui::Interaction,
     text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
     text_engine: &mut text::layout::Engine,
     frame: AnimationFrame,
     scroll_projections: Option<&scroll::Driver>,
-    path_states: &HashMap<ui::Path, action::State>,
+    path_states: &HashMap<ui::Path, command::State>,
     scene: &mut paint::Scene,
     overlays: &mut Vec<paint::Outline>,
     scroll_ranges: &mut Option<&mut ScrollPaintRecords>,
 ) {
-    let visual = visual_state(node, layout, actions, window, interaction, path_states);
+    let visual = visual_state(node, layout, commands, window, interaction, path_states);
     let content_visual = content_visual_state(node, &visual, inherited_content);
     let mut text_field_state = text_field_states
         .get(layout.path())
@@ -393,7 +393,7 @@ fn node<T>(
             child,
             child_layout,
             Some(content_visual),
-            actions,
+            commands,
             window,
             interaction,
             text_field_states,
@@ -453,17 +453,17 @@ fn node<T>(
     }
 }
 
-pub(crate) fn scroll_subtree_recording<T>(
+pub(crate) fn scroll_subtree_recording(
     root: &ui::Node,
     layout: &ui::Frame,
-    actions: &action::Registry<T>,
+    commands: &command::Registry,
     window: window::Id,
     interaction: &ui::Interaction,
     text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
     text_engine: &mut text::layout::Engine,
     frame: AnimationFrame,
     scroll_projections: Option<&scroll::Driver>,
-    path_states: &HashMap<ui::Path, action::State>,
+    path_states: &HashMap<ui::Path, command::State>,
     scene: &mut paint::Scene,
 ) -> ScrollPaintRecords {
     let mut overlays = Vec::new();
@@ -474,7 +474,7 @@ pub(crate) fn scroll_subtree_recording<T>(
         root,
         layout,
         None,
-        actions,
+        commands,
         window,
         interaction,
         text_field_states,
@@ -577,28 +577,28 @@ struct ContentVisualState {
     busy: bool,
 }
 
-fn visual_state<T>(
+fn visual_state(
     node: &ui::Node,
     layout: &ui::Frame,
-    actions: &action::Registry<T>,
+    commands: &command::Registry,
     window: window::Id,
     interaction: &ui::Interaction,
-    path_states: &HashMap<ui::Path, action::State>,
+    path_states: &HashMap<ui::Path, command::State>,
 ) -> VisualState {
-    let action_state = path_states
+    let command_state = path_states
         .get(layout.path())
-        .copied()
+        .cloned()
         .or_else(|| {
-            node.action().map(|action| {
-                actions.state(action, action_context(node, layout, window, interaction))
+            node.command().map(|command| {
+                commands.state_key(command, command_context(node, layout, window, interaction))
             })
         })
         .unwrap_or_default();
-    let enabled = action_state.is_enabled();
-    let busy = action_state.is_busy();
+    let enabled = command_state.is_available();
+    let busy = command_state.is_running();
     let interactive = enabled && !busy;
     let active =
-        enabled && (action_state.is_active() || menu_intent_active(node.intent(), interaction));
+        enabled && (command_state.is_active() || menu_intent_active(node.intent(), interaction));
     let hovered = interaction.hovered() == Some(layout.path());
     let pressed = interaction.pressed() == Some(layout.path());
     let focused = interaction.focused() == Some(layout.path());
@@ -637,10 +637,10 @@ fn content_visual_state(
 }
 
 fn node_owns_content_visual_state(node: &ui::Node) -> bool {
-    node.action().is_some()
+    node.command().is_some()
         || matches!(
             node.intent(),
-            Some(ui::Intent::Action(_) | ui::Intent::OpenMenu(_) | ui::Intent::OpenSubmenu(_))
+            Some(ui::Intent::Command(_) | ui::Intent::OpenMenu(_) | ui::Intent::OpenSubmenu(_))
         )
 }
 
@@ -648,27 +648,27 @@ fn menu_intent_active(intent: Option<ui::Intent>, interaction: &ui::Interaction)
     match intent {
         Some(ui::Intent::OpenMenu(menu)) => interaction.open_menu() == Some(menu),
         Some(ui::Intent::OpenSubmenu(menu)) => interaction.open_submenu() == Some(menu),
-        Some(ui::Intent::Action(_) | ui::Intent::CloseSubmenu) | None => false,
+        Some(ui::Intent::Command(_) | ui::Intent::CloseSubmenu) | None => false,
     }
 }
 
-fn action_context(
+fn command_context(
     node: &ui::Node,
     layout: &ui::Frame,
     window: window::Id,
     interaction: &ui::Interaction,
-) -> action::Context {
+) -> command::call::Context {
     match node.command_subject() {
-        ui::CommandSubject::Origin => action::Context::path(window, layout.path().clone()),
+        ui::CommandSubject::Origin => command::call::Context::path(window, layout.path().clone()),
         ui::CommandSubject::Current => interaction
             .command_subject()
             .cloned()
-            .unwrap_or_else(|| action::Context::window(window)),
+            .unwrap_or_else(|| command::call::Context::window(window)),
         ui::CommandSubject::Captured => interaction
             .captured_command_subject(layout.path())
             .cloned()
-            .unwrap_or_else(|| action::Context::window(window)),
-        ui::CommandSubject::Window => action::Context::window(window),
+            .unwrap_or_else(|| command::call::Context::window(window)),
+        ui::CommandSubject::Window => command::call::Context::window(window),
     }
 }
 

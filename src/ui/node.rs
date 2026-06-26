@@ -1,22 +1,24 @@
 use std::collections::HashMap;
 
 use crate::widget::menu;
-use crate::{action, geometry, icon, layout, paint, pointer, text, widget};
+use crate::{Command, command, geometry, icon, layout, paint, pointer, text, widget};
 
 use super::{Backdrop, Id, Path, focus};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node {
-    id: Id,
+    key: Option<Id>,
+    kind: &'static str,
     layout: Layout,
     style: Style,
     interactivity: Interactivity,
     cursor: Cursor,
     intent: Option<Intent>,
-    action: Option<action::Id>,
+    command: Option<command::binding::Route>,
     command_subject: CommandSubject,
-    responders: Vec<action::Id>,
-    responder_bindings: Vec<action::Binding>,
+    responders: Vec<command::Key>,
+    responder_bindings: Vec<command::binding::Binding>,
+    command_targets: Vec<command::target::Kind>,
     command_scope: bool,
     label: Option<text::document::Document>,
     text_surface: Option<text::Surface>,
@@ -143,8 +145,8 @@ pub enum CommandSubject {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Intent {
-    Action(action::Id),
+pub(crate) enum Intent {
+    Command(command::binding::Route),
     OpenMenu(menu::Id),
     OpenSubmenu(menu::Id),
     CloseSubmenu,
@@ -157,8 +159,8 @@ pub struct Interaction {
     text_editing_target: Option<Path>,
     focus_visibility: focus::Visibility,
     pressed: Option<Path>,
-    command_subject: Option<action::Context>,
-    command_scope_captures: HashMap<Path, action::Context>,
+    command_subject: Option<command::call::Context>,
+    command_scope_captures: HashMap<Path, command::call::Context>,
     open_menu: Option<menu::Id>,
     open_submenu: Option<menu::Id>,
     pointer_position: Option<geometry::point::Logical>,
@@ -169,18 +171,24 @@ pub struct Interaction {
 }
 
 impl Node {
-    pub fn new(id: Id) -> Self {
+    pub fn new() -> Self {
+        Self::kind("node")
+    }
+
+    pub fn kind(kind: &'static str) -> Self {
         Self {
-            id,
+            key: None,
+            kind,
             layout: Layout::default(),
             style: Style::default(),
             interactivity: Interactivity::default(),
             cursor: Cursor::default(),
             intent: None,
-            action: None,
+            command: None,
             command_subject: CommandSubject::default(),
             responders: Vec::new(),
             responder_bindings: Vec::new(),
+            command_targets: Vec::new(),
             command_scope: false,
             label: None,
             text_surface: None,
@@ -193,16 +201,38 @@ impl Node {
         }
     }
 
-    pub fn leaf(id: Id) -> Self {
-        Self::new(id)
+    pub fn leaf() -> Self {
+        Self::kind("leaf")
     }
 
-    pub fn container(id: Id, axis: layout::Axis) -> Self {
-        Self::new(id).with_direction(axis)
+    pub fn container(axis: layout::Axis) -> Self {
+        Self::kind("container").with_direction(axis)
+    }
+
+    pub fn with_kind(mut self, kind: &'static str) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    pub fn key(mut self, key: Id) -> Self {
+        self.key = Some(key);
+        self
+    }
+
+    pub fn with_key(self, key: Id) -> Self {
+        self.key(key)
     }
 
     pub fn id(&self) -> Id {
-        self.id
+        self.path_id(0)
+    }
+
+    pub(crate) fn path_id(&self, index: usize) -> Id {
+        self.key.unwrap_or_else(|| Id::structural(self.kind, index))
+    }
+
+    pub fn explicit_key(&self) -> Option<Id> {
+        self.key
     }
 
     pub fn layout(&self) -> Layout {
@@ -221,11 +251,15 @@ impl Node {
         self.cursor
     }
 
-    pub fn action(&self) -> Option<action::Id> {
-        self.action
+    pub(crate) fn command(&self) -> Option<command::Key> {
+        self.command.map(|route| route.command())
     }
 
-    pub fn intent(&self) -> Option<Intent> {
+    pub(crate) fn command_route(&self) -> Option<command::binding::Route> {
+        self.command
+    }
+
+    pub(crate) fn intent(&self) -> Option<Intent> {
         self.intent
     }
 
@@ -233,12 +267,16 @@ impl Node {
         self.command_subject
     }
 
-    pub fn responders(&self) -> &[action::Id] {
+    pub(crate) fn responders(&self) -> &[command::Key] {
         &self.responders
     }
 
-    pub fn responder_bindings(&self) -> &[action::Binding] {
+    pub(crate) fn responder_bindings(&self) -> &[command::binding::Binding] {
         &self.responder_bindings
+    }
+
+    pub(crate) fn command_targets(&self) -> &[command::target::Kind] {
+        &self.command_targets
     }
 
     pub fn is_command_scope(&self) -> bool {
@@ -295,14 +333,36 @@ impl Node {
         self
     }
 
+    pub fn size(self, width: layout::Size, height: layout::Size) -> Self {
+        self.with_size(width, height)
+    }
+
+    pub fn width(mut self, width: layout::Size) -> Self {
+        self.layout = self.layout.with_width(width);
+        self
+    }
+
+    pub fn height(mut self, height: layout::Size) -> Self {
+        self.layout = self.layout.with_height(height);
+        self
+    }
+
     pub fn with_direction(mut self, axis: layout::Axis) -> Self {
         self.layout = self.layout.with_direction(axis);
         self
     }
 
+    pub fn direction(self, axis: layout::Axis) -> Self {
+        self.with_direction(axis)
+    }
+
     pub fn with_gap(mut self, gap: f32) -> Self {
         self.layout = self.layout.with_gap(gap);
         self
+    }
+
+    pub fn gap(self, gap: f32) -> Self {
+        self.with_gap(gap)
     }
 
     pub fn with_align(mut self, align: layout::Align) -> Self {
@@ -435,6 +495,10 @@ impl Node {
         self
     }
 
+    pub fn padding(self, padding: impl Into<layout::Insets>) -> Self {
+        self.with_padding(padding.into())
+    }
+
     pub fn clipped(self) -> Self {
         self.with_clip(true)
     }
@@ -494,15 +558,36 @@ impl Node {
         self
     }
 
-    pub fn with_action(mut self, action: action::Id) -> Self {
-        self.intent = Some(Intent::Action(action));
-        self.action = Some(action);
+    pub fn invokes<C, TTarget>(self) -> Self
+    where
+        C: Command,
+        TTarget: command::Target<C> + 'static,
+    {
+        self.with_command_route(command::binding::Route::invokes::<C, TTarget>())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_command_key(mut self, command: command::Key) -> Self {
+        self.intent = Some(Intent::Command(command::binding::Route::new(
+            command,
+            command::target::Kind::command(command),
+        )));
+        self.command = Some(command::binding::Route::new(
+            command,
+            command::target::Kind::command(command),
+        ));
         self
     }
 
-    pub fn with_intent(mut self, intent: Intent) -> Self {
-        self.action = match intent {
-            Intent::Action(action) => Some(action),
+    pub(crate) fn with_command_route(mut self, route: command::binding::Route) -> Self {
+        self.intent = Some(Intent::Command(route));
+        self.command = Some(route);
+        self
+    }
+
+    pub(crate) fn with_intent(mut self, intent: Intent) -> Self {
+        self.command = match intent {
+            Intent::Command(route) => Some(route),
             Intent::OpenMenu(_) | Intent::OpenSubmenu(_) | Intent::CloseSubmenu => None,
         };
         self.intent = Some(intent);
@@ -514,13 +599,34 @@ impl Node {
         self
     }
 
-    pub fn with_responder(mut self, action: action::Id) -> Self {
-        self.push_responder_binding(action::Binding::new(action));
+    pub fn with_responder<C: Command>(self) -> Self {
+        self.with_responder_key(command::Key::of::<C>())
+    }
+
+    pub(crate) fn with_responder_key(mut self, command: command::Key) -> Self {
+        self.push_responder_binding(command::binding::Binding::new(command));
         self
     }
 
-    pub fn with_responder_binding(mut self, binding: action::Binding) -> Self {
+    pub fn with_responder_binding(mut self, binding: command::binding::Binding) -> Self {
         self.push_responder_binding(binding);
+        self
+    }
+
+    pub fn with_command_target(mut self, target: command::target::Kind) -> Self {
+        self.push_command_target(target);
+        self
+    }
+
+    pub fn with_command_targets(mut self, responder: &impl command::binding::Responder) -> Self {
+        for target in responder.command_targets() {
+            self.push_command_target(target);
+        }
+
+        for binding in responder.command_bindings() {
+            self.push_responder_binding(binding);
+        }
+
         self
     }
 
@@ -530,7 +636,7 @@ impl Node {
     }
 
     pub fn with_menu_bar(mut self, bar: menu::Bar) -> Self {
-        self.menu_bar = Some(bar);
+        self.menu_bar = Some(bar.with_structural_ids());
         self
     }
 
@@ -568,23 +674,38 @@ impl Node {
         self
     }
 
-    fn push_responder_binding(&mut self, binding: action::Binding) {
-        let action = binding.action();
+    pub fn child(self, child: Node) -> Self {
+        self.with_child(child)
+    }
 
-        if !self.responders.contains(&action) {
-            self.responders.push(action);
+    pub fn with_children(mut self, children: impl IntoIterator<Item = Node>) -> Self {
+        self.children.extend(children);
+        self
+    }
+
+    fn push_responder_binding(&mut self, binding: command::binding::Binding) {
+        let command_id = binding.command();
+
+        if !self.responders.contains(&command_id) {
+            self.responders.push(command_id);
         }
 
         if let Some(existing) = self
             .responder_bindings
             .iter_mut()
-            .find(|existing| existing.action() == action)
+            .find(|existing| existing.command() == command_id)
         {
             *existing = binding;
             return;
         }
 
         self.responder_bindings.push(binding);
+    }
+
+    fn push_command_target(&mut self, target: command::target::Kind) {
+        if !self.command_targets.contains(&target) {
+            self.command_targets.push(target);
+        }
     }
 }
 
@@ -648,6 +769,16 @@ impl Layout {
 
     pub const fn with_size(mut self, width: layout::Size, height: layout::Size) -> Self {
         self.width = width;
+        self.height = height;
+        self
+    }
+
+    pub const fn with_width(mut self, width: layout::Size) -> Self {
+        self.width = width;
+        self
+    }
+
+    pub const fn with_height(mut self, height: layout::Size) -> Self {
         self.height = height;
         self
     }
@@ -901,12 +1032,15 @@ impl Interaction {
         self
     }
 
-    pub fn with_command_subject(mut self, target: action::Context) -> Self {
+    pub fn with_command_subject(mut self, target: command::call::Context) -> Self {
         self.command_subject = Some(target);
         self
     }
 
-    pub fn with_command_scope_captures(mut self, captures: HashMap<Path, action::Context>) -> Self {
+    pub fn with_command_scope_captures(
+        mut self,
+        captures: HashMap<Path, command::call::Context>,
+    ) -> Self {
         self.command_scope_captures = captures;
         self
     }
@@ -966,7 +1100,7 @@ impl Interaction {
         self.pressed.as_ref()
     }
 
-    pub fn command_subject(&self) -> Option<&action::Context> {
+    pub fn command_subject(&self) -> Option<&command::call::Context> {
         self.command_subject.as_ref()
     }
 
@@ -1000,7 +1134,7 @@ impl Interaction {
         self.cursor_overlay.as_ref()
     }
 
-    pub fn captured_command_subject(&self, path: &Path) -> Option<&action::Context> {
+    pub fn captured_command_subject(&self, path: &Path) -> Option<&command::call::Context> {
         for length in (1..=path.ids().len()).rev() {
             let candidate = Path::new(path.ids()[..length].to_vec());
 

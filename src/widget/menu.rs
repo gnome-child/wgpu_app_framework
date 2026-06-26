@@ -1,7 +1,16 @@
-use crate::action;
+use std::fmt;
+
+use crate::{Command, command};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Id(&'static str);
+pub struct Id(Repr);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Repr {
+    Named(&'static str),
+    Structural(u64),
+    Auto,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bar {
@@ -29,17 +38,32 @@ pub enum Node {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Item {
-    action: action::Id,
+    route: command::binding::Route,
     label: Option<String>,
 }
 
 impl Id {
     pub const fn new(value: &'static str) -> Self {
-        Self(value)
+        Self(Repr::Named(value))
+    }
+
+    const fn auto() -> Self {
+        Self(Repr::Auto)
+    }
+
+    const fn structural(value: u64) -> Self {
+        Self(Repr::Structural(value))
     }
 
     pub const fn as_str(self) -> &'static str {
-        self.0
+        match self.0 {
+            Repr::Named(value) => value,
+            Repr::Structural(_) | Repr::Auto => "__menu",
+        }
+    }
+
+    fn is_auto(self) -> bool {
+        matches!(self.0, Repr::Auto)
     }
 }
 
@@ -50,6 +74,14 @@ impl Bar {
 
     pub fn menu(mut self, menu: Menu) -> Self {
         self.menus.push(menu);
+        self
+    }
+
+    pub(crate) fn with_structural_ids(mut self) -> Self {
+        for (index, menu) in self.menus.iter_mut().enumerate() {
+            menu.resolve_structural_ids(structural_child(MENU_ROOT, index));
+        }
+
         self
     }
 
@@ -69,12 +101,17 @@ impl Default for Bar {
 }
 
 impl Menu {
-    pub fn new(id: Id, label: impl Into<String>) -> Self {
+    pub fn new(label: impl Into<String>) -> Self {
         Self {
-            id,
+            id: Id::auto(),
             label: label.into(),
             sections: Vec::new(),
         }
+    }
+
+    pub fn key(mut self, id: Id) -> Self {
+        self.id = id;
+        self
     }
 
     pub fn id(&self) -> Id {
@@ -94,11 +131,11 @@ impl Menu {
         &self.sections
     }
 
-    pub fn actions(&self) -> impl Iterator<Item = action::Id> + '_ {
-        let mut actions = Vec::new();
-        self.collect_actions(&mut actions);
+    pub(crate) fn commands(&self) -> impl Iterator<Item = command::binding::Route> + '_ {
+        let mut commands = Vec::new();
+        self.collect_commands(&mut commands);
 
-        actions.into_iter()
+        commands.into_iter()
     }
 
     pub fn find(&self, id: Id) -> Option<&Menu> {
@@ -115,9 +152,19 @@ impl Menu {
             })
     }
 
-    fn collect_actions(&self, actions: &mut Vec<action::Id>) {
+    fn collect_commands(&self, commands: &mut Vec<command::binding::Route>) {
         for section in self.sections() {
-            section.collect_actions(actions);
+            section.collect_commands(commands);
+        }
+    }
+
+    fn resolve_structural_ids(&mut self, structural_id: u64) {
+        if self.id.is_auto() {
+            self.id = Id::structural(structural_id);
+        }
+
+        for (section_index, section) in self.sections.iter_mut().enumerate() {
+            section.resolve_structural_ids(structural_child(structural_id, section_index));
         }
     }
 }
@@ -132,8 +179,24 @@ impl Section {
         self
     }
 
-    pub fn action(self, action: action::Id) -> Self {
-        self.item(Item::new(action))
+    pub fn invokes<C, TTarget>(self) -> Self
+    where
+        C: Command,
+        TTarget: command::Target<C> + 'static,
+    {
+        self.item(Item::invokes::<C, TTarget>())
+    }
+
+    pub fn text<C>(self) -> Self
+    where
+        C: crate::text::command::EditCommand,
+    {
+        self.item(Item::text::<C>())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn command_key(self, command: command::Key) -> Self {
+        self.item(Item::key(command))
     }
 
     pub fn submenu(mut self, menu: Menu) -> Self {
@@ -150,19 +213,20 @@ impl Section {
         &self.nodes
     }
 
-    pub fn actions(&self) -> impl Iterator<Item = action::Id> + '_ {
-        let mut actions = Vec::new();
-        self.collect_actions(&mut actions);
-
-        actions.into_iter()
-    }
-
-    fn collect_actions(&self, actions: &mut Vec<action::Id>) {
+    fn collect_commands(&self, commands: &mut Vec<command::binding::Route>) {
         for node in &self.nodes {
             match node {
-                Node::Item(item) => actions.push(item.action()),
-                Node::Submenu(menu) => menu.collect_actions(actions),
+                Node::Item(item) => commands.push(item.route()),
+                Node::Submenu(menu) => menu.collect_commands(commands),
                 Node::Separator => {}
+            }
+        }
+    }
+
+    fn resolve_structural_ids(&mut self, structural_id: u64) {
+        for (node_index, node) in self.nodes.iter_mut().enumerate() {
+            if let Node::Submenu(menu) = node {
+                menu.resolve_structural_ids(structural_child(structural_id, node_index));
             }
         }
     }
@@ -175,15 +239,42 @@ impl Default for Section {
 }
 
 impl Item {
-    pub fn new(action: action::Id) -> Self {
-        Self {
-            action,
-            label: None,
-        }
+    pub fn invokes<C, TTarget>() -> Self
+    where
+        C: Command,
+        TTarget: command::Target<C> + 'static,
+    {
+        Self::from_route(command::binding::Route::invokes::<C, TTarget>())
     }
 
-    pub fn action(&self) -> action::Id {
-        self.action
+    pub fn text<C>() -> Self
+    where
+        C: crate::text::command::EditCommand,
+    {
+        Self::from_route(command::binding::Route::new(
+            command::Key::of::<C>(),
+            crate::text::command::text_target_kind(),
+        ))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn key(command: command::Key) -> Self {
+        Self::from_route(command::binding::Route::new(
+            command,
+            command::target::Kind::command(command),
+        ))
+    }
+
+    pub(crate) fn from_route(route: command::binding::Route) -> Self {
+        Self { route, label: None }
+    }
+
+    pub(crate) fn command(&self) -> command::Key {
+        self.route.command()
+    }
+
+    pub(crate) fn route(&self) -> command::binding::Route {
+        self.route
     }
 
     pub fn label(&self) -> Option<&str> {
@@ -196,6 +287,25 @@ impl Item {
     }
 }
 
+const MENU_ROOT: u64 = 0x9d5c_4f2d_1b38_7a61;
+
+fn structural_child(parent: u64, index: usize) -> u64 {
+    parent
+        .wrapping_mul(0x1000_0000_01b3)
+        .wrapping_add(index as u64)
+        .wrapping_add(0x517c_c1b7_2722_0a95)
+}
+
+impl fmt::Display for Id {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Repr::Named(value) => formatter.write_str(value),
+            Repr::Structural(value) => write!(formatter, "__menu_{value:016x}"),
+            Repr::Auto => formatter.write_str("__menu_auto"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,21 +313,40 @@ mod tests {
     const FILE: Id = Id::new("file");
     const EDIT: Id = Id::new("edit");
     const VIEW: Id = Id::new("view");
-    const OPEN: action::Id = action::Id::new("open");
-    const SAVE: action::Id = action::Id::new("save");
+    struct Open;
+    struct Save;
+
+    impl Command for Open {
+        type Args = ();
+        type Output = ();
+
+        const NAME: &'static str = "open";
+        const DISPLAY: &'static str = "Open";
+    }
+
+    impl Command for Save {
+        type Args = ();
+        type Output = ();
+
+        const NAME: &'static str = "save";
+        const DISPLAY: &'static str = "Save";
+    }
+
+    const OPEN: command::Key = command::Key::of::<Open>();
+    const SAVE: command::Key = command::Key::of::<Save>();
 
     #[test]
     fn menu_builders_preserve_order_sections_items_and_separators() {
         let bar = Bar::new()
             .menu(
-                Menu::new(FILE, "File").section(
+                Menu::new("File").key(FILE).section(
                     Section::new()
-                        .item(Item::new(OPEN).with_label("Open File"))
+                        .item(Item::key(OPEN).with_label("Open File"))
                         .separator()
-                        .action(SAVE),
+                        .command_key(SAVE),
                 ),
             )
-            .menu(Menu::new(EDIT, "Edit"));
+            .menu(Menu::new("Edit").key(EDIT));
 
         assert_eq!(bar.menus()[0].id(), FILE);
         assert_eq!(bar.menus()[1].id(), EDIT);
@@ -231,7 +360,10 @@ mod tests {
             Node::Separator
         ));
         assert_eq!(
-            bar.menus()[0].actions().collect::<Vec<_>>(),
+            bar.menus()[0]
+                .commands()
+                .map(|route| route.command())
+                .collect::<Vec<_>>(),
             vec![OPEN, SAVE]
         );
         let Node::Item(item) = &bar.menus()[0].sections()[0].nodes()[0] else {
@@ -244,13 +376,13 @@ mod tests {
     fn menu_builders_support_recursive_submenus() {
         let panels = Id::new("panels");
         let bar = Bar::new().menu(
-            Menu::new(VIEW, "View").section(
+            Menu::new("View").key(VIEW).section(
                 Section::new().submenu(
-                    Menu::new(panels, "Panels").section(
+                    Menu::new("Panels").key(panels).section(
                         Section::new()
-                            .action(OPEN)
+                            .command_key(OPEN)
                             .separator()
-                            .item(Item::new(SAVE).with_label("Save Layout")),
+                            .item(Item::key(SAVE).with_label("Save Layout")),
                     ),
                 ),
             ),
@@ -260,7 +392,8 @@ mod tests {
         assert_eq!(
             bar.find(VIEW)
                 .expect("view menu")
-                .actions()
+                .commands()
+                .map(|route| route.command())
                 .collect::<Vec<_>>(),
             vec![OPEN, SAVE]
         );

@@ -1,6 +1,6 @@
 use crate::geometry::{Rect, area, point};
 use crate::widget::menu;
-use crate::{action, ui, widget};
+use crate::{command, ui, widget};
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct State {
@@ -42,8 +42,8 @@ impl State {
     pub fn open_top_menu(
         &mut self,
         menu: menu::Id,
-        command_context: action::Context,
-        source: action::Source,
+        command_context: command::call::Context,
+        source: command::call::Source,
         focus_policy: ui::floating::FocusPolicy,
     ) -> bool {
         let changed = self.open_menu() != Some(menu)
@@ -67,8 +67,8 @@ impl State {
     pub fn show_submenu(
         &mut self,
         menu: menu::Id,
-        fallback_command_context: action::Context,
-        source: action::Source,
+        fallback_command_context: command::call::Context,
+        source: command::call::Source,
     ) -> bool {
         if self.open_menu().is_none() {
             return false;
@@ -104,8 +104,8 @@ impl State {
         &mut self,
         target: ui::Path,
         anchor: point::Logical,
-        command_context: action::Context,
-        source: action::Source,
+        command_context: command::call::Context,
+        source: command::call::Source,
     ) -> bool {
         let changed = self.context_menu().and_then(|surface| {
             (surface.context_menu_target() == Some(&target)
@@ -114,10 +114,10 @@ impl State {
         }) != Some(());
 
         let focus_policy = match source {
-            action::Source::Keyboard | action::Source::Shortcut => {
+            command::call::Source::Keyboard | command::call::Source::Shortcut => {
                 ui::floating::FocusPolicy::FocusFirstEnabledRow
             }
-            action::Source::Pointer | action::Source::Programmatic => {
+            command::call::Source::Pointer | command::call::Source::Programmatic => {
                 ui::floating::FocusPolicy::PreserveCurrentFocus
             }
         };
@@ -185,8 +185,8 @@ mod tests {
     const PANELS: menu::Id = menu::Id::new("panels");
     const FIELD: ui::Id = ui::Id::new("field");
 
-    fn context() -> action::Context {
-        action::Context::window(crate::window::Id::new(1))
+    fn context() -> command::call::Context {
+        command::call::Context::window(crate::window::Id::new(1))
     }
 
     #[test]
@@ -196,10 +196,10 @@ mod tests {
         assert!(state.open_top_menu(
             FILE,
             context(),
-            action::Source::Pointer,
+            command::call::Source::Pointer,
             ui::floating::FocusPolicy::PreserveCurrentFocus,
         ));
-        assert!(state.show_submenu(PANELS, context(), action::Source::Pointer));
+        assert!(state.show_submenu(PANELS, context(), command::call::Source::Pointer));
 
         assert_eq!(state.open_menu(), Some(FILE));
         assert_eq!(state.open_submenu(), Some(PANELS));
@@ -213,14 +213,14 @@ mod tests {
         state.open_top_menu(
             FILE,
             context(),
-            action::Source::Pointer,
+            command::call::Source::Pointer,
             ui::floating::FocusPolicy::PreserveCurrentFocus,
         );
         state.open_context_menu(
             ui::Path::from(FIELD),
             point::logical(10.0, 20.0),
             context(),
-            action::Source::Pointer,
+            command::call::Source::Pointer,
         );
 
         assert_eq!(state.open_menu(), None);
@@ -236,7 +236,7 @@ mod tests {
             ui::Path::from(FIELD),
             point::logical(10.0, 20.0),
             context(),
-            action::Source::Keyboard,
+            command::call::Source::Keyboard,
         );
 
         assert!(state.needs_keyboard_focus());
@@ -251,7 +251,7 @@ mod tests {
         state.open_top_menu(
             FILE,
             context(),
-            action::Source::Keyboard,
+            command::call::Source::Keyboard,
             ui::floating::FocusPolicy::FocusFirstEnabledRow,
         );
 
@@ -265,7 +265,7 @@ mod tests {
         state.open_top_menu(
             FILE,
             context(),
-            action::Source::Pointer,
+            command::call::Source::Pointer,
             ui::floating::FocusPolicy::PreserveCurrentFocus,
         );
 
@@ -280,15 +280,15 @@ mod tests {
     fn submenu_inherits_parent_command_context() {
         let mut state = State::default();
         let parent_context =
-            action::Context::path(crate::window::Id::new(1), ui::Path::from(FIELD));
+            command::call::Context::path(crate::window::Id::new(1), ui::Path::from(FIELD));
 
         state.open_top_menu(
             FILE,
             parent_context.clone(),
-            action::Source::Pointer,
+            command::call::Source::Pointer,
             ui::floating::FocusPolicy::PreserveCurrentFocus,
         );
-        assert!(state.show_submenu(PANELS, context(), action::Source::Pointer));
+        assert!(state.show_submenu(PANELS, context(), command::call::Source::Pointer));
 
         assert_eq!(state.surfaces()[1].command_context(), &parent_context);
     }

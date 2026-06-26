@@ -1,4 +1,5 @@
 pub mod buffer;
+pub mod command;
 pub mod document;
 pub mod edit;
 pub mod layout;

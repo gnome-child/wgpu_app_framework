@@ -1,4 +1,4 @@
-use crate::{action, layout, paint, text, theme, ui};
+use crate::{Command, command, layout, paint, text, theme, ui};
 
 pub fn document(
     label: impl Into<String>,
@@ -50,13 +50,23 @@ pub fn control_chrome(node: ui::Node, theme: &theme::Theme) -> ui::Node {
     node.with_background(theme.control().background())
         .with_stroke(theme.control().stroke())
         .with_rounding(theme.roundings().control())
-        .with_size(
-            layout::Size::Fill,
-            layout::Size::Fixed(theme.density().control_height()),
+        .size(
+            layout::Size::fill(),
+            layout::Size::fixed(theme.density().control_height()),
         )
 }
 
-pub fn actionable(node: ui::Node, action: action::Id) -> ui::Node {
-    node.with_action(action)
+pub fn actionable<C, TTarget>(node: ui::Node) -> ui::Node
+where
+    C: Command,
+    TTarget: command::Target<C> + 'static,
+{
+    node.invokes::<C, TTarget>()
+        .with_interactivity(ui::Interactivity::CONTROL)
+}
+
+#[cfg(test)]
+pub(crate) fn actionable_key(node: ui::Node, command: command::Key) -> ui::Node {
+    node.with_command_key(command)
         .with_interactivity(ui::Interactivity::CONTROL)
 }

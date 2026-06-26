@@ -1,6 +1,6 @@
 use crate::ui;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Shortcut {
     key: ui::Key,
     modifiers: ui::Modifiers,
@@ -12,7 +12,7 @@ mod tests {
 
     #[test]
     fn control_shortcut_formats_display_label() {
-        assert_eq!(Shortcut::control('a').display_label(), "Ctrl+A");
+        assert_eq!(Shortcut::ctrl('a').display_label(), "Ctrl+A");
     }
 
     #[test]
@@ -28,14 +28,14 @@ impl Shortcut {
         Self { key, modifiers }
     }
 
-    pub const fn control(key: char) -> Self {
+    pub const fn ctrl(key: char) -> Self {
         Self::new(
             ui::Key::Character(key.to_ascii_lowercase()),
             ui::Modifiers::new(false, true, false, false),
         )
     }
 
-    pub const fn control_shift(key: char) -> Self {
+    pub const fn ctrl_shift(key: char) -> Self {
         Self::new(
             ui::Key::Character(key.to_ascii_lowercase()),
             ui::Modifiers::new(true, true, false, false),

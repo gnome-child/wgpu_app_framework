@@ -9,9 +9,9 @@ pub fn tree(
     measurer: &mut text::layout::Engine,
 ) -> layout::Frame<ui::Path> {
     let mut nodes = HashMap::new();
-    collect_nodes(root, &ui::Path::root(root.id()), &mut nodes);
+    collect_nodes(root, &ui::Path::root(root.path_id(0)), &mut nodes);
 
-    let item = project_node(root, ui::Path::root(root.id()));
+    let item = project_node(root, ui::Path::root(root.path_id(0)));
     let mut adapter = UiMeasurer { nodes, measurer };
     let frame = layout::Engine::new().layout(&item, area, &mut adapter);
 
@@ -81,8 +81,8 @@ fn collect_nodes<'a>(
 ) {
     nodes.insert(path.clone(), node);
 
-    for child in node.children() {
-        collect_nodes(child, &path.child(child.id()), nodes);
+    for (index, child) in node.children().iter().enumerate() {
+        collect_nodes(child, &path.child(child.path_id(index)), nodes);
     }
 }
 
@@ -93,7 +93,8 @@ fn project_node(node: &ui::Node, path: ui::Path) -> layout::Item<ui::Path> {
         .with_children(
             node.children()
                 .iter()
-                .map(|child| project_node(child, path.child(child.id())))
+                .enumerate()
+                .map(|(index, child)| project_node(child, path.child(child.path_id(index))))
                 .collect(),
         )
 }
@@ -101,7 +102,8 @@ fn project_node(node: &ui::Node, path: ui::Path) -> layout::Item<ui::Path> {
 fn project_children(node: &ui::Node, path: &ui::Path) -> Vec<layout::Item<ui::Path>> {
     node.children()
         .iter()
-        .map(|child| project_node(child, path.child(child.id())))
+        .enumerate()
+        .map(|(index, child)| project_node(child, path.child(child.path_id(index))))
         .collect()
 }
 

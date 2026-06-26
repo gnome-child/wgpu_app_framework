@@ -13,10 +13,8 @@ mod tree;
 pub use backdrop::Backdrop;
 pub use event::{Event, Key, Modifiers};
 pub use id::{Id, Path};
-pub use node::{
-    CommandSubject, Cursor, Intent, Interaction, Interactivity, Layout, Node, Shadow, Style,
-};
-pub(crate) use node::{CursorOverlay, CursorOverlayText};
+pub use node::{CommandSubject, Cursor, Interaction, Interactivity, Layout, Node, Shadow, Style};
+pub(crate) use node::{CursorOverlay, CursorOverlayText, Intent};
 pub(crate) use painting::{ScrollPaintRecord, ScrollPaintRecords};
 pub type Frame = crate::layout::Frame<Path>;
 #[doc(hidden)]

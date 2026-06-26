@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use crate::app::{frame, state::WindowState, text_input};
 use crate::geometry::{Rect, area};
-use crate::{action, paint, text, ui, widget, window};
+use crate::{command, paint, text, ui, widget, window};
 
 pub(crate) struct PaintResult {
     pub scene: paint::Scene,
@@ -44,11 +44,11 @@ impl ScrollOnlyReplacement {
 }
 
 #[cfg(test)]
-pub fn compose<T>(
+pub fn compose(
     window: window::Id,
     tree: &ui::Tree,
     state: &mut WindowState,
-    actions: &mut action::Registry<T>,
+    commands: &mut command::Registry,
     text_engine: &mut text::layout::Engine,
     logical_area: area::Logical,
     frame: animation::Frame,
@@ -57,7 +57,7 @@ pub fn compose<T>(
         window,
         tree,
         state,
-        actions,
+        commands,
         text_engine,
         logical_area,
         frame,
@@ -65,11 +65,11 @@ pub fn compose<T>(
     .scene
 }
 
-pub(crate) fn compose_with_timings<T>(
+pub(crate) fn compose_with_timings(
     window: window::Id,
     tree: &ui::Tree,
     state: &mut WindowState,
-    actions: &mut action::Registry<T>,
+    commands: &mut command::Registry,
     text_engine: &mut text::layout::Engine,
     logical_area: area::Logical,
     frame: animation::Frame,
@@ -82,7 +82,7 @@ pub(crate) fn compose_with_timings<T>(
     if let Some(composition) = tree.compose(
         window,
         logical_area,
-        actions,
+        commands,
         state.floating.surfaces(),
         text_engine,
     ) {
@@ -102,10 +102,10 @@ pub(crate) fn compose_with_timings<T>(
         state.reconcile_async_scroll_targets(text_engine, frame.now());
         timings.scroll_commit = commit_start.elapsed();
 
-        text_input::publish_action_states(state, actions, window);
-        state.sync_menu_title_states(actions, window);
+        text_input::publish_command_states(state, commands, window);
+        state.sync_menu_title_states(commands, window);
         state.clear_stale_focus();
-        state.focus_first_floating_row(actions, window);
+        state.focus_first_floating_row(commands, window);
 
         let sync_start = Instant::now();
         state.sync_scroll_projections(text_engine, frame.now());
@@ -114,14 +114,21 @@ pub(crate) fn compose_with_timings<T>(
         state.refine_idle_scroll_models(text_engine, frame.now());
 
         let paint_start = Instant::now();
-        let scroll_ranges =
-            paint_current_composition(window, state, actions, text_engine, frame, &mut scene, true);
+        let scroll_ranges = paint_current_composition(
+            window,
+            state,
+            commands,
+            text_engine,
+            frame,
+            &mut scene,
+            true,
+        );
         timings.paint = paint_start.elapsed();
         let mut layer_updates = state.retain_paint(scene.clone(), scroll_ranges);
         layer_updates.extend(refresh_retained_scroll_layers_after_full_paint(
             window,
             state,
-            actions,
+            commands,
             text_engine,
             frame,
         ));
@@ -150,10 +157,10 @@ pub(crate) fn compose_with_timings<T>(
     }
 }
 
-pub(crate) fn paint_scroll_only<T>(
+pub(crate) fn paint_scroll_only(
     window: window::Id,
     state: &mut WindowState,
-    actions: &mut action::Registry<T>,
+    commands: &mut command::Registry,
     text_engine: &mut text::layout::Engine,
     frame: animation::Frame,
 ) -> Option<PaintResult> {
@@ -162,7 +169,7 @@ pub(crate) fn paint_scroll_only<T>(
         return None;
     }
 
-    if let Some(result) = paint_scroll_only_retained(window, state, actions, text_engine, frame) {
+    if let Some(result) = paint_scroll_only_retained(window, state, commands, text_engine, frame) {
         return Some(result);
     }
 
@@ -181,7 +188,7 @@ pub(crate) fn paint_scroll_only<T>(
     paint_current_composition(
         window,
         state,
-        actions,
+        commands,
         text_engine,
         frame,
         &mut scene,
@@ -196,10 +203,10 @@ pub(crate) fn paint_scroll_only<T>(
     })
 }
 
-fn paint_scroll_only_retained<T>(
+fn paint_scroll_only_retained(
     window: window::Id,
     state: &mut WindowState,
-    actions: &action::Registry<T>,
+    commands: &command::Registry,
     text_engine: &mut text::layout::Engine,
     frame: animation::Frame,
 ) -> Option<PaintResult> {
@@ -262,7 +269,7 @@ fn paint_scroll_only_retained<T>(
                 paint_scroll_layer_update_for_target(
                     window,
                     state,
-                    actions,
+                    commands,
                     text_engine,
                     frame,
                     &target,
@@ -297,7 +304,7 @@ fn paint_scroll_only_retained<T>(
             let composition = state.composition.as_ref()?;
             composition.paint_scroll_target_recording_at(
                 &target,
-                actions,
+                commands,
                 window,
                 interaction.clone(),
                 state.text.states(),
@@ -396,10 +403,10 @@ fn paint_scroll_only_retained<T>(
     })
 }
 
-fn refresh_retained_scroll_layers_after_full_paint<T>(
+fn refresh_retained_scroll_layers_after_full_paint(
     window: window::Id,
     state: &mut WindowState,
-    actions: &action::Registry<T>,
+    commands: &command::Registry,
     text_engine: &mut text::layout::Engine,
     frame: animation::Frame,
 ) -> Vec<paint::LayerUpdate> {
@@ -421,7 +428,7 @@ fn refresh_retained_scroll_layers_after_full_paint<T>(
         let Some((metrics, tiles)) = paint_scroll_layer_update_for_target(
             window,
             state,
-            actions,
+            commands,
             text_engine,
             frame,
             &target,
@@ -494,10 +501,10 @@ fn try_layer_retained_scroll_target(
     Ok(())
 }
 
-fn paint_scroll_layer_update_for_target<T>(
+fn paint_scroll_layer_update_for_target(
     window: window::Id,
     state: &WindowState,
-    actions: &action::Registry<T>,
+    commands: &command::Registry,
     text_engine: &mut text::layout::Engine,
     frame: animation::Frame,
     target: &ui::Path,
@@ -524,7 +531,7 @@ fn paint_scroll_layer_update_for_target<T>(
         let mut scene = paint::Scene::new();
         let records = composition.paint_scroll_target_recording_at(
             target,
-            actions,
+            commands,
             window,
             interaction.clone(),
             state.text.states(),
@@ -549,10 +556,10 @@ fn trace_scroll(args: std::fmt::Arguments<'_>) {
     }
 }
 
-fn paint_current_composition<T>(
+fn paint_current_composition(
     window: window::Id,
     state: &WindowState,
-    actions: &action::Registry<T>,
+    commands: &command::Registry,
     text_engine: &mut text::layout::Engine,
     frame: animation::Frame,
     scene: &mut paint::Scene,
@@ -565,7 +572,7 @@ fn paint_current_composition<T>(
     if let Some(composition) = state.composition.as_ref() {
         if record_scroll_ranges {
             return composition.paint_at_recording_scroll_ranges(
-                actions,
+                commands,
                 window,
                 interaction,
                 state.text.states(),
@@ -576,7 +583,7 @@ fn paint_current_composition<T>(
             );
         } else {
             composition.paint_at(
-                actions,
+                commands,
                 window,
                 interaction,
                 state.text.states(),
@@ -615,25 +622,48 @@ mod tests {
     use crate::geometry::{area, point};
     use crate::widget;
     use crate::widget::menu;
-    use crate::{Action, layout, paint, text};
+    use crate::{Command, command, layout, paint, text};
 
     use super::*;
 
     const ROOT: ui::Id = ui::Id::new("root");
     const CHILD: ui::Id = ui::Id::new("child");
     const OTHER: ui::Id = ui::Id::new("other");
-    const CLICK: action::Id = action::Id::new("click");
-    const TOGGLE: action::Id = action::Id::new("toggle");
+    struct Click;
+    struct Toggle;
+
+    impl Command for Click {
+        type Args = ();
+        type Output = ();
+
+        const NAME: &'static str = "click";
+        const DISPLAY: &'static str = "Click";
+    }
+
+    impl Command for Toggle {
+        type Args = ();
+        type Output = ();
+
+        const NAME: &'static str = "toggle";
+        const DISPLAY: &'static str = "Toggle";
+    }
+
+    const CLICK: command::Key = command::Key::of::<Click>();
+    const TOGGLE: command::Key = command::Key::of::<Toggle>();
     const MENU_BAR: ui::Id = ui::Id::new("menu_bar");
     const FILE: menu::Id = menu::Id::new("file");
     const VIEW: menu::Id = menu::Id::new("view");
     const PANELS: menu::Id = menu::Id::new("panels");
 
-    fn compose<T>(
+    fn top_level_menu_title(index: usize) -> ui::Id {
+        ui::Id::structural("menu_title", index)
+    }
+
+    fn compose(
         window: window::Id,
         tree: &ui::Tree,
         state: &mut WindowState,
-        actions: &mut action::Registry<T>,
+        commands: &mut command::Registry,
         logical_area: area::Logical,
     ) -> paint::Scene {
         let mut text_engine = text::layout::Engine::new();
@@ -642,7 +672,7 @@ mod tests {
             window,
             tree,
             state,
-            actions,
+            commands,
             &mut text_engine,
             logical_area,
             crate::animation::Frame::new(std::time::Instant::now(), None),
@@ -657,8 +687,8 @@ mod tests {
     ) {
         state.floating.open_top_menu(
             menu,
-            action::Context::path(window, subject),
-            action::Source::Pointer,
+            command::call::Context::path(window, subject),
+            command::call::Source::Pointer,
             ui::floating::FocusPolicy::PreserveCurrentFocus,
         );
         state.sync_open_menu_mirrors();
@@ -674,10 +704,19 @@ mod tests {
         open_menu_surface(state, window, menu, subject.clone());
         state.floating.show_submenu(
             submenu,
-            action::Context::path(window, subject),
-            action::Source::Pointer,
+            command::call::Context::path(window, subject),
+            command::call::Source::Pointer,
         );
         state.sync_open_menu_mirrors();
+    }
+
+    fn register_text_command<C>(registry: &mut command::Registry, display: &'static str)
+    where
+        C: text::command::EditCommand,
+    {
+        registry.commands(|commands| {
+            text::command::define::<C>(commands, |command| command.with_display(display));
+        });
     }
 
     fn text_color_for(scene: &paint::Scene, label: &str) -> Option<paint::Color> {
@@ -793,15 +832,19 @@ mod tests {
     fn compose_updates_state_and_preserves_paint_order() {
         let window = window::Id::new(1);
         let mut state = WindowState::default();
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        registry.register(Action::new(CLICK, "Click"));
+        registry.register(command::definition::Definition::for_command::<
+            Click,
+            command::TestTarget,
+        >());
         tree.set_root(
-            widget::panel(ROOT)
+            widget::panel()
+                .key(ROOT)
                 .with_background(paint::Color::BLACK)
                 .with_child(
-                    widget::button(CHILD, CLICK)
+                    widget::button_key(CHILD, CLICK)
                         .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
                 ),
         );
@@ -817,7 +860,9 @@ mod tests {
 
         assert!(state.composition.is_some());
         assert_eq!(
-            composition.action(&ui::Path::new([ROOT, CHILD])),
+            composition
+                .command(&ui::Path::new([ROOT, CHILD]))
+                .map(|route| route.command()),
             Some(CLICK)
         );
         assert_eq!(
@@ -841,12 +886,13 @@ mod tests {
         let buffer = text::Buffer::from_multiline_text(text);
         let mut state = WindowState::default();
         state.hovered = Some(path.clone());
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
         let mut tree = ui::Tree::new();
         tree.set_root(
-            widget::panel(ROOT).with_child(
-                widget::text_area(CHILD, text::Area::new(buffer))
+            widget::panel().key(ROOT).with_child(
+                widget::text_area(text::Area::new(buffer))
+                    .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
         );
@@ -1026,12 +1072,13 @@ mod tests {
             hovered: Some(path.clone()),
             ..WindowState::default()
         };
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
         let mut tree = ui::Tree::new();
         tree.set_root(
-            widget::panel(ROOT).with_child(
-                widget::text_area(CHILD, text::Area::new(buffer))
+            widget::panel().key(ROOT).with_child(
+                widget::text_area(text::Area::new(buffer))
+                    .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
         );
@@ -1116,14 +1163,16 @@ mod tests {
             .join("\n");
         let buffer = text::Buffer::from_multiline_text(text);
         let mut state = WindowState::default();
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
         let mut tree = ui::Tree::new();
         tree.set_root(
-            widget::panel(ROOT)
-                .with_child(widget::label(label, "Diagnostics"))
+            widget::panel()
+                .key(ROOT)
+                .with_child(widget::label("Diagnostics").key(label))
                 .with_child(
-                    widget::text_area(CHILD, text::Area::new(buffer))
+                    widget::text_area(text::Area::new(buffer))
+                        .key(CHILD)
                         .with_size(layout::Size::Fill, layout::Size::Fill),
                 ),
         );
@@ -1198,18 +1247,19 @@ mod tests {
                 ui::focus::Reason::Pointer,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(action::Scope::Path(path.clone())),
+            command_subject: Some(command::call::Scope::Path(path.clone())),
             ..WindowState::default()
         };
         state
             .text
             .insert(path.clone(), text::view::TextViewState::new_at(0.0, epoch));
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
         let mut tree = ui::Tree::new();
         tree.set_root(
-            widget::panel(ROOT).with_child(
-                widget::text_area(CHILD, text::Area::new(buffer))
+            widget::panel().key(ROOT).with_child(
+                widget::text_area(text::Area::new(buffer))
+                    .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
         );
@@ -1277,18 +1327,19 @@ mod tests {
                 ui::focus::Reason::Pointer,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(action::Scope::Path(path.clone())),
+            command_subject: Some(command::call::Scope::Path(path.clone())),
             ..WindowState::default()
         };
         state
             .text
             .insert(path.clone(), text::view::TextViewState::new_at(0.0, epoch));
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
         let mut tree = ui::Tree::new();
         tree.set_root(
-            widget::panel(ROOT).with_child(
-                widget::text_area(CHILD, text::Area::new(buffer))
+            widget::panel().key(ROOT).with_child(
+                widget::text_area(text::Area::new(buffer))
+                    .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
         );
@@ -1356,18 +1407,19 @@ mod tests {
                 ui::focus::Reason::Pointer,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(action::Scope::Path(path.clone())),
+            command_subject: Some(command::call::Scope::Path(path.clone())),
             ..WindowState::default()
         };
         state
             .text
             .insert(path.clone(), text::view::TextViewState::new_at(0.0, epoch));
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
         let mut tree = ui::Tree::new();
         tree.set_root(
-            widget::panel(ROOT).with_child(
-                widget::text_area(CHILD, text::Area::new(buffer))
+            widget::panel().key(ROOT).with_child(
+                widget::text_area(text::Area::new(buffer))
+                    .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
         );
@@ -1407,18 +1459,19 @@ mod tests {
                 ui::focus::Reason::Keyboard,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(action::Scope::Path(path.clone())),
+            command_subject: Some(command::call::Scope::Path(path.clone())),
             ..WindowState::default()
         };
         state
             .text
             .insert(path.clone(), text::view::TextViewState::new_at(0.0, epoch));
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
         let mut tree = ui::Tree::new();
         tree.set_root(
-            widget::panel(ROOT).with_child(
-                widget::text_area(CHILD, text::Area::new(buffer))
+            widget::panel().key(ROOT).with_child(
+                widget::text_area(text::Area::new(buffer))
+                    .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
         );
@@ -1466,12 +1519,13 @@ mod tests {
             .join("\n");
         let buffer = text::Buffer::from_multiline_text(text);
         let mut state = WindowState::default();
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
         let mut tree = ui::Tree::new();
         tree.set_root(
-            widget::panel(ROOT).with_child(
-                widget::text_area(CHILD, text::Area::new(buffer))
+            widget::panel().key(ROOT).with_child(
+                widget::text_area(text::Area::new(buffer))
+                    .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
         );
@@ -1512,10 +1566,11 @@ mod tests {
         let window = window::Id::new(1);
         let path = ui::Path::new([ROOT, CHILD]);
         let mut state = WindowState::default();
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
         let mut tree = ui::Tree::new();
-        let mut scroll = widget::scroll_view(CHILD)
+        let mut scroll = widget::scroll_view()
+            .key(CHILD)
             .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(60.0))
             .with_gap(4.0);
         for id in [
@@ -1528,12 +1583,13 @@ mod tests {
         .copied()
         {
             scroll.push_child(
-                ui::Node::leaf(id)
+                ui::Node::leaf()
+                    .key(id)
                     .with_background(paint::Brush::solid(paint::Color::RED))
                     .with_size(layout::Size::Fill, layout::Size::Fixed(40.0)),
             );
         }
-        tree.set_root(widget::panel(ROOT).with_child(scroll));
+        tree.set_root(widget::panel().key(ROOT).with_child(scroll));
 
         compose(
             window,
@@ -1595,12 +1651,13 @@ mod tests {
             .join("\n");
         let buffer = text::Buffer::from_multiline_text(text);
         let mut state = WindowState::default();
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
         let mut tree = ui::Tree::new();
         tree.set_root(
-            widget::panel(ROOT).with_child(
-                widget::text_area(CHILD, text::Area::new(buffer))
+            widget::panel().key(ROOT).with_child(
+                widget::text_area(text::Area::new(buffer))
+                    .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
         );
@@ -1651,12 +1708,13 @@ mod tests {
         let buffer = text::Buffer::from_multiline_text(text);
         let mut state = WindowState::default();
         state.hovered = Some(path.clone());
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
         let mut tree = ui::Tree::new();
         tree.set_root(
-            widget::panel(ROOT).with_child(
-                widget::text_area(CHILD, text::Area::new(buffer))
+            widget::panel().key(ROOT).with_child(
+                widget::text_area(text::Area::new(buffer))
+                    .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
         );
@@ -1737,13 +1795,13 @@ mod tests {
             )),
             ..WindowState::default()
         };
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
         tree.set_root(
-            widget::panel(ROOT).with_child(
-                widget::button(OTHER, CLICK)
-                    .with_responder(CLICK)
+            widget::panel().key(ROOT).with_child(
+                widget::button_key(OTHER, CLICK)
+                    .with_responder_key(CLICK)
                     .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
             ),
         );
@@ -1763,15 +1821,15 @@ mod tests {
     fn compose_clears_stale_command_subject_after_tree_rebuild() {
         let window = window::Id::new(1);
         let mut state = WindowState {
-            command_subject: Some(action::Scope::Path(ui::Path::new([ROOT, CHILD]))),
+            command_subject: Some(command::call::Scope::Path(ui::Path::new([ROOT, CHILD]))),
             ..WindowState::default()
         };
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
         tree.set_root(
-            widget::panel(ROOT).with_child(
-                widget::button(OTHER, CLICK)
+            widget::panel().key(ROOT).with_child(
+                widget::button_key(OTHER, CLICK)
                     .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
             ),
         );
@@ -1791,13 +1849,14 @@ mod tests {
     fn compose_stores_responder_paths() {
         let window = window::Id::new(1);
         let mut state = WindowState::default();
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
         tree.set_root(
-            widget::panel(ROOT).with_child(
-                ui::Node::leaf(CHILD)
-                    .with_responder(action::SELECT_ALL)
+            widget::panel().key(ROOT).with_child(
+                ui::Node::leaf()
+                    .key(CHILD)
+                    .with_responder::<crate::text::command::SelectAll>()
                     .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
             ),
         );
@@ -1813,7 +1872,7 @@ mod tests {
 
         assert_eq!(
             composition.responders(&ui::Path::new([ROOT, CHILD])),
-            Some(&[action::SELECT_ALL][..])
+            Some(&[command::Key::of::<crate::text::command::SelectAll>()][..])
         );
     }
 
@@ -1821,19 +1880,21 @@ mod tests {
     fn compose_publishes_responder_binding_state() {
         let window = window::Id::new(1);
         let mut state = WindowState::default();
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
         let path = ui::Path::new([ROOT, CHILD]);
-        let binding = action::Binding::new(action::SELECT_ALL)
-            .enabled(false)
-            .active(true)
-            .busy(true);
+        let binding =
+            command::binding::Binding::new(command::Key::of::<crate::text::command::SelectAll>())
+                .available(false)
+                .active(true)
+                .running(true);
 
-        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
         tree.set_root(
-            widget::panel(ROOT).with_child(
-                ui::Node::leaf(CHILD)
-                    .with_responder_binding(binding)
+            widget::panel().key(ROOT).with_child(
+                ui::Node::leaf()
+                    .key(CHILD)
+                    .with_responder_binding(binding.clone())
                     .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
             ),
         );
@@ -1849,12 +1910,18 @@ mod tests {
 
         assert_eq!(
             composition.responders(&path),
-            Some(&[action::SELECT_ALL][..])
+            Some(&[command::Key::of::<crate::text::command::SelectAll>()][..])
         );
-        assert_eq!(composition.responder_bindings(&path), Some(&[binding][..]));
         assert_eq!(
-            registry.configured_state(action::SELECT_ALL, action::Context::path(window, path)),
-            binding.state().expect("projected binding state")
+            composition.responder_bindings(&path),
+            Some(&[binding.clone()][..])
+        );
+        assert_eq!(
+            registry.configured_state_key(
+                command::Key::of::<crate::text::command::SelectAll>(),
+                command::call::Context::path(window, path)
+            ),
+            binding.state().expect("projected binding state").clone()
         );
     }
 
@@ -1863,14 +1930,15 @@ mod tests {
         let window = window::Id::new(1);
         let path = ui::Path::new([ROOT, CHILD]);
         let mut state = WindowState::default();
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        registry.register(Action::new(action::SELECT_ALL, "Select All"));
-        registry.register(Action::new(action::PASTE, "Paste"));
+        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        register_text_command::<crate::text::command::Paste>(&mut registry, "Paste");
         tree.set_root(
-            widget::panel(ROOT)
-                .with_child(widget::text_field(CHILD, text::Buffer::from_text("hello"))),
+            widget::panel()
+                .key(ROOT)
+                .with_child(widget::text_field(text::Buffer::from_text("hello")).key(CHILD)),
         );
 
         compose(
@@ -1883,16 +1951,18 @@ mod tests {
 
         assert!(
             !registry
-                .configured_state(
-                    action::SELECT_ALL,
-                    action::Context::path(window, path.clone())
-                )
-                .is_enabled()
+                .configured_state::<crate::text::command::SelectAll>(command::call::Context::path(
+                    window,
+                    path.clone(),
+                ))
+                .is_available()
         );
         assert!(
             !registry
-                .configured_state(action::PASTE, action::Context::path(window, path))
-                .is_enabled()
+                .configured_state::<crate::text::command::Paste>(command::call::Context::path(
+                    window, path
+                ))
+                .is_available()
         );
     }
 
@@ -1908,14 +1978,15 @@ mod tests {
             )),
             ..WindowState::default()
         };
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        registry.register(Action::new(action::SELECT_ALL, "Select All"));
-        registry.register(Action::new(action::PASTE, "Paste"));
+        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        register_text_command::<crate::text::command::Paste>(&mut registry, "Paste");
         tree.set_root(
-            widget::panel(ROOT)
-                .with_child(widget::text_field(CHILD, text::Buffer::from_text("hello"))),
+            widget::panel()
+                .key(ROOT)
+                .with_child(widget::text_field(text::Buffer::from_text("hello")).key(CHILD)),
         );
 
         compose(
@@ -1928,16 +1999,18 @@ mod tests {
 
         assert!(
             registry
-                .configured_state(
-                    action::SELECT_ALL,
-                    action::Context::path(window, path.clone())
-                )
-                .is_enabled()
+                .configured_state::<crate::text::command::SelectAll>(command::call::Context::path(
+                    window,
+                    path.clone(),
+                ))
+                .is_available()
         );
         assert!(
             registry
-                .configured_state(action::PASTE, action::Context::path(window, path))
-                .is_enabled()
+                .configured_state::<crate::text::command::Paste>(command::call::Context::path(
+                    window, path
+                ))
+                .is_available()
         );
     }
 
@@ -1955,22 +2028,26 @@ mod tests {
             )),
             ..WindowState::default()
         };
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
         editor.apply_text_edit(&mut buffer, text::edit::Edit::SelectAll);
-        registry.register(Action::new(action::SELECT_ALL, "Select All"));
+        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
         tree.set_root(
-            widget::panel(ROOT)
-                .with_child(widget::menu_bar(
-                    MENU_BAR,
-                    menu::Bar::new().menu(
-                        menu::Menu::new(FILE, "File").section(
-                            menu::Section::new().item(menu::Item::new(action::SELECT_ALL)),
+            widget::panel()
+                .key(ROOT)
+                .with_child(
+                    widget::menu_bar(
+                        menu::Bar::new().menu(
+                            menu::Menu::new("File").key(FILE).section(
+                                menu::Section::new()
+                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
+                            ),
                         ),
-                    ),
-                ))
-                .with_child(widget::text_field(CHILD, buffer)),
+                    )
+                    .key(MENU_BAR),
+                )
+                .with_child(widget::text_field(buffer).key(CHILD)),
         );
 
         compose(
@@ -1992,11 +2069,16 @@ mod tests {
         let row = ui::Path::new([ROOT, widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
         let composition = state.composition.as_ref().expect("composition");
 
-        assert_eq!(composition.action(&row), Some(action::SELECT_ALL));
+        assert_eq!(
+            composition.command(&row).map(|route| route.command()),
+            Some(command::Key::of::<crate::text::command::SelectAll>())
+        );
         assert!(
             !registry
-                .configured_state(action::SELECT_ALL, action::Context::path(window, field))
-                .is_enabled()
+                .configured_state::<crate::text::command::SelectAll>(command::call::Context::path(
+                    window, field,
+                ))
+                .is_available()
         );
     }
 
@@ -2006,21 +2088,24 @@ mod tests {
         let subject = ui::Path::new([ROOT, CHILD]);
         let scope = ui::Path::new([ROOT, OTHER]);
         let mut state = WindowState {
-            command_subject: Some(action::Scope::Path(subject.clone())),
+            command_subject: Some(command::call::Scope::Path(subject.clone())),
             ..WindowState::default()
         };
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
         tree.set_root(
-            widget::panel(ROOT)
+            widget::panel()
+                .key(ROOT)
                 .with_child(
-                    ui::Node::leaf(CHILD)
-                        .with_responder(action::SELECT_ALL)
+                    ui::Node::leaf()
+                        .key(CHILD)
+                        .with_responder::<crate::text::command::SelectAll>()
                         .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
                 )
                 .with_child(
-                    widget::panel(OTHER)
+                    widget::panel()
+                        .key(OTHER)
                         .with_command_scope()
                         .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
                 ),
@@ -2036,7 +2121,7 @@ mod tests {
 
         assert_eq!(
             state.command_scope_captures.get(&scope),
-            Some(&action::Context::path(window, subject))
+            Some(&command::call::Context::path(window, subject))
         );
     }
 
@@ -2048,14 +2133,14 @@ mod tests {
         let mut state = WindowState {
             command_scope_captures: std::collections::HashMap::from([(
                 scope,
-                action::Context::path(window, subject),
+                command::call::Context::path(window, subject),
             )]),
             ..WindowState::default()
         };
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        tree.set_root(widget::panel(ROOT));
+        tree.set_root(widget::panel().key(ROOT));
 
         compose(
             window,
@@ -2073,32 +2158,37 @@ mod tests {
         let window = window::Id::new(1);
         let subject = ui::Path::new([ROOT, CHILD]);
         let mut state = WindowState {
-            command_subject: Some(action::Scope::Path(subject.clone())),
+            command_subject: Some(command::call::Scope::Path(subject.clone())),
             ..WindowState::default()
         };
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        registry.register(Action::new(action::SELECT_ALL, "Select All"));
-        registry.set_state(
-            action::SELECT_ALL,
-            action::Context::path(window, subject.clone()),
-            action::State::enabled(),
+        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        registry.set_state_key(
+            command::Key::of::<crate::text::command::SelectAll>(),
+            command::call::Context::path(window, subject.clone()),
+            command::State::available(),
         );
         open_menu_surface(&mut state, window, FILE, subject.clone());
         tree.set_root(
-            widget::panel(ROOT)
-                .with_child(widget::menu_bar(
-                    MENU_BAR,
-                    menu::Bar::new().menu(
-                        menu::Menu::new(FILE, "File").section(
-                            menu::Section::new().item(menu::Item::new(action::SELECT_ALL)),
-                        ),
-                    ),
-                ))
+            widget::panel()
+                .key(ROOT)
                 .with_child(
-                    ui::Node::leaf(CHILD)
-                        .with_responder(action::SELECT_ALL)
+                    widget::menu_bar(
+                        menu::Bar::new().menu(
+                            menu::Menu::new("File").key(FILE).section(
+                                menu::Section::new()
+                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
+                            ),
+                        ),
+                    )
+                    .key(MENU_BAR),
+                )
+                .with_child(
+                    ui::Node::leaf()
+                        .key(CHILD)
+                        .with_responder::<crate::text::command::SelectAll>()
                         .with_interactivity(ui::Interactivity::CONTROL),
                 ),
         );
@@ -2139,14 +2229,17 @@ mod tests {
                     && !interactivity.focusable()
                     && !interactivity.actionable())
         );
-        assert_eq!(composition.action(&row), Some(action::SELECT_ALL));
+        assert_eq!(
+            composition.command(&row).map(|route| route.command()),
+            Some(command::Key::of::<crate::text::command::SelectAll>())
+        );
         assert_eq!(
             composition.command_subject(&row),
             ui::CommandSubject::Captured
         );
         assert_eq!(
             state.command_scope_captures.get(&scope),
-            Some(&action::Context::path(window, subject))
+            Some(&command::call::Context::path(window, subject))
         );
 
         let backdrop_index = scene
@@ -2173,18 +2266,22 @@ mod tests {
     fn compose_disables_top_level_menu_with_no_available_commands() {
         let window = window::Id::new(1);
         let mut state = WindowState::default();
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
-        let menu_title = ui::Path::new([ROOT, MENU_BAR, ui::Id::new("file")]);
+        let menu_title = ui::Path::new([ROOT, MENU_BAR, top_level_menu_title(0)]);
 
-        tree.set_root(widget::panel(ROOT).with_child(
-            widget::menu_bar(
-                MENU_BAR,
-                menu::Bar::new().menu(
-                    menu::Menu::new(FILE, "File").section(menu::Section::new().action(CLICK)),
-                ),
+        tree.set_root(
+            widget::panel().key(ROOT).with_child(
+                widget::menu_bar(
+                    menu::Bar::new().menu(
+                        menu::Menu::new("File")
+                            .key(FILE)
+                            .section(menu::Section::new().command_key(CLICK)),
+                    ),
+                )
+                .key(MENU_BAR),
             ),
-        ));
+        );
 
         let scene = compose(
             window,
@@ -2197,7 +2294,7 @@ mod tests {
         let composition = state.composition.as_ref().expect("composition");
         assert_eq!(
             composition.path_state(&menu_title),
-            Some(action::State::disabled())
+            Some(command::State::unavailable())
         );
         assert_eq!(
             composition.interactivity(&menu_title),
@@ -2219,26 +2316,33 @@ mod tests {
         );
 
         assert_ne!(state.hit_test(title_center), Some(menu_title));
-        assert!(!state.toggle_menu(FILE, &registry, window, action::Source::Pointer));
+        assert!(!state.toggle_menu(FILE, &registry, window, command::call::Source::Pointer));
     }
 
     #[test]
     fn compose_enables_top_level_menu_when_descendant_command_can_run() {
         let window = window::Id::new(1);
         let mut state = WindowState::default();
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
-        let menu_title = ui::Path::new([ROOT, MENU_BAR, ui::Id::new("file")]);
+        let menu_title = ui::Path::new([ROOT, MENU_BAR, top_level_menu_title(0)]);
 
-        registry.register(Action::new(CLICK, "Click"));
-        tree.set_root(widget::panel(ROOT).with_child(
-            widget::menu_bar(
-                MENU_BAR,
-                menu::Bar::new().menu(
-                    menu::Menu::new(FILE, "File").section(menu::Section::new().action(CLICK)),
-                ),
+        registry.register(command::definition::Definition::for_command::<
+            Click,
+            command::TestTarget,
+        >());
+        tree.set_root(
+            widget::panel().key(ROOT).with_child(
+                widget::menu_bar(
+                    menu::Bar::new().menu(
+                        menu::Menu::new("File")
+                            .key(FILE)
+                            .section(menu::Section::new().command_key(CLICK)),
+                    ),
+                )
+                .key(MENU_BAR),
             ),
-        ));
+        );
 
         compose(
             window,
@@ -2251,7 +2355,7 @@ mod tests {
         let composition = state.composition.as_ref().expect("composition");
         assert_eq!(
             composition.path_state(&menu_title),
-            Some(action::State::enabled())
+            Some(command::State::available())
         );
         assert!(
             composition
@@ -2267,19 +2371,30 @@ mod tests {
     fn compose_counts_submenu_descendant_commands_for_top_level_availability() {
         let window = window::Id::new(1);
         let mut state = WindowState::default();
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
-        let menu_title = ui::Path::new([ROOT, MENU_BAR, ui::Id::new("file")]);
+        let menu_title = ui::Path::new([ROOT, MENU_BAR, top_level_menu_title(0)]);
 
-        registry.register(Action::new(CLICK, "Click"));
-        tree.set_root(widget::panel(ROOT).with_child(widget::menu_bar(
-            MENU_BAR,
-            menu::Bar::new().menu(menu::Menu::new(FILE, "File").section(
-                menu::Section::new().submenu(
-                    menu::Menu::new(PANELS, "Panels").section(menu::Section::new().action(CLICK)),
-                ),
-            )),
-        )));
+        registry.register(command::definition::Definition::for_command::<
+            Click,
+            command::TestTarget,
+        >());
+        tree.set_root(
+            widget::panel().key(ROOT).with_child(
+                widget::menu_bar(
+                    menu::Bar::new().menu(
+                        menu::Menu::new("File").key(FILE).section(
+                            menu::Section::new().submenu(
+                                menu::Menu::new("Panels")
+                                    .key(PANELS)
+                                    .section(menu::Section::new().command_key(CLICK)),
+                            ),
+                        ),
+                    ),
+                )
+                .key(MENU_BAR),
+            ),
+        );
 
         compose(
             window,
@@ -2292,7 +2407,7 @@ mod tests {
         let composition = state.composition.as_ref().expect("composition");
         assert_eq!(
             composition.path_state(&menu_title),
-            Some(action::State::enabled())
+            Some(command::State::available())
         );
         assert!(
             composition
@@ -2311,32 +2426,37 @@ mod tests {
                 ui::focus::Reason::Pointer,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(action::Scope::Path(field.clone())),
+            command_subject: Some(command::call::Scope::Path(field.clone())),
             ..WindowState::default()
         };
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        registry.register(Action::new(action::SELECT_ALL, "Select All"));
-        registry.set_state(
-            action::SELECT_ALL,
-            action::Context::path(window, field.clone()),
-            action::State::enabled(),
+        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        registry.set_state_key(
+            command::Key::of::<crate::text::command::SelectAll>(),
+            command::call::Context::path(window, field.clone()),
+            command::State::available(),
         );
         open_menu_surface(&mut state, window, FILE, field.clone());
         tree.set_root(
-            widget::panel(ROOT)
-                .with_child(widget::menu_bar(
-                    MENU_BAR,
-                    menu::Bar::new().menu(
-                        menu::Menu::new(FILE, "File").section(
-                            menu::Section::new().item(menu::Item::new(action::SELECT_ALL)),
-                        ),
-                    ),
-                ))
+            widget::panel()
+                .key(ROOT)
                 .with_child(
-                    widget::text_field(CHILD, text::Buffer::from_text("hello"))
-                        .with_responder(action::SELECT_ALL),
+                    widget::menu_bar(
+                        menu::Bar::new().menu(
+                            menu::Menu::new("File").key(FILE).section(
+                                menu::Section::new()
+                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
+                            ),
+                        ),
+                    )
+                    .key(MENU_BAR),
+                )
+                .with_child(
+                    widget::text_field(text::Buffer::from_text("hello"))
+                        .key(CHILD)
+                        .with_responder::<crate::text::command::SelectAll>(),
                 ),
         );
 
@@ -2362,33 +2482,38 @@ mod tests {
                 ui::focus::Reason::Pointer,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(action::Scope::Path(area.clone())),
+            command_subject: Some(command::call::Scope::Path(area.clone())),
             ..WindowState::default()
         };
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        registry.register(Action::new(action::SELECT_ALL, "Select All"));
-        registry.set_state(
-            action::SELECT_ALL,
-            action::Context::path(window, area.clone()),
-            action::State::enabled(),
+        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        registry.set_state_key(
+            command::Key::of::<crate::text::command::SelectAll>(),
+            command::call::Context::path(window, area.clone()),
+            command::State::available(),
         );
         open_menu_surface(&mut state, window, FILE, area.clone());
         tree.set_root(
-            widget::panel(ROOT)
-                .with_child(widget::menu_bar(
-                    MENU_BAR,
-                    menu::Bar::new().menu(
-                        menu::Menu::new(FILE, "File").section(
-                            menu::Section::new().item(menu::Item::new(action::SELECT_ALL)),
-                        ),
-                    ),
-                ))
+            widget::panel()
+                .key(ROOT)
                 .with_child(
-                    widget::text_area(CHILD, text::Area::new(selected_large_text_area_buffer(3)))
+                    widget::menu_bar(
+                        menu::Bar::new().menu(
+                            menu::Menu::new("File").key(FILE).section(
+                                menu::Section::new()
+                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
+                            ),
+                        ),
+                    )
+                    .key(MENU_BAR),
+                )
+                .with_child(
+                    widget::text_area(text::Area::new(selected_large_text_area_buffer(3)))
+                        .key(CHILD)
                         .with_size(layout::Size::Fill, layout::Size::Fixed(80.0))
-                        .with_responder(action::SELECT_ALL),
+                        .with_responder::<crate::text::command::SelectAll>(),
                 ),
         );
 
@@ -2419,31 +2544,36 @@ mod tests {
                 ui::focus::Reason::Keyboard,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(action::Scope::Path(field.clone())),
+            command_subject: Some(command::call::Scope::Path(field.clone())),
             ..WindowState::default()
         };
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        registry.register(Action::new(action::SELECT_ALL, "Select All"));
-        registry.set_state(
-            action::SELECT_ALL,
-            action::Context::path(window, field.clone()),
-            action::State::enabled(),
+        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        registry.set_state_key(
+            command::Key::of::<crate::text::command::SelectAll>(),
+            command::call::Context::path(window, field.clone()),
+            command::State::available(),
         );
         tree.set_root(
-            widget::panel(ROOT)
-                .with_child(widget::menu_bar(
-                    MENU_BAR,
-                    menu::Bar::new().menu(
-                        menu::Menu::new(FILE, "File").section(
-                            menu::Section::new().item(menu::Item::new(action::SELECT_ALL)),
-                        ),
-                    ),
-                ))
+            widget::panel()
+                .key(ROOT)
                 .with_child(
-                    widget::text_field(CHILD, text::Buffer::from_text("hello"))
-                        .with_responder(action::SELECT_ALL),
+                    widget::menu_bar(
+                        menu::Bar::new().menu(
+                            menu::Menu::new("File").key(FILE).section(
+                                menu::Section::new()
+                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
+                            ),
+                        ),
+                    )
+                    .key(MENU_BAR),
+                )
+                .with_child(
+                    widget::text_field(text::Buffer::from_text("hello"))
+                        .key(CHILD)
+                        .with_responder::<crate::text::command::SelectAll>(),
                 ),
         );
 
@@ -2454,7 +2584,7 @@ mod tests {
             &mut registry,
             area::logical(300.0, 180.0),
         );
-        assert!(state.toggle_menu(FILE, &registry, window, action::Source::Keyboard));
+        assert!(state.toggle_menu(FILE, &registry, window, command::call::Source::Keyboard));
         compose(
             window,
             &tree,
@@ -2473,7 +2603,7 @@ mod tests {
         let subject = ui::Path::new([ROOT, CHILD]);
         let row = ui::Path::new([ROOT, widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
         let mut state = WindowState {
-            command_subject: Some(action::Scope::Path(subject.clone())),
+            command_subject: Some(command::call::Scope::Path(subject.clone())),
             focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
                 row,
                 ui::focus::Reason::Keyboard,
@@ -2481,29 +2611,34 @@ mod tests {
             )),
             ..WindowState::default()
         };
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        registry.register(Action::new(action::SELECT_ALL, "Select All"));
-        registry.set_state(
-            action::SELECT_ALL,
-            action::Context::path(window, subject.clone()),
-            action::State::enabled(),
+        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        registry.set_state_key(
+            command::Key::of::<crate::text::command::SelectAll>(),
+            command::call::Context::path(window, subject.clone()),
+            command::State::available(),
         );
         open_menu_surface(&mut state, window, FILE, subject.clone());
         tree.set_root(
-            widget::panel(ROOT)
-                .with_child(widget::menu_bar(
-                    MENU_BAR,
-                    menu::Bar::new().menu(
-                        menu::Menu::new(FILE, "File").section(
-                            menu::Section::new().item(menu::Item::new(action::SELECT_ALL)),
-                        ),
-                    ),
-                ))
+            widget::panel()
+                .key(ROOT)
                 .with_child(
-                    ui::Node::leaf(CHILD)
-                        .with_responder(action::SELECT_ALL)
+                    widget::menu_bar(
+                        menu::Bar::new().menu(
+                            menu::Menu::new("File").key(FILE).section(
+                                menu::Section::new()
+                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
+                            ),
+                        ),
+                    )
+                    .key(MENU_BAR),
+                )
+                .with_child(
+                    ui::Node::leaf()
+                        .key(CHILD)
+                        .with_responder::<crate::text::command::SelectAll>()
                         .with_interactivity(ui::Interactivity::CONTROL),
                 ),
         );
@@ -2531,29 +2666,36 @@ mod tests {
         let window = window::Id::new(1);
         let subject = ui::Path::new([ROOT, CHILD]);
         let mut state = WindowState {
-            command_subject: Some(action::Scope::Path(subject.clone())),
+            command_subject: Some(command::call::Scope::Path(subject.clone())),
             ..WindowState::default()
         };
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        registry.register(Action::new(TOGGLE, "Toggle Preview"));
-        registry.set_state(
+        registry.register(
+            command::definition::Definition::for_command::<Toggle, command::TestTarget>()
+                .with_display("Toggle Preview"),
+        );
+        registry.set_state_key(
             TOGGLE,
-            action::Context::path(window, subject.clone()),
-            action::State::active(),
+            command::call::Context::path(window, subject.clone()),
+            command::State::active(),
         );
         open_menu_surface(&mut state, window, VIEW, subject.clone());
         tree.set_root(
-            widget::panel(ROOT)
-                .with_child(widget::menu_bar(
-                    MENU_BAR,
-                    menu::Bar::new().menu(
-                        menu::Menu::new(VIEW, "View")
-                            .section(menu::Section::new().item(menu::Item::new(TOGGLE))),
-                    ),
-                ))
-                .with_child(ui::Node::leaf(CHILD).with_responder(TOGGLE)),
+            widget::panel()
+                .key(ROOT)
+                .with_child(
+                    widget::menu_bar(
+                        menu::Bar::new().menu(
+                            menu::Menu::new("View")
+                                .key(VIEW)
+                                .section(menu::Section::new().item(menu::Item::key(TOGGLE))),
+                        ),
+                    )
+                    .key(MENU_BAR),
+                )
+                .with_child(ui::Node::leaf().key(CHILD).with_responder_key(TOGGLE)),
         );
 
         let scene = compose(
@@ -2578,33 +2720,40 @@ mod tests {
         let window = window::Id::new(1);
         let subject = ui::Path::new([ROOT, CHILD]);
         let mut state = WindowState {
-            command_subject: Some(action::Scope::Path(subject.clone())),
+            command_subject: Some(command::call::Scope::Path(subject.clone())),
             ..WindowState::default()
         };
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        registry.register(Action::new(TOGGLE, "Toggle Preview"));
-        registry.set_state(
+        registry.register(
+            command::definition::Definition::for_command::<Toggle, command::TestTarget>()
+                .with_display("Toggle Preview"),
+        );
+        registry.set_state_key(
             TOGGLE,
-            action::Context::path(window, subject.clone()),
-            action::State::enabled(),
+            command::call::Context::path(window, subject.clone()),
+            command::State::available(),
         );
         open_submenu_surface(&mut state, window, VIEW, PANELS, subject.clone());
         tree.set_root(
-            widget::panel(ROOT)
-                .with_child(widget::menu_bar(
-                    MENU_BAR,
-                    menu::Bar::new().menu(
-                        menu::Menu::new(VIEW, "View").section(
-                            menu::Section::new().submenu(
-                                menu::Menu::new(PANELS, "Panels")
-                                    .section(menu::Section::new().item(menu::Item::new(TOGGLE))),
+            widget::panel()
+                .key(ROOT)
+                .with_child(
+                    widget::menu_bar(
+                        menu::Bar::new().menu(
+                            menu::Menu::new("View").key(VIEW).section(
+                                menu::Section::new().submenu(
+                                    menu::Menu::new("Panels").key(PANELS).section(
+                                        menu::Section::new().item(menu::Item::key(TOGGLE)),
+                                    ),
+                                ),
                             ),
                         ),
-                    ),
-                ))
-                .with_child(ui::Node::leaf(CHILD).with_responder(TOGGLE)),
+                    )
+                    .key(MENU_BAR),
+                )
+                .with_child(ui::Node::leaf().key(CHILD).with_responder_key(TOGGLE)),
         );
 
         compose(
@@ -2626,7 +2775,12 @@ mod tests {
         let composition = state.composition.as_ref().expect("composition");
 
         assert!(composition.layout().find_path(&submenu_popup).is_some());
-        assert_eq!(composition.action(&submenu_row), Some(TOGGLE));
+        assert_eq!(
+            composition
+                .command(&submenu_row)
+                .map(|route| route.command()),
+            Some(TOGGLE)
+        );
         assert_eq!(
             state.intent(&top_submenu_row),
             Some(ui::Intent::OpenSubmenu(PANELS))

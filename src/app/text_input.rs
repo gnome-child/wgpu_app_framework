@@ -1,4 +1,7 @@
-use crate::{action, text, ui, window};
+use std::collections::HashMap;
+use std::time::Instant;
+
+use crate::{command, text, ui, window};
 
 use super::state::WindowState;
 
@@ -44,14 +47,14 @@ pub fn command_state(
     state: &WindowState,
     target: &ui::Path,
     command: text::edit::Command,
-) -> action::State {
+) -> command::State {
     let enabled = state
         .composition
         .as_ref()
         .and_then(|composition| composition.text_surface(target))
         .is_some_and(|surface| can_apply_command(state, target, surface, command));
 
-    action::State::new(enabled, false)
+    command::State::available_if(enabled)
 }
 
 pub fn can_apply_command(
@@ -83,9 +86,9 @@ pub fn can_apply_command(
     }
 }
 
-pub fn publish_action_states<T>(
+pub fn publish_command_states(
     state: &WindowState,
-    actions: &mut action::Registry<T>,
+    commands: &mut command::Registry,
     window: window::Id,
 ) -> bool {
     let Some(composition) = state.composition.as_ref() else {
@@ -94,34 +97,252 @@ pub fn publish_action_states<T>(
 
     let mut changed = false;
 
-    for path in composition.text_surfaces().keys() {
-        let context = action::Context::path(window, path.clone());
+    let target = CommandStateTarget::new(state);
 
-        for (action, command) in [
-            (action::SELECT_ALL, text::edit::Command::SelectAll),
-            (action::COPY, text::edit::Command::Copy),
-            (action::CUT, text::edit::Command::Cut),
-            (action::PASTE, text::edit::Command::Paste),
-            (action::UNDO, text::edit::Command::Undo),
-            (action::REDO, text::edit::Command::Redo),
-        ] {
-            changed |=
-                actions.set_state(action, context.clone(), command_state(state, path, command));
-        }
+    for path in composition.text_surfaces().keys() {
+        let context = command::call::Context::path(window, path.clone());
+
+        changed |= commands
+            .project_command_state::<crate::text::command::SelectAll, _>(&target, context.clone());
+        changed |= commands
+            .project_command_state::<crate::text::command::Copy, _>(&target, context.clone());
+        changed |= commands
+            .project_command_state::<crate::text::command::Cut, _>(&target, context.clone());
+        changed |= commands
+            .project_command_state::<crate::text::command::Delete, _>(&target, context.clone());
+        changed |= commands
+            .project_command_state::<crate::text::command::Paste, _>(&target, context.clone());
+        changed |= commands
+            .project_command_state::<crate::text::command::Undo, _>(&target, context.clone());
+        changed |=
+            commands.project_command_state::<crate::text::command::Redo, _>(&target, context);
     }
 
     changed
 }
 
-pub fn command_for_action(action: action::Id) -> Option<text::edit::Command> {
-    match action {
-        action::SELECT_ALL => Some(text::edit::Command::SelectAll),
-        action::COPY => Some(text::edit::Command::Copy),
-        action::CUT => Some(text::edit::Command::Cut),
-        action::PASTE => Some(text::edit::Command::Paste),
-        action::UNDO => Some(text::edit::Command::Undo),
-        action::REDO => Some(text::edit::Command::Redo),
-        _ => None,
+struct CommandStateTarget<'a> {
+    state: &'a WindowState,
+}
+
+impl<'a> CommandStateTarget<'a> {
+    fn new(state: &'a WindowState) -> Self {
+        Self { state }
+    }
+}
+
+impl<C> command::Target<C> for CommandStateTarget<'_>
+where
+    C: text::command::EditCommand,
+{
+    fn state(&self, context: &command::call::Context) -> command::State {
+        let command::call::Scope::Path(path) = context.scope() else {
+            return command::State::unavailable();
+        };
+
+        command_state(self.state, path, C::edit_command())
+    }
+
+    fn invoke(
+        &mut self,
+        _args: C::Args,
+        _invocation: command::call::Invocation<C>,
+    ) -> command::Response<C::Output> {
+        command::Response::output(text::edit::CommandResult {
+            unavailable: true,
+            ..text::edit::CommandResult::default()
+        })
+    }
+}
+
+pub(crate) struct CommandTarget<'a> {
+    window_states: &'a mut HashMap<window::Id, WindowState>,
+    text_editor: &'a mut text::edit::Editor,
+    text_engine: &'a mut text::layout::Engine,
+    clipboard: &'a mut dyn text::edit::Clipboard,
+    buffer: &'a mut text::Buffer,
+}
+
+impl<'a> CommandTarget<'a> {
+    pub(crate) fn new(
+        window_states: &'a mut HashMap<window::Id, WindowState>,
+        text_editor: &'a mut text::edit::Editor,
+        text_engine: &'a mut text::layout::Engine,
+        clipboard: &'a mut dyn text::edit::Clipboard,
+        buffer: &'a mut text::Buffer,
+    ) -> Self {
+        Self {
+            window_states,
+            text_editor,
+            text_engine,
+            clipboard,
+            buffer,
+        }
+    }
+}
+
+impl<C> command::Target<C> for CommandTarget<'_>
+where
+    C: text::command::EditCommand,
+{
+    fn state(&self, context: &command::call::Context) -> command::State {
+        let command::call::Scope::Path(target) = context.scope() else {
+            return command::State::unavailable();
+        };
+
+        self.window_states
+            .values()
+            .find_map(|state| {
+                state
+                    .composition
+                    .as_ref()
+                    .and_then(|composition| composition.text_surface(target))
+                    .map(|_| command_state(state, target, C::edit_command()))
+            })
+            .unwrap_or_else(command::State::unavailable)
+    }
+
+    fn invoke(
+        &mut self,
+        _args: C::Args,
+        invocation: command::call::Invocation<C>,
+    ) -> command::Response<C::Output> {
+        let command::call::Scope::Path(target) = invocation.context().scope() else {
+            return command::Response::output(text::edit::CommandResult {
+                unavailable: true,
+                ..text::edit::CommandResult::default()
+            });
+        };
+
+        command::Response::output(apply_command_for(
+            self.window_states,
+            self.text_editor,
+            self.text_engine,
+            self.clipboard,
+            target,
+            self.buffer,
+            C::edit_command(),
+        ))
+    }
+}
+
+pub(crate) fn apply_command_for(
+    window_states: &mut HashMap<window::Id, WindowState>,
+    text_editor: &mut text::edit::Editor,
+    text_engine: &mut text::layout::Engine,
+    clipboard: &mut dyn text::edit::Clipboard,
+    target: &ui::Path,
+    buffer: &mut text::Buffer,
+    command: text::edit::Command,
+) -> text::edit::CommandResult {
+    if matches!(
+        command,
+        text::edit::Command::Undo | text::edit::Command::Redo
+    ) {
+        let scroll_anchors = window_states
+            .iter()
+            .map(|(window, state)| (*window, state.text_area_scroll_anchor(target)))
+            .collect::<HashMap<_, _>>();
+        let Some(result) = window_states.values_mut().find_map(|state| {
+            let can_apply = state
+                .text_surface(target)
+                .is_some_and(|surface| can_apply_command(state, target, surface, command.clone()));
+
+            can_apply.then(|| state.apply_text_history_command(target, buffer, command.clone()))
+        }) else {
+            return text::edit::CommandResult {
+                unavailable: true,
+                ..text::edit::CommandResult::default()
+            };
+        };
+
+        if result.buffer_changed() {
+            text_engine.invalidate_text_area_surfaces_for(buffer);
+            let now = Instant::now();
+            for (window, state) in window_states.iter_mut() {
+                state.ensure_text_caret_visible_after_edit(
+                    target,
+                    now,
+                    text_engine,
+                    scroll_anchors.get(window).copied().flatten(),
+                );
+            }
+        }
+
+        return result;
+    }
+
+    if !window_states.values().any(|state| {
+        state
+            .text_surface(target)
+            .is_some_and(|surface| can_apply_command(state, target, surface, command.clone()))
+    }) {
+        return text::edit::CommandResult {
+            unavailable: true,
+            ..text::edit::CommandResult::default()
+        };
+    }
+
+    let selection_only = matches!(command, text::edit::Command::SelectAll);
+    let scroll_anchors = window_states
+        .iter()
+        .map(|(window, state)| (*window, state.text_area_scroll_anchor(target)))
+        .collect::<HashMap<_, _>>();
+    let outcome = text_editor.apply_text_command_with_result(buffer, command, clipboard);
+    if outcome.result.text_changed {
+        text_engine.invalidate_text_area_for_edit(buffer, &outcome.impacts);
+    }
+    let result = outcome.result;
+
+    let now = Instant::now();
+    if let Some(change) = outcome.change {
+        for state in window_states.values_mut() {
+            state.record_text_field_history(
+                target,
+                change.clone(),
+                text::edit::HistoryKind::Boundary,
+                now,
+            );
+        }
+    }
+
+    if result.buffer_changed() {
+        for (window, state) in window_states.iter_mut() {
+            if selection_only {
+                state.reset_text_field_caret_blink_without_scroll(target, now);
+            } else if result.text_changed || result.selection_changed {
+                state.ensure_text_caret_visible_after_edit(
+                    target,
+                    now,
+                    text_engine,
+                    scroll_anchors.get(window).copied().flatten(),
+                );
+            } else {
+                state.reset_text_field_caret_blink_without_scroll(target, now);
+            }
+        }
+    }
+
+    result
+}
+
+pub fn text_command_for(command: command::Key) -> Option<text::edit::Command> {
+    if command == command::Key::of::<crate::text::command::SelectAll>() {
+        Some(text::edit::Command::SelectAll)
+    } else if command == command::Key::of::<crate::text::command::Copy>() {
+        Some(text::edit::Command::Copy)
+    } else if command == command::Key::of::<crate::text::command::Cut>() {
+        Some(text::edit::Command::Cut)
+    } else if command == command::Key::of::<crate::text::command::Delete>() {
+        Some(text::edit::Command::Delete)
+    } else if command == command::Key::of::<crate::text::command::Paste>() {
+        Some(text::edit::Command::Paste)
+    } else if command == command::Key::of::<crate::text::command::Undo>() {
+        Some(text::edit::Command::Undo)
+    } else if command == command::Key::of::<crate::text::command::Redo>() {
+        Some(text::edit::Command::Redo)
+    } else {
+        None
     }
 }
 
@@ -135,7 +356,7 @@ fn command_would_do_work(surface: &text::Surface, command: text::edit::Command) 
     match command {
         text::edit::Command::Copy => surface.allows_copy() && buffer.has_selection(),
         text::edit::Command::Cut => surface.allows_cut() && buffer.has_selection(),
-        text::edit::Command::Paste => surface.is_editable(),
+        text::edit::Command::Delete | text::edit::Command::Paste => surface.is_editable(),
         text::edit::Command::SelectAll => {
             surface.is_selectable()
                 && !buffer.is_empty()
@@ -183,7 +404,7 @@ mod tests {
     use crate::app::state::{Focus, FocusState};
     use crate::geometry::area;
     use crate::widget::menu;
-    use crate::{Action, layout, widget};
+    use crate::{command, layout, widget};
 
     use super::*;
 
@@ -193,7 +414,6 @@ mod tests {
     const MENU_BAR: ui::Id = ui::Id::new("menu_bar");
     const MENU_POPUP: ui::Id = ui::Id::new("menu_popup");
     const FILE: menu::Id = menu::Id::new("file");
-    const SELECT_ALL: action::Id = action::SELECT_ALL;
 
     fn path(id: ui::Id) -> ui::Path {
         ui::Path::from(id)
@@ -203,8 +423,12 @@ mod tests {
         ui::Path::new(vec![ROOT, id])
     }
 
-    fn menu_title_path(menu: menu::Id) -> ui::Path {
-        ui::Path::new(vec![ROOT, MENU_BAR, ui::Id::new(menu.as_str())])
+    fn menu_title_path(index: usize) -> ui::Path {
+        ui::Path::new(vec![
+            ROOT,
+            MENU_BAR,
+            ui::Id::structural("menu_title", index),
+        ])
     }
 
     fn window() -> window::Id {
@@ -235,11 +459,12 @@ mod tests {
 
     fn state(field: impl Into<text::Field>, focused: bool) -> WindowState {
         let mut tree = ui::Tree::new();
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
 
         tree.set_root(
-            widget::text_field(FIELD, field)
+            widget::text_field(field)
+                .key(FIELD)
                 .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(32.0)),
         );
         let composition = tree
@@ -287,17 +512,20 @@ mod tests {
 
     fn two_field_state(focused: ui::Id) -> WindowState {
         let mut tree = ui::Tree::new();
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
 
         tree.set_root(
-            ui::Node::container(ROOT, layout::Axis::Vertical)
+            ui::Node::container(layout::Axis::Vertical)
+                .key(ROOT)
                 .with_child(
-                    widget::text_field(FIELD, text::Buffer::from_text("first"))
+                    widget::text_field(text::Buffer::from_text("first"))
+                        .key(FIELD)
                         .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(32.0)),
                 )
                 .with_child(
-                    widget::text_field(OTHER_FIELD, text::Buffer::from_text("second"))
+                    widget::text_field(text::Buffer::from_text("second"))
+                        .key(OTHER_FIELD)
                         .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(32.0)),
                 ),
         );
@@ -324,27 +552,38 @@ mod tests {
         state
     }
 
-    fn two_field_menu_state(focused: ui::Id) -> (WindowState, action::Registry<()>) {
+    fn two_field_menu_state(focused: ui::Id) -> (WindowState, command::Registry) {
         let mut tree = ui::Tree::new();
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
 
-        registry.register(Action::new(SELECT_ALL, "Select All"));
+        registry.commands(|commands| {
+            crate::text::command::define::<crate::text::command::SelectAll>(commands, |command| {
+                command
+            });
+        });
         tree.set_root(
-            ui::Node::container(ROOT, layout::Axis::Vertical)
-                .with_child(widget::menu_bar(
-                    MENU_BAR,
-                    menu::Bar::new().menu(
-                        menu::Menu::new(FILE, "File")
-                            .section(menu::Section::new().item(menu::Item::new(SELECT_ALL))),
-                    ),
-                ))
+            ui::Node::container(layout::Axis::Vertical)
+                .key(ROOT)
                 .with_child(
-                    widget::text_field(FIELD, text::Buffer::from_text("first"))
+                    widget::menu_bar(
+                        menu::Bar::new().menu(
+                            menu::Menu::new("File").key(FILE).section(
+                                menu::Section::new()
+                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
+                            ),
+                        ),
+                    )
+                    .key(MENU_BAR),
+                )
+                .with_child(
+                    widget::text_field(text::Buffer::from_text("first"))
+                        .key(FIELD)
                         .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(32.0)),
                 )
                 .with_child(
-                    widget::text_field(OTHER_FIELD, text::Buffer::from_text("second"))
+                    widget::text_field(text::Buffer::from_text("second"))
+                        .key(OTHER_FIELD)
                         .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(32.0)),
                 ),
         );
@@ -365,11 +604,11 @@ mod tests {
                 ui::focus::Reason::Keyboard,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(action::Scope::Path(child_path(focused))),
+            command_subject: Some(command::call::Scope::Path(child_path(focused))),
             ..WindowState::default()
         };
         sync_session(&mut state);
-        publish_action_states(&state, &mut registry, window());
+        publish_command_states(&state, &mut registry, window());
 
         (state, registry)
     }
@@ -386,7 +625,7 @@ mod tests {
             text::edit::Command::Undo,
             text::edit::Command::Redo,
         ] {
-            assert!(!command_state(&state, &path(FIELD), command).is_enabled());
+            assert!(!command_state(&state, &path(FIELD), command).is_available());
         }
     }
 
@@ -394,21 +633,21 @@ mod tests {
     fn focused_caret_only_field_enables_select_all_and_paste() {
         let state = state(text::Buffer::from_text("hello"), true);
 
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Paste).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Copy).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Cut).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Paste).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Copy).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Cut).is_available());
     }
 
     #[test]
     fn read_only_field_enables_selection_commands_but_not_mutation_commands() {
         let state = state(text::Field::new("hello").read_only(), true);
 
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Paste).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Cut).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Undo).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Redo).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Paste).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Cut).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Undo).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Redo).is_available());
     }
 
     #[test]
@@ -418,8 +657,8 @@ mod tests {
             true,
         );
 
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Copy).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Cut).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Copy).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Cut).is_available());
     }
 
     #[test]
@@ -429,10 +668,10 @@ mod tests {
             true,
         );
 
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Copy).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Cut).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Paste).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_enabled());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Copy).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Cut).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Paste).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_available());
     }
 
     #[test]
@@ -450,7 +689,7 @@ mod tests {
             text::edit::Command::Undo,
             text::edit::Command::Redo,
         ] {
-            assert!(!command_state(&state, &path(FIELD), command).is_enabled());
+            assert!(!command_state(&state, &path(FIELD), command).is_available());
         }
     }
 
@@ -458,20 +697,22 @@ mod tests {
     fn fully_selected_field_disables_select_all() {
         let state = state(buffer_with_full_selection(), true);
 
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Copy).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Cut).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Paste).is_enabled());
+        assert!(
+            !command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_available()
+        );
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Copy).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Cut).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Paste).is_available());
     }
 
     #[test]
     fn partially_selected_field_keeps_select_all_enabled() {
         let state = state(buffer_with_partial_selection(), true);
 
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Copy).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Cut).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Paste).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Copy).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Cut).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Paste).is_available());
     }
 
     #[test]
@@ -488,8 +729,8 @@ mod tests {
             std::time::Instant::now(),
         );
 
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Undo).is_enabled());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Redo).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Undo).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Redo).is_available());
 
         state.apply_text_history_command(
             &path(FIELD),
@@ -497,8 +738,8 @@ mod tests {
             text::edit::Command::Undo,
         );
 
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Undo).is_enabled());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Redo).is_enabled());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Undo).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::Redo).is_available());
     }
 
     #[test]
@@ -506,7 +747,7 @@ mod tests {
         let state = state_with_open_menu(text::Buffer::from_text("hello"));
 
         assert_eq!(editing_target(&state), Some(path(FIELD)));
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_enabled());
+        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_available());
     }
 
     #[test]
@@ -527,15 +768,16 @@ mod tests {
     #[test]
     fn stale_command_subject_cannot_override_text_session() {
         let mut state = two_field_state(OTHER_FIELD);
-        state.command_subject = Some(action::Scope::Path(child_path(FIELD)));
+        state.command_subject = Some(command::call::Scope::Path(child_path(FIELD)));
 
         assert_eq!(editing_target(&state), Some(child_path(OTHER_FIELD)));
         assert_eq!(
             state.command_context(window()),
-            action::Context::path(window(), child_path(OTHER_FIELD))
+            command::call::Context::path(window(), child_path(OTHER_FIELD))
         );
         assert!(
-            !command_state(&state, &child_path(FIELD), text::edit::Command::SelectAll).is_enabled()
+            !command_state(&state, &child_path(FIELD), text::edit::Command::SelectAll)
+                .is_available()
         );
         assert!(
             command_state(
@@ -543,14 +785,14 @@ mod tests {
                 &child_path(OTHER_FIELD),
                 text::edit::Command::SelectAll
             )
-            .is_enabled()
+            .is_available()
         );
     }
 
     #[test]
     fn closed_menu_title_focus_does_not_leave_stale_text_restore_scope() {
         let (mut state, registry) = two_field_menu_state(FIELD);
-        let menu_title = menu_title_path(FILE);
+        let menu_title = menu_title_path(0);
 
         assert!(state.set_focus(
             menu_title.clone(),
@@ -574,23 +816,29 @@ mod tests {
         ));
         assert_eq!(editing_target(&state), Some(child_path(OTHER_FIELD)));
 
-        assert!(state.toggle_menu(FILE, &registry, window(), action::Source::Pointer,));
+        assert!(state.toggle_menu(FILE, &registry, window(), command::call::Source::Pointer,));
         assert!(state.focus.restores_to(&child_path(OTHER_FIELD)));
         assert!(!state.focus.restores_to(&child_path(FIELD)));
     }
 
     #[test]
-    fn publish_action_states_projects_single_text_policy() {
+    fn publish_command_states_projects_single_text_policy() {
         let state = state(buffer_with_full_selection(), true);
-        let mut registry = action::Registry::<()>::new();
+        let mut registry = command::Registry::new();
 
-        registry.register(Action::new(SELECT_ALL, "Select All"));
+        registry.register(command::definition::Definition::for_command::<
+            crate::text::command::SelectAll,
+            command::TestTarget,
+        >());
 
-        assert!(publish_action_states(&state, &mut registry, window()));
+        assert!(publish_command_states(&state, &mut registry, window()));
         assert!(
             !registry
-                .configured_state(SELECT_ALL, action::Context::path(window(), path(FIELD)))
-                .is_enabled()
+                .configured_state::<crate::text::command::SelectAll>(command::call::Context::path(
+                    window(),
+                    path(FIELD),
+                ))
+                .is_available()
         );
     }
 }

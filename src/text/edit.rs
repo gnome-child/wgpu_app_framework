@@ -71,6 +71,7 @@ pub enum Edit {
         position: TextPosition,
     },
 }
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PointerEditKind {
     Click,
@@ -78,15 +79,18 @@ pub enum PointerEditKind {
     TripleClick,
     Drag,
 }
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
     Copy,
     Cut,
+    Delete,
     Paste,
     SelectAll,
     Undo,
     Redo,
 }
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CommandResult {
     pub text_changed: bool,
@@ -94,6 +98,8 @@ pub struct CommandResult {
     pub clipboard_changed: bool,
     pub unavailable: bool,
 }
+
+impl crate::command::Output for CommandResult {}
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TextEditResult {
     pub text_changed: bool,
@@ -101,17 +107,20 @@ pub(crate) struct TextEditResult {
     pub change: Option<TextChange>,
     pub impacts: Vec<TextEditImpact>,
 }
+
 #[derive(Debug, Clone)]
 pub(crate) struct TextCommandOutcome {
     pub result: CommandResult,
     pub change: Option<TextChange>,
     pub impacts: Vec<TextEditImpact>,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum HistoryKind {
     Typing(String),
     Boundary,
 }
+
 #[derive(Debug, Clone)]
 struct HistoryEntry {
     before: BufferMarker,
@@ -120,6 +129,7 @@ struct HistoryEntry {
     kind: HistoryKind,
     recorded_at: Instant,
 }
+
 #[derive(Debug, Clone, Default)]
 pub(super) struct EditHistory {
     undo: Vec<HistoryEntry>,
@@ -131,7 +141,9 @@ pub(super) struct EditHistory {
 pub enum ClipboardError {
     Unavailable,
 }
+
 pub type ClipboardResult<T> = Result<T, ClipboardError>;
+
 pub trait Clipboard {
     fn read_text(&mut self) -> ClipboardResult<Option<String>>;
     fn write_text(&mut self, text: &str) -> ClipboardResult<()>;
@@ -586,6 +598,11 @@ impl Editor {
                     }
                     Err(_) => result.unavailable = true,
                 }
+            }
+            Command::Delete => {
+                let edit_result = self.apply_text_edit_with_result(buffer, Edit::delete());
+                change = edit_result.change;
+                impacts = edit_result.impacts;
             }
             Command::Paste => match clipboard.read_text() {
                 Ok(Some(text)) if !normalize_for_buffer(buffer, &text).is_empty() => {

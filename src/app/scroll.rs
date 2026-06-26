@@ -1993,7 +1993,7 @@ mod tests {
 
     use crate::animation;
     use crate::geometry::{Rect, area, point};
-    use crate::{action, layout, paint, text, ui, widget, window};
+    use crate::{command, layout, paint, text, ui, widget, window};
 
     use super::{Driver, Motion, MotionStep, WheelDelta, WheelPhase};
 
@@ -2025,14 +2025,16 @@ mod tests {
     fn text_area_composition_for(
         area_model: text::Area,
     ) -> (ui::Composition, text::layout::Engine, ui::Path) {
-        let root = ui::Node::container(ROOT, layout::Axis::Vertical)
+        let root = ui::Node::container(layout::Axis::Vertical)
+            .key(ROOT)
             .with_size(layout::Size::Fill, layout::Size::Fill)
             .with_child(
-                widget::text_area(AREA, area_model)
+                widget::text_area(area_model)
+                    .key(AREA)
                     .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(56.0)),
             );
         let mut tree = ui::Tree::new();
-        let mut actions = action::Registry::<()>::new();
+        let mut commands = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
 
         tree.set_root(root);
@@ -2040,7 +2042,7 @@ mod tests {
             .compose(
                 window::Id::new(1),
                 area::logical(160.0, 80.0),
-                &mut actions,
+                &mut commands,
                 &[],
                 &mut text_engine,
             )
@@ -3072,7 +3074,7 @@ mod tests {
 
         let mut scene = paint::Scene::new();
         composition.paint_at_recording_scroll_ranges(
-            &action::Registry::<()>::new(),
+            &command::Registry::new(),
             window::Id::new(1),
             ui::Interaction::default(),
             &HashMap::from([(path.clone(), text::view::TextViewState::default())]),
@@ -3120,7 +3122,7 @@ mod tests {
 
         let mut scene = paint::Scene::new();
         composition.paint_at_recording_scroll_ranges(
-            &action::Registry::<()>::new(),
+            &command::Registry::new(),
             window::Id::new(1),
             ui::Interaction::default(),
             &HashMap::from([(path.clone(), text::view::TextViewState::default())]),

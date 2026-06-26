@@ -1,4 +1,4 @@
-use crate::action;
+use crate::command;
 use crate::geometry::{Rect, point};
 use crate::widget::menu;
 
@@ -9,8 +9,8 @@ pub struct Surface {
     kind: Kind,
     root_id: Id,
     anchor: Anchor,
-    command_context: action::Context,
-    source: action::Source,
+    command_context: command::call::Context,
+    source: command::call::Source,
     focus_policy: FocusPolicy,
 }
 
@@ -38,8 +38,8 @@ impl Surface {
         kind: Kind,
         root_id: Id,
         anchor: Anchor,
-        command_context: action::Context,
-        source: action::Source,
+        command_context: command::call::Context,
+        source: command::call::Source,
         focus_policy: FocusPolicy,
     ) -> Self {
         Self {
@@ -64,11 +64,11 @@ impl Surface {
         self.anchor
     }
 
-    pub fn command_context(&self) -> &action::Context {
+    pub fn command_context(&self) -> &command::call::Context {
         &self.command_context
     }
 
-    pub fn source(&self) -> action::Source {
+    pub fn source(&self) -> command::call::Source {
         self.source
     }
 

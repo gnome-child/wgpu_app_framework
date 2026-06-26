@@ -3,8 +3,11 @@ mod projection;
 pub(crate) use projection::{FieldProjection, PreeditProjection, projected_state_for_field};
 use projection::{composed_presentation_text, obscured_dot_text, preedit_replacement_range};
 
+use crate::command;
+
 use super::buffer::Buffer;
 use super::buffer::normalize_for_buffer;
+use super::command as text_command;
 use super::unicode::{display_index, source_grapheme_boundaries};
 use super::view::TextViewState;
 
@@ -27,6 +30,7 @@ pub enum Surface {
     Field(Field),
     Area(Area),
 }
+impl text_command::TextTarget for Surface {}
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum FieldMode {
     #[default]
@@ -430,6 +434,33 @@ impl Surface {
         match self {
             Self::Field(field) => field.presentation_text_for_state(state),
             Self::Area(area) => area.presentation_text_for_state(state),
+        }
+    }
+}
+
+impl command::binding::Responder for Surface {
+    fn bind_targets(&self, targets: &mut Vec<command::target::Kind>) {
+        if self.is_selectable() {
+            targets.push(text_command::text_target_kind());
+        }
+    }
+
+    fn bind_commands(&self, bindings: &mut Vec<command::binding::Binding>) {
+        if self.is_editable() {
+            bindings.extend([
+                command::binding::Binding::of::<text_command::SelectAll>(),
+                command::binding::Binding::of::<text_command::Copy>(),
+                command::binding::Binding::of::<text_command::Cut>(),
+                command::binding::Binding::of::<text_command::Paste>(),
+                command::binding::Binding::of::<text_command::Undo>(),
+                command::binding::Binding::of::<text_command::Redo>(),
+                command::binding::Binding::of::<text_command::InsertText>(),
+            ]);
+        } else if self.is_read_only() {
+            bindings.extend([
+                command::binding::Binding::of::<text_command::SelectAll>(),
+                command::binding::Binding::of::<text_command::Copy>(),
+            ]);
         }
     }
 }

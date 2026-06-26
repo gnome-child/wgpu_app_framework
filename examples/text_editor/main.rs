@@ -1,33 +1,43 @@
 use std::path::{Path, PathBuf};
 
 use wgpu_l3::{
-    Action, Event, Task, Theme, action, app, geometry::area, layout, paint, text, ui, widget,
-    window,
+    Event, Task, Theme, app, command, geometry::area, layout, paint, text, ui, widget, window,
 };
 
-const NEW_FILE: action::Id = action::Id::new("new_file");
-const OPEN_FILE: action::Id = action::Id::new("open_file");
-const SAVE_FILE: action::Id = action::Id::new("save_file");
-const SAVE_AS_FILE: action::Id = action::Id::new("save_as_file");
-const EXIT_APP: action::Id = action::Id::new("exit_app");
-const DELETE_TEXT: action::Id = action::Id::new("delete_text");
-const TOGGLE_WRAP_TEXT: action::Id = action::Id::new("toggle_wrap_text");
-const TOGGLE_DEBUG_PANEL: action::Id = action::Id::new("toggle_debug_panel");
-const LOAD_STRESS_TEXT: action::Id = action::Id::new("load_stress_text");
 const UNICODE_STRESS_TEXT: &str = include_str!("fixtures/unicode_stress_dump.txt");
 
-const ROOT: ui::Id = ui::Id::new("root");
-const APP_SHELL: ui::Id = ui::Id::new("app_shell");
-const MENU_BAR: ui::Id = ui::Id::new("menu_bar");
-const EDITOR_CANVAS: ui::Id = ui::Id::new("editor_canvas");
-const EDITOR: ui::Id = ui::Id::new("editor");
-const DEBUG_OVERLAY: ui::Id = ui::Id::new("debug_overlay");
-const STATUS: ui::Id = ui::Id::new("status");
-const STATUS_TEXT: ui::Id = ui::Id::new("status_text");
-
-const FILE_MENU: widget::menu::Id = widget::menu::Id::new("file");
-const EDIT_MENU: widget::menu::Id = widget::menu::Id::new("edit");
-const VIEW_MENU: widget::menu::Id = widget::menu::Id::new("view");
+wgpu_l3::command!(NewFile {
+    name: "new_file",
+    display: "New",
+});
+wgpu_l3::command!(OpenFile {
+    name: "open_file",
+    display: "Open...",
+});
+wgpu_l3::command!(SaveFile {
+    name: "save_file",
+    display: "Save",
+});
+wgpu_l3::command!(SaveAsFile {
+    name: "save_as_file",
+    display: "Save As...",
+});
+wgpu_l3::command!(ExitApp {
+    name: "exit_app",
+    display: "Exit",
+});
+wgpu_l3::command!(ToggleWrapText {
+    name: "toggle_wrap_text",
+    display: "Wrap text",
+});
+wgpu_l3::command!(ToggleDebugPanel {
+    name: "toggle_debug_panel",
+    display: "Debug panel",
+});
+wgpu_l3::command!(LoadStressText {
+    name: "load_stress_text",
+    display: "Load Stress Text",
+});
 
 fn main() -> app::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
@@ -37,6 +47,7 @@ fn main() -> app::Result<()> {
 
 struct Editor {
     window: Option<window::Id>,
+    sender: Option<app::Sender<AppEvent>>,
     buffer: text::Buffer,
     path: Option<PathBuf>,
     dirty: bool,
@@ -47,35 +58,20 @@ struct Editor {
 }
 
 enum AppEvent {
-    ApplyEdit {
-        target: action::Context,
-        edit: text::edit::Edit,
-        label: &'static str,
-    },
-    ApplyCommand {
-        target: action::Context,
-        command: text::edit::Command,
-        label: &'static str,
-    },
-    NewFile,
     OpenPathSelected(Option<PathBuf>),
-    SaveRequested,
-    SaveAsRequested,
     SaveAsPathSelected(Option<PathBuf>),
+    ExitRequested,
     FileSaved {
         path: PathBuf,
         result: Result<(), String>,
     },
-    LoadStressText,
-    ToggleWrapText,
-    ToggleDebugPanel,
-    Exit,
 }
 
 impl Default for Editor {
     fn default() -> Self {
         Self {
             window: None,
+            sender: None,
             buffer: text::Buffer::new_multiline(),
             path: None,
             dirty: false,
@@ -91,9 +87,8 @@ impl app::Application for Editor {
     type Event = AppEvent;
 
     fn started(&mut self, cx: &mut app::Context<'_, Self::Event>) {
-        register_file_actions(cx);
-        register_edit_actions(cx);
-        register_view_actions(cx);
+        self.sender = Some(cx.sender());
+        configure_commands(cx);
 
         let theme = Theme::default_dark();
         self.window = Some(cx.open_window(window::Options {
@@ -111,9 +106,9 @@ impl app::Application for Editor {
         match event {
             Event::Ui {
                 window: event_window,
-                event: ui::Event::TextEditRequested { target, edit },
+                event: ui::Event::TextEditRequested { edit, .. },
             } if event_window == window => {
-                if self.apply_edit(cx, &target, edit, "edit") {
+                if self.apply_edit(cx, edit, "edit") {
                     cx.request_redraw(window);
                 }
             }
@@ -122,14 +117,13 @@ impl app::Application for Editor {
                 event:
                     ui::Event::TextDropRequested {
                         source_cleanup,
-                        target,
                         edit,
                         ..
                     },
             } if event_window == window => {
-                let mut changed = self.apply_edit(cx, &target, edit, "drag/drop");
-                if changed && let Some((source, edit)) = source_cleanup {
-                    changed |= self.apply_edit(cx, &source, edit, "drag/drop cleanup");
+                let mut changed = self.apply_edit(cx, edit, "drag/drop");
+                if changed && let Some((_, edit)) = source_cleanup {
+                    changed |= self.apply_edit(cx, edit, "drag/drop cleanup");
                 }
 
                 if changed {
@@ -137,88 +131,34 @@ impl app::Application for Editor {
                 }
             }
             Event::Ui { .. } => {}
-            Event::App(AppEvent::ApplyEdit {
-                target,
-                edit,
-                label,
-            }) => {
-                if let action::Scope::Path(path) = target.scope() {
-                    let path = path.clone();
-                    self.apply_edit(cx, &path, edit, label);
-                    cx.request_redraw(window);
-                }
-            }
-            Event::App(AppEvent::ApplyCommand {
-                target,
-                command,
-                label,
-            }) => {
-                if let action::Scope::Path(path) = target.scope() {
-                    let path = path.clone();
-                    self.apply_command(cx, &path, command, label);
-                    cx.request_redraw(window);
-                }
-            }
-            Event::App(AppEvent::NewFile) => {
-                self.new_file();
-                cx.request_redraw(window);
-            }
             Event::App(AppEvent::OpenPathSelected(path)) => {
                 self.open_path(path);
-                cx.request_redraw(window);
-            }
-            Event::App(AppEvent::SaveRequested) => {
-                self.save(cx);
-                cx.request_redraw(window);
-            }
-            Event::App(AppEvent::SaveAsRequested) => {
-                self.last_status = "choosing save location".to_owned();
-                cx.spawn(Task::future(async {
-                    AppEvent::SaveAsPathSelected(save_path_dialog().await)
-                }));
                 cx.request_redraw(window);
             }
             Event::App(AppEvent::SaveAsPathSelected(path)) => {
                 self.save_as(cx, path);
                 cx.request_redraw(window);
             }
+            Event::App(AppEvent::ExitRequested) => {
+                cx.close_window(window);
+            }
             Event::App(AppEvent::FileSaved { path, result }) => {
                 self.finish_save(path, result);
                 cx.request_redraw(window);
             }
-            Event::App(AppEvent::LoadStressText) => {
-                self.buffer = text::Buffer::from_multiline_text(UNICODE_STRESS_TEXT);
-                self.path = None;
-                self.dirty = true;
-                self.edit_count = 0;
-                self.last_status = format!(
-                    "loaded Unicode stress fixture ({} lines)",
-                    UNICODE_STRESS_TEXT.lines().count()
-                );
-                cx.request_redraw(window);
-            }
-            Event::App(AppEvent::ToggleWrapText) => {
-                self.wrap_text = !self.wrap_text;
-                self.last_status = if self.wrap_text {
-                    "wrap text enabled".to_owned()
-                } else {
-                    "wrap text disabled".to_owned()
-                };
-                cx.request_redraw(window);
-            }
-            Event::App(AppEvent::ToggleDebugPanel) => {
-                self.show_debug_panel = !self.show_debug_panel;
-                self.last_status = if self.show_debug_panel {
-                    "debug panel shown".to_owned()
-                } else {
-                    "debug panel hidden".to_owned()
-                };
-                cx.request_redraw(window);
-            }
-            Event::App(AppEvent::Exit) => {
-                cx.close_window(window);
-            }
         }
+    }
+
+    fn command_targets(&mut self, commands: &mut app::CommandDispatch<'_, Self::Event>) {
+        if let Some(outcome) = commands.text_buffer(&mut self.buffer) {
+            self.record_text_command_outcome(outcome);
+        }
+
+        commands.target(self);
+    }
+
+    fn command_states(&mut self, states: &mut app::CommandStates<'_, Self::Event>) {
+        states.target(self);
     }
 
     fn view(
@@ -231,33 +171,6 @@ impl app::Application for Editor {
             return;
         }
 
-        cx.action(window, NEW_FILE).enabled(true).active(false);
-        cx.action(window, OPEN_FILE).enabled(true).active(false);
-        cx.action(window, SAVE_FILE).enabled(true).active(false);
-        cx.action(window, SAVE_AS_FILE).enabled(true).active(false);
-        cx.action(window, EXIT_APP).enabled(true).active(false);
-        cx.action(window, LOAD_STRESS_TEXT)
-            .enabled(true)
-            .active(false);
-
-        cx.action(window, action::SELECT_ALL)
-            .enabled(false)
-            .active(false);
-        cx.action(window, action::UNDO).enabled(false).active(false);
-        cx.action(window, action::REDO).enabled(false).active(false);
-        cx.action(window, action::CUT).enabled(false).active(false);
-        cx.action(window, action::COPY).enabled(false).active(false);
-        cx.action(window, action::PASTE)
-            .enabled(false)
-            .active(false);
-        cx.action(window, DELETE_TEXT).enabled(false).active(false);
-        cx.action(window, TOGGLE_WRAP_TEXT)
-            .enabled(true)
-            .active(self.wrap_text);
-        cx.action(window, TOGGLE_DEBUG_PANEL)
-            .enabled(true)
-            .active(self.show_debug_panel);
-
         let theme = Theme::default_dark();
         let diagnostics = cx.diagnostics(window);
         tree.clear_popups();
@@ -269,16 +182,11 @@ impl Editor {
     fn apply_edit(
         &mut self,
         cx: &mut app::Context<'_, AppEvent>,
-        target: &ui::Path,
         edit: text::edit::Edit,
         label: &'static str,
     ) -> bool {
-        if target != &editor_path() {
-            return false;
-        }
-
         let mutates_text = edit_mutates_text(&edit);
-        if !cx.apply_text_edit_for(target, &mut self.buffer, edit) {
+        if !cx.apply_text_edit(&mut self.buffer, edit) {
             return false;
         }
 
@@ -290,19 +198,25 @@ impl Editor {
         true
     }
 
-    fn apply_command(
+    fn open_file(&mut self) {
+        self.last_status = "choosing file".to_owned();
+        self.spawn_app_task(Task::future(async {
+            AppEvent::OpenPathSelected(open_path_dialog().await)
+        }));
+    }
+
+    fn choose_save_path(&mut self) {
+        self.last_status = "choosing save location".to_owned();
+        self.spawn_app_task(Task::future(async {
+            AppEvent::SaveAsPathSelected(save_path_dialog().await)
+        }));
+    }
+
+    fn record_text_command_result(
         &mut self,
-        cx: &mut app::Context<'_, AppEvent>,
-        target: &ui::Path,
-        command: text::edit::Command,
+        result: text::edit::CommandResult,
         label: &'static str,
     ) {
-        if target != &editor_path() {
-            return;
-        }
-
-        let result = cx.apply_text_command_for(target, &mut self.buffer, command);
-
         if result.text_changed {
             self.dirty = true;
             self.edit_count += 1;
@@ -312,6 +226,10 @@ impl Editor {
         } else {
             label.to_owned()
         };
+    }
+
+    fn record_text_command_outcome(&mut self, outcome: app::TextCommandOutcome) {
+        self.record_text_command_result(outcome.result(), text_command_label(outcome.command()));
     }
 
     fn new_file(&mut self) {
@@ -342,16 +260,13 @@ impl Editor {
         }
     }
 
-    fn save(&mut self, cx: &app::Context<'_, AppEvent>) {
+    fn save(&mut self) {
         let Some(path) = self.path.clone() else {
-            self.last_status = "choosing save location".to_owned();
-            cx.spawn(Task::future(async {
-                AppEvent::SaveAsPathSelected(save_path_dialog().await)
-            }));
+            self.choose_save_path();
             return;
         };
 
-        self.spawn_save(cx, path);
+        self.spawn_save_task(path);
     }
 
     fn save_as(&mut self, cx: &app::Context<'_, AppEvent>, path: Option<PathBuf>) {
@@ -366,10 +281,24 @@ impl Editor {
     fn spawn_save(&mut self, cx: &app::Context<'_, AppEvent>, path: PathBuf) {
         let text = self.buffer.text();
         self.last_status = format!("saving {}", compact_path(&path));
-        cx.spawn(Task::future(async move {
-            let result = std::fs::write(&path, text).map_err(|error| error.to_string());
-            AppEvent::FileSaved { path, result }
-        }));
+        cx.spawn(save_task(path, text));
+    }
+
+    fn spawn_save_task(&mut self, path: PathBuf) {
+        let text = self.buffer.text();
+        self.last_status = format!("saving {}", compact_path(&path));
+        self.spawn_app_task(save_task(path, text));
+    }
+
+    fn spawn_app_task(&self, task: Task<AppEvent>) {
+        let Some(sender) = self.sender.clone() else {
+            return;
+        };
+
+        std::thread::spawn(move || {
+            let event = task.run();
+            let _ = sender.emit(event);
+        });
     }
 
     fn finish_save(&mut self, path: PathBuf, result: Result<(), String>) {
@@ -386,119 +315,195 @@ impl Editor {
     }
 }
 
-fn register_file_actions(cx: &mut app::Context<'_, AppEvent>) {
-    cx.register_action(
-        Action::new(NEW_FILE, "New")
-            .with_shortcut(action::Shortcut::control('n'))
-            .emit(|_| AppEvent::NewFile),
-    );
-    cx.register_action(
-        Action::new(OPEN_FILE, "Open...")
-            .with_shortcut(action::Shortcut::control('o'))
-            .task(|_| Task::future(async { AppEvent::OpenPathSelected(open_path_dialog().await) })),
-    );
-    cx.register_action(
-        Action::new(SAVE_FILE, "Save")
-            .with_shortcut(action::Shortcut::control('s'))
-            .emit(|_| AppEvent::SaveRequested),
-    );
-    cx.register_action(
-        Action::new(SAVE_AS_FILE, "Save As...")
-            .with_shortcut(action::Shortcut::control_shift('s'))
-            .emit(|_| AppEvent::SaveAsRequested),
-    );
-    cx.register_action(Action::new(EXIT_APP, "Exit").emit(|_| AppEvent::Exit));
-    cx.register_action(
-        Action::new(LOAD_STRESS_TEXT, "Load Stress Text").emit(|_| AppEvent::LoadStressText),
-    );
+impl command::Target<NewFile> for Editor {
+    fn invoke(
+        &mut self,
+        _args: (),
+        _invocation: command::call::Invocation<NewFile>,
+    ) -> command::Response<()> {
+        self.new_file();
+        command::Response::none()
+    }
 }
 
-fn register_edit_actions(cx: &mut app::Context<'_, AppEvent>) {
-    cx.register_action(
-        Action::new(action::UNDO, "Undo")
-            .with_shortcut(action::Shortcut::control('z'))
-            .emit(|invocation| AppEvent::ApplyCommand {
-                target: invocation.context().clone(),
-                command: text::edit::Command::Undo,
-                label: "undo",
-            }),
-    );
-    cx.register_action(
-        Action::new(action::REDO, "Redo")
-            .with_shortcut(action::Shortcut::control_shift('z'))
-            .with_shortcut(action::Shortcut::control('y'))
-            .emit(|invocation| AppEvent::ApplyCommand {
-                target: invocation.context().clone(),
-                command: text::edit::Command::Redo,
-                label: "redo",
-            }),
-    );
-    cx.register_action(
-        Action::new(action::SELECT_ALL, "Select All")
-            .with_shortcut(action::Shortcut::control('a'))
-            .emit(|invocation| AppEvent::ApplyCommand {
-                target: invocation.context().clone(),
-                command: text::edit::Command::SelectAll,
-                label: "select all",
-            }),
-    );
-    cx.register_action(
-        Action::new(action::CUT, "Cut")
-            .with_shortcut(action::Shortcut::control('x'))
-            .emit(|invocation| AppEvent::ApplyCommand {
-                target: invocation.context().clone(),
-                command: text::edit::Command::Cut,
-                label: "cut",
-            }),
-    );
-    cx.register_action(
-        Action::new(action::COPY, "Copy")
-            .with_shortcut(action::Shortcut::control('c'))
-            .emit(|invocation| AppEvent::ApplyCommand {
-                target: invocation.context().clone(),
-                command: text::edit::Command::Copy,
-                label: "copy",
-            }),
-    );
-    cx.register_action(
-        Action::new(action::PASTE, "Paste")
-            .with_shortcut(action::Shortcut::control('v'))
-            .emit(|invocation| AppEvent::ApplyCommand {
-                target: invocation.context().clone(),
-                command: text::edit::Command::Paste,
-                label: "paste",
-            }),
-    );
-    cx.register_action(
-        Action::new(DELETE_TEXT, "Delete").emit(|invocation| AppEvent::ApplyEdit {
-            target: invocation.context().clone(),
-            edit: text::edit::Edit::delete(),
-            label: "delete",
-        }),
-    );
+impl command::Target<OpenFile> for Editor {
+    fn invoke(
+        &mut self,
+        _args: (),
+        _invocation: command::call::Invocation<OpenFile>,
+    ) -> command::Response<()> {
+        self.open_file();
+        command::Response::none()
+    }
 }
 
-fn register_view_actions(cx: &mut app::Context<'_, AppEvent>) {
-    cx.register_action(
-        Action::new(TOGGLE_WRAP_TEXT, "Wrap text").emit(|_| AppEvent::ToggleWrapText),
-    );
-    cx.register_action(
-        Action::new(TOGGLE_DEBUG_PANEL, "Debug panel").emit(|_| AppEvent::ToggleDebugPanel),
-    );
+impl command::Target<SaveFile> for Editor {
+    fn invoke(
+        &mut self,
+        _args: (),
+        _invocation: command::call::Invocation<SaveFile>,
+    ) -> command::Response<()> {
+        self.save();
+        command::Response::none()
+    }
+}
+
+impl command::Target<SaveAsFile> for Editor {
+    fn invoke(
+        &mut self,
+        _args: (),
+        _invocation: command::call::Invocation<SaveAsFile>,
+    ) -> command::Response<()> {
+        self.choose_save_path();
+        command::Response::none()
+    }
+}
+
+impl command::Target<ExitApp> for Editor {
+    fn invoke(
+        &mut self,
+        _args: (),
+        _invocation: command::call::Invocation<ExitApp>,
+    ) -> command::Response<()> {
+        if let Some(sender) = self.sender.clone() {
+            let _ = sender.emit(AppEvent::ExitRequested);
+        }
+
+        command::Response::none()
+    }
+}
+
+impl command::Target<LoadStressText> for Editor {
+    fn invoke(
+        &mut self,
+        _args: (),
+        _invocation: command::call::Invocation<LoadStressText>,
+    ) -> command::Response<()> {
+        self.buffer = text::Buffer::from_multiline_text(UNICODE_STRESS_TEXT);
+        self.path = None;
+        self.dirty = true;
+        self.edit_count = 0;
+        self.last_status = format!(
+            "loaded Unicode stress fixture ({} lines)",
+            UNICODE_STRESS_TEXT.lines().count()
+        );
+        command::Response::none()
+    }
+}
+
+impl command::Target<ToggleWrapText> for Editor {
+    fn state(&self, _context: &command::call::Context) -> command::State {
+        command::State::active_if(self.wrap_text)
+    }
+
+    fn invoke(
+        &mut self,
+        _args: (),
+        _invocation: command::call::Invocation<ToggleWrapText>,
+    ) -> command::Response<()> {
+        self.wrap_text = !self.wrap_text;
+        self.last_status = if self.wrap_text {
+            "wrap text enabled".to_owned()
+        } else {
+            "wrap text disabled".to_owned()
+        };
+        command::Response::none()
+    }
+}
+
+impl command::Target<ToggleDebugPanel> for Editor {
+    fn state(&self, _context: &command::call::Context) -> command::State {
+        command::State::active_if(self.show_debug_panel)
+    }
+
+    fn invoke(
+        &mut self,
+        _args: (),
+        _invocation: command::call::Invocation<ToggleDebugPanel>,
+    ) -> command::Response<()> {
+        self.show_debug_panel = !self.show_debug_panel;
+        self.last_status = if self.show_debug_panel {
+            "debug panel shown".to_owned()
+        } else {
+            "debug panel hidden".to_owned()
+        };
+        command::Response::none()
+    }
+}
+
+fn configure_commands(cx: &mut app::Context<'_, AppEvent>) {
+    cx.commands(|commands| {
+        register_file_commands(commands);
+        register_edit_commands(commands);
+        register_view_commands(commands);
+    });
+}
+
+fn register_file_commands(commands: &mut command::registry::Commands) {
+    commands
+        .define::<NewFile, Editor>(|command| {
+            command.shortcut(command::shortcut::Shortcut::ctrl('n'))
+        })
+        .define::<OpenFile, Editor>(|command| {
+            command.shortcut(command::shortcut::Shortcut::ctrl('o'))
+        })
+        .define::<SaveFile, Editor>(|command| {
+            command.shortcut(command::shortcut::Shortcut::ctrl('s'))
+        })
+        .define::<SaveAsFile, Editor>(|command| {
+            command.shortcut(command::shortcut::Shortcut::ctrl_shift('s'))
+        })
+        .define::<ExitApp, Editor>(|command| command)
+        .define::<LoadStressText, Editor>(|command| command);
+}
+
+fn register_edit_commands(commands: &mut command::registry::Commands) {
+    text::command::define::<text::command::Undo>(commands, |command| {
+        command
+            .shortcut(command::shortcut::Shortcut::ctrl('z'))
+            .repeatable()
+    });
+    text::command::define::<text::command::Redo>(commands, |command| {
+        command
+            .shortcut(command::shortcut::Shortcut::ctrl_shift('z'))
+            .shortcut(command::shortcut::Shortcut::ctrl('y'))
+            .repeatable()
+    });
+    text::command::define::<text::command::SelectAll>(commands, |command| {
+        command.shortcut(command::shortcut::Shortcut::ctrl('a'))
+    });
+    text::command::define::<text::command::Cut>(commands, |command| {
+        command.shortcut(command::shortcut::Shortcut::ctrl('x'))
+    });
+    text::command::define::<text::command::Delete>(commands, |command| command);
+    text::command::define::<text::command::Copy>(commands, |command| {
+        command.shortcut(command::shortcut::Shortcut::ctrl('c'))
+    });
+    text::command::define::<text::command::Paste>(commands, |command| {
+        command
+            .shortcut(command::shortcut::Shortcut::ctrl('v'))
+            .repeatable()
+    });
+}
+
+fn register_view_commands(commands: &mut command::registry::Commands) {
+    commands
+        .define::<ToggleWrapText, Editor>(|command| command)
+        .define::<ToggleDebugPanel, Editor>(|command| command);
 }
 
 fn root_view(theme: &Theme, editor: &Editor, diagnostics: app::Diagnostics) -> ui::Node {
-    let app_shell = ui::Node::container(APP_SHELL, layout::Axis::Vertical)
-        .with_size(layout::Size::Fill, layout::Size::Fill)
-        .with_child(widget::menu_bar_with_theme(MENU_BAR, notepad_menu(), theme))
-        .with_child(editor_area(theme, editor));
+    let app_shell = ui::Node::container(layout::Axis::Vertical)
+        .size(layout::Size::fill(), layout::Size::fill())
+        .child(widget::menu_bar_with_theme(notepad_menu(), theme))
+        .child(editor_area(theme, editor));
 
-    let root = ui::Node::new(ROOT)
+    let root = ui::Node::new()
         .with_background(theme.surfaces().app())
-        .with_child(app_shell);
+        .child(app_shell);
 
     if editor.show_debug_panel {
-        root.with_child(debug_overlay(theme, editor, diagnostics))
+        root.child(debug_overlay(theme, editor, diagnostics))
     } else {
         root
     }
@@ -512,23 +517,22 @@ fn editor_area(theme: &Theme, editor: &Editor) -> ui::Node {
     };
     let area = text::Area::new(editor.buffer.clone()).with_wrap(wrap);
 
-    ui::Node::container(EDITOR_CANVAS, layout::Axis::Vertical)
+    ui::Node::container(layout::Axis::Vertical)
         .with_background(theme.surfaces().canvas())
-        .with_size(layout::Size::Fill, layout::Size::Fill)
-        .with_child(
-            widget::text_area_surface_with_theme(EDITOR, area, theme)
-                .with_responder_binding(action::Binding::new(DELETE_TEXT).enabled(true))
-                .with_size(layout::Size::Fill, layout::Size::Fill),
+        .size(layout::Size::fill(), layout::Size::fill())
+        .child(
+            widget::text_area_surface_with_theme(area, theme)
+                .size(layout::Size::fill(), layout::Size::fill()),
         )
 }
 
 fn debug_overlay(theme: &Theme, editor: &Editor, diagnostics: app::Diagnostics) -> ui::Node {
-    ui::Node::container(DEBUG_OVERLAY, layout::Axis::Vertical)
-        .with_size(layout::Size::Fill, layout::Size::Fill)
-        .with_padding(layout::Insets::splat(theme.density().app_padding() * 2.0))
+    ui::Node::container(layout::Axis::Vertical)
+        .size(layout::Size::fill(), layout::Size::fill())
+        .padding(theme.density().app_padding() * 2.0)
         .with_align(layout::Align::End)
         .with_cross_align(layout::Align::Stretch)
-        .with_child(debug_panel(theme, editor, diagnostics))
+        .child(debug_panel(theme, editor, diagnostics))
 }
 
 fn debug_panel(theme: &Theme, editor: &Editor, diagnostics: app::Diagnostics) -> ui::Node {
@@ -543,10 +547,10 @@ fn debug_panel(theme: &Theme, editor: &Editor, diagnostics: app::Diagnostics) ->
         .unwrap_or_else(|| "Untitled".to_owned());
     let wrap = if editor.wrap_text { "on" } else { "off" };
 
-    widget::floating_panel_with_theme(STATUS, theme)
+    widget::floating_panel_with_theme(theme)
         .with_size(layout::Size::Fill, layout::Size::Fit)
         .with_child(
-            ui::Node::leaf(STATUS_TEXT)
+            ui::Node::leaf()
                 .with_size(layout::Size::Fill, layout::Size::Fit)
                 .with_label(document(
             format!(
@@ -617,37 +621,37 @@ fn debug_panel(theme: &Theme, editor: &Editor, diagnostics: app::Diagnostics) ->
 fn notepad_menu() -> widget::menu::Bar {
     widget::menu::Bar::new()
         .menu(
-            widget::Menu::new(FILE_MENU, "File").section(
+            widget::Menu::new("File").section(
                 widget::menu::Section::new()
-                    .item(widget::menu::Item::new(NEW_FILE))
-                    .item(widget::menu::Item::new(OPEN_FILE))
-                    .item(widget::menu::Item::new(SAVE_FILE))
-                    .item(widget::menu::Item::new(SAVE_AS_FILE))
+                    .item(widget::menu::Item::invokes::<NewFile, Editor>())
+                    .item(widget::menu::Item::invokes::<OpenFile, Editor>())
+                    .item(widget::menu::Item::invokes::<SaveFile, Editor>())
+                    .item(widget::menu::Item::invokes::<SaveAsFile, Editor>())
                     .separator()
-                    .item(widget::menu::Item::new(LOAD_STRESS_TEXT))
+                    .item(widget::menu::Item::invokes::<LoadStressText, Editor>())
                     .separator()
-                    .item(widget::menu::Item::new(EXIT_APP)),
+                    .item(widget::menu::Item::invokes::<ExitApp, Editor>()),
             ),
         )
         .menu(
-            widget::Menu::new(EDIT_MENU, "Edit").section(
+            widget::Menu::new("Edit").section(
                 widget::menu::Section::new()
-                    .item(widget::menu::Item::new(action::UNDO))
-                    .item(widget::menu::Item::new(action::REDO))
+                    .item(widget::menu::Item::text::<text::command::Undo>())
+                    .item(widget::menu::Item::text::<text::command::Redo>())
                     .separator()
-                    .item(widget::menu::Item::new(action::CUT))
-                    .item(widget::menu::Item::new(action::COPY))
-                    .item(widget::menu::Item::new(action::PASTE))
-                    .item(widget::menu::Item::new(DELETE_TEXT))
+                    .item(widget::menu::Item::text::<text::command::Cut>())
+                    .item(widget::menu::Item::text::<text::command::Copy>())
+                    .item(widget::menu::Item::text::<text::command::Paste>())
+                    .item(widget::menu::Item::text::<text::command::Delete>())
                     .separator()
-                    .item(widget::menu::Item::new(action::SELECT_ALL)),
+                    .item(widget::menu::Item::text::<text::command::SelectAll>()),
             ),
         )
         .menu(
-            widget::Menu::new(VIEW_MENU, "View").section(
+            widget::Menu::new("View").section(
                 widget::menu::Section::new()
-                    .item(widget::menu::Item::new(TOGGLE_WRAP_TEXT))
-                    .item(widget::menu::Item::new(TOGGLE_DEBUG_PANEL)),
+                    .item(widget::menu::Item::invokes::<ToggleWrapText, Editor>())
+                    .item(widget::menu::Item::invokes::<ToggleDebugPanel, Editor>()),
             ),
         )
 }
@@ -699,6 +703,25 @@ fn compact_path(path: &Path) -> String {
     format!("...{suffix}")
 }
 
+fn text_command_label(command: text::edit::Command) -> &'static str {
+    match command {
+        text::edit::Command::Copy => "copy",
+        text::edit::Command::Cut => "cut",
+        text::edit::Command::Delete => "delete",
+        text::edit::Command::Paste => "paste",
+        text::edit::Command::SelectAll => "select all",
+        text::edit::Command::Undo => "undo",
+        text::edit::Command::Redo => "redo",
+    }
+}
+
+fn save_task(path: PathBuf, text: String) -> Task<AppEvent> {
+    Task::future(async move {
+        let result = std::fs::write(&path, text).map_err(|error| error.to_string());
+        AppEvent::FileSaved { path, result }
+    })
+}
+
 fn document(
     label: impl Into<String>,
     align: text::document::Align,
@@ -714,10 +737,6 @@ fn document(
     ));
 
     text::document::Document::from_block(block)
-}
-
-fn editor_path() -> ui::Path {
-    ui::Path::new([ROOT, APP_SHELL, EDITOR_CANVAS, EDITOR])
 }
 
 #[cfg(test)]

@@ -5,6 +5,29 @@ pub enum Size {
     Fit,
     Fill,
     Fixed(f32),
+    Percent(f32),
+}
+
+impl Size {
+    pub const fn fit() -> Self {
+        Self::Fit
+    }
+
+    pub const fn fill() -> Self {
+        Self::Fill
+    }
+
+    pub const fn grow() -> Self {
+        Self::Fill
+    }
+
+    pub fn fixed(value: f32) -> Self {
+        Self::Fixed(value.max(0.0))
+    }
+
+    pub fn percent(value: f32) -> Self {
+        Self::Percent(sanitize_fraction(value))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -216,6 +239,28 @@ impl Insets {
         }
     }
 
+    pub const fn all(value: f32) -> Self {
+        Self::splat(value)
+    }
+
+    pub const fn symmetric(horizontal: f32, vertical: f32) -> Self {
+        Self {
+            left: horizontal,
+            top: vertical,
+            right: horizontal,
+            bottom: vertical,
+        }
+    }
+
+    pub const fn only(left: f32, top: f32, right: f32, bottom: f32) -> Self {
+        Self {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+
     pub fn horizontal(self) -> f32 {
         self.left + self.right
     }
@@ -231,6 +276,12 @@ impl Insets {
             right: self.right.max(0.0),
             bottom: self.bottom.max(0.0),
         }
+    }
+}
+
+impl From<f32> for Insets {
+    fn from(value: f32) -> Self {
+        Self::all(value)
     }
 }
 
@@ -881,11 +932,17 @@ impl Engine {
                     Size::Fixed(value) => resolve_fixed_axis(value, available.height()),
                     Size::Fit => measured.height(),
                     Size::Fill => 0.0,
+                    Size::Percent(value) => {
+                        resolve_percent_axis(value, available.height(), measured.height())
+                    }
                 },
                 Axis::Horizontal => match child.box_model().width() {
                     Size::Fixed(value) => resolve_fixed_axis(value, available.width()),
                     Size::Fit => measured.width(),
                     Size::Fill => 0.0,
+                    Size::Percent(value) => {
+                        resolve_percent_axis(value, available.width(), measured.width())
+                    }
                 },
             })
             .sum::<f32>();
@@ -1110,6 +1167,7 @@ fn resolve_root_axis(size: Size, measured: f32, available: f32) -> f32 {
         Size::Fixed(value) => resolve_fixed_axis(value, available),
         Size::Fill => available.max(0.0),
         Size::Fit => measured.min(available.max(0.0)),
+        Size::Percent(value) => resolve_percent_axis(value, available, measured),
     }
 }
 
@@ -1118,6 +1176,7 @@ fn resolve_measured_axis(size: Size, desired: f32, min: f32, max: f32) -> f32 {
     let value = match size {
         Size::Fixed(value) => value.max(0.0),
         Size::Fill | Size::Fit => desired.max(0.0),
+        Size::Percent(value) => resolve_percent_axis(value, max, desired),
     };
 
     value.max(min.max(0.0)).min(max)
@@ -1128,6 +1187,7 @@ fn resolve_stack_main_axis(size: Size, measured: f32, available: f32, fill: f32)
         Size::Fixed(value) => resolve_fixed_axis(value, available),
         Size::Fill => fill,
         Size::Fit => measured.min(available.max(0.0)),
+        Size::Percent(value) => resolve_percent_axis(value, available, measured),
     }
 }
 
@@ -1137,6 +1197,7 @@ fn resolve_stack_cross_axis(size: Size, measured: f32, available: f32, align: Al
         Size::Fill => available.max(0.0),
         Size::Fit if align == Align::Stretch => available.max(0.0),
         Size::Fit => measured.min(available.max(0.0)),
+        Size::Percent(value) => resolve_percent_axis(value, available, measured),
     }
 }
 
@@ -1145,11 +1206,22 @@ fn resolve_overlay_axis(size: Size, measured: f32, available: f32) -> f32 {
         Size::Fixed(value) => resolve_fixed_axis(value, available),
         Size::Fill => available.max(0.0),
         Size::Fit => measured.min(available.max(0.0)),
+        Size::Percent(value) => resolve_percent_axis(value, available, measured),
     }
 }
 
 fn resolve_fixed_axis(value: f32, max: f32) -> f32 {
     value.max(0.0).min(max.max(0.0))
+}
+
+fn resolve_percent_axis(value: f32, available: f32, fallback: f32) -> f32 {
+    let value = sanitize_fraction(value);
+
+    if available.is_finite() {
+        available.max(0.0) * value
+    } else {
+        fallback.max(0.0)
+    }
 }
 
 fn fill_size(available: f32, fixed_fit: f32, gap: f32, fill_count: usize) -> f32 {
@@ -1203,6 +1275,14 @@ fn sanitize_area(area: area::Logical) -> area::Logical {
     area::logical(area.width().max(0.0), area.height().max(0.0))
 }
 
+fn sanitize_fraction(value: f32) -> f32 {
+    if value.is_nan() {
+        0.0
+    } else {
+        value.clamp(0.0, 1.0)
+    }
+}
+
 fn contains(rect: Rect, position: point::Logical) -> bool {
     let x = position.x();
     let y = position.y();
@@ -1244,6 +1324,85 @@ mod tests {
 
     fn run(root: &Item<&'static str>, area: area::Logical) -> Frame<&'static str> {
         Engine::new().layout(root, area, &mut TestMeasurer::default())
+    }
+
+    #[test]
+    fn size_constructors_match_public_sizing_vocabulary() {
+        assert_eq!(Size::fit(), Size::Fit);
+        assert_eq!(Size::fill(), Size::Fill);
+        assert_eq!(Size::grow(), Size::Fill);
+        assert_eq!(Size::fixed(-10.0), Size::Fixed(0.0));
+        assert_eq!(Size::percent(-0.25), Size::Percent(0.0));
+        assert_eq!(Size::percent(0.5), Size::Percent(0.5));
+        assert_eq!(Size::percent(2.0), Size::Percent(1.0));
+        assert_eq!(Size::percent(f32::NAN), Size::Percent(0.0));
+    }
+
+    #[test]
+    fn inset_helpers_match_common_padding_vocabulary() {
+        assert_eq!(Insets::all(6.0), Insets::splat(6.0));
+        assert_eq!(
+            Insets::symmetric(8.0, 4.0),
+            Insets {
+                left: 8.0,
+                top: 4.0,
+                right: 8.0,
+                bottom: 4.0,
+            }
+        );
+        assert_eq!(
+            Insets::only(1.0, 2.0, 3.0, 4.0),
+            Insets {
+                left: 1.0,
+                top: 2.0,
+                right: 3.0,
+                bottom: 4.0,
+            }
+        );
+        assert_eq!(Insets::from(5.0), Insets::all(5.0));
+    }
+
+    #[test]
+    fn percent_size_resolves_against_parent_area() {
+        let root = Item::new("root")
+            .with_layout(Layout::row())
+            .with_box_model(BoxModel::new(Size::fixed(200.0), Size::fixed(80.0)))
+            .with_children(vec![
+                Item::new("half")
+                    .with_box_model(BoxModel::new(Size::percent(0.5), Size::percent(0.25))),
+                Item::new("fill").with_box_model(BoxModel::new(Size::fill(), Size::fixed(10.0))),
+            ]);
+
+        let frame = run(&root, area::logical(200.0, 80.0));
+        let half = &frame.children()[0];
+        let fill = &frame.children()[1];
+
+        assert_eq!(half.rect().area.width(), 100.0);
+        assert_eq!(half.rect().area.height(), 20.0);
+        assert_eq!(fill.rect().origin.x(), 100.0);
+        assert_eq!(fill.rect().area.width(), 100.0);
+    }
+
+    #[test]
+    fn percent_size_uses_content_area_after_padding() {
+        let root = Item::new("root")
+            .with_layout(Layout::overlay())
+            .with_box_model(
+                BoxModel::new(Size::fixed(120.0), Size::fixed(80.0))
+                    .with_padding(Insets::symmetric(10.0, 5.0)),
+            )
+            .with_children(vec![
+                Item::new("child")
+                    .with_box_model(BoxModel::new(Size::percent(0.5), Size::percent(0.5))),
+            ]);
+
+        let frame = run(&root, area::logical(120.0, 80.0));
+        let child = &frame.children()[0];
+
+        assert_eq!(frame.content_rect().area.width(), 100.0);
+        assert_eq!(frame.content_rect().area.height(), 70.0);
+        assert_eq!(child.rect().area.width(), 50.0);
+        assert_eq!(child.rect().area.height(), 35.0);
     }
 
     #[test]
