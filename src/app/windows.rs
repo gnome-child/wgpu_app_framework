@@ -31,7 +31,7 @@ impl Windows {
         let id = self.allocate_id();
         let native_options = native::window::Options {
             title: options.title,
-            inner_area: options.inner_area,
+            inner_size: native::window::InitialSize::Physical(options.inner_area),
         };
         let handle = native::Window::open(native_options, event_loop)?;
         let mut native_window = rendering.create_window(handle, options.canvas_color)?;

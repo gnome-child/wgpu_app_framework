@@ -21,7 +21,14 @@ pub struct Window {
 
 pub struct Options {
     pub title: String,
-    pub inner_area: area::Physical,
+    pub inner_size: InitialSize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InitialSize {
+    Physical(area::Physical),
+    #[allow(dead_code)]
+    Logical(area::Logical),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,10 +48,14 @@ impl Window {
             .with_title(options.title)
             .with_visible(false);
 
-        window_attributes = window_attributes.with_inner_size(winit::dpi::PhysicalSize::new(
-            options.inner_area.width(),
-            options.inner_area.height(),
-        ));
+        window_attributes = match options.inner_size {
+            InitialSize::Logical(inner_area) => window_attributes.with_inner_size(
+                LogicalSize::new(inner_area.width() as f64, inner_area.height() as f64),
+            ),
+            InitialSize::Physical(inner_area) => window_attributes.with_inner_size(
+                winit::dpi::PhysicalSize::new(inner_area.width(), inner_area.height()),
+            ),
+        };
 
         Ok(Arc::new(event_loop.create_window(window_attributes)?))
     }

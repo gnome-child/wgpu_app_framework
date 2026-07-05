@@ -4,16 +4,15 @@ pub mod scroll;
 mod control;
 mod foundation;
 mod menu_popup;
-mod popup;
 mod text_widget;
 
-use crate::geometry::{Rect, area, point};
+use crate::geometry::{Rect, area};
 use crate::text as text_model;
-use crate::{layout, theme, ui};
+use crate::theme;
+use crate::ui::{self, layout};
 
 pub use self::menu::Menu;
-pub use self::menu_popup::{menu_popup, submenu_popup, text_context_menu_popup};
-pub use self::popup::Popup;
+pub(crate) use self::menu_popup::{Presenter, menu_popup, submenu_popup, text_context_menu_popup};
 pub use control::{
     button, button_with_theme, floating_panel, floating_panel_with_theme, icon_button,
     icon_button_with_theme, labeled_button, labeled_button_with_theme, panel, panel_with_theme,
@@ -28,29 +27,17 @@ pub use text_widget::{
     text_area_surface_with_theme, text_area_with_theme, text_field, text_field_with_theme,
     text_with_theme,
 };
+pub use ui::scroll::Scroll;
 
 pub const MENU_POPUP: ui::Id = ui::Id::new("__menu_popup");
 pub const MENU_SUBMENU_POPUP: ui::Id = ui::Id::new("__menu_submenu_popup");
 pub const TEXT_CONTEXT_MENU_POPUP: ui::Id = ui::Id::new("__text_context_menu_popup");
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Scroll {
-    offset: point::Logical,
-    axes: scroll::Axes,
-    bars: scroll::Bars,
-    style: scroll::Style,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Frame {
     outer: Rect,
     viewport: Rect,
     content_size: area::Logical,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Metrics {
-    Scroll(scroll::Metrics),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,6 +111,7 @@ pub fn menu_bar(bar: menu::Bar) -> ui::Node {
 }
 
 pub fn menu_bar_with_theme(bar: menu::Bar, theme: &theme::Theme) -> ui::Node {
+    let bar = bar.with_structural_ids();
     let mut node = ui::Node::container(layout::Axis::Horizontal)
         .with_kind("menu_bar")
         .with_menu_bar(bar.clone())
@@ -197,59 +185,6 @@ fn menu_title(menu: &menu::Menu, theme: &theme::Theme) -> ui::Node {
         .with_size(layout::Size::Fit, layout::Size::Fill)
 }
 
-impl Scroll {
-    pub fn new() -> Self {
-        Self {
-            offset: point::logical(0.0, 0.0),
-            axes: scroll::Axes::vertical(),
-            bars: scroll::Bars::vertical(),
-            style: scroll::Style::default(),
-        }
-    }
-
-    pub fn offset(self) -> point::Logical {
-        self.offset
-    }
-
-    pub fn axes(self) -> scroll::Axes {
-        self.axes
-    }
-
-    pub fn bars(self) -> scroll::Bars {
-        self.bars
-    }
-
-    pub fn style(self) -> scroll::Style {
-        self.style
-    }
-
-    pub fn with_offset(mut self, offset: point::Logical) -> Self {
-        self.offset = offset;
-        self
-    }
-
-    pub fn with_axes(mut self, axes: scroll::Axes) -> Self {
-        self.axes = axes;
-        self
-    }
-
-    pub fn with_bars(mut self, bars: scroll::Bars) -> Self {
-        self.bars = bars;
-        self
-    }
-
-    pub fn with_style(mut self, style: scroll::Style) -> Self {
-        self.style = style;
-        self
-    }
-}
-
-impl Default for Scroll {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Frame {
     pub fn new(outer: Rect, viewport: Rect, content_size: area::Logical) -> Self {
         Self {
@@ -269,26 +204,6 @@ impl Frame {
 
     pub fn content_size(self) -> area::Logical {
         self.content_size
-    }
-}
-
-impl Metrics {
-    pub fn scroll(self) -> Option<scroll::Metrics> {
-        match self {
-            Self::Scroll(metrics) => Some(metrics),
-        }
-    }
-
-    pub fn frame(self) -> Frame {
-        match self {
-            Self::Scroll(metrics) => metrics.frame(),
-        }
-    }
-
-    pub fn hit_test(self, position: point::Logical) -> Option<Part> {
-        match self {
-            Self::Scroll(metrics) => metrics.hit_test(position).map(Part::Scroll),
-        }
     }
 }
 
@@ -317,7 +232,7 @@ impl Hit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geometry::rect;
+    use crate::geometry::{point, rect};
     use crate::paint;
     use crate::text as text_model;
     use crate::{Command, command};
@@ -449,12 +364,12 @@ mod tests {
         assert!(
             wrapped
                 .responders()
-                .contains(&command::Key::of::<crate::text::command::SelectAll>())
+                .contains(&command::Key::of::<crate::text::command::SelectAll>().action())
         );
         assert!(
             wrapped
                 .responders()
-                .contains(&command::Key::of::<crate::text::command::InsertText>())
+                .contains(&command::Key::of::<crate::text::command::InsertText>().action())
         );
         assert_eq!(
             wrapped.scroll().map(Scroll::bars),
@@ -596,11 +511,11 @@ mod tests {
         assert_eq!(node.cursor(), ui::Cursor::Text);
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::SelectAll>())
+                .contains(&command::Key::of::<crate::text::command::SelectAll>().action())
         );
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::InsertText>())
+                .contains(&command::Key::of::<crate::text::command::InsertText>().action())
         );
     }
 
@@ -679,34 +594,34 @@ mod tests {
             text_field_with_theme(text_model::Buffer::from_text("Editable"), &theme).key(ROOT);
         let text_target = crate::text::command::text_target_kind();
 
-        assert!(node.command_targets().contains(&text_target));
+        assert!(node.action_targets().contains(&text_target.action()));
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::SelectAll>())
+                .contains(&command::Key::of::<crate::text::command::SelectAll>().action())
         );
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::Copy>())
+                .contains(&command::Key::of::<crate::text::command::Copy>().action())
         );
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::Cut>())
+                .contains(&command::Key::of::<crate::text::command::Cut>().action())
         );
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::Paste>())
+                .contains(&command::Key::of::<crate::text::command::Paste>().action())
         );
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::Undo>())
+                .contains(&command::Key::of::<crate::text::command::Undo>().action())
         );
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::Redo>())
+                .contains(&command::Key::of::<crate::text::command::Redo>().action())
         );
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::InsertText>())
+                .contains(&command::Key::of::<crate::text::command::InsertText>().action())
         );
         assert!(
             node.responder_bindings()
@@ -726,36 +641,36 @@ mod tests {
         assert_eq!(node.cursor(), ui::Cursor::Text);
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::SelectAll>())
+                .contains(&command::Key::of::<crate::text::command::SelectAll>().action())
         );
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::Copy>())
+                .contains(&command::Key::of::<crate::text::command::Copy>().action())
         );
         assert!(
             !node
                 .responders()
-                .contains(&command::Key::of::<crate::text::command::Cut>())
+                .contains(&command::Key::of::<crate::text::command::Cut>().action())
         );
         assert!(
             !node
                 .responders()
-                .contains(&command::Key::of::<crate::text::command::Paste>())
+                .contains(&command::Key::of::<crate::text::command::Paste>().action())
         );
         assert!(
             !node
                 .responders()
-                .contains(&command::Key::of::<crate::text::command::Undo>())
+                .contains(&command::Key::of::<crate::text::command::Undo>().action())
         );
         assert!(
             !node
                 .responders()
-                .contains(&command::Key::of::<crate::text::command::Redo>())
+                .contains(&command::Key::of::<crate::text::command::Redo>().action())
         );
         assert!(
             !node
                 .responders()
-                .contains(&command::Key::of::<crate::text::command::InsertText>())
+                .contains(&command::Key::of::<crate::text::command::InsertText>().action())
         );
     }
 

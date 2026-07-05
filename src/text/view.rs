@@ -5,9 +5,8 @@ use crate::geometry::{Rect, area, point};
 const TEXT_FIELD_CARET_BLINK_INTERVAL: Duration = Duration::from_millis(500);
 
 use super::{
-    Buffer, Caret, CommandResult, TextPosition,
-    buffer::{Mark, TextChange},
-    edit::{EditHistory, HistoryKind},
+    Caret, TextPosition,
+    buffer::Mark,
     layout::{Engine, TextAreaSurface},
     surface::Area,
 };
@@ -317,7 +316,6 @@ pub struct State {
     scroll_y: f32,
     caret_epoch: Instant,
     preedit: Option<Preedit>,
-    history: EditHistory,
     reveal_intent: RevealIntent,
     preferred_caret_x: Option<f32>,
 }
@@ -341,7 +339,6 @@ impl State {
             scroll_y: 0.0,
             caret_epoch,
             preedit: None,
-            history: EditHistory::default(),
             reveal_intent: RevealIntent::None,
             preferred_caret_x: None,
         }
@@ -445,40 +442,6 @@ impl State {
 
     pub fn preedit(&self) -> Option<&Preedit> {
         self.preedit.as_ref()
-    }
-
-    pub(crate) fn sync_history(&mut self, buffer: &Buffer) -> bool {
-        self.history.sync(buffer.marker())
-    }
-
-    pub(crate) fn record_history_at(
-        &mut self,
-        change: TextChange,
-        kind: HistoryKind,
-        now: Instant,
-    ) {
-        self.history.record(change, kind, now);
-    }
-
-    pub(crate) fn can_undo(&self) -> bool {
-        self.history.can_undo()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn history_undo_len(&self) -> usize {
-        self.history.undo_len()
-    }
-
-    pub(crate) fn can_redo(&self) -> bool {
-        self.history.can_redo()
-    }
-
-    pub(crate) fn apply_undo(&mut self, buffer: &mut Buffer) -> CommandResult {
-        self.history.undo(buffer)
-    }
-
-    pub(crate) fn apply_redo(&mut self, buffer: &mut Buffer) -> CommandResult {
-        self.history.redo(buffer)
     }
 
     pub fn caret_visible(&self, now: Instant) -> bool {

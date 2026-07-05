@@ -318,19 +318,28 @@ impl Registry {
             return State::unavailable();
         };
 
+        self.configured_state_override_key(key, &context)
+            .unwrap_or_else(|| definition.fallback_state())
+    }
+
+    pub(crate) fn configured_state_override_key(
+        &self,
+        key: Key,
+        context: &Context,
+    ) -> Option<State> {
         if let Some(state) = self.states.get(&(key, context.clone())) {
-            return state.clone();
+            return Some(state.clone());
         }
 
         if matches!(context.scope(), Scope::Path(_)) {
             let fallback = Context::window(context.window_id());
 
             if let Some(state) = self.states.get(&(key, fallback)) {
-                return state.clone();
+                return Some(state.clone());
             }
         }
 
-        definition.fallback_state()
+        None
     }
 
     pub fn can_invoke<C: Command>(&self, context: Context) -> bool {
@@ -412,7 +421,7 @@ impl Registry {
     }
 
     pub(crate) fn validate(&self, request: &Raw) -> Result<(), Rejection> {
-        let definition = self.validate_request_state(request)?;
+        let definition = self.validate_request(request)?;
         definition
             .prepare_call(request.clone())
             .map(|_| ())
@@ -435,7 +444,7 @@ impl Registry {
             command.as_str()
         );
 
-        let definition = match self.validate_request_state(&request) {
+        let definition = match self.validate_request(&request) {
             Ok(definition) => definition,
             Err(error) => {
                 log::debug!(
@@ -522,7 +531,10 @@ impl Registry {
             return Err(error);
         }
 
-        let state = self.state_key(command, context.clone());
+        let state = self
+            .configured_state_override_key(command, &context)
+            .unwrap_or_else(|| target.state(&context));
+        let state = state::with_running_overlay(state, self.is_running(command, &context));
         if !state.is_available() {
             let error = Rejection::Disabled {
                 command: command.as_str(),
@@ -569,13 +581,14 @@ impl Registry {
     ) -> Result<ErasedResponse, Rejection> {
         let command = call.command();
         let route = call.target();
+        let target_kind = target::Kind::of_type::<TTarget>();
         let Some(definition) = self.commands.get(&command) else {
             return Err(Rejection::UnknownCommand {
                 command: command.as_str(),
             });
         };
 
-        if route != target::Kind::of_type::<TTarget>() {
+        if !definition.can_invoke_target(route, target_kind) {
             return Err(Rejection::UnresolvedTarget {
                 command: command.as_str(),
             });
@@ -586,28 +599,52 @@ impl Registry {
             command.as_str()
         );
 
-        definition.invoke_target(self, target, call)
+        definition.invoke_target(self, target_kind, target, call)
     }
 
-    fn validate_request_state(&self, request: &Raw) -> Result<&Definition, Rejection> {
+    pub(crate) fn can_invoke_any_on<TTarget: 'static>(&self, call: &Any) -> bool {
+        let Some(definition) = self.commands.get(&call.command()) else {
+            return false;
+        };
+
+        definition.can_invoke_target(call.target(), target::Kind::of_type::<TTarget>())
+    }
+
+    fn validate_request(&self, request: &Raw) -> Result<&Definition, Rejection> {
         let Some(command) = self.commands.get(&request.command()) else {
             return Err(Rejection::UnknownCommand {
                 command: request.command().as_str(),
             });
         };
 
-        let state = self.state_key(request.command(), request.context().clone());
-        if !state.is_available() {
-            return Err(Rejection::Disabled {
+        if command.target() != request.target() {
+            return Err(Rejection::UnresolvedTarget {
                 command: request.command().as_str(),
-                context: request.context().clone(),
             });
         }
-        if state.is_running() {
+
+        if self.is_running(request.command(), request.context()) {
             return Err(Rejection::Running {
                 command: request.command().as_str(),
                 context: request.context().clone(),
             });
+        }
+
+        if let Some(state) =
+            self.configured_state_override_key(request.command(), request.context())
+        {
+            if !state.is_available() {
+                return Err(Rejection::Disabled {
+                    command: request.command().as_str(),
+                    context: request.context().clone(),
+                });
+            }
+            if state.is_running() {
+                return Err(Rejection::Running {
+                    command: request.command().as_str(),
+                    context: request.context().clone(),
+                });
+            }
         }
 
         Ok(command)
@@ -629,23 +666,39 @@ impl Registry {
 
     fn insert(&mut self, command: Definition) {
         let key = command.key();
+        let target = command.target();
+        let shortcuts = command.shortcuts().to_vec();
 
-        for shortcut in command.shortcuts().iter().copied() {
-            self.shortcuts
-                .insert(shortcut, binding::Route::new(key, command.target()));
+        if let Some(existing) = self.commands.get_mut(&key) {
+            existing.merge(command);
+        } else {
+            self.commands.insert(key, command);
         }
 
-        self.commands.insert(key, command);
+        for shortcut in shortcuts {
+            self.shortcuts
+                .insert(shortcut, binding::Route::new(key, target));
+        }
     }
 
     fn insert_all(&mut self, commands: Vec<Definition>) -> Result<(), RegisterError> {
-        let mut staged_commands = HashSet::new();
+        let mut staged_commands: HashMap<Key, Definition> = HashMap::new();
         let mut staged_shortcuts: HashMap<Shortcut, Key> = HashMap::new();
 
-        for command in &commands {
+        for command in commands {
             let key = command.key();
 
-            if self.commands.contains_key(&key) || !staged_commands.insert(key) {
+            if let Some(existing) = self.commands.get(&key)
+                && !existing.can_merge(&command)
+            {
+                return Err(RegisterError::DuplicateCommand {
+                    command: key.as_str(),
+                });
+            }
+
+            if let Some(existing) = staged_commands.get(&key)
+                && !existing.can_merge(&command)
+            {
                 return Err(RegisterError::DuplicateCommand {
                     command: key.as_str(),
                 });
@@ -653,11 +706,13 @@ impl Registry {
 
             for shortcut in command.shortcuts().iter().copied() {
                 if let Some(existing) = self.shortcuts.get(&shortcut).copied() {
-                    return Err(RegisterError::DuplicateShortcut {
-                        shortcut,
-                        existing: existing.command().as_str(),
-                        duplicate: key.as_str(),
-                    });
+                    if existing.command() != key {
+                        return Err(RegisterError::DuplicateShortcut {
+                            shortcut,
+                            existing: existing.command().as_str(),
+                            duplicate: key.as_str(),
+                        });
+                    }
                 }
 
                 if let Some(existing) = staged_shortcuts.get(&shortcut).copied()
@@ -672,9 +727,15 @@ impl Registry {
 
                 staged_shortcuts.insert(shortcut, key);
             }
+
+            if let Some(existing) = staged_commands.get_mut(&key) {
+                existing.merge(command);
+            } else {
+                staged_commands.insert(key, command);
+            }
         }
 
-        for command in commands {
+        for command in staged_commands.into_values() {
             self.insert(command);
         }
 

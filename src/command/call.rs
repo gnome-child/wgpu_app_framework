@@ -2,7 +2,7 @@ use std::any::TypeId;
 use std::fmt;
 use std::marker::PhantomData;
 
-use crate::{ui, window};
+use crate::{path, window};
 
 use super::{
     Command, Key, Target,
@@ -22,7 +22,7 @@ pub enum Scope {
     Focused,
     Captured,
     Window,
-    Path(ui::Path),
+    Path(path::Path),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,7 +40,7 @@ pub(crate) struct Raw {
     source: Source,
     context: Context,
     args: args::Raw,
-    origin: Option<ui::Path>,
+    origin: Option<path::Path>,
     repeated: bool,
 }
 
@@ -50,7 +50,7 @@ pub struct Call<C: Command> {
     source: Source,
     window: Option<window::Id>,
     scope: Scope,
-    origin: Option<ui::Path>,
+    origin: Option<path::Path>,
     repeated: bool,
     _command: PhantomData<fn() -> C>,
 }
@@ -64,7 +64,7 @@ pub struct Invocation<C = Any> {
     command: Key,
     source: Source,
     context: Context,
-    origin: Option<ui::Path>,
+    origin: Option<path::Path>,
     repeated: bool,
     _command: PhantomData<fn() -> C>,
 }
@@ -77,7 +77,7 @@ impl Context {
         }
     }
 
-    pub fn path(window: window::Id, path: ui::Path) -> Self {
+    pub fn path(window: window::Id, path: path::Path) -> Self {
         Self {
             window,
             scope: Scope::Path(path),
@@ -128,7 +128,7 @@ impl Raw {
         self
     }
 
-    pub(crate) fn with_origin(mut self, origin: ui::Path) -> Self {
+    pub(crate) fn with_origin(mut self, origin: path::Path) -> Self {
         self.origin = Some(origin);
         self
     }
@@ -163,7 +163,7 @@ impl Raw {
         &self.args
     }
 
-    pub(crate) fn origin(&self) -> Option<&ui::Path> {
+    pub(crate) fn origin(&self) -> Option<&path::Path> {
         self.origin.as_ref()
     }
 
@@ -177,7 +177,8 @@ impl<C: Command> Call<C> {
     where
         TTarget: Target<C> + 'static,
     {
-        Self::new_with_target(args, target::Kind::of_type::<TTarget>())
+        let _ = TypeId::of::<TTarget>();
+        Self::new_with_target(args, C::target())
     }
 
     pub(crate) fn new_with_target(args: C::Args, target: target::Kind) -> Result<Self, ArgsError> {
@@ -206,7 +207,8 @@ impl<C: Command> Call<C> {
     where
         TTarget: Target<C> + 'static,
     {
-        Self::for_context_with_target(args, context, target::Kind::of_type::<TTarget>())
+        let _ = TypeId::of::<TTarget>();
+        Self::for_context_with_target(args, context, C::target())
     }
 
     pub(crate) fn for_context_with_target(
@@ -253,7 +255,7 @@ impl<C: Command> Call<C> {
         self
     }
 
-    pub fn with_origin(mut self, origin: ui::Path) -> Self {
+    pub fn with_origin(mut self, origin: path::Path) -> Self {
         self.origin = Some(origin);
         self
     }
@@ -288,7 +290,7 @@ impl<C: Command> Call<C> {
             .map(|window| Context::with_scope(window, self.scope.clone()))
     }
 
-    pub fn origin(&self) -> Option<&ui::Path> {
+    pub fn origin(&self) -> Option<&path::Path> {
         self.origin.as_ref()
     }
 
@@ -319,7 +321,7 @@ impl<C: Command> Call<C> {
         target::Kind,
         Source,
         Context,
-        Option<ui::Path>,
+        Option<path::Path>,
         bool,
     ) {
         (
@@ -384,7 +386,7 @@ impl Any {
         self.call.context()
     }
 
-    pub(crate) fn origin(&self) -> Option<&ui::Path> {
+    pub(crate) fn origin(&self) -> Option<&path::Path> {
         self.call.origin()
     }
 
@@ -436,7 +438,7 @@ trait ErasedCall: Send {
     fn window_id(&self) -> Option<window::Id>;
     fn scope(&self) -> &Scope;
     fn context(&self) -> Option<Context>;
-    fn origin(&self) -> Option<&ui::Path>;
+    fn origin(&self) -> Option<&path::Path>;
     fn repeated(&self) -> bool;
     fn with_fallback_window(self: Box<Self>, window: window::Id) -> Box<dyn ErasedCall>;
     fn into_args(self: Box<Self>) -> Box<dyn std::any::Any + Send>;
@@ -471,7 +473,7 @@ impl<C: Command> ErasedCall for Call<C> {
         self.requested_context()
     }
 
-    fn origin(&self) -> Option<&ui::Path> {
+    fn origin(&self) -> Option<&path::Path> {
         self.origin.as_ref()
     }
 
@@ -525,7 +527,7 @@ impl Invocation {
 }
 
 impl<C> Invocation<C> {
-    pub fn with_origin(mut self, origin: ui::Path) -> Self {
+    pub fn with_origin(mut self, origin: path::Path) -> Self {
         self.origin = Some(origin);
         self
     }
@@ -548,7 +550,7 @@ impl<C> Invocation<C> {
         &self.context
     }
 
-    pub fn origin(&self) -> Option<&ui::Path> {
+    pub fn origin(&self) -> Option<&path::Path> {
         self.origin.as_ref()
     }
 

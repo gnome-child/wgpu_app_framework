@@ -1,4 +1,3 @@
-use crate::command;
 use crate::geometry::{Rect, point};
 use crate::widget::menu;
 
@@ -9,8 +8,6 @@ pub struct Surface {
     kind: Kind,
     root_id: Id,
     anchor: Anchor,
-    command_context: command::call::Context,
-    source: command::call::Source,
     focus_policy: FocusPolicy,
 }
 
@@ -34,20 +31,11 @@ pub enum FocusPolicy {
 }
 
 impl Surface {
-    pub fn new(
-        kind: Kind,
-        root_id: Id,
-        anchor: Anchor,
-        command_context: command::call::Context,
-        source: command::call::Source,
-        focus_policy: FocusPolicy,
-    ) -> Self {
+    pub fn new(kind: Kind, root_id: Id, anchor: Anchor, focus_policy: FocusPolicy) -> Self {
         Self {
             kind,
             root_id,
             anchor,
-            command_context,
-            source,
             focus_policy,
         }
     }
@@ -62,14 +50,6 @@ impl Surface {
 
     pub fn anchor(&self) -> Anchor {
         self.anchor
-    }
-
-    pub fn command_context(&self) -> &command::call::Context {
-        &self.command_context
-    }
-
-    pub fn source(&self) -> command::call::Source {
-        self.source
     }
 
     pub fn focus_policy(&self) -> FocusPolicy {

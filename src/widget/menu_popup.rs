@@ -1,9 +1,10 @@
 use crate::geometry::{Rect, area, point, rect};
-use crate::{command, icon, layout, paint, text, theme, ui};
+use crate::ui::{self, layout};
+use crate::{action, icon, paint, text, theme};
 
 use super::{
-    MENU_POPUP, MENU_SUBMENU_POPUP, Popup, TEXT_CONTEXT_MENU_POPUP, floating_panel_with_theme,
-    menu, separator_with_theme,
+    MENU_POPUP, MENU_SUBMENU_POPUP, TEXT_CONTEXT_MENU_POPUP, floating_panel_with_theme, menu,
+    separator_with_theme,
 };
 
 const SEPARATOR_LINE_HEIGHT: f32 = 1.0;
@@ -16,53 +17,25 @@ const ROW_TRAILING: ui::Id = ui::Id::new("__menu_row_trailing");
 const ROW_SEPARATOR: ui::Id = ui::Id::new("__menu_row_separator");
 const TEXT_CONTEXT_MENU: menu::Id = menu::Id::new("__text_context_menu");
 
-const ROW_IDS: [ui::Id; 32] = [
-    ui::Id::new("__menu_row_00"),
-    ui::Id::new("__menu_row_01"),
-    ui::Id::new("__menu_row_02"),
-    ui::Id::new("__menu_row_03"),
-    ui::Id::new("__menu_row_04"),
-    ui::Id::new("__menu_row_05"),
-    ui::Id::new("__menu_row_06"),
-    ui::Id::new("__menu_row_07"),
-    ui::Id::new("__menu_row_08"),
-    ui::Id::new("__menu_row_09"),
-    ui::Id::new("__menu_row_10"),
-    ui::Id::new("__menu_row_11"),
-    ui::Id::new("__menu_row_12"),
-    ui::Id::new("__menu_row_13"),
-    ui::Id::new("__menu_row_14"),
-    ui::Id::new("__menu_row_15"),
-    ui::Id::new("__menu_row_16"),
-    ui::Id::new("__menu_row_17"),
-    ui::Id::new("__menu_row_18"),
-    ui::Id::new("__menu_row_19"),
-    ui::Id::new("__menu_row_20"),
-    ui::Id::new("__menu_row_21"),
-    ui::Id::new("__menu_row_22"),
-    ui::Id::new("__menu_row_23"),
-    ui::Id::new("__menu_row_24"),
-    ui::Id::new("__menu_row_25"),
-    ui::Id::new("__menu_row_26"),
-    ui::Id::new("__menu_row_27"),
-    ui::Id::new("__menu_row_28"),
-    ui::Id::new("__menu_row_29"),
-    ui::Id::new("__menu_row_30"),
-    ui::Id::new("__menu_row_31"),
-];
+pub trait Presenter {
+    fn item_label(&self, surface: Option<&ui::floating::Surface>, item: &menu::Item) -> String;
+
+    fn shortcut_label(&self, action: action::Key) -> Option<String>;
+
+    fn menu_can_open(&self, surface: &ui::floating::Surface, menu: &menu::Menu) -> bool;
+}
 
 pub fn menu_popup(
     tree: &ui::Tree,
     layout: &ui::Frame,
     surface: &ui::floating::Surface,
     menu: &menu::Menu,
-    commands: &command::Registry,
+    presenter: &dyn Presenter,
     measurer: &mut text::layout::Engine,
-) -> Option<Popup> {
+) -> Option<ui::Popup> {
     let theme = theme::Theme::default_dark();
     let anchor = anchor_rect(tree, layout, menu.id(), AnchorKind::TopLevel)?;
-    let chrome =
-        popup_chrome_with_context(menu, commands, surface.command_context(), &theme, measurer);
+    let chrome = popup_chrome_with_surface(menu, presenter, surface, &theme, measurer);
     let popup_rect = popup_rect(
         point::logical(anchor.origin.x(), anchor.origin.y() + anchor.area.height()),
         chrome,
@@ -70,16 +43,9 @@ pub fn menu_popup(
         layout.rect(),
     );
 
-    Some(Popup::new(
+    Some(ui::Popup::new(
         popup_rect,
-        popup_node(
-            MENU_POPUP,
-            menu,
-            commands,
-            surface.command_context(),
-            chrome,
-            &theme,
-        ),
+        popup_node(MENU_POPUP, menu, presenter, surface, chrome, &theme),
     ))
 }
 
@@ -88,14 +54,13 @@ pub fn submenu_popup(
     layout: &ui::Frame,
     surface: &ui::floating::Surface,
     menu: &menu::Menu,
-    commands: &command::Registry,
+    presenter: &dyn Presenter,
     measurer: &mut text::layout::Engine,
-) -> Option<Popup> {
+) -> Option<ui::Popup> {
     let theme = theme::Theme::default_dark();
     let anchor = anchor_rect(tree, layout, menu.id(), AnchorKind::Submenu)?;
     let padding = theme.floating_panel().padding();
-    let chrome =
-        popup_chrome_with_context(menu, commands, surface.command_context(), &theme, measurer);
+    let chrome = popup_chrome_with_surface(menu, presenter, surface, &theme, measurer);
     let popup_rect = popup_rect(
         point::logical(
             anchor.origin.x() + anchor.area.width() + SUBMENU_GAP,
@@ -106,44 +71,36 @@ pub fn submenu_popup(
         layout.rect(),
     );
 
-    Some(Popup::new(
+    Some(ui::Popup::new(
         popup_rect,
-        popup_node(
-            MENU_SUBMENU_POPUP,
-            menu,
-            commands,
-            surface.command_context(),
-            chrome,
-            &theme,
-        ),
+        popup_node(MENU_SUBMENU_POPUP, menu, presenter, surface, chrome, &theme),
     ))
 }
 
 pub fn text_context_menu_popup(
     surface: &ui::floating::Surface,
-    commands: &command::Registry,
+    presenter: &dyn Presenter,
     measurer: &mut text::layout::Engine,
     bounds: Rect,
-) -> Option<Popup> {
+) -> Option<ui::Popup> {
     surface.context_menu_target()?;
 
     let theme = theme::Theme::default_dark();
     let menu = text_context_menu();
-    let chrome =
-        popup_chrome_with_context(&menu, commands, surface.command_context(), &theme, measurer);
+    let chrome = popup_chrome_with_surface(&menu, presenter, surface, &theme, measurer);
     let origin = match surface.anchor() {
         ui::floating::Anchor::Point(point) => point,
         ui::floating::Anchor::Rect(rect) => rect.origin,
     };
     let popup_rect = popup_rect(origin, chrome, &theme, bounds);
 
-    Some(Popup::new(
+    Some(ui::Popup::new(
         popup_rect,
         popup_node(
             TEXT_CONTEXT_MENU_POPUP,
             &menu,
-            commands,
-            surface.command_context(),
+            presenter,
+            surface,
             chrome,
             &theme,
         ),
@@ -231,14 +188,14 @@ fn text_context_menu() -> menu::Menu {
 fn popup_node(
     id: ui::Id,
     menu: &menu::Menu,
-    commands: &command::Registry,
-    command_subject: &command::call::Context,
+    presenter: &dyn Presenter,
+    surface: &ui::floating::Surface,
     chrome: PopupChrome,
     theme: &theme::Theme,
 ) -> ui::Node {
     let mut popup = floating_panel_with_theme(theme)
         .key(id)
-        .with_command_scope()
+        .with_action_scope()
         .with_size(
             layout::Size::Fixed(chrome.area.width()),
             layout::Size::Fixed(chrome.area.height()),
@@ -251,12 +208,12 @@ fn popup_node(
                 menu::Node::Item(item) => {
                     let id = row_id(row);
                     row += 1;
-                    item_node(id, item, commands, command_subject, chrome, theme)
+                    item_node(id, item, presenter, surface, chrome, theme)
                 }
                 menu::Node::Submenu(menu) => {
                     let id = row_id(row);
                     row += 1;
-                    submenu_node(id, menu, commands, command_subject, chrome, theme)
+                    submenu_node(id, menu, presenter, surface, chrome, theme)
                 }
                 menu::Node::Separator => {
                     let id = row_id(row);
@@ -273,32 +230,28 @@ fn popup_node(
 fn item_node(
     id: ui::Id,
     item: &menu::Item,
-    commands: &command::Registry,
-    command_subject: &command::call::Context,
+    presenter: &dyn Presenter,
+    surface: &ui::floating::Surface,
     chrome: PopupChrome,
     theme: &theme::Theme,
 ) -> ui::Node {
-    let command_id = item.command();
-    let state = commands.state_key(command_id, command_subject.clone());
+    let action_id = item.action();
     let color = theme.text().primary();
-    let check = state
-        .is_active()
-        .then(|| icon::Icon::phosphor(icon::Id::new("check")));
-    let shortcut = shortcut_label(command_id, commands);
+    let shortcut = presenter.shortcut_label(action_id);
 
     menu_row(id, chrome, theme, color)
-        .with_command_route(item.route())
-        .with_command_subject(ui::CommandSubject::Captured)
-        .with_child(glyph_cell(
+        .with_action_route(item.route())
+        .with_action_subject(ui::ActionSubject::Captured)
+        .with_child(active_glyph_cell(
             ROW_GLYPH,
-            check,
+            icon::Icon::phosphor(icon::Id::new("check")),
             chrome.glyph_width,
             color,
             theme,
         ))
         .with_child(text_cell(
             ROW_LABEL,
-            item_label_for_context(item, commands, Some(command_subject)),
+            presenter.item_label(Some(surface), item),
             text::document::Align::Start,
             layout::Size::Fill,
             color,
@@ -324,12 +277,12 @@ fn item_node(
 fn submenu_node(
     id: ui::Id,
     menu: &menu::Menu,
-    commands: &command::Registry,
-    command_subject: &command::call::Context,
+    presenter: &dyn Presenter,
+    surface: &ui::floating::Surface,
     chrome: PopupChrome,
     theme: &theme::Theme,
 ) -> ui::Node {
-    let enabled = menu_can_open(menu, commands, command_subject);
+    let enabled = presenter.menu_can_open(surface, menu);
     let color = if enabled {
         theme.text().primary()
     } else {
@@ -419,6 +372,23 @@ fn glyph_cell(
     node
 }
 
+fn active_glyph_cell(
+    id: ui::Id,
+    icon: icon::Icon,
+    width: f32,
+    color: paint::Color,
+    theme: &theme::Theme,
+) -> ui::Node {
+    ui::Node::leaf()
+        .with_kind("menu_glyph")
+        .key(id)
+        .with_label_color(color)
+        .with_disabled_label_color(theme.text().disabled())
+        .with_active_icon(icon)
+        .with_icon_size(theme.text().menu_size() + 2.0)
+        .with_size(layout::Size::Fixed(width), layout::Size::Fill)
+}
+
 fn text_cell(
     id: ui::Id,
     label: impl Into<String>,
@@ -451,34 +421,6 @@ fn separator_node(id: ui::Id, chrome: PopupChrome, theme: &theme::Theme) -> ui::
         ))
 }
 
-fn item_label_for_context(
-    item: &menu::Item,
-    commands: &command::Registry,
-    command_subject: Option<&command::call::Context>,
-) -> String {
-    item.label()
-        .map(str::to_owned)
-        .or_else(|| {
-            command_subject
-                .and_then(|context| commands.presentation_key(item.command(), context.clone()))
-                .map(|presentation| presentation.display().to_owned())
-        })
-        .or_else(|| {
-            commands
-                .command_key(item.command())
-                .map(|command| command.display().to_owned())
-        })
-        .unwrap_or_else(|| item.command().as_str().replace('_', " "))
-}
-
-fn shortcut_label(command: command::Key, commands: &command::Registry) -> Option<String> {
-    commands
-        .command_key(command)
-        .and_then(|command| command.shortcuts().first())
-        .copied()
-        .map(command::shortcut::Shortcut::display_label)
-}
-
 fn document(
     label: impl Into<String>,
     theme: &theme::Theme,
@@ -499,27 +441,27 @@ fn document(
 #[cfg(test)]
 fn popup_chrome(
     menu: &menu::Menu,
-    commands: &command::Registry,
+    presenter: &dyn Presenter,
     theme: &theme::Theme,
     measurer: &mut text::layout::Engine,
 ) -> PopupChrome {
-    popup_chrome_for_context(menu, commands, None, theme, measurer)
+    popup_chrome_for_surface(menu, presenter, None, theme, measurer)
 }
 
-fn popup_chrome_with_context(
+fn popup_chrome_with_surface(
     menu: &menu::Menu,
-    commands: &command::Registry,
-    command_subject: &command::call::Context,
+    presenter: &dyn Presenter,
+    surface: &ui::floating::Surface,
     theme: &theme::Theme,
     measurer: &mut text::layout::Engine,
 ) -> PopupChrome {
-    popup_chrome_for_context(menu, commands, Some(command_subject), theme, measurer)
+    popup_chrome_for_surface(menu, presenter, Some(surface), theme, measurer)
 }
 
-fn popup_chrome_for_context(
+fn popup_chrome_for_surface(
     menu: &menu::Menu,
-    commands: &command::Registry,
-    command_subject: Option<&command::call::Context>,
+    presenter: &dyn Presenter,
+    surface: Option<&ui::floating::Surface>,
     theme: &theme::Theme,
     measurer: &mut text::layout::Engine,
 ) -> PopupChrome {
@@ -532,11 +474,11 @@ fn popup_chrome_for_context(
         match node {
             menu::Node::Item(item) => {
                 label_width = label_width.max(measure_label(
-                    item_label_for_context(item, commands, command_subject),
+                    presenter.item_label(surface, item),
                     theme,
                     measurer,
                 ));
-                if let Some(shortcut) = shortcut_label(item.command(), commands) {
+                if let Some(shortcut) = presenter.shortcut_label(item.action()) {
                     shortcut_width = shortcut_width.max(measure_label(shortcut, theme, measurer));
                 }
             }
@@ -608,26 +550,15 @@ fn measure_label(
         .width()
 }
 
-fn menu_can_open(
-    menu: &menu::Menu,
-    commands: &command::Registry,
-    command_subject: &command::call::Context,
-) -> bool {
-    menu.commands()
-        .any(|route| commands.can_invoke_key(route.command(), command_subject.clone()))
-}
-
 fn row_id(index: usize) -> ui::Id {
-    ROW_IDS
-        .get(index)
-        .copied()
-        .unwrap_or(ui::Id::new("__menu_row_overflow"))
+    ui::Id::structural("__menu_row", index)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Command;
+    use crate::{Command, command};
+    use std::collections::HashSet;
 
     struct CommandA;
     struct CommandB;
@@ -650,6 +581,88 @@ mod tests {
 
     const COMMAND_A: command::Key = command::Key::of::<CommandA>();
     const COMMAND_B: command::Key = command::Key::of::<CommandB>();
+
+    impl Presenter for command::Registry {
+        fn item_label(&self, surface: Option<&ui::floating::Surface>, item: &menu::Item) -> String {
+            let command = command::Key::from_action(item.action());
+            item.label()
+                .map(str::to_owned)
+                .or_else(|| {
+                    surface
+                        .map(|_| test_context())
+                        .and_then(|context| self.presentation_key(command, context))
+                        .map(|presentation| presentation.display().to_owned())
+                })
+                .or_else(|| {
+                    self.command_key(command)
+                        .map(|command| command.display().to_owned())
+                })
+                .unwrap_or_else(|| command.as_str().replace('_', " "))
+        }
+
+        fn shortcut_label(&self, action: action::Key) -> Option<String> {
+            self.command_key(command::Key::from_action(action))
+                .and_then(|command| command.shortcuts().first())
+                .copied()
+                .map(command::shortcut::Shortcut::display_label)
+        }
+
+        fn menu_can_open(&self, _surface: &ui::floating::Surface, menu: &menu::Menu) -> bool {
+            let context = test_context();
+
+            menu.actions().any(|route| {
+                self.can_invoke_key(
+                    command::binding::Route::from_action(route).command(),
+                    context.clone(),
+                )
+            })
+        }
+    }
+
+    fn test_context() -> command::call::Context {
+        command::call::Context::window(crate::window::Id::new(1))
+    }
+
+    fn surface() -> ui::floating::Surface {
+        ui::floating::Surface::new(
+            ui::floating::Kind::Menu(menu::Id::new("test")),
+            MENU_POPUP,
+            ui::floating::Anchor::Rect(Rect::new(
+                point::logical(0.0, 0.0),
+                area::logical(0.0, 0.0),
+            )),
+            ui::floating::FocusPolicy::PreserveCurrentFocus,
+        )
+    }
+
+    #[test]
+    fn row_ids_are_structural_and_do_not_overflow() {
+        let ids = (0..64).map(row_id).collect::<HashSet<_>>();
+
+        assert_eq!(ids.len(), 64);
+        assert!(row_id(0).is_structural());
+        assert_ne!(row_id(31), row_id(32));
+        assert_ne!(row_id(32), row_id(63));
+    }
+
+    fn paint_with_visual_states(
+        root: ui::Node,
+        interaction: ui::Interaction,
+        visual_states: impl IntoIterator<Item = (ui::Path, ui::VisualState)>,
+        scene: &mut paint::Scene,
+    ) {
+        let mut tree = ui::Tree::new();
+        let mut measurer = text::layout::Engine::new();
+        let mut composition = {
+            tree.set_root(root);
+            tree.compose(area::logical(160.0, 40.0), &mut measurer)
+                .expect("menu row should compose")
+        };
+        let text_field_states = std::collections::HashMap::new();
+
+        assert!(composition.set_visual_states(visual_states.into_iter().collect()));
+        composition.paint(interaction, &text_field_states, &mut measurer, scene);
+    }
 
     #[test]
     fn menu_separator_occupies_normal_row_height() {
@@ -838,7 +851,6 @@ mod tests {
         let theme = theme::Theme::default_dark();
         let mut registry = command::Registry::new();
         let item = menu::Item::key(COMMAND_A);
-        let context = command::call::Context::window(crate::window::Id::new(1));
 
         registry.register(
             command::definition::Definition::for_command::<CommandA, command::TestTarget>()
@@ -850,7 +862,7 @@ mod tests {
             ui::Id::new("row"),
             &item,
             &registry,
-            &context,
+            &surface(),
             metrics,
             &theme,
         );
@@ -878,7 +890,6 @@ mod tests {
         let theme = theme::Theme::default_dark();
         let mut registry = command::Registry::new();
         let item = menu::Item::key(COMMAND_A);
-        let context = command::call::Context::window(crate::window::Id::new(1));
 
         registry.register(
             command::definition::Definition::for_command::<CommandA, command::TestTarget>()
@@ -888,7 +899,7 @@ mod tests {
             ui::Id::new("row"),
             &item,
             &registry,
-            &context,
+            &surface(),
             test_chrome(&theme, 0.0),
             &theme,
         );
@@ -924,7 +935,7 @@ mod tests {
             ui::Id::new("row"),
             &item,
             &registry,
-            &context,
+            &surface(),
             test_chrome(&theme, 0.0),
             &theme,
         );
@@ -951,6 +962,8 @@ mod tests {
         let item = menu::Item::key(COMMAND_A);
         let window = crate::window::Id::new(1);
         let context = command::call::Context::window(window);
+        let row_id = ui::Id::new("row");
+        let row_path = ui::Path::from(row_id);
 
         registry.register(
             command::definition::Definition::for_command::<CommandA, command::TestTarget>()
@@ -960,26 +973,19 @@ mod tests {
         registry.set_state_key(COMMAND_A, context.clone(), command::State::unavailable());
 
         let row = item_node(
-            ui::Id::new("row"),
+            row_id,
             &item,
             &registry,
-            &context,
+            &surface(),
             test_chrome(&theme, 42.0),
             &theme,
         );
-        let mut tree = ui::Tree::new();
-        let mut measurer = text::layout::Engine::new();
         let mut scene = paint::Scene::new();
 
-        tree.set_root(row);
-        let layout = tree
-            .layout(area::logical(160.0, 40.0), &mut measurer)
-            .expect("menu row should layout");
-        tree.paint(
-            &layout,
-            &registry,
-            window,
+        paint_with_visual_states(
+            row,
             ui::Interaction::default(),
+            [(row_path, ui::VisualState::unavailable())],
             &mut scene,
         );
 
@@ -1006,8 +1012,6 @@ mod tests {
         let theme = theme::Theme::default_dark();
         let mut registry = command::Registry::new();
         let item = menu::Item::key(COMMAND_A);
-        let window = crate::window::Id::new(1);
-        let context = command::call::Context::window(window);
 
         registry.register(
             command::definition::Definition::for_command::<CommandA, command::TestTarget>()
@@ -1019,7 +1023,7 @@ mod tests {
             ui::Id::new("row"),
             &item,
             &registry,
-            &context,
+            &surface(),
             test_chrome(&theme, 42.0),
             &theme,
         );
@@ -1031,13 +1035,7 @@ mod tests {
         let layout = tree
             .layout(area::logical(160.0, 40.0), &mut measurer)
             .expect("menu row should layout");
-        tree.paint(
-            &layout,
-            &registry,
-            window,
-            ui::Interaction::default(),
-            &mut scene,
-        );
+        tree.paint(&layout, ui::Interaction::default(), &mut scene);
 
         let label = scene
             .items()
@@ -1077,23 +1075,16 @@ mod tests {
             row_id,
             &item,
             &registry,
-            &context,
+            &surface(),
             test_chrome(&theme, 0.0),
             &theme,
         );
-        let mut tree = ui::Tree::new();
-        let mut measurer = text::layout::Engine::new();
         let mut scene = paint::Scene::new();
 
-        tree.set_root(row);
-        let layout = tree
-            .layout(area::logical(160.0, 40.0), &mut measurer)
-            .expect("menu row should layout");
-        tree.paint(
-            &layout,
-            &registry,
-            window,
+        paint_with_visual_states(
+            row,
             ui::Interaction::new(Some(row_path.clone()), None, Some(row_path)),
+            [(ui::Path::from(row_id), ui::VisualState::unavailable())],
             &mut scene,
         );
 
@@ -1110,8 +1101,6 @@ mod tests {
         let theme = theme::Theme::default_dark();
         let mut registry = command::Registry::new();
         let item = menu::Item::key(COMMAND_A);
-        let window = crate::window::Id::new(1);
-        let context = command::call::Context::window(window);
         let row_id = ui::Id::new("row");
         let row_path = ui::Path::from(row_id);
 
@@ -1124,7 +1113,7 @@ mod tests {
             row_id,
             &item,
             &registry,
-            &context,
+            &surface(),
             test_chrome(&theme, 0.0),
             &theme,
         );
@@ -1138,8 +1127,6 @@ mod tests {
             .expect("menu row should layout");
         tree.paint(
             &layout,
-            &registry,
-            window,
             ui::Interaction::new(Some(row_path), None, None),
             &mut scene,
         );
@@ -1156,7 +1143,6 @@ mod tests {
     fn disabled_submenu_row_dims_content_without_disabled_tint() {
         let theme = theme::Theme::default_dark();
         let registry = command::Registry::new();
-        let context = command::call::Context::window(crate::window::Id::new(1));
         let submenu = menu::Menu::new("Disabled")
             .key(menu::Id::new("disabled"))
             .section(menu::Section::new().item(menu::Item::key(COMMAND_A)));
@@ -1165,7 +1151,7 @@ mod tests {
             ui::Id::new("row"),
             &submenu,
             &registry,
-            &context,
+            &surface(),
             test_chrome(&theme, 0.0),
             &theme,
         );

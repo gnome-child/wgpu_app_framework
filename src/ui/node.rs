@@ -1,9 +1,7 @@
-use std::collections::HashMap;
-
 use crate::widget::menu;
-use crate::{Command, command, geometry, icon, layout, paint, pointer, text, widget};
+use crate::{action, geometry, icon, paint, pointer, text};
 
-use super::{Backdrop, Id, Path, focus};
+use super::{Backdrop, Id, Path, focus, layout, scroll};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node {
@@ -14,19 +12,20 @@ pub struct Node {
     interactivity: Interactivity,
     cursor: Cursor,
     intent: Option<Intent>,
-    command: Option<command::binding::Route>,
-    command_subject: CommandSubject,
-    responders: Vec<command::Key>,
-    responder_bindings: Vec<command::binding::Binding>,
-    command_targets: Vec<command::target::Kind>,
-    command_scope: bool,
+    action: Option<action::Route>,
+    action_subject: action::Subject,
+    responders: Vec<action::Key>,
+    responder_bindings: Vec<action::Binding>,
+    action_targets: Vec<action::Target>,
+    action_scope: bool,
     label: Option<text::document::Document>,
     text_surface: Option<text::Surface>,
     icon: Option<icon::Icon>,
     icon_size: Option<f32>,
+    icon_requires_active: bool,
     menu_bar: Option<menu::Bar>,
     clip: bool,
-    scroll: Option<widget::Scroll>,
+    scroll: Option<scroll::Scroll>,
     children: Vec<Node>,
 }
 
@@ -135,18 +134,9 @@ impl CursorOverlayText {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum CommandSubject {
-    #[default]
-    Origin,
-    Current,
-    Captured,
-    Window,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Intent {
-    Command(command::binding::Route),
+    Action(action::Route),
     OpenMenu(menu::Id),
     OpenSubmenu(menu::Id),
     CloseSubmenu,
@@ -159,8 +149,6 @@ pub struct Interaction {
     text_editing_target: Option<Path>,
     focus_visibility: focus::Visibility,
     pressed: Option<Path>,
-    command_subject: Option<command::call::Context>,
-    command_scope_captures: HashMap<Path, command::call::Context>,
     open_menu: Option<menu::Id>,
     open_submenu: Option<menu::Id>,
     pointer_position: Option<geometry::point::Logical>,
@@ -184,16 +172,17 @@ impl Node {
             interactivity: Interactivity::default(),
             cursor: Cursor::default(),
             intent: None,
-            command: None,
-            command_subject: CommandSubject::default(),
+            action: None,
+            action_subject: action::Subject::default(),
             responders: Vec::new(),
             responder_bindings: Vec::new(),
-            command_targets: Vec::new(),
-            command_scope: false,
+            action_targets: Vec::new(),
+            action_scope: false,
             label: None,
             text_surface: None,
             icon: None,
             icon_size: None,
+            icon_requires_active: false,
             menu_bar: None,
             clip: false,
             scroll: None,
@@ -251,36 +240,36 @@ impl Node {
         self.cursor
     }
 
-    pub(crate) fn command(&self) -> Option<command::Key> {
-        self.command.map(|route| route.command())
+    pub(crate) fn action(&self) -> Option<action::Key> {
+        self.action.map(|route| route.key())
     }
 
-    pub(crate) fn command_route(&self) -> Option<command::binding::Route> {
-        self.command
+    pub(crate) fn action_route(&self) -> Option<action::Route> {
+        self.action
     }
 
     pub(crate) fn intent(&self) -> Option<Intent> {
         self.intent
     }
 
-    pub fn command_subject(&self) -> CommandSubject {
-        self.command_subject
+    pub fn action_subject(&self) -> action::Subject {
+        self.action_subject
     }
 
-    pub(crate) fn responders(&self) -> &[command::Key] {
+    pub(crate) fn responders(&self) -> &[action::Key] {
         &self.responders
     }
 
-    pub(crate) fn responder_bindings(&self) -> &[command::binding::Binding] {
+    pub(crate) fn responder_bindings(&self) -> &[action::Binding] {
         &self.responder_bindings
     }
 
-    pub(crate) fn command_targets(&self) -> &[command::target::Kind] {
-        &self.command_targets
+    pub(crate) fn action_targets(&self) -> &[action::Target] {
+        &self.action_targets
     }
 
-    pub fn is_command_scope(&self) -> bool {
-        self.command_scope
+    pub fn is_action_scope(&self) -> bool {
+        self.action_scope
     }
 
     pub fn label(&self) -> Option<&text::document::Document> {
@@ -307,6 +296,10 @@ impl Node {
         self.icon_size
     }
 
+    pub(crate) fn icon_requires_active(&self) -> bool {
+        self.icon_requires_active
+    }
+
     pub fn menu_bar(&self) -> Option<&menu::Bar> {
         self.menu_bar.as_ref()
     }
@@ -315,7 +308,7 @@ impl Node {
         self.clip
     }
 
-    pub fn scroll(&self) -> Option<widget::Scroll> {
+    pub fn scroll(&self) -> Option<scroll::Scroll> {
         self.scroll
     }
 
@@ -508,7 +501,7 @@ impl Node {
         self
     }
 
-    pub fn with_scroll(mut self, scroll: widget::Scroll) -> Self {
+    pub fn with_scroll(mut self, scroll: scroll::Scroll) -> Self {
         self.scroll = Some(scroll);
         self
     }
@@ -518,17 +511,17 @@ impl Node {
         self
     }
 
-    pub fn with_scroll_axes(mut self, axes: widget::scroll::Axes) -> Self {
+    pub fn with_scroll_axes(mut self, axes: scroll::Axes) -> Self {
         self.scroll = Some(self.scroll.unwrap_or_default().with_axes(axes));
         self
     }
 
-    pub fn with_scroll_bars(mut self, bars: widget::scroll::Bars) -> Self {
+    pub fn with_scroll_bars(mut self, bars: scroll::Bars) -> Self {
         self.scroll = Some(self.scroll.unwrap_or_default().with_bars(bars));
         self
     }
 
-    pub fn with_scroll_style(mut self, style: widget::scroll::Style) -> Self {
+    pub fn with_scroll_style(mut self, style: scroll::Style) -> Self {
         self.scroll = Some(self.scroll.unwrap_or_default().with_style(style));
         self
     }
@@ -550,6 +543,13 @@ impl Node {
 
     pub fn with_icon(mut self, icon: icon::Icon) -> Self {
         self.icon = Some(icon);
+        self.icon_requires_active = false;
+        self
+    }
+
+    pub(crate) fn with_active_icon(mut self, icon: icon::Icon) -> Self {
+        self.icon = Some(icon);
+        self.icon_requires_active = true;
         self
     }
 
@@ -558,80 +558,52 @@ impl Node {
         self
     }
 
-    pub fn invokes<C, TTarget>(self) -> Self
-    where
-        C: Command,
-        TTarget: command::Target<C> + 'static,
-    {
-        self.with_command_route(command::binding::Route::invokes::<C, TTarget>())
-    }
-
     #[cfg(test)]
-    pub(crate) fn with_command_key(mut self, command: command::Key) -> Self {
-        self.intent = Some(Intent::Command(command::binding::Route::new(
-            command,
-            command::target::Kind::command(command),
-        )));
-        self.command = Some(command::binding::Route::new(
-            command,
-            command::target::Kind::command(command),
-        ));
+    pub(crate) fn with_action_key(mut self, key: action::Key) -> Self {
+        let route = action::Route::new(key, action::Target::action(key));
+        self.intent = Some(Intent::Action(route));
+        self.action = Some(route);
         self
     }
 
-    pub(crate) fn with_command_route(mut self, route: command::binding::Route) -> Self {
-        self.intent = Some(Intent::Command(route));
-        self.command = Some(route);
+    pub fn with_action_route(mut self, route: action::Route) -> Self {
+        self.intent = Some(Intent::Action(route));
+        self.action = Some(route);
         self
     }
 
     pub(crate) fn with_intent(mut self, intent: Intent) -> Self {
-        self.command = match intent {
-            Intent::Command(route) => Some(route),
+        self.action = match intent {
+            Intent::Action(route) => Some(route),
             Intent::OpenMenu(_) | Intent::OpenSubmenu(_) | Intent::CloseSubmenu => None,
         };
         self.intent = Some(intent);
         self
     }
 
-    pub fn with_command_subject(mut self, target: CommandSubject) -> Self {
-        self.command_subject = target;
+    pub fn with_action_subject(mut self, target: action::Subject) -> Self {
+        self.action_subject = target;
         self
     }
 
-    pub fn with_responder<C: Command>(self) -> Self {
-        self.with_responder_key(command::Key::of::<C>())
-    }
-
-    pub(crate) fn with_responder_key(mut self, command: command::Key) -> Self {
-        self.push_responder_binding(command::binding::Binding::new(command));
+    #[cfg(test)]
+    pub(crate) fn with_responder_key(mut self, key: action::Key) -> Self {
+        self.push_responder_binding(action::Binding::new(key));
         self
     }
 
-    pub fn with_responder_binding(mut self, binding: command::binding::Binding) -> Self {
+    pub fn with_responder_binding(mut self, binding: action::Binding) -> Self {
         self.push_responder_binding(binding);
         self
     }
 
-    pub fn with_command_target(mut self, target: command::target::Kind) -> Self {
-        self.push_command_target(target);
+    pub fn with_action_target(mut self, target: action::Target) -> Self {
+        self.push_action_target(target);
         self
     }
 
-    pub fn with_command_targets(mut self, responder: &impl command::binding::Responder) -> Self {
-        for target in responder.command_targets() {
-            self.push_command_target(target);
-        }
-
-        for binding in responder.command_bindings() {
-            self.push_responder_binding(binding);
-        }
-
-        self
-    }
-
-    pub fn with_command_scope(mut self) -> Self {
-        self.command_scope = true;
+    pub fn with_action_scope(mut self) -> Self {
+        self.action_scope = true;
         self
     }
 
@@ -683,17 +655,17 @@ impl Node {
         self
     }
 
-    fn push_responder_binding(&mut self, binding: command::binding::Binding) {
-        let command_id = binding.command();
+    fn push_responder_binding(&mut self, binding: action::Binding) {
+        let key = binding.key();
 
-        if !self.responders.contains(&command_id) {
-            self.responders.push(command_id);
+        if !self.responders.contains(&key) {
+            self.responders.push(key);
         }
 
         if let Some(existing) = self
             .responder_bindings
             .iter_mut()
-            .find(|existing| existing.command() == command_id)
+            .find(|existing| existing.key() == key)
         {
             *existing = binding;
             return;
@@ -702,9 +674,9 @@ impl Node {
         self.responder_bindings.push(binding);
     }
 
-    fn push_command_target(&mut self, target: command::target::Kind) {
-        if !self.command_targets.contains(&target) {
-            self.command_targets.push(target);
+    fn push_action_target(&mut self, target: action::Target) {
+        if !self.action_targets.contains(&target) {
+            self.action_targets.push(target);
         }
     }
 }
@@ -1010,8 +982,6 @@ impl Interaction {
             text_editing_target: None,
             focus_visibility: focus::Visibility::Visible,
             pressed,
-            command_subject: None,
-            command_scope_captures: HashMap::new(),
             open_menu: None,
             open_submenu: None,
             pointer_position: None,
@@ -1029,19 +999,6 @@ impl Interaction {
 
     pub fn with_text_editing_target(mut self, target: Option<Path>) -> Self {
         self.text_editing_target = target;
-        self
-    }
-
-    pub fn with_command_subject(mut self, target: command::call::Context) -> Self {
-        self.command_subject = Some(target);
-        self
-    }
-
-    pub fn with_command_scope_captures(
-        mut self,
-        captures: HashMap<Path, command::call::Context>,
-    ) -> Self {
-        self.command_scope_captures = captures;
         self
     }
 
@@ -1100,10 +1057,6 @@ impl Interaction {
         self.pressed.as_ref()
     }
 
-    pub fn command_subject(&self) -> Option<&command::call::Context> {
-        self.command_subject.as_ref()
-    }
-
     pub fn open_menu(&self) -> Option<menu::Id> {
         self.open_menu
     }
@@ -1132,17 +1085,5 @@ impl Interaction {
 
     pub(crate) fn cursor_overlay(&self) -> Option<&CursorOverlay> {
         self.cursor_overlay.as_ref()
-    }
-
-    pub fn captured_command_subject(&self, path: &Path) -> Option<&command::call::Context> {
-        for length in (1..=path.ids().len()).rev() {
-            let candidate = Path::new(path.ids()[..length].to_vec());
-
-            if let Some(context) = self.command_scope_captures.get(&candidate) {
-                return Some(context);
-            }
-        }
-
-        None
     }
 }

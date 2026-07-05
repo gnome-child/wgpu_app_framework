@@ -1,9 +1,9 @@
-use crate::ui;
+use crate::input::{Key, Modifiers};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Shortcut {
-    key: ui::Key,
-    modifiers: ui::Modifiers,
+    key: Key,
+    modifiers: Modifiers,
 }
 
 #[cfg(test)]
@@ -17,40 +17,40 @@ mod tests {
 
     #[test]
     fn modifier_shortcut_formats_in_stable_order() {
-        let shortcut = Shortcut::new(ui::Key::Escape, ui::Modifiers::new(true, true, true, true));
+        let shortcut = Shortcut::new(Key::Escape, Modifiers::new(true, true, true, true));
 
         assert_eq!(shortcut.display_label(), "Ctrl+Shift+Alt+Super+Esc");
     }
 }
 
 impl Shortcut {
-    pub const fn new(key: ui::Key, modifiers: ui::Modifiers) -> Self {
+    pub const fn new(key: Key, modifiers: Modifiers) -> Self {
         Self { key, modifiers }
     }
 
     pub const fn ctrl(key: char) -> Self {
         Self::new(
-            ui::Key::Character(key.to_ascii_lowercase()),
-            ui::Modifiers::new(false, true, false, false),
+            Key::Character(key.to_ascii_lowercase()),
+            Modifiers::new(false, true, false, false),
         )
     }
 
     pub const fn ctrl_shift(key: char) -> Self {
         Self::new(
-            ui::Key::Character(key.to_ascii_lowercase()),
-            ui::Modifiers::new(true, true, false, false),
+            Key::Character(key.to_ascii_lowercase()),
+            Modifiers::new(true, true, false, false),
         )
     }
 
-    pub const fn key(self) -> ui::Key {
+    pub const fn key(self) -> Key {
         self.key
     }
 
-    pub const fn modifiers(self) -> ui::Modifiers {
+    pub const fn modifiers(self) -> Modifiers {
         self.modifiers
     }
 
-    pub fn matches(self, key: ui::Key, modifiers: ui::Modifiers) -> bool {
+    pub fn matches(self, key: Key, modifiers: Modifiers) -> bool {
         self.key == key.normalized() && self.modifiers == modifiers
     }
 
@@ -71,24 +71,24 @@ impl Shortcut {
         }
 
         parts.push(match self.key {
-            ui::Key::Tab => "Tab".to_owned(),
-            ui::Key::Enter => "Enter".to_owned(),
-            ui::Key::Space => "Space".to_owned(),
-            ui::Key::Escape => "Esc".to_owned(),
-            ui::Key::Backspace => "Backspace".to_owned(),
-            ui::Key::Delete => "Delete".to_owned(),
-            ui::Key::ArrowLeft => "Left".to_owned(),
-            ui::Key::ArrowRight => "Right".to_owned(),
-            ui::Key::ArrowUp => "Up".to_owned(),
-            ui::Key::ArrowDown => "Down".to_owned(),
-            ui::Key::Home => "Home".to_owned(),
-            ui::Key::End => "End".to_owned(),
-            ui::Key::PageUp => "PageUp".to_owned(),
-            ui::Key::PageDown => "PageDown".to_owned(),
-            ui::Key::F10 => "F10".to_owned(),
-            ui::Key::ContextMenu => "Menu".to_owned(),
-            ui::Key::Character(character) => character.to_ascii_uppercase().to_string(),
-            ui::Key::Other => "Other".to_owned(),
+            Key::Tab => "Tab".to_owned(),
+            Key::Enter => "Enter".to_owned(),
+            Key::Space => "Space".to_owned(),
+            Key::Escape => "Esc".to_owned(),
+            Key::Backspace => "Backspace".to_owned(),
+            Key::Delete => "Delete".to_owned(),
+            Key::ArrowLeft => "Left".to_owned(),
+            Key::ArrowRight => "Right".to_owned(),
+            Key::ArrowUp => "Up".to_owned(),
+            Key::ArrowDown => "Down".to_owned(),
+            Key::Home => "Home".to_owned(),
+            Key::End => "End".to_owned(),
+            Key::PageUp => "PageUp".to_owned(),
+            Key::PageDown => "PageDown".to_owned(),
+            Key::F10 => "F10".to_owned(),
+            Key::ContextMenu => "Menu".to_owned(),
+            Key::Character(character) => character.to_ascii_uppercase().to_string(),
+            Key::Other => "Other".to_owned(),
         });
 
         parts.join("+")

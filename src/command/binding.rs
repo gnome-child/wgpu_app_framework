@@ -1,3 +1,5 @@
+use crate::action;
+
 use super::{Command, Key, Target, state::State, target};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,6 +48,32 @@ impl Binding {
         self.command
     }
 
+    pub(crate) fn from_action(binding: action::Binding) -> Self {
+        let mut command = Self {
+            command: Key::from_action(binding.key()),
+            state: None,
+        };
+
+        if let Some(state) = binding.state() {
+            command.state = Some(command_state(*state));
+        }
+
+        command
+    }
+
+    pub fn action(&self) -> action::Binding {
+        let mut binding = action::Binding::new(self.command.action());
+
+        if let Some(state) = self.state.as_ref() {
+            binding = binding
+                .available(state.is_available())
+                .active(state.is_active())
+                .running(state.is_running());
+        }
+
+        binding
+    }
+
     pub fn state(&self) -> Option<&State> {
         self.state.as_ref()
     }
@@ -76,11 +104,23 @@ impl Route {
         C: Command,
         TTarget: Target<C> + 'static,
     {
-        Self::new(Key::of::<C>(), target::Kind::of_type::<TTarget>())
+        let _ = std::any::TypeId::of::<TTarget>();
+        Self::new(Key::of::<C>(), C::target())
     }
 
     pub(crate) const fn new(command: Key, target: target::Kind) -> Self {
         Self { command, target }
+    }
+
+    pub(crate) const fn from_action(route: action::Route) -> Self {
+        Self {
+            command: Key::from_action(route.key()),
+            target: target::Kind::from_action(route.target()),
+        }
+    }
+
+    pub const fn action(self) -> action::Route {
+        action::Route::new(self.command.action(), self.target.action())
     }
 
     pub(crate) const fn command(self) -> Key {
@@ -90,4 +130,10 @@ impl Route {
     pub(crate) const fn target(self) -> target::Kind {
         self.target
     }
+}
+
+fn command_state(state: action::State) -> State {
+    State::available_if(state.is_available())
+        .with_active(state.is_active())
+        .with_running(state.is_running())
 }

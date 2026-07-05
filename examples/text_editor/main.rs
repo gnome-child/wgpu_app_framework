@@ -1,7 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use wgpu_l3::{
-    Event, Task, Theme, app, command, geometry::area, layout, paint, text, ui, widget, window,
+    Event, Task, Theme, app, command,
+    geometry::area,
+    paint, text,
+    ui::{self, layout},
+    widget, window,
 };
 
 const UNICODE_STRESS_TEXT: &str = include_str!("fixtures/unicode_stress_dump.txt");
@@ -157,10 +161,6 @@ impl app::Application for Editor {
         commands.target(self);
     }
 
-    fn command_states(&mut self, states: &mut app::CommandStates<'_, Self::Event>) {
-        states.target(self);
-    }
-
     fn view(
         &mut self,
         cx: &mut app::Context<'_, Self::Event>,
@@ -229,7 +229,7 @@ impl Editor {
     }
 
     fn record_text_command_outcome(&mut self, outcome: app::TextCommandOutcome) {
-        self.record_text_command_result(outcome.result(), text_command_label(outcome.command()));
+        self.record_text_command_result(outcome.result(), outcome.label());
     }
 
     fn new_file(&mut self) {
@@ -458,32 +458,7 @@ fn register_file_commands(commands: &mut command::registry::Commands) {
 }
 
 fn register_edit_commands(commands: &mut command::registry::Commands) {
-    text::command::define::<text::command::Undo>(commands, |command| {
-        command
-            .shortcut(command::shortcut::Shortcut::ctrl('z'))
-            .repeatable()
-    });
-    text::command::define::<text::command::Redo>(commands, |command| {
-        command
-            .shortcut(command::shortcut::Shortcut::ctrl_shift('z'))
-            .shortcut(command::shortcut::Shortcut::ctrl('y'))
-            .repeatable()
-    });
-    text::command::define::<text::command::SelectAll>(commands, |command| {
-        command.shortcut(command::shortcut::Shortcut::ctrl('a'))
-    });
-    text::command::define::<text::command::Cut>(commands, |command| {
-        command.shortcut(command::shortcut::Shortcut::ctrl('x'))
-    });
-    text::command::define::<text::command::Delete>(commands, |command| command);
-    text::command::define::<text::command::Copy>(commands, |command| {
-        command.shortcut(command::shortcut::Shortcut::ctrl('c'))
-    });
-    text::command::define::<text::command::Paste>(commands, |command| {
-        command
-            .shortcut(command::shortcut::Shortcut::ctrl('v'))
-            .repeatable()
-    });
+    text::command::define_defaults(commands);
 }
 
 fn register_view_commands(commands: &mut command::registry::Commands) {
@@ -701,18 +676,6 @@ fn compact_path(path: &Path) -> String {
         .rev()
         .collect::<String>();
     format!("...{suffix}")
-}
-
-fn text_command_label(command: text::edit::Command) -> &'static str {
-    match command {
-        text::edit::Command::Copy => "copy",
-        text::edit::Command::Cut => "cut",
-        text::edit::Command::Delete => "delete",
-        text::edit::Command::Paste => "paste",
-        text::edit::Command::SelectAll => "select all",
-        text::edit::Command::Undo => "undo",
-        text::edit::Command::Redo => "redo",
-    }
 }
 
 fn save_task(path: PathBuf, text: String) -> Task<AppEvent> {

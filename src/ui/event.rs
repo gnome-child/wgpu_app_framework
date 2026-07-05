@@ -1,38 +1,9 @@
 use crate::geometry::{area, point};
+use crate::input::{Key, Modifiers};
 use crate::pointer;
 use crate::text;
 
 use super::{Path, drag_drop};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Key {
-    Tab,
-    Enter,
-    Space,
-    Escape,
-    Backspace,
-    Delete,
-    ArrowLeft,
-    ArrowRight,
-    ArrowUp,
-    ArrowDown,
-    Home,
-    End,
-    PageUp,
-    PageDown,
-    F10,
-    ContextMenu,
-    Character(char),
-    Other,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct Modifiers {
-    shift: bool,
-    control: bool,
-    alt: bool,
-    super_key: bool,
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
@@ -99,40 +70,4 @@ pub enum Event {
         target: Option<Path>,
     },
     Ignored,
-}
-
-impl Modifiers {
-    pub const fn new(shift: bool, control: bool, alt: bool, super_key: bool) -> Self {
-        Self {
-            shift,
-            control,
-            alt,
-            super_key,
-        }
-    }
-
-    pub const fn shift(self) -> bool {
-        self.shift
-    }
-
-    pub const fn control(self) -> bool {
-        self.control
-    }
-
-    pub const fn alt(self) -> bool {
-        self.alt
-    }
-
-    pub const fn super_key(self) -> bool {
-        self.super_key
-    }
-}
-
-impl Key {
-    pub const fn normalized(self) -> Self {
-        match self {
-            Self::Character(value) => Self::Character(value.to_ascii_lowercase()),
-            value => value,
-        }
-    }
 }

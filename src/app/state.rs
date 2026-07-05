@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
@@ -28,12 +28,11 @@ pub struct WindowState {
     pub pressed: Option<ui::Path>,
     pub pressed_source: Option<PressSource>,
     pub modifiers: ui::Modifiers,
-    pub command_subject: Option<command::call::Scope>,
+    pub(crate) command: command_subject::State,
     pub pointer: pointer::Pointer,
     pub floating: floating::State,
     pub open_menu: Option<menu::Id>,
     pub open_submenu: Option<menu::Id>,
-    pub command_scope_captures: HashMap<ui::Path, command::call::Context>,
     pub pointer_capture: Option<pointer::Capture>,
     pub composition: Option<ui::Composition>,
     pub(crate) paint_cache: Option<paint_cache::RetainedPaint>,
@@ -233,8 +232,9 @@ impl WindowState {
             .widget_metrics_iter()
             .filter_map(|(path, metrics)| {
                 metrics
-                    .hit_test(position)
-                    .map(|part| widget::Hit::new(path.clone(), part))
+                    .scroll()
+                    .and_then(|metrics| metrics.hit_test(position))
+                    .map(|part| widget::Hit::new(path.clone(), widget::Part::Scroll(part)))
             })
             .max_by_key(|hit| hit.target().ids().len());
 
@@ -263,7 +263,7 @@ impl WindowState {
 
     pub fn scroll_metrics(&self, target: &ui::Path) -> Option<widget::scroll::Metrics> {
         match self.composition.as_ref()?.widget_metrics(target)? {
-            widget::Metrics::Scroll(metrics) => Some(metrics),
+            ui::Metrics::Scroll(metrics) => Some(metrics),
         }
     }
 
@@ -408,11 +408,11 @@ impl WindowState {
             .is_some_and(|interactivity| interactivity.actionable())
     }
 
-    pub fn command_subject(&self, target: &ui::Path) -> ui::CommandSubject {
+    pub fn action_subject(&self, target: &ui::Path) -> ui::ActionSubject {
         self.composition
             .as_ref()
-            .map_or_else(ui::CommandSubject::default, |composition| {
-                composition.command_subject(target)
+            .map_or_else(ui::ActionSubject::default, |composition| {
+                composition.action_subject(target)
             })
     }
 
@@ -1282,8 +1282,8 @@ impl WindowState {
         );
 
         for (path, surface) in composition.text_surfaces() {
+            changed |= self.text.sync_history(path, surface.buffer());
             let state = self.text.entry(path.clone()).or_default();
-            changed |= state.sync_history(surface.buffer());
             if surface.is_area() {
                 let next = state.clone().without_scroll();
                 if next != *state {
@@ -1348,18 +1348,15 @@ impl WindowState {
     pub(crate) fn record_text_field_history(
         &mut self,
         target: &ui::Path,
-        change: text::buffer::TextChange,
-        kind: text::edit::HistoryKind,
+        change: text::edit::Change,
+        kind: app_text::HistoryKind,
         now: Instant,
     ) -> bool {
         if !self.is_text_field(target) && !self.text.contains(target) {
             return false;
         }
 
-        self.text
-            .entry(target.clone())
-            .or_default()
-            .record_history_at(change, kind, now);
+        self.text.record_history_at(target, change, kind, now);
         true
     }
 
@@ -1381,16 +1378,9 @@ impl WindowState {
         buffer: &mut text::Buffer,
         command: text::edit::Command,
     ) -> text::edit::CommandResult {
-        let Some(state) = self.text.get_mut(target) else {
-            return text::edit::CommandResult {
-                unavailable: true,
-                ..text::edit::CommandResult::default()
-            };
-        };
-
         match command {
-            text::edit::Command::Undo => state.apply_undo(buffer),
-            text::edit::Command::Redo => state.apply_redo(buffer),
+            text::edit::Command::Undo => self.text.apply_undo(target, buffer),
+            text::edit::Command::Redo => self.text.apply_redo(target, buffer),
             _ => text::edit::CommandResult {
                 unavailable: true,
                 ..text::edit::CommandResult::default()
@@ -1571,7 +1561,7 @@ impl WindowState {
     pub fn toggle_menu(
         &mut self,
         id: menu::Id,
-        registry: &command::Registry,
+        registry: &mut command::Registry,
         window: window::Id,
         source: command::call::Source,
     ) -> bool {
@@ -1587,7 +1577,8 @@ impl WindowState {
             return false;
         };
 
-        if !self.menu_can_open(menu, registry, window) {
+        text_input::publish_command_states(self, registry, window);
+        if !command_subject::menu_can_open(self, menu, registry, window) {
             return false;
         }
 
@@ -1613,7 +1604,7 @@ impl WindowState {
     pub fn open_submenu(
         &mut self,
         id: menu::Id,
-        registry: &command::Registry,
+        registry: &mut command::Registry,
         window: window::Id,
         source: command::call::Source,
     ) -> bool {
@@ -1629,7 +1620,8 @@ impl WindowState {
             return false;
         };
 
-        if !self.menu_can_open(menu, registry, window) {
+        text_input::publish_command_states(self, registry, window);
+        if !command_subject::menu_can_open(self, menu, registry, window) {
             return false;
         }
 
@@ -1758,8 +1750,8 @@ impl WindowState {
     pub fn focus_preserves_text_input_session(&self, path: &ui::Path) -> bool {
         self.is_menu_path(path)
             || matches!(
-                self.command_subject(path),
-                ui::CommandSubject::Current | ui::CommandSubject::Captured
+                self.action_subject(path),
+                ui::ActionSubject::Current | ui::ActionSubject::Captured
             )
     }
 
@@ -1850,7 +1842,8 @@ impl WindowState {
                 .focus_order()
                 .iter()
                 .find(|path| {
-                    self.is_dropdown_path(path) && self.can_focus_path(registry, window, path)
+                    self.is_dropdown_path(path)
+                        && command_subject::can_focus(self, registry, window, path)
                 })
                 .cloned()
         });
@@ -1864,46 +1857,6 @@ impl WindowState {
             ui::focus::Reason::Keyboard,
             ui::focus::Visibility::Visible,
         )
-    }
-
-    pub(crate) fn sync_menu_title_states(
-        &mut self,
-        registry: &command::Registry,
-        window: window::Id,
-    ) -> bool {
-        let Some(composition) = self.composition.as_ref() else {
-            return false;
-        };
-
-        let menu_titles = composition
-            .intents()
-            .iter()
-            .filter_map(|(path, intent)| match intent {
-                ui::Intent::OpenMenu(menu) => composition
-                    .menu(*menu)
-                    .map(|menu| (path.clone(), menu.clone())),
-                ui::Intent::Command(_) | ui::Intent::OpenSubmenu(_) | ui::Intent::CloseSubmenu => {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let path_states = menu_titles
-            .into_iter()
-            .map(|(path, menu)| {
-                let state = if self.menu_can_open(&menu, registry, window) {
-                    command::State::available()
-                } else {
-                    command::State::unavailable()
-                };
-
-                (path, state)
-            })
-            .collect::<HashMap<_, _>>();
-
-        self.composition
-            .as_mut()
-            .is_some_and(|composition| composition.set_path_states(path_states))
     }
 
     pub fn open_text_context_menu(
@@ -1981,14 +1934,6 @@ impl WindowState {
         command_subject::update_scope_captures(self, window);
     }
 
-    pub fn resolve_request(
-        &self,
-        registry: &command::Registry,
-        request: command::call::Raw,
-    ) -> command::call::Raw {
-        command_subject::resolve_request(self, registry, request)
-    }
-
     fn prepare_focus_scope_for_path(&mut self, path: &ui::Path) {
         if self.open_menu.is_some() && self.is_dropdown_path(path) {
             self.begin_menu_focus_scope(path.clone());
@@ -2043,27 +1988,6 @@ impl WindowState {
         self.composition
             .as_ref()
             .and_then(|composition| path_with_leaf(composition.layout(), id))
-    }
-
-    fn can_focus_path(
-        &self,
-        registry: &command::Registry,
-        window: window::Id,
-        path: &ui::Path,
-    ) -> bool {
-        if !self.is_focusable(path) {
-            return false;
-        }
-
-        let Some(route) = self
-            .composition
-            .as_ref()
-            .and_then(|composition| composition.command(path))
-        else {
-            return true;
-        };
-
-        registry.can_invoke_key(route.command(), self.command_context_for_path(window, path))
     }
 }
 
@@ -2136,88 +2060,15 @@ fn path_with_leaf(frame: &ui::Frame, id: ui::Id) -> Option<ui::Path> {
         .find_map(|child| path_with_leaf(child, id))
 }
 
-pub fn command_request(
-    state: &WindowState,
-    window: window::Id,
-    origin: ui::Path,
-    source: command::call::Source,
-) -> Option<command::call::Raw> {
-    let route = match state.intent(&origin) {
-        Some(ui::Intent::Command(route)) => route,
-        Some(ui::Intent::OpenMenu(_) | ui::Intent::OpenSubmenu(_) | ui::Intent::CloseSubmenu) => {
-            return None;
-        }
-        None => state
-            .composition
-            .as_ref()
-            .and_then(|composition| composition.command(&origin))?,
-    };
-    let context = state.command_context_for_path(window, &origin);
-
-    Some(command::call::Raw::from_route(route, source, context).with_origin(origin))
-}
-
-impl WindowState {
-    fn menu_can_open(
-        &self,
-        menu: &menu::Menu,
-        registry: &command::Registry,
-        window: window::Id,
-    ) -> bool {
-        if self.composition.is_none() {
-            return false;
-        }
-
-        menu.commands().any(|route| {
-            let request = command::call::Raw::from_route(
-                route,
-                command::call::Source::Pointer,
-                self.command_context(window),
-            );
-            let request = self.resolve_request(registry, request);
-
-            self.can_execute_menu_command(registry, &request)
-        })
-    }
-
-    fn can_execute_menu_command(
-        &self,
-        registry: &command::Registry,
-        request: &command::call::Raw,
-    ) -> bool {
-        if registry.command_key(request.command()).is_none() {
-            return false;
-        };
-
-        if registry
-            .state_key(request.command(), request.context().clone())
-            .is_running()
-        {
-            return false;
-        }
-
-        let Some(command) = text_input::text_command_for(request.command()) else {
-            return registry.can_execute(request);
-        };
-
-        let command::call::Scope::Path(target) = request.context().scope() else {
-            return false;
-        };
-
-        let Some(surface) = self.text_surface(target) else {
-            return registry.can_execute(request);
-        };
-
-        text_input::can_apply_command(self, target, surface, command)
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::Command;
     use crate::command;
     use crate::geometry::{Rect, area};
+    use crate::ui::layout;
     use crate::widget::menu;
 
     const ROOT: ui::Id = ui::Id::new("root");
@@ -2242,7 +2093,7 @@ mod tests {
     }
 
     fn single_box(id: ui::Id) -> crate::ui::Frame {
-        crate::layout::Frame::<ui::Path>::new(
+        layout::Frame::<ui::Path>::new(
             ui::Path::root(id),
             Rect::new(point::logical(0.0, 0.0), area::logical(20.0, 20.0)),
             Vec::new(),
@@ -2272,7 +2123,7 @@ mod tests {
         layout: crate::ui::Frame,
         menus: HashMap<menu::Id, menu::Menu>,
         commands: HashMap<ui::Path, command::Key>,
-        command_subjects: HashMap<ui::Path, ui::CommandSubject>,
+        action_subjects: HashMap<ui::Path, ui::ActionSubject>,
         intents: HashMap<ui::Path, ui::Intent>,
         responders: HashMap<ui::Path, Vec<command::Key>>,
         interactivity: HashMap<ui::Path, ui::Interactivity>,
@@ -2281,10 +2132,21 @@ mod tests {
         ui::Composition::for_test(
             layout,
             menus,
-            commands,
-            command_subjects,
+            commands
+                .into_iter()
+                .map(|(path, command)| (path, command.action()))
+                .collect(),
+            action_subjects,
             intents,
-            responders,
+            responders
+                .into_iter()
+                .map(|(path, commands)| {
+                    (
+                        path,
+                        commands.into_iter().map(command::Key::action).collect(),
+                    )
+                })
+                .collect(),
             Vec::new(),
             interactivity,
             HashMap::new(),
@@ -2296,7 +2158,7 @@ mod tests {
         layout: crate::ui::Frame,
         menus: HashMap<menu::Id, menu::Menu>,
         commands: HashMap<ui::Path, command::Key>,
-        command_subjects: HashMap<ui::Path, ui::CommandSubject>,
+        action_subjects: HashMap<ui::Path, ui::ActionSubject>,
         intents: HashMap<ui::Path, ui::Intent>,
         responders: HashMap<ui::Path, Vec<command::Key>>,
         interactivity: HashMap<ui::Path, ui::Interactivity>,
@@ -2307,7 +2169,7 @@ mod tests {
                 layout,
                 menus,
                 commands,
-                command_subjects,
+                action_subjects,
                 intents,
                 responders,
                 interactivity,
@@ -2318,24 +2180,17 @@ mod tests {
     }
 
     fn text_field_window_state(field: impl Into<text::Field>, epoch: Instant) -> WindowState {
-        let window = window::Id::new(1);
         let mut tree = ui::Tree::new();
-        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
 
-        tree.set_root(widget::text_field(field).key(CHILD).with_size(
-            crate::layout::Size::Fixed(120.0),
-            crate::layout::Size::Fixed(32.0),
-        ));
+        tree.set_root(
+            widget::text_field(field)
+                .key(CHILD)
+                .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(32.0)),
+        );
 
         let composition = tree
-            .compose(
-                window,
-                area::logical(120.0, 32.0),
-                &mut registry,
-                &[],
-                &mut text_engine,
-            )
+            .compose(area::logical(120.0, 32.0), &mut text_engine)
             .expect("text field tree should compose");
 
         let mut state = WindowState {
@@ -2354,20 +2209,12 @@ mod tests {
     }
 
     fn state_from_tree(root: ui::Node) -> WindowState {
-        let window = window::Id::new(1);
         let mut tree = ui::Tree::new();
-        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
 
         tree.set_root(root);
         let composition = tree
-            .compose(
-                window,
-                area::logical(200.0, 80.0),
-                &mut registry,
-                &[],
-                &mut text_engine,
-            )
+            .compose(area::logical(200.0, 80.0), &mut text_engine)
             .expect("tree should compose");
 
         WindowState {
@@ -2397,27 +2244,8 @@ mod tests {
         area_model: text::Area,
         scroll_y: f32,
     ) -> (WindowState, text::layout::Engine, ui::Path) {
-        let window = window::Id::new(1);
-        let mut tree = ui::Tree::new();
-        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
-        let root = ui::Node::container(crate::layout::Axis::Vertical)
-            .key(ROOT)
-            .with_size(crate::layout::Size::Fill, crate::layout::Size::Fill)
-            .with_child(widget::text_area(area_model).key(CHILD).with_size(
-                crate::layout::Size::Fixed(140.0),
-                crate::layout::Size::Fixed(60.0),
-            ));
-        tree.set_root(root);
-        let composition = tree
-            .compose(
-                window,
-                area::logical(180.0, 90.0),
-                &mut registry,
-                &[],
-                &mut text_engine,
-            )
-            .expect("text area tree should compose");
+        let composition = text_area_composition_for_area(area_model, &mut text_engine);
         let path = ui::Path::from(ROOT).child(CHILD);
         let mut state = WindowState {
             composition: Some(composition),
@@ -2431,6 +2259,24 @@ mod tests {
         sync_text_area_projection(&mut state, &mut text_engine);
 
         (state, text_engine, path)
+    }
+
+    fn text_area_composition_for_area(
+        area_model: text::Area,
+        text_engine: &mut text::layout::Engine,
+    ) -> ui::Composition {
+        let mut tree = ui::Tree::new();
+        let root = ui::Node::container(layout::Axis::Vertical)
+            .key(ROOT)
+            .with_size(layout::Size::Fill, layout::Size::Fill)
+            .with_child(
+                widget::text_area(area_model)
+                    .key(CHILD)
+                    .with_size(layout::Size::Fixed(140.0), layout::Size::Fixed(60.0)),
+            );
+        tree.set_root(root);
+        tree.compose(area::logical(180.0, 90.0), text_engine)
+            .expect("text area tree should compose")
     }
 
     fn sync_text_area_projection(state: &mut WindowState, text_engine: &mut text::layout::Engine) {
@@ -2792,6 +2638,10 @@ mod tests {
         );
         assert!(result.text_changed);
         text_engine.invalidate_text_area_for_edit(&buffer, &result.impacts);
+        state.composition = Some(text_area_composition_for_area(
+            text::Area::new(buffer.clone()).no_wrap(),
+            &mut text_engine,
+        ));
 
         let current = state.text.get(&path).cloned().unwrap_or_default();
         let scroll_y = state
@@ -2844,6 +2694,92 @@ mod tests {
     }
 
     #[test]
+    fn text_area_scroll_anchor_preserves_scroll_after_undo_restores_fresh_buffer_id() {
+        let lines = text_area_lines(80);
+        let text = lines.join("\n");
+        let mut buffer = text::Buffer::from_multiline_text(text);
+        let undo_snapshot = buffer.clone();
+        let initial_scroll_y = 500.0;
+        let (mut state, mut text_engine, path) = text_area_window_state_for_area(
+            text::Area::new(buffer.clone()).no_wrap(),
+            initial_scroll_y,
+        );
+        let initial_offset = state
+            .scroll
+            .text_area(&path)
+            .expect("initial projection should exist")
+            .metrics()
+            .offset()
+            .y();
+        let anchor = state
+            .text_area_scroll_anchor(&path)
+            .expect("visible text area should capture a scroll anchor");
+
+        assert_ne!(buffer.id(), undo_snapshot.id());
+        assert!((initial_offset - initial_scroll_y).abs() <= 1.0);
+
+        let mut editor = text::edit::Editor::new();
+        let result = editor.apply_text_edit_with_result(
+            &mut buffer,
+            text::edit::Edit::replace_range(0..0, "temporary edit\n"),
+        );
+        assert!(result.text_changed);
+        text_engine.invalidate_text_area_for_edit(&buffer, &result.impacts);
+        state.composition = Some(text_area_composition_for_area(
+            text::Area::new(buffer).no_wrap(),
+            &mut text_engine,
+        ));
+        sync_text_area_projection(&mut state, &mut text_engine);
+
+        state.composition = Some(text_area_composition_for_area(
+            text::Area::new(undo_snapshot).no_wrap(),
+            &mut text_engine,
+        ));
+        let current = state.text.get(&path).cloned().unwrap_or_default();
+        let scroll_y = state
+            .composition
+            .as_ref()
+            .and_then(|composition| {
+                composition.text_area_scroll_y_for_anchor(
+                    &path,
+                    current.clone(),
+                    anchor,
+                    &mut text_engine,
+                )
+            })
+            .expect("undo-restored clone should resolve the original scroll anchor");
+
+        assert!(
+            (scroll_y - initial_offset).abs() <= 1.0,
+            "undo-restored clone resolved scroll {} but expected original {}",
+            scroll_y,
+            initial_offset
+        );
+
+        state
+            .scroll
+            .update_offset(&path, point::logical(0.0, scroll_y));
+        state
+            .text
+            .insert(path.clone(), current.with_scroll_y(scroll_y));
+        sync_text_area_projection(&mut state, &mut text_engine);
+
+        let final_scroll_y = state
+            .scroll
+            .text_area(&path)
+            .expect("undo-restored projection should exist")
+            .metrics()
+            .offset()
+            .y();
+        assert!(
+            (final_scroll_y - initial_offset).abs() <= 1.0,
+            "fresh buffer id should not introduce a scroll jump after undo: final {}, expected {}",
+            final_scroll_y,
+            initial_offset
+        );
+    }
+
+    #[test]
     fn hover_changes_emit_leave_then_enter() {
         let mut state = WindowState {
             hovered: Some(path(ROOT)),
@@ -2865,20 +2801,17 @@ mod tests {
 
     #[test]
     fn cursor_for_hovered_resolves_hovered_node_cursor() {
-        let root = ui::Node::container(crate::layout::Axis::Vertical)
+        let root = ui::Node::container(layout::Axis::Vertical)
             .key(ROOT)
             .with_child(
                 widget::text_field(text::Buffer::from_text("Editable"))
                     .key(CHILD)
-                    .with_size(
-                        crate::layout::Size::Fixed(120.0),
-                        crate::layout::Size::Fixed(32.0),
-                    ),
+                    .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(32.0)),
             )
-            .with_child(widget::button_key(OUTSIDE, CLICK).with_size(
-                crate::layout::Size::Fixed(120.0),
-                crate::layout::Size::Fixed(32.0),
-            ));
+            .with_child(
+                widget::button_key(OUTSIDE, CLICK)
+                    .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(32.0)),
+            );
         let mut state = state_from_tree(root);
 
         state.hovered = Some(ui::Path::new([ROOT, CHILD]));
@@ -2902,20 +2835,17 @@ mod tests {
 
     #[test]
     fn cursor_for_hovered_uses_default_for_scrollbar_capture() {
-        let root = ui::Node::container(crate::layout::Axis::Vertical)
+        let root = ui::Node::container(layout::Axis::Vertical)
             .key(ROOT)
             .with_child(
                 widget::text_field(text::Buffer::from_text("Editable"))
                     .key(CHILD)
-                    .with_size(
-                        crate::layout::Size::Fixed(120.0),
-                        crate::layout::Size::Fixed(32.0),
-                    ),
+                    .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(32.0)),
             )
-            .with_child(widget::button_key(OUTSIDE, CLICK).with_size(
-                crate::layout::Size::Fixed(120.0),
-                crate::layout::Size::Fixed(32.0),
-            ));
+            .with_child(
+                widget::button_key(OUTSIDE, CLICK)
+                    .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(32.0)),
+            );
         let mut state = state_from_tree(root);
 
         state.hovered = Some(ui::Path::new([ROOT, OUTSIDE]));
@@ -3274,13 +3204,13 @@ mod tests {
             Some(path(CHILD)),
             pointer::Button::Primary,
         );
-        let request = command_request(
+        let request = command_subject::request_for_path(
             &state,
             window,
             target.expect("release should target pressed element"),
             command::call::Source::Pointer,
         )
-        .filter(|request| registry.can_execute(request));
+        .filter(|request| command_subject::can_execute_request(&state, &registry, request));
 
         assert_eq!(
             request,
@@ -3318,8 +3248,13 @@ mod tests {
         registry.set_state_key(CLICK, context, command::State::unavailable());
 
         assert_eq!(
-            command_request(&state, window, path(CHILD), command::call::Source::Pointer)
-                .filter(|request| registry.can_execute(request)),
+            command_subject::request_for_path(
+                &state,
+                window,
+                path(CHILD),
+                command::call::Source::Pointer
+            )
+            .filter(|request| command_subject::can_execute_request(&state, &registry, request)),
             None
         );
     }
@@ -3327,9 +3262,9 @@ mod tests {
     #[test]
     fn menu_opens_only_when_an_item_can_invoke_after_resolution() {
         let window = window::Id::new(1);
-        let menu = menu::Menu::new("File").key(FILE).section(
-            menu::Section::new().item(menu::Item::text::<crate::text::command::SelectAll>()),
-        );
+        let menu = menu::Menu::new("File")
+            .key(FILE)
+            .section(menu::Section::new().item(menu::Item::key(CLICK)));
         let mut registry = command::Registry::new();
         let mut state = state_with_composition(
             single_box(CHILD),
@@ -3337,32 +3272,32 @@ mod tests {
             HashMap::new(),
             HashMap::new(),
             HashMap::new(),
-            HashMap::from([(
-                path(CHILD),
-                vec![command::Key::of::<crate::text::command::SelectAll>()],
-            )]),
+            HashMap::from([(path(CHILD), vec![CLICK])]),
             HashMap::new(),
             Vec::new(),
         );
-        state.command_subject = Some(command::call::Scope::Path(path(CHILD)));
+        state.command.subject = Some(command::call::Scope::Path(path(CHILD)));
 
-        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        registry.register(command::definition::Definition::for_command::<
+            Click,
+            command::TestTarget,
+        >());
         registry.set_state_key(
-            command::Key::of::<crate::text::command::SelectAll>(),
+            CLICK,
             command::call::Context::window(window),
             command::State::unavailable(),
         );
 
-        assert!(!state.toggle_menu(FILE, &registry, window, command::call::Source::Pointer));
+        assert!(!state.toggle_menu(FILE, &mut registry, window, command::call::Source::Pointer));
         assert_eq!(state.open_menu, None);
 
         registry.set_state_key(
-            command::Key::of::<crate::text::command::SelectAll>(),
+            CLICK,
             command::call::Context::path(window, path(CHILD)),
             command::State::available(),
         );
 
-        assert!(state.toggle_menu(FILE, &registry, window, command::call::Source::Pointer));
+        assert!(state.toggle_menu(FILE, &mut registry, window, command::call::Source::Pointer));
         assert_eq!(state.open_menu, Some(FILE));
     }
 
@@ -3393,13 +3328,13 @@ mod tests {
             command::TestTarget,
         >());
 
-        assert!(state.toggle_menu(FILE, &registry, window, command::call::Source::Pointer));
+        assert!(state.toggle_menu(FILE, &mut registry, window, command::call::Source::Pointer));
         assert_eq!(state.open_menu, Some(FILE));
         state.open_submenu = Some(PANELS);
-        assert!(state.toggle_menu(edit, &registry, window, command::call::Source::Pointer));
+        assert!(state.toggle_menu(edit, &mut registry, window, command::call::Source::Pointer));
         assert_eq!(state.open_menu, Some(edit));
         assert_eq!(state.open_submenu, None);
-        assert!(state.toggle_menu(edit, &registry, window, command::call::Source::Pointer));
+        assert!(state.toggle_menu(edit, &mut registry, window, command::call::Source::Pointer));
         assert_eq!(state.open_menu, None);
     }
 
@@ -3426,9 +3361,19 @@ mod tests {
             command::TestTarget,
         >());
 
-        assert!(!state.open_submenu(PANELS, &registry, window, command::call::Source::Pointer));
+        assert!(!state.open_submenu(
+            PANELS,
+            &mut registry,
+            window,
+            command::call::Source::Pointer
+        ));
         state.open_menu = Some(FILE);
-        assert!(state.open_submenu(PANELS, &registry, window, command::call::Source::Pointer));
+        assert!(state.open_submenu(
+            PANELS,
+            &mut registry,
+            window,
+            command::call::Source::Pointer
+        ));
         assert_eq!(state.open_submenu, Some(PANELS));
     }
 
@@ -3513,8 +3458,13 @@ mod tests {
         registry.set_running_key(CLICK, context, true);
 
         assert_eq!(
-            command_request(&state, window, path(CHILD), command::call::Source::Pointer)
-                .filter(|request| registry.can_execute(request)),
+            command_subject::request_for_path(
+                &state,
+                window,
+                path(CHILD),
+                command::call::Source::Pointer
+            )
+            .filter(|request| command_subject::can_execute_request(&state, &registry, request)),
             None
         );
     }
@@ -3532,7 +3482,7 @@ mod tests {
             HashMap::from([(path(OUTSIDE), ui::Interactivity::CONTROL)]),
             Vec::new(),
         );
-        state.command_subject = Some(command::call::Scope::Path(path(CHILD)));
+        state.command.subject = Some(command::call::Scope::Path(path(CHILD)));
         state.focus = FocusState::focused(Focus::new(
             path(ROOT),
             ui::focus::Reason::Keyboard,
@@ -3579,7 +3529,7 @@ mod tests {
             HashMap::from([(path(OUTSIDE), ui::Interactivity::CONTROL)]),
             Vec::new(),
         );
-        state.command_subject = Some(command::call::Scope::Path(path(CHILD)));
+        state.command.subject = Some(command::call::Scope::Path(path(CHILD)));
 
         assert!(state.set_focus(
             path(OUTSIDE),
@@ -3605,7 +3555,7 @@ mod tests {
             HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
             Vec::new(),
         );
-        state.command_subject = Some(command::call::Scope::Path(path(ROOT)));
+        state.command.subject = Some(command::call::Scope::Path(path(ROOT)));
 
         assert!(state.set_focus(
             path(CHILD),
@@ -3662,7 +3612,7 @@ mod tests {
             ui::focus::Visibility::Visible,
         ));
 
-        assert_eq!(state.command_subject, None);
+        assert_eq!(state.command.subject, None);
         assert!(state.set_focus(
             path(CHILD),
             ui::focus::Reason::Keyboard,
@@ -3740,10 +3690,10 @@ mod tests {
             HashMap::from([(path(ROOT), ui::Interactivity::CONTROL)]),
             Vec::new(),
         );
-        state.command_subject = Some(command::call::Scope::Path(path(CHILD)));
+        state.command.subject = Some(command::call::Scope::Path(path(CHILD)));
 
         assert!(state.clear_stale_command_subject());
-        assert_eq!(state.command_subject, None);
+        assert_eq!(state.command.subject, None);
         assert_eq!(
             state.command_context(window),
             command::call::Context::window(window)
@@ -3757,16 +3707,21 @@ mod tests {
             single_box(ROOT),
             HashMap::new(),
             HashMap::from([(path(ROOT), CLICK)]),
-            HashMap::from([(path(ROOT), ui::CommandSubject::Current)]),
+            HashMap::from([(path(ROOT), ui::ActionSubject::Current)]),
             HashMap::new(),
             HashMap::new(),
             HashMap::new(),
             Vec::new(),
         );
-        state.command_subject = Some(command::call::Scope::Path(path(CHILD)));
+        state.command.subject = Some(command::call::Scope::Path(path(CHILD)));
 
-        let request = command_request(&state, window, path(ROOT), command::call::Source::Pointer)
-            .expect("command-subject command should produce request");
+        let request = command_subject::request_for_path(
+            &state,
+            window,
+            path(ROOT),
+            command::call::Source::Pointer,
+        )
+        .expect("command-subject command should produce request");
 
         assert_eq!(request.origin(), Some(&path(ROOT)));
         assert_eq!(request.args(), &command::args::Raw::None);
@@ -3783,15 +3738,20 @@ mod tests {
             single_box(ROOT),
             HashMap::new(),
             HashMap::from([(path(ROOT), CLICK)]),
-            HashMap::from([(path(ROOT), ui::CommandSubject::Current)]),
+            HashMap::from([(path(ROOT), ui::ActionSubject::Current)]),
             HashMap::new(),
             HashMap::new(),
             HashMap::new(),
             Vec::new(),
         );
 
-        let request = command_request(&state, window, path(ROOT), command::call::Source::Pointer)
-            .expect("command-subject command should produce request");
+        let request = command_subject::request_for_path(
+            &state,
+            window,
+            path(ROOT),
+            command::call::Source::Pointer,
+        )
+        .expect("command-subject command should produce request");
 
         assert_eq!(request.context(), &command::call::Context::window(window));
     }
@@ -3803,16 +3763,21 @@ mod tests {
             single_box(ROOT),
             HashMap::new(),
             HashMap::from([(path(ROOT), CLICK)]),
-            HashMap::from([(path(ROOT), ui::CommandSubject::Window)]),
+            HashMap::from([(path(ROOT), ui::ActionSubject::Window)]),
             HashMap::new(),
             HashMap::new(),
             HashMap::new(),
             Vec::new(),
         );
-        state.command_subject = Some(command::call::Scope::Path(path(CHILD)));
+        state.command.subject = Some(command::call::Scope::Path(path(CHILD)));
 
-        let request = command_request(&state, window, path(ROOT), command::call::Source::Pointer)
-            .expect("window-subject command should produce request");
+        let request = command_subject::request_for_path(
+            &state,
+            window,
+            path(ROOT),
+            command::call::Source::Pointer,
+        )
+        .expect("window-subject command should produce request");
 
         assert_eq!(request.origin(), Some(&path(ROOT)));
         assert_eq!(request.context(), &command::call::Context::window(window));
@@ -3828,18 +3793,24 @@ mod tests {
             single_box(ROOT),
             HashMap::new(),
             HashMap::from([(origin.clone(), CLICK)]),
-            HashMap::from([(origin.clone(), ui::CommandSubject::Captured)]),
+            HashMap::from([(origin.clone(), ui::ActionSubject::Captured)]),
             HashMap::new(),
             HashMap::new(),
             HashMap::new(),
             Vec::new(),
         );
         state
-            .command_scope_captures
+            .command
+            .scope_captures
             .insert(scope, command::call::Context::path(window, subject.clone()));
 
-        let request = command_request(&state, window, origin, command::call::Source::Pointer)
-            .expect("captured-target command should produce request");
+        let request = command_subject::request_for_path(
+            &state,
+            window,
+            origin,
+            command::call::Source::Pointer,
+        )
+        .expect("captured-target command should produce request");
 
         assert_eq!(
             request.context(),
@@ -3856,7 +3827,7 @@ mod tests {
             single_box(ROOT),
             HashMap::new(),
             HashMap::from([(button.clone(), CLICK)]),
-            HashMap::from([(button.clone(), ui::CommandSubject::Current)]),
+            HashMap::from([(button.clone(), ui::ActionSubject::Current)]),
             HashMap::new(),
             HashMap::from([(local.clone(), vec![CLICK])]),
             HashMap::from([(local.clone(), ui::Interactivity::CONTROL)]),
@@ -3868,8 +3839,13 @@ mod tests {
             ui::focus::Reason::Keyboard,
             ui::focus::Visibility::Visible
         ));
-        let request = command_request(&state, window, button, command::call::Source::Pointer)
-            .expect("command-subject command should produce request");
+        let request = command_subject::request_for_path(
+            &state,
+            window,
+            button,
+            command::call::Source::Pointer,
+        )
+        .expect("command-subject command should produce request");
 
         assert_eq!(
             request.context(),
@@ -3898,16 +3874,16 @@ mod tests {
             command::call::Source::Shortcut,
             command::call::Context::path(window, outside),
         );
-        let registry = command::Registry::new();
-
         assert_eq!(
-            state.resolve_request(&registry, request).context(),
+            command_subject::resolve_request(&state, request)
+                .expect("nearest responder should resolve")
+                .context(),
             &command::call::Context::path(window, child)
         );
     }
 
     #[test]
-    fn responder_resolution_falls_back_to_window_without_handler() {
+    fn responder_resolution_fails_without_handler() {
         let window = window::Id::new(1);
         let state = state_with_composition(
             single_box(ROOT),
@@ -3927,12 +3903,7 @@ mod tests {
             command::call::Source::Shortcut,
             command::call::Context::path(window, path(ROOT)),
         );
-        let registry = command::Registry::new();
-
-        assert_eq!(
-            state.resolve_request(&registry, request).context(),
-            &command::call::Context::window(window)
-        );
+        assert!(command_subject::resolve_request(&state, request).is_none());
     }
 
     #[test]
@@ -3942,7 +3913,7 @@ mod tests {
             single_box(CHILD),
             HashMap::new(),
             HashMap::from([(path(CHILD), CLICK)]),
-            HashMap::from([(path(CHILD), ui::CommandSubject::Origin)]),
+            HashMap::from([(path(CHILD), ui::ActionSubject::Origin)]),
             HashMap::new(),
             HashMap::new(),
             HashMap::new(),
@@ -3954,10 +3925,10 @@ mod tests {
             command::call::Context::path(window, path(CHILD)),
         )
         .with_origin(path(CHILD));
-        let registry = command::Registry::new();
-
         assert_eq!(
-            state.resolve_request(&registry, request).context(),
+            command_subject::resolve_request(&state, request)
+                .expect("origin-bound command should resolve")
+                .context(),
             &command::call::Context::path(window, path(CHILD))
         );
     }
@@ -3991,7 +3962,8 @@ mod tests {
             command::call::Context::path(window, path(CHILD)),
             command::State::unavailable(),
         );
-        let request = state.resolve_request(&registry, request);
+        let request = command_subject::resolve_request(&state, request)
+            .expect("text responder should resolve");
 
         assert!(!registry.can_execute(&request));
     }

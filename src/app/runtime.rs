@@ -11,6 +11,7 @@ use winit::{
 
 use crate::animation;
 use crate::app::clipboard::SystemClipboard;
+use crate::app::command as command_layer;
 use crate::app::context;
 use crate::app::frame;
 use crate::app::input;
@@ -146,11 +147,12 @@ impl<A: Application> Runtime<A> {
 
     fn run_command(&mut self, event_loop: &ActiveEventLoop, request: command::call::Raw) {
         let window = request.context().window_id();
-        let request = self
-            .window_states
-            .get(&window)
-            .map(|state| state.resolve_request(&self.commands, request.clone()))
-            .unwrap_or(request);
+        let Some(request) = self.window_states.get(&window).and_then(|state| {
+            command_layer::resolve_executable_request(state, &self.commands, request.clone())
+        }) else {
+            log::debug!("command request rejected before dispatch: unresolved command target");
+            return;
+        };
 
         match self.commands.prepare_call(request.clone()) {
             Ok(call) => {
@@ -198,7 +200,13 @@ impl<A: Application> Runtime<A> {
         );
 
         self.app.command_targets(&mut dispatch);
-        dispatch.finish()
+        let (handled, remaining, effects) = dispatch.finish();
+
+        for effect in effects {
+            self.enqueue_command_effect(event_loop, effect.command, effect.context, effect.effect);
+        }
+
+        (handled, remaining)
     }
 
     fn complete_command_task(
@@ -219,7 +227,7 @@ impl<A: Application> Runtime<A> {
             Ok(response) => {
                 let (_, effects) = response.into_parts();
                 for effect in effects {
-                    self.enqueue_command_effect(event_loop, context.clone(), effect);
+                    self.enqueue_command_effect(event_loop, command, context.clone(), effect);
                 }
             }
             Err(error) => {
@@ -234,6 +242,7 @@ impl<A: Application> Runtime<A> {
     fn enqueue_command_effect(
         &mut self,
         event_loop: &ActiveEventLoop,
+        command: command::Key,
         context: command::call::Context,
         effect: command::Effect,
     ) {
@@ -256,15 +265,20 @@ impl<A: Application> Runtime<A> {
             },
             command::Effect::Batch(effects) => {
                 for effect in effects {
-                    self.enqueue_command_effect(event_loop, context.clone(), effect);
+                    self.enqueue_command_effect(event_loop, command, context.clone(), effect);
                 }
             }
             command::Effect::Call(call) => {
                 self.run_any_call(event_loop, call.with_fallback_window(context.window_id()));
             }
             command::Effect::Task(task) => {
+                if self
+                    .commands
+                    .set_running_key(command, context.clone(), true)
+                {
+                    self.invalidate_full(context.window_id());
+                }
                 let sender = self.sender.clone();
-                let command = command::Key::unknown();
                 let task_context = context.clone();
                 std::thread::spawn(move || {
                     use crate::app::MailboxSender;
@@ -520,26 +534,7 @@ impl<A: Application> Runtime<A> {
 
             self.app.view(&mut cx, window, &mut tree);
         }
-        {
-            let mut states = context::command_states(
-                context::Parts {
-                    rendering: &mut self.rendering,
-                    windows: &mut self.windows,
-                    window_states: &mut self.window_states,
-                    commands: &mut self.commands,
-                    text_editor: &mut self.text_editor,
-                    text_engine: &mut self.text_engine,
-                    clipboard: &mut self.clipboard,
-                    mailbox: &mut self.mailbox,
-                    sender: self.sender.clone(),
-                    redraw_on_command_state_change: false,
-                    event_loop,
-                },
-                window,
-            );
-
-            self.app.command_states(&mut states);
-        }
+        self.project_command_states(event_loop, window);
         self.text_editor.reset_diagnostics();
         self.text_engine.reset_diagnostics();
 
@@ -551,16 +546,51 @@ impl<A: Application> Runtime<A> {
             };
         };
         let logical_area = native_window.canvas().logical_area();
-        let state = self.window_states.entry(window).or_default();
-        view::compose_with_timings(
+        let mut paint_result = view::compose_with_timings(
             window,
             &tree,
-            state,
+            self.window_states.entry(window).or_default(),
             &mut self.commands,
             &mut self.text_engine,
             logical_area,
             frame,
-        )
+        );
+
+        if self.project_command_states(event_loop, window) {
+            paint_result = view::compose_with_timings(
+                window,
+                &tree,
+                self.window_states.entry(window).or_default(),
+                &mut self.commands,
+                &mut self.text_engine,
+                logical_area,
+                frame,
+            );
+        }
+
+        paint_result
+    }
+
+    fn project_command_states(&mut self, event_loop: &ActiveEventLoop, window: window::Id) -> bool {
+        let mut dispatch = context::command_projection(
+            context::Parts {
+                rendering: &mut self.rendering,
+                windows: &mut self.windows,
+                window_states: &mut self.window_states,
+                commands: &mut self.commands,
+                text_editor: &mut self.text_editor,
+                text_engine: &mut self.text_engine,
+                clipboard: &mut self.clipboard,
+                mailbox: &mut self.mailbox,
+                sender: self.sender.clone(),
+                redraw_on_command_state_change: false,
+                event_loop,
+            },
+            window,
+        );
+
+        self.app.command_targets(&mut dispatch);
+        dispatch.finish_projection()
     }
 
     fn advance_text_selection_drag_autoscroll(
@@ -870,14 +900,14 @@ impl<A: Application> Runtime<A> {
         };
 
         match request.intent {
-            ui::Intent::Command(_) => {}
+            ui::Intent::Action(_) => {}
             ui::Intent::OpenMenu(menu) => {
-                if state.toggle_menu(menu, &self.commands, window, request.source) {
+                if state.toggle_menu(menu, &mut self.commands, window, request.source) {
                     self.invalidate_full(window);
                 }
             }
             ui::Intent::OpenSubmenu(menu) => {
-                if state.open_submenu(menu, &self.commands, window, request.source) {
+                if state.open_submenu(menu, &mut self.commands, window, request.source) {
                     self.invalidate_full(window);
                 }
             }

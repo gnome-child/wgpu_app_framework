@@ -3,7 +3,9 @@ use std::time::Duration;
 use wgpu_l3::{
     Event, Icon, Task, Theme, app, command,
     geometry::{Rect, area, point},
-    icon, layout, paint, text, ui, widget, window,
+    icon, paint, text,
+    ui::{self, layout},
+    widget, window,
 };
 
 wgpu_l3::command!(Ping {
@@ -213,10 +215,6 @@ impl app::Application for App {
         commands.target(self);
     }
 
-    fn command_states(&mut self, states: &mut app::CommandStates<'_, Self::Event>) {
-        states.target(self);
-    }
-
     fn view(
         &mut self,
         cx: &mut app::Context<'_, Self::Event>,
@@ -253,7 +251,7 @@ impl app::Application for App {
 
         // TODO(framework): Popup placement is still authored as an absolute rect.
         // A later popup API should derive this from anchors and viewport constraints.
-        tree.push_popup(widget::Popup::new(
+        tree.push_popup(ui::Popup::new(
             Rect::new(point::logical(570.0, 92.0), area::logical(292.0, 186.0)),
             popup_panel(&theme, &model),
         ));
@@ -390,7 +388,9 @@ fn command_section(theme: &Theme, model: &ViewModel) -> ui::Node {
                 .with_focusable(true),
         )
         .with_responder_binding(
-            command::binding::Binding::of::<SelectTarget>().available(model.workspace_ready),
+            command::binding::Binding::of::<SelectTarget>()
+                .available(model.workspace_ready)
+                .action(),
         )
         .with_label(document(
             format!("Document responder | {}", model.last_select),
@@ -410,12 +410,12 @@ fn command_section(theme: &Theme, model: &ViewModel) -> ui::Node {
                 .with_gap(8.0)
                 .with_child(
                     widget::labeled_button_with_theme::<SelectTarget, App>("Select current", theme)
-                        .with_command_subject(ui::CommandSubject::Current)
+                        .with_action_subject(ui::ActionSubject::Current)
                         .with_size(layout::Size::Fill, layout::Size::Fill),
                 )
                 .with_child(
                     widget::labeled_button_with_theme::<SelectTarget, App>("Window target", theme)
-                        .with_command_subject(ui::CommandSubject::Window)
+                        .with_action_subject(ui::ActionSubject::Window)
                         .with_size(layout::Size::Fill, layout::Size::Fill),
                 ),
         )
@@ -601,7 +601,9 @@ fn popup_panel(theme: &Theme, model: &ViewModel) -> ui::Node {
                 .with_focusable(true),
         )
         .with_responder_binding(
-            command::binding::Binding::of::<SelectTarget>().available(model.workspace_ready),
+            command::binding::Binding::of::<SelectTarget>()
+                .available(model.workspace_ready)
+                .action(),
         )
         .with_label(document(
             "Local responder",
@@ -612,7 +614,7 @@ fn popup_panel(theme: &Theme, model: &ViewModel) -> ui::Node {
 
     widget::floating_panel_with_theme(theme)
         .with_size(layout::Size::Fill, layout::Size::Fit)
-        .with_command_scope()
+        .with_action_scope()
         .with_child(info_panel(
             format!("captured: {}", model.capture_name),
             theme,
@@ -620,7 +622,7 @@ fn popup_panel(theme: &Theme, model: &ViewModel) -> ui::Node {
         .with_child(local_field)
         .with_child(
             widget::labeled_button_with_theme::<SelectTarget, App>("Select current", theme)
-                .with_command_subject(ui::CommandSubject::Current)
+                .with_action_subject(ui::ActionSubject::Current)
                 .with_size(
                     layout::Size::Fill,
                     layout::Size::Fixed(theme.density().control_height()),
@@ -628,7 +630,7 @@ fn popup_panel(theme: &Theme, model: &ViewModel) -> ui::Node {
         )
         .with_child(
             widget::labeled_button_with_theme::<SelectTarget, App>("Select captured", theme)
-                .with_command_subject(ui::CommandSubject::Captured)
+                .with_action_subject(ui::ActionSubject::Captured)
                 .with_size(
                     layout::Size::Fill,
                     layout::Size::Fixed(theme.density().control_height()),

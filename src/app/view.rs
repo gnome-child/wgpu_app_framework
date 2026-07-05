@@ -2,7 +2,7 @@ use crate::animation;
 use std::ops::Range;
 use std::time::Instant;
 
-use crate::app::{frame, state::WindowState, text_input};
+use crate::app::{command as command_layer, frame, state::WindowState, text_input};
 use crate::geometry::{Rect, area};
 use crate::{command, paint, text, ui, widget, window};
 
@@ -65,6 +65,81 @@ pub fn compose(
     .scene
 }
 
+pub(crate) fn tree_with_runtime_popups(
+    tree: &ui::Tree,
+    area: area::Logical,
+    menu_presenter: &dyn widget::Presenter,
+    floating_surfaces: &[ui::floating::Surface],
+    text_engine: &mut text::layout::Engine,
+) -> (ui::Tree, Option<widget::menu::Id>, Option<widget::menu::Id>) {
+    let mut presentation_tree = tree.clone();
+    let menus = presentation_tree.menus();
+    let open_menu_surface = floating_surfaces.iter().find(|surface| {
+        matches!(surface.kind(), ui::floating::Kind::Menu(menu) if menus.contains_key(menu))
+    });
+    let open_menu = open_menu_surface.and_then(|surface| surface.menu_id());
+    let open_submenu_surface = floating_surfaces.iter().rev().find(|surface| {
+        matches!(
+            surface.kind(),
+            ui::floating::Kind::Submenu(menu) if open_menu.is_some() && menus.contains_key(menu)
+        )
+    });
+    let open_submenu = open_submenu_surface.and_then(|surface| surface.menu_id());
+    let context_menu = floating_surfaces
+        .iter()
+        .rev()
+        .find(|surface| matches!(surface.kind(), ui::floating::Kind::ContextMenu { .. }));
+
+    let mut menu_popup_inserted = false;
+    if let Some(surface) = open_menu_surface
+        && let Some(open_menu) = open_menu
+        && let Some(menu) = menus.get(&open_menu)
+        && let Some(base_layout) = presentation_tree.layout(area, text_engine)
+        && let Some(popup) = widget::menu_popup(
+            &presentation_tree,
+            &base_layout,
+            surface,
+            menu,
+            menu_presenter,
+            text_engine,
+        )
+    {
+        presentation_tree.push_popup(popup);
+        menu_popup_inserted = true;
+    }
+
+    if menu_popup_inserted
+        && let Some(surface) = open_submenu_surface
+        && let Some(open_submenu) = open_submenu
+        && let Some(menu) = menus.get(&open_submenu)
+        && let Some(menu_layout) = presentation_tree.layout(area, text_engine)
+        && let Some(popup) = widget::submenu_popup(
+            &presentation_tree,
+            &menu_layout,
+            surface,
+            menu,
+            menu_presenter,
+            text_engine,
+        )
+    {
+        presentation_tree.push_popup(popup);
+    }
+
+    if let Some(surface) = context_menu
+        && let Some(base_layout) = presentation_tree.layout(area, text_engine)
+        && let Some(popup) = widget::text_context_menu_popup(
+            surface,
+            menu_presenter,
+            text_engine,
+            base_layout.rect(),
+        )
+    {
+        presentation_tree.push_popup(popup);
+    }
+
+    (presentation_tree, open_menu, open_submenu)
+}
+
 pub(crate) fn compose_with_timings(
     window: window::Id,
     tree: &ui::Tree,
@@ -74,87 +149,175 @@ pub(crate) fn compose_with_timings(
     logical_area: area::Logical,
     frame: animation::Frame,
 ) -> PaintResult {
-    let mut scene = paint::Scene::new();
     let mut timings = frame::StageTimings::default();
     text_input::sync_session(state);
 
     let compose_start = Instant::now();
-    if let Some(composition) = tree.compose(
-        window,
-        logical_area,
-        commands,
-        state.floating.surfaces(),
-        text_engine,
-    ) {
-        timings.compose = compose_start.elapsed();
-        state.open_menu = composition.open_menu();
-        state.open_submenu = composition.open_submenu();
-        state.composition = Some(composition);
-        state.sync_menu_focus_scopes();
-        state.clear_stale_focus();
-        state.clear_stale_command_subject();
-        text_input::sync_session(state);
-        state.update_command_scope_captures(window);
-        state.sync_text_field_states(text_engine);
+    let composition =
+        compose_tree_with_runtime_state(window, tree, state, commands, text_engine, logical_area);
+    timings.compose = compose_start.elapsed();
 
-        let commit_start = Instant::now();
-        state.commit_pending_visual_scroll_offsets(frame);
-        state.reconcile_async_scroll_targets(text_engine, frame.now());
-        timings.scroll_commit = commit_start.elapsed();
-
-        text_input::publish_command_states(state, commands, window);
-        state.sync_menu_title_states(commands, window);
-        state.clear_stale_focus();
-        state.focus_first_floating_row(commands, window);
-
-        let sync_start = Instant::now();
-        state.sync_scroll_projections(text_engine, frame.now());
-        timings.scroll_projection_sync = sync_start.elapsed();
-
-        state.refine_idle_scroll_models(text_engine, frame.now());
-
-        let paint_start = Instant::now();
-        let scroll_ranges = paint_current_composition(
-            window,
-            state,
-            commands,
-            text_engine,
-            frame,
-            &mut scene,
-            true,
-        );
-        timings.paint = paint_start.elapsed();
-        let mut layer_updates = state.retain_paint(scene.clone(), scroll_ranges);
-        layer_updates.extend(refresh_retained_scroll_layers_after_full_paint(
-            window,
-            state,
-            commands,
-            text_engine,
-            frame,
-        ));
+    let Some(composition) = composition else {
+        clear_after_empty_composition(state, text_engine);
         return PaintResult {
-            scene,
+            scene: paint::Scene::new(),
             timings,
-            layer_updates,
+            layer_updates: Vec::new(),
         };
-    } else {
-        timings.compose = compose_start.elapsed();
-        state.composition = None;
-        state.clear_paint_cache();
-        text_input::sync_session(state);
-        state.sync_text_field_states(text_engine);
-        state.clear_focus();
-        state.clear_command_subject();
-        state.command_scope_captures.clear();
-        state.scroll.clear();
-        state.clear_async_scroll_targets();
-    }
+    };
+
+    install_composition(state, composition);
+    reconcile_composed_state(window, state, commands, text_engine, frame, &mut timings);
+    let (scene, layer_updates) = paint_full_frame(window, state, text_engine, frame, &mut timings);
 
     PaintResult {
         scene,
         timings,
-        layer_updates: Vec::new(),
+        layer_updates,
     }
+}
+
+fn compose_tree_with_runtime_state(
+    window: window::Id,
+    tree: &ui::Tree,
+    state: &WindowState,
+    commands: &mut command::Registry,
+    text_engine: &mut text::layout::Engine,
+    logical_area: area::Logical,
+) -> Option<ui::Composition> {
+    let mut layer = command_layer::Layer::new(commands, window);
+    layer.publish_tree_responder_binding_states(tree);
+    let (presentation_tree, open_menu, open_submenu) =
+        build_runtime_popup_presentation(tree, state, &layer, logical_area, text_engine);
+
+    presentation_tree.compose_with_open_menus(logical_area, open_menu, open_submenu, text_engine)
+}
+
+fn build_runtime_popup_presentation(
+    tree: &ui::Tree,
+    state: &WindowState,
+    layer: &command_layer::Layer<'_>,
+    logical_area: area::Logical,
+    text_engine: &mut text::layout::Engine,
+) -> (ui::Tree, Option<widget::menu::Id>, Option<widget::menu::Id>) {
+    let base_composition = tree.compose(logical_area, text_engine);
+    let menu_presenter = base_composition
+        .as_ref()
+        .map(|composition| layer.menu_presenter_for_composition(state, composition))
+        .unwrap_or_else(|| layer.menu_presenter(state));
+
+    tree_with_runtime_popups(
+        tree,
+        logical_area,
+        &menu_presenter,
+        state.floating.surfaces(),
+        text_engine,
+    )
+}
+
+fn install_composition(state: &mut WindowState, composition: ui::Composition) {
+    state.open_menu = composition.open_menu();
+    state.open_submenu = composition.open_submenu();
+    state.composition = Some(composition);
+}
+
+fn reconcile_composed_state(
+    window: window::Id,
+    state: &mut WindowState,
+    commands: &mut command::Registry,
+    text_engine: &mut text::layout::Engine,
+    frame: animation::Frame,
+    timings: &mut frame::StageTimings,
+) {
+    state.sync_menu_focus_scopes();
+    state.clear_stale_focus();
+    state.clear_stale_command_subject();
+    text_input::sync_session(state);
+    state.update_command_scope_captures(window);
+    publish_composition_bindings(window, state, commands);
+    state.sync_text_field_states(text_engine);
+
+    let commit_start = Instant::now();
+    state.commit_pending_visual_scroll_offsets(frame);
+    state.reconcile_async_scroll_targets(text_engine, frame.now());
+    timings.scroll_commit = commit_start.elapsed();
+
+    publish_command_projection(window, state, commands);
+    state.clear_stale_focus();
+    state.focus_first_floating_row(commands, window);
+    sync_command_visual_states(window, state, commands);
+
+    let sync_start = Instant::now();
+    state.sync_scroll_projections(text_engine, frame.now());
+    timings.scroll_projection_sync = sync_start.elapsed();
+
+    state.refine_idle_scroll_models(text_engine, frame.now());
+}
+
+fn publish_composition_bindings(
+    window: window::Id,
+    state: &WindowState,
+    commands: &mut command::Registry,
+) {
+    let Some(composition) = state.composition.as_ref() else {
+        return;
+    };
+
+    let mut layer = command_layer::Layer::new(commands, window);
+    layer.publish_composition_responder_binding_states(composition);
+}
+
+fn publish_command_projection(
+    window: window::Id,
+    state: &mut WindowState,
+    commands: &mut command::Registry,
+) {
+    text_input::publish_command_states(state, commands, window);
+    sync_command_visual_states(window, state, commands);
+}
+
+fn sync_command_visual_states(
+    window: window::Id,
+    state: &mut WindowState,
+    commands: &mut command::Registry,
+) {
+    let layer = command_layer::Layer::new(commands, window);
+    layer.sync_visual_states(state);
+}
+
+fn paint_full_frame(
+    window: window::Id,
+    state: &mut WindowState,
+    text_engine: &mut text::layout::Engine,
+    frame: animation::Frame,
+    timings: &mut frame::StageTimings,
+) -> (paint::Scene, Vec<paint::LayerUpdate>) {
+    let mut scene = paint::Scene::new();
+    let paint_start = Instant::now();
+    let scroll_ranges =
+        paint_current_composition(window, state, text_engine, frame, &mut scene, true);
+    timings.paint = paint_start.elapsed();
+    let mut layer_updates = state.retain_paint(scene.clone(), scroll_ranges);
+    layer_updates.extend(refresh_retained_scroll_layers_after_full_paint(
+        window,
+        state,
+        text_engine,
+        frame,
+    ));
+
+    (scene, layer_updates)
+}
+
+fn clear_after_empty_composition(state: &mut WindowState, text_engine: &mut text::layout::Engine) {
+    state.composition = None;
+    state.clear_paint_cache();
+    text_input::sync_session(state);
+    state.sync_text_field_states(text_engine);
+    state.clear_focus();
+    state.clear_command_subject();
+    state.command.scope_captures.clear();
+    state.scroll.clear();
+    state.clear_async_scroll_targets();
 }
 
 pub(crate) fn paint_scroll_only(
@@ -168,8 +331,9 @@ pub(crate) fn paint_scroll_only(
     if state.scroll.is_empty() {
         return None;
     }
+    sync_command_visual_states(window, state, commands);
 
-    if let Some(result) = paint_scroll_only_retained(window, state, commands, text_engine, frame) {
+    if let Some(result) = paint_scroll_only_retained(window, state, text_engine, frame) {
         return Some(result);
     }
 
@@ -185,15 +349,7 @@ pub(crate) fn paint_scroll_only(
     timings.scroll_projection_sync = sync_start.elapsed();
 
     let paint_start = Instant::now();
-    paint_current_composition(
-        window,
-        state,
-        commands,
-        text_engine,
-        frame,
-        &mut scene,
-        false,
-    );
+    paint_current_composition(window, state, text_engine, frame, &mut scene, false);
     timings.paint = paint_start.elapsed();
 
     Some(PaintResult {
@@ -204,9 +360,8 @@ pub(crate) fn paint_scroll_only(
 }
 
 fn paint_scroll_only_retained(
-    window: window::Id,
+    _window: window::Id,
     state: &mut WindowState,
-    commands: &command::Registry,
     text_engine: &mut text::layout::Engine,
     frame: animation::Frame,
 ) -> Option<PaintResult> {
@@ -223,7 +378,7 @@ fn paint_scroll_only_retained(
     }
 
     let paint_start = Instant::now();
-    let interaction = current_interaction(window, state);
+    let interaction = current_interaction(state);
     let mut replacements = Vec::new();
     let mut layer_updates = Vec::new();
     let mut skipped_projection_syncs = 0usize;
@@ -267,9 +422,7 @@ fn paint_scroll_only_retained(
         if let Some((metrics, tiles)) = can_rebuild_layer
             .then(|| {
                 paint_scroll_layer_update_for_target(
-                    window,
                     state,
-                    commands,
                     text_engine,
                     frame,
                     &target,
@@ -304,8 +457,6 @@ fn paint_scroll_only_retained(
             let composition = state.composition.as_ref()?;
             composition.paint_scroll_target_recording_at(
                 &target,
-                commands,
-                window,
                 interaction.clone(),
                 state.text.states(),
                 text_engine,
@@ -404,9 +555,8 @@ fn paint_scroll_only_retained(
 }
 
 fn refresh_retained_scroll_layers_after_full_paint(
-    window: window::Id,
+    _window: window::Id,
     state: &mut WindowState,
-    commands: &command::Registry,
     text_engine: &mut text::layout::Engine,
     frame: animation::Frame,
 ) -> Vec<paint::LayerUpdate> {
@@ -418,7 +568,7 @@ fn refresh_retained_scroll_layers_after_full_paint(
         .into_iter()
         .filter(|target| cache.scroll_layer_eligible(target))
         .collect::<Vec<_>>();
-    let interaction = current_interaction(window, state);
+    let interaction = current_interaction(state);
     let mut updates = Vec::new();
 
     for target in targets {
@@ -426,9 +576,7 @@ fn refresh_retained_scroll_layers_after_full_paint(
             continue;
         };
         let Some((metrics, tiles)) = paint_scroll_layer_update_for_target(
-            window,
             state,
-            commands,
             text_engine,
             frame,
             &target,
@@ -502,9 +650,7 @@ fn try_layer_retained_scroll_target(
 }
 
 fn paint_scroll_layer_update_for_target(
-    window: window::Id,
     state: &WindowState,
-    commands: &command::Registry,
     text_engine: &mut text::layout::Engine,
     frame: animation::Frame,
     target: &ui::Path,
@@ -531,8 +677,6 @@ fn paint_scroll_layer_update_for_target(
         let mut scene = paint::Scene::new();
         let records = composition.paint_scroll_target_recording_at(
             target,
-            commands,
-            window,
             interaction.clone(),
             state.text.states(),
             text_engine,
@@ -557,23 +701,18 @@ fn trace_scroll(args: std::fmt::Arguments<'_>) {
 }
 
 fn paint_current_composition(
-    window: window::Id,
+    _window: window::Id,
     state: &WindowState,
-    commands: &command::Registry,
     text_engine: &mut text::layout::Engine,
     frame: animation::Frame,
     scene: &mut paint::Scene,
     record_scroll_ranges: bool,
 ) -> ui::ScrollPaintRecords {
-    let command_subject = state.command_context(window);
-
-    let interaction = current_interaction(window, state).with_command_subject(command_subject);
+    let interaction = current_interaction(state);
 
     if let Some(composition) = state.composition.as_ref() {
         if record_scroll_ranges {
             return composition.paint_at_recording_scroll_ranges(
-                commands,
-                window,
                 interaction,
                 state.text.states(),
                 text_engine,
@@ -583,8 +722,6 @@ fn paint_current_composition(
             );
         } else {
             composition.paint_at(
-                commands,
-                window,
                 interaction,
                 state.text.states(),
                 text_engine,
@@ -598,7 +735,7 @@ fn paint_current_composition(
     ui::ScrollPaintRecords::default()
 }
 
-fn current_interaction(window: window::Id, state: &WindowState) -> ui::Interaction {
+fn current_interaction(state: &WindowState) -> ui::Interaction {
     ui::Interaction::new(
         state.hovered.clone(),
         state.focused_path(),
@@ -606,8 +743,6 @@ fn current_interaction(window: window::Id, state: &WindowState) -> ui::Interacti
     )
     .with_text_editing_target(text_input::editing_target(state))
     .with_focus_visibility(state.focus_visibility())
-    .with_command_subject(state.command_context(window))
-    .with_command_scope_captures(state.command_scope_captures.clone())
     .with_open_menu(state.open_menu)
     .with_open_submenu(state.open_submenu)
     .with_pointer_position(state.pointer.position())
@@ -622,7 +757,7 @@ mod tests {
     use crate::geometry::{area, point};
     use crate::widget;
     use crate::widget::menu;
-    use crate::{Command, command, layout, paint, text};
+    use crate::{Command, command, paint, text, ui::layout};
 
     use super::*;
 
@@ -861,18 +996,153 @@ mod tests {
         assert!(state.composition.is_some());
         assert_eq!(
             composition
-                .command(&ui::Path::new([ROOT, CHILD]))
-                .map(|route| route.command()),
-            Some(CLICK)
+                .action(&ui::Path::new([ROOT, CHILD]))
+                .map(|route| route.key()),
+            Some(CLICK.action())
         );
         assert_eq!(
-            composition.command_subject(&ui::Path::new([ROOT, CHILD])),
-            ui::CommandSubject::Origin
+            composition.action_subject(&ui::Path::new([ROOT, CHILD])),
+            ui::ActionSubject::Origin
         );
         assert!(composition.responder_map().is_empty());
         assert!(composition.interactivity(&ui::Path::from(ROOT)).is_some());
         assert_eq!(composition.focus_order(), &[ui::Path::new([ROOT, CHILD])]);
         assert_eq!(scene.items().len(), 2);
+    }
+
+    #[test]
+    fn pointer_clicking_menu_title_opens_command_backed_popup() {
+        let window = window::Id::new(1);
+        let mut state = WindowState::default();
+        let mut registry = command::Registry::new();
+        let mut tree = ui::Tree::new();
+
+        registry.register(command::definition::Definition::for_command::<
+            Click,
+            command::TestTarget,
+        >());
+        tree.set_root(
+            widget::panel().key(ROOT).with_child(
+                widget::menu_bar(menu::Bar::new().menu(menu::Menu::new("File").section(
+                    menu::Section::new().item(menu::Item::invokes::<Click, command::TestTarget>()),
+                )))
+                .key(MENU_BAR),
+            ),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(240.0, 120.0),
+        );
+        let title = ui::Path::new([ROOT, MENU_BAR, top_level_menu_title(0)]);
+        let menu_id = match state.intent(&title) {
+            Some(ui::Intent::OpenMenu(menu)) => menu,
+            intent => panic!("menu title should open a menu, got {intent:?}"),
+        };
+        assert!(
+            state
+                .composition
+                .as_ref()
+                .and_then(|composition| composition.menu(menu_id))
+                .is_some()
+        );
+        let title_rect = state
+            .composition
+            .as_ref()
+            .and_then(|composition| composition.layout().find_path(&title))
+            .map(ui::Frame::rect)
+            .expect("menu title should be laid out");
+        let position = point::logical(title_rect.origin.x() + 2.0, title_rect.origin.y() + 2.0);
+        let mut text_engine = text::layout::Engine::new();
+
+        let down = crate::app::input::pointer_pressed(
+            &mut state,
+            window,
+            position,
+            crate::pointer::Button::Primary,
+            &mut text_engine,
+        );
+        assert_eq!(down.request, None);
+        let up = crate::app::input::pointer_released(
+            &registry,
+            &mut state,
+            window,
+            position,
+            crate::pointer::Button::Primary,
+        );
+
+        assert_eq!(
+            up.intent,
+            Some(crate::app::input::IntentRequest {
+                origin: title,
+                intent: ui::Intent::OpenMenu(menu_id),
+                source: command::call::Source::Pointer,
+            })
+        );
+        let intent = up.intent.expect("menu click should produce an intent");
+        assert!(state.toggle_menu(menu_id, &mut registry, window, intent.source));
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(240.0, 120.0),
+        );
+
+        assert!(
+            state
+                .composition
+                .as_ref()
+                .and_then(|composition| {
+                    composition
+                        .layout()
+                        .find_path(&ui::Path::new([ROOT, widget::MENU_POPUP]))
+                })
+                .is_some()
+        );
+
+        let row = ui::Path::new([
+            ROOT,
+            widget::MENU_POPUP,
+            ui::Id::structural("__menu_row", 0),
+        ]);
+        let row_rect = state
+            .composition
+            .as_ref()
+            .and_then(|composition| composition.layout().find_path(&row))
+            .map(ui::Frame::rect)
+            .expect("menu command row should be laid out");
+        let row_position = point::logical(row_rect.origin.x() + 2.0, row_rect.origin.y() + 2.0);
+        let down = crate::app::input::pointer_pressed(
+            &mut state,
+            window,
+            row_position,
+            crate::pointer::Button::Primary,
+            &mut text_engine,
+        );
+        assert_eq!(down.request, None);
+        let up = crate::app::input::pointer_released(
+            &registry,
+            &mut state,
+            window,
+            row_position,
+            crate::pointer::Button::Primary,
+        );
+
+        assert_eq!(
+            up.request,
+            Some(
+                command::call::Raw::from_route(
+                    command::binding::Route::invokes::<Click, command::TestTarget>(),
+                    command::call::Source::Pointer,
+                    command::call::Context::window(window),
+                )
+                .with_origin(row)
+            )
+        );
     }
 
     #[test]
@@ -1247,7 +1517,9 @@ mod tests {
                 ui::focus::Reason::Pointer,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(command::call::Scope::Path(path.clone())),
+            command: crate::app::command::State::with_subject(command::call::Scope::Path(
+                path.clone(),
+            )),
             ..WindowState::default()
         };
         state
@@ -1327,7 +1599,9 @@ mod tests {
                 ui::focus::Reason::Pointer,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(command::call::Scope::Path(path.clone())),
+            command: crate::app::command::State::with_subject(command::call::Scope::Path(
+                path.clone(),
+            )),
             ..WindowState::default()
         };
         state
@@ -1407,7 +1681,9 @@ mod tests {
                 ui::focus::Reason::Pointer,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(command::call::Scope::Path(path.clone())),
+            command: crate::app::command::State::with_subject(command::call::Scope::Path(
+                path.clone(),
+            )),
             ..WindowState::default()
         };
         state
@@ -1459,7 +1735,9 @@ mod tests {
                 ui::focus::Reason::Keyboard,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(command::call::Scope::Path(path.clone())),
+            command: crate::app::command::State::with_subject(command::call::Scope::Path(
+                path.clone(),
+            )),
             ..WindowState::default()
         };
         state
@@ -1801,7 +2079,7 @@ mod tests {
         tree.set_root(
             widget::panel().key(ROOT).with_child(
                 widget::button_key(OTHER, CLICK)
-                    .with_responder_key(CLICK)
+                    .with_responder_key(CLICK.action())
                     .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
             ),
         );
@@ -1821,7 +2099,9 @@ mod tests {
     fn compose_clears_stale_command_subject_after_tree_rebuild() {
         let window = window::Id::new(1);
         let mut state = WindowState {
-            command_subject: Some(command::call::Scope::Path(ui::Path::new([ROOT, CHILD]))),
+            command: crate::app::command::State::with_subject(command::call::Scope::Path(
+                ui::Path::new([ROOT, CHILD]),
+            )),
             ..WindowState::default()
         };
         let mut registry = command::Registry::new();
@@ -1842,7 +2122,7 @@ mod tests {
             area::logical(100.0, 100.0),
         );
 
-        assert_eq!(state.command_subject, None);
+        assert_eq!(state.command.subject, None);
     }
 
     #[test]
@@ -1856,7 +2136,9 @@ mod tests {
             widget::panel().key(ROOT).with_child(
                 ui::Node::leaf()
                     .key(CHILD)
-                    .with_responder::<crate::text::command::SelectAll>()
+                    .with_responder_key(
+                        command::Key::of::<crate::text::command::SelectAll>().action(),
+                    )
                     .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
             ),
         );
@@ -1872,7 +2154,7 @@ mod tests {
 
         assert_eq!(
             composition.responders(&ui::Path::new([ROOT, CHILD])),
-            Some(&[command::Key::of::<crate::text::command::SelectAll>()][..])
+            Some(&[command::Key::of::<crate::text::command::SelectAll>().action()][..])
         );
     }
 
@@ -1894,7 +2176,7 @@ mod tests {
             widget::panel().key(ROOT).with_child(
                 ui::Node::leaf()
                     .key(CHILD)
-                    .with_responder_binding(binding.clone())
+                    .with_responder_binding(binding.action())
                     .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
             ),
         );
@@ -1910,11 +2192,11 @@ mod tests {
 
         assert_eq!(
             composition.responders(&path),
-            Some(&[command::Key::of::<crate::text::command::SelectAll>()][..])
+            Some(&[command::Key::of::<crate::text::command::SelectAll>().action()][..])
         );
         assert_eq!(
             composition.responder_bindings(&path),
-            Some(&[binding.clone()][..])
+            Some(&[binding.action()][..])
         );
         assert_eq!(
             registry.configured_state_key(
@@ -2066,12 +2348,16 @@ mod tests {
             area::logical(300.0, 180.0),
         );
 
-        let row = ui::Path::new([ROOT, widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
+        let row = ui::Path::new([
+            ROOT,
+            widget::MENU_POPUP,
+            ui::Id::structural("__menu_row", 0),
+        ]);
         let composition = state.composition.as_ref().expect("composition");
 
         assert_eq!(
-            composition.command(&row).map(|route| route.command()),
-            Some(command::Key::of::<crate::text::command::SelectAll>())
+            composition.action(&row).map(|route| route.key()),
+            Some(command::Key::of::<crate::text::command::SelectAll>().action())
         );
         assert!(
             !registry
@@ -2088,7 +2374,9 @@ mod tests {
         let subject = ui::Path::new([ROOT, CHILD]);
         let scope = ui::Path::new([ROOT, OTHER]);
         let mut state = WindowState {
-            command_subject: Some(command::call::Scope::Path(subject.clone())),
+            command: crate::app::command::State::with_subject(command::call::Scope::Path(
+                subject.clone(),
+            )),
             ..WindowState::default()
         };
         let mut registry = command::Registry::new();
@@ -2100,13 +2388,15 @@ mod tests {
                 .with_child(
                     ui::Node::leaf()
                         .key(CHILD)
-                        .with_responder::<crate::text::command::SelectAll>()
+                        .with_responder_key(
+                            command::Key::of::<crate::text::command::SelectAll>().action(),
+                        )
                         .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
                 )
                 .with_child(
                     widget::panel()
                         .key(OTHER)
-                        .with_command_scope()
+                        .with_action_scope()
                         .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
                 ),
         );
@@ -2120,7 +2410,7 @@ mod tests {
         );
 
         assert_eq!(
-            state.command_scope_captures.get(&scope),
+            state.command.scope_captures.get(&scope),
             Some(&command::call::Context::path(window, subject))
         );
     }
@@ -2131,10 +2421,12 @@ mod tests {
         let scope = ui::Path::new([ROOT, OTHER]);
         let subject = ui::Path::new([ROOT, CHILD]);
         let mut state = WindowState {
-            command_scope_captures: std::collections::HashMap::from([(
-                scope,
-                command::call::Context::path(window, subject),
-            )]),
+            command: crate::app::command::State::with_scope_captures(
+                std::collections::HashMap::from([(
+                    scope,
+                    command::call::Context::path(window, subject),
+                )]),
+            ),
             ..WindowState::default()
         };
         let mut registry = command::Registry::new();
@@ -2150,7 +2442,7 @@ mod tests {
             area::logical(100.0, 100.0),
         );
 
-        assert!(state.command_scope_captures.is_empty());
+        assert!(state.command.scope_captures.is_empty());
     }
 
     #[test]
@@ -2158,7 +2450,9 @@ mod tests {
         let window = window::Id::new(1);
         let subject = ui::Path::new([ROOT, CHILD]);
         let mut state = WindowState {
-            command_subject: Some(command::call::Scope::Path(subject.clone())),
+            command: crate::app::command::State::with_subject(command::call::Scope::Path(
+                subject.clone(),
+            )),
             ..WindowState::default()
         };
         let mut registry = command::Registry::new();
@@ -2188,7 +2482,9 @@ mod tests {
                 .with_child(
                     ui::Node::leaf()
                         .key(CHILD)
-                        .with_responder::<crate::text::command::SelectAll>()
+                        .with_responder_key(
+                            command::Key::of::<crate::text::command::SelectAll>().action(),
+                        )
                         .with_interactivity(ui::Interactivity::CONTROL),
                 ),
         );
@@ -2202,7 +2498,11 @@ mod tests {
         );
         let theme = crate::theme::Theme::default_dark();
 
-        let row = ui::Path::new([ROOT, widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
+        let row = ui::Path::new([
+            ROOT,
+            widget::MENU_POPUP,
+            ui::Id::structural("__menu_row", 0),
+        ]);
         let scope = ui::Path::new([ROOT, widget::MENU_POPUP]);
         let composition = state.composition.as_ref().expect("composition");
         let layout = composition.layout();
@@ -2230,15 +2530,15 @@ mod tests {
                     && !interactivity.actionable())
         );
         assert_eq!(
-            composition.command(&row).map(|route| route.command()),
-            Some(command::Key::of::<crate::text::command::SelectAll>())
+            composition.action(&row).map(|route| route.key()),
+            Some(command::Key::of::<crate::text::command::SelectAll>().action())
         );
         assert_eq!(
-            composition.command_subject(&row),
-            ui::CommandSubject::Captured
+            composition.action_subject(&row),
+            ui::ActionSubject::Captured
         );
         assert_eq!(
-            state.command_scope_captures.get(&scope),
+            state.command.scope_captures.get(&scope),
             Some(&command::call::Context::path(window, subject))
         );
 
@@ -2293,8 +2593,8 @@ mod tests {
 
         let composition = state.composition.as_ref().expect("composition");
         assert_eq!(
-            composition.path_state(&menu_title),
-            Some(command::State::unavailable())
+            composition.visual_state(&menu_title),
+            Some(ui::VisualState::unavailable())
         );
         assert_eq!(
             composition.interactivity(&menu_title),
@@ -2316,7 +2616,7 @@ mod tests {
         );
 
         assert_ne!(state.hit_test(title_center), Some(menu_title));
-        assert!(!state.toggle_menu(FILE, &registry, window, command::call::Source::Pointer));
+        assert!(!state.toggle_menu(FILE, &mut registry, window, command::call::Source::Pointer));
     }
 
     #[test]
@@ -2354,8 +2654,8 @@ mod tests {
 
         let composition = state.composition.as_ref().expect("composition");
         assert_eq!(
-            composition.path_state(&menu_title),
-            Some(command::State::available())
+            composition.visual_state(&menu_title),
+            Some(ui::VisualState::available())
         );
         assert!(
             composition
@@ -2406,13 +2706,117 @@ mod tests {
 
         let composition = state.composition.as_ref().expect("composition");
         assert_eq!(
-            composition.path_state(&menu_title),
-            Some(command::State::available())
+            composition.visual_state(&menu_title),
+            Some(ui::VisualState::available())
         );
         assert!(
             composition
                 .interactivity(&menu_title)
                 .is_some_and(|interactivity| interactivity.actionable())
+        );
+    }
+
+    #[test]
+    fn compose_keeps_text_command_menu_unavailable_without_active_text_target() {
+        let window = window::Id::new(1);
+        let mut state = WindowState::default();
+        let mut registry = command::Registry::new();
+        let mut tree = ui::Tree::new();
+        let menu_title = ui::Path::new([ROOT, MENU_BAR, top_level_menu_title(0)]);
+
+        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        tree.set_root(
+            widget::panel()
+                .key(ROOT)
+                .with_child(
+                    widget::menu_bar(
+                        menu::Bar::new().menu(
+                            menu::Menu::new("Edit").key(FILE).section(
+                                menu::Section::new()
+                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
+                            ),
+                        ),
+                    )
+                    .key(MENU_BAR),
+                )
+                .with_child(
+                    widget::text_area(text::Area::new(text::Buffer::from_text("hello")))
+                        .key(CHILD)
+                        .with_size(layout::Size::Fill, layout::Size::Fixed(80.0)),
+                ),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(300.0, 180.0),
+        );
+
+        let composition = state.composition.as_ref().expect("composition");
+        assert_eq!(
+            composition.visual_state(&menu_title),
+            Some(ui::VisualState::unavailable())
+        );
+    }
+
+    #[test]
+    fn compose_keeps_global_command_menu_available_with_focused_text_target() {
+        let window = window::Id::new(1);
+        let text_target = ui::Path::new([ROOT, CHILD]);
+        let mut state = WindowState {
+            focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
+                text_target.clone(),
+                ui::focus::Reason::Keyboard,
+                ui::focus::Visibility::Visible,
+            )),
+            command: crate::app::command::State::with_subject(command::call::Scope::Path(
+                text_target,
+            )),
+            ..WindowState::default()
+        };
+        let mut registry = command::Registry::new();
+        let mut tree = ui::Tree::new();
+        let menu_title = ui::Path::new([ROOT, MENU_BAR, top_level_menu_title(0)]);
+
+        registry.register(command::definition::Definition::for_command::<
+            Click,
+            command::TestTarget,
+        >());
+        tree.set_root(
+            widget::panel()
+                .key(ROOT)
+                .with_child(
+                    widget::menu_bar(
+                        menu::Bar::new().menu(
+                            menu::Menu::new("File").key(FILE).section(
+                                menu::Section::new()
+                                    .item(menu::Item::invokes::<Click, command::TestTarget>()),
+                            ),
+                        ),
+                    )
+                    .key(MENU_BAR),
+                )
+                .with_child(
+                    widget::text_area(text::Area::new(text::Buffer::from_text("hello")))
+                        .key(CHILD)
+                        .with_size(layout::Size::Fill, layout::Size::Fixed(80.0)),
+                ),
+        );
+
+        compose(
+            window,
+            &tree,
+            &mut state,
+            &mut registry,
+            area::logical(300.0, 180.0),
+        );
+
+        let composition = state.composition.as_ref().expect("composition");
+        assert_eq!(
+            composition.visual_state(&menu_title),
+            Some(ui::VisualState::available())
         );
     }
 
@@ -2426,7 +2830,9 @@ mod tests {
                 ui::focus::Reason::Pointer,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(command::call::Scope::Path(field.clone())),
+            command: crate::app::command::State::with_subject(command::call::Scope::Path(
+                field.clone(),
+            )),
             ..WindowState::default()
         };
         let mut registry = command::Registry::new();
@@ -2456,7 +2862,9 @@ mod tests {
                 .with_child(
                     widget::text_field(text::Buffer::from_text("hello"))
                         .key(CHILD)
-                        .with_responder::<crate::text::command::SelectAll>(),
+                        .with_responder_key(
+                            command::Key::of::<crate::text::command::SelectAll>().action(),
+                        ),
                 ),
         );
 
@@ -2482,7 +2890,9 @@ mod tests {
                 ui::focus::Reason::Pointer,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(command::call::Scope::Path(area.clone())),
+            command: crate::app::command::State::with_subject(command::call::Scope::Path(
+                area.clone(),
+            )),
             ..WindowState::default()
         };
         let mut registry = command::Registry::new();
@@ -2513,7 +2923,9 @@ mod tests {
                     widget::text_area(text::Area::new(selected_large_text_area_buffer(3)))
                         .key(CHILD)
                         .with_size(layout::Size::Fill, layout::Size::Fixed(80.0))
-                        .with_responder::<crate::text::command::SelectAll>(),
+                        .with_responder_key(
+                            command::Key::of::<crate::text::command::SelectAll>().action(),
+                        ),
                 ),
         );
 
@@ -2537,14 +2949,20 @@ mod tests {
     fn keyboard_opened_menu_focuses_first_enabled_row() {
         let window = window::Id::new(1);
         let field = ui::Path::new([ROOT, CHILD]);
-        let row = ui::Path::new([ROOT, widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
+        let row = ui::Path::new([
+            ROOT,
+            widget::MENU_POPUP,
+            ui::Id::structural("__menu_row", 0),
+        ]);
         let mut state = WindowState {
             focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
                 field.clone(),
                 ui::focus::Reason::Keyboard,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(command::call::Scope::Path(field.clone())),
+            command: crate::app::command::State::with_subject(command::call::Scope::Path(
+                field.clone(),
+            )),
             ..WindowState::default()
         };
         let mut registry = command::Registry::new();
@@ -2573,7 +2991,9 @@ mod tests {
                 .with_child(
                     widget::text_field(text::Buffer::from_text("hello"))
                         .key(CHILD)
-                        .with_responder::<crate::text::command::SelectAll>(),
+                        .with_responder_key(
+                            command::Key::of::<crate::text::command::SelectAll>().action(),
+                        ),
                 ),
         );
 
@@ -2584,7 +3004,7 @@ mod tests {
             &mut registry,
             area::logical(300.0, 180.0),
         );
-        assert!(state.toggle_menu(FILE, &registry, window, command::call::Source::Keyboard));
+        assert!(state.toggle_menu(FILE, &mut registry, window, command::call::Source::Keyboard));
         compose(
             window,
             &tree,
@@ -2601,9 +3021,15 @@ mod tests {
     fn focused_open_menu_row_lowers_focus_background() {
         let window = window::Id::new(1);
         let subject = ui::Path::new([ROOT, CHILD]);
-        let row = ui::Path::new([ROOT, widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
+        let row = ui::Path::new([
+            ROOT,
+            widget::MENU_POPUP,
+            ui::Id::structural("__menu_row", 0),
+        ]);
         let mut state = WindowState {
-            command_subject: Some(command::call::Scope::Path(subject.clone())),
+            command: crate::app::command::State::with_subject(command::call::Scope::Path(
+                subject.clone(),
+            )),
             focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
                 row,
                 ui::focus::Reason::Keyboard,
@@ -2638,7 +3064,9 @@ mod tests {
                 .with_child(
                     ui::Node::leaf()
                         .key(CHILD)
-                        .with_responder::<crate::text::command::SelectAll>()
+                        .with_responder_key(
+                            command::Key::of::<crate::text::command::SelectAll>().action(),
+                        )
                         .with_interactivity(ui::Interactivity::CONTROL),
                 ),
         );
@@ -2666,7 +3094,9 @@ mod tests {
         let window = window::Id::new(1);
         let subject = ui::Path::new([ROOT, CHILD]);
         let mut state = WindowState {
-            command_subject: Some(command::call::Scope::Path(subject.clone())),
+            command: crate::app::command::State::with_subject(command::call::Scope::Path(
+                subject.clone(),
+            )),
             ..WindowState::default()
         };
         let mut registry = command::Registry::new();
@@ -2695,7 +3125,11 @@ mod tests {
                     )
                     .key(MENU_BAR),
                 )
-                .with_child(ui::Node::leaf().key(CHILD).with_responder_key(TOGGLE)),
+                .with_child(
+                    ui::Node::leaf()
+                        .key(CHILD)
+                        .with_responder_key(TOGGLE.action()),
+                ),
         );
 
         let scene = compose(
@@ -2720,7 +3154,9 @@ mod tests {
         let window = window::Id::new(1);
         let subject = ui::Path::new([ROOT, CHILD]);
         let mut state = WindowState {
-            command_subject: Some(command::call::Scope::Path(subject.clone())),
+            command: crate::app::command::State::with_subject(command::call::Scope::Path(
+                subject.clone(),
+            )),
             ..WindowState::default()
         };
         let mut registry = command::Registry::new();
@@ -2753,7 +3189,11 @@ mod tests {
                     )
                     .key(MENU_BAR),
                 )
-                .with_child(ui::Node::leaf().key(CHILD).with_responder_key(TOGGLE)),
+                .with_child(
+                    ui::Node::leaf()
+                        .key(CHILD)
+                        .with_responder_key(TOGGLE.action()),
+                ),
         );
 
         compose(
@@ -2768,18 +3208,19 @@ mod tests {
         let submenu_row = ui::Path::new([
             ROOT,
             widget::MENU_SUBMENU_POPUP,
-            ui::Id::new("__menu_row_00"),
+            ui::Id::structural("__menu_row", 0),
         ]);
-        let top_submenu_row =
-            ui::Path::new([ROOT, widget::MENU_POPUP, ui::Id::new("__menu_row_00")]);
+        let top_submenu_row = ui::Path::new([
+            ROOT,
+            widget::MENU_POPUP,
+            ui::Id::structural("__menu_row", 0),
+        ]);
         let composition = state.composition.as_ref().expect("composition");
 
         assert!(composition.layout().find_path(&submenu_popup).is_some());
         assert_eq!(
-            composition
-                .command(&submenu_row)
-                .map(|route| route.command()),
-            Some(TOGGLE)
+            composition.action(&submenu_row).map(|route| route.key()),
+            Some(TOGGLE.action())
         );
         assert_eq!(
             state.intent(&top_submenu_row),

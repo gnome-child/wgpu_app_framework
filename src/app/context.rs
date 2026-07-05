@@ -2,12 +2,12 @@ use std::time::Instant;
 
 use winit::event_loop::ActiveEventLoop;
 
-use crate::app::MailboxSender;
-use crate::app::mailbox::{Mailbox, Message};
+use crate::app::mailbox::Mailbox;
 use crate::app::rendering;
 use crate::app::sender::Sender;
 use crate::app::state::WindowState;
 use crate::app::task_runner;
+use crate::app::text as app_text;
 use crate::app::text_input;
 use crate::app::windows::Windows;
 use crate::geometry::area;
@@ -47,16 +47,20 @@ pub struct CommandDispatch<'a, T: Send + 'static> {
     cx: Context<'a, T>,
     call: Option<command::call::Any>,
     handled: bool,
+    effects: Vec<QueuedCommandEffect>,
+    projection_window: Option<window::Id>,
+    changed: bool,
 }
 
-pub struct CommandStates<'a, T: Send + 'static> {
-    cx: Context<'a, T>,
-    window: window::Id,
+pub(crate) struct QueuedCommandEffect {
+    pub(crate) command: command::Key,
+    pub(crate) context: command::call::Context,
+    pub(crate) effect: command::Effect,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextCommandOutcome {
-    command: text::edit::Command,
+    label: &'static str,
     result: text::edit::CommandResult,
 }
 
@@ -222,16 +226,23 @@ pub(crate) fn command_dispatch<T: Send + 'static>(
         cx: new(parts),
         call: Some(call),
         handled: false,
+        effects: Vec::new(),
+        projection_window: None,
+        changed: false,
     }
 }
 
-pub(crate) fn command_states<T: Send + 'static>(
+pub(crate) fn command_projection<T: Send + 'static>(
     parts: Parts<'_, T>,
     window: window::Id,
-) -> CommandStates<'_, T> {
-    CommandStates {
+) -> CommandDispatch<'_, T> {
+    CommandDispatch {
         cx: new(parts),
-        window,
+        call: None,
+        handled: false,
+        effects: Vec::new(),
+        projection_window: Some(window),
+        changed: false,
     }
 }
 
@@ -304,7 +315,7 @@ impl<T: Send + 'static> Context<'_, T> {
         self.commands.try_commands(configure)
     }
 
-    pub(crate) fn set_command_state_key(
+    pub(crate) fn override_command_state_key(
         &mut self,
         command: command::Key,
         context: command::call::Context,
@@ -319,20 +330,20 @@ impl<T: Send + 'static> Context<'_, T> {
         }
     }
 
-    pub fn set_command_state<C: Command>(
+    pub fn override_command_state<C: Command>(
         &mut self,
         context: command::call::Context,
         state: command::State,
     ) {
-        self.set_command_state_key(command::Key::of::<C>(), context, state);
+        self.override_command_state_key(command::Key::of::<C>(), context, state);
     }
 
-    pub(crate) fn command_key(
+    pub(crate) fn command_override_key(
         &mut self,
         window: window::Id,
         command: command::Key,
-    ) -> CommandState<'_> {
-        CommandState::new(
+    ) -> CommandOverride<'_> {
+        CommandOverride::new(
             self.commands,
             self.window_states.get_mut(&window),
             window,
@@ -341,8 +352,8 @@ impl<T: Send + 'static> Context<'_, T> {
         )
     }
 
-    pub fn command<C: Command>(&mut self, window: window::Id) -> CommandState<'_> {
-        self.command_key(window, command::Key::of::<C>())
+    pub fn command_override<C: Command>(&mut self, window: window::Id) -> CommandOverride<'_> {
+        self.command_override_key(window, command::Key::of::<C>())
     }
 
     pub(crate) fn command_state_key(
@@ -383,7 +394,9 @@ impl<T: Send + 'static> Context<'_, T> {
     }
 
     pub fn apply_text_edit(&mut self, buffer: &mut text::Buffer, edit: text::edit::Edit) -> bool {
-        let result = self.text_editor.apply_text_edit_with_result(buffer, edit);
+        let result =
+            self.text_editor
+                .apply_text_edit_with_caret_map(buffer, edit, self.text_engine);
         if result.text_changed {
             self.text_engine
                 .invalidate_text_area_for_edit(buffer, &result.impacts);
@@ -405,7 +418,7 @@ impl<T: Send + 'static> Context<'_, T> {
             return false;
         }
 
-        let history_kind = edit.history_kind();
+        let history_kind = app_text::HistoryKind::for_edit(&edit);
         let pointer_placement = matches!(edit, text::edit::Edit::Pointer { .. });
         let selection_only = matches!(edit, text::edit::Edit::SelectAll);
         let scroll_anchors = self
@@ -414,7 +427,9 @@ impl<T: Send + 'static> Context<'_, T> {
             .map(|(window, state)| (*window, state.text_area_scroll_anchor(target)))
             .collect::<std::collections::HashMap<_, _>>();
         let now = Instant::now();
-        let result = self.text_editor.apply_text_edit_with_result(buffer, edit);
+        let result =
+            self.text_editor
+                .apply_text_edit_with_caret_map(buffer, edit, self.text_engine);
         if result.text_changed {
             self.text_engine
                 .invalidate_text_area_for_edit(buffer, &result.impacts);
@@ -438,7 +453,7 @@ impl<T: Send + 'static> Context<'_, T> {
                     state.ensure_text_caret_visible_after_edit(
                         target,
                         now,
-                        &mut self.text_engine,
+                        self.text_engine,
                         scroll_anchors.get(window).copied().flatten(),
                     );
                 } else {
@@ -500,6 +515,25 @@ impl<T: Send + 'static> Context<'_, T> {
     where
         C: text::command::EditCommand,
     {
+        let mut target = text_input::CommandTarget::new(
+            self.window_states,
+            self.text_editor,
+            self.text_engine,
+            self.clipboard,
+            buffer,
+        );
+
+        self.commands.invoke_on(&mut target, call)
+    }
+
+    pub fn invoke_insert_text_call(
+        &mut self,
+        buffer: &mut text::Buffer,
+        call: command::Call<text::command::InsertText>,
+    ) -> std::result::Result<
+        command::Response<text::edit::CommandResult>,
+        command::registry::Rejection,
+    > {
         let mut target = text_input::CommandTarget::new(
             self.window_states,
             self.text_editor,
@@ -623,11 +657,19 @@ impl<'cx, T: Send + 'static> CommandDispatch<'cx, T> {
     where
         TTarget: 'static,
     {
-        let target_kind = command::target::Kind::of_type::<TTarget>();
+        if let Some(window) = self.projection_window {
+            let mut changed = false;
+            for context in self.projection_contexts(window) {
+                changed |= self.cx.commands.project_target_states(target, context);
+            }
+            self.record_projection_change(window, changed);
+            return self;
+        }
+
         if !self
             .call
             .as_ref()
-            .is_some_and(|call| call.target() == target_kind)
+            .is_some_and(|call| self.cx.commands.can_invoke_any_on::<TTarget>(call))
         {
             return self;
         }
@@ -649,7 +691,11 @@ impl<'cx, T: Send + 'static> CommandDispatch<'cx, T> {
                 self.handled = true;
                 self.request_redraw(response.context.window_id());
                 for effect in response.effects {
-                    self.enqueue_effect(response.command, response.context.clone(), effect);
+                    self.effects.push(QueuedCommandEffect {
+                        command: response.command,
+                        context: response.context.clone(),
+                        effect,
+                    });
                 }
             }
             Err(error) => {
@@ -668,13 +714,28 @@ impl<'cx, T: Send + 'static> CommandDispatch<'cx, T> {
     }
 
     pub fn text_buffer(&mut self, buffer: &mut text::Buffer) -> Option<TextCommandOutcome> {
-        self.text_command::<text::command::Undo>(buffer)
-            .or_else(|| self.text_command::<text::command::Redo>(buffer))
-            .or_else(|| self.text_command::<text::command::SelectAll>(buffer))
-            .or_else(|| self.text_command::<text::command::Cut>(buffer))
-            .or_else(|| self.text_command::<text::command::Delete>(buffer))
-            .or_else(|| self.text_command::<text::command::Copy>(buffer))
-            .or_else(|| self.text_command::<text::command::Paste>(buffer))
+        if let Some(window) = self.projection_window {
+            let changed = self.cx.window_states.get(&window).is_some_and(|state| {
+                text_input::publish_command_states(state, self.cx.commands, window)
+            });
+            self.record_projection_change(window, changed);
+            return None;
+        }
+
+        if let Some(outcome) = self.insert_text_command(buffer) {
+            return Some(outcome);
+        }
+
+        macro_rules! dispatch_text_command {
+            ($command:ty, $edit:expr, $dispatch:expr, $buffer:expr) => {
+                if let Some(outcome) = $dispatch.text_command::<$command>($buffer) {
+                    return Some(outcome);
+                }
+            };
+        }
+
+        text::command::for_each_edit_command!(dispatch_text_command, self, buffer);
+        None
     }
 
     pub fn request_redraw(&mut self, window: window::Id) {
@@ -706,8 +767,12 @@ impl<'cx, T: Send + 'static> CommandDispatch<'cx, T> {
         self.cx.apply_text_edit_for(target, buffer, edit)
     }
 
-    pub(crate) fn finish(self) -> (bool, Option<command::call::Any>) {
-        (self.handled, self.call)
+    pub(crate) fn finish(self) -> (bool, Option<command::call::Any>, Vec<QueuedCommandEffect>) {
+        (self.handled, self.call, self.effects)
+    }
+
+    pub(crate) fn finish_projection(self) -> bool {
+        self.changed
     }
 
     fn text_command<C>(&mut self, buffer: &mut text::Buffer) -> Option<TextCommandOutcome>
@@ -725,6 +790,7 @@ impl<'cx, T: Send + 'static> CommandDispatch<'cx, T> {
         let call = self.take_call::<C>()?;
         let context = call.requested_context()?;
         let command = C::edit_command();
+        let label = text::command::edit_command_label(command);
         let result = match self.cx.invoke_text_call::<C>(buffer, call) {
             Ok(response) => response.into_output(),
             Err(error) => {
@@ -742,7 +808,7 @@ impl<'cx, T: Send + 'static> CommandDispatch<'cx, T> {
         self.handled = true;
         self.request_redraw(context.window_id());
 
-        Some(TextCommandOutcome { command, result })
+        Some(TextCommandOutcome { label, result })
     }
 
     fn take_call<C: Command>(&mut self) -> Option<command::Call<C>> {
@@ -756,77 +822,90 @@ impl<'cx, T: Send + 'static> CommandDispatch<'cx, T> {
         }
     }
 
-    fn enqueue_effect(
-        &mut self,
-        command: command::Key,
-        context: command::call::Context,
-        effect: command::Effect,
-    ) {
-        match effect {
-            command::Effect::None => {}
-            command::Effect::Runtime(effect) => match effect {
-                command::effect::RuntimeEffect::Notify(message) => {
-                    log::debug!("command runtime notification: {message}");
-                }
-                command::effect::RuntimeEffect::RequestRedraw => {
+    fn insert_text_command(&mut self, buffer: &mut text::Buffer) -> Option<TextCommandOutcome> {
+        if !self
+            .call
+            .as_ref()
+            .is_some_and(|call| call.target() == text::command::text_target_kind())
+        {
+            return None;
+        }
+
+        let Some(call) = self.take_call::<text::command::InsertText>() else {
+            return None;
+        };
+        let context = call.requested_context();
+        let result = match self.cx.invoke_insert_text_call(buffer, call) {
+            Ok(response) => {
+                let (result, effects) = response.into_parts();
+                if let Some(context) = context.clone() {
                     self.request_redraw(context.window_id());
-                }
-                command::effect::RuntimeEffect::ClipboardWrite(text) => {
-                    if let Err(error) = self.cx.clipboard.write_text(&text) {
-                        log::debug!("command clipboard write failed: {error:?}");
+                    for effect in effects {
+                        self.effects.push(QueuedCommandEffect {
+                            command: command::Key::of::<text::command::InsertText>(),
+                            context: context.clone(),
+                            effect,
+                        });
                     }
                 }
-            },
-            command::Effect::Batch(effects) => {
-                for effect in effects {
-                    self.enqueue_effect(command, context.clone(), effect);
+                self.handled = true;
+                result
+            }
+            Err(error) => {
+                log::debug!("text insert command dispatch rejected command=insert_text: {error}");
+                if let Some(context) = context {
+                    self.request_redraw(context.window_id());
+                }
+                self.handled = true;
+                text::edit::CommandResult {
+                    unavailable: true,
+                    ..text::edit::CommandResult::default()
                 }
             }
-            command::Effect::Call(call) => {
-                self.cx
-                    .mailbox
-                    .run_any_call(call.with_fallback_window(context.window_id()));
-            }
-            command::Effect::Task(task) => {
-                self.cx
-                    .commands
-                    .set_running_key(command, context.clone(), true);
-                self.request_redraw(context.window_id());
-                let sender = self.cx.sender.clone();
-                std::thread::spawn(move || {
-                    let response = task.run();
-                    let _ = sender.send_message(Message::CommandTaskCompleted {
-                        command,
-                        context,
-                        response,
-                    });
-                });
-            }
+        };
+
+        Some(TextCommandOutcome {
+            label: "insert text",
+            result,
+        })
+    }
+
+    fn record_projection_change(&mut self, window: window::Id, changed: bool) {
+        self.changed |= changed;
+        if changed && self.cx.redraw_on_command_state_change {
+            self.cx.request_redraw(window);
         }
     }
-}
 
-impl<T: Send + 'static> CommandStates<'_, T> {
-    pub fn target<TTarget>(&mut self, target: &TTarget) -> &mut Self
-    where
-        TTarget: 'static,
-    {
-        if self
-            .cx
-            .commands
-            .project_target_states(target, command::call::Context::window(self.window))
-            && self.cx.redraw_on_command_state_change
-        {
-            self.cx.request_redraw(self.window);
+    fn projection_contexts(&self, window: window::Id) -> Vec<command::call::Context> {
+        let mut contexts = Vec::new();
+        Self::push_context(&mut contexts, command::call::Context::window(window));
+
+        let Some(state) = self.cx.window_states.get(&window) else {
+            return contexts;
+        };
+
+        Self::push_context(&mut contexts, state.command_context(window));
+
+        if let Some(composition) = state.composition.as_ref() {
+            for path in composition.action_map().keys() {
+                Self::push_context(&mut contexts, state.command_context_for_path(window, path));
+            }
         }
 
-        self
+        contexts
+    }
+
+    fn push_context(contexts: &mut Vec<command::call::Context>, context: command::call::Context) {
+        if !contexts.contains(&context) {
+            contexts.push(context);
+        }
     }
 }
 
 impl TextCommandOutcome {
-    pub fn command(self) -> text::edit::Command {
-        self.command
+    pub fn label(self) -> &'static str {
+        self.label
     }
 
     pub fn result(self) -> text::edit::CommandResult {
@@ -834,7 +913,7 @@ impl TextCommandOutcome {
     }
 }
 
-pub struct CommandState<'a> {
+pub struct CommandOverride<'a> {
     commands: &'a mut command::Registry,
     window_state: Option<&'a mut WindowState>,
     window: window::Id,
@@ -844,7 +923,7 @@ pub struct CommandState<'a> {
     redraw_on_command_state_change: bool,
 }
 
-impl<'a> CommandState<'a> {
+impl<'a> CommandOverride<'a> {
     fn new(
         commands: &'a mut command::Registry,
         window_state: Option<&'a mut WindowState>,
@@ -884,7 +963,7 @@ impl<'a> CommandState<'a> {
     }
 }
 
-impl Drop for CommandState<'_> {
+impl Drop for CommandOverride<'_> {
     fn drop(&mut self) {
         if !self.changed {
             return;
@@ -896,10 +975,11 @@ impl Drop for CommandState<'_> {
             self.state.clone(),
         );
 
-        if changed && self.redraw_on_command_state_change {
-            if let Some(state) = self.window_state.as_mut() {
-                state.invalidate_frame(frame::RedrawKind::Full, Instant::now());
-            }
+        if changed
+            && self.redraw_on_command_state_change
+            && let Some(state) = self.window_state.as_mut()
+        {
+            state.invalidate_frame(frame::RedrawKind::Full, Instant::now());
         }
     }
 }

@@ -1,6 +1,8 @@
-use crate::{layout, text, theme, ui};
+use crate::ui::{self, layout};
+use crate::{command, text, theme};
 
 use super::foundation;
+use command::binding::Responder;
 
 pub fn text(label: impl Into<text::document::Document>) -> ui::Node {
     text_with_theme(label, &theme::Theme::default_dark())
@@ -196,5 +198,15 @@ fn text_area_scroll_axes(area: &text::Area) -> super::scroll::Axes {
 }
 
 fn bind_text_surface_responders(node: ui::Node, surface: &text::Surface) -> ui::Node {
-    node.with_command_targets(surface)
+    let mut node = node;
+
+    for target in surface.command_targets() {
+        node = node.with_action_target(target.action());
+    }
+
+    for binding in surface.command_bindings() {
+        node = node.with_responder_binding(binding.action());
+    }
+
+    node
 }

@@ -24,8 +24,7 @@ use crate::{event, native, render, ui, window};
 use thiserror::Error;
 
 pub use context::{
-    CommandDispatch, CommandState, CommandStates, Context, Diagnostics, ScrollDiagnostics,
-    TextCommandOutcome,
+    CommandDispatch, CommandOverride, Context, Diagnostics, ScrollDiagnostics, TextCommandOutcome,
 };
 pub use frame::{CountDiagnostics, Diagnostics as FrameDiagnostics, TimingDiagnostics};
 pub use key_repeat::{KeyRepeat, KeyRepeatPolicy};
@@ -56,8 +55,6 @@ pub trait Application {
     fn event(&mut self, _cx: &mut Context<'_, Self::Event>, _event: event::Event<Self::Event>) {}
 
     fn command_targets(&mut self, _commands: &mut CommandDispatch<'_, Self::Event>) {}
-
-    fn command_states(&mut self, _states: &mut CommandStates<'_, Self::Event>) {}
 
     fn view(
         &mut self,

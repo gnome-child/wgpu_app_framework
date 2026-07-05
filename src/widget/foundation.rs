@@ -1,4 +1,5 @@
-use crate::{Command, command, layout, paint, text, theme, ui};
+use crate::ui::{self, layout};
+use crate::{Command, command, paint, text, theme};
 
 pub fn document(
     label: impl Into<String>,
@@ -61,12 +62,12 @@ where
     C: Command,
     TTarget: command::Target<C> + 'static,
 {
-    node.invokes::<C, TTarget>()
+    node.with_action_route(command::binding::Route::invokes::<C, TTarget>().action())
         .with_interactivity(ui::Interactivity::CONTROL)
 }
 
 #[cfg(test)]
 pub(crate) fn actionable_key(node: ui::Node, command: command::Key) -> ui::Node {
-    node.with_command_key(command)
+    node.with_action_key(command.action())
         .with_interactivity(ui::Interactivity::CONTROL)
 }

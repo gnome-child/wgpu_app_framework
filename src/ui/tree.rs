@@ -2,20 +2,19 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use crate::animation::Frame as AnimationFrame;
-use crate::app::scroll;
 use crate::geometry::{Rect, area, point};
 use crate::widget::menu;
-use crate::{command, paint, text, widget, window};
+use crate::{action, paint, text};
 
 use super::{
-    CommandSubject, Cursor, Frame, Intent, Interaction, Interactivity, Node, Path, floating,
-    layout_engine, painting,
+    Cursor, Frame, Intent, Interaction, Interactivity, Node, Path, VisualState, layout, painting,
+    scroll, snapshot::Snapshot,
 };
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tree {
     root: Option<Node>,
-    popups: Vec<widget::Popup>,
+    popups: Vec<super::Popup>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -24,21 +23,9 @@ pub struct Composition {
     layout: Frame,
     open_menu: Option<menu::Id>,
     open_submenu: Option<menu::Id>,
-    menus: HashMap<menu::Id, menu::Menu>,
-    commands: HashMap<Path, command::binding::Route>,
-    command_subjects: HashMap<Path, CommandSubject>,
-    intents: HashMap<Path, Intent>,
-    responders: HashMap<Path, Vec<command::Key>>,
-    responder_bindings: HashMap<Path, Vec<command::binding::Binding>>,
-    command_targets: HashMap<Path, Vec<command::target::Kind>>,
-    command_scopes: Vec<Path>,
-    command_scope_contexts: HashMap<Path, command::call::Context>,
-    text_fields: HashMap<Path, text::Field>,
-    text_surfaces: HashMap<Path, text::Surface>,
-    interactivity: HashMap<Path, Interactivity>,
-    path_states: HashMap<Path, command::State>,
-    cursors: HashMap<Path, Cursor>,
-    widget_metrics: HashMap<Path, widget::Metrics>,
+    snapshot: Snapshot,
+    visual_states: HashMap<Path, VisualState>,
+    widget_metrics: HashMap<Path, super::Metrics>,
     focus_order: Vec<Path>,
 }
 
@@ -62,7 +49,7 @@ impl Tree {
         self.root.as_mut()
     }
 
-    pub fn push_popup(&mut self, popup: widget::Popup) {
+    pub fn push_popup(&mut self, popup: super::Popup) {
         self.popups.push(popup);
     }
 
@@ -70,7 +57,7 @@ impl Tree {
         self.popups.clear();
     }
 
-    pub fn popups(&self) -> &[widget::Popup] {
+    pub fn popups(&self) -> &[super::Popup] {
         &self.popups
     }
 
@@ -84,7 +71,7 @@ impl Tree {
         measurer: &mut text::layout::Engine,
     ) -> Option<Frame> {
         let root = self.root.as_ref()?;
-        let root_layout = layout_engine::tree(root, area, measurer);
+        let root_layout = layout::tree(root, area, measurer);
         if self.popups.is_empty() {
             return Some(root_layout);
         }
@@ -92,7 +79,7 @@ impl Tree {
         let mut children = root_layout.children().to_vec();
         let root_path = root_layout.path().clone();
         for (index, popup) in self.popups.iter().enumerate() {
-            children.push(layout_engine::subtree_at(
+            children.push(layout::subtree_at(
                 popup.root(),
                 root_path.child(popup.root().path_id(index)),
                 popup.rect(),
@@ -105,138 +92,62 @@ impl Tree {
 
     pub fn compose(
         &self,
-        window: window::Id,
         area: area::Logical,
-        commands: &mut command::Registry,
-        floating_surfaces: &[floating::Surface],
         measurer: &mut text::layout::Engine,
     ) -> Option<Composition> {
-        let mut tree = self.clone();
-        let menus = tree.menus();
-        let open_menu_surface = floating_surfaces.iter().find(|surface| {
-            matches!(surface.kind(), floating::Kind::Menu(menu) if menus.contains_key(menu))
-        });
-        let open_menu = open_menu_surface.and_then(|surface| surface.menu_id());
-        let open_submenu_surface = floating_surfaces.iter().rev().find(|surface| {
-            matches!(
-                surface.kind(),
-                floating::Kind::Submenu(menu) if open_menu.is_some() && menus.contains_key(menu)
-            )
-        });
-        let open_submenu = open_submenu_surface.and_then(|surface| surface.menu_id());
-        let context_menu = floating_surfaces
-            .iter()
-            .rev()
-            .find(|surface| matches!(surface.kind(), floating::Kind::ContextMenu { .. }));
-        let mut command_scope_contexts = HashMap::new();
+        self.compose_with_open_menus(area, None, None, measurer)
+    }
 
-        tree.publish_responder_binding_states(commands, window);
-
-        let mut menu_popup_inserted = false;
-        if let Some(surface) = open_menu_surface
-            && let Some(open_menu) = open_menu
-            && let Some(menu) = menus.get(&open_menu)
-            && let Some(base_layout) = tree.layout(area, measurer)
-            && let Some(popup) =
-                widget::menu_popup(&tree, &base_layout, surface, menu, commands, measurer)
-        {
-            if let Some(scope) = popup_scope_path(&tree, popup.root().id()) {
-                command_scope_contexts.insert(scope, surface.command_context().clone());
-            }
-            tree.push_popup(popup);
-            menu_popup_inserted = true;
-        }
-
-        if menu_popup_inserted
-            && let Some(surface) = open_submenu_surface
-            && let Some(open_submenu) = open_submenu
-            && let Some(menu) = menus.get(&open_submenu)
-            && let Some(menu_layout) = tree.layout(area, measurer)
-            && let Some(popup) =
-                widget::submenu_popup(&tree, &menu_layout, surface, menu, commands, measurer)
-        {
-            if let Some(scope) = popup_scope_path(&tree, popup.root().id()) {
-                command_scope_contexts.insert(scope, surface.command_context().clone());
-            }
-            tree.push_popup(popup);
-        }
-
-        if let Some(surface) = context_menu
-            && let Some(base_layout) = tree.layout(area, measurer)
-            && let Some(popup) =
-                widget::text_context_menu_popup(surface, commands, measurer, base_layout.rect())
-        {
-            if let Some(scope) = popup_scope_path(&tree, popup.root().id()) {
-                command_scope_contexts.insert(scope, surface.command_context().clone());
-            }
-            tree.push_popup(popup);
-        }
-
-        tree.publish_responder_binding_states(commands, window);
-        let layout = tree.layout(area, measurer)?;
-
+    pub(crate) fn compose_with_open_menus(
+        &self,
+        area: area::Logical,
+        open_menu: Option<menu::Id>,
+        open_submenu: Option<menu::Id>,
+        measurer: &mut text::layout::Engine,
+    ) -> Option<Composition> {
+        let layout = self.layout(area, measurer)?;
         Some(Composition::new(
-            tree,
+            self.clone(),
             layout,
             open_menu,
             open_submenu,
-            menus,
-            command_scope_contexts,
         ))
     }
 
-    fn index(&self) -> TreeIndex {
-        let mut index = TreeIndex::default();
-
-        if let Some(root) = self.root.as_ref() {
-            index.collect_node(root, &Path::root(root.path_id(0)));
-            for (popup_index, popup) in self.popups.iter().enumerate() {
-                index.collect_node(
-                    popup.root(),
-                    &Path::root(root.path_id(0)).child(popup.root().path_id(popup_index)),
-                );
-            }
-        }
-
-        index
+    fn snapshot(&self) -> Snapshot {
+        Snapshot::from_tree(self)
     }
 
-    pub fn command_subjects(&self) -> HashMap<Path, CommandSubject> {
-        self.index().command_subjects
+    pub fn action_subjects(&self) -> HashMap<Path, action::Subject> {
+        self.snapshot().action_subjects
     }
 
     pub(crate) fn intents(&self) -> HashMap<Path, Intent> {
-        self.index().intents
+        self.snapshot().intents
     }
 
     pub fn menus(&self) -> HashMap<menu::Id, menu::Menu> {
-        let mut menus = HashMap::new();
-
-        if let Some(root) = self.root.as_ref() {
-            collect_menus(root, &mut menus);
-        }
-
-        menus
+        self.snapshot().menus
     }
 
     #[cfg(test)]
-    pub(crate) fn responders(&self) -> HashMap<Path, Vec<command::Key>> {
-        self.index().responders
+    pub(crate) fn responders(&self) -> HashMap<Path, Vec<action::Key>> {
+        self.snapshot().responders
     }
 
-    pub(crate) fn responder_bindings(&self) -> HashMap<Path, Vec<command::binding::Binding>> {
-        self.index().responder_bindings
+    pub(crate) fn responder_bindings(&self) -> HashMap<Path, Vec<action::Binding>> {
+        self.snapshot().responder_bindings
     }
 
-    pub fn command_scopes(&self) -> Vec<Path> {
-        self.index().command_scopes
+    pub fn action_scopes(&self) -> Vec<Path> {
+        self.snapshot().action_scopes
     }
 
     pub fn interactivity(&self) -> HashMap<Path, Interactivity> {
-        self.index().interactivity
+        self.snapshot().interactivity
     }
 
-    pub fn widget_metrics(&self, layout: &Frame) -> HashMap<Path, widget::Metrics> {
+    pub fn widget_metrics(&self, layout: &Frame) -> HashMap<Path, super::Metrics> {
         let mut metrics = HashMap::new();
 
         if let Some(root) = self.root.as_ref() {
@@ -252,20 +163,11 @@ impl Tree {
         metrics
     }
 
-    pub fn paint(
-        &self,
-        layout: &Frame,
-        commands: &command::Registry,
-        window: window::Id,
-        interaction: Interaction,
-        scene: &mut paint::Scene,
-    ) {
+    pub fn paint(&self, layout: &Frame, interaction: Interaction, scene: &mut paint::Scene) {
         let mut text_engine = text::layout::Engine::new();
         let text_field_states = HashMap::new();
         self.paint_with_text_engine(
             layout,
-            commands,
-            window,
             interaction,
             &text_field_states,
             &mut text_engine,
@@ -276,8 +178,6 @@ impl Tree {
     pub fn paint_with_text_engine(
         &self,
         layout: &Frame,
-        commands: &command::Registry,
-        window: window::Id,
         interaction: Interaction,
         text_field_states: &HashMap<Path, text::view::TextViewState>,
         text_engine: &mut text::layout::Engine,
@@ -285,8 +185,6 @@ impl Tree {
     ) {
         self.paint_with_text_engine_at(
             layout,
-            commands,
-            window,
             interaction,
             text_field_states,
             text_engine,
@@ -298,26 +196,22 @@ impl Tree {
     pub(crate) fn paint_with_text_engine_at(
         &self,
         layout: &Frame,
-        commands: &command::Registry,
-        window: window::Id,
         interaction: Interaction,
         text_field_states: &HashMap<Path, text::view::TextViewState>,
         text_engine: &mut text::layout::Engine,
         frame: AnimationFrame,
         scene: &mut paint::Scene,
     ) {
-        let path_states = HashMap::new();
+        let visual_states = HashMap::new();
 
         self.paint_with_scroll_projections_at(
             layout,
-            commands,
-            window,
             interaction,
             text_field_states,
             text_engine,
             frame,
             None,
-            &path_states,
+            &visual_states,
             scene,
         );
     }
@@ -325,26 +219,22 @@ impl Tree {
     pub(crate) fn paint_with_scroll_projections_at(
         &self,
         layout: &Frame,
-        commands: &command::Registry,
-        window: window::Id,
         interaction: Interaction,
         text_field_states: &HashMap<Path, text::view::TextViewState>,
         text_engine: &mut text::layout::Engine,
         frame: AnimationFrame,
-        scroll_projections: Option<&scroll::Driver>,
-        path_states: &HashMap<Path, command::State>,
+        scroll_projections: Option<&dyn scroll::Projections>,
+        visual_states: &HashMap<Path, VisualState>,
         scene: &mut paint::Scene,
     ) {
         self.paint_with_scroll_projections_recording_at(
             layout,
-            commands,
-            window,
             interaction,
             text_field_states,
             text_engine,
             frame,
             scroll_projections,
-            path_states,
+            visual_states,
             scene,
             None,
         );
@@ -353,14 +243,12 @@ impl Tree {
     pub(crate) fn paint_with_scroll_projections_recording_at(
         &self,
         layout: &Frame,
-        commands: &command::Registry,
-        window: window::Id,
         interaction: Interaction,
         text_field_states: &HashMap<Path, text::view::TextViewState>,
         text_engine: &mut text::layout::Engine,
         frame: AnimationFrame,
-        scroll_projections: Option<&scroll::Driver>,
-        path_states: &HashMap<Path, command::State>,
+        scroll_projections: Option<&dyn scroll::Projections>,
+        visual_states: &HashMap<Path, VisualState>,
         scene: &mut paint::Scene,
         mut scroll_ranges: Option<&mut painting::ScrollPaintRecords>,
     ) {
@@ -368,14 +256,12 @@ impl Tree {
             painting::tree(
                 root,
                 layout,
-                commands,
-                window,
                 &interaction,
                 text_field_states,
                 text_engine,
                 frame,
                 scroll_projections,
-                path_states,
+                visual_states,
                 scene,
                 scroll_ranges.as_deref_mut(),
             );
@@ -385,14 +271,12 @@ impl Tree {
                     painting::tree(
                         popup.root(),
                         popup_layout,
-                        commands,
-                        window,
                         &interaction,
                         text_field_states,
                         text_engine,
                         frame,
                         scroll_projections,
-                        path_states,
+                        visual_states,
                         scene,
                         scroll_ranges.as_deref_mut(),
                     );
@@ -401,30 +285,6 @@ impl Tree {
 
             painting::cursor_overlay(layout, &interaction, text_engine, scene);
         }
-    }
-
-    fn publish_responder_binding_states(
-        &self,
-        commands: &mut command::Registry,
-        window: window::Id,
-    ) -> bool {
-        let mut changed = false;
-
-        for (path, bindings) in self.responder_bindings() {
-            for binding in bindings {
-                let Some(state) = binding.state() else {
-                    continue;
-                };
-
-                changed |= commands.set_state_key(
-                    binding.command(),
-                    command::call::Context::path(window, path.clone()),
-                    state.clone(),
-                );
-            }
-        }
-
-        changed
     }
 }
 
@@ -491,43 +351,24 @@ fn text_content_rect(node: &Node, layout: &Frame) -> crate::geometry::Rect {
     crate::geometry::Rect::new(point::logical(x, y), area::logical(width, height))
 }
 
-fn popup_scope_path(tree: &Tree, popup_root: super::Id) -> Option<Path> {
-    tree.root()
-        .map(|root| Path::root(root.path_id(0)).child(popup_root))
-}
-
 impl Composition {
     fn new(
         tree: Tree,
         layout: Frame,
         open_menu: Option<menu::Id>,
         open_submenu: Option<menu::Id>,
-        menus: HashMap<menu::Id, menu::Menu>,
-        command_scope_contexts: HashMap<Path, command::call::Context>,
     ) -> Self {
-        let index = tree.index();
+        let snapshot = Snapshot::from_tree(&tree);
         let widget_metrics = tree.widget_metrics(&layout);
-        let focus_order = focus_order(&layout, &index.interactivity);
+        let focus_order = focus_order(&layout, &snapshot.interactivity);
 
         Self {
             tree,
             layout,
             open_menu,
             open_submenu,
-            menus,
-            commands: index.commands,
-            command_subjects: index.command_subjects,
-            intents: index.intents,
-            responders: index.responders,
-            responder_bindings: index.responder_bindings,
-            command_targets: index.command_targets,
-            command_scopes: index.command_scopes,
-            command_scope_contexts,
-            text_fields: index.text_fields,
-            text_surfaces: index.text_surfaces,
-            interactivity: index.interactivity,
-            path_states: HashMap::new(),
-            cursors: index.cursors,
+            snapshot,
+            visual_states: HashMap::new(),
             widget_metrics,
             focus_order,
         }
@@ -546,103 +387,114 @@ impl Composition {
     }
 
     pub fn menus(&self) -> &HashMap<menu::Id, menu::Menu> {
-        &self.menus
+        &self.snapshot.menus
     }
 
     pub fn menu(&self, id: menu::Id) -> Option<&menu::Menu> {
-        self.menus.get(&id)
+        self.snapshot.menus.get(&id)
     }
 
-    pub(crate) fn command(&self, path: &Path) -> Option<command::binding::Route> {
-        self.commands.get(path).copied()
+    pub(crate) fn action(&self, path: &Path) -> Option<action::Route> {
+        self.snapshot.actions.get(path).copied()
+    }
+
+    pub(crate) fn action_map(&self) -> &HashMap<Path, action::Route> {
+        &self.snapshot.actions
     }
 
     #[cfg(test)]
-    pub(crate) fn commands(&self) -> &HashMap<Path, command::binding::Route> {
-        &self.commands
+    pub(crate) fn actions(&self) -> &HashMap<Path, action::Route> {
+        &self.snapshot.actions
     }
 
-    pub fn command_subject(&self, path: &Path) -> CommandSubject {
-        self.command_subjects.get(path).copied().unwrap_or_default()
+    pub fn action_subject(&self, path: &Path) -> action::Subject {
+        self.snapshot
+            .action_subjects
+            .get(path)
+            .copied()
+            .unwrap_or_default()
     }
 
-    pub fn command_subjects(&self) -> &HashMap<Path, CommandSubject> {
-        &self.command_subjects
+    pub fn action_subjects(&self) -> &HashMap<Path, action::Subject> {
+        &self.snapshot.action_subjects
     }
 
     pub(crate) fn intent(&self, path: &Path) -> Option<Intent> {
-        self.intents.get(path).copied()
+        self.snapshot.intents.get(path).copied()
     }
 
     pub(crate) fn intents(&self) -> &HashMap<Path, Intent> {
-        &self.intents
+        &self.snapshot.intents
     }
 
-    pub(crate) fn responders(&self, path: &Path) -> Option<&[command::Key]> {
-        self.responders.get(path).map(Vec::as_slice)
+    pub(crate) fn responders(&self, path: &Path) -> Option<&[action::Key]> {
+        self.snapshot.responders.get(path).map(Vec::as_slice)
     }
 
-    pub(crate) fn responder_map(&self) -> &HashMap<Path, Vec<command::Key>> {
-        &self.responders
+    pub(crate) fn responder_map(&self) -> &HashMap<Path, Vec<action::Key>> {
+        &self.snapshot.responders
     }
 
     #[cfg(test)]
-    pub(crate) fn responder_bindings(&self, path: &Path) -> Option<&[command::binding::Binding]> {
-        self.responder_bindings.get(path).map(Vec::as_slice)
+    pub(crate) fn responder_bindings(&self, path: &Path) -> Option<&[action::Binding]> {
+        self.snapshot
+            .responder_bindings
+            .get(path)
+            .map(Vec::as_slice)
     }
 
-    pub(crate) fn command_targets(&self, path: &Path) -> Option<&[command::target::Kind]> {
-        self.command_targets.get(path).map(Vec::as_slice)
+    pub(crate) fn responder_binding_map(&self) -> &HashMap<Path, Vec<action::Binding>> {
+        &self.snapshot.responder_bindings
     }
 
-    pub(crate) fn command_target_map(&self) -> &HashMap<Path, Vec<command::target::Kind>> {
-        &self.command_targets
+    pub(crate) fn action_targets(&self, path: &Path) -> Option<&[action::Target]> {
+        self.snapshot.action_targets.get(path).map(Vec::as_slice)
+    }
+
+    pub(crate) fn action_target_map(&self) -> &HashMap<Path, Vec<action::Target>> {
+        &self.snapshot.action_targets
     }
 
     pub fn has_responder(&self, path: &Path) -> bool {
-        self.responders
+        self.snapshot
+            .responders
             .get(path)
-            .is_some_and(|commands| !commands.is_empty())
+            .is_some_and(|actions| !actions.is_empty())
             || self
-                .command_targets
+                .snapshot
+                .action_targets
                 .get(path)
                 .is_some_and(|targets| !targets.is_empty())
     }
 
-    pub fn command_scopes(&self) -> &[Path] {
-        &self.command_scopes
-    }
-
-    pub fn command_scope_context(&self, scope: &Path) -> Option<&command::call::Context> {
-        self.command_scope_contexts.get(scope)
-    }
-
-    pub fn command_scope_contexts(&self) -> &HashMap<Path, command::call::Context> {
-        &self.command_scope_contexts
+    pub fn action_scopes(&self) -> &[Path] {
+        &self.snapshot.action_scopes
     }
 
     pub fn text_field(&self, path: &Path) -> Option<&text::Field> {
-        self.text_surfaces
+        self.snapshot
+            .text_surfaces
             .get(path)
             .and_then(text::Surface::as_field)
     }
 
     pub fn text_area(&self, path: &Path) -> Option<&text::Area> {
-        self.text_surfaces
+        self.snapshot
+            .text_surfaces
             .get(path)
             .and_then(text::Surface::as_area)
     }
 
     pub fn text_surface(&self, path: &Path) -> Option<&text::Surface> {
-        self.text_surfaces.get(path)
+        self.snapshot.text_surfaces.get(path)
     }
 
     pub fn text_fields(&self) -> &HashMap<Path, text::Field> {
-        &self.text_fields
+        &self.snapshot.text_fields
     }
 
     pub fn text_surfaces(&self) -> &HashMap<Path, text::Surface> {
-        &self.text_surfaces
+        &self.snapshot.text_surfaces
     }
 
     pub fn text_field_edit_at(
@@ -802,17 +654,18 @@ impl Composition {
     ) -> bool {
         let mut changed = false;
         let old_len = states.len();
-        states.retain(|path, _| self.text_surfaces.contains_key(path));
+        states.retain(|path, _| self.snapshot.text_surfaces.contains_key(path));
         changed |= old_len != states.len();
 
-        for path in self.text_surfaces.keys() {
+        for path in self.snapshot.text_surfaces.keys() {
             if !states.contains_key(path) {
                 states.insert(path.clone(), text::view::TextViewState::default());
                 changed = true;
             }
         }
 
-        let Some(focused) = focused.filter(|path| self.text_surfaces.contains_key(*path)) else {
+        let Some(focused) = focused.filter(|path| self.snapshot.text_surfaces.contains_key(*path))
+        else {
             return changed;
         };
         let Some(node) = self.node(focused) else {
@@ -887,7 +740,7 @@ impl Composition {
         path: &Path,
         state: text::view::TextViewState,
         text_engine: &mut text::layout::Engine,
-    ) -> Option<widget::scroll::Metrics> {
+    ) -> Option<scroll::Metrics> {
         let node = self.node(path)?;
         let layout = self.layout.find_path(path)?;
 
@@ -902,7 +755,7 @@ impl Composition {
         now: Instant,
         content_hint: Option<(text::layout::AreaScrollKey, area::Logical)>,
     ) -> Option<(
-        widget::scroll::Metrics,
+        scroll::Metrics,
         text::layout::TextAreaPaintLayout,
         text::layout::AreaScrollKey,
         area::Logical,
@@ -928,7 +781,7 @@ impl Composition {
         now: Instant,
         content_hint: Option<(text::layout::AreaScrollKey, area::Logical)>,
     ) -> Option<(
-        widget::scroll::Metrics,
+        scroll::Metrics,
         text::layout::TextAreaPaintLayout,
         text::layout::AreaScrollKey,
         area::Logical,
@@ -953,11 +806,7 @@ impl Composition {
         text_engine: &mut text::layout::Engine,
         now: Instant,
         content_hint: Option<(text::layout::AreaScrollKey, area::Logical)>,
-    ) -> Option<(
-        widget::scroll::Metrics,
-        text::layout::AreaScrollKey,
-        area::Logical,
-    )> {
+    ) -> Option<(scroll::Metrics, text::layout::AreaScrollKey, area::Logical)> {
         let node = self.node(path)?;
         let layout = self.layout.find_path(path)?;
 
@@ -1088,7 +937,7 @@ impl Composition {
         state: text::view::TextViewState,
         text_engine: &mut text::layout::Engine,
         now: Instant,
-    ) -> Option<widget::scroll::Metrics> {
+    ) -> Option<scroll::Metrics> {
         self.text_area_scroll_metrics_for_node_with_content_hint(
             node,
             layout,
@@ -1107,7 +956,7 @@ impl Composition {
         state: text::view::TextViewState,
         text_engine: &mut text::layout::Engine,
         now: Instant,
-    ) -> Option<(widget::scroll::Metrics, text::layout::TextAreaPaintLayout)> {
+    ) -> Option<(scroll::Metrics, text::layout::TextAreaPaintLayout)> {
         self.text_area_scroll_paint_layout_for_node_with_content_hint(
             node,
             layout,
@@ -1128,7 +977,7 @@ impl Composition {
         now: Instant,
         content_hint: Option<(text::layout::AreaScrollKey, area::Logical)>,
     ) -> Option<(
-        widget::scroll::Metrics,
+        scroll::Metrics,
         text::layout::TextAreaPaintLayout,
         text::layout::AreaScrollKey,
         area::Logical,
@@ -1147,7 +996,7 @@ impl Composition {
             .label()
             .and_then(text::document::Document::first_style)
             .unwrap_or_default();
-        let viewport = widget::scroll::viewport_rect_for_axes(
+        let viewport = scroll::viewport_rect_for_axes(
             text_content_rect(node, layout),
             node.scroll()?.style(),
             metrics.active_axes(),
@@ -1173,7 +1022,7 @@ impl Composition {
         now: Instant,
         content_hint: Option<(text::layout::AreaScrollKey, area::Logical)>,
     ) -> Option<(
-        widget::scroll::Metrics,
+        scroll::Metrics,
         text::layout::TextAreaPaintLayout,
         text::layout::AreaScrollKey,
         area::Logical,
@@ -1192,7 +1041,7 @@ impl Composition {
             .label()
             .and_then(text::document::Document::first_style)
             .unwrap_or_default();
-        let viewport = widget::scroll::viewport_rect_for_axes(
+        let viewport = scroll::viewport_rect_for_axes(
             text_content_rect(node, layout),
             node.scroll()?.style(),
             metrics.active_axes(),
@@ -1218,11 +1067,7 @@ impl Composition {
         text_engine: &mut text::layout::Engine,
         now: Instant,
         content_hint: Option<(text::layout::AreaScrollKey, area::Logical)>,
-    ) -> Option<(
-        widget::scroll::Metrics,
-        text::layout::AreaScrollKey,
-        area::Logical,
-    )> {
+    ) -> Option<(scroll::Metrics, text::layout::AreaScrollKey, area::Logical)> {
         let area_model = node.text_area()?;
         let scroll = node.scroll()?;
         if !scroll.axes().is_enabled() {
@@ -1254,8 +1099,7 @@ impl Composition {
                 .active_axes(scroll.axes(), viewport_base, scroll.style(), content_area);
         if !stable_hint {
             for _ in 0..3 {
-                let viewport =
-                    widget::scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
+                let viewport = scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
                 let candidate = text_engine.text_area_metrics_layout_for_area_at(
                     area_model,
                     style,
@@ -1288,8 +1132,7 @@ impl Composition {
         }
 
         if state.caret_visibility_pending() {
-            let viewport =
-                widget::scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
+            let viewport = scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
             let width = match area_model.wrap() {
                 text::AreaWrap::None => content_area
                     .width()
@@ -1304,7 +1147,7 @@ impl Composition {
             );
         }
 
-        let metrics = widget::scroll::Metrics::resolve(
+        let metrics = scroll::Metrics::resolve(
             layout.rect(),
             viewport_base,
             content_area,
@@ -1318,36 +1161,37 @@ impl Composition {
     }
 
     pub fn interactivity(&self, path: &Path) -> Option<Interactivity> {
-        let interactivity = self.interactivity.get(path).copied()?;
-        Some(match self.path_states.get(path).cloned() {
+        let interactivity = self.snapshot.interactivity.get(path).copied()?;
+        Some(match self.visual_states.get(path).cloned() {
             Some(state) if !state.is_available() || state.is_running() => Interactivity::NONE,
             Some(_) | None => interactivity,
         })
     }
 
     pub fn interactivity_map(&self) -> &HashMap<Path, Interactivity> {
-        &self.interactivity
+        &self.snapshot.interactivity
     }
 
-    pub fn path_state(&self, path: &Path) -> Option<command::State> {
-        self.path_states.get(path).cloned()
+    pub fn visual_state(&self, path: &Path) -> Option<VisualState> {
+        self.visual_states.get(path).cloned()
     }
 
-    pub(crate) fn set_path_states(&mut self, path_states: HashMap<Path, command::State>) -> bool {
-        if self.path_states == path_states {
+    pub(crate) fn set_visual_states(&mut self, visual_states: HashMap<Path, VisualState>) -> bool {
+        if self.visual_states == visual_states {
             return false;
         }
 
-        self.path_states = path_states;
+        self.visual_states = visual_states;
         self.focus_order = focus_order(&self.layout, &self.effective_interactivity());
         true
     }
 
     fn effective_interactivity(&self) -> HashMap<Path, Interactivity> {
-        self.interactivity
+        self.snapshot
+            .interactivity
             .iter()
             .map(|(path, interactivity)| {
-                let interactivity = match self.path_states.get(path).cloned() {
+                let interactivity = match self.visual_states.get(path).cloned() {
                     Some(state) if !state.is_available() || state.is_running() => {
                         Interactivity::NONE
                     }
@@ -1360,14 +1204,14 @@ impl Composition {
     }
 
     pub fn cursor(&self, path: &Path) -> Cursor {
-        self.cursors.get(path).copied().unwrap_or_default()
+        self.snapshot.cursors.get(path).copied().unwrap_or_default()
     }
 
-    pub fn widget_metrics(&self, path: &Path) -> Option<widget::Metrics> {
+    pub fn widget_metrics(&self, path: &Path) -> Option<super::Metrics> {
         self.widget_metrics.get(path).copied()
     }
 
-    pub fn widget_metrics_iter(&self) -> impl Iterator<Item = (&Path, &widget::Metrics)> {
+    pub fn widget_metrics_iter(&self) -> impl Iterator<Item = (&Path, &super::Metrics)> {
         self.widget_metrics.iter()
     }
 
@@ -1377,16 +1221,12 @@ impl Composition {
 
     pub fn paint(
         &self,
-        commands: &command::Registry,
-        window: window::Id,
         interaction: Interaction,
         text_field_states: &HashMap<Path, text::view::TextViewState>,
         text_engine: &mut text::layout::Engine,
         scene: &mut paint::Scene,
     ) {
         self.paint_at(
-            commands,
-            window,
             interaction,
             text_field_states,
             text_engine,
@@ -1398,51 +1238,43 @@ impl Composition {
 
     pub(crate) fn paint_at(
         &self,
-        commands: &command::Registry,
-        window: window::Id,
         interaction: Interaction,
         text_field_states: &HashMap<Path, text::view::TextViewState>,
         text_engine: &mut text::layout::Engine,
         frame: AnimationFrame,
-        scroll_projections: Option<&scroll::Driver>,
+        scroll_projections: Option<&dyn scroll::Projections>,
         scene: &mut paint::Scene,
     ) {
         self.tree.paint_with_scroll_projections_at(
             &self.layout,
-            commands,
-            window,
             interaction,
             text_field_states,
             text_engine,
             frame,
             scroll_projections,
-            &self.path_states,
+            &self.visual_states,
             scene,
         );
     }
 
     pub(crate) fn paint_at_recording_scroll_ranges(
         &self,
-        commands: &command::Registry,
-        window: window::Id,
         interaction: Interaction,
         text_field_states: &HashMap<Path, text::view::TextViewState>,
         text_engine: &mut text::layout::Engine,
         frame: AnimationFrame,
-        scroll_projections: Option<&scroll::Driver>,
+        scroll_projections: Option<&dyn scroll::Projections>,
         scene: &mut paint::Scene,
     ) -> painting::ScrollPaintRecords {
         let mut ranges = painting::ScrollPaintRecords::default();
         self.tree.paint_with_scroll_projections_recording_at(
             &self.layout,
-            commands,
-            window,
             interaction,
             text_field_states,
             text_engine,
             frame,
             scroll_projections,
-            &self.path_states,
+            &self.visual_states,
             scene,
             Some(&mut ranges),
         );
@@ -1452,13 +1284,11 @@ impl Composition {
     pub(crate) fn paint_scroll_target_recording_at(
         &self,
         target: &Path,
-        commands: &command::Registry,
-        window: window::Id,
         interaction: Interaction,
         text_field_states: &HashMap<Path, text::view::TextViewState>,
         text_engine: &mut text::layout::Engine,
         frame: AnimationFrame,
-        scroll_projections: Option<&scroll::Driver>,
+        scroll_projections: Option<&dyn scroll::Projections>,
         scene: &mut paint::Scene,
     ) -> Option<painting::ScrollPaintRecords> {
         let node = self.node(target)?;
@@ -1467,14 +1297,12 @@ impl Composition {
         Some(painting::scroll_subtree_recording(
             node,
             layout,
-            commands,
-            window,
             &interaction,
             text_field_states,
             text_engine,
             frame,
             scroll_projections,
-            &self.path_states,
+            &self.visual_states,
             scene,
         ))
     }
@@ -1489,13 +1317,13 @@ impl Composition {
     pub(crate) fn for_test(
         layout: Frame,
         menus: HashMap<menu::Id, menu::Menu>,
-        commands: HashMap<Path, command::Key>,
-        command_subjects: HashMap<Path, CommandSubject>,
+        actions: HashMap<Path, action::Key>,
+        action_subjects: HashMap<Path, action::Subject>,
         intents: HashMap<Path, Intent>,
-        responders: HashMap<Path, Vec<command::Key>>,
-        command_scopes: Vec<Path>,
+        responders: HashMap<Path, Vec<action::Key>>,
+        action_scopes: Vec<Path>,
         interactivity: HashMap<Path, Interactivity>,
-        widget_metrics: HashMap<Path, widget::Metrics>,
+        widget_metrics: HashMap<Path, super::Metrics>,
         focus_order: Vec<Path>,
     ) -> Self {
         let responder_bindings = responders
@@ -1506,129 +1334,39 @@ impl Composition {
                     responders
                         .iter()
                         .copied()
-                        .map(command::binding::Binding::new)
+                        .map(action::Binding::new)
                         .collect(),
                 )
             })
             .collect();
+        let actions = actions
+            .into_iter()
+            .map(|(path, key)| (path, action::Route::new(key, action::Target::action(key))))
+            .collect();
+        let snapshot = Snapshot {
+            menus,
+            actions,
+            action_subjects,
+            intents,
+            responders,
+            responder_bindings,
+            action_targets: HashMap::new(),
+            action_scopes,
+            text_fields: HashMap::new(),
+            text_surfaces: HashMap::new(),
+            interactivity,
+            cursors: HashMap::new(),
+        };
 
         Self {
             tree: Tree::new(),
             layout,
             open_menu: None,
             open_submenu: None,
-            menus,
-            commands: commands
-                .into_iter()
-                .map(|(path, command)| {
-                    (
-                        path,
-                        command::binding::Route::new(
-                            command,
-                            command::target::Kind::command(command),
-                        ),
-                    )
-                })
-                .collect(),
-            command_subjects,
-            intents,
-            responders,
-            responder_bindings,
-            command_targets: HashMap::new(),
-            command_scopes,
-            command_scope_contexts: HashMap::new(),
-            text_fields: HashMap::new(),
-            text_surfaces: HashMap::new(),
-            interactivity,
-            path_states: HashMap::new(),
-            cursors: HashMap::new(),
+            snapshot,
+            visual_states: HashMap::new(),
             widget_metrics,
             focus_order,
-        }
-    }
-}
-
-#[derive(Default)]
-struct TreeIndex {
-    commands: HashMap<Path, command::binding::Route>,
-    command_subjects: HashMap<Path, CommandSubject>,
-    intents: HashMap<Path, Intent>,
-    responders: HashMap<Path, Vec<command::Key>>,
-    responder_bindings: HashMap<Path, Vec<command::binding::Binding>>,
-    command_targets: HashMap<Path, Vec<command::target::Kind>>,
-    command_scopes: Vec<Path>,
-    text_fields: HashMap<Path, text::Field>,
-    text_surfaces: HashMap<Path, text::Surface>,
-    interactivity: HashMap<Path, Interactivity>,
-    cursors: HashMap<Path, Cursor>,
-}
-
-impl TreeIndex {
-    fn collect_node(&mut self, node: &Node, path: &Path) {
-        if let Some(route) = node.command_route() {
-            self.commands.insert(path.clone(), route);
-            self.command_subjects
-                .insert(path.clone(), node.command_subject());
-        }
-
-        if let Some(intent) = node.intent() {
-            self.intents.insert(path.clone(), intent);
-        }
-
-        if !node.responders().is_empty() {
-            self.responders
-                .insert(path.clone(), node.responders().to_vec());
-        }
-
-        if !node.responder_bindings().is_empty() {
-            self.responder_bindings
-                .insert(path.clone(), node.responder_bindings().to_vec());
-        }
-
-        if !node.command_targets().is_empty() {
-            self.command_targets
-                .insert(path.clone(), node.command_targets().to_vec());
-        }
-
-        if node.is_command_scope() {
-            self.command_scopes.push(path.clone());
-        }
-
-        if let Some(surface) = node.text_surface() {
-            if let Some(field) = surface.as_field() {
-                self.text_fields.insert(path.clone(), field.clone());
-            }
-            self.text_surfaces.insert(path.clone(), surface.clone());
-        }
-
-        self.interactivity
-            .insert(path.clone(), node.interactivity());
-        self.cursors.insert(path.clone(), node.cursor());
-
-        for (index, child) in node.children().iter().enumerate() {
-            self.collect_node(child, &path.child(child.path_id(index)));
-        }
-    }
-}
-
-fn collect_menus(node: &Node, menus: &mut HashMap<menu::Id, menu::Menu>) {
-    if let Some(bar) = node.menu_bar() {
-        for menu in bar.menus() {
-            collect_menu(menu, menus);
-        }
-    }
-
-    for child in node.children() {
-        collect_menus(child, menus);
-    }
-}
-
-fn collect_menu(menu: &menu::Menu, menus: &mut HashMap<menu::Id, menu::Menu>) {
-    menus.insert(menu.id(), menu.clone());
-
-    for node in menu.sections().iter().flat_map(menu::Section::nodes) {
-        if let menu::Node::Submenu(submenu) = node {
-            collect_menu(submenu, menus);
         }
     }
 }
@@ -1636,14 +1374,14 @@ fn collect_menu(menu: &menu::Menu, menus: &mut HashMap<menu::Id, menu::Menu>) {
 fn collect_widget_metrics(
     node: &Node,
     layout: &Frame,
-    metrics: &mut HashMap<Path, widget::Metrics>,
+    metrics: &mut HashMap<Path, super::Metrics>,
 ) {
     if node.text_area().is_none()
-        && let Some(scroll_metrics) = widget::scroll::metrics(node, layout)
+        && let Some(scroll_metrics) = scroll::metrics(node, layout)
     {
         metrics.insert(
             layout.path().clone(),
-            widget::Metrics::Scroll(scroll_metrics),
+            super::Metrics::Scroll(scroll_metrics),
         );
     }
 

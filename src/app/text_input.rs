@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use crate::{command, text, ui, window};
 
-use super::state::WindowState;
+use super::{state::WindowState, text as app_text};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Session {
@@ -68,20 +68,8 @@ pub fn can_apply_command(
     }
 
     match command {
-        text::edit::Command::Undo => {
-            surface.is_editable()
-                && state
-                    .text
-                    .get(target)
-                    .is_some_and(text::view::TextViewState::can_undo)
-        }
-        text::edit::Command::Redo => {
-            surface.is_editable()
-                && state
-                    .text
-                    .get(target)
-                    .is_some_and(text::view::TextViewState::can_redo)
-        }
+        text::edit::Command::Undo => surface.is_editable() && state.text.can_undo(target),
+        text::edit::Command::Redo => surface.is_editable() && state.text.can_redo(target),
         other => command_would_do_work(surface, other),
     }
 }
@@ -99,23 +87,18 @@ pub fn publish_command_states(
 
     let target = CommandStateTarget::new(state);
 
+    macro_rules! project_state {
+        ($command:ty, $edit:expr, $commands:expr, $target:expr, $context:expr) => {
+            changed |= $commands.project_command_state::<$command, _>($target, $context.clone());
+        };
+    }
+
     for path in composition.text_surfaces().keys() {
         let context = command::call::Context::path(window, path.clone());
 
+        text::command::for_each_edit_command!(project_state, commands, &target, context);
         changed |= commands
-            .project_command_state::<crate::text::command::SelectAll, _>(&target, context.clone());
-        changed |= commands
-            .project_command_state::<crate::text::command::Copy, _>(&target, context.clone());
-        changed |= commands
-            .project_command_state::<crate::text::command::Cut, _>(&target, context.clone());
-        changed |= commands
-            .project_command_state::<crate::text::command::Delete, _>(&target, context.clone());
-        changed |= commands
-            .project_command_state::<crate::text::command::Paste, _>(&target, context.clone());
-        changed |= commands
-            .project_command_state::<crate::text::command::Undo, _>(&target, context.clone());
-        changed |=
-            commands.project_command_state::<crate::text::command::Redo, _>(&target, context);
+            .project_command_state::<crate::text::command::InsertText, _>(&target, context.clone());
     }
 
     changed
@@ -148,6 +131,27 @@ where
         _args: C::Args,
         _invocation: command::call::Invocation<C>,
     ) -> command::Response<C::Output> {
+        command::Response::output(text::edit::CommandResult {
+            unavailable: true,
+            ..text::edit::CommandResult::default()
+        })
+    }
+}
+
+impl command::Target<text::command::InsertText> for CommandStateTarget<'_> {
+    fn state(&self, context: &command::call::Context) -> command::State {
+        let command::call::Scope::Path(path) = context.scope() else {
+            return command::State::unavailable();
+        };
+
+        insert_text_state(self.state, path)
+    }
+
+    fn invoke(
+        &mut self,
+        _args: String,
+        _invocation: command::call::Invocation<text::command::InsertText>,
+    ) -> command::Response<text::edit::CommandResult> {
         command::Response::output(text::edit::CommandResult {
             unavailable: true,
             ..text::edit::CommandResult::default()
@@ -226,6 +230,61 @@ where
     }
 }
 
+impl command::Target<text::command::InsertText> for CommandTarget<'_> {
+    fn state(&self, context: &command::call::Context) -> command::State {
+        let command::call::Scope::Path(target) = context.scope() else {
+            return command::State::unavailable();
+        };
+
+        self.window_states
+            .values()
+            .find_map(|state| {
+                state
+                    .composition
+                    .as_ref()
+                    .and_then(|composition| composition.text_surface(target))
+                    .map(|_| insert_text_state(state, target))
+            })
+            .unwrap_or_else(command::State::unavailable)
+    }
+
+    fn invoke(
+        &mut self,
+        text: String,
+        invocation: command::call::Invocation<text::command::InsertText>,
+    ) -> command::Response<text::edit::CommandResult> {
+        let command::call::Scope::Path(target) = invocation.context().scope() else {
+            return command::Response::output(text::edit::CommandResult {
+                unavailable: true,
+                ..text::edit::CommandResult::default()
+            });
+        };
+
+        command::Response::output(apply_insert_text_for(
+            self.window_states,
+            self.text_editor,
+            self.text_engine,
+            target,
+            self.buffer,
+            text,
+        ))
+    }
+}
+
+fn insert_text_state(state: &WindowState, target: &ui::Path) -> command::State {
+    let enabled = state
+        .composition
+        .as_ref()
+        .and_then(|composition| composition.text_surface(target))
+        .is_some_and(|surface| {
+            is_editing_target(state, target)
+                && surface.is_selectable()
+                && surface.allows_text_mutation()
+        });
+
+    command::State::available_if(enabled)
+}
+
 pub(crate) fn apply_command_for(
     window_states: &mut HashMap<window::Id, WindowState>,
     text_editor: &mut text::edit::Editor,
@@ -246,9 +305,9 @@ pub(crate) fn apply_command_for(
         let Some(result) = window_states.values_mut().find_map(|state| {
             let can_apply = state
                 .text_surface(target)
-                .is_some_and(|surface| can_apply_command(state, target, surface, command.clone()));
+                .is_some_and(|surface| can_apply_command(state, target, surface, command));
 
-            can_apply.then(|| state.apply_text_history_command(target, buffer, command.clone()))
+            can_apply.then(|| state.apply_text_history_command(target, buffer, command))
         }) else {
             return text::edit::CommandResult {
                 unavailable: true,
@@ -275,7 +334,7 @@ pub(crate) fn apply_command_for(
     if !window_states.values().any(|state| {
         state
             .text_surface(target)
-            .is_some_and(|surface| can_apply_command(state, target, surface, command.clone()))
+            .is_some_and(|surface| can_apply_command(state, target, surface, command))
     }) {
         return text::edit::CommandResult {
             unavailable: true,
@@ -300,7 +359,7 @@ pub(crate) fn apply_command_for(
             state.record_text_field_history(
                 target,
                 change.clone(),
-                text::edit::HistoryKind::Boundary,
+                app_text::HistoryKind::Boundary,
                 now,
             );
         }
@@ -326,23 +385,58 @@ pub(crate) fn apply_command_for(
     result
 }
 
-pub fn text_command_for(command: command::Key) -> Option<text::edit::Command> {
-    if command == command::Key::of::<crate::text::command::SelectAll>() {
-        Some(text::edit::Command::SelectAll)
-    } else if command == command::Key::of::<crate::text::command::Copy>() {
-        Some(text::edit::Command::Copy)
-    } else if command == command::Key::of::<crate::text::command::Cut>() {
-        Some(text::edit::Command::Cut)
-    } else if command == command::Key::of::<crate::text::command::Delete>() {
-        Some(text::edit::Command::Delete)
-    } else if command == command::Key::of::<crate::text::command::Paste>() {
-        Some(text::edit::Command::Paste)
-    } else if command == command::Key::of::<crate::text::command::Undo>() {
-        Some(text::edit::Command::Undo)
-    } else if command == command::Key::of::<crate::text::command::Redo>() {
-        Some(text::edit::Command::Redo)
-    } else {
-        None
+pub(crate) fn apply_insert_text_for(
+    window_states: &mut HashMap<window::Id, WindowState>,
+    text_editor: &mut text::edit::Editor,
+    text_engine: &mut text::layout::Engine,
+    target: &ui::Path,
+    buffer: &mut text::Buffer,
+    inserted: String,
+) -> text::edit::CommandResult {
+    let edit = text::edit::Edit::insert(inserted);
+    if !window_states
+        .values()
+        .any(|state| state.can_apply_text_edit(target, &edit))
+    {
+        return text::edit::CommandResult {
+            unavailable: true,
+            ..text::edit::CommandResult::default()
+        };
+    }
+
+    let scroll_anchors = window_states
+        .iter()
+        .map(|(window, state)| (*window, state.text_area_scroll_anchor(target)))
+        .collect::<HashMap<_, _>>();
+    let history_kind = app_text::HistoryKind::for_edit(&edit);
+    let result = text_editor.apply_text_edit_with_result(buffer, edit);
+    if result.text_changed {
+        text_engine.invalidate_text_area_for_edit(buffer, &result.impacts);
+    }
+    if let Some(change) = result.change.clone() {
+        let now = Instant::now();
+        for state in window_states.values_mut() {
+            state.record_text_field_history(target, change.clone(), history_kind.clone(), now);
+        }
+    }
+
+    if result.buffer_changed() {
+        let now = Instant::now();
+        for (window, state) in window_states.iter_mut() {
+            state.ensure_text_caret_visible_after_edit(
+                target,
+                now,
+                text_engine,
+                scroll_anchors.get(window).copied().flatten(),
+            );
+        }
+    }
+
+    text::edit::CommandResult {
+        text_changed: result.text_changed,
+        selection_changed: result.selection_changed,
+        clipboard_changed: false,
+        unavailable: false,
     }
 }
 
@@ -398,13 +492,11 @@ fn resolve_session_target(state: &WindowState) -> Option<ui::Path> {
 
 #[cfg(test)]
 mod tests {
-    use glyphon::cosmic_text::Motion;
-
     use crate::app::focus;
     use crate::app::state::{Focus, FocusState};
     use crate::geometry::area;
     use crate::widget::menu;
-    use crate::{command, layout, widget};
+    use crate::{command, ui::layout, widget};
 
     use super::*;
 
@@ -443,7 +535,10 @@ mod tests {
             &mut buffer,
             text::edit::Edit::set_cursor(text::buffer::Cursor::new(0, 2)),
         );
-        editor.apply_text_edit(&mut buffer, text::edit::Edit::extend_motion(Motion::Right));
+        editor.apply_text_edit(
+            &mut buffer,
+            text::edit::Edit::extend_position(text::TextMotion::VisualRight),
+        );
 
         buffer
     }
@@ -459,7 +554,6 @@ mod tests {
 
     fn state(field: impl Into<text::Field>, focused: bool) -> WindowState {
         let mut tree = ui::Tree::new();
-        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
 
         tree.set_root(
@@ -468,13 +562,7 @@ mod tests {
                 .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(32.0)),
         );
         let composition = tree
-            .compose(
-                window(),
-                area::logical(120.0, 32.0),
-                &mut registry,
-                &[],
-                &mut text_engine,
-            )
+            .compose(area::logical(120.0, 32.0), &mut text_engine)
             .expect("text field tree should compose");
 
         let mut state = WindowState {
@@ -512,7 +600,6 @@ mod tests {
 
     fn two_field_state(focused: ui::Id) -> WindowState {
         let mut tree = ui::Tree::new();
-        let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
 
         tree.set_root(
@@ -530,13 +617,7 @@ mod tests {
                 ),
         );
         let composition = tree
-            .compose(
-                window(),
-                area::logical(120.0, 64.0),
-                &mut registry,
-                &[],
-                &mut text_engine,
-            )
+            .compose(area::logical(120.0, 64.0), &mut text_engine)
             .expect("two-field tree should compose");
 
         let mut state = WindowState {
@@ -588,13 +669,7 @@ mod tests {
                 ),
         );
         let composition = tree
-            .compose(
-                window(),
-                area::logical(200.0, 96.0),
-                &mut registry,
-                &[],
-                &mut text_engine,
-            )
+            .compose(area::logical(200.0, 96.0), &mut text_engine)
             .expect("two-field menu tree should compose");
 
         let mut state = WindowState {
@@ -604,7 +679,9 @@ mod tests {
                 ui::focus::Reason::Keyboard,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(command::call::Scope::Path(child_path(focused))),
+            command: crate::app::command::State::with_subject(command::call::Scope::Path(
+                child_path(focused),
+            )),
             ..WindowState::default()
         };
         sync_session(&mut state);
@@ -725,7 +802,7 @@ mod tests {
         state.record_text_field_history(
             &path(FIELD),
             result.change.expect("insert should change text"),
-            text::edit::HistoryKind::Typing("!".to_owned()),
+            app_text::HistoryKind::Typing("!".to_owned()),
             std::time::Instant::now(),
         );
 
@@ -768,7 +845,7 @@ mod tests {
     #[test]
     fn stale_command_subject_cannot_override_text_session() {
         let mut state = two_field_state(OTHER_FIELD);
-        state.command_subject = Some(command::call::Scope::Path(child_path(FIELD)));
+        state.command.subject = Some(command::call::Scope::Path(child_path(FIELD)));
 
         assert_eq!(editing_target(&state), Some(child_path(OTHER_FIELD)));
         assert_eq!(
@@ -791,7 +868,7 @@ mod tests {
 
     #[test]
     fn closed_menu_title_focus_does_not_leave_stale_text_restore_scope() {
-        let (mut state, registry) = two_field_menu_state(FIELD);
+        let (mut state, mut registry) = two_field_menu_state(FIELD);
         let menu_title = menu_title_path(0);
 
         assert!(state.set_focus(
@@ -816,7 +893,12 @@ mod tests {
         ));
         assert_eq!(editing_target(&state), Some(child_path(OTHER_FIELD)));
 
-        assert!(state.toggle_menu(FILE, &registry, window(), command::call::Source::Pointer,));
+        assert!(state.toggle_menu(
+            FILE,
+            &mut registry,
+            window(),
+            command::call::Source::Pointer,
+        ));
         assert!(state.focus.restores_to(&child_path(OTHER_FIELD)));
         assert!(!state.focus.restores_to(&child_path(FIELD)));
     }

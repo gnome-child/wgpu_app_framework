@@ -12,8 +12,8 @@ pub struct Definition {
     contract: Contract,
     shortcuts: Vec<Shortcut>,
     call: CallFactory,
-    target_invoker: Option<TargetInvoker>,
-    target_state: Option<TargetState>,
+    target_invokers: Vec<TargetInvoker>,
+    target_states: Vec<TargetState>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -55,8 +55,7 @@ impl Definition {
         C: Command,
         TTarget: Target<C> + 'static,
     {
-        Self::for_target::<C>(target::Kind::of_type::<TTarget>())
-            .with_target_invoker::<C, TTarget>()
+        Self::for_target::<C>(C::target()).with_target_invoker::<C, TTarget>()
     }
 
     pub(crate) fn for_target<C: Command>(target: target::Kind) -> Self {
@@ -70,8 +69,8 @@ impl Definition {
             },
             shortcuts: Vec::new(),
             call: CallFactory::of::<C>(),
-            target_invoker: None,
-            target_state: None,
+            target_invokers: Vec::new(),
+            target_states: Vec::new(),
         }
     }
 
@@ -123,23 +122,67 @@ impl Definition {
     }
 
     pub fn shortcut(mut self, shortcut: Shortcut) -> Self {
-        self.shortcuts.push(shortcut);
+        if !self.shortcuts.contains(&shortcut) {
+            self.shortcuts.push(shortcut);
+        }
         self
+    }
+
+    pub(crate) fn can_merge(&self, other: &Self) -> bool {
+        self.key == other.key && self.target() == other.target()
+    }
+
+    pub(crate) fn merge(&mut self, mut other: Self) {
+        if self.hint.is_none() {
+            self.hint = other.hint.take();
+        }
+        self.contract.repeatable |= other.contract.repeatable;
+
+        for shortcut in other.shortcuts {
+            if !self.shortcuts.contains(&shortcut) {
+                self.shortcuts.push(shortcut);
+            }
+        }
+
+        for invoker in other.target_invokers {
+            if !self
+                .target_invokers
+                .iter()
+                .any(|existing| existing.target == invoker.target)
+            {
+                self.target_invokers.push(invoker);
+            }
+        }
+
+        for state in other.target_states {
+            if !self
+                .target_states
+                .iter()
+                .any(|existing| existing.target == state.target)
+            {
+                self.target_states.push(state);
+            }
+        }
     }
 
     pub(crate) fn invoke_target(
         &self,
         registry: &super::Registry,
+        target_kind: target::Kind,
         target: &mut dyn StdAny,
         call: Any,
     ) -> Result<ErasedResponse, super::registry::Rejection> {
-        let Some(invoker) = self.target_invoker else {
+        let Some(invoker) = self
+            .target_invokers
+            .iter()
+            .find(|invoker| invoker.target == target_kind)
+        else {
             return Err(super::registry::Rejection::UnresolvedTarget {
                 command: self.key.as_str(),
             });
         };
 
-        if call.target() != invoker.target {
+        if call.target() != self.target() {
             return Err(super::registry::Rejection::UnresolvedTarget {
                 command: self.key.as_str(),
             });
@@ -154,20 +197,16 @@ impl Definition {
         target: &dyn StdAny,
         context: &super::call::Context,
     ) -> Option<State> {
-        let reader = self.target_state?;
-        if target_kind != reader.target || self.target() != reader.target {
-            return None;
-        }
+        let reader = self
+            .target_states
+            .iter()
+            .find(|reader| reader.target == target_kind)?;
 
         (reader.read)(target, context)
     }
 
     pub(crate) fn fallback_state(&self) -> State {
-        if self.target_state.is_some() {
-            State::available()
-        } else {
-            State::unavailable()
-        }
+        State::unavailable()
     }
 
     fn with_target_invoker<C, TTarget>(mut self) -> Self
@@ -175,15 +214,53 @@ impl Definition {
         C: Command,
         TTarget: Target<C> + 'static,
     {
-        self.target_invoker = Some(TargetInvoker {
-            target: target::Kind::of_type::<TTarget>(),
-            invoke: invoke_target::<C, TTarget>,
-        });
-        self.target_state = Some(TargetState {
-            target: target::Kind::of_type::<TTarget>(),
-            read: target_state::<C, TTarget>,
-        });
+        let target = target::Kind::of_type::<TTarget>();
+        if !self
+            .target_invokers
+            .iter()
+            .any(|invoker| invoker.target == target)
+        {
+            self.target_invokers.push(TargetInvoker {
+                target,
+                invoke: invoke_target::<C, TTarget>,
+            });
+        }
+        if !self
+            .target_states
+            .iter()
+            .any(|state| state.target == target)
+        {
+            self.target_states.push(TargetState {
+                target,
+                read: target_state::<C, TTarget>,
+            });
+        }
         self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn target_count(&self) -> usize {
+        self.target_invokers.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn has_target<TTarget: 'static>(&self) -> bool {
+        let target = target::Kind::of_type::<TTarget>();
+        self.target_invokers
+            .iter()
+            .any(|invoker| invoker.target == target)
+    }
+
+    pub(crate) fn can_invoke_target(
+        &self,
+        call_target: target::Kind,
+        target_kind: target::Kind,
+    ) -> bool {
+        self.target() == call_target
+            && self
+                .target_invokers
+                .iter()
+                .any(|invoker| invoker.target == target_kind)
     }
 }
 
@@ -256,8 +333,8 @@ impl fmt::Debug for Definition {
             .field("hint", &self.hint)
             .field("contract", &self.contract)
             .field("shortcuts", &self.shortcuts)
-            .field("target_invoker", &self.target_invoker.is_some())
-            .field("target_state", &self.target_state.is_some())
+            .field("target_invokers", &self.target_invokers.len())
+            .field("target_states", &self.target_states.len())
             .finish_non_exhaustive()
     }
 }

@@ -8,9 +8,12 @@ use crate::command::definition::Definition;
 use crate::command::registry::{RegisterError, Rejection};
 use crate::command::shortcut::Shortcut;
 use crate::text::command::{Copy, InsertText, Paste, SelectAll};
-use crate::{ui, window};
+use crate::{
+    path::{Id, Path},
+    window,
+};
 
-const TEXT_BOX: ui::Id = ui::Id::new("text_box");
+const TEXT_BOX: Id = Id::new("text_box");
 
 struct CustomFlag;
 struct SaveAs;
@@ -49,7 +52,19 @@ const COPY: Key = Key::of::<Copy>();
 const INSERT_TEXT: Key = Key::of::<InsertText>();
 const CUSTOM_FLAG: Key = Key::of::<CustomFlag>();
 
+fn route<C: Command>() -> binding::Route {
+    binding::Route::new(Key::of::<C>(), C::target())
+}
+
+fn raw<C: Command>(source: Source, context: Context) -> Raw {
+    Raw::from_route(route::<C>(), source, context)
+}
+
 struct FlagTarget {
+    value: bool,
+}
+
+struct OtherFlagTarget {
     value: bool,
 }
 
@@ -64,10 +79,21 @@ impl Target<CustomFlag> for FlagTarget {
     }
 }
 
+impl Target<CustomFlag> for OtherFlagTarget {
+    fn state(&self, _context: &Context) -> State {
+        State::active_if(self.value)
+    }
+
+    fn invoke(&mut self, args: bool, _invocation: Invocation<CustomFlag>) -> Response<()> {
+        self.value = args;
+        Response::none()
+    }
+}
+
 #[test]
 fn unregistered_command_is_disabled() {
     let registry = Registry::new();
-    let context = Context::path(window::Id::new(1), ui::Path::from(TEXT_BOX));
+    let context = Context::path(window::Id::new(1), Path::from(TEXT_BOX));
 
     assert_eq!(
         registry.state_key(SELECT_ALL, context),
@@ -84,12 +110,12 @@ fn context_specific_state_wins_over_window_fallback() {
     registry.set_state_key(SELECT_ALL, Context::window(window), State::unavailable());
     registry.set_state_key(
         SELECT_ALL,
-        Context::path(window, ui::Path::from(TEXT_BOX)),
+        Context::path(window, Path::from(TEXT_BOX)),
         State::active(),
     );
 
     assert_eq!(
-        registry.state_key(SELECT_ALL, Context::path(window, ui::Path::from(TEXT_BOX))),
+        registry.state_key(SELECT_ALL, Context::path(window, Path::from(TEXT_BOX))),
         State::active()
     );
 }
@@ -97,17 +123,13 @@ fn context_specific_state_wins_over_window_fallback() {
 #[test]
 fn unavailable_and_running_commands_reject_prepared_calls() {
     let mut registry = Registry::new();
-    let context = Context::path(window::Id::new(1), ui::Path::from(TEXT_BOX));
+    let context = Context::path(window::Id::new(1), Path::from(TEXT_BOX));
 
     registry.define::<SelectAll, TestTarget>(|command| command);
     registry.set_state_key(SELECT_ALL, context.clone(), State::unavailable());
 
     assert_eq!(
-        registry.prepare_call(Raw::from_key(
-            SELECT_ALL,
-            Source::Programmatic,
-            context.clone()
-        )),
+        registry.prepare_call(raw::<SelectAll>(Source::Programmatic, context.clone())),
         Err(Rejection::Disabled {
             command: SelectAll::NAME,
             context: context.clone(),
@@ -118,11 +140,7 @@ fn unavailable_and_running_commands_reject_prepared_calls() {
     registry.set_running_key(SELECT_ALL, context.clone(), true);
 
     assert_eq!(
-        registry.prepare_call(Raw::from_key(
-            SELECT_ALL,
-            Source::Programmatic,
-            context.clone()
-        )),
+        registry.prepare_call(raw::<SelectAll>(Source::Programmatic, context.clone())),
         Err(Rejection::Running {
             command: SelectAll::NAME,
             context,
@@ -176,8 +194,9 @@ fn registry_projects_registered_target_state() {
 
     assert_eq!(
         registry.configured_state::<CustomFlag>(context.clone()),
-        State::available()
+        State::unavailable()
     );
+    assert!(!registry.can_invoke::<CustomFlag>(context.clone()));
     assert!(registry.project_target_states(&target, context.clone()));
     assert_eq!(
         registry.configured_state::<CustomFlag>(context),
@@ -186,17 +205,15 @@ fn registry_projects_registered_target_state() {
 }
 
 #[test]
-fn registry_rejects_duplicate_commands_and_shortcuts_atomically() {
+fn registry_merges_duplicate_command_definitions_and_rejects_shortcut_conflicts_atomically() {
     let mut registry = Registry::new();
     let shortcut = Shortcut::ctrl('a');
 
     registry.define::<SelectAll, TestTarget>(|command| command.shortcut(shortcut));
 
     assert_eq!(
-        registry.try_define::<SelectAll, TestTarget>(|command| command),
-        Err(RegisterError::DuplicateCommand {
-            command: SelectAll::NAME,
-        })
+        registry.try_define::<SelectAll, TestTarget>(|command| command.shortcut(shortcut)),
+        Ok(())
     );
     assert_eq!(
         registry.try_define::<Copy, TestTarget>(|command| command.shortcut(shortcut)),
@@ -213,6 +230,55 @@ fn registry_rejects_duplicate_commands_and_shortcuts_atomically() {
             .map(|route| route.command()),
         Some(SELECT_ALL)
     );
+}
+
+#[test]
+fn registry_merges_multiple_concrete_targets_for_one_command_kind() {
+    let mut registry = Registry::new();
+    let window = window::Id::new(1);
+    let first_context = Context::path(window, Path::from(Id::new("first")));
+    let second_context = Context::path(window, Path::from(Id::new("second")));
+    let mut first = FlagTarget { value: false };
+    let mut second = OtherFlagTarget { value: true };
+
+    registry.commands(|commands| {
+        commands
+            .define::<CustomFlag, FlagTarget>(|command| command)
+            .define::<CustomFlag, OtherFlagTarget>(|command| command.shortcut(Shortcut::ctrl('f')));
+    });
+
+    let definition = registry
+        .command::<CustomFlag>()
+        .expect("merged command should be registered");
+    assert_eq!(definition.target_count(), 2);
+    assert!(definition.has_target::<FlagTarget>());
+    assert!(definition.has_target::<OtherFlagTarget>());
+
+    assert!(registry.project_target_states(&first, first_context.clone()));
+    assert!(registry.project_target_states(&second, second_context.clone()));
+    assert_eq!(
+        registry.configured_state::<CustomFlag>(first_context.clone()),
+        State::available()
+    );
+    assert_eq!(
+        registry.configured_state::<CustomFlag>(second_context.clone()),
+        State::active()
+    );
+
+    let first_call = Call::<CustomFlag>::for_context::<FlagTarget>(true, first_context)
+        .expect("bool args should validate");
+    let second_call = Call::<CustomFlag>::for_context::<OtherFlagTarget>(false, second_context)
+        .expect("bool args should validate");
+
+    registry
+        .invoke_any_on(&mut first, super::call::Any::new(first_call))
+        .expect("first concrete target should invoke");
+    registry
+        .invoke_any_on(&mut second, super::call::Any::new(second_call))
+        .expect("second concrete target should invoke");
+
+    assert!(first.value);
+    assert!(!second.value);
 }
 
 #[test]
@@ -255,7 +321,7 @@ fn built_in_edit_commands_expose_expected_metadata() {
 
     assert_eq!(default.target(), text_target);
     assert_eq!(paste.target(), text_target);
-    assert_eq!(insert.target(), target::Kind::of_type::<TestTarget>());
+    assert_eq!(insert.target(), InsertText::target());
     assert!(!default.accepts_repeat());
     assert!(insert.accepts_repeat());
     assert!(paste.accepts_repeat());
@@ -268,14 +334,14 @@ fn command_macro_defines_typed_command_metadata() {
     assert_eq!(MacroGenerated::NAME, "macro_generated");
     assert_eq!(MacroGenerated::DISPLAY, "Macro Generated");
     assert_eq!(command.hint(), Some("Generated by command macro"));
-    assert_eq!(command.target(), target::Kind::of_type::<TestTarget>());
+    assert_eq!(command.target(), MacroGenerated::target());
     assert!(command.accepts_repeat());
 }
 
 #[test]
 fn raw_and_invocation_preserve_source_context_and_origin() {
     let window = window::Id::new(1);
-    let path = ui::Path::from(TEXT_BOX);
+    let path = Path::from(TEXT_BOX);
     let context = Context::path(window, path.clone());
     let request = Raw::from_key(SELECT_ALL, Source::Shortcut, context.clone())
         .with_args(args::Raw::Bool(true))
@@ -305,7 +371,7 @@ fn typed_call_can_be_unresolved_scope_first() {
 #[test]
 fn typed_call_erases_args_into_raw_call_after_context_resolution() {
     let window = window::Id::new(1);
-    let path = ui::Path::from(TEXT_BOX);
+    let path = Path::from(TEXT_BOX);
     let context = Context::path(window, path.clone());
     let call = Call::<InsertText>::for_context::<TestTarget>("abc".to_owned(), context.clone())
         .expect("string args should validate")
@@ -329,7 +395,7 @@ fn typed_call_erases_args_into_raw_call_after_context_resolution() {
 #[test]
 fn typed_call_can_preserve_invocation_context() {
     let window = window::Id::new(1);
-    let path = ui::Path::from(TEXT_BOX);
+    let path = Path::from(TEXT_BOX);
     let context = Context::path(window, path.clone());
     let invocation =
         Invocation::new::<SelectAll>(Source::Shortcut, context.clone()).with_origin(path.clone());
@@ -362,10 +428,9 @@ fn repeated_invocation_round_trips_through_call_and_raw() {
 #[test]
 fn registry_prepares_any_call_for_target_dispatch() {
     let window = window::Id::new(1);
-    let path = ui::Path::from(TEXT_BOX);
+    let path = Path::from(TEXT_BOX);
     let context = Context::path(window, path.clone());
-    let request =
-        Raw::from_key(SELECT_ALL, Source::Shortcut, context.clone()).with_origin(path.clone());
+    let request = raw::<SelectAll>(Source::Shortcut, context.clone()).with_origin(path.clone());
     let mut registry = Registry::new();
 
     registry.define::<SelectAll, TestTarget>(|command| command);
@@ -441,8 +506,8 @@ fn registry_rejects_invalid_decoded_args_for_raw_calls() {
 fn registry_rejects_wrong_payload_shape_through_args_decoder() {
     let mut registry = Registry::new();
     let context = Context::window(window::Id::new(1));
-    let request = Raw::from_key(INSERT_TEXT, Source::Programmatic, context.clone())
-        .with_args(args::Raw::Bool(true));
+    let request =
+        raw::<InsertText>(Source::Programmatic, context.clone()).with_args(args::Raw::Bool(true));
 
     registry.define::<InsertText, TestTarget>(|command| command);
     registry.set_state_key(INSERT_TEXT, context.clone(), State::available());
@@ -459,7 +524,7 @@ fn registry_rejects_wrong_payload_shape_through_args_decoder() {
 #[test]
 fn typed_call_builds_requested_context_from_window_and_scope() {
     let window = window::Id::new(1);
-    let path = ui::Path::from(TEXT_BOX);
+    let path = Path::from(TEXT_BOX);
     let call = Call::<InsertText>::for_window::<TestTarget>("abc".to_owned(), window)
         .expect("string args should validate")
         .with_scope(Scope::Path(path.clone()));
@@ -610,10 +675,10 @@ fn can_execute_uses_args_decoder_for_payload_validation() {
     registry.register(Definition::for_command::<InsertText, TestTarget>());
     registry.set_state_key(INSERT_TEXT, context.clone(), State::available());
 
-    let insert_request = Raw::from_key(INSERT_TEXT, Source::Programmatic, context.clone())
+    let insert_request = raw::<InsertText>(Source::Programmatic, context.clone())
         .with_args(args::Raw::Text("abc".to_owned()));
     let bad_insert_request =
-        Raw::from_key(INSERT_TEXT, Source::Programmatic, context).with_args(args::Raw::Bool(true));
+        raw::<InsertText>(Source::Programmatic, context).with_args(args::Raw::Bool(true));
 
     assert!(registry.can_execute(&insert_request));
     assert!(!registry.can_execute(&bad_insert_request));

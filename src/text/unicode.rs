@@ -81,7 +81,7 @@ pub(super) fn ceil_grapheme_boundary(text: &str, index: usize) -> usize {
         .unwrap_or(text.len())
 }
 
-pub(super) fn previous_grapheme_boundary(text: &str, index: usize) -> usize {
+pub(crate) fn previous_grapheme_boundary(text: &str, index: usize) -> usize {
     let index = floor_boundary(text, index);
     source_grapheme_boundaries(text)
         .into_iter()
@@ -90,7 +90,7 @@ pub(super) fn previous_grapheme_boundary(text: &str, index: usize) -> usize {
         .unwrap_or(0)
 }
 
-pub(super) fn next_grapheme_boundary(text: &str, index: usize) -> usize {
+pub(crate) fn next_grapheme_boundary(text: &str, index: usize) -> usize {
     let index = floor_boundary(text, index);
     source_grapheme_boundaries(text)
         .into_iter()
@@ -113,7 +113,7 @@ pub(super) fn word_boundaries(text: &str) -> Vec<usize> {
     boundaries
 }
 
-pub(super) fn previous_word_boundary(text: &str, index: usize) -> usize {
+pub(crate) fn previous_word_boundary(text: &str, index: usize) -> usize {
     let index = floor_boundary(text, index);
     word_boundaries(text)
         .into_iter()
@@ -122,7 +122,7 @@ pub(super) fn previous_word_boundary(text: &str, index: usize) -> usize {
         .unwrap_or(0)
 }
 
-pub(super) fn next_word_boundary(text: &str, index: usize) -> usize {
+pub(crate) fn next_word_boundary(text: &str, index: usize) -> usize {
     let index = floor_boundary(text, index);
     word_boundaries(text)
         .into_iter()
@@ -158,7 +158,7 @@ pub(super) fn paragraph_end_boundary(text: &str, index: usize) -> usize {
         .unwrap_or(text.len())
 }
 
-pub(super) fn floor_boundary(text: &str, index: usize) -> usize {
+pub(crate) fn floor_boundary(text: &str, index: usize) -> usize {
     let mut index = index.min(text.len());
     while index > 0 && !text.is_char_boundary(index) {
         index -= 1;

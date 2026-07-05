@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::geometry::{Rect, area, point};
 use crate::widget::menu;
 use crate::{command, ui, widget};
@@ -5,12 +7,26 @@ use crate::{command, ui, widget};
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct State {
     surfaces: Vec<ui::floating::Surface>,
+    command_contexts: HashMap<ui::Id, command::call::Context>,
+    sources: HashMap<ui::Id, command::call::Source>,
     pending_keyboard_focus: bool,
 }
 
 impl State {
     pub fn surfaces(&self) -> &[ui::floating::Surface] {
         &self.surfaces
+    }
+
+    pub fn command_context(
+        &self,
+        surface: &ui::floating::Surface,
+    ) -> Option<&command::call::Context> {
+        self.command_contexts.get(&surface.root_id())
+    }
+
+    #[cfg(test)]
+    pub fn source(&self, surface: &ui::floating::Surface) -> Option<command::call::Source> {
+        self.sources.get(&surface.root_id()).copied()
     }
 
     pub fn open_menu(&self) -> Option<menu::Id> {
@@ -51,15 +67,15 @@ impl State {
             || self.context_menu().is_some();
         let pending_keyboard_focus =
             focus_policy == ui::floating::FocusPolicy::FocusFirstEnabledRow;
-        self.surfaces.clear();
-        self.surfaces.push(ui::floating::Surface::new(
+        self.clear_surfaces();
+        self.push_surface(
             ui::floating::Kind::Menu(menu),
             widget::MENU_POPUP,
             zero_rect_anchor(),
             command_context,
             source,
             focus_policy,
-        ));
+        );
         self.pending_keyboard_focus = pending_keyboard_focus;
         changed
     }
@@ -85,17 +101,17 @@ impl State {
                     ui::floating::Kind::Menu(_) | ui::floating::Kind::Submenu(_)
                 )
             })
-            .map(|surface| surface.command_context().clone())
+            .and_then(|surface| self.command_context(surface).cloned())
             .unwrap_or(fallback_command_context);
         self.close_kind(|kind| matches!(kind, ui::floating::Kind::Submenu(_)));
-        self.surfaces.push(ui::floating::Surface::new(
+        self.push_surface(
             ui::floating::Kind::Submenu(menu),
             widget::MENU_SUBMENU_POPUP,
             zero_rect_anchor(),
             command_context,
             source,
             ui::floating::FocusPolicy::PreserveCurrentFocus,
-        ));
+        );
         self.pending_keyboard_focus = false;
         changed
     }
@@ -123,15 +139,15 @@ impl State {
         };
         let pending_keyboard_focus =
             focus_policy == ui::floating::FocusPolicy::FocusFirstEnabledRow;
-        self.surfaces.clear();
-        self.surfaces.push(ui::floating::Surface::new(
+        self.clear_surfaces();
+        self.push_surface(
             ui::floating::Kind::ContextMenu { target },
             widget::TEXT_CONTEXT_MENU_POPUP,
             ui::floating::Anchor::Point(anchor),
             command_context,
             source,
             focus_policy,
-        ));
+        );
         self.pending_keyboard_focus = pending_keyboard_focus;
         changed
     }
@@ -142,7 +158,7 @@ impl State {
 
     pub fn close_all(&mut self) -> bool {
         let changed = !self.surfaces.is_empty() || self.pending_keyboard_focus;
-        self.surfaces.clear();
+        self.clear_surfaces();
         self.pending_keyboard_focus = false;
         changed
     }
@@ -164,12 +180,49 @@ impl State {
 
     fn close_kind(&mut self, matches: impl Fn(&ui::floating::Kind) -> bool) -> bool {
         let old_len = self.surfaces.len();
+        let removed_roots = self
+            .surfaces
+            .iter()
+            .filter(|surface| matches(surface.kind()))
+            .map(ui::floating::Surface::root_id)
+            .collect::<Vec<_>>();
+
         self.surfaces.retain(|surface| !matches(surface.kind()));
+        for root in removed_roots {
+            self.command_contexts.remove(&root);
+            self.sources.remove(&root);
+        }
+
         let changed = self.surfaces.len() != old_len;
         if changed {
             self.pending_keyboard_focus = false;
         }
         changed
+    }
+
+    fn push_surface(
+        &mut self,
+        kind: ui::floating::Kind,
+        root_id: ui::Id,
+        anchor: ui::floating::Anchor,
+        command_context: command::call::Context,
+        source: command::call::Source,
+        focus_policy: ui::floating::FocusPolicy,
+    ) {
+        self.surfaces.push(ui::floating::Surface::new(
+            kind,
+            root_id,
+            anchor,
+            focus_policy,
+        ));
+        self.command_contexts.insert(root_id, command_context);
+        self.sources.insert(root_id, source);
+    }
+
+    fn clear_surfaces(&mut self) {
+        self.surfaces.clear();
+        self.command_contexts.clear();
+        self.sources.clear();
     }
 }
 
@@ -290,6 +343,9 @@ mod tests {
         );
         assert!(state.show_submenu(PANELS, context(), command::call::Source::Pointer));
 
-        assert_eq!(state.surfaces()[1].command_context(), &parent_context);
+        assert_eq!(
+            state.command_context(&state.surfaces()[1]),
+            Some(&parent_context)
+        );
     }
 }

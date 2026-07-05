@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{Command, command};
+use crate::{Command, action, command};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Id(Repr);
@@ -38,7 +38,7 @@ pub enum Node {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Item {
-    route: command::binding::Route,
+    route: action::Route,
     label: Option<String>,
 }
 
@@ -131,11 +131,11 @@ impl Menu {
         &self.sections
     }
 
-    pub(crate) fn commands(&self) -> impl Iterator<Item = command::binding::Route> + '_ {
-        let mut commands = Vec::new();
-        self.collect_commands(&mut commands);
+    pub(crate) fn actions(&self) -> impl Iterator<Item = action::Route> + '_ {
+        let mut actions = Vec::new();
+        self.collect_actions(&mut actions);
 
-        commands.into_iter()
+        actions.into_iter()
     }
 
     pub fn find(&self, id: Id) -> Option<&Menu> {
@@ -152,9 +152,9 @@ impl Menu {
             })
     }
 
-    fn collect_commands(&self, commands: &mut Vec<command::binding::Route>) {
+    fn collect_actions(&self, actions: &mut Vec<action::Route>) {
         for section in self.sections() {
-            section.collect_commands(commands);
+            section.collect_actions(actions);
         }
     }
 
@@ -213,11 +213,11 @@ impl Section {
         &self.nodes
     }
 
-    fn collect_commands(&self, commands: &mut Vec<command::binding::Route>) {
+    fn collect_actions(&self, actions: &mut Vec<action::Route>) {
         for node in &self.nodes {
             match node {
-                Node::Item(item) => commands.push(item.route()),
-                Node::Submenu(menu) => menu.collect_commands(commands),
+                Node::Item(item) => actions.push(item.route()),
+                Node::Submenu(menu) => menu.collect_actions(actions),
                 Node::Separator => {}
             }
         }
@@ -244,36 +244,38 @@ impl Item {
         C: Command,
         TTarget: command::Target<C> + 'static,
     {
-        Self::from_route(command::binding::Route::invokes::<C, TTarget>())
+        Self::from_action(command::binding::Route::invokes::<C, TTarget>().action())
     }
 
     pub fn text<C>() -> Self
     where
         C: crate::text::command::EditCommand,
     {
-        Self::from_route(command::binding::Route::new(
-            command::Key::of::<C>(),
-            crate::text::command::text_target_kind(),
-        ))
+        Self::from_action(
+            command::binding::Route::new(
+                command::Key::of::<C>(),
+                crate::text::command::text_target_kind(),
+            )
+            .action(),
+        )
     }
 
     #[cfg(test)]
     pub(crate) fn key(command: command::Key) -> Self {
-        Self::from_route(command::binding::Route::new(
-            command,
-            command::target::Kind::command(command),
-        ))
+        Self::from_action(
+            command::binding::Route::new(command, command::target::Kind::command(command)).action(),
+        )
     }
 
-    pub(crate) fn from_route(route: command::binding::Route) -> Self {
+    pub(crate) fn from_action(route: action::Route) -> Self {
         Self { route, label: None }
     }
 
-    pub(crate) fn command(&self) -> command::Key {
-        self.route.command()
+    pub(crate) fn action(&self) -> action::Key {
+        self.route.key()
     }
 
-    pub(crate) fn route(&self) -> command::binding::Route {
+    pub(crate) fn route(&self) -> action::Route {
         self.route
     }
 
@@ -361,10 +363,10 @@ mod tests {
         ));
         assert_eq!(
             bar.menus()[0]
-                .commands()
-                .map(|route| route.command())
+                .actions()
+                .map(|route| route.key())
                 .collect::<Vec<_>>(),
-            vec![OPEN, SAVE]
+            vec![OPEN.action(), SAVE.action()]
         );
         let Node::Item(item) = &bar.menus()[0].sections()[0].nodes()[0] else {
             panic!("first node should be an item");
@@ -392,10 +394,10 @@ mod tests {
         assert_eq!(
             bar.find(VIEW)
                 .expect("view menu")
-                .commands()
-                .map(|route| route.command())
+                .actions()
+                .map(|route| route.key())
                 .collect::<Vec<_>>(),
-            vec![OPEN, SAVE]
+            vec![OPEN.action(), SAVE.action()]
         );
     }
 }

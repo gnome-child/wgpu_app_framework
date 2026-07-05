@@ -1,5 +1,6 @@
 use crate::command;
-use crate::{Command, icon, layout, text, theme, ui};
+use crate::ui::{self, layout};
+use crate::{Command, icon, text, theme};
 
 use super::foundation;
 

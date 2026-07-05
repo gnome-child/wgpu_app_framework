@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use crate::animation::Frame as AnimationFrame;
-use crate::app::scroll;
-use crate::{command, geometry, paint, text, theme, ui, widget, window};
+use crate::ui::scroll;
+use crate::{geometry, paint, text, theme, ui};
 use std::ops::Range;
 
 const CURSOR_OVERLAY_MIN_SIZE: f32 = 1.0;
@@ -14,20 +14,18 @@ pub(crate) struct ScrollPaintRecord {
     pub(crate) target: Range<usize>,
     pub(crate) content: Range<usize>,
     pub(crate) chrome: Range<usize>,
-    pub(crate) metrics: widget::scroll::Metrics,
+    pub(crate) metrics: ui::scroll::Metrics,
 }
 
 pub fn tree(
     root: &ui::Node,
     layout: &ui::Frame,
-    commands: &command::Registry,
-    window: window::Id,
     interaction: &ui::Interaction,
     text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
     text_engine: &mut text::layout::Engine,
     frame: AnimationFrame,
-    scroll_projections: Option<&scroll::Driver>,
-    path_states: &HashMap<ui::Path, command::State>,
+    scroll_projections: Option<&dyn scroll::Projections>,
+    visual_states: &HashMap<ui::Path, ui::VisualState>,
     scene: &mut paint::Scene,
     scroll_ranges: Option<&mut ScrollPaintRecords>,
 ) {
@@ -38,14 +36,12 @@ pub fn tree(
         root,
         layout,
         None,
-        commands,
-        window,
         interaction,
         text_field_states,
         text_engine,
         frame,
         scroll_projections,
-        path_states,
+        visual_states,
         scene,
         &mut overlays,
         &mut scroll_ranges,
@@ -135,19 +131,17 @@ fn node(
     node: &ui::Node,
     layout: &ui::Frame,
     inherited_content: Option<ContentVisualState>,
-    commands: &command::Registry,
-    window: window::Id,
     interaction: &ui::Interaction,
     text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
     text_engine: &mut text::layout::Engine,
     frame: AnimationFrame,
-    scroll_projections: Option<&scroll::Driver>,
-    path_states: &HashMap<ui::Path, command::State>,
+    scroll_projections: Option<&dyn scroll::Projections>,
+    visual_states: &HashMap<ui::Path, ui::VisualState>,
     scene: &mut paint::Scene,
     overlays: &mut Vec<paint::Outline>,
     scroll_ranges: &mut Option<&mut ScrollPaintRecords>,
 ) {
-    let visual = visual_state(node, layout, commands, window, interaction, path_states);
+    let visual = visual_state(node, layout, interaction, visual_states);
     let content_visual = content_visual_state(node, &visual, inherited_content);
     let mut text_field_state = text_field_states
         .get(layout.path())
@@ -234,7 +228,7 @@ fn node(
         .as_ref()
         .map(|projection| projection.metrics());
     let text_rect = text_scroll_metrics
-        .map(widget::scroll::Metrics::viewport)
+        .map(ui::scroll::Metrics::viewport)
         .unwrap_or_else(|| text_content_rect(node, layout));
     let text_area_layout_owned = text_surface
         .and_then(text::Surface::as_area)
@@ -366,7 +360,7 @@ fn node(
 
     if let Some(metrics) = text_scroll_metrics {
         let start = scene.len();
-        widget::scroll::paint_metrics_chrome(layout.path(), metrics, interaction, scene);
+        ui::scroll::paint_metrics_chrome(layout.path(), metrics, interaction, scene);
         scroll_chrome_range = Some(start..scene.len());
     }
 
@@ -393,14 +387,12 @@ fn node(
             child,
             child_layout,
             Some(content_visual),
-            commands,
-            window,
             interaction,
             text_field_states,
             text_engine,
             frame,
             scroll_projections,
-            path_states,
+            visual_states,
             scene,
             overlays,
             scroll_ranges,
@@ -423,7 +415,7 @@ fn node(
         && let Some(metrics) = scroll_metrics
     {
         let start = scene.len();
-        widget::scroll::paint_metrics_chrome(layout.path(), metrics, interaction, scene);
+        ui::scroll::paint_metrics_chrome(layout.path(), metrics, interaction, scene);
         scroll_chrome_range = Some(start..scene.len());
     }
 
@@ -456,14 +448,12 @@ fn node(
 pub(crate) fn scroll_subtree_recording(
     root: &ui::Node,
     layout: &ui::Frame,
-    commands: &command::Registry,
-    window: window::Id,
     interaction: &ui::Interaction,
     text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
     text_engine: &mut text::layout::Engine,
     frame: AnimationFrame,
-    scroll_projections: Option<&scroll::Driver>,
-    path_states: &HashMap<ui::Path, command::State>,
+    scroll_projections: Option<&dyn scroll::Projections>,
+    visual_states: &HashMap<ui::Path, ui::VisualState>,
     scene: &mut paint::Scene,
 ) -> ScrollPaintRecords {
     let mut overlays = Vec::new();
@@ -474,14 +464,12 @@ pub(crate) fn scroll_subtree_recording(
         root,
         layout,
         None,
-        commands,
-        window,
         interaction,
         text_field_states,
         text_engine,
         frame,
         scroll_projections,
-        path_states,
+        visual_states,
         scene,
         &mut overlays,
         &mut scroll_ranges_option,
@@ -500,7 +488,7 @@ fn resolved_quad_style(
     node: &ui::Node,
     layout: &ui::Frame,
     interaction: &ui::Interaction,
-    visual: &VisualState,
+    visual: &PaintState,
 ) -> Option<paint::Style> {
     let style = node.style();
     let fill = resolved_background(node, layout, interaction, visual).map(paint::Fill::Brush);
@@ -521,7 +509,7 @@ fn resolved_background(
     node: &ui::Node,
     layout: &ui::Frame,
     interaction: &ui::Interaction,
-    visual: &VisualState,
+    visual: &PaintState,
 ) -> Option<paint::Brush> {
     let style = node.style();
     let background = style
@@ -555,7 +543,7 @@ fn resolved_background(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct VisualState {
+struct PaintState {
     enabled: bool,
     busy: bool,
     active: bool,
@@ -575,36 +563,30 @@ struct StatePosition {
 struct ContentVisualState {
     enabled: bool,
     busy: bool,
+    active: bool,
 }
 
 fn visual_state(
     node: &ui::Node,
     layout: &ui::Frame,
-    commands: &command::Registry,
-    window: window::Id,
     interaction: &ui::Interaction,
-    path_states: &HashMap<ui::Path, command::State>,
-) -> VisualState {
-    let command_state = path_states
+    visual_states: &HashMap<ui::Path, ui::VisualState>,
+) -> PaintState {
+    let projected = visual_states
         .get(layout.path())
         .cloned()
-        .or_else(|| {
-            node.command().map(|command| {
-                commands.state_key(command, command_context(node, layout, window, interaction))
-            })
-        })
         .unwrap_or_default();
-    let enabled = command_state.is_available();
-    let busy = command_state.is_running();
+    let enabled = projected.is_available();
+    let busy = projected.is_running();
     let interactive = enabled && !busy;
     let active =
-        enabled && (command_state.is_active() || menu_intent_active(node.intent(), interaction));
+        enabled && (projected.is_active() || menu_intent_active(node.intent(), interaction));
     let hovered = interaction.hovered() == Some(layout.path());
     let pressed = interaction.pressed() == Some(layout.path());
     let focused = interaction.focused() == Some(layout.path());
     let focus_visible = enabled && focused && interaction.focus_visibility().is_visible();
 
-    VisualState {
+    PaintState {
         enabled,
         busy,
         active,
@@ -620,27 +602,29 @@ fn visual_state(
 
 fn content_visual_state(
     node: &ui::Node,
-    visual: &VisualState,
+    visual: &PaintState,
     inherited: Option<ContentVisualState>,
 ) -> ContentVisualState {
     if node_owns_content_visual_state(node) {
         return ContentVisualState {
             enabled: visual.enabled,
             busy: visual.busy,
+            active: visual.active,
         };
     }
 
     inherited.unwrap_or(ContentVisualState {
         enabled: visual.enabled,
         busy: visual.busy,
+        active: visual.active,
     })
 }
 
 fn node_owns_content_visual_state(node: &ui::Node) -> bool {
-    node.command().is_some()
+    node.action().is_some()
         || matches!(
             node.intent(),
-            Some(ui::Intent::Command(_) | ui::Intent::OpenMenu(_) | ui::Intent::OpenSubmenu(_))
+            Some(ui::Intent::Action(_) | ui::Intent::OpenMenu(_) | ui::Intent::OpenSubmenu(_))
         )
 }
 
@@ -648,31 +632,11 @@ fn menu_intent_active(intent: Option<ui::Intent>, interaction: &ui::Interaction)
     match intent {
         Some(ui::Intent::OpenMenu(menu)) => interaction.open_menu() == Some(menu),
         Some(ui::Intent::OpenSubmenu(menu)) => interaction.open_submenu() == Some(menu),
-        Some(ui::Intent::Command(_) | ui::Intent::CloseSubmenu) | None => false,
+        Some(ui::Intent::Action(_) | ui::Intent::CloseSubmenu) | None => false,
     }
 }
 
-fn command_context(
-    node: &ui::Node,
-    layout: &ui::Frame,
-    window: window::Id,
-    interaction: &ui::Interaction,
-) -> command::call::Context {
-    match node.command_subject() {
-        ui::CommandSubject::Origin => command::call::Context::path(window, layout.path().clone()),
-        ui::CommandSubject::Current => interaction
-            .command_subject()
-            .cloned()
-            .unwrap_or_else(|| command::call::Context::window(window)),
-        ui::CommandSubject::Captured => interaction
-            .captured_command_subject(layout.path())
-            .cloned()
-            .unwrap_or_else(|| command::call::Context::window(window)),
-        ui::CommandSubject::Window => command::call::Context::window(window),
-    }
-}
-
-fn resolved_tints(node: &ui::Node, visual: &VisualState) -> Vec<paint::Brush> {
+fn resolved_tints(node: &ui::Node, visual: &PaintState) -> Vec<paint::Brush> {
     let style = node.style();
     let mut tints = Vec::new();
 
@@ -708,7 +672,7 @@ fn push_optional(values: &mut Vec<paint::Brush>, value: Option<paint::Brush>) {
 fn resolved_focus_outline(
     node: &ui::Node,
     rect: crate::geometry::Rect,
-    visual: VisualState,
+    visual: PaintState,
 ) -> Option<paint::Outline> {
     if !visual.focus_visible {
         return None;
@@ -837,6 +801,9 @@ fn resolved_icon(
     content_visual: &ContentVisualState,
 ) -> Option<paint::Icon> {
     let icon = node.icon()?;
+    if node.icon_requires_active() && !content_visual.active {
+        return None;
+    }
 
     Some(paint::Icon {
         rect: layout.rect(),
@@ -988,7 +955,7 @@ fn paint_text_preedit_underline(
 fn paint_text_field_caret(
     node: &ui::Node,
     rect: geometry::Rect,
-    visual: &VisualState,
+    visual: &PaintState,
     text_field_layout: Option<&text::layout::TextFieldLayout>,
     scene: &mut paint::Scene,
 ) {
@@ -1119,7 +1086,7 @@ fn text_area_scroll_projection(
             .bars()
             .active_axes(scroll.axes(), viewport_base, scroll.style(), content_area);
     for _ in 0..3 {
-        let viewport = widget::scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
+        let viewport = ui::scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
         let candidate = text_engine.text_area_metrics_layout_for_area_at(
             area_model,
             style,
@@ -1148,7 +1115,7 @@ fn text_area_scroll_projection(
     }
 
     if state.caret_visibility_pending() {
-        let viewport = widget::scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
+        let viewport = ui::scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
         let width = match area_model.wrap() {
             text::AreaWrap::None => content_area
                 .width()
@@ -1163,7 +1130,7 @@ fn text_area_scroll_projection(
         );
     }
 
-    let metrics = widget::scroll::Metrics::resolve(
+    let metrics = ui::scroll::Metrics::resolve(
         layout.rect(),
         viewport_base,
         content_area,
@@ -1179,7 +1146,7 @@ fn text_area_scroll_projection(
 fn text_area_scroll_projection_for_metrics(
     area_model: &text::Area,
     style: text::document::Style,
-    metrics: widget::scroll::Metrics,
+    metrics: ui::scroll::Metrics,
     state: &text::view::TextViewState,
     text_engine: &mut text::layout::Engine,
     now: std::time::Instant,
@@ -1204,11 +1171,11 @@ fn text_area_scroll_projection_for_metrics(
 fn scroll_metrics_for_node(
     node: &ui::Node,
     layout: &ui::Frame,
-    scroll_projections: Option<&scroll::Driver>,
-) -> Option<widget::scroll::Metrics> {
+    scroll_projections: Option<&dyn scroll::Projections>,
+) -> Option<ui::scroll::Metrics> {
     scroll_projections
         .and_then(|projections| projections.metrics(layout.path()))
-        .or_else(|| widget::scroll::metrics(node, layout))
+        .or_else(|| ui::scroll::metrics(node, layout))
 }
 
 fn text_surface_wrap(surface: &text::Surface) -> paint::TextWrap {

@@ -1,4 +1,4 @@
-use crate::{geometry, layout, paint, text};
+use crate::{geometry, paint, text, ui::layout};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Theme {

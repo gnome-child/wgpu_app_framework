@@ -1,17 +1,20 @@
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::fmt;
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::unicode::{
-    floor_grapheme_boundary, grapheme_range_in_text, next_grapheme_boundary, next_word_boundary,
-    normalize_for_mode, normalize_multiline, paragraph_end_boundary, paragraph_start_boundary,
-    previous_grapheme_boundary, previous_word_boundary, word_range_at,
+use super::{
+    edit,
+    unicode::{
+        next_grapheme_boundary, next_word_boundary, normalize_for_mode, previous_grapheme_boundary,
+        previous_word_boundary,
+    },
 };
 
 pub mod mark;
@@ -21,14 +24,28 @@ use mark::{Gravity as MarkGravity, Range as MarkRange};
 static NEXT_BUFFER_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_LINE_ID: AtomicU64 = AtomicU64::new(1);
 
-pub(crate) type Cursor = glyphon::Cursor;
-pub(super) type Selection = glyphon::cosmic_text::Selection;
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum TextAffinity {
     Upstream,
     #[default]
     Downstream,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct Cursor {
+    pub line: usize,
+    pub index: usize,
+    pub affinity: TextAffinity,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub(crate) enum Selection {
+    #[default]
+    None,
+    Normal(Cursor),
+    Line(Cursor),
+    Word(Cursor),
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -78,10 +95,8 @@ pub enum TextMotion {
     DocumentEnd,
 }
 
-#[derive(Clone)]
 pub struct Buffer {
-    pub(super) inner: Rc<RefCell<BufferInner>>,
-    pub(super) revision: u64,
+    pub(super) inner: BufferInner,
 }
 
 #[derive(Debug)]
@@ -89,8 +104,7 @@ pub(super) struct BufferInner {
     pub(super) id: u64,
     pub(super) revision: u64,
     pub(super) document: TextDocument,
-    pub(super) cursor: Mark,
-    pub(super) selection: Option<MarkRange>,
+    pub(super) edit_state: edit::State,
     pub(super) multiline: bool,
 }
 
@@ -111,20 +125,18 @@ impl TextLineEnding {
     fn len(self) -> usize {
         self.as_str().len()
     }
-
-    fn cosmic(self) -> glyphon::cosmic_text::LineEnding {
-        match self {
-            Self::None => glyphon::cosmic_text::LineEnding::None,
-            Self::Lf => glyphon::cosmic_text::LineEnding::Lf,
-        }
-    }
 }
 
-impl From<glyphon::cosmic_text::LineEnding> for TextLineEnding {
-    fn from(value: glyphon::cosmic_text::LineEnding) -> Self {
-        match value {
-            glyphon::cosmic_text::LineEnding::None => Self::None,
-            _ => Self::Lf,
+impl Cursor {
+    pub fn new(line: usize, index: usize) -> Self {
+        Self::new_with_affinity(line, index, TextAffinity::Upstream)
+    }
+
+    pub fn new_with_affinity(line: usize, index: usize, affinity: TextAffinity) -> Self {
+        Self {
+            line,
+            index,
+            affinity,
         }
     }
 }
@@ -146,7 +158,7 @@ struct TextPiece {
 #[derive(Clone)]
 pub struct MappedTextSource {
     path: PathBuf,
-    mmap: Rc<memmap2::Mmap>,
+    mmap: Arc<memmap2::Mmap>,
 }
 
 impl fmt::Debug for MappedTextSource {
@@ -161,8 +173,8 @@ impl fmt::Debug for MappedTextSource {
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 enum TextOriginal {
-    Owned(Rc<str>),
-    Mapped(Rc<MappedTextSource>),
+    Owned(Arc<str>),
+    Mapped(Arc<MappedTextSource>),
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -227,7 +239,7 @@ struct TextLine {
     id: LineId,
     pub(super) revision: u64,
     pieces: Vec<TextPiece>,
-    text: String,
+    text: Arc<str>,
     ending: TextLineEnding,
     grapheme_boundaries: Rc<Vec<usize>>,
     dirty: bool,
@@ -264,6 +276,7 @@ impl TextLine {
         pieces: Vec<TextPiece>,
         revision: u64,
     ) -> Self {
+        let text: Arc<str> = Arc::from(text);
         let mut line = Self {
             id: LineId(NEXT_LINE_ID.fetch_add(1, Ordering::Relaxed)),
             revision,
@@ -318,16 +331,6 @@ impl TextLine {
             .unwrap_or(self.text.len())
     }
 
-    #[allow(dead_code)]
-    fn to_buffer_line(&self, attrs: glyphon::AttrsList) -> glyphon::BufferLine {
-        glyphon::BufferLine::new(
-            &self.text,
-            self.ending.cosmic(),
-            attrs,
-            glyphon::Shaping::Advanced,
-        )
-    }
-
     #[cfg(test)]
     fn piece_source_lengths(&self) -> (usize, usize, usize) {
         let mut owned = 0usize;
@@ -348,14 +351,17 @@ impl TextLine {
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct TextLineBlock {
-    lines: Vec<TextLine>,
+    lines: Arc<[TextLine]>,
     summary: TextSummary,
 }
 
 impl TextLineBlock {
     fn new(lines: Vec<TextLine>) -> Self {
         let summary = TextSummary::from_lines(&lines);
-        Self { lines, summary }
+        Self {
+            lines: Arc::from(lines),
+            summary,
+        }
     }
 
     fn line_count(&self) -> usize {
@@ -457,7 +463,7 @@ impl TextLineTree {
                 line_index += block.line_count();
                 continue;
             }
-            for line in &block.lines {
+            for line in block.lines.iter() {
                 let text_len = line.text.len();
                 let total = line.total_len();
                 if remaining <= text_len {
@@ -533,10 +539,9 @@ impl TextLineTree {
                 index += 1;
                 continue;
             }
-            let tail = self.blocks[index]
-                .lines
-                .split_off(TEXT_DOCUMENT_BLOCK_TARGET_LINES);
-            let head = std::mem::take(&mut self.blocks[index].lines);
+            let mut lines = self.blocks[index].lines.to_vec();
+            let tail = lines.split_off(TEXT_DOCUMENT_BLOCK_TARGET_LINES);
+            let head = lines;
             self.blocks[index] = TextLineBlock::new(head);
             self.blocks.insert(index + 1, TextLineBlock::new(tail));
             index += 1;
@@ -596,7 +601,7 @@ impl TextDocumentStats {
 pub(super) struct TextDocument {
     #[allow(dead_code)]
     original: TextOriginal,
-    add_buffer: String,
+    add_buffer: Arc<String>,
     tree: TextLineTree,
     pub(super) revision: u64,
     stats: TextDocumentStats,
@@ -604,7 +609,7 @@ pub(super) struct TextDocument {
 
 impl TextDocument {
     pub(super) fn from_text(text: &str) -> Self {
-        let original: Rc<str> = Rc::from(text);
+        let original: Arc<str> = Arc::from(text);
         Self::from_source_text(
             text,
             TextOriginal::Owned(original),
@@ -616,14 +621,14 @@ impl TextDocument {
     pub(super) fn open_mapped(path: impl AsRef<Path>) -> io::Result<Self> {
         let path = path.as_ref();
         let file = File::open(path)?;
-        let mmap = Rc::new(unsafe { memmap2::Mmap::map(&file)? });
+        let mmap = Arc::new(unsafe { memmap2::Mmap::map(&file)? });
         let text = std::str::from_utf8(&mmap[..]).map_err(|error| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("mapped text is not valid UTF-8: {error}"),
             )
         })?;
-        let mapped = Rc::new(MappedTextSource {
+        let mapped = Arc::new(MappedTextSource {
             path: path.to_path_buf(),
             mmap: mmap.clone(),
         });
@@ -648,7 +653,7 @@ impl TextDocument {
         let lines = Self::lines_from_source(text, TextLineEnding::None, 0, source, source_base);
         Self {
             original,
-            add_buffer: String::new(),
+            add_buffer: Arc::new(String::new()),
             tree: TextLineTree::from_lines(lines),
             revision: 0,
             stats: TextDocumentStats::default(),
@@ -670,7 +675,7 @@ impl TextDocument {
         let mut starts = Vec::with_capacity(self.line_count());
         let mut offset = 0usize;
         for block in &self.tree.blocks {
-            for line in &block.lines {
+            for line in block.lines.iter() {
                 starts.push(offset);
                 offset = offset.saturating_add(line.total_len());
             }
@@ -706,7 +711,7 @@ impl TextDocument {
             .set(self.stats.full_materializations.get() + 1);
         let mut text = String::with_capacity(self.text_len());
         for block in &self.tree.blocks {
-            for line in &block.lines {
+            for line in block.lines.iter() {
                 text.push_str(&line.text);
                 text.push_str(line.ending.as_str());
             }
@@ -805,8 +810,9 @@ impl TextDocument {
         replacement_text.push_str(&suffix);
 
         let next_revision = self.revision.saturating_add(1);
-        let add_start = self.add_buffer.len();
-        self.add_buffer.push_str(&replacement_text);
+        let add_buffer = Arc::make_mut(&mut self.add_buffer);
+        let add_start = add_buffer.len();
+        add_buffer.push_str(&replacement_text);
         let removes_whole_lines =
             start_local == 0 && replacement_text.is_empty() && deleted.ends_with('\n');
         let mut replacement = if removes_whole_lines {
@@ -899,7 +905,7 @@ impl TextDocument {
         Some(Mark {
             line_id: line.id,
             byte_offset: line.floor_grapheme(cursor.index),
-            affinity: text_affinity(cursor.affinity),
+            affinity: cursor.affinity,
             gravity: MarkGravity::Downstream,
         })
     }
@@ -909,7 +915,7 @@ impl TextDocument {
         Some(Cursor::new_with_affinity(
             line_index,
             line.floor_grapheme(anchor.byte_offset),
-            glyph_affinity(anchor.affinity),
+            anchor.affinity,
         ))
     }
 
@@ -942,7 +948,7 @@ impl TextDocument {
         let mut line_index = 0usize;
         let mut offset = 0usize;
         for block in &self.tree.blocks {
-            for line in &block.lines {
+            for line in block.lines.iter() {
                 if line.id == line_id {
                     return Some((line_index, offset, line));
                 }
@@ -1104,7 +1110,7 @@ impl TextDocument {
         let mut mapped = 0usize;
         let mut add = 0usize;
         for block in &self.tree.blocks {
-            for line in &block.lines {
+            for line in block.lines.iter() {
                 let (line_owned, line_mapped, line_add) = line.piece_source_lengths();
                 owned = owned.saturating_add(line_owned);
                 mapped = mapped.saturating_add(line_mapped);
@@ -1184,131 +1190,6 @@ impl BufferLineIndex {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TextEditImpact {
-    pub(crate) range: TextRange,
-    pub(crate) affected_start_line: usize,
-    pub(crate) affected_start_line_id: Option<LineId>,
-    pub(crate) removed_line_count: usize,
-    pub(crate) inserted_line_count: usize,
-    pub(crate) deleted_bytes: usize,
-    pub(crate) inserted_bytes: usize,
-    pub(crate) caret_mark: Mark,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct TextChange {
-    pub(super) before: BufferMarker,
-    pub(super) after: BufferMarker,
-    pub(super) transaction: TextTransaction,
-}
-
-#[derive(Debug, Clone, Default)]
-pub(crate) struct TextTransaction {
-    pub(crate) deltas: Vec<TextDelta>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TextDelta {
-    pub(crate) kind: TextEditKind,
-    pub(crate) range: TextRange,
-    pub(crate) deleted: String,
-    pub(crate) inserted: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TextEditKind {
-    Insert,
-    Delete,
-    Replace,
-    Move,
-    ImeCommit,
-}
-
-impl TextEditImpact {
-    pub(crate) fn affected_line_count(&self) -> usize {
-        self.removed_line_count.max(self.inserted_line_count).max(1)
-    }
-
-    pub(crate) fn line_count_delta(&self) -> isize {
-        self.inserted_line_count as isize - self.removed_line_count as isize
-    }
-}
-
-impl TextTransaction {
-    pub(crate) fn replace(
-        range: TextRange,
-        deleted: String,
-        inserted: String,
-        kind: TextEditKind,
-    ) -> Self {
-        let mut transaction = Self::default();
-        transaction.push_replace(range, deleted, inserted, kind);
-        transaction
-    }
-
-    fn push_replace(
-        &mut self,
-        range: TextRange,
-        deleted: String,
-        inserted: String,
-        kind: TextEditKind,
-    ) {
-        if range.start == range.end && deleted.is_empty() && inserted.is_empty() {
-            return;
-        }
-        self.deltas.push(TextDelta {
-            kind,
-            range,
-            deleted,
-            inserted,
-        });
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.deltas.is_empty()
-    }
-
-    pub(crate) fn inverse(&self) -> Self {
-        let mut inverse = Self::default();
-        for delta in self.deltas.iter().rev() {
-            inverse.push_replace(
-                TextRange::new(delta.range.start, delta.range.start + delta.inserted.len()),
-                delta.inserted.clone(),
-                delta.deleted.clone(),
-                delta.kind,
-            );
-        }
-        inverse
-    }
-
-    pub(crate) fn try_coalesce_typing(&mut self, next: &TextTransaction) -> bool {
-        if self.deltas.len() != 1 || next.deltas.len() != 1 {
-            return false;
-        }
-        let current = &mut self.deltas[0];
-        let next = &next.deltas[0];
-        if current.kind != TextEditKind::Insert || next.kind != TextEditKind::Insert {
-            return false;
-        }
-        if !current.deleted.is_empty() || !next.deleted.is_empty() {
-            return false;
-        }
-        if current.range.start + current.inserted.len() != next.range.start {
-            return false;
-        }
-        current.inserted.push_str(&next.inserted);
-        true
-    }
-}
-
-impl TextDelta {
-    #[allow(dead_code)]
-    pub(crate) fn inserted_end(&self) -> usize {
-        self.range.start + self.inserted.len()
-    }
-}
-
 impl Buffer {
     pub fn new() -> Self {
         Self::from_text("")
@@ -1342,60 +1223,97 @@ impl Buffer {
             id: NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed),
             revision: document.revision,
             document,
-            cursor,
-            selection: None,
+            edit_state: edit::State::collapsed(cursor),
             multiline,
         };
-        Self {
-            revision: inner.revision,
-            inner: Rc::new(RefCell::new(inner)),
-        }
+        Self { inner }
     }
     pub fn id(&self) -> u64 {
-        self.inner.borrow().id
+        self.inner.id
     }
     pub fn revision(&self) -> u64 {
-        self.inner.borrow().revision
+        self.inner.revision
     }
 
     #[cfg(test)]
     pub(super) fn reset_line_index_stats(&mut self) {
-        self.inner.borrow().document.reset_stats();
+        self.inner.document.reset_stats();
     }
 
     #[cfg(test)]
     pub(super) fn line_index_stats(&self) -> (usize, usize) {
-        let stats = self.inner.borrow().document.stats();
+        let stats = self.inner.document.stats();
         (stats.full_materializations, stats.piece_tree_updates)
     }
 
     #[cfg(test)]
     pub(super) fn reset_document_stats(&self) {
-        self.inner.borrow().document.reset_stats();
+        self.inner.document.reset_stats();
     }
 
     #[cfg(test)]
     pub(super) fn document_stats(&self) -> TextDocumentStatsSnapshot {
-        self.inner.borrow().document.stats()
+        self.inner.document.stats()
     }
 
     #[cfg(test)]
     pub(super) fn document_piece_source_lengths(&self) -> (usize, usize, usize) {
-        self.inner.borrow().document.piece_source_lengths()
+        self.inner.document.piece_source_lengths()
     }
 
     #[cfg(test)]
-    #[cfg(test)]
     pub(super) fn original_len(&self) -> usize {
-        self.inner.borrow().document.original_len()
+        self.inner.document.original_len()
     }
-    pub(super) fn marker(&self) -> BufferMarker {
-        let inner = self.inner.borrow();
-        BufferMarker::new(&inner)
+    pub(crate) fn marker(&self) -> BufferMarker {
+        self.marker_for_state(self.inner.edit_state)
+    }
+    pub(crate) fn marker_for_state(&self, state: edit::State) -> BufferMarker {
+        let inner = &self.inner;
+        BufferMarker::new(inner, state)
     }
     pub fn text(&self) -> String {
-        self.inner.borrow().document.text()
+        self.inner.document.text()
     }
+
+    #[cfg(test)]
+    pub(super) fn shares_add_buffer_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(
+            &self.inner.document.add_buffer,
+            &other.inner.document.add_buffer,
+        )
+    }
+
+    #[cfg(test)]
+    pub(super) fn shares_line_text_with(&self, other: &Self, line: usize) -> bool {
+        let left = &self.inner;
+        let right = &other.inner;
+        let Some(left_text) = left.document.tree.line(line).map(|line| line.text.clone()) else {
+            return false;
+        };
+        let Some(right_text) = right.document.tree.line(line).map(|line| line.text.clone()) else {
+            return false;
+        };
+
+        Arc::ptr_eq(&left_text, &right_text)
+    }
+
+    #[cfg(test)]
+    pub(super) fn shares_line_block_with(&self, other: &Self, line: usize) -> bool {
+        let left = &self.inner;
+        let right = &other.inner;
+        let (left_block, _) = left.document.tree.locate_line(line);
+        let (right_block, _) = right.document.tree.locate_line(line);
+        let Some(left_block) = left.document.tree.blocks.get(left_block) else {
+            return false;
+        };
+        let Some(right_block) = right.document.tree.blocks.get(right_block) else {
+            return false;
+        };
+
+        Arc::ptr_eq(&left_block.lines, &right_block.lines)
+    }
+
     pub fn to_plain_text(&self) -> String {
         self.text()
     }
@@ -1403,53 +1321,87 @@ impl Buffer {
         self.text_len()
     }
     fn text_len(&self) -> usize {
-        self.inner.borrow().document.text_len()
+        self.inner.document.text_len()
     }
     pub fn is_empty(&self) -> bool {
         self.text_len() == 0
     }
     pub fn is_multiline(&self) -> bool {
-        self.inner.borrow().multiline
+        self.inner.multiline
     }
-    pub(crate) fn promote_to_multiline(&self) {
-        self.inner.borrow_mut().multiline = true;
+    pub(crate) fn promote_to_multiline(&mut self) {
+        self.inner.multiline = true;
     }
     pub fn logical_line_count(&self) -> usize {
-        self.inner.borrow().document.line_count()
+        self.inner.document.line_count()
     }
     pub(crate) fn line_start_offsets(&self) -> Rc<Vec<usize>> {
-        self.inner.borrow().document.line_starts()
+        self.inner.document.line_starts()
     }
     pub fn position(&self) -> TextPosition {
-        let inner = self.inner.borrow();
+        self.position_for_state(self.inner.edit_state)
+    }
+    pub fn position_for_state(&self, state: edit::State) -> TextPosition {
+        let inner = &self.inner;
         inner
             .document
-            .position_for_mark(inner.cursor)
+            .position_for_mark(state.cursor)
             .unwrap_or_else(|| TextPosition::new(inner.document.text_len()))
     }
     pub fn selection(&self) -> Option<TextSelection> {
-        let inner = self.inner.borrow();
-        inner
+        self.selection_for_state(self.inner.edit_state)
+    }
+    pub fn selection_for_state(&self, state: edit::State) -> Option<TextSelection> {
+        let inner = &self.inner;
+        state
             .selection
             .and_then(|selection| inner.document.selection_for_mark_range(selection))
     }
     pub fn mark(&self) -> Option<Mark> {
-        Some(self.inner.borrow().cursor)
+        Some(self.inner.edit_state.cursor)
     }
     pub fn mark_selection(&self) -> Option<MarkRange> {
-        self.inner.borrow().selection
+        self.inner.edit_state.selection
+    }
+    pub fn edit_state(&self) -> edit::State {
+        self.inner.edit_state
+    }
+    pub fn with_edit_state(mut self, edit_state: edit::State) -> Self {
+        self.set_edit_state(edit_state);
+        self
+    }
+    pub fn set_edit_state(&mut self, edit_state: edit::State) {
+        let inner = &mut self.inner;
+        let cursor = if inner
+            .document
+            .position_for_mark(edit_state.cursor)
+            .is_some()
+        {
+            edit_state.cursor
+        } else {
+            document_end_mark(&inner.document)
+        };
+        let selection = edit_state.selection.and_then(|range| {
+            (inner.document.position_for_mark(range.start).is_some()
+                && inner.document.position_for_mark(range.end).is_some())
+            .then_some(range)
+        });
+        inner.edit_state = edit::State::new(cursor, selection);
     }
     pub fn position_for_mark(&self, mark: Mark) -> Option<TextPosition> {
-        self.inner.borrow().document.position_for_mark(mark)
+        self.inner.document.position_for_mark(mark)
     }
     pub fn mark_for_position(&self, position: TextPosition) -> Option<Mark> {
-        self.inner.borrow().document.mark_for_position(position)
+        self.inner.document.mark_for_position(position)
     }
     pub fn cursor(&self) -> Cursor {
-        let inner = self.inner.borrow();
+        self.cursor_for_state(self.inner.edit_state)
+    }
+    pub fn cursor_for_state(&self, state: edit::State) -> Cursor {
+        let inner = &self.inner;
         inner
             .document
-            .cursor_for_mark(inner.cursor)
+            .cursor_for_mark(state.cursor)
             .unwrap_or_else(|| {
                 inner
                     .document
@@ -1457,8 +1409,11 @@ impl Buffer {
             })
     }
     pub fn selection_bounds(&self) -> Option<(Cursor, Cursor)> {
-        let inner = self.inner.borrow();
-        let selection = inner.selection?;
+        self.selection_bounds_for_state(self.inner.edit_state)
+    }
+    pub fn selection_bounds_for_state(&self, state: edit::State) -> Option<(Cursor, Cursor)> {
+        let inner = &self.inner;
+        let selection = state.selection?;
         let (start, end) = inner
             .document
             .ordered_cursor_range_for_mark_range(selection)?;
@@ -1466,8 +1421,11 @@ impl Buffer {
             .then_some((start, end))
     }
     pub fn selected_range(&self) -> Option<TextRange> {
-        let inner = self.inner.borrow();
-        let selection = inner.selection?;
+        self.selected_range_for_state(self.inner.edit_state)
+    }
+    pub fn selected_range_for_state(&self, state: edit::State) -> Option<TextRange> {
+        let inner = &self.inner;
+        let selection = state.selection?;
         let start = inner.document.position_for_mark(selection.start)?.index;
         let end = inner.document.position_for_mark(selection.end)?.index;
         let (start, end) = if start <= end {
@@ -1478,73 +1436,78 @@ impl Buffer {
         (start < end).then_some(TextRange::new(start, end))
     }
     pub fn selected_text(&self) -> Option<String> {
-        let range = self.selected_range()?.as_range();
-        Some(self.inner.borrow().document.text_for_range(range))
+        self.selected_text_for_state(self.inner.edit_state)
+    }
+    pub fn selected_text_for_state(&self, state: edit::State) -> Option<String> {
+        let range = self.selected_range_for_state(state)?.as_range();
+        Some(self.inner.document.text_for_range(range))
     }
     pub fn has_selection(&self) -> bool {
         self.has_non_empty_selection()
     }
+    pub fn has_selection_for_state(&self, state: edit::State) -> bool {
+        self.has_non_empty_selection_for_state(state)
+    }
     pub(crate) fn has_non_empty_selection(&self) -> bool {
-        self.selected_range().is_some()
+        self.has_non_empty_selection_for_state(self.inner.edit_state)
+    }
+    pub(crate) fn has_non_empty_selection_for_state(&self, state: edit::State) -> bool {
+        self.selected_range_for_state(state).is_some()
     }
     pub fn position_for_text_index(&self, index: usize) -> TextPosition {
-        let inner = self.inner.borrow();
+        let inner = &self.inner;
         let cursor = inner.document.cursor_for_text_index(index);
         TextPosition::with_affinity(
             inner.document.text_index_for_cursor(cursor),
-            text_affinity(cursor.affinity),
+            cursor.affinity,
         )
     }
     pub fn text_index_for_position(&self, position: TextPosition) -> usize {
-        let inner = self.inner.borrow();
+        let inner = &self.inner;
         let cursor = inner.document.cursor_for_text_index(position.index);
         inner
             .document
             .text_index_for_cursor(Cursor::new_with_affinity(
                 cursor.line,
                 cursor.index,
-                glyph_affinity(position.affinity),
+                position.affinity,
             ))
     }
     pub(crate) fn cursor_for_text_index(&self, index: usize) -> Cursor {
-        let inner = self.inner.borrow();
+        let inner = &self.inner;
         inner.document.cursor_for_text_index(index)
     }
     pub(crate) fn text_index_for_cursor(&self, cursor: Cursor) -> usize {
-        let inner = self.inner.borrow();
+        let inner = &self.inner;
         inner.document.text_index_for_cursor(cursor)
     }
     #[allow(dead_code)]
     fn clamp_cursor(&self, cursor: Cursor) -> Cursor {
-        let inner = self.inner.borrow();
+        let inner = &self.inner;
         inner
             .document
             .cursor_for_text_index(inner.document.text_index_for_cursor(cursor))
     }
     #[allow(dead_code)]
     fn clamp_selection(&self, selection: Selection) -> Selection {
-        let inner = self.inner.borrow();
+        let inner = &self.inner;
         selection_mark_for_document(&inner.document, selection)
             .and_then(|anchor| inner.document.cursor_for_mark(anchor))
             .map(Selection::Normal)
             .unwrap_or(Selection::None)
     }
-    pub(crate) fn cloned_cosmic_buffer(&self) -> glyphon::Buffer {
-        cosmic_buffer_from_text(&self.text())
-    }
-    #[allow(dead_code)]
-    pub(crate) fn clone_cosmic_buffer_with_attrs(
-        &self,
-        attrs: glyphon::AttrsList,
-    ) -> glyphon::Buffer {
-        let mut buffer = self.cloned_cosmic_buffer();
-        for line in &mut buffer.lines {
-            line.set_attrs_list(attrs.clone());
-        }
-        buffer
-    }
     pub(crate) fn set_cursor_and_selection(&mut self, cursor: Cursor, selection: Selection) {
-        let mut inner = self.inner.borrow_mut();
+        let mut state = self.inner.edit_state;
+        self.set_cursor_and_selection_for_state(&mut state, cursor, selection);
+        self.inner.edit_state = state;
+    }
+    pub(crate) fn set_cursor_and_selection_for_state(
+        &self,
+        state: &mut edit::State,
+        cursor: Cursor,
+        selection: Selection,
+    ) {
+        let inner = &self.inner;
         let cursor = inner
             .document
             .mark_for_cursor(cursor)
@@ -1554,67 +1517,47 @@ impl Buffer {
                 start: anchor,
                 end: cursor,
             });
-        inner.cursor = cursor;
-        inner.selection = selection;
+        *state = edit::State::new(cursor, selection);
     }
     #[allow(dead_code)]
     pub(crate) fn set_mark_selection(&mut self, cursor: Mark, selection: Option<MarkRange>) {
-        let mut inner = self.inner.borrow_mut();
-        inner.cursor = if inner.document.position_for_mark(cursor).is_some() {
-            cursor
-        } else {
-            document_end_mark(&inner.document)
-        };
-        inner.selection = selection.and_then(|range| {
-            (inner.document.position_for_mark(range.start).is_some()
-                && inner.document.position_for_mark(range.end).is_some())
-            .then_some(range)
-        });
+        self.set_edit_state(edit::State::new(cursor, selection));
     }
-    fn replace_text_range_with_kind(
+    pub(crate) fn replace_text_range_with_kind_and_impact_for_state(
         &mut self,
+        state: &mut edit::State,
         range: TextRange,
         text: &str,
-        kind: TextEditKind,
-    ) -> TextTransaction {
-        self.replace_text_range_with_kind_and_impact(range, text, kind)
-            .0
-    }
-    pub(crate) fn replace_text_range_with_kind_and_impact(
-        &mut self,
-        range: TextRange,
-        text: &str,
-        kind: TextEditKind,
-    ) -> (TextTransaction, Option<TextEditImpact>) {
+        kind: edit::Kind,
+    ) -> (edit::Transaction, Option<edit::Impact>) {
         let inserted = normalize_for_mode(self.is_multiline(), text);
         let range = {
-            let inner = self.inner.borrow();
+            let inner = &self.inner;
             inner.document.snap_range(range)
         };
         if range.is_empty() && inserted.is_empty() {
-            return (TextTransaction::default(), None);
+            return (edit::Transaction::default(), None);
         }
 
         let (range, deleted, inserted_text, impact) = {
-            let mut inner = self.inner.borrow_mut();
+            let inner = &mut self.inner;
             let (range, removed, inserted, start_line, old_line_count, new_line_count) = inner
                 .document
                 .replace_range(TextRange::new(range.start, range.end), &inserted);
             inner.revision = inner.document.revision;
-            self.revision = inner.revision;
             let cursor = inner
                 .document
                 .cursor_for_text_index(range.start + inserted.len());
-            inner.cursor = inner
+            let cursor = inner
                 .document
                 .mark_for_cursor(cursor)
                 .unwrap_or_else(|| document_end_mark(&inner.document));
-            inner.selection = None;
+            *state = edit::State::collapsed(cursor);
             let affected_start_line_id = inner
                 .document
                 .line_layout_identity(start_line)
                 .map(|identity| identity.id);
-            let impact = TextEditImpact {
+            let impact = edit::Impact {
                 range: TextRange::new(range.start, range.end),
                 affected_start_line: start_line,
                 affected_start_line_id,
@@ -1622,24 +1565,24 @@ impl Buffer {
                 inserted_line_count: new_line_count,
                 deleted_bytes: removed.len(),
                 inserted_bytes: inserted.len(),
-                caret_mark: inner.cursor,
+                caret_mark: cursor,
             };
             (range, removed, inserted, impact)
         };
 
         let delta_kind = if deleted.is_empty() && !inserted_text.is_empty() {
             match kind {
-                TextEditKind::ImeCommit => TextEditKind::ImeCommit,
-                TextEditKind::Move => TextEditKind::Move,
-                _ => TextEditKind::Insert,
+                edit::Kind::ImeCommit => edit::Kind::ImeCommit,
+                edit::Kind::Move => edit::Kind::Move,
+                _ => edit::Kind::Insert,
             }
         } else if inserted_text.is_empty() && !deleted.is_empty() {
-            TextEditKind::Delete
+            edit::Kind::Delete
         } else {
             kind
         };
         (
-            TextTransaction::replace(
+            edit::Transaction::replace(
                 TextRange::new(range.start, range.end),
                 deleted,
                 inserted_text,
@@ -1648,13 +1591,14 @@ impl Buffer {
             Some(impact),
         )
     }
-    pub(crate) fn move_text_range(
+    pub(crate) fn move_text_range_for_state(
         &mut self,
+        state: &mut edit::State,
         range: TextRange,
         to: TextPosition,
-    ) -> TextTransaction {
+    ) -> edit::Transaction {
         let (range, to, moved) = {
-            let inner = self.inner.borrow();
+            let inner = &self.inner;
             let range = inner.document.snap_range(range);
             let to = inner.document.floor_grapheme_boundary(to.index);
             let moved = inner.document.text_for_range(range.clone());
@@ -1662,49 +1606,81 @@ impl Buffer {
         };
         if range.is_empty() || (range.start..=range.end).contains(&to) {
             let cursor = self.cursor_for_text_index(to);
-            self.set_cursor_and_selection(cursor, Selection::None);
-            return TextTransaction::default();
+            self.set_cursor_and_selection_for_state(state, cursor, Selection::None);
+            return edit::Transaction::default();
         }
         let adjusted_to = if to > range.end {
             to - (range.end - range.start)
         } else {
             to
         };
-        let mut transaction = self.replace_text_range_with_kind(
+        let mut transaction = self.replace_text_range_with_kind_for_state(
+            state,
             TextRange::new(range.start, range.end),
             "",
-            TextEditKind::Move,
+            edit::Kind::Move,
         );
-        let insert = self.replace_text_range_with_kind(
+        let insert = self.replace_text_range_with_kind_for_state(
+            state,
             TextRange::collapsed(adjusted_to),
             &moved,
-            TextEditKind::Move,
+            edit::Kind::Move,
         );
         transaction.deltas.extend(insert.deltas);
         transaction
     }
+    fn replace_text_range_with_kind_for_state(
+        &mut self,
+        state: &mut edit::State,
+        range: TextRange,
+        text: &str,
+        kind: edit::Kind,
+    ) -> edit::Transaction {
+        self.replace_text_range_with_kind_and_impact_for_state(state, range, text, kind)
+            .0
+    }
     #[allow(dead_code)]
     pub(crate) fn replace_all_text(&mut self, text: String) {
-        let mut inner = self.inner.borrow_mut();
+        let inner = &mut self.inner;
         inner.document = TextDocument::from_text(&text);
         inner.revision = inner.revision.saturating_add(1);
         inner.document.revision = inner.revision;
-        self.revision = inner.revision;
-        inner.cursor = document_end_mark(&inner.document);
-        inner.selection = None;
+        inner.edit_state.cursor = document_end_mark(&inner.document);
+        inner.edit_state.selection = None;
     }
-    pub(super) fn restore_marker(&mut self, marker: BufferMarker) {
-        let mut inner = self.inner.borrow_mut();
+    pub(crate) fn restore_marker(&mut self, marker: BufferMarker) {
+        let mut state = self.inner.edit_state;
+        self.restore_marker_for_state(&mut state, marker);
+        self.inner.edit_state = state;
+    }
+    pub(crate) fn restore_marker_for_state(
+        &mut self,
+        state: &mut edit::State,
+        marker: BufferMarker,
+    ) {
+        let inner = &mut self.inner;
         if inner.id == marker.buffer_id {
             inner.revision = marker.revision;
-            self.revision = marker.revision;
-            inner.cursor = marker.cursor_for(&inner.document);
-            inner.selection = marker.selection_for(&inner.document);
+            *state = edit::State::new(
+                marker.cursor_for(&inner.document),
+                marker.selection_for(&inner.document),
+            );
         }
     }
-    pub(crate) fn apply_transaction(&mut self, transaction: &TextTransaction) -> bool {
+    pub(crate) fn apply_transaction(&mut self, transaction: &edit::Transaction) -> bool {
+        let mut state = self.inner.edit_state;
+        let applied = self.apply_transaction_for_state(&mut state, transaction);
+        self.inner.edit_state = state;
+        applied
+    }
+    pub(crate) fn apply_transaction_for_state(
+        &mut self,
+        state: &mut edit::State,
+        transaction: &edit::Transaction,
+    ) -> bool {
         for delta in &transaction.deltas {
-            self.replace_text_range_with_kind(
+            self.replace_text_range_with_kind_for_state(
+                state,
                 TextRange::new(delta.range.start, delta.range.end),
                 &delta.inserted,
                 delta.kind,
@@ -1713,10 +1689,10 @@ impl Buffer {
         true
     }
     pub(crate) fn text_for_line_range(&self, start: usize, end: usize) -> String {
-        self.inner.borrow().document.text_for_line_range(start, end)
+        self.inner.document.text_for_line_range(start, end)
     }
     pub(crate) fn line_layout_identity(&self, line: usize) -> Option<LineLayoutIdentity> {
-        self.inner.borrow().document.line_layout_identity(line)
+        self.inner.document.line_layout_identity(line)
     }
 }
 fn selection_mark_for_document(document: &TextDocument, selection: Selection) -> Option<Mark> {
@@ -1728,9 +1704,9 @@ fn selection_mark_for_document(document: &TextDocument, selection: Selection) ->
     }
 }
 
-pub(crate) fn selection_mark_from_buffer(buffer: &Buffer) -> Option<Cursor> {
-    let inner = buffer.inner.borrow();
-    inner
+pub(crate) fn selection_mark_from_state(buffer: &Buffer, state: edit::State) -> Option<Cursor> {
+    let inner = &buffer.inner;
+    state
         .selection
         .and_then(|selection| inner.document.cursor_for_mark(selection.start))
 }
@@ -1762,7 +1738,7 @@ fn document_end_mark(document: &TextDocument) -> Mark {
         .expect("text documents always contain at least one line")
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct BufferMarker {
+pub(crate) struct BufferMarker {
     pub(crate) buffer_id: u64,
     pub(crate) revision: u64,
     pub(crate) cursor: Mark,
@@ -1772,23 +1748,23 @@ pub(super) struct BufferMarker {
 }
 
 impl BufferMarker {
-    pub(crate) fn new(inner: &BufferInner) -> Self {
+    pub(super) fn new(inner: &BufferInner, state: edit::State) -> Self {
         Self {
             buffer_id: inner.id,
             revision: inner.revision,
-            cursor: inner.cursor,
-            selection: inner.selection,
+            cursor: state.cursor,
+            selection: state.selection,
             cursor_position: inner
                 .document
-                .position_for_mark(inner.cursor)
+                .position_for_mark(state.cursor)
                 .unwrap_or_else(|| TextPosition::new(inner.document.text_len())),
-            selection_positions: inner
+            selection_positions: state
                 .selection
                 .and_then(|selection| inner.document.selection_for_mark_range(selection)),
         }
     }
 
-    pub(crate) fn cursor_for(&self, document: &TextDocument) -> Mark {
+    pub(super) fn cursor_for(&self, document: &TextDocument) -> Mark {
         if document.position_for_mark(self.cursor).is_some() {
             self.cursor
         } else {
@@ -1798,7 +1774,7 @@ impl BufferMarker {
         }
     }
 
-    pub(crate) fn selection_for(&self, document: &TextDocument) -> Option<MarkRange> {
+    pub(super) fn selection_for(&self, document: &TextDocument) -> Option<MarkRange> {
         if let Some(selection) = self.selection
             && document.position_for_mark(selection.start).is_some()
             && document.position_for_mark(selection.end).is_some()
@@ -1861,202 +1837,47 @@ pub(crate) fn normalize_for_buffer(buffer: &Buffer, text: &str) -> String {
     normalize_for_mode(buffer.is_multiline(), text)
 }
 
-fn default_text_field_metrics() -> glyphon::Metrics {
-    glyphon::Metrics::relative(16.0, 1.25)
-}
+impl Clone for Buffer {
+    fn clone(&self) -> Self {
+        let inner = &self.inner;
+        let cloned = BufferInner {
+            id: NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed),
+            revision: inner.revision,
+            document: inner.document.clone(),
+            edit_state: inner.edit_state,
+            multiline: inner.multiline,
+        };
 
-pub(crate) fn cosmic_buffer_from_text(text: &str) -> glyphon::Buffer {
-    let mut buffer = glyphon::Buffer::new_empty(default_text_field_metrics());
-    let attrs = glyphon::AttrsList::new(&glyphon::Attrs::new());
-
-    set_cosmic_buffer_text(&mut buffer, text, attrs, glyphon::Shaping::Advanced);
-
-    buffer
-}
-
-pub(crate) fn set_cosmic_buffer_text(
-    buffer: &mut glyphon::Buffer,
-    text: &str,
-    attrs: glyphon::AttrsList,
-    shaping: glyphon::Shaping,
-) {
-    buffer.lines.clear();
-
-    if text.is_empty() {
-        buffer.lines.push(glyphon::BufferLine::new(
-            "",
-            glyphon::cosmic_text::LineEnding::None,
-            attrs,
-            shaping,
-        ));
-        return;
-    }
-
-    let mut start = 0;
-    for (index, _) in text.match_indices('\n') {
-        buffer.lines.push(glyphon::BufferLine::new(
-            &text[start..index],
-            glyphon::cosmic_text::LineEnding::Lf,
-            attrs.clone(),
-            shaping,
-        ));
-        start = index + 1;
-    }
-
-    buffer.lines.push(glyphon::BufferLine::new(
-        &text[start..],
-        glyphon::cosmic_text::LineEnding::None,
-        attrs,
-        shaping,
-    ));
-}
-
-fn cosmic_buffer_text(buffer: &glyphon::Buffer) -> String {
-    let mut text = String::new();
-
-    for line in &buffer.lines {
-        text.push_str(line.text());
-        text.push_str(line.ending().as_str());
-    }
-
-    normalize_multiline(&text)
-}
-
-pub(crate) fn glyph_affinity(affinity: TextAffinity) -> glyphon::cosmic_text::Affinity {
-    match affinity {
-        TextAffinity::Upstream => glyphon::cosmic_text::Affinity::Before,
-        TextAffinity::Downstream => glyphon::cosmic_text::Affinity::After,
+        Self { inner: cloned }
     }
 }
 
-pub(crate) fn text_affinity(affinity: glyphon::cosmic_text::Affinity) -> TextAffinity {
-    match affinity {
-        glyphon::cosmic_text::Affinity::Before => TextAffinity::Upstream,
-        glyphon::cosmic_text::Affinity::After => TextAffinity::Downstream,
-    }
-}
-
-#[allow(dead_code)]
-fn cursor_for_text_position_in_buffer(buffer: &glyphon::Buffer, position: TextPosition) -> Cursor {
-    let cursor = cursor_for_text_index_in_buffer(buffer, position.index);
-    Cursor::new_with_affinity(cursor.line, cursor.index, glyph_affinity(position.affinity))
-}
-
-pub(crate) fn text_position_for_cursor_in_buffer(
-    buffer: &glyphon::Buffer,
-    cursor: Cursor,
-) -> TextPosition {
-    let cursor = clamp_cursor_in_buffer(buffer, cursor);
-    TextPosition::with_affinity(
-        text_index_for_cursor_in_buffer(buffer, cursor),
-        text_affinity(cursor.affinity),
-    )
-}
-
-#[allow(dead_code)]
-pub(crate) fn selection_anchor(buffer: &glyphon::Buffer, selection: Selection) -> Option<Cursor> {
-    match clamp_selection_in_buffer(buffer, selection) {
-        Selection::None => None,
-        Selection::Normal(cursor) | Selection::Line(cursor) | Selection::Word(cursor) => {
-            Some(cursor)
-        }
-    }
-}
-
-#[allow(dead_code)]
-pub(crate) fn fast_selection_bounds_in_buffer(
-    buffer: &glyphon::Buffer,
-    cursor: Cursor,
-    selection: Selection,
-) -> Option<(Cursor, Cursor)> {
-    let cursor = clamp_cursor_in_buffer(buffer, cursor);
-    match clamp_selection_in_buffer(buffer, selection) {
-        Selection::None => None,
-        Selection::Normal(select) => Some(ordered_cursors(select, cursor)),
-        Selection::Line(select) => {
-            let start_line = select.line.min(cursor.line);
-            let end_line = select.line.max(cursor.line);
-            let end_index = buffer.lines.get(end_line)?.text().len();
-            Some((Cursor::new(start_line, 0), Cursor::new(end_line, end_index)))
-        }
-        Selection::Word(select) => {
-            let (mut start, mut end) = ordered_cursors(select, cursor);
-
-            if let Some(line) = buffer.lines.get(start.line) {
-                start.index = line
-                    .text()
-                    .unicode_word_indices()
-                    .rev()
-                    .map(|(index, _)| index)
-                    .find(|index| *index < start.index)
-                    .unwrap_or(0);
-            }
-
-            if let Some(line) = buffer.lines.get(end.line) {
-                end.index = line
-                    .text()
-                    .unicode_word_indices()
-                    .map(|(index, word)| index + word.len())
-                    .find(|index| *index > end.index)
-                    .unwrap_or_else(|| line.text().len());
-            }
-
-            Some((start, end))
-        }
-    }
-}
-
-#[allow(dead_code)]
-pub(crate) fn has_non_empty_selection_in_buffer(
-    buffer: &glyphon::Buffer,
-    cursor: Cursor,
-    selection: Selection,
-) -> bool {
-    fast_selection_bounds_in_buffer(buffer, cursor, selection).is_some_and(|(start, end)| {
-        text_index_for_cursor_in_buffer(buffer, start)
-            < text_index_for_cursor_in_buffer(buffer, end)
-    })
-}
-
-#[allow(dead_code)]
-pub(crate) fn ordered_cursors(first: Cursor, second: Cursor) -> (Cursor, Cursor) {
-    if first <= second {
-        (first, second)
-    } else {
-        (second, first)
-    }
-}
-pub(crate) fn cosmic_motion_for_text_motion(
-    motion: TextMotion,
-) -> Option<glyphon::cosmic_text::Motion> {
-    Some(match motion {
-        TextMotion::VisualLeft => glyphon::cosmic_text::Motion::Left,
-        TextMotion::VisualRight => glyphon::cosmic_text::Motion::Right,
-        TextMotion::VisualUp => glyphon::cosmic_text::Motion::Up,
-        TextMotion::VisualDown => glyphon::cosmic_text::Motion::Down,
-        TextMotion::PageUp => glyphon::cosmic_text::Motion::PageUp,
-        TextMotion::PageDown => glyphon::cosmic_text::Motion::PageDown,
-        TextMotion::LineStart => glyphon::cosmic_text::Motion::Home,
-        TextMotion::LineEnd => glyphon::cosmic_text::Motion::End,
-        _ => return None,
-    })
-}
-
-pub(crate) fn text_position_for_motion_in_document(
+pub(crate) fn text_position_for_motion_in_document_for_state(
     buffer: &Buffer,
+    state: edit::State,
     motion: TextMotion,
 ) -> Option<TextPosition> {
-    let inner = buffer.inner.borrow();
+    let inner = &buffer.inner;
     let index = inner
         .document
-        .position_for_mark(inner.cursor)
+        .position_for_mark(state.cursor)
         .unwrap_or_else(|| TextPosition::new(inner.document.text_len()))
         .index;
     let next = match motion {
+        TextMotion::VisualLeft => inner.document.previous_grapheme_boundary_index(index),
+        TextMotion::VisualRight => inner.document.next_grapheme_boundary_index(index),
         TextMotion::LogicalPrevious => inner.document.previous_grapheme_boundary_index(index),
         TextMotion::LogicalNext => inner.document.next_grapheme_boundary_index(index),
         TextMotion::WordPrevious => inner.document.previous_word_boundary_index(index),
         TextMotion::WordNext => inner.document.next_word_boundary_index(index),
+        TextMotion::LineStart => {
+            let (line, _) = inner.document.line_and_local_for_index(index);
+            inner.document.line_start(line)
+        }
+        TextMotion::LineEnd => {
+            let (line, _) = inner.document.line_and_local_for_index(index);
+            inner.document.line_start(line) + inner.document.line_text_len(line)
+        }
         TextMotion::ParagraphStart => {
             let (line, _) = inner.document.line_and_local_for_index(index);
             inner.document.line_start(line)
@@ -2071,206 +1892,6 @@ pub(crate) fn text_position_for_motion_in_document(
     };
 
     Some(TextPosition::new(next))
-}
-#[allow(dead_code)]
-pub(crate) fn text_position_for_motion_in_buffer(
-    buffer: &glyphon::Buffer,
-    cursor: Cursor,
-    motion: TextMotion,
-) -> Option<TextPosition> {
-    let text = cosmic_buffer_text(buffer);
-    let index = text_index_for_cursor_in_buffer(buffer, cursor);
-    let next = match motion {
-        TextMotion::LogicalPrevious => previous_grapheme_boundary(&text, index),
-        TextMotion::LogicalNext => next_grapheme_boundary(&text, index),
-        TextMotion::WordPrevious => previous_word_boundary(&text, index),
-        TextMotion::WordNext => next_word_boundary(&text, index),
-        TextMotion::ParagraphStart => paragraph_start_boundary(&text, index),
-        TextMotion::ParagraphEnd => paragraph_end_boundary(&text, index),
-        TextMotion::DocumentStart => 0,
-        TextMotion::DocumentEnd => text.len(),
-        _ => return None,
-    };
-
-    Some(TextPosition::new(next))
-}
-
-#[allow(dead_code)]
-pub(crate) fn word_selection_cursors(buffer: &glyphon::Buffer, index: usize) -> (Cursor, Cursor) {
-    let text = cosmic_buffer_text(buffer);
-    let range = word_range_at(&text, index);
-    (
-        cursor_for_text_index_in_buffer(buffer, range.start),
-        cursor_for_text_index_in_buffer(buffer, range.end),
-    )
-}
-#[allow(dead_code)]
-pub(crate) fn normalized_range_in_buffer(
-    buffer: &glyphon::Buffer,
-    range: std::ops::Range<usize>,
-) -> std::ops::Range<usize> {
-    let text = cosmic_buffer_text(buffer);
-    grapheme_range_in_text(&text, range)
-}
-
-#[allow(dead_code)]
-pub(crate) fn floor_text_index_in_buffer(buffer: &glyphon::Buffer, index: usize) -> usize {
-    let text = cosmic_buffer_text(buffer);
-    floor_grapheme_boundary(&text, index)
-}
-
-#[allow(dead_code)]
-fn line_start_offsets(text: &str) -> Vec<usize> {
-    let mut starts = vec![0];
-
-    for (index, character) in text.char_indices() {
-        if character == '\n' {
-            starts.push(index + 1);
-        }
-    }
-
-    starts
-}
-
-#[cfg(test)]
-pub(crate) fn line_start_offsets_for_buffer(buffer: &glyphon::Buffer) -> Vec<usize> {
-    let mut starts = Vec::with_capacity(buffer.lines.len().max(1));
-    let mut offset = 0;
-
-    for line in &buffer.lines {
-        starts.push(offset);
-        offset += line.text().len() + line.ending().as_str().len();
-    }
-
-    if starts.is_empty() {
-        starts.push(0);
-    }
-
-    starts
-}
-
-#[allow(dead_code)]
-pub(crate) fn cursor_for_text_index(text: &str, index: usize) -> Cursor {
-    let index = floor_grapheme_boundary(text, index);
-    let starts = line_start_offsets(text);
-    let line = starts
-        .partition_point(|start| *start <= index)
-        .saturating_sub(1);
-    let line_start = starts.get(line).copied().unwrap_or(0);
-    Cursor::new(line, index.saturating_sub(line_start))
-}
-
-pub(crate) fn buffer_text_len(buffer: &glyphon::Buffer) -> usize {
-    buffer
-        .lines
-        .iter()
-        .map(|line| line.text().len() + line.ending().as_str().len())
-        .sum()
-}
-
-pub(crate) fn cursor_for_text_index_in_buffer(buffer: &glyphon::Buffer, index: usize) -> Cursor {
-    let mut remaining = index.min(buffer_text_len(buffer));
-
-    for (line_index, line) in buffer.lines.iter().enumerate() {
-        let text = line.text();
-        if remaining <= text.len() {
-            return Cursor::new(line_index, floor_grapheme_boundary(text, remaining));
-        }
-
-        remaining -= text.len();
-        let ending_len = line.ending().as_str().len();
-        if remaining < ending_len {
-            return Cursor::new(line_index, text.len());
-        }
-        remaining = remaining.saturating_sub(ending_len);
-    }
-
-    let line = buffer.lines.len().saturating_sub(1);
-    Cursor::new(
-        line,
-        buffer
-            .lines
-            .get(line)
-            .map(glyphon::BufferLine::text)
-            .map(str::len)
-            .unwrap_or(0),
-    )
-}
-
-pub(crate) fn text_index_for_cursor_in_buffer(buffer: &glyphon::Buffer, cursor: Cursor) -> usize {
-    let cursor = clamp_cursor_in_buffer(buffer, cursor);
-    let mut index = 0;
-
-    for (line_index, line) in buffer.lines.iter().enumerate() {
-        if line_index == cursor.line {
-            return index + floor_grapheme_boundary(line.text(), cursor.index);
-        }
-
-        index += line.text().len() + line.ending().as_str().len();
-    }
-
-    index
-}
-
-#[allow(dead_code)]
-pub(crate) fn text_range_for_cursors(
-    buffer: &glyphon::Buffer,
-    start: Cursor,
-    end: Cursor,
-) -> String {
-    let start = clamp_cursor_in_buffer(buffer, start);
-    let end = clamp_cursor_in_buffer(buffer, end);
-
-    if start.line == end.line {
-        let Some(line) = buffer.lines.get(start.line) else {
-            return String::new();
-        };
-
-        return line.text()[start.index..end.index].to_owned();
-    }
-
-    let mut text = String::new();
-
-    if let Some(line) = buffer.lines.get(start.line) {
-        text.push_str(&line.text()[start.index..]);
-        text.push_str(line.ending().as_str());
-    }
-
-    for line_index in start.line + 1..end.line {
-        if let Some(line) = buffer.lines.get(line_index) {
-            text.push_str(line.text());
-            text.push_str(line.ending().as_str());
-        }
-    }
-
-    if let Some(line) = buffer.lines.get(end.line) {
-        text.push_str(&line.text()[..end.index]);
-    }
-
-    text
-}
-
-pub(crate) fn clamp_cursor_in_buffer(buffer: &glyphon::Buffer, cursor: Cursor) -> Cursor {
-    let line = cursor.line.min(buffer.lines.len().saturating_sub(1));
-    let line_text = buffer
-        .lines
-        .get(line)
-        .map(glyphon::BufferLine::text)
-        .unwrap_or("");
-
-    Cursor::new(line, floor_grapheme_boundary(line_text, cursor.index))
-}
-
-pub(crate) fn clamp_selection_in_buffer(
-    buffer: &glyphon::Buffer,
-    selection: Selection,
-) -> Selection {
-    match selection {
-        Selection::None => Selection::None,
-        Selection::Normal(cursor) => Selection::Normal(clamp_cursor_in_buffer(buffer, cursor)),
-        Selection::Line(cursor) => Selection::Line(clamp_cursor_in_buffer(buffer, cursor)),
-        Selection::Word(cursor) => Selection::Word(clamp_cursor_in_buffer(buffer, cursor)),
-    }
 }
 
 pub(crate) fn collapsed_cursor_for_motion(
@@ -2295,14 +1916,6 @@ pub(crate) fn collapsed_cursor_for_motion(
     }
 }
 
-pub(crate) fn cursor_position(buffer: &glyphon::Buffer, cursor: Cursor) -> Option<(i32, i32)> {
-    let mut buffer = buffer.clone();
-    let mut editor = glyphon::Editor::new(&mut buffer);
-    glyphon::Edit::set_cursor(&mut editor, cursor);
-
-    glyphon::Edit::cursor_position(&editor)
-}
-
 impl TextPosition {
     pub fn new(index: usize) -> Self {
         Self::with_affinity(index, TextAffinity::Downstream)
@@ -2318,7 +1931,7 @@ impl From<usize> for TextPosition {
 }
 impl From<Cursor> for TextPosition {
     fn from(value: Cursor) -> Self {
-        Self::with_affinity(value.index, text_affinity(value.affinity))
+        Self::with_affinity(value.index, value.affinity)
     }
 }
 impl PartialEq<std::ops::Range<usize>> for TextRange {

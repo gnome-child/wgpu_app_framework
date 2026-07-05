@@ -5,11 +5,11 @@ use winit::{
     keyboard::{Key as WinitKey, ModifiersState, NamedKey},
 };
 
-use crate::app::state::{PressSource, WindowState, command_request};
+use crate::app::state::{PressSource, WindowState};
 use crate::geometry::point;
 use crate::{command, pointer, text, ui, window};
 
-use super::{scroll, text_input};
+use super::{command as command_layer, scroll, text_input};
 
 #[derive(Debug, Default)]
 pub struct Outcome {
@@ -351,18 +351,17 @@ pub fn pointer_released(
             command::call::Source::Pointer,
         )
     });
-    let menu_restore_visibility =
-        request
-            .as_ref()
-            .and_then(|request| match request.context().scope() {
-                command::call::Scope::Path(target) => Some(
-                    state.focus_visibility_for_activation(target, command::call::Source::Pointer),
-                ),
-                command::call::Scope::Window
-                | command::call::Scope::Current
-                | command::call::Scope::Focused
-                | command::call::Scope::Captured => Some(ui::focus::Visibility::Hidden),
-            });
+    let menu_restore_visibility = request
+        .as_ref()
+        .map(|request| match request.context().scope() {
+            command::call::Scope::Path(target) => {
+                state.focus_visibility_for_activation(target, command::call::Source::Pointer)
+            }
+            command::call::Scope::Window
+            | command::call::Scope::Current
+            | command::call::Scope::Focused
+            | command::call::Scope::Captured => ui::focus::Visibility::Hidden,
+        });
     let _closed_menu = request
         .as_ref()
         .and_then(command::call::Raw::origin)
@@ -606,6 +605,25 @@ fn text_edit_for_key(
     }
 }
 
+fn insert_text_request(
+    window: window::Id,
+    target: ui::Path,
+    text: String,
+    repeated: bool,
+) -> command::call::Raw {
+    command::call::Raw::from_route(
+        command::binding::Route::new(
+            command::Key::of::<text::command::InsertText>(),
+            text::command::text_target_kind(),
+        ),
+        command::call::Source::Keyboard,
+        command::call::Context::path(window, target.clone()),
+    )
+    .with_args(command::args::Raw::Text(text))
+    .with_origin(target)
+    .with_repeated(repeated)
+}
+
 fn jump_modifier_pressed(modifiers: ui::Modifiers) -> bool {
     if cfg!(target_os = "macos") {
         modifiers.alt()
@@ -662,6 +680,16 @@ pub fn key_pressed_with_text(
         if state.is_editable_text_field(target) {
             state.reset_text_field_caret_blink(target, Instant::now());
         }
+        if let text::edit::Edit::Insert(text) = edit {
+            return Outcome {
+                events,
+                request: Some(insert_text_request(window, target.clone(), text, repeat)),
+                intent: None,
+                redraw: true,
+                repeatable_key: true,
+            };
+        }
+
         events.push(ui::Event::TextEditRequested {
             target: target.clone(),
             edit,
@@ -847,7 +875,8 @@ fn activation_request(
         return None;
     }
 
-    command_request(state, window, target, source).filter(|request| registry.can_execute(request))
+    command_layer::request_for_path(state, window, target, source)
+        .filter(|request| command_layer::can_execute_request(state, registry, request))
 }
 
 fn restore_command_target_focus(
@@ -867,7 +896,7 @@ fn restore_command_target_focus(
     if !state.is_focusable(target) {
         return false;
     }
-    if state.command_subject(origin) == ui::CommandSubject::Origin {
+    if state.action_subject(origin) == ui::ActionSubject::Origin {
         return false;
     }
 
@@ -917,7 +946,7 @@ fn menu_navigation_intent(
                 source,
             ));
         }
-        Some(ui::Intent::Command(_))
+        Some(ui::Intent::Action(_))
             if state.open_submenu.is_some() && state.is_top_menu_popup_path(target) =>
         {
             return Some(IntentRequest::new(
@@ -967,7 +996,7 @@ fn focusable_paths(
         .map(ui::Composition::focus_order)
         .unwrap_or(&[])
         .iter()
-        .filter(|path| can_focus(registry, state, window, path))
+        .filter(|path| command_layer::can_focus(state, registry, window, path))
         .cloned()
         .collect::<Vec<_>>();
 
@@ -1003,30 +1032,6 @@ fn open_keyboard_text_context_menu(
     state.open_text_context_menu(window, target, anchor, command::call::Source::Keyboard)
 }
 
-fn can_focus(
-    registry: &command::Registry,
-    state: &WindowState,
-    window: window::Id,
-    path: &ui::Path,
-) -> bool {
-    if !state.is_focusable(path) {
-        return false;
-    }
-
-    let Some(route) = state
-        .composition
-        .as_ref()
-        .and_then(|composition| composition.command(path))
-    else {
-        return true;
-    };
-
-    registry.can_invoke_key(
-        route.command(),
-        state.command_context_for_path(window, path),
-    )
-}
-
 fn invokable_focused_path(
     registry: &command::Registry,
     state: &WindowState,
@@ -1040,13 +1045,13 @@ fn invokable_focused_path(
         return Some(target);
     }
 
-    command_request(
+    command_layer::request_for_path(
         state,
         window,
         target.clone(),
         command::call::Source::Keyboard,
     )
-    .filter(|request| registry.can_execute(request))
+    .filter(|request| command_layer::can_execute_request(state, registry, request))
     .map(|_| target)
 }
 
@@ -1087,6 +1092,7 @@ mod tests {
     use crate::Command;
     use crate::app::state::{Focus, FocusState};
     use crate::command;
+    use crate::ui::layout;
     use crate::widget::{self, menu};
 
     use super::*;
@@ -1140,26 +1146,23 @@ mod tests {
             widget::scroll_view()
                 .key(CHILD)
                 .with_scroll_offset(offset)
-                .with_size(
-                    crate::layout::Size::Fixed(40.0),
-                    crate::layout::Size::Fixed(40.0),
-                )
+                .with_size(layout::Size::Fixed(40.0), layout::Size::Fixed(40.0))
                 .with_child(
                     ui::Node::leaf()
                         .key(SECOND)
-                        .with_size(crate::layout::Size::Fill, crate::layout::Size::Fixed(30.0))
+                        .with_size(layout::Size::Fill, layout::Size::Fixed(30.0))
                         .with_interactivity(ui::Interactivity::NONE.with_hit_test(true)),
                 )
                 .with_child(
                     ui::Node::leaf()
                         .key(ui::Id::new("third"))
-                        .with_size(crate::layout::Size::Fill, crate::layout::Size::Fixed(30.0))
+                        .with_size(layout::Size::Fill, layout::Size::Fixed(30.0))
                         .with_interactivity(ui::Interactivity::NONE.with_hit_test(true)),
                 )
                 .with_child(
                     ui::Node::leaf()
                         .key(ui::Id::new("fourth"))
-                        .with_size(crate::layout::Size::Fill, crate::layout::Size::Fixed(30.0))
+                        .with_size(layout::Size::Fill, layout::Size::Fixed(30.0))
                         .with_interactivity(ui::Interactivity::NONE.with_hit_test(true)),
                 ),
         );
@@ -1186,14 +1189,11 @@ mod tests {
         tree.set_root(
             widget::scroll_view()
                 .key(CHILD)
-                .with_size(
-                    crate::layout::Size::Fixed(40.0),
-                    crate::layout::Size::Fixed(40.0),
-                )
+                .with_size(layout::Size::Fixed(40.0), layout::Size::Fixed(40.0))
                 .with_child(
                     ui::Node::leaf()
                         .key(SECOND)
-                        .with_size(crate::layout::Size::Fill, crate::layout::Size::Fixed(20.0))
+                        .with_size(layout::Size::Fill, layout::Size::Fixed(20.0))
                         .with_interactivity(ui::Interactivity::NONE.with_hit_test(true)),
                 ),
         );
@@ -1216,31 +1216,23 @@ mod tests {
     }
 
     fn hidden_bar_text_area_state() -> WindowState {
-        let window = window::Id::new(1);
         let mut tree = ui::Tree::new();
-        let mut registry = command::Registry::new();
         let buffer = text::Buffer::from_multiline_text(&text_area_lines(40).join("\n"));
         tree.set_root(
-            ui::Node::container(crate::layout::Axis::Vertical)
+            ui::Node::container(layout::Axis::Vertical)
                 .key(ROOT)
-                .with_size(crate::layout::Size::Fill, crate::layout::Size::Fill)
+                .with_size(layout::Size::Fill, layout::Size::Fill)
                 .with_child(
                     widget::text_area(text::Area::new(buffer))
                         .key(CHILD)
                         .with_scroll_bars(widget::scroll::Bars::none())
-                        .with_size(
-                            crate::layout::Size::Fixed(120.0),
-                            crate::layout::Size::Fixed(48.0),
-                        ),
+                        .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(48.0)),
                 ),
         );
         let mut text_engine = crate::text::layout::Engine::new();
         let composition = tree
             .compose(
-                window,
                 crate::geometry::area::logical(120.0, 48.0),
-                &mut registry,
-                &[],
                 &mut text_engine,
             )
             .expect("hidden-bar text area should compose");
@@ -1269,7 +1261,7 @@ mod tests {
     }
 
     fn single_box(id: ui::Id) -> crate::ui::Frame {
-        crate::layout::Frame::<ui::Path>::new(
+        layout::Frame::<ui::Path>::new(
             ui::Path::root(id),
             crate::geometry::Rect::new(
                 point::logical(0.0, 0.0),
@@ -1280,7 +1272,7 @@ mod tests {
     }
 
     fn path_box(path: ui::Path) -> crate::ui::Frame {
-        crate::layout::Frame::<ui::Path>::with_path(
+        layout::Frame::<ui::Path>::with_path(
             path,
             crate::geometry::Rect::new(
                 point::logical(0.0, 0.0),
@@ -1293,20 +1285,31 @@ mod tests {
     fn composition(
         layout: crate::ui::Frame,
         commands: HashMap<ui::Path, command::Key>,
-        command_subjects: HashMap<ui::Path, ui::CommandSubject>,
+        action_subjects: HashMap<ui::Path, ui::ActionSubject>,
         intents: HashMap<ui::Path, ui::Intent>,
         responders: HashMap<ui::Path, Vec<command::Key>>,
         interactivity: HashMap<ui::Path, ui::Interactivity>,
-        widget_metrics: HashMap<ui::Path, widget::Metrics>,
+        widget_metrics: HashMap<ui::Path, ui::Metrics>,
         focus_order: Vec<ui::Path>,
     ) -> ui::Composition {
         ui::Composition::for_test(
             layout,
             HashMap::new(),
-            commands,
-            command_subjects,
+            commands
+                .into_iter()
+                .map(|(path, command)| (path, command.action()))
+                .collect(),
+            action_subjects,
             intents,
-            responders,
+            responders
+                .into_iter()
+                .map(|(path, commands)| {
+                    (
+                        path,
+                        commands.into_iter().map(command::Key::action).collect(),
+                    )
+                })
+                .collect(),
             Vec::new(),
             interactivity,
             widget_metrics,
@@ -1353,18 +1356,18 @@ mod tests {
     fn state_with_composition(
         layout: crate::ui::Frame,
         commands: HashMap<ui::Path, command::Key>,
-        command_subjects: HashMap<ui::Path, ui::CommandSubject>,
+        action_subjects: HashMap<ui::Path, ui::ActionSubject>,
         intents: HashMap<ui::Path, ui::Intent>,
         responders: HashMap<ui::Path, Vec<command::Key>>,
         interactivity: HashMap<ui::Path, ui::Interactivity>,
-        widget_metrics: HashMap<ui::Path, widget::Metrics>,
+        widget_metrics: HashMap<ui::Path, ui::Metrics>,
         focus_order: Vec<ui::Path>,
     ) -> WindowState {
         WindowState {
             composition: Some(composition(
                 layout,
                 commands,
-                command_subjects,
+                action_subjects,
                 intents,
                 responders,
                 interactivity,
@@ -1380,24 +1383,17 @@ mod tests {
     }
 
     fn text_field_state_with_field(field: impl Into<crate::text::Field>) -> WindowState {
-        let window = window::Id::new(1);
         let mut tree = ui::Tree::new();
-        let mut registry = command::Registry::new();
         let mut measurer = crate::text::layout::Engine::new();
 
-        tree.set_root(widget::text_field(field).key(CHILD).with_size(
-            crate::layout::Size::Fixed(100.0),
-            crate::layout::Size::Fixed(24.0),
-        ));
+        tree.set_root(
+            widget::text_field(field)
+                .key(CHILD)
+                .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(24.0)),
+        );
 
         let composition = tree
-            .compose(
-                window,
-                crate::geometry::area::logical(100.0, 24.0),
-                &mut registry,
-                &[],
-                &mut measurer,
-            )
+            .compose(crate::geometry::area::logical(100.0, 24.0), &mut measurer)
             .expect("text field tree should compose");
 
         WindowState {
@@ -1415,32 +1411,26 @@ mod tests {
         first: impl Into<crate::text::Field>,
         second: impl Into<crate::text::Field>,
     ) -> WindowState {
-        let window = window::Id::new(1);
         let mut tree = ui::Tree::new();
-        let mut registry = command::Registry::new();
         let mut measurer = crate::text::layout::Engine::new();
 
         tree.set_root(
-            ui::Node::container(crate::layout::Axis::Vertical)
+            ui::Node::container(layout::Axis::Vertical)
                 .key(ROOT)
-                .with_child(widget::text_field(first).key(CHILD).with_size(
-                    crate::layout::Size::Fixed(100.0),
-                    crate::layout::Size::Fixed(24.0),
-                ))
-                .with_child(widget::text_field(second).key(SECOND).with_size(
-                    crate::layout::Size::Fixed(100.0),
-                    crate::layout::Size::Fixed(24.0),
-                )),
+                .with_child(
+                    widget::text_field(first)
+                        .key(CHILD)
+                        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(24.0)),
+                )
+                .with_child(
+                    widget::text_field(second)
+                        .key(SECOND)
+                        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(24.0)),
+                ),
         );
 
         let composition = tree
-            .compose(
-                window,
-                crate::geometry::area::logical(100.0, 48.0),
-                &mut registry,
-                &[],
-                &mut measurer,
-            )
+            .compose(crate::geometry::area::logical(100.0, 48.0), &mut measurer)
             .expect("two text field tree should compose");
 
         WindowState {
@@ -1455,9 +1445,7 @@ mod tests {
     }
 
     fn text_area_state(scroll_y: f32) -> (WindowState, crate::text::layout::Engine, ui::Path) {
-        let window = window::Id::new(1);
         let mut tree = ui::Tree::new();
-        let mut registry = command::Registry::new();
         let mut text_engine = crate::text::layout::Engine::new();
         let text = (0..80)
             .map(|line| format!("line {line:02} abcdefghijklmnopqrstuvwxyz"))
@@ -1466,21 +1454,19 @@ mod tests {
         let area = crate::text::Area::new(crate::text::Buffer::from_multiline_text(text));
 
         tree.set_root(
-            ui::Node::container(crate::layout::Axis::Vertical)
+            ui::Node::container(layout::Axis::Vertical)
                 .key(ROOT)
-                .with_size(crate::layout::Size::Fill, crate::layout::Size::Fill)
-                .with_child(widget::text_area(area).key(CHILD).with_size(
-                    crate::layout::Size::Fixed(140.0),
-                    crate::layout::Size::Fixed(60.0),
-                )),
+                .with_size(layout::Size::Fill, layout::Size::Fill)
+                .with_child(
+                    widget::text_area(area)
+                        .key(CHILD)
+                        .with_size(layout::Size::Fixed(140.0), layout::Size::Fixed(60.0)),
+                ),
         );
 
         let composition = tree
             .compose(
-                window,
                 crate::geometry::area::logical(180.0, 90.0),
-                &mut registry,
-                &[],
                 &mut text_engine,
             )
             .expect("text area tree should compose");
@@ -1515,19 +1501,14 @@ mod tests {
         let mut tree = ui::Tree::new();
         let mut measurer = crate::text::layout::Engine::new();
 
-        tree.set_root(widget::text_field(buffer).key(CHILD).with_size(
-            crate::layout::Size::Fixed(100.0),
-            crate::layout::Size::Fixed(24.0),
-        ));
+        tree.set_root(
+            widget::text_field(buffer)
+                .key(CHILD)
+                .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(24.0)),
+        );
 
         let composition = tree
-            .compose(
-                window,
-                crate::geometry::area::logical(100.0, 24.0),
-                registry,
-                &[],
-                &mut measurer,
-            )
+            .compose(crate::geometry::area::logical(100.0, 24.0), &mut measurer)
             .expect("text field tree should compose");
 
         let mut state = WindowState {
@@ -1562,7 +1543,7 @@ mod tests {
             command::TestTarget,
         >());
         tree.set_root(
-            ui::Node::container(crate::layout::Axis::Vertical)
+            ui::Node::container(layout::Axis::Vertical)
                 .key(ROOT)
                 .with_child(
                     widget::menu_bar(
@@ -1578,31 +1559,22 @@ mod tests {
                 .with_child(
                     widget::text_field(crate::text::Buffer::from_text("hello"))
                         .key(CHILD)
-                        .with_size(
-                            crate::layout::Size::Fixed(100.0),
-                            crate::layout::Size::Fixed(24.0),
-                        ),
+                        .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(24.0)),
                 )
                 .with_child(
                     ui::Node::leaf()
                         .key(SECOND)
-                        .with_command_route(text_route::<crate::text::command::SelectAll>())
-                        .with_command_subject(ui::CommandSubject::Current)
+                        .with_action_route(text_route::<crate::text::command::SelectAll>().action())
+                        .with_action_subject(ui::ActionSubject::Current)
                         .with_interactivity(ui::Interactivity::CONTROL)
-                        .with_size(
-                            crate::layout::Size::Fixed(20.0),
-                            crate::layout::Size::Fixed(20.0),
-                        ),
+                        .with_size(layout::Size::Fixed(20.0), layout::Size::Fixed(20.0)),
                 )
                 .with_child(
                     ui::Node::leaf()
                         .key(ORIGIN_BUTTON)
-                        .with_command_key(CLICK)
+                        .with_action_key(CLICK.action())
                         .with_interactivity(ui::Interactivity::CONTROL)
-                        .with_size(
-                            crate::layout::Size::Fixed(20.0),
-                            crate::layout::Size::Fixed(20.0),
-                        ),
+                        .with_size(layout::Size::Fixed(20.0), layout::Size::Fixed(20.0)),
                 ),
         );
         if open_menu {
@@ -1613,27 +1585,32 @@ mod tests {
                 ui::floating::FocusPolicy::PreserveCurrentFocus,
             );
         }
-        let composition = tree
-            .compose(
-                window,
-                crate::geometry::area::logical(180.0, 120.0),
-                &mut registry,
-                floating.surfaces(),
-                &mut measurer,
-            )
-            .expect("command text field tree should compose");
-
         let mut state = WindowState {
-            composition: Some(composition),
             focus: FocusState::focused(Focus::new(
                 field.clone(),
                 ui::focus::Reason::Keyboard,
                 ui::focus::Visibility::Visible,
             )),
-            command_subject: Some(command::call::Scope::Path(field)),
+            command: crate::app::command::State::with_subject(command::call::Scope::Path(field)),
             floating,
             ..WindowState::default()
         };
+        let compose_area = crate::geometry::area::logical(180.0, 120.0);
+        let layer = crate::app::command::Layer::new(&mut registry, window);
+        let presenter = layer.menu_presenter(&state);
+        let (presentation_tree, open_menu, open_submenu) =
+            crate::app::view::tree_with_runtime_popups(
+                &tree,
+                compose_area,
+                &presenter,
+                state.floating.surfaces(),
+                &mut measurer,
+            );
+        let composition = presentation_tree
+            .compose_with_open_menus(compose_area, open_menu, open_submenu, &mut measurer)
+            .expect("command text field tree should compose");
+
+        state.composition = Some(composition);
         state.sync_open_menu_mirrors();
         state.update_command_scope_captures(window);
         state.sync_menu_focus_scopes();
@@ -1646,10 +1623,10 @@ mod tests {
             .composition
             .as_ref()
             .expect("state should have composition")
-            .commands()
+            .actions()
             .iter()
-            .find_map(|(path, command_id)| {
-                (command_id.command() == command::Key::of::<crate::text::command::SelectAll>()
+            .find_map(|(path, route)| {
+                (route.key() == command::Key::of::<crate::text::command::SelectAll>().action()
                     && state.is_menu_path(path))
                 .then(|| path.clone())
             })
@@ -1702,6 +1679,42 @@ mod tests {
             "expected {expected:?} in events: {:?}",
             outcome.events
         );
+    }
+
+    fn assert_insert_text_request(
+        outcome: &Outcome,
+        window: window::Id,
+        target: ui::Path,
+        text: &str,
+        repeated: bool,
+    ) {
+        let request = outcome
+            .request
+            .as_ref()
+            .expect("insert text should be routed as a command request");
+
+        assert_eq!(
+            request.command(),
+            command::Key::of::<crate::text::command::InsertText>()
+        );
+        assert_eq!(request.target(), crate::text::command::text_target_kind());
+        assert_eq!(request.source(), command::call::Source::Keyboard);
+        assert_eq!(
+            request.context(),
+            &command::call::Context::path(window, target.clone())
+        );
+        assert_eq!(request.args(), &command::args::Raw::Text(text.to_owned()));
+        assert_eq!(request.origin(), Some(&target));
+        assert_eq!(request.repeated(), repeated);
+        assert!(!outcome.events.iter().any(|event| {
+            matches!(
+                event,
+                ui::Event::TextEditRequested {
+                    edit: crate::text::edit::Edit::Insert(_),
+                    ..
+                }
+            )
+        }));
     }
 
     #[test]
@@ -1758,7 +1771,7 @@ mod tests {
 
         assert_eq!(state.focused_path(), Some(field.clone()));
         assert_eq!(
-            state.command_subject,
+            state.command.subject,
             Some(command::call::Scope::Path(field))
         );
         assert_eq!(state.pressed, Some(title.clone()));
@@ -1781,11 +1794,12 @@ mod tests {
         let field = root_path(CHILD);
         let stale = root_path(ORIGIN_BUTTON);
 
-        state.command_subject = Some(command::call::Scope::Path(stale));
+        state.command.subject = Some(command::call::Scope::Path(stale));
         state.update_command_scope_captures(window);
 
-        let request = command_request(&state, window, row, command::call::Source::Pointer)
-            .expect("captured menu row should request select all");
+        let request =
+            command_layer::request_for_path(&state, window, row, command::call::Source::Pointer)
+                .expect("captured menu row should request select all");
 
         assert_eq!(
             request.command(),
@@ -2244,13 +2258,13 @@ mod tests {
         let mut registry = command::Registry::new();
         let row = ui::Path::new([widget::MENU_POPUP, CHILD]);
         let mut state = state_with_composition(
-            crate::layout::Frame::<ui::Path>::with_path(
+            layout::Frame::<ui::Path>::with_path(
                 ui::Path::from(widget::MENU_POPUP),
                 crate::geometry::Rect::new(
                     point::logical(0.0, 0.0),
                     crate::geometry::area::logical(20.0, 20.0),
                 ),
-                vec![crate::layout::Frame::<ui::Path>::with_path(
+                vec![layout::Frame::<ui::Path>::with_path(
                     row.clone(),
                     crate::geometry::Rect::new(
                         point::logical(0.0, 0.0),
@@ -2261,7 +2275,7 @@ mod tests {
             ),
             HashMap::from([(row.clone(), CLICK)]),
             HashMap::new(),
-            HashMap::from([(row.clone(), ui::Intent::Command(route(CLICK)))]),
+            HashMap::from([(row.clone(), ui::Intent::Action(route(CLICK).action()))]),
             HashMap::new(),
             HashMap::from([(row.clone(), ui::Interactivity::CONTROL)]),
             HashMap::new(),
@@ -2448,7 +2462,7 @@ mod tests {
     }
 
     #[test]
-    fn focused_text_field_character_key_emits_insert_edit_request() {
+    fn focused_text_field_character_key_emits_insert_text_request() {
         let window = window::Id::new(1);
         let registry = command::Registry::new();
         let mut state = text_field_state();
@@ -2461,10 +2475,7 @@ mod tests {
             false,
         );
 
-        assert!(outcome.events.contains(&ui::Event::TextEditRequested {
-            target: path(CHILD),
-            edit: crate::text::edit::Edit::insert("A"),
-        }));
+        assert_insert_text_request(&outcome, window, path(CHILD), "A", false);
     }
     #[test]
     fn focused_text_field_plain_character_edit_consumes_matching_shortcut() {
@@ -2488,11 +2499,7 @@ mod tests {
             false,
         );
 
-        assert_eq!(outcome.request, None);
-        assert!(outcome.events.contains(&ui::Event::TextEditRequested {
-            target: path(CHILD),
-            edit: crate::text::edit::Edit::insert("a"),
-        }));
+        assert_insert_text_request(&outcome, window, path(CHILD), "a", false);
     }
 
     #[test]
@@ -2527,7 +2534,7 @@ mod tests {
 
         assert!(outcome.events.contains(&ui::Event::TextEditRequested {
             target: path(CHILD),
-            edit: crate::text::edit::Edit::motion(glyphon::cosmic_text::Motion::Left),
+            edit: crate::text::edit::Edit::move_position(crate::text::TextMotion::VisualLeft),
         }));
     }
 
@@ -2658,7 +2665,7 @@ mod tests {
     }
 
     #[test]
-    fn focused_text_field_arrow_key_emits_cosmic_motion_edit_request() {
+    fn focused_text_field_arrow_key_emits_text_motion_edit_request() {
         let window = window::Id::new(1);
         let registry = command::Registry::new();
         let mut state = text_field_state();
@@ -2667,7 +2674,7 @@ mod tests {
 
         assert!(outcome.events.contains(&ui::Event::TextEditRequested {
             target: path(CHILD),
-            edit: crate::text::edit::Edit::motion(glyphon::cosmic_text::Motion::Left),
+            edit: crate::text::edit::Edit::move_position(crate::text::TextMotion::VisualLeft),
         }));
     }
 
@@ -2682,7 +2689,7 @@ mod tests {
 
         assert!(outcome.events.contains(&ui::Event::TextEditRequested {
             target: path(CHILD),
-            edit: crate::text::edit::Edit::extend_motion(glyphon::cosmic_text::Motion::Right),
+            edit: crate::text::edit::Edit::extend_position(crate::text::TextMotion::VisualRight),
         }));
     }
 
@@ -2701,7 +2708,7 @@ mod tests {
 
         assert!(outcome.events.contains(&ui::Event::TextEditRequested {
             target: path(CHILD),
-            edit: crate::text::edit::Edit::motion(glyphon::cosmic_text::Motion::LeftWord),
+            edit: crate::text::edit::Edit::move_position(crate::text::TextMotion::WordPrevious),
         }));
     }
 
@@ -2844,7 +2851,7 @@ mod tests {
         assert!(outcome.redraw);
         assert!(state.floating.context_menu().is_some_and(|surface| {
             surface.context_menu_target() == Some(&path(CHILD))
-                && surface.source() == command::call::Source::Keyboard
+                && state.floating.source(surface) == Some(command::call::Source::Keyboard)
         }));
     }
 
@@ -3646,7 +3653,7 @@ mod tests {
             path_box(row.clone()),
             HashMap::new(),
             HashMap::new(),
-            HashMap::from([(row.clone(), ui::Intent::Command(route(CLICK)))]),
+            HashMap::from([(row.clone(), ui::Intent::Action(route(CLICK).action()))]),
             HashMap::new(),
             HashMap::from([(row.clone(), ui::Interactivity::CONTROL)]),
             HashMap::new(),
@@ -3969,15 +3976,7 @@ mod tests {
         );
 
         assert!(outcome.repeatable_key);
-        assert!(outcome.events.iter().any(|event| {
-            matches!(
-                event,
-                ui::Event::TextEditRequested {
-                    edit: crate::text::edit::Edit::Insert(_),
-                    ..
-                }
-            )
-        }));
+        assert_insert_text_request(&outcome, window, path(CHILD), "x", false);
     }
 
     #[test]
@@ -4047,7 +4046,7 @@ mod tests {
             Vec::new(),
         );
         state.modifiers = ui::Modifiers::new(false, true, false, false);
-        state.command_subject = Some(command::call::Scope::Path(path(SECOND)));
+        state.command.subject = Some(command::call::Scope::Path(path(SECOND)));
 
         define_text_command::<crate::text::command::SelectAll>(&mut registry, |command| {
             command
@@ -4287,7 +4286,7 @@ mod tests {
         state.record_text_field_history(
             &path(CHILD),
             result.change.expect("insert should change text"),
-            crate::text::edit::HistoryKind::Typing("!".to_owned()),
+            crate::app::text::HistoryKind::Typing("!".to_owned()),
             Instant::now(),
         );
         crate::app::text_input::publish_command_states(&state, &mut registry, window);
@@ -4329,7 +4328,7 @@ mod tests {
         state.record_text_field_history(
             &path(CHILD),
             result.change.expect("insert should change text"),
-            crate::text::edit::HistoryKind::Typing("!".to_owned()),
+            crate::app::text::HistoryKind::Typing("!".to_owned()),
             Instant::now(),
         );
         state.apply_text_history_command(
@@ -4473,7 +4472,7 @@ mod tests {
                 path(CHILD),
                 command::Key::of::<crate::text::command::SelectAll>(),
             )]),
-            HashMap::from([(path(CHILD), ui::CommandSubject::Current)]),
+            HashMap::from([(path(CHILD), ui::ActionSubject::Current)]),
             HashMap::new(),
             HashMap::from([(
                 path(SECOND),
@@ -4505,8 +4504,13 @@ mod tests {
         )
         .request
         .expect("shortcut should request the command");
-        let button = command_request(&state, window, path(CHILD), command::call::Source::Pointer)
-            .expect("command button should request the command");
+        let button = command_layer::request_for_path(
+            &state,
+            window,
+            path(CHILD),
+            command::call::Source::Pointer,
+        )
+        .expect("command button should request the command");
 
         assert_eq!(shortcut.context(), button.context());
         assert_eq!(
@@ -4533,7 +4537,7 @@ mod tests {
             Vec::new(),
         );
         state.modifiers = ui::Modifiers::new(false, true, false, false);
-        state.command_subject = Some(command::call::Scope::Path(path(SECOND)));
+        state.command.subject = Some(command::call::Scope::Path(path(SECOND)));
 
         define_text_command::<crate::text::command::SelectAll>(&mut registry, |command| {
             command
@@ -4554,16 +4558,16 @@ mod tests {
         let mut state = state_with_composition(
             single_box(CHILD),
             HashMap::from([(path(CHILD), CLICK)]),
-            HashMap::from([(path(CHILD), ui::CommandSubject::Current)]),
+            HashMap::from([(path(CHILD), ui::ActionSubject::Current)]),
             HashMap::new(),
-            HashMap::new(),
+            HashMap::from([(path(SECOND), vec![CLICK])]),
             HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
             HashMap::new(),
             Vec::new(),
         );
         state.pressed = Some(path(CHILD));
         state.pressed_source = Some(PressSource::Pointer);
-        state.command_subject = Some(command::call::Scope::Path(path(SECOND)));
+        state.command.subject = Some(command::call::Scope::Path(path(SECOND)));
         registry.register(command::definition::Definition::for_command::<
             Click,
             command::TestTarget,
@@ -4597,7 +4601,7 @@ mod tests {
         let mut state = state_with_composition(
             single_box(CHILD),
             HashMap::from([(path(CHILD), CLICK)]),
-            HashMap::from([(path(CHILD), ui::CommandSubject::Window)]),
+            HashMap::from([(path(CHILD), ui::ActionSubject::Window)]),
             HashMap::new(),
             HashMap::new(),
             HashMap::from([(path(CHILD), ui::Interactivity::CONTROL)]),
@@ -4609,7 +4613,7 @@ mod tests {
             ui::focus::Reason::Keyboard,
             ui::focus::Visibility::Visible,
         ));
-        state.command_subject = Some(command::call::Scope::Path(path(SECOND)));
+        state.command.subject = Some(command::call::Scope::Path(path(SECOND)));
 
         registry.register(command::definition::Definition::for_command::<
             Click,

@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use crate::geometry::{Rect, area, point};
+use crate::ui::scroll::TextAreaProjection;
 use crate::{text, ui, widget};
 
 const COMPOSITOR_SAMPLE_PADDING: f32 = 2.0;
@@ -282,14 +283,6 @@ pub struct Projection {
     metrics: widget::scroll::Metrics,
     generation: u64,
     text_area: Option<TextAreaProjection>,
-}
-
-#[derive(Debug, Clone)]
-pub struct TextAreaProjection {
-    metrics: widget::scroll::Metrics,
-    layout: text::layout::TextFieldLayout,
-    interaction_surfaces: Vec<text::layout::TextAreaSurface>,
-    render_surfaces: Vec<text::layout::TextAreaSurface>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1437,6 +1430,20 @@ impl Driver {
     }
 }
 
+impl ui::scroll::Projections for Driver {
+    fn metrics(&self, path: &ui::Path) -> Option<widget::scroll::Metrics> {
+        Self::metrics(self, path)
+    }
+
+    fn visual_offset(&self, path: &ui::Path) -> Option<point::Logical> {
+        Self::visual_offset(self, path)
+    }
+
+    fn text_area(&self, path: &ui::Path) -> Option<&TextAreaProjection> {
+        Self::text_area(self, path)
+    }
+}
+
 impl RetainedLayer {
     pub(crate) fn new(metrics: widget::scroll::Metrics, coverage: Rect) -> Self {
         Self { metrics, coverage }
@@ -1598,144 +1605,9 @@ impl Projection {
                 self.text_area = None;
                 return ProjectionUpdate::TextAreaDropped;
             }
-            text_area.metrics = metrics;
+            text_area.set_metrics(metrics);
         }
         ProjectionUpdate::None
-    }
-}
-
-impl TextAreaProjection {
-    pub fn from_layout(
-        metrics: widget::scroll::Metrics,
-        layout: text::layout::TextAreaPaintLayout,
-    ) -> Self {
-        let (layout, interaction_surfaces, render_surfaces) = layout.into_projection_parts();
-        Self {
-            metrics,
-            layout,
-            interaction_surfaces,
-            render_surfaces,
-        }
-    }
-
-    pub fn metrics(&self) -> widget::scroll::Metrics {
-        self.metrics
-    }
-
-    pub fn content_area(&self) -> area::Logical {
-        self.layout.content_area()
-    }
-
-    pub fn interaction_surfaces(&self) -> &[text::layout::TextAreaSurface] {
-        &self.interaction_surfaces
-    }
-
-    pub fn render_surfaces(&self) -> impl Iterator<Item = &text::layout::TextAreaSurface> {
-        let viewport = self.metrics.viewport().area;
-        self.render_surfaces
-            .iter()
-            .filter(move |surface| surface_intersects_viewport(surface, viewport))
-    }
-
-    pub fn observed_area(&self) -> text::view::ObservedArea<'_> {
-        text::view::ObservedArea::new(
-            self.metrics.viewport(),
-            self.metrics.offset(),
-            self.layout.content_area(),
-            &self.interaction_surfaces,
-        )
-    }
-
-    pub fn scroll_anchor(&self, area_model: &text::Area) -> Option<text::ScrollAnchor> {
-        text::View::scroll_anchor_for_text_area(
-            area_model,
-            self.observed_area(),
-            &self.render_surfaces,
-        )
-    }
-
-    fn translate_for_metrics(
-        &mut self,
-        old_metrics: widget::scroll::Metrics,
-        metrics: widget::scroll::Metrics,
-    ) -> bool {
-        if !same_area(old_metrics.viewport().area, metrics.viewport().area)
-            || !same_area(old_metrics.content_size(), metrics.content_size())
-            || old_metrics.max_offset() != metrics.max_offset()
-        {
-            return false;
-        }
-
-        if !self.covers_metrics(old_metrics, metrics) {
-            return false;
-        }
-
-        let old_offset = old_metrics.offset();
-        let new_offset = metrics.offset();
-        let viewport = metrics.viewport().area;
-        let interaction_surfaces = self
-            .interaction_surfaces
-            .iter()
-            .map(|surface| surface.translated_for_scroll(old_offset, new_offset, viewport))
-            .collect::<Vec<_>>();
-        if !interaction_surfaces.is_empty()
-            && !surfaces_cover_viewport(&interaction_surfaces, viewport)
-        {
-            return false;
-        }
-        let render_surfaces = self
-            .render_surfaces
-            .iter()
-            .map(|surface| surface.translated_for_scroll(old_offset, new_offset, viewport))
-            .collect::<Vec<_>>();
-        if !surfaces_cover_viewport(&render_surfaces, viewport) {
-            return false;
-        }
-        self.layout = self
-            .layout
-            .translated_for_scroll(new_offset.x(), new_offset.y());
-        self.interaction_surfaces = interaction_surfaces;
-        self.render_surfaces = render_surfaces;
-        self.metrics = metrics;
-        true
-    }
-
-    fn covers_metrics(
-        &self,
-        old_metrics: widget::scroll::Metrics,
-        metrics: widget::scroll::Metrics,
-    ) -> bool {
-        if !same_area(old_metrics.viewport().area, metrics.viewport().area)
-            || !same_area(old_metrics.content_size(), metrics.content_size())
-            || old_metrics.max_offset() != metrics.max_offset()
-        {
-            return false;
-        }
-
-        if self.interaction_surfaces.is_empty() {
-            return surfaces_cover_viewport_after_scroll(
-                &self.render_surfaces,
-                old_metrics.offset(),
-                metrics.offset(),
-                metrics.viewport().area,
-            );
-        }
-
-        surfaces_cover_viewport_after_scroll(
-            &self.interaction_surfaces,
-            old_metrics.offset(),
-            metrics.offset(),
-            metrics.viewport().area,
-        )
-    }
-
-    #[cfg(test)]
-    pub fn buffer(&self) -> std::rc::Rc<std::cell::RefCell<glyphon::Buffer>> {
-        self.interaction_surfaces
-            .first()
-            .or_else(|| self.render_surfaces.first())
-            .expect("text area projection should have at least one surface")
-            .buffer()
     }
 }
 
@@ -1890,69 +1762,6 @@ fn guard_pair(
     GuardPair { before, after }
 }
 
-fn surfaces_cover_viewport(
-    surfaces: &[text::layout::TextAreaSurface],
-    viewport: area::Logical,
-) -> bool {
-    if surfaces.is_empty() {
-        return false;
-    }
-
-    let top = surfaces
-        .iter()
-        .map(text::layout::TextAreaSurface::y)
-        .fold(f32::INFINITY, f32::min);
-    let bottom = surfaces
-        .iter()
-        .map(|surface| surface.y() + surface.height().max(1.0))
-        .fold(f32::NEG_INFINITY, f32::max);
-    let horizontal = surfaces
-        .iter()
-        .all(|surface| surface.x() <= 0.0 && surface.x() + surface.width() >= viewport.width());
-
-    top <= 0.0 && bottom >= viewport.height() && horizontal
-}
-
-fn surfaces_cover_viewport_after_scroll(
-    surfaces: &[text::layout::TextAreaSurface],
-    old_scroll: point::Logical,
-    new_scroll: point::Logical,
-    viewport: area::Logical,
-) -> bool {
-    if surfaces.is_empty() {
-        return false;
-    }
-
-    let dx = old_scroll.x() - new_scroll.x();
-    let dy = old_scroll.y() - new_scroll.y();
-    let top = surfaces
-        .iter()
-        .map(|surface| surface.y() + dy)
-        .fold(f32::INFINITY, f32::min);
-    let bottom = surfaces
-        .iter()
-        .map(|surface| surface.y() + dy + surface.height().max(1.0))
-        .fold(f32::NEG_INFINITY, f32::max);
-    let horizontal = surfaces.iter().all(|surface| {
-        let x = surface.x() + dx;
-        x <= 0.0 && x + surface.width() >= viewport.width()
-    });
-
-    top <= 0.0 && bottom >= viewport.height() && horizontal
-}
-
-fn surface_intersects_viewport(
-    surface: &text::layout::TextAreaSurface,
-    viewport: area::Logical,
-) -> bool {
-    let left = surface.x();
-    let top = surface.y();
-    let right = left + surface.width();
-    let bottom = top + surface.height().max(1.0);
-
-    right > 0.0 && bottom > 0.0 && left < viewport.width() && top < viewport.height()
-}
-
 fn trace_scroll(args: std::fmt::Arguments<'_>) {
     if std::env::var_os("WGPU_L3_SCROLL_TRACE").is_some() {
         eprintln!("[wgpu_l3 scroll] {args}");
@@ -1993,7 +1802,8 @@ mod tests {
 
     use crate::animation;
     use crate::geometry::{Rect, area, point};
-    use crate::{command, layout, paint, text, ui, widget, window};
+    use crate::ui::{self, layout};
+    use crate::{paint, text, widget};
 
     use super::{Driver, Motion, MotionStep, WheelDelta, WheelPhase};
 
@@ -2034,18 +1844,11 @@ mod tests {
                     .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(56.0)),
             );
         let mut tree = ui::Tree::new();
-        let mut commands = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
 
         tree.set_root(root);
         let composition = tree
-            .compose(
-                window::Id::new(1),
-                area::logical(160.0, 80.0),
-                &mut commands,
-                &[],
-                &mut text_engine,
-            )
+            .compose(area::logical(160.0, 80.0), &mut text_engine)
             .expect("tree should compose");
         let path = ui::Path::from(ROOT).child(AREA);
 
@@ -3074,8 +2877,6 @@ mod tests {
 
         let mut scene = paint::Scene::new();
         composition.paint_at_recording_scroll_ranges(
-            &command::Registry::new(),
-            window::Id::new(1),
             ui::Interaction::default(),
             &HashMap::from([(path.clone(), text::view::TextViewState::default())]),
             &mut text_engine,
@@ -3122,8 +2923,6 @@ mod tests {
 
         let mut scene = paint::Scene::new();
         composition.paint_at_recording_scroll_ranges(
-            &command::Registry::new(),
-            window::Id::new(1),
             ui::Interaction::default(),
             &HashMap::from([(path.clone(), text::view::TextViewState::default())]),
             &mut text_engine,

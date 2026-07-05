@@ -1,5 +1,6 @@
-use std::any::{TypeId, type_name};
 use std::fmt;
+
+use crate::action;
 
 use super::{Command, Key, Response, call::Invocation, state::State};
 
@@ -22,39 +23,35 @@ pub trait Category: 'static {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Kind(Repr);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Repr {
-    Command(Key),
-    Trait { id: TypeId, name: &'static str },
-    Type { id: TypeId, name: &'static str },
-}
+pub struct Kind(action::Target);
 
 impl Kind {
     pub(crate) const fn command(command: Key) -> Self {
-        Self(Repr::Command(command))
+        Self(action::Target::action(command.action()))
+    }
+
+    pub(crate) fn is_command(self, command: Key) -> bool {
+        self == Self::command(command)
     }
 
     pub fn of<T: ?Sized + Category>() -> Self {
-        Self(Repr::Trait {
-            id: TypeId::of::<T>(),
-            name: type_name::<T>(),
-        })
+        Self(action::Target::of::<T>())
     }
 
     pub fn of_type<T: 'static>() -> Self {
-        Self(Repr::Type {
-            id: TypeId::of::<T>(),
-            name: type_name::<T>(),
-        })
+        Self(action::Target::of_type::<T>())
+    }
+
+    pub(crate) const fn from_action(target: action::Target) -> Self {
+        Self(target)
+    }
+
+    pub(crate) const fn action(self) -> action::Target {
+        self.0
     }
 
     pub const fn name(self) -> &'static str {
-        match self.0 {
-            Repr::Command(command) => command.as_str(),
-            Repr::Trait { name, .. } | Repr::Type { name, .. } => name,
-        }
+        self.0.name()
     }
 }
 
@@ -66,6 +63,6 @@ impl Default for Kind {
 
 impl fmt::Display for Kind {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.name())
+        fmt::Display::fmt(&self.0, formatter)
     }
 }

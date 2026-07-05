@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use super::*;
 use crate::geometry::{Rect, area, point, rect};
 use crate::widget::menu;
-use crate::{Command, command, icon, layout, paint, pointer, text, theme, widget, window};
+use crate::{Command, command, icon, paint, pointer, text, theme, ui::layout, widget};
 
 const ROOT: Id = Id::new("root");
 const A: Id = Id::new("a");
@@ -36,6 +36,29 @@ impl Command for OtherClick {
 const CLICK: command::Key = command::Key::of::<Click>();
 const OTHER_CLICK: command::Key = command::Key::of::<OtherClick>();
 
+#[test]
+fn core_ui_files_do_not_import_command_module() {
+    let ui_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("ui");
+
+    for entry in std::fs::read_dir(ui_dir).expect("ui source directory should be readable") {
+        let path = entry.expect("ui source entry should be readable").path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("rs")
+            || path.file_name().and_then(|name| name.to_str()) == Some("tests.rs")
+        {
+            continue;
+        }
+
+        let source = std::fs::read_to_string(&path).expect("ui source file should be readable");
+        assert!(
+            !source.contains("crate::command") && !source.contains("command::"),
+            "{} must not import or reference the command module",
+            path.display()
+        );
+    }
+}
+
 fn layout(tree: &Tree) -> Frame {
     layout_area(tree, area::logical(100.0, 80.0))
 }
@@ -45,6 +68,34 @@ fn layout_area(tree: &Tree, area: area::Logical) -> Frame {
 
     tree.layout(area, &mut measurer)
         .expect("tree should have root")
+}
+
+fn composition_with_visual_states(
+    tree: &Tree,
+    visual_states: impl IntoIterator<Item = (Path, VisualState)>,
+) -> Composition {
+    let mut measurer = text::layout::Engine::new();
+    let mut composition = tree
+        .compose(area::logical(100.0, 80.0), &mut measurer)
+        .expect("tree should compose");
+
+    assert!(composition.set_visual_states(visual_states.into_iter().collect()));
+    composition
+}
+
+fn paint_with_visual_states(
+    tree: &Tree,
+    interaction: Interaction,
+    visual_states: impl IntoIterator<Item = (Path, VisualState)>,
+    scene: &mut paint::Scene,
+) -> Frame {
+    let composition = composition_with_visual_states(tree, visual_states);
+    let layout = composition.layout().clone();
+    let text_field_states = HashMap::new();
+    let mut text_engine = text::layout::Engine::new();
+
+    composition.paint(interaction, &text_field_states, &mut text_engine, scene);
+    layout
 }
 
 fn path(id: Id) -> Path {
@@ -451,17 +502,10 @@ fn scroll_offset_shifts_child_layout_and_paint_positions() {
         );
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
 
     tree.set_root(root);
     let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window::Id::new(1),
-        Interaction::default(),
-        &mut scene,
-    );
+    tree.paint(&layout, Interaction::default(), &mut scene);
 
     assert_eq!(
         layout.children()[0].rect().origin,
@@ -478,15 +522,12 @@ fn cursor_overlay_text_paints_after_tree_content_and_follows_pointer() {
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(80.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
     let mut text_engine = text::layout::Engine::new();
 
     tree.set_root(root);
     let layout = layout(&tree);
     tree.paint_with_text_engine(
         &layout,
-        &registry,
-        window::Id::new(1),
         Interaction::default()
             .with_pointer_position(Some(point::logical(20.0, 10.0)))
             .with_cursor_overlay(Some(CursorOverlay::text("drag"))),
@@ -517,15 +558,12 @@ fn cursor_overlay_clamps_to_root_rect() {
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(80.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
     let mut text_engine = text::layout::Engine::new();
 
     tree.set_root(root);
     let layout = layout(&tree);
     tree.paint_with_text_engine(
         &layout,
-        &registry,
-        window::Id::new(1),
         Interaction::default()
             .with_pointer_position(Some(point::logical(98.0, 78.0)))
             .with_cursor_overlay(Some(CursorOverlay::text("drag"))),
@@ -547,14 +585,11 @@ fn no_cursor_overlay_paints_no_extra_text() {
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(80.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
 
     tree.set_root(root);
     let layout = layout(&tree);
     tree.paint(
         &layout,
-        &registry,
-        window::Id::new(1),
         Interaction::default().with_pointer_position(Some(point::logical(20.0, 10.0))),
         &mut scene,
     );
@@ -896,17 +931,10 @@ fn scroll_view_paints_track_corner_and_thumb_chrome() {
         );
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
 
     tree.set_root(root);
     let layout = layout_area(&tree, area::logical(80.0, 60.0));
-    tree.paint(
-        &layout,
-        &registry,
-        window::Id::new(1),
-        Interaction::default(),
-        &mut scene,
-    );
+    tree.paint(&layout, Interaction::default(), &mut scene);
 
     assert!(scene.items().iter().any(|item| {
         matches!(
@@ -945,7 +973,6 @@ fn captured_scrollbar_thumb_stays_visually_pressed_off_thumb() {
         );
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
 
     tree.set_root(root);
     let layout = layout_area(&tree, area::logical(40.0, 40.0));
@@ -965,8 +992,6 @@ fn captured_scrollbar_thumb_stays_visually_pressed_off_thumb() {
 
     tree.paint(
         &layout,
-        &registry,
-        window::Id::new(1),
         Interaction::default()
             .with_pointer_position(Some(point::logical(1.0, 1.0)))
             .with_pointer_capture(Some(capture)),
@@ -1003,7 +1028,6 @@ fn scrollbar_thumb_hover_tint_requires_pointer_hit() {
         );
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
 
     tree.set_root(root);
     let layout = layout_area(&tree, area::logical(40.0, 40.0));
@@ -1016,8 +1040,6 @@ fn scrollbar_thumb_hover_tint_requires_pointer_hit() {
 
     tree.paint(
         &layout,
-        &registry,
-        window::Id::new(1),
         Interaction::default().with_pointer_position(Some(point::logical(
             thumb.origin.x() + 1.0,
             thumb.origin.y() + 1.0,
@@ -1077,17 +1099,10 @@ fn scroll_view_clip_uses_viewport_minus_enabled_gutters() {
         );
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
 
     tree.set_root(root);
     let layout = layout_area(&tree, area::logical(80.0, 60.0));
-    tree.paint(
-        &layout,
-        &registry,
-        window::Id::new(1),
-        Interaction::default(),
-        &mut scene,
-    );
+    tree.paint(&layout, Interaction::default(), &mut scene);
 
     assert!(scene.items().iter().any(|item| {
         matches!(
@@ -1132,7 +1147,7 @@ fn popup_layout_is_topmost_for_hit_testing() {
                     .with_interactivity(Interactivity::CONTROL),
             ),
     );
-    tree.push_popup(widget::Popup::new(
+    tree.push_popup(Popup::new(
         Rect::new(point::logical(0.0, 0.0), area::logical(40.0, 40.0)),
         Node::leaf()
             .key(B)
@@ -1157,7 +1172,7 @@ fn floating_panel_root_blocks_hits_without_taking_focus_or_command() {
                     .with_size(layout::Size::Fixed(40.0), layout::Size::Fixed(40.0)),
             ),
     );
-    tree.push_popup(widget::Popup::new(
+    tree.push_popup(Popup::new(
         Rect::new(point::logical(0.0, 0.0), area::logical(40.0, 40.0)),
         widget::floating_panel().key(B),
     ));
@@ -1183,7 +1198,7 @@ fn floating_panel_root_blocks_hits_without_taking_focus_or_command() {
 fn tree_collects_popup_interactivity_with_root_prefixed_path() {
     let mut tree = Tree::new();
     tree.set_root(Node::leaf().key(ROOT));
-    tree.push_popup(widget::Popup::new(
+    tree.push_popup(Popup::new(
         Rect::new(point::logical(0.0, 0.0), area::logical(40.0, 40.0)),
         Node::leaf()
             .key(B)
@@ -1200,7 +1215,7 @@ fn tree_collects_popup_interactivity_with_root_prefixed_path() {
 fn tree_collects_widget_scroll_metrics_with_root_prefixed_path() {
     let mut tree = Tree::new();
     tree.set_root(Node::leaf().key(ROOT));
-    tree.push_popup(widget::Popup::new(
+    tree.push_popup(Popup::new(
         Rect::new(point::logical(0.0, 0.0), area::logical(40.0, 40.0)),
         widget::scroll_view()
             .key(B)
@@ -1353,17 +1368,10 @@ fn tree_renders_background_quads_in_layout_order() {
         .with_child(Node::leaf().key(A).with_background(paint::Color::RED));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
 
     tree.set_root(root);
     let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window::Id::new(1),
-        Interaction::default(),
-        &mut scene,
-    );
+    tree.paint(&layout, Interaction::default(), &mut scene);
 
     assert_eq!(scene.items().len(), 2);
     assert_eq!(quad(&scene, 0).rect, layout.rect());
@@ -1379,17 +1387,10 @@ fn clipped_node_wraps_children_in_clip_commands() {
         .with_child(Node::leaf().key(A).with_background(paint::Color::RED));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
 
     tree.set_root(root);
     let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window::Id::new(1),
-        Interaction::default(),
-        &mut scene,
-    );
+    tree.paint(&layout, Interaction::default(), &mut scene);
 
     assert!(matches!(scene.items()[0], paint::Item::Quad(_)));
     assert_eq!(clip(&scene, 1).rect, layout.rect());
@@ -1440,8 +1441,8 @@ fn node_with_backdrop_stores_backdrop_data() {
 fn icon_button_is_command_bound_control() {
     let button = widget::icon_button_key(A, CLICK, check_icon());
 
-    assert_eq!(button.command(), Some(CLICK));
-    assert_eq!(button.command_subject(), CommandSubject::Origin);
+    assert_eq!(button.action(), Some(CLICK.action()));
+    assert_eq!(button.action_subject(), ActionSubject::Origin);
     assert_eq!(button.icon(), Some(check_icon()));
     assert!(button.interactivity().hit_test());
     assert!(button.interactivity().focusable());
@@ -1540,13 +1541,13 @@ fn floating_panel_uses_default_glass_material_tokens() {
 }
 
 #[test]
-fn node_with_command_subject_stores_policy() {
+fn node_with_action_subject_stores_policy() {
     let node = Node::leaf()
         .key(A)
-        .with_command_key(CLICK)
-        .with_command_subject(CommandSubject::Current);
+        .with_action_key(CLICK.action())
+        .with_action_subject(ActionSubject::Current);
 
-    assert_eq!(node.command_subject(), CommandSubject::Current);
+    assert_eq!(node.action_subject(), ActionSubject::Current);
 }
 
 #[test]
@@ -1555,7 +1556,7 @@ fn node_with_intent_stores_open_menu_intent() {
     let node = Node::leaf().key(A).with_intent(Intent::OpenMenu(file));
 
     assert_eq!(node.intent(), Some(Intent::OpenMenu(file)));
-    assert_eq!(node.command(), None);
+    assert_eq!(node.action(), None);
 }
 
 #[test]
@@ -1574,6 +1575,14 @@ fn menu_bar_widget_creates_interactive_menu_title_intents() {
     assert!(node.children()[0].interactivity().hit_test());
     assert!(node.children()[0].interactivity().focusable());
     assert!(node.children()[0].interactivity().actionable());
+}
+
+#[test]
+fn menu_bar_widget_uses_resolved_structural_ids_for_title_intents() {
+    let node = widget::menu_bar(menu::Bar::new().menu(menu::Menu::new("File"))).key(A);
+    let menu_id = node.menu_bar().expect("menu bar").menus()[0].id();
+
+    assert_eq!(node.children()[0].intent(), Some(Intent::OpenMenu(menu_id)));
 }
 
 #[test]
@@ -1619,17 +1628,18 @@ fn tree_collects_intents_and_menu_definitions() {
 fn node_with_responder_stores_handled_command() {
     let node = Node::leaf()
         .key(A)
-        .with_responder::<crate::text::command::SelectAll>();
+        .with_responder_key(command::Key::of::<crate::text::command::SelectAll>().action());
 
     assert_eq!(
         node.responders(),
-        &[command::Key::of::<crate::text::command::SelectAll>()]
+        &[command::Key::of::<crate::text::command::SelectAll>().action()]
     );
     assert_eq!(
         node.responder_bindings(),
-        &[command::binding::Binding::new(command::Key::of::<
-            crate::text::command::SelectAll,
-        >())]
+        &[
+            command::binding::Binding::new(command::Key::of::<crate::text::command::SelectAll>())
+                .action()
+        ]
     );
 }
 
@@ -1639,27 +1649,27 @@ fn node_with_responder_binding_stores_projected_state() {
         command::binding::Binding::new(command::Key::of::<crate::text::command::SelectAll>())
             .available(false)
             .running(true);
-    let node = Node::leaf().key(A).with_responder_binding(binding.clone());
+    let node = Node::leaf().key(A).with_responder_binding(binding.action());
 
     assert_eq!(
         node.responders(),
-        &[command::Key::of::<crate::text::command::SelectAll>()]
+        &[command::Key::of::<crate::text::command::SelectAll>().action()]
     );
-    assert_eq!(node.responder_bindings(), &[binding]);
+    assert_eq!(node.responder_bindings(), &[binding.action()]);
 }
 
 #[test]
 fn tree_collects_command_subject_policies() {
     let root = Node::container(layout::Axis::Vertical)
         .key(ROOT)
-        .with_child(widget::button_key(A, CLICK).with_command_subject(CommandSubject::Current));
+        .with_child(widget::button_key(A, CLICK).with_action_subject(ActionSubject::Current));
     let mut tree = Tree::new();
 
     tree.set_root(root);
 
     assert_eq!(
-        tree.command_subjects().get(&Path::new([ROOT, A])),
-        Some(&CommandSubject::Current)
+        tree.action_subjects().get(&Path::new([ROOT, A])),
+        Some(&ActionSubject::Current)
     );
 }
 
@@ -1670,19 +1680,11 @@ fn composition_indexes_node_cursors_by_path() {
         .with_child(Node::leaf().key(A).with_cursor(Cursor::Text))
         .with_child(Node::leaf().key(B));
     let mut tree = Tree::new();
-    let mut registry = command::Registry::new();
     let mut measurer = text::layout::Engine::new();
-    let window = window::Id::new(1);
 
     tree.set_root(root);
     let composition = tree
-        .compose(
-            window,
-            area::logical(100.0, 80.0),
-            &mut registry,
-            &[],
-            &mut measurer,
-        )
+        .compose(area::logical(100.0, 80.0), &mut measurer)
         .expect("tree should compose");
 
     assert_eq!(composition.cursor(&Path::new([ROOT, A])), Cursor::Text);
@@ -1691,20 +1693,21 @@ fn composition_indexes_node_cursors_by_path() {
 
 #[test]
 fn tree_collects_responder_commands_by_path() {
-    let root = Node::container(layout::Axis::Vertical)
-        .key(ROOT)
-        .with_child(
-            Node::leaf()
-                .key(A)
-                .with_responder::<crate::text::command::SelectAll>(),
-        );
+    let root =
+        Node::container(layout::Axis::Vertical)
+            .key(ROOT)
+            .with_child(Node::leaf().key(A).with_responder_key(
+                command::Key::of::<crate::text::command::SelectAll>().action(),
+            ));
     let mut tree = Tree::new();
 
     tree.set_root(root);
 
     assert_eq!(
         tree.responders().get(&Path::new([ROOT, A])),
-        Some(&vec![command::Key::of::<crate::text::command::SelectAll>()])
+        Some(&vec![
+            command::Key::of::<crate::text::command::SelectAll>().action()
+        ])
     );
 }
 
@@ -1715,34 +1718,34 @@ fn tree_collects_responder_bindings_by_path() {
             .available(false);
     let root = Node::container(layout::Axis::Vertical)
         .key(ROOT)
-        .with_child(Node::leaf().key(A).with_responder_binding(binding.clone()));
+        .with_child(Node::leaf().key(A).with_responder_binding(binding.action()));
     let mut tree = Tree::new();
 
     tree.set_root(root);
 
     assert_eq!(
         tree.responder_bindings().get(&Path::new([ROOT, A])),
-        Some(&vec![binding])
+        Some(&vec![binding.action()])
     );
 }
 
 #[test]
-fn node_with_command_scope_marks_scope_boundary() {
-    let node = Node::leaf().key(A).with_command_scope();
+fn node_with_action_scope_marks_scope_boundary() {
+    let node = Node::leaf().key(A).with_action_scope();
 
-    assert!(node.is_command_scope());
+    assert!(node.is_action_scope());
 }
 
 #[test]
 fn tree_collects_command_scope_paths() {
     let root = Node::container(layout::Axis::Vertical)
         .key(ROOT)
-        .with_child(Node::leaf().key(A).with_command_scope());
+        .with_child(Node::leaf().key(A).with_action_scope());
     let mut tree = Tree::new();
 
     tree.set_root(root);
 
-    assert_eq!(tree.command_scopes(), vec![Path::new([ROOT, A])]);
+    assert_eq!(tree.action_scopes(), vec![Path::new([ROOT, A])]);
 }
 
 #[test]
@@ -1753,18 +1756,10 @@ fn node_rounding_is_emitted_on_paint_quad() {
         .with_rounding(rect::Rounding::relative(1.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     tree.set_root(root);
     let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
-        Interaction::new(None, None, None),
-        &mut scene,
-    );
+    tree.paint(&layout, Interaction::new(None, None, None), &mut scene);
 
     assert_eq!(quad(&scene, 0).rect.rounding, rect::Rounding::relative(1.0));
 }
@@ -1778,7 +1773,6 @@ fn tree_paint_emits_label_after_node_background() {
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     registry.register(command::definition::Definition::for_command::<
         Click,
@@ -1786,13 +1780,7 @@ fn tree_paint_emits_label_after_node_background() {
     >());
     tree.set_root(root);
     let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
-        Interaction::default(),
-        &mut scene,
-    );
+    tree.paint(&layout, Interaction::default(), &mut scene);
 
     assert_eq!(scene.items().len(), 3);
     assert_eq!(quad(&scene, 0).rect, layout.rect());
@@ -1818,18 +1806,10 @@ fn label_paint_respects_node_padding() {
         .with_label(text::document::Document::plain("Padded"));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     tree.set_root(root);
     let layout = layout_area(&tree, area::logical(100.0, 40.0));
-    tree.paint(
-        &layout,
-        &registry,
-        window,
-        Interaction::default(),
-        &mut scene,
-    );
+    tree.paint(&layout, Interaction::default(), &mut scene);
 
     assert_eq!(
         text(&scene, 0).rect,
@@ -1844,8 +1824,6 @@ fn text_field_paint_clips_content_and_offsets_scrolled_text() {
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
     let mut text_engine = text::layout::Engine::new();
     let states = HashMap::from([(path(A), text::view::TextViewState::new(12.0))]);
 
@@ -1853,8 +1831,6 @@ fn text_field_paint_clips_content_and_offsets_scrolled_text() {
     let layout = layout(&tree);
     tree.paint_with_text_engine(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, Some(path(A)), None),
         &states,
         &mut text_engine,
@@ -1895,8 +1871,6 @@ fn text_field_paint_emits_caret_during_visible_blink_phase() {
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
     let mut text_engine = text::layout::Engine::new();
     let states = HashMap::from([(path(A), text::view::TextViewState::new_at(0.0, epoch))]);
 
@@ -1904,8 +1878,6 @@ fn text_field_paint_emits_caret_during_visible_blink_phase() {
     let layout = layout(&tree);
     tree.paint_with_text_engine_at(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, Some(path(A)), None),
         &states,
         &mut text_engine,
@@ -1941,8 +1913,6 @@ fn text_field_paint_omits_caret_during_hidden_blink_phase() {
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
     let mut text_engine = text::layout::Engine::new();
     let states = HashMap::from([(path(A), text::view::TextViewState::new_at(0.0, epoch))]);
     let hidden = epoch + Duration::from_millis(500);
@@ -1951,8 +1921,6 @@ fn text_field_paint_omits_caret_during_hidden_blink_phase() {
     let layout = layout(&tree);
     tree.paint_with_text_engine_at(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, Some(path(A)), None),
         &states,
         &mut text_engine,
@@ -1971,8 +1939,6 @@ fn read_only_text_field_paint_omits_caret_even_when_focused() {
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
     let mut text_engine = text::layout::Engine::new();
     let states = HashMap::from([(path(A), text::view::TextViewState::new_at(0.0, epoch))]);
 
@@ -1980,8 +1946,6 @@ fn read_only_text_field_paint_omits_caret_even_when_focused() {
     let layout = layout(&tree);
     tree.paint_with_text_engine_at(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, Some(path(A)), None),
         &states,
         &mut text_engine,
@@ -2001,8 +1965,6 @@ fn empty_text_field_paints_placeholder_until_preedit_starts() {
             .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
     let mut text_engine = text::layout::Engine::new();
     let states = HashMap::new();
 
@@ -2010,8 +1972,6 @@ fn empty_text_field_paints_placeholder_until_preedit_starts() {
     let layout = layout(&tree);
     tree.paint_with_text_engine(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, Some(path(A)), None),
         &states,
         &mut text_engine,
@@ -2037,8 +1997,6 @@ fn empty_text_field_paints_placeholder_until_preedit_starts() {
     let filled_layout = self::layout(&filled_tree);
     filled_tree.paint_with_text_engine(
         &filled_layout,
-        &registry,
-        window,
         Interaction::new(None, Some(path(A)), None),
         &states,
         &mut text_engine,
@@ -2063,8 +2021,6 @@ fn empty_text_field_paints_placeholder_until_preedit_starts() {
     )]);
     tree.paint_with_text_engine(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, Some(path(A)), None),
         &preedit_states,
         &mut text_engine,
@@ -2091,8 +2047,6 @@ fn empty_text_area_paints_placeholder_without_changing_content_style() {
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(80.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
     let mut text_engine = text::layout::Engine::new();
     let states = HashMap::new();
 
@@ -2100,8 +2054,6 @@ fn empty_text_area_paints_placeholder_without_changing_content_style() {
     let layout = self::layout(&tree);
     tree.paint_with_text_engine(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, Some(path(A)), None),
         &states,
         &mut text_engine,
@@ -2137,8 +2089,6 @@ fn empty_text_area_paints_placeholder_without_changing_content_style() {
     let filled_layout = self::layout(&filled_tree);
     filled_tree.paint_with_text_engine(
         &filled_layout,
-        &registry,
-        window,
         Interaction::new(None, Some(path(A)), None),
         &states,
         &mut text_engine,
@@ -2171,16 +2121,12 @@ fn obscured_text_field_paints_dot_glyphs_instead_of_source_text() {
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
     let mut text_engine = text::layout::Engine::new();
 
     tree.set_root(root);
     let layout = layout(&tree);
     tree.paint_with_text_engine(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, Some(path(A)), None),
         &HashMap::new(),
         &mut text_engine,
@@ -2209,16 +2155,12 @@ fn text_field_paint_omits_selection_without_text_editing_target() {
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
     let states = HashMap::new();
 
     tree.set_root(root);
     let layout = layout(&tree);
     tree.paint_with_text_engine(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, None, None),
         &states,
         &mut engine,
@@ -2239,16 +2181,12 @@ fn text_field_paint_emits_selection_for_text_editing_target() {
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
     let states = HashMap::new();
 
     tree.set_root(root);
     let layout = layout(&tree);
     tree.paint_with_text_engine(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, None, None).with_text_editing_target(Some(path(A))),
         &states,
         &mut engine,
@@ -2269,16 +2207,12 @@ fn text_area_paint_emits_selection_for_text_editing_target() {
         .with_size(layout::Size::Fixed(160.0), layout::Size::Fixed(80.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
     let states = HashMap::new();
 
     tree.set_root(root);
     let layout = layout_area(&tree, area::logical(160.0, 80.0));
     tree.paint_with_text_engine(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, None, None).with_text_editing_target(Some(path(A))),
         &states,
         &mut engine,
@@ -2304,8 +2238,6 @@ fn text_area_paint_emits_preedit_overlay_for_text_editing_target() {
         .with_size(layout::Size::Fixed(160.0), layout::Size::Fixed(80.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
     let states = HashMap::from([(
         path(A),
         text::view::TextViewState::default()
@@ -2316,8 +2248,6 @@ fn text_area_paint_emits_preedit_overlay_for_text_editing_target() {
     let layout = layout_area(&tree, area::logical(160.0, 80.0));
     tree.paint_with_text_engine(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, None, None).with_text_editing_target(Some(path(A))),
         &states,
         &mut engine,
@@ -2348,8 +2278,6 @@ fn text_area_paint_emits_caret_during_visible_blink_phase() {
         .with_size(layout::Size::Fixed(160.0), layout::Size::Fixed(80.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
     let mut engine = text::layout::Engine::new();
     let states = HashMap::from([(path(A), text::view::TextViewState::new_at(0.0, epoch))]);
 
@@ -2357,8 +2285,6 @@ fn text_area_paint_emits_caret_during_visible_blink_phase() {
     let layout = layout_area(&tree, area::logical(160.0, 80.0));
     tree.paint_with_text_engine_at(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, Some(path(A)), None).with_text_editing_target(Some(path(A))),
         &states,
         &mut engine,
@@ -2382,8 +2308,6 @@ fn text_area_paint_omits_caret_during_hidden_blink_phase() {
         .with_size(layout::Size::Fixed(160.0), layout::Size::Fixed(80.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
     let mut engine = text::layout::Engine::new();
     let states = HashMap::from([(path(A), text::view::TextViewState::new_at(0.0, epoch))]);
     let hidden = epoch + Duration::from_millis(500);
@@ -2392,8 +2316,6 @@ fn text_area_paint_omits_caret_during_hidden_blink_phase() {
     let layout = layout_area(&tree, area::logical(160.0, 80.0));
     tree.paint_with_text_engine_at(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, Some(path(A)), None).with_text_editing_target(Some(path(A))),
         &states,
         &mut engine,
@@ -2417,7 +2339,6 @@ fn later_sibling_quad_renders_after_button_label() {
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     registry.register(command::definition::Definition::for_command::<
         Click,
@@ -2425,13 +2346,7 @@ fn later_sibling_quad_renders_after_button_label() {
     >());
     tree.set_root(root);
     let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
-        Interaction::default(),
-        &mut scene,
-    );
+    tree.paint(&layout, Interaction::default(), &mut scene);
 
     assert_eq!(scene.items().len(), 3);
     assert_same_bounds(quad(&scene, 0).rect, layout.children()[0].rect());
@@ -2443,30 +2358,17 @@ fn later_sibling_quad_renders_after_button_label() {
 fn disabled_command_node_renders_disabled_background() {
     let root = Node::leaf()
         .key(A)
-        .with_command_key(CLICK)
+        .with_action_key(CLICK.action())
         .with_background(paint::Color::RED)
         .with_disabled_background(paint::Color::BLACK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::path(window, path(A)),
-        command::State::unavailable(),
-    );
     tree.set_root(root);
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
+    paint_with_visual_states(
+        &tree,
         Interaction::default(),
+        [(path(A), VisualState::unavailable())],
         &mut scene,
     );
 
@@ -2541,15 +2443,11 @@ fn ui_lowering_preserves_gradient_shape_chrome_order() {
         .with_shadow(shadow_brush, 12.0, 1.0, point::logical(0.0, 4.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     tree.set_root(root);
     let layout = layout(&tree);
     tree.paint(
         &layout,
-        &registry,
-        window,
         Interaction::new(Some(path(A)), Some(path(A)), None),
         &mut scene,
     );
@@ -2573,25 +2471,12 @@ fn disabled_button_uses_disabled_label_color() {
     let root = widget::labeled_button_key(A, CLICK, "Disabled");
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::path(window, path(A)),
-        command::State::unavailable(),
-    );
     tree.set_root(root.clone());
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
+    paint_with_visual_states(
+        &tree,
         Interaction::default(),
+        [(path(A), VisualState::unavailable())],
         &mut scene,
     );
 
@@ -2616,25 +2501,12 @@ fn disabled_icon_button_uses_disabled_label_color() {
     let root = widget::icon_button_key(A, CLICK, check_icon());
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::path(window, path(A)),
-        command::State::unavailable(),
-    );
     tree.set_root(root.clone());
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
+    paint_with_visual_states(
+        &tree,
         Interaction::default(),
+        [(path(A), VisualState::unavailable())],
         &mut scene,
     );
 
@@ -2652,7 +2524,6 @@ fn control_hover_state_emits_hover_tint_over_base_background() {
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     registry.register(command::definition::Definition::for_command::<
         Click,
@@ -2662,8 +2533,6 @@ fn control_hover_state_emits_hover_tint_over_base_background() {
     let layout = layout(&tree);
     tree.paint(
         &layout,
-        &registry,
-        window,
         Interaction::new(Some(path(A)), None, None),
         &mut scene,
     );
@@ -2688,7 +2557,6 @@ fn control_focus_state_emits_outline_without_changing_fill() {
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     registry.register(command::definition::Definition::for_command::<
         Click,
@@ -2698,8 +2566,6 @@ fn control_focus_state_emits_outline_without_changing_fill() {
     let layout = layout(&tree);
     tree.paint(
         &layout,
-        &registry,
-        window,
         Interaction::new(Some(path(B)), Some(path(A)), None),
         &mut scene,
     );
@@ -2723,15 +2589,11 @@ fn focus_background_renders_when_focus_visible() {
         .with_focus_background(focus_background);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     tree.set_root(root);
     let layout = layout(&tree);
     tree.paint(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, Some(path(A)), None)
             .with_focus_visibility(focus::Visibility::Visible),
         &mut scene,
@@ -2754,15 +2616,11 @@ fn open_menu_title_emits_active_tint() {
         .with_intent(Intent::OpenMenu(file));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     tree.set_root(root);
     let layout = layout(&tree);
     tree.paint(
         &layout,
-        &registry,
-        window,
         Interaction::default().with_open_menu(Some(file)),
         &mut scene,
     );
@@ -2781,15 +2639,11 @@ fn open_submenu_row_emits_active_tint() {
         .with_intent(Intent::OpenSubmenu(panels));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     tree.set_root(root);
     let layout = layout(&tree);
     tree.paint(
         &layout,
-        &registry,
-        window,
         Interaction::default().with_open_submenu(Some(panels)),
         &mut scene,
     );
@@ -2798,7 +2652,7 @@ fn open_submenu_row_emits_active_tint() {
 }
 
 #[test]
-fn disabled_path_state_removes_interactivity_and_interactive_paint() {
+fn disabled_visual_state_removes_interactivity_and_interactive_paint() {
     let theme = theme::Theme::default_dark();
     let file = menu::Id::new("file");
     let hover_tint = paint::Color::rgba(0.1, 0.2, 0.3, 0.5);
@@ -2817,29 +2671,19 @@ fn disabled_path_state_removes_interactivity_and_interactive_paint() {
         .with_label_color(theme.text().primary())
         .with_disabled_label_color(theme.text().disabled());
     let mut tree = Tree::new();
-    let mut registry = command::Registry::new();
     let mut text_engine = text::layout::Engine::new();
-    let window = window::Id::new(1);
 
     tree.set_root(root);
     let mut composition = tree
-        .compose(
-            window,
-            area::logical(100.0, 80.0),
-            &mut registry,
-            &[],
-            &mut text_engine,
-        )
+        .compose(area::logical(100.0, 80.0), &mut text_engine)
         .expect("composition");
 
     assert_eq!(composition.focus_order(), &[path(A)]);
-    assert!(
-        composition.set_path_states(HashMap::from([(path(A), command::State::unavailable(),)]))
-    );
+    assert!(composition.set_visual_states(HashMap::from([(path(A), VisualState::unavailable(),)])));
 
     assert_eq!(
-        composition.path_state(&path(A)),
-        Some(command::State::unavailable())
+        composition.visual_state(&path(A)),
+        Some(VisualState::unavailable())
     );
     assert_eq!(
         composition.interactivity(&path(A)),
@@ -2859,8 +2703,6 @@ fn disabled_path_state_removes_interactivity_and_interactive_paint() {
 
     let mut scene = paint::Scene::new();
     composition.paint(
-        &registry,
-        window,
         Interaction::new(Some(path(A)), Some(path(A)), Some(path(A)))
             .with_open_menu(Some(file))
             .with_focus_visibility(focus::Visibility::Visible),
@@ -2889,7 +2731,6 @@ fn hidden_focus_does_not_emit_outline() {
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     registry.register(command::definition::Definition::for_command::<
         Click,
@@ -2899,8 +2740,6 @@ fn hidden_focus_does_not_emit_outline() {
     let layout = layout(&tree);
     tree.paint(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, Some(path(A)), None)
             .with_focus_visibility(focus::Visibility::Hidden),
         &mut scene,
@@ -2914,15 +2753,11 @@ fn visible_focus_on_text_field_emits_outline() {
     let root = widget::text_field(text::Buffer::from_text("hello")).key(A);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     tree.set_root(root);
     let layout = layout(&tree);
     tree.paint(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, Some(path(A)), None)
             .with_focus_visibility(focus::Visibility::Visible),
         &mut scene,
@@ -2941,26 +2776,13 @@ fn active_state_renders_independently_from_focus_visibility() {
     let root = widget::button_key(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::path(window, path(A)),
-        command::State::active(),
-    );
     tree.set_root(root.clone());
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
+    paint_with_visual_states(
+        &tree,
         Interaction::new(None, Some(path(A)), None)
             .with_focus_visibility(focus::Visibility::Hidden),
+        [(path(A), VisualState::active())],
         &mut scene,
     );
 
@@ -2972,137 +2794,16 @@ fn active_state_renders_independently_from_focus_visibility() {
 }
 
 #[test]
-fn command_subject_widget_visuals_derive_from_command_subject_state() {
-    let root = widget::button_key(A, CLICK).with_command_subject(CommandSubject::Current);
-    let mut tree = Tree::new();
-    let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
-
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::path(window, path(B)),
-        command::State::active(),
-    );
-    tree.set_root(root.clone());
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
-        Interaction::default().with_command_subject(command::call::Context::path(window, path(B))),
-        &mut scene,
-    );
-
-    assert_eq!(
-        tint(&scene, 1).brush,
-        root.style().active_tint().expect("control has active tint")
-    );
-}
-
-#[test]
-fn window_subject_widget_visuals_derive_from_window_state() {
-    let root = widget::button_key(A, CLICK).with_command_subject(CommandSubject::Window);
-    let mut tree = Tree::new();
-    let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
-
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::window(window),
-        command::State::active(),
-    );
-    tree.set_root(root.clone());
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
-        Interaction::default(),
-        &mut scene,
-    );
-
-    assert_eq!(
-        tint(&scene, 1).brush,
-        root.style().active_tint().expect("control has active tint")
-    );
-}
-
-#[test]
-fn captured_subject_widget_visuals_derive_from_scope_capture() {
-    let root = Node::container(layout::Axis::Vertical)
-        .key(ROOT)
-        .with_command_scope()
-        .with_child(widget::button_key(A, CLICK).with_command_subject(CommandSubject::Captured));
-    let mut tree = Tree::new();
-    let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
-
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::path(window, path(B)),
-        command::State::active(),
-    );
-    tree.set_root(root.clone());
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
-        Interaction::default().with_command_scope_captures(HashMap::from([(
-            path(ROOT),
-            command::call::Context::path(window, path(B)),
-        )])),
-        &mut scene,
-    );
-
-    assert_eq!(
-        tint(&scene, 1).brush,
-        root.children()[0]
-            .style()
-            .active_tint()
-            .expect("control has active tint")
-    );
-}
-
-#[test]
 fn active_hovered_control_emits_active_then_hover_tint() {
     let root = widget::button_key(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::path(window, path(A)),
-        command::State::active(),
-    );
     tree.set_root(root.clone());
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
+    paint_with_visual_states(
+        &tree,
         Interaction::new(Some(path(A)), Some(path(A)), None),
+        [(path(A), VisualState::active())],
         &mut scene,
     );
 
@@ -3127,25 +2828,12 @@ fn active_pressed_control_emits_active_then_pressed_tint() {
     let root = widget::button_key(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::path(window, path(A)),
-        command::State::active(),
-    );
     tree.set_root(root.clone());
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
+    paint_with_visual_states(
+        &tree,
         Interaction::new(Some(path(A)), None, Some(path(A))),
+        [(path(A), VisualState::active())],
         &mut scene,
     );
 
@@ -3167,25 +2855,12 @@ fn busy_control_emits_busy_tint_and_suppresses_hover_press() {
     let root = widget::button_key(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::path(window, path(A)),
-        command::State::active().with_running(true),
-    );
     tree.set_root(root.clone());
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
+    let layout = paint_with_visual_states(
+        &tree,
         Interaction::new(Some(path(A)), Some(path(A)), Some(path(A))),
+        [(path(A), VisualState::active().with_running(true))],
         &mut scene,
     );
 
@@ -3213,25 +2888,12 @@ fn disabled_control_emits_disabled_tint_and_suppresses_hover_press() {
     let root = widget::button_key(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::path(window, path(A)),
-        command::State::unavailable(),
-    );
     tree.set_root(root.clone());
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
+    paint_with_visual_states(
+        &tree,
         Interaction::new(Some(path(A)), None, Some(path(A))),
+        [(path(A), VisualState::unavailable())],
         &mut scene,
     );
 
@@ -3249,7 +2911,7 @@ fn disabled_actionable_parent_paints_child_label_with_disabled_color() {
     let theme = theme::Theme::default_dark();
     let root = Node::container(layout::Axis::Horizontal)
         .key(A)
-        .with_command_key(CLICK)
+        .with_action_key(CLICK.action())
         .with_child(
             Node::leaf()
                 .key(B)
@@ -3259,25 +2921,12 @@ fn disabled_actionable_parent_paints_child_label_with_disabled_color() {
         );
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::path(window, path(A)),
-        command::State::unavailable(),
-    );
     tree.set_root(root);
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
+    paint_with_visual_states(
+        &tree,
         Interaction::default(),
+        [(path(A), VisualState::unavailable())],
         &mut scene,
     );
 
@@ -3294,7 +2943,7 @@ fn disabled_actionable_parent_paints_child_icon_with_disabled_color() {
     let theme = theme::Theme::default_dark();
     let root = Node::container(layout::Axis::Horizontal)
         .key(A)
-        .with_command_key(CLICK)
+        .with_action_key(CLICK.action())
         .with_child(
             Node::leaf()
                 .key(B)
@@ -3304,25 +2953,12 @@ fn disabled_actionable_parent_paints_child_icon_with_disabled_color() {
         );
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::path(window, path(A)),
-        command::State::unavailable(),
-    );
     tree.set_root(root);
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
+    paint_with_visual_states(
+        &tree,
         Interaction::default(),
+        [(path(A), VisualState::unavailable())],
         &mut scene,
     );
 
@@ -3334,7 +2970,7 @@ fn enabled_actionable_parent_paints_child_content_with_normal_color() {
     let theme = theme::Theme::default_dark();
     let root = Node::container(layout::Axis::Horizontal)
         .key(A)
-        .with_command_key(CLICK)
+        .with_action_key(CLICK.action())
         .with_child(
             Node::leaf()
                 .key(B)
@@ -3352,7 +2988,6 @@ fn enabled_actionable_parent_paints_child_content_with_normal_color() {
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     registry.register(command::definition::Definition::for_command::<
         Click,
@@ -3360,13 +2995,7 @@ fn enabled_actionable_parent_paints_child_content_with_normal_color() {
     >());
     tree.set_root(root);
     let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
-        Interaction::default(),
-        &mut scene,
-    );
+    tree.paint(&layout, Interaction::default(), &mut scene);
 
     assert_eq!(
         text(&scene, 0).document.blocks()[0].runs()[0]
@@ -3382,40 +3011,23 @@ fn child_command_uses_own_state_instead_of_inherited_disabled_state() {
     let theme = theme::Theme::default_dark();
     let root = Node::container(layout::Axis::Horizontal)
         .key(A)
-        .with_command_key(CLICK)
+        .with_action_key(CLICK.action())
         .with_child(
             Node::leaf()
                 .key(B)
-                .with_command_key(OTHER_CLICK)
+                .with_action_key(OTHER_CLICK.action())
                 .with_label(text::document::Document::plain("Child"))
                 .with_label_color(theme.text().primary())
                 .with_disabled_label_color(theme.text().disabled()),
         );
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.register(
-        command::definition::Definition::for_command::<OtherClick, command::TestTarget>()
-            .with_display("Child"),
-    );
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::path(window, path(A)),
-        command::State::unavailable(),
-    );
     tree.set_root(root);
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
+    paint_with_visual_states(
+        &tree,
         Interaction::default(),
+        [(path(A), VisualState::unavailable())],
         &mut scene,
     );
 
@@ -3432,21 +3044,12 @@ fn busy_button_uses_busy_label_color() {
     let root = widget::labeled_button_key(A, CLICK, "Working");
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_running_key(CLICK, command::call::Context::path(window, path(A)), true);
     tree.set_root(root.clone());
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
+    paint_with_visual_states(
+        &tree,
         Interaction::default(),
+        [(path(A), VisualState::running())],
         &mut scene,
     );
 
@@ -3469,21 +3072,12 @@ fn busy_icon_button_uses_busy_label_color() {
     let root = widget::icon_button_key(A, CLICK, check_icon());
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_running_key(CLICK, command::call::Context::path(window, path(A)), true);
     tree.set_root(root.clone());
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
+    paint_with_visual_states(
+        &tree,
         Interaction::default(),
+        [(path(A), VisualState::running())],
         &mut scene,
     );
 
@@ -3501,7 +3095,6 @@ fn pressed_state_emits_pressed_tint_after_command_states() {
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     registry.register(command::definition::Definition::for_command::<
         Click,
@@ -3511,8 +3104,6 @@ fn pressed_state_emits_pressed_tint_after_command_states() {
     let layout = layout(&tree);
     tree.paint(
         &layout,
-        &registry,
-        window,
         Interaction::new(Some(path(A)), None, Some(path(A))),
         &mut scene,
     );
@@ -3532,15 +3123,11 @@ fn focused_node_emits_overlay_outline_after_tree_content() {
         .with_child(Node::leaf().key(B).with_background(paint::Color::RED));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     tree.set_root(root.clone());
     let layout = layout(&tree);
     tree.paint(
         &layout,
-        &registry,
-        window,
         Interaction::new(None, Some(path(A)), None),
         &mut scene,
     );
@@ -3563,11 +3150,9 @@ fn popup_shadow_renders_before_popup_panel_fill() {
     let popup_rect = Rect::new(point::logical(10.0, 10.0), area::logical(40.0, 40.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     tree.set_root(Node::leaf().key(ROOT).with_background(paint::Color::BLACK));
-    tree.push_popup(widget::Popup::new(
+    tree.push_popup(Popup::new(
         popup_rect,
         Node::leaf()
             .key(B)
@@ -3580,13 +3165,7 @@ fn popup_shadow_renders_before_popup_panel_fill() {
             ),
     ));
     let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
-        Interaction::default(),
-        &mut scene,
-    );
+    tree.paint(&layout, Interaction::default(), &mut scene);
 
     assert!(matches!(scene.items()[0], paint::Item::Quad(_)));
     assert!(matches!(scene.items()[1], paint::Item::Shadow(_)));
@@ -3607,18 +3186,10 @@ fn backdrop_lowers_before_node_background() {
         .with_rounding(rect::Rounding::relative(0.4));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     tree.set_root(root.clone());
     let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
-        Interaction::default(),
-        &mut scene,
-    );
+    tree.paint(&layout, Interaction::default(), &mut scene);
 
     assert!(matches!(scene.items()[0], paint::Item::Backdrop(_)));
     assert!(matches!(scene.items()[1], paint::Item::Quad(_)));
@@ -3645,11 +3216,9 @@ fn popup_backdrop_lowers_after_shadow_before_popup_panel_fill() {
     );
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let registry = command::Registry::new();
-    let window = window::Id::new(1);
 
     tree.set_root(Node::leaf().key(ROOT).with_background(paint::Color::BLACK));
-    tree.push_popup(widget::Popup::new(
+    tree.push_popup(Popup::new(
         popup_rect,
         Node::leaf()
             .key(B)
@@ -3664,13 +3233,7 @@ fn popup_backdrop_lowers_after_shadow_before_popup_panel_fill() {
             ),
     ));
     let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
-        Interaction::default(),
-        &mut scene,
-    );
+    tree.paint(&layout, Interaction::default(), &mut scene);
 
     assert!(matches!(scene.items()[0], paint::Item::Quad(_)));
     assert!(matches!(scene.items()[1], paint::Item::Shadow(_)));
@@ -3686,25 +3249,12 @@ fn icon_paint_is_emitted_after_tints_before_focus_outline() {
     let root = widget::icon_button_key(A, CLICK, check_icon());
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::path(window, path(A)),
-        command::State::active(),
-    );
     tree.set_root(root);
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
+    paint_with_visual_states(
+        &tree,
         Interaction::new(None, Some(path(A)), None),
+        [(path(A), VisualState::active())],
         &mut scene,
     );
 
@@ -3722,25 +3272,12 @@ fn focused_first_button_outline_is_not_covered_by_second_button() {
         .with_child(Node::leaf().key(B).with_background(paint::Color::RED));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::path(window, Path::new(vec![ROOT, A])),
-        command::State::active(),
-    );
     tree.set_root(root);
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
+    let layout = paint_with_visual_states(
+        &tree,
         Interaction::new(None, Some(Path::new(vec![ROOT, A])), None),
+        [(Path::new(vec![ROOT, A]), VisualState::active())],
         &mut scene,
     );
 
@@ -3761,25 +3298,12 @@ fn enabled_inactive_command_node_uses_base_background() {
     let root = widget::button_key(A, CLICK);
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
-    let mut registry = command::Registry::new();
-    let window = window::Id::new(1);
 
-    registry.register(command::definition::Definition::for_command::<
-        Click,
-        command::TestTarget,
-    >());
-    registry.set_state_key(
-        CLICK,
-        command::call::Context::path(window, path(A)),
-        command::State::available(),
-    );
     tree.set_root(root.clone());
-    let layout = layout(&tree);
-    tree.paint(
-        &layout,
-        &registry,
-        window,
+    paint_with_visual_states(
+        &tree,
         Interaction::default(),
+        [(path(A), VisualState::available())],
         &mut scene,
     );
 
