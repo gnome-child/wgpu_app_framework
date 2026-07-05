@@ -13,8 +13,6 @@ use super::super::{
     view,
 };
 
-const LABEL_PADDING: i32 = 24;
-
 #[derive(Clone)]
 pub(in crate::scratch) struct Service {
     inner: Rc<RefCell<text_engine::layout::Engine>>,
@@ -48,7 +46,7 @@ impl Service {
             text_engine::layout::Measure::unbounded(),
         );
 
-        metrics.width().ceil().max(0.0) as i32 + LABEL_PADDING
+        metrics.width().ceil().max(0.0) as i32
     }
 
     pub(super) fn take_diagnostics(&self) -> diagnostics::Text {
@@ -262,9 +260,8 @@ fn field_model(text_box: &view::control::TextBox) -> text_engine::edit::Field {
 }
 
 fn field_style() -> text_engine::document::Style {
-    text_engine::document::Style::default().with_color(text_color_from_scene(
-        Theme::default().palette().text_inverse,
-    ))
+    text_engine::document::Style::default()
+        .with_color(text_color_from_scene(Theme::default().text().inverse))
 }
 
 fn text_color_from_scene(color: scene::Color) -> text_engine::Color {

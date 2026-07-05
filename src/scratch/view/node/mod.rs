@@ -21,5 +21,9 @@ pub struct Node {
     binding: Option<Binding>,
     control: Option<Control>,
     focused: bool,
+    focus_visible: bool,
+    hovered: bool,
+    pressed: bool,
+    active: bool,
     children: Vec<Node>,
 }

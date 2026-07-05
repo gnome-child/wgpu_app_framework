@@ -1,5 +1,7 @@
-use super::super::{error::Error, input, response, state, view, window};
-use super::Runtime;
+use super::super::{
+    context as command_context, error::Error, input, response, state, view, window,
+};
+use super::{Runtime, services};
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub fn activate(
@@ -21,10 +23,35 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
 
         let before = self.revision();
-        let result = self.activate_with_focus(self.session.focused(window), Some(window), binding);
+        let focus = if binding.source() == command_context::Source::Menu {
+            self.session.command_focus(window)
+        } else {
+            self.session.focused(window)
+        };
+        let text_box_command = binding.source() == command_context::Source::Menu
+            && services::text::handles(
+                &self.session,
+                &self.composition,
+                Some(window),
+                binding.command_type(),
+            );
+        let text_box_commit =
+            if binding.source() == command_context::Source::Menu && !text_box_command {
+                self.commit_and_deactivate_focused_text_box(window)?
+            } else {
+                None
+            };
+
+        let result = self.activate_with_focus(focus, Some(window), binding);
         if let Ok(effect) = &result {
-            self.apply_window_update(window, self.revision() != before, effect);
+            let effect = text_box_commit
+                .as_ref()
+                .map(|outcome| outcome.effect().clone())
+                .unwrap_or(response::Effect::None)
+                .then(effect.clone());
+            self.apply_window_update(window, self.revision() != before, &effect);
             self.close_menu_after_binding(window, binding);
+            return Ok(effect);
         }
 
         result

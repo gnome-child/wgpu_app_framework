@@ -15,6 +15,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 window,
                 binding.command_type(),
                 binding.command_name(),
+                binding.history_group(),
                 source,
                 |registry, chain, cx| Ok(Some(binding.invoke(registry, chain, cx))),
             )?

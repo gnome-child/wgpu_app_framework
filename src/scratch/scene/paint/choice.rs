@@ -8,22 +8,17 @@ pub(super) fn paint(frame: &layout::frame::Frame, scene: &mut Scene, theme: &The
     let Some(selected) = selected(frame) else {
         return;
     };
-    let metrics = theme.metrics();
-    let controls = theme.controls();
-    let mark = mark_rect(
-        frame.rect(),
-        metrics.choice_mark_inset,
-        metrics.choice_mark_size,
-    );
+    let choice = theme.choice();
+    let mark = mark_rect(frame.rect(), choice.mark_inset, choice.mark_size);
     let mark_rounding = match frame.role() {
         view::node::Role::Radio => Rounding::relative(1.0),
-        _ => theme.metrics().control_rounding,
+        _ => theme.control().rounding,
     };
 
     scene.push_quad(
-        Quad::new(mark, controls.choice_mark)
+        Quad::new(mark, choice.mark)
             .with_rounding(mark_rounding)
-            .with_stroke(Stroke::new(Brush::solid(controls.choice_outline), 1.0)),
+            .with_stroke(Stroke::new(Brush::solid(choice.outline), 1.0)),
     );
 
     if !selected {
@@ -36,13 +31,13 @@ pub(super) fn paint(frame: &layout::frame::Frame, scene: &mut Scene, theme: &The
                 mark,
                 framework_icon::Icon::phosphor(framework_icon::Id::new("check"))
                     .with_style(framework_icon::Style::Bold),
-                controls.choice_indicator,
-                metrics.choice_icon_size,
+                choice.indicator,
+                choice.icon_size,
             ));
         }
         view::node::Role::Radio => {
             scene.push_quad(
-                Quad::styled(inset(mark, 4), Style::filled(controls.choice_indicator))
+                Quad::styled(inset(mark, 4), Style::filled(choice.indicator))
                     .with_rounding(Rounding::relative(1.0)),
             );
         }

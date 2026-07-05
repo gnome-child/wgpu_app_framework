@@ -64,6 +64,15 @@ impl Command for Paste {
     const NAME: &'static str = "edit.paste";
 }
 
+pub(in crate::scratch) fn register(commands: &mut command::Registry) {
+    commands
+        .register::<Cut>(command::Spec::new("Cut").shortcut("Ctrl+X"))
+        .register::<Copy>(command::Spec::new("Copy").shortcut("Ctrl+C"))
+        .register::<Paste>(command::Spec::new("Paste").shortcut("Ctrl+V"))
+        .register::<Delete>(command::Spec::new("Delete"))
+        .register::<SelectAll>(command::Spec::new("Select All").shortcut("Ctrl+A"));
+}
+
 pub struct NewFile;
 
 impl Command for NewFile {

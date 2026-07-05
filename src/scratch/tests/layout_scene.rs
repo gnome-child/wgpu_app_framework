@@ -60,23 +60,43 @@ fn text_editor_view_composes_to_layout_without_runtime_mutation() {
 }
 
 #[test]
-fn layout_intrinsic_width_uses_text_measurement() {
+fn menu_bar_buttons_share_largest_label_width() {
     let view = View::new(
         view::Node::root().child(
             view::Node::menu_bar()
-                .child(view::Node::menu("menu.wide", "WWWWWW"))
-                .child(view::Node::menu("menu.narrow", "iiiiii")),
+                .child(view::Node::menu("menu.file", "File"))
+                .child(view::Node::menu("menu.selection", "Selection"))
+                .child(view::Node::menu("menu.view", "V")),
         ),
     );
     let mut layout_engine = layout::engine::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(400, 120), &mut layout_engine);
     let menus = layout.find_role(view::node::Role::Menu);
 
-    assert_eq!(menus.len(), 2);
-    assert!(
-        menus[0].rect().width() > menus[1].rect().width(),
-        "intrinsic menu widths should come from glyph measurement, not character count"
+    assert_eq!(menus.len(), 3);
+    assert_eq!(menus[0].rect().width(), menus[1].rect().width());
+    assert_eq!(menus[1].rect().width(), menus[2].rect().width());
+    assert!(menus[0].rect().width() > Theme::default().menu().bar_height);
+}
+
+#[test]
+fn single_character_menu_titles_are_square_from_control_padding() {
+    let view = View::new(
+        view::Node::root().child(
+            view::Node::menu_bar()
+                .child(view::Node::menu("menu.a", "A"))
+                .child(view::Node::menu("menu.b", "B")),
+        ),
     );
+    let mut layout_engine = layout::engine::Engine::new();
+    let layout = layout::Layout::compose(&view, geometry::Size::new(160, 80), &mut layout_engine);
+    let menus = layout.find_role(view::node::Role::Menu);
+
+    assert_eq!(menus.len(), 2);
+    for menu in menus {
+        assert_eq!(menu.rect().width(), menu.rect().height());
+        assert_eq!(menu.rect().height(), Theme::default().menu().bar_height);
+    }
 }
 
 #[test]
@@ -813,9 +833,151 @@ fn scene_paint_accepts_theme_data_variants() {
         .find(|quad| quad.rect() == root)
         .expect("light scene should paint the root");
 
-    assert_eq!(light.clear(), light_theme.palette().canvas);
+    assert_eq!(light.clear(), light_theme.surfaces().canvas);
     assert_ne!(dark.clear(), light.clear());
     assert_ne!(dark_root.fill(), light_root.fill());
+}
+
+#[test]
+fn theme_toml_tokens_drive_layout_and_scene_primitives() {
+    let theme = Theme::from_toml_str(
+        r##"
+        [palette]
+        brand = "#112233"
+
+        [surfaces]
+        root = "brand"
+
+        [text]
+        primary = "#445566"
+
+        [control]
+        button-background = "#334455"
+        rounding = { fixed = 9.0 }
+
+        [menu]
+        bar-background = "#010203"
+        bar-height = 34
+        row-height = 34
+        "##,
+    )
+    .expect("theme TOML should parse");
+    let view = View::new(
+        view::Node::root().child(
+            view::Node::stack(view::node::Axis::Vertical)
+                .child(view::Node::menu_bar().child(view::Node::menu("menu.file", "File")))
+                .child(view::Node::button("Run")),
+        ),
+    );
+    let mut layout_engine = layout::engine::Engine::new();
+    let layout = layout::Layout::compose_with_theme(
+        &view,
+        geometry::Size::new(220, 120),
+        &mut layout_engine,
+        &theme,
+    );
+    let scene = scene::Scene::paint_with_theme(&layout, &theme);
+    let menu_bar = layout
+        .find_role(view::node::Role::MenuBar)
+        .into_iter()
+        .next()
+        .expect("menu bar should be laid out");
+    let button = layout
+        .find_role(view::node::Role::Button)
+        .into_iter()
+        .next()
+        .expect("button should be laid out");
+
+    assert_eq!(menu_bar.rect().height(), 34);
+    assert!(scene.quads().iter().any(|quad| {
+        quad.rect() == menu_bar.rect() && quad.fill() == scene::Color::rgb(1, 2, 3)
+    }));
+    assert!(scene.quads().iter().any(|quad| {
+        quad.rect() == button.rect()
+            && quad.fill() == scene::Color::rgb(51, 68, 85)
+            && quad.rounding() == scene::Rounding::fixed(9.0)
+    }));
+    assert!(
+        scene
+            .texts()
+            .iter()
+            .any(|text| text.value() == "Run" && text.color() == scene::Color::rgb(68, 85, 102))
+    );
+}
+
+#[test]
+fn menu_bar_labels_are_center_aligned() {
+    let mut app = text_editor::app(text_editor::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let rendered = app
+        .render_scene(window, geometry::Size::new(520, 180))
+        .expect("text editor should render");
+    let file = rendered
+        .scene()
+        .texts()
+        .into_iter()
+        .find(|text| text.value() == "File")
+        .expect("file menu label should paint");
+
+    assert_eq!(file.align(), scene::TextAlign::Center);
+}
+
+#[test]
+fn open_menu_projects_menu_bar_state_without_popup_title_text() {
+    let mut app = text_editor::app(text_editor::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let projected = app.present(window).expect("window should have a view");
+    let file_menu = projected
+        .menus()
+        .into_iter()
+        .find(|menu| menu.label_text() == Some("File"))
+        .expect("file menu should exist")
+        .menu_action()
+        .expect("file menu should have an action");
+
+    app.handle_view(window, file_menu)
+        .expect("menu action should be handled");
+
+    let rendered = app
+        .render_scene(window, geometry::Size::new(800, 600))
+        .expect("open file menu should render");
+    let menu_bar = rendered
+        .layout()
+        .find_role(view::node::Role::MenuBar)
+        .into_iter()
+        .next()
+        .expect("menu bar should be laid out");
+    let file = rendered
+        .layout()
+        .find_role(view::node::Role::Menu)
+        .into_iter()
+        .find(|frame| frame.label_text() == Some("File"))
+        .expect("file menu should be laid out");
+    let edit = rendered
+        .layout()
+        .find_role(view::node::Role::Menu)
+        .into_iter()
+        .find(|frame| frame.label_text() == Some("Edit"))
+        .expect("edit menu should be laid out");
+
+    assert!(menu_bar.is_active());
+    assert!(file.is_active());
+    assert!(!edit.is_active());
+    assert_eq!(
+        rendered
+            .scene()
+            .texts()
+            .into_iter()
+            .filter(|text| text.value() == "File")
+            .count(),
+        1
+    );
 }
 
 #[test]
@@ -849,6 +1011,335 @@ fn control_gallery_example_renders_interactive_widget_scene() {
         quad.fill().channels() == (76, 132, 255, 255)
             && quad.rounding() == scene::Rounding::relative(1.0)
     }));
+}
+
+#[test]
+fn menu_popup_rows_use_slot_layout_for_labels_shortcuts_and_separators() {
+    let mut app = text_editor::app(text_editor::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let projected = app.present(window).expect("window should have a view");
+    let file_menu = projected
+        .menus()
+        .into_iter()
+        .find(|menu| menu.label_text() == Some("File"))
+        .expect("file menu should exist")
+        .menu_action()
+        .expect("file menu should have an action");
+
+    app.handle_view(window, file_menu)
+        .expect("menu action should be handled");
+
+    let rendered = app
+        .render_scene(window, geometry::Size::new(800, 600))
+        .expect("open file menu should render");
+    let exit = rendered
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.role() == view::node::Role::Binding && frame.label_text() == Some("Exit")
+        })
+        .expect("exit row should be laid out");
+    let theme = Theme::default();
+    let slots = layout::control::menu_row_slots(exit.rect(), exit.menu_shortcut_width(), &theme);
+    let exit_label = rendered
+        .scene()
+        .texts()
+        .into_iter()
+        .find(|text| text.value() == "Exit")
+        .expect("exit label should paint");
+    let exit_shortcut = rendered
+        .scene()
+        .texts()
+        .into_iter()
+        .find(|text| text.value() == "Alt+F4")
+        .expect("exit shortcut should paint");
+
+    assert_eq!(exit_label.rect(), slots.label);
+    assert_eq!(exit_label.align(), scene::TextAlign::Start);
+    assert_eq!(exit_shortcut.rect(), slots.shortcut);
+    assert_eq!(exit_shortcut.align(), scene::TextAlign::End);
+    assert_eq!(slots.glyph.width(), slots.glyph.height());
+    assert_eq!(slots.trailing.width(), slots.trailing.height());
+
+    let separator = rendered
+        .layout()
+        .find_role(view::node::Role::Separator)
+        .into_iter()
+        .next()
+        .expect("file menu separator should be laid out");
+    let popup = rendered
+        .layout()
+        .find_role(view::node::Role::Popup)
+        .into_iter()
+        .next()
+        .expect("file menu popup should be laid out");
+    let separator_slots =
+        layout::control::menu_row_slots(separator.rect(), separator.menu_shortcut_width(), &theme);
+
+    assert_eq!(separator.rect().height(), theme.menu().row_height);
+    assert_eq!(
+        separator.rect().x(),
+        popup.rect().x() + theme.menu().padding
+    );
+    assert_eq!(
+        separator.rect().right(),
+        popup.rect().right() - theme.menu().padding
+    );
+    assert_eq!(separator_slots.separator.x(), separator.rect().x());
+    assert_eq!(separator_slots.separator.width(), separator.rect().width());
+    assert!(rendered.scene().quads().iter().any(|quad| {
+        quad.rect() == separator_slots.separator && quad.fill() == theme.menu().separator
+    }));
+}
+
+#[test]
+fn menu_popup_opens_under_its_menu_title() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 520);
+    let view_menu_action = app
+        .present(window)
+        .expect("control gallery should present")
+        .menus()
+        .into_iter()
+        .find(|menu| menu.label_text() == Some("View"))
+        .expect("view menu should be projected")
+        .menu_action()
+        .expect("view menu should have an action");
+
+    app.handle_view(window, view_menu_action)
+        .expect("view menu action should open the menu");
+
+    let rendered = app
+        .render_scene(window, size)
+        .expect("open view menu should render");
+    let view_menu = rendered
+        .layout()
+        .find_role(view::node::Role::Menu)
+        .into_iter()
+        .find(|frame| frame.label_text() == Some("View"))
+        .expect("view menu should be laid out");
+    let popup = rendered
+        .layout()
+        .find_role(view::node::Role::Popup)
+        .into_iter()
+        .next()
+        .expect("view menu popup should be laid out");
+
+    assert!(view_menu.rect().x() > 0);
+    assert_eq!(popup.rect().x(), view_menu.rect().x());
+    assert_eq!(popup.rect().y(), view_menu.rect().bottom());
+}
+
+#[test]
+fn menu_titles_paint_hover_pressed_and_active_tints() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 520);
+    let initial = app
+        .render_scene(window, size)
+        .expect("control gallery should render");
+    let menu = initial
+        .layout()
+        .find_role(view::node::Role::Menu)
+        .into_iter()
+        .find(|frame| frame.label_text() == Some("Controls"))
+        .expect("controls menu should be laid out");
+    let point = frame_point(menu);
+
+    assert_no_tint_quad(
+        initial.scene(),
+        menu.rect(),
+        Theme::default().menu().title_background,
+    );
+
+    app.pointer_move_at(window, size, point)
+        .expect("menu pointer move should be handled");
+    let hovered = app
+        .render_scene(window, size)
+        .expect("hovered menu should render");
+    assert_tint_quad(
+        hovered.scene(),
+        menu.rect(),
+        Theme::default().menu().title_hover_tint,
+    );
+
+    app.pointer_down_at(window, size, point)
+        .expect("menu pointer down should be handled");
+    let pressed = app
+        .render_scene(window, size)
+        .expect("pressed menu should render");
+    assert_tint_quad(
+        pressed.scene(),
+        menu.rect(),
+        Theme::default().menu().title_pressed_tint,
+    );
+
+    app.pointer_up_at(window, size, point)
+        .expect("menu pointer up should be handled");
+    let active = app
+        .render_scene(window, size)
+        .expect("open menu should render active title");
+    assert_tint_quad(
+        active.scene(),
+        menu.rect(),
+        Theme::default().menu().title_active_tint,
+    );
+}
+
+#[test]
+fn menu_popup_rows_paint_hover_tint_from_pointer_projection() {
+    let mut app = text_editor::app(text_editor::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(800, 600);
+    let initial = app
+        .render_scene(window, size)
+        .expect("text editor should render");
+    let file = initial
+        .layout()
+        .find_role(view::node::Role::Menu)
+        .into_iter()
+        .find(|frame| frame.label_text() == Some("File"))
+        .expect("file menu should be laid out");
+    let file_point = frame_point(file);
+
+    app.pointer_down_at(window, size, file_point)
+        .expect("file menu pointer down should be handled");
+    app.pointer_up_at(window, size, file_point)
+        .expect("file menu pointer up should open the menu");
+    let opened = app
+        .render_scene(window, size)
+        .expect("open file menu should render");
+    let new_row = opened
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.role() == view::node::Role::Binding && frame.label_text() == Some("New")
+        })
+        .expect("new command row should be laid out");
+
+    let moved = app
+        .pointer_move_at(window, size, frame_point(new_row))
+        .expect("popup row pointer move should be handled");
+
+    assert!(moved.is_handled());
+    assert_eq!(moved.effect(), &response::Effect::Repaint);
+
+    let hovered = app
+        .render_scene(window, size)
+        .expect("hovered popup row should render");
+    let hovered_row = hovered
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.role() == view::node::Role::Binding && frame.label_text() == Some("New")
+        })
+        .expect("new command row should still be laid out");
+
+    assert!(hovered_row.is_hovered());
+    assert_tint_quad(
+        hovered.scene(),
+        hovered_row.rect(),
+        Theme::default().menu().row_hover_tint,
+    );
+}
+
+#[test]
+fn checked_menu_popup_rows_do_not_paint_active_tint() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 520);
+    let view_menu = app
+        .present(window)
+        .expect("control gallery should present")
+        .menus()
+        .into_iter()
+        .find(|menu| menu.label_text() == Some("View"))
+        .expect("view menu should be projected")
+        .menu_action()
+        .expect("view menu should have an action");
+
+    app.handle_view(window, view_menu)
+        .expect("view menu action should open the menu");
+
+    let opened = app
+        .render_scene(window, size)
+        .expect("open view menu should render");
+    let wrap = opened
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.role() == view::node::Role::Binding && frame.label_text() == Some("Wrap text")
+        })
+        .expect("checked wrap row should be laid out");
+    let theme = Theme::default();
+    let slots = layout::control::menu_row_slots(wrap.rect(), wrap.menu_shortcut_width(), &theme);
+
+    assert_eq!(wrap.checked(), Some(true));
+    assert_no_tint_quad(opened.scene(), wrap.rect(), theme.menu().title_active_tint);
+    assert!(
+        opened
+            .scene()
+            .icons()
+            .iter()
+            .any(|icon| { icon.rect() == slots.glyph && icon.icon().id().as_str() == "check" })
+    );
+}
+
+#[test]
+fn focus_outline_uses_frame_rounding() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 520);
+    app.render_scene(window, size)
+        .expect("control gallery should render before focus");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Tab, input::Modifiers::default()),
+    )
+    .expect("tab should focus first menu");
+
+    let focused = app
+        .render_scene(window, size)
+        .expect("focused menu should render");
+    let frame = focused
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.is_focused())
+        .expect("focused frame should be present");
+    let outline = focused
+        .scene()
+        .outlines()
+        .into_iter()
+        .find(|outline| {
+            outline.rect() == frame.rect() && outline.color() == Theme::default().focus().color
+        })
+        .expect("focus outline should paint");
+
+    assert_eq!(outline.rounding(), Theme::default().control().rounding);
 }
 
 #[test]
@@ -907,12 +1398,53 @@ fn scene_preserves_popup_paint_order_after_base_content() {
             )
         })
         .expect("popup open command text should be painted");
+    let exit_command_text = scene
+        .primitives()
+        .iter()
+        .position(|primitive| {
+            matches!(
+                primitive,
+                scene::Primitive::Text(text) if text.value() == "Exit"
+            )
+        })
+        .expect("popup exit command text should be painted");
+    let exit_shortcut_text = scene
+        .primitives()
+        .iter()
+        .position(|primitive| {
+            matches!(
+                primitive,
+                scene::Primitive::Text(text) if text.value() == "Alt+F4"
+            )
+        })
+        .expect("popup exit shortcut text should be painted");
 
     assert!(file_menu_text < open_command_text);
-    assert!(matches!(
-        scene.primitives().last(),
-        Some(scene::Primitive::Text(text)) if text.value() == "Exit"
-    ));
+    assert!(file_menu_text < exit_command_text);
+    assert!(exit_command_text < exit_shortcut_text);
+}
+
+fn assert_tint_quad(scene: &Scene, rect: geometry::Rect, color: scene::Color) {
+    assert!(
+        scene.quads().iter().any(|quad| {
+            quad.rect() == rect
+                && quad.fill() == color
+                && quad.rounding() == Theme::default().control().rounding
+        }),
+        "expected tint quad for rect {rect:?} and color {:?}",
+        color.channels()
+    );
+}
+
+fn assert_no_tint_quad(scene: &Scene, rect: geometry::Rect, color: scene::Color) {
+    assert!(
+        !scene
+            .quads()
+            .iter()
+            .any(|quad| quad.rect() == rect && quad.fill() == color),
+        "unexpected tint quad for rect {rect:?} and color {:?}",
+        color.channels()
+    );
 }
 
 fn first_visible_text_area_surface_y(presentation: &scene::Presentation) -> f32 {

@@ -7,6 +7,7 @@ pub struct State {
     buffer: text::Buffer,
     edit_state: text::edit::State,
     history: text::edit::History,
+    base_text: String,
     text: String,
 }
 
@@ -24,8 +25,13 @@ impl State {
             buffer,
             edit_state,
             history: text::edit::History::default(),
+            base_text: text.clone(),
             text,
         }
+    }
+
+    pub fn base_text(&self) -> &str {
+        &self.base_text
     }
 
     pub fn text(&self) -> &str {
@@ -79,6 +85,15 @@ impl State {
         result.buffer_changed()
     }
 
+    pub(super) fn seal(&mut self) -> bool {
+        if self.base_text == self.text {
+            return false;
+        }
+
+        self.base_text.clone_from(&self.text);
+        true
+    }
+
     fn refresh_text(&mut self) {
         self.text = self.buffer.text();
     }
@@ -107,8 +122,6 @@ fn normalize_single_line_edit(edit: text::edit::Edit) -> text::edit::Edit {
 }
 
 fn first_line(text: String) -> String {
-    let end = text
-        .find(['\r', '\n'])
-        .unwrap_or(text.len());
+    let end = text.find(['\r', '\n']).unwrap_or(text.len());
     text[..end].to_owned()
 }

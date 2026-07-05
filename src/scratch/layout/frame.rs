@@ -16,6 +16,10 @@ pub struct Frame {
     text: Option<String>,
     text_wrap: Option<view::control::Wrap>,
     focused: bool,
+    focus_visible: bool,
+    hovered: bool,
+    pressed: bool,
+    active: bool,
     text_area_layout: Option<text::Area>,
     text_box_layout: Option<text::Field>,
     checkbox: Option<view::control::Checkbox>,
@@ -26,6 +30,7 @@ pub struct Frame {
     target: Option<interaction::Target>,
     binding: Option<view::Binding>,
     action: Option<view::Action>,
+    menu_shortcut_width: Option<i32>,
 }
 
 impl Frame {
@@ -36,6 +41,7 @@ impl Frame {
         engine: &mut engine::Engine,
     ) -> Self {
         let target = target_for(node, &path);
+        let binding = node.binding().cloned();
         let text_area = node.text_area_model();
         let text_area_layout = text_area.map(|text_area| engine.text_area_layout(text_area, rect));
         let checkbox = node.checkbox_model().cloned();
@@ -64,6 +70,10 @@ impl Frame {
                 .map(view::control::TextArea::wrap)
                 .or_else(|| text_box.as_ref().map(|_| view::control::Wrap::None)),
             focused: node.is_focused(),
+            focus_visible: node.focus_visible(),
+            hovered: node.is_hovered(),
+            pressed: node.is_pressed(),
+            active: node.is_active(),
             text_area_layout,
             text_box_layout,
             checkbox,
@@ -72,9 +82,15 @@ impl Frame {
             text_box,
             slider: node.slider_model().cloned(),
             target,
-            binding: node.binding().cloned(),
+            binding,
             action: action_for(node),
+            menu_shortcut_width: None,
         }
+    }
+
+    pub(super) fn with_menu_shortcut_width(mut self, width: i32) -> Self {
+        self.menu_shortcut_width = Some(width.max(0));
+        self
     }
 
     pub fn path(&self) -> &path::Path {
@@ -105,8 +121,36 @@ impl Frame {
         self.focused
     }
 
+    pub fn focus_visible(&self) -> bool {
+        self.focus_visible
+    }
+
+    pub fn is_hovered(&self) -> bool {
+        self.hovered
+    }
+
+    pub fn is_pressed(&self) -> bool {
+        self.pressed
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
+
     pub fn is_enabled(&self) -> bool {
         self.binding.as_ref().is_none_or(view::Binding::is_enabled)
+    }
+
+    pub(in crate::scratch) fn checked(&self) -> Option<bool> {
+        self.binding.as_ref().and_then(view::Binding::checked)
+    }
+
+    pub(in crate::scratch) fn shortcut(&self) -> Option<crate::scratch::command::KeyChord> {
+        self.binding.as_ref().and_then(view::Binding::shortcut)
+    }
+
+    pub(in crate::scratch) fn menu_shortcut_width(&self) -> i32 {
+        self.menu_shortcut_width.unwrap_or_default()
     }
 
     pub(in crate::scratch) fn checkbox(&self) -> Option<&view::control::Checkbox> {
@@ -221,14 +265,14 @@ impl Frame {
     fn slider_value_at(&self, point: Point) -> Option<f64> {
         let slider = self.slider.as_ref()?;
         let theme = Theme::default();
-        let fraction = control::slider_fraction_at(self.rect, theme.metrics(), point);
+        let fraction = control::slider_fraction_at(self.rect, &theme, point);
 
         Some(slider.value_at_fraction(fraction))
     }
 }
 
 fn text_box_text_rect_for(rect: Rect) -> Rect {
-    let padding_x = Theme::default().metrics().text_box_padding_x;
+    let padding_x = Theme::default().text_input().padding_x;
     Rect::new(
         rect.x().saturating_add(padding_x),
         rect.y(),

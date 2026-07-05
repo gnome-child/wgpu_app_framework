@@ -32,10 +32,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         point: geometry::Point,
     ) -> std::result::Result<input::Outcome, Error> {
         let Some(hit) = self.hit_test(window, size, point) else {
-            return Ok(self.clear_pointer_focus(window));
+            return self.clear_pointer_focus(window);
         };
         let Some(target) = hit.target().cloned() else {
-            return Ok(self.clear_pointer_focus(window));
+            return self.clear_pointer_focus(window);
         };
 
         let action = if matches!(
@@ -51,20 +51,20 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             hit.action_at_with_engine(point, &mut self.layout)
                 .map(|action| {
                     view::Action::sequence([
-                        view::Action::focus(session::Focus::control(&target)),
+                        view::Action::focus(session::Focus::control(&target).pointer()),
                         view::Action::pointer_down(target.clone()),
                         action,
                     ])
                 })
                 .unwrap_or_else(|| {
                     view::Action::sequence([
-                        view::Action::focus(session::Focus::control(&target)),
+                        view::Action::focus(session::Focus::control(&target).pointer()),
                         view::Action::pointer_down(target),
                     ])
                 })
         } else if is_pointer_focusable(hit.frame()) {
             view::Action::sequence([
-                view::Action::focus(session::Focus::control(&target)),
+                view::Action::focus(session::Focus::control(&target).pointer()),
                 view::Action::pointer_down(target),
             ])
         } else {
@@ -74,12 +74,20 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         self.handle_view(window, action)
     }
 
-    fn clear_pointer_focus(&mut self, window: window::Id) -> input::Outcome {
-        if self.clear_focus(window) {
-            self.window_outcome(window, false, response::Effect::Repaint)
-        } else {
-            input::Outcome::ignored()
+    fn clear_pointer_focus(
+        &mut self,
+        window: window::Id,
+    ) -> std::result::Result<input::Outcome, Error> {
+        let dismissed_menu = self.session.dismiss_menu_for_target(window, None);
+        let mut outcome = self.clear_focus_committing_text_box(window)?;
+
+        if dismissed_menu {
+            let effect = outcome.effect().clone().then(response::Effect::Repaint);
+            outcome = input::Outcome::handled(outcome.changed_state(), effect);
+            self.apply_window_update(window, outcome.changed_state(), outcome.effect());
         }
+
+        Ok(outcome)
     }
 
     pub fn pointer_up_at(
@@ -155,11 +163,14 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 }
 
 fn is_pointer_focusable(frame: &layout::frame::Frame) -> bool {
+    if frame.binding_source() == Some(crate::scratch::context::Source::Menu) {
+        return false;
+    }
+
     frame.is_enabled()
         && matches!(
             frame.role(),
-            view::node::Role::Menu
-                | view::node::Role::Binding
+            view::node::Role::Binding
                 | view::node::Role::Button
                 | view::node::Role::Checkbox
                 | view::node::Role::Radio

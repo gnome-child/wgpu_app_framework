@@ -134,7 +134,13 @@ fn smoke_shell_file_flow() -> Result {
         window,
         point: text_area_point,
     })?;
-    if shell.runtime().session().focused(window) != Some(session::Focus::text("document")) {
+    let Some(focus) = shell.runtime().session().focused(window) else {
+        return Err(io::Error::other("pointer down did not focus shell document").into());
+    };
+    if !focus.same_target(&session::Focus::text("document"))
+        || focus.reason() != session::focus::Reason::Pointer
+        || focus.visibility() != session::focus::Visibility::Hidden
+    {
         return Err(io::Error::other("pointer down did not focus shell document").into());
     }
 

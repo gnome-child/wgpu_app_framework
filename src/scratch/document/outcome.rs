@@ -38,6 +38,19 @@ impl Outcome {
         }
     }
 
+    pub(in crate::scratch) fn from_text_change(
+        text_changed: bool,
+        selection_changed: bool,
+        clipboard_changed: bool,
+    ) -> Self {
+        Self {
+            text_changed,
+            selection_changed,
+            clipboard_changed,
+            unavailable: false,
+        }
+    }
+
     pub fn text_changed(self) -> bool {
         self.text_changed
     }

@@ -603,5 +603,5 @@ fn presentation_is_retained_as_framework_owned_composition() {
         .expect("composition should update after presenting");
 
     assert_eq!(composition.view().popups().len(), 1);
-    assert_eq!(composition.view().popups()[0].label_text(), Some("File"));
+    assert_eq!(composition.view().popups()[0].label_text(), None);
 }

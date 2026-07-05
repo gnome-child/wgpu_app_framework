@@ -1,4 +1,4 @@
-use super::super::{Runtime as FrameworkRuntime, Shell, View, command, platform, window};
+use super::super::{Runtime as FrameworkRuntime, Shell, View, command, document, platform, window};
 use super::{
     State,
     command::{
@@ -20,6 +20,13 @@ pub fn app(state: State) -> FrameworkRuntime<State, (), View> {
                 .register::<SetLevel>(command::Spec::new("Set level"))
                 .register::<SubmitQuery>(command::Spec::new("Submit query"))
                 .register::<ToggleAdvanced>(command::Spec::new("Advanced"))
+                .register::<document::Cut>(command::Spec::new("Cut").shortcut("Ctrl+X"))
+                .register::<document::Copy>(command::Spec::new("Copy").shortcut("Ctrl+C"))
+                .register::<document::Paste>(command::Spec::new("Paste").shortcut("Ctrl+V"))
+                .register::<document::Delete>(command::Spec::new("Delete"))
+                .register::<document::SelectAll>(
+                    command::Spec::new("Select All").shortcut("Ctrl+A"),
+                )
                 .register::<ResetControls>(command::Spec::new("Reset").shortcut("Ctrl+R"));
         })
         .responders(|responders| {

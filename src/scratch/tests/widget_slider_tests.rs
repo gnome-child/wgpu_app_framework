@@ -197,5 +197,5 @@ fn slider_trigger_with_maps_layout_value_into_custom_command_args() {
 
 fn slider_track_rect(frame: &layout::frame::Frame) -> geometry::Rect {
     let theme = Theme::default();
-    layout::control::slider_track_rect(frame.rect(), theme.metrics())
+    layout::control::slider_track_rect(frame.rect(), &theme)
 }

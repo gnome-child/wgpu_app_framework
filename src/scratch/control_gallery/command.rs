@@ -1,4 +1,4 @@
-use super::super::command::{Command, History, HistoryGroup};
+use super::super::command::{Command, HistoryGroup};
 use super::Mode;
 
 pub struct IncrementClicks;
@@ -54,7 +54,6 @@ impl Command for SubmitQuery {
     type Output = ();
 
     const NAME: &'static str = "control_gallery.submit_query";
-    const HISTORY: History = History::Ignored;
 }
 
 impl Command for ToggleAdvanced {

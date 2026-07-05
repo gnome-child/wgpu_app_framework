@@ -49,7 +49,7 @@ pub(super) fn paint_selection(frame: &layout::frame::Frame, scene: &mut Scene, t
             span_rect(rect, span.x(), span.y(), span.width(), span.height()),
             rect,
         ) {
-            scene.push_quad(Quad::new(span, theme.palette().selection));
+            scene.push_quad(Quad::new(span, theme.text().selection));
         }
     }
 }
@@ -70,7 +70,7 @@ pub(super) fn paint_caret(frame: &layout::frame::Frame, scene: &mut Scene, theme
             rect,
         )
     {
-        scene.push_quad(Quad::new(caret, theme.palette().text_inverse));
+        scene.push_quad(Quad::new(caret, theme.text().inverse));
     }
 }
 

@@ -10,6 +10,7 @@ mod edit;
 mod file;
 mod outcome;
 
+pub(in crate::scratch) use command::register;
 pub use command::{
     ApplyEdit, Copy, Cut, Delete, NewFile, OpenCanceled, OpenFile, OpenPath, Paste, SaveAsFile,
     SaveCanceled, SaveFile, SaveToPath, SelectAll,

@@ -10,6 +10,7 @@ pub struct TextBox {
     placeholder: Option<String>,
     focus: Option<session::Focus>,
     focused: bool,
+    focus_visible: bool,
     cursor: Option<usize>,
     selection: Option<Range<usize>>,
     preedit: Option<text::edit::Preedit>,
@@ -22,6 +23,7 @@ impl TextBox {
             placeholder: None,
             focus: None,
             focused: false,
+            focus_visible: false,
             cursor: None,
             selection: None,
             preedit: None,
@@ -62,6 +64,10 @@ impl TextBox {
         self.focused
     }
 
+    pub fn focus_visible(&self) -> bool {
+        self.focus_visible
+    }
+
     pub fn cursor(&self) -> Option<usize> {
         self.cursor
     }
@@ -78,9 +84,15 @@ impl TextBox {
         self.focus.clone().map(Action::focus)
     }
 
+    pub fn pointer_focus_action(&self) -> Option<Action> {
+        self.focus
+            .clone()
+            .map(|focus| Action::focus(focus.pointer()))
+    }
+
     pub fn click_action(&self, position: text::buffer::Position) -> Option<Action> {
         Some(Action::sequence([
-            self.focus_action()?,
+            self.pointer_focus_action()?,
             Action::text_edit(text::edit::Edit::pointer(
                 text::edit::PointerEditKind::Click,
                 position,
@@ -98,6 +110,7 @@ impl TextBox {
     pub(in crate::scratch::view) fn project_interaction(
         &mut self,
         interaction: &interaction::Interaction,
+        bound: bool,
     ) {
         let Some(focus) = self.focus else {
             self.preedit = None;
@@ -105,7 +118,10 @@ impl TextBox {
         };
 
         let target = interaction::Target::text_area(focus);
-        if let Some(draft) = interaction.text_input().draft_for(&target) {
+        let active = interaction.text_input().target() == Some(&target);
+        if let Some(draft) = interaction.text_input().draft_for(&target)
+            && (active || !bound || draft.text() == self.text)
+        {
             self.text = draft.text().to_owned();
             self.cursor = Some(draft.cursor());
             self.selection = draft.selection();
@@ -117,9 +133,18 @@ impl TextBox {
     }
 
     pub(in crate::scratch::view) fn project_focus(&mut self, focus: Option<&session::Focus>) {
-        self.focused = self.focus.as_ref().is_some_and(|text_focus| Some(text_focus) == focus);
+        self.focused = self
+            .focus
+            .as_ref()
+            .is_some_and(|text_focus| focus.is_some_and(|focus| text_focus.same_target(focus)));
+        self.focus_visible = self.focused && focus.is_some_and(|focus| focus.is_visible());
         if self.focused && self.cursor.is_none() {
             self.cursor = Some(self.text.len());
+        }
+        if !self.focused {
+            self.cursor = None;
+            self.selection = None;
+            self.preedit = None;
         }
     }
 }

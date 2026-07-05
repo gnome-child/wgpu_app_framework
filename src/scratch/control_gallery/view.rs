@@ -1,5 +1,5 @@
 use super::super::{
-    View, geometry, interaction, scene, view as framework_view,
+    View, document, geometry, interaction, scene, timeline, view as framework_view,
     view::style::{Align, Dimension, Padding},
     widget,
 };
@@ -12,6 +12,7 @@ use super::{
 };
 
 const MENU_CONTROLS: interaction::Id = interaction::Id::new("control_gallery.menu.controls");
+const MENU_EDIT: interaction::Id = interaction::Id::new("control_gallery.menu.edit");
 const MENU_VIEW: interaction::Id = interaction::Id::new("control_gallery.menu.view");
 pub(super) const QUERY_FOCUS: interaction::Id = interaction::Id::new("control_gallery.query");
 
@@ -29,6 +30,17 @@ pub fn view(state: &State, _: framework_view::Context) -> View {
                 ui.menu(MENU_CONTROLS, "Controls", |ui| {
                     ui.add(widget::Binding::<IncrementClicks>::menu());
                     ui.add(widget::Binding::<ResetControls>::menu());
+                });
+                ui.menu(MENU_EDIT, "Edit", |ui| {
+                    ui.add(widget::Binding::<timeline::Undo>::menu());
+                    ui.add(widget::Binding::<timeline::Redo>::menu());
+                    ui.separator();
+                    ui.add(widget::Binding::<document::Cut>::menu());
+                    ui.add(widget::Binding::<document::Copy>::menu());
+                    ui.add(widget::Binding::<document::Paste>::menu());
+                    ui.add(widget::Binding::<document::Delete>::menu());
+                    ui.separator();
+                    ui.add(widget::Binding::<document::SelectAll>::menu());
                 });
                 ui.menu(MENU_VIEW, "View", |ui| {
                     ui.add(widget::Binding::<ToggleWrap>::menu());

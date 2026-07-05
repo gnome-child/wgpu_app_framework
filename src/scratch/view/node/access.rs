@@ -48,6 +48,24 @@ impl Node {
             || self.text_box_model().is_some_and(TextBox::is_focused)
     }
 
+    pub fn focus_visible(&self) -> bool {
+        self.focus_visible
+            || self.text_area_model().is_some_and(TextArea::focus_visible)
+            || self.text_box_model().is_some_and(TextBox::focus_visible)
+    }
+
+    pub fn is_hovered(&self) -> bool {
+        self.hovered
+    }
+
+    pub fn is_pressed(&self) -> bool {
+        self.pressed
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
+
     pub fn button_model(&self) -> Option<&Button> {
         match self.control.as_ref()? {
             Control::Button(button) => Some(button),

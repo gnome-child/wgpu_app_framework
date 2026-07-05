@@ -19,7 +19,7 @@ pub struct Interaction {
     open_menu: Option<Menu>,
     pointer: Pointer,
     scroll: Scroll,
-    text_input: draft::Input,
+    text_input: draft::input::Input,
 }
 
 impl Interaction {
@@ -35,7 +35,7 @@ impl Interaction {
         &self.scroll
     }
 
-    pub fn text_input(&self) -> &draft::Input {
+    pub fn text_input(&self) -> &draft::input::Input {
         &self.text_input
     }
 
@@ -146,8 +146,24 @@ impl Interaction {
         self.text_input.redo(target)
     }
 
+    pub(super) fn seal_text_draft(&mut self, target: &Target) -> bool {
+        self.text_input.seal(target)
+    }
+
     pub(super) fn clear_text_input(&mut self) -> bool {
         self.text_input.clear()
+    }
+
+    pub(super) fn clear_text_draft(&mut self, target: &Target) -> bool {
+        self.text_input.clear_draft(target)
+    }
+
+    pub(super) fn deactivate_text_input(&mut self, target: &Target) -> bool {
+        self.text_input.deactivate(target)
+    }
+
+    pub(super) fn clear_text_preedit(&mut self) -> bool {
+        self.text_input.clear_preedit()
     }
 
     pub(super) fn clear_text_input_unless(&mut self, target: &Target) -> bool {

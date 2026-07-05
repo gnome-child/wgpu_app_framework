@@ -1,5 +1,6 @@
 use super::{
     geometry::{Point, Size},
+    theme::Theme,
     view,
 };
 
@@ -23,8 +24,17 @@ pub struct Layout {
 
 impl Layout {
     pub fn compose(view: &view::View, size: Size, engine: &mut engine::Engine) -> Self {
+        Self::compose_with_theme(view, size, engine, &Theme::default())
+    }
+
+    pub fn compose_with_theme(
+        view: &view::View,
+        size: Size,
+        engine: &mut engine::Engine,
+        theme: &Theme,
+    ) -> Self {
         let size = size.sanitized();
-        let frames = algorithm::compose_frames(view.root(), size, engine);
+        let frames = algorithm::compose_frames(view.root(), size, engine, theme);
 
         Self { size, frames }
     }

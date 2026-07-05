@@ -13,6 +13,7 @@ pub struct TextArea {
     wrap: Wrap,
     focus: Option<session::Focus>,
     focused: bool,
+    focus_visible: bool,
     scroll: interaction::ScrollOffset,
     reveal: bool,
     preedit: Option<text::edit::Preedit>,
@@ -32,6 +33,7 @@ impl TextArea {
             wrap: Wrap::Word,
             focus: None,
             focused: false,
+            focus_visible: false,
             scroll: interaction::ScrollOffset::default(),
             reveal: false,
             preedit: None,
@@ -91,6 +93,10 @@ impl TextArea {
         self.focused
     }
 
+    pub fn focus_visible(&self) -> bool {
+        self.focus_visible
+    }
+
     pub fn preedit(&self) -> Option<&text::edit::Preedit> {
         self.preedit.as_ref()
     }
@@ -99,9 +105,15 @@ impl TextArea {
         self.focus.clone().map(Action::focus)
     }
 
+    pub fn pointer_focus_action(&self) -> Option<Action> {
+        self.focus
+            .clone()
+            .map(|focus| Action::focus(focus.pointer()))
+    }
+
     pub fn click_action(&self, position: text::buffer::Position) -> Option<Action> {
         Some(Action::sequence([
-            self.focus_action()?,
+            self.pointer_focus_action()?,
             Action::text_edit(text::edit::Edit::pointer(
                 text::edit::PointerEditKind::Click,
                 position,
@@ -134,6 +146,10 @@ impl TextArea {
     }
 
     pub(in crate::scratch::view) fn project_focus(&mut self, focus: Option<&session::Focus>) {
-        self.focused = self.focus.as_ref().is_some_and(|text_focus| Some(text_focus) == focus);
+        self.focused = self
+            .focus
+            .as_ref()
+            .is_some_and(|text_focus| focus.is_some_and(|focus| text_focus.same_target(focus)));
+        self.focus_visible = self.focused && focus.is_some_and(|focus| focus.is_visible());
     }
 }

@@ -35,15 +35,26 @@ fn text_box_on_submit_invokes_command_with_draft_text() {
     app.handle_input(window, Input::focus(focus))
         .expect("text box focus should be handled");
 
-    let submitted = app
+    let edited = app
         .handle_input(window, Input::text_commit("s"))
-        .expect("text box commit should be handled");
+        .expect("text box edit should be handled");
+
+    assert!(edited.is_handled());
+    assert!(!edited.changed_state());
+    assert_eq!(text_draft(&app, window, focus).text(), "Mars");
+    assert_eq!(app.state().submitted, "Mar");
+    assert_eq!(app.revision(), state::Revision::initial());
+
+    let submitted = app
+        .handle_input(window, Input::focus(non_text_focus("blur")))
+        .expect("blur should commit the text box draft");
 
     assert!(submitted.is_handled());
     assert!(submitted.changed_state());
     assert_eq!(app.state().submitted, "Mars");
     assert_eq!(app.state().source, Some(context::Source::Input));
     assert_eq!(app.revision().get(), 1);
+    assert_eq!(text_draft(&app, window, focus).text(), "Mars");
 }
 
 #[test]
@@ -170,9 +181,19 @@ fn text_box_submit_with_maps_committed_text_into_custom_command_args() {
     app.handle_input(window, Input::focus(focus))
         .expect("mapped text box focus should be handled");
 
-    let submitted = app
+    let edited = app
         .handle_input(window, Input::text_commit("  Rust  "))
-        .expect("mapped text box commit should be handled");
+        .expect("mapped text box edit should be handled");
+
+    assert!(edited.is_handled());
+    assert!(!edited.changed_state());
+    assert_eq!(text_draft(&app, window, focus).text(), "  Rust  ");
+    assert_eq!(app.state().submitted, "");
+    assert_eq!(app.revision(), state::Revision::initial());
+
+    let submitted = app
+        .handle_input(window, Input::focus(non_text_focus("blur")))
+        .expect("blur should commit the mapped text box draft");
 
     assert!(submitted.is_handled());
     assert!(submitted.changed_state());
@@ -347,7 +368,7 @@ fn tab_key_moves_focus_through_current_view_order() {
     assert!(focused_first.is_handled());
     assert!(!focused_first.changed_state());
     assert_eq!(focused_first.effect(), &response::Effect::Repaint);
-    assert_eq!(app.session().focused(window), Some(first));
+    assert_keyboard_focus(app.session().focused(window), first);
 
     app.handle_input(
         window,
@@ -355,7 +376,7 @@ fn tab_key_moves_focus_through_current_view_order() {
     )
     .expect("tab should navigate to the document");
 
-    assert_eq!(app.session().focused(window), Some(document));
+    assert_keyboard_focus(app.session().focused(window), document);
 
     let document_text = app.state().document.text();
     app.handle_input(
@@ -364,7 +385,7 @@ fn tab_key_moves_focus_through_current_view_order() {
     )
     .expect("tab from the document should navigate instead of editing text");
 
-    assert_eq!(app.session().focused(window), Some(second));
+    assert_keyboard_focus(app.session().focused(window), second);
     assert_eq!(app.state().document.text(), document_text);
 
     app.handle_input(
@@ -373,7 +394,7 @@ fn tab_key_moves_focus_through_current_view_order() {
     )
     .expect("tab should wrap to first focusable node");
 
-    assert_eq!(app.session().focused(window), Some(first));
+    assert_keyboard_focus(app.session().focused(window), first);
 
     app.handle_input(
         window,
@@ -384,7 +405,7 @@ fn tab_key_moves_focus_through_current_view_order() {
     )
     .expect("shift-tab should wrap backward");
 
-    assert_eq!(app.session().focused(window), Some(second));
+    assert_keyboard_focus(app.session().focused(window), second);
 
     app.handle_input(
         window,
@@ -395,7 +416,117 @@ fn tab_key_moves_focus_through_current_view_order() {
     )
     .expect("shift-tab should navigate backward through focus order");
 
-    assert_eq!(app.session().focused(window), Some(document));
+    assert_keyboard_focus(app.session().focused(window), document);
+}
+
+#[test]
+fn text_box_drafts_keep_independent_history_across_focus_changes() {
+    let first = session::Focus::text("first");
+    let second = session::Focus::text("second");
+    let mut app = Runtime::new(TextBoxSubmitState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Text Box Drafts"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.column(|ui| {
+                    ui.text_box(widget::TextBox::new("").focus(first));
+                    ui.text_box(widget::TextBox::new("").focus(second));
+                });
+            })
+        });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    app.present(window)
+        .expect("view should be presented before text input");
+
+    app.handle_input(window, Input::focus(first))
+        .expect("first field should focus");
+    app.handle_input(window, Input::text_commit("ab"))
+        .expect("first field should accept text");
+    app.handle_input(window, Input::focus(second))
+        .expect("second field should focus");
+    app.handle_input(window, Input::text_commit("xy"))
+        .expect("second field should accept text");
+
+    let first_target = interaction::Target::text_area(first);
+    let second_target = interaction::Target::text_area(second);
+    let input = app
+        .session()
+        .interaction(window)
+        .expect("window should keep interaction state")
+        .text_input();
+    assert_eq!(
+        input
+            .draft_for(&first_target)
+            .expect("first draft should survive blur")
+            .text(),
+        "ab"
+    );
+    assert_eq!(
+        input
+            .draft_for(&second_target)
+            .expect("second draft should be active")
+            .text(),
+        "xy"
+    );
+
+    app.handle_input(window, Input::focus(first))
+        .expect("first field should refocus");
+    let first_undo = app
+        .handle_input(window, Input::shortcut("Ctrl+Z"))
+        .expect("first field undo should be local");
+    assert!(first_undo.is_handled());
+    assert!(!first_undo.changed_state());
+
+    let input = app
+        .session()
+        .interaction(window)
+        .expect("window should keep interaction state")
+        .text_input();
+    assert_eq!(
+        input
+            .draft_for(&first_target)
+            .expect("first draft should remain")
+            .text(),
+        ""
+    );
+    assert_eq!(
+        input
+            .draft_for(&second_target)
+            .expect("second draft should be untouched")
+            .text(),
+        "xy"
+    );
+
+    app.handle_input(window, Input::focus(second))
+        .expect("second field should refocus");
+    app.handle_input(window, Input::shortcut("Ctrl+Z"))
+        .expect("second field undo should be local");
+
+    let input = app
+        .session()
+        .interaction(window)
+        .expect("window should keep interaction state")
+        .text_input();
+    assert_eq!(
+        input
+            .draft_for(&second_target)
+            .expect("second draft should remain")
+            .text(),
+        ""
+    );
+    assert_eq!(app.revision(), state::Revision::initial());
+    assert!(!app.is_dirty());
+}
+
+fn assert_keyboard_focus(actual: Option<session::Focus>, expected: session::Focus) {
+    let actual = actual.expect("window should have focus");
+    assert!(actual.same_target(&expected));
+    assert_eq!(actual.reason(), session::focus::Reason::Keyboard);
+    assert_eq!(actual.visibility(), session::focus::Visibility::Visible);
 }
 
 #[test]
@@ -511,10 +642,10 @@ fn text_box_ctrl_a_then_cut_updates_bound_text_and_clipboard() {
         .expect("ctrl-x should cut the focused text box selection");
 
     assert!(cut.is_handled());
-    assert!(cut.changed_state());
+    assert!(!cut.changed_state());
     assert_eq!(app.clipboard().text().as_deref(), Some("alpha"));
-    assert_eq!(app.state().submitted, "");
-    assert_eq!(app.revision().get(), 1);
+    assert_eq!(app.state().submitted, "alpha");
+    assert_eq!(app.revision(), state::Revision::initial());
 
     let draft = app
         .session()
@@ -527,6 +658,16 @@ fn text_box_ctrl_a_then_cut_updates_bound_text_and_clipboard() {
     assert_eq!(draft.text(), "");
     assert_eq!(draft.cursor(), 0);
     assert_eq!(draft.selection(), None);
+
+    let committed = app
+        .handle_input(window, Input::focus(non_text_focus("blur")))
+        .expect("blur should commit the cut draft");
+
+    assert!(committed.is_handled());
+    assert!(committed.changed_state());
+    assert_eq!(app.state().submitted, "");
+    assert_eq!(app.revision().get(), 1);
+    assert_eq!(text_draft(&app, window, focus).text(), "");
 }
 
 #[test]
@@ -584,9 +725,9 @@ fn text_box_paste_replaces_selection_and_truncates_to_first_line() {
         .expect("ctrl-v should paste into the focused text box");
 
     assert!(pasted.is_handled());
-    assert!(pasted.changed_state());
-    assert_eq!(app.state().submitted, "beta");
-    assert_eq!(app.revision().get(), 1);
+    assert!(!pasted.changed_state());
+    assert_eq!(app.state().submitted, "alpha");
+    assert_eq!(app.revision(), state::Revision::initial());
 
     let target = interaction::Target::text_area(focus);
     let draft = app
@@ -600,6 +741,16 @@ fn text_box_paste_replaces_selection_and_truncates_to_first_line() {
     assert_eq!(draft.text(), "beta");
     assert_eq!(draft.cursor(), "beta".len());
     assert_eq!(draft.selection(), None);
+
+    let committed = app
+        .handle_input(window, Input::focus(non_text_focus("blur")))
+        .expect("blur should commit the pasted draft");
+
+    assert!(committed.is_handled());
+    assert!(committed.changed_state());
+    assert_eq!(app.state().submitted, "beta");
+    assert_eq!(app.revision().get(), 1);
+    assert_eq!(text_draft(&app, window, focus).text(), "beta");
 }
 
 #[test]
@@ -643,21 +794,27 @@ fn text_box_undo_redo_uses_focused_draft_history() {
         app.handle_input(window, Input::text_commit(character.to_string()))
             .expect("text commit should edit focused text box");
     }
-    assert_eq!(app.state().submitted, "abc");
+    let target = interaction::Target::text_area(focus);
+    assert_eq!(text_draft(&app, window, focus).text(), "abc");
+    assert_eq!(app.state().submitted, "");
 
-    app.handle_input(window, Input::key_down(input::Key::Backspace, input::Modifiers::default()))
-        .expect("backspace should edit focused text box");
-    assert_eq!(app.state().submitted, "ab");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Backspace, input::Modifiers::default()),
+    )
+    .expect("backspace should edit focused text box");
+    assert_eq!(text_draft(&app, window, focus).text(), "ab");
+    assert_eq!(app.state().submitted, "");
     assert_eq!(app.timeline().undo_depth(), 0);
 
     let undo_delete = app
         .handle_input(window, Input::shortcut("Ctrl+Z"))
         .expect("text box undo should restore deleted character");
     assert!(undo_delete.is_handled());
-    assert!(undo_delete.changed_state());
-    assert_eq!(app.state().submitted, "abc");
+    assert!(!undo_delete.changed_state());
+    assert_eq!(text_draft(&app, window, focus).text(), "abc");
+    assert_eq!(app.state().submitted, "");
     assert_eq!(app.timeline().undo_depth(), 0);
-    let target = interaction::Target::text_area(focus);
     assert!(
         app.session()
             .interaction(window)
@@ -670,8 +827,8 @@ fn text_box_undo_redo_uses_focused_draft_history() {
         .handle_input(window, Input::shortcut("Ctrl+Shift+Z"))
         .expect("text box redo should reapply deleted character");
     assert!(redo_delete.is_handled());
-    assert!(redo_delete.changed_state());
-    assert_eq!(app.state().submitted, "ab");
+    assert!(!redo_delete.changed_state());
+    assert_eq!(text_draft(&app, window, focus).text(), "ab");
 
     app.handle_input(window, Input::shortcut("Ctrl+Z"))
         .expect("text box undo should restore deleted character again");
@@ -684,8 +841,79 @@ fn text_box_undo_redo_uses_focused_draft_history() {
     );
     app.handle_input(window, Input::shortcut("Ctrl+Z"))
         .expect("coalesced typing should undo as one text box entry");
+    assert_eq!(text_draft(&app, window, focus).text(), "");
     assert_eq!(app.state().submitted, "");
     assert_eq!(app.timeline().undo_depth(), 0);
+}
+
+#[test]
+fn text_box_native_key_typing_undoes_as_one_text_chunk() {
+    let focus = session::Focus::text("search");
+    let mut app = Runtime::new(TextBoxSubmitState::default())
+        .commands(|commands| {
+            commands.register::<SubmitText>(command::Spec::new("Submit Text"));
+        })
+        .responders(|responders| {
+            responders.app().target::<SubmitText>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Text Box Native Typing"));
+        })
+        .view(move |state, _| {
+            widget::view(|ui| {
+                ui.text_box(
+                    widget::TextBox::new(state.submitted.clone())
+                        .focus(focus)
+                        .on_submit::<SubmitText>(),
+                );
+            })
+        });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    app.present(window)
+        .expect("view should be presented before key input");
+    app.handle_input(window, Input::focus(focus))
+        .expect("text box focus should be handled");
+
+    for character in "abc".chars() {
+        app.handle_input(
+            window,
+            Input::key_down_with_text(
+                input::Key::Character(character),
+                input::Modifiers::default(),
+                Some(character.to_string()),
+            ),
+        )
+        .expect("native-style text key should edit focused text box");
+    }
+
+    assert_eq!(text_draft(&app, window, focus).text(), "abc");
+    assert_eq!(app.state().submitted, "");
+    assert_eq!(app.timeline().undo_depth(), 0);
+
+    let undo = app
+        .handle_input(window, Input::shortcut("Ctrl+Z"))
+        .expect("text box undo should resolve");
+
+    assert!(undo.is_handled());
+    assert!(!undo.changed_state());
+    assert_eq!(
+        text_draft(&app, window, focus).text(),
+        "",
+        "typing a word through native key events should undo as one chunk"
+    );
+    assert_eq!(app.state().submitted, "");
+
+    let redo = app
+        .handle_input(window, Input::shortcut("Ctrl+Shift+Z"))
+        .expect("text box redo should resolve");
+
+    assert!(redo.is_handled());
+    assert!(!redo.changed_state());
+    assert_eq!(text_draft(&app, window, focus).text(), "abc");
+    assert_eq!(app.state().submitted, "");
 }
 
 #[test]

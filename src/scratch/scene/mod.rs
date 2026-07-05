@@ -7,7 +7,7 @@ pub use color::Color;
 pub use presentation::Presentation;
 pub use primitive::{
     Brush, EdgeMode, Icon, Offset, Outline, Primitive, Quad, Radius, Rasterization, Rounding,
-    Shadow, Snapping, Stroke, Style, Text, TextSurface, TextViewport, TextWrap,
+    Shadow, Snapping, Stroke, Style, Text, TextAlign, TextSurface, TextViewport, TextWrap,
 };
 
 use super::{geometry, layout, theme::Theme};
@@ -27,7 +27,7 @@ impl Scene {
     }
 
     pub fn paint_with_theme(layout: &layout::Layout, theme: &Theme) -> Self {
-        Self::paint_with_clear_and_theme(layout, theme.palette().canvas, theme)
+        Self::paint_with_clear_and_theme(layout, theme.surfaces().canvas, theme)
     }
 
     pub fn paint_with_clear(layout: &layout::Layout, clear: Color) -> Self {

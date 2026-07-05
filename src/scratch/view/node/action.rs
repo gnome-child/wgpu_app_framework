@@ -40,10 +40,9 @@ impl Node {
                 .zip(self.label.as_ref())
                 .map(|(id, label)| interaction::Target::menu(id, label.clone())),
             Role::TextArea | Role::TextBox => None,
-            Role::Popup => self
-                .id
-                .zip(self.label.as_ref())
-                .map(|(id, label)| interaction::Target::popup(id, label.clone())),
+            Role::Popup => self.id.map(|id| {
+                interaction::Target::popup(id, self.label.as_deref().unwrap_or_else(|| id.as_str()))
+            }),
             Role::Label => self
                 .id
                 .zip(self.label.as_ref())
@@ -115,7 +114,7 @@ impl Node {
 
         Some(Action::sequence([
             Action::pointer_down(target),
-            text_area.focus_action()?,
+            text_area.pointer_focus_action()?,
             Action::text_edit(text::edit::Edit::pointer(
                 text::edit::PointerEditKind::Click,
                 position,
@@ -184,13 +183,10 @@ impl Node {
     pub(in crate::scratch::view) fn keyboard_activation_action(&self) -> Option<Action> {
         match self.role {
             Role::Menu => self.menu_action(),
-            Role::Binding | Role::Button | Role::Checkbox | Role::Radio | Role::Slider => {
-                self.binding.as_ref().and_then(|binding| {
-                    binding
-                        .is_enabled()
-                        .then(|| Action::activate(binding))
-                })
-            }
+            Role::Binding | Role::Button | Role::Checkbox | Role::Radio | Role::Slider => self
+                .binding
+                .as_ref()
+                .and_then(|binding| binding.is_enabled().then(|| Action::activate(binding))),
             Role::Root
             | Role::Stack
             | Role::MenuBar

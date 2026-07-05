@@ -1,9 +1,9 @@
 use super::{
     Clipboard, Command, Composition, Context, Diagnostics, Document as TextDocument, Error, Host,
     Input, Interaction, Layout, Platform, Response, Runtime, Scene, Session, Shell, State, Target,
-    Task, Theme, Timeline, View, clipboard, command, context, control_gallery, document, geometry,
-    host, input, interaction, layout, platform, responder, response, runtime, scene, session,
-    shell, state, task, text_editor, timeline, view, widget, window,
+    Task, Theme, Timeline, View, clipboard, command, context, control_gallery, document, draft,
+    geometry, host, input, interaction, layout, platform, responder, response, runtime, scene,
+    session, shell, state, task, text_editor, timeline, view, widget, window,
 };
 use crate::text;
 use std::{cell::Cell, path::PathBuf, rc::Rc};
@@ -906,6 +906,29 @@ fn text_box_node(node: &view::Node) -> Option<&view::Node> {
     }
 
     node.children().iter().find_map(text_box_node)
+}
+
+fn text_draft<'a, M, E, V>(
+    app: &'a Runtime<M, E, V>,
+    window: window::Id,
+    focus: session::Focus,
+) -> &'a draft::State
+where
+    M: State,
+    E: Send + 'static,
+{
+    let target = interaction::Target::text_area(focus);
+    app.session()
+        .interaction(window)
+        .expect("window should have interaction state")
+        .text_input()
+        .draft_for(&target)
+        .expect("text box should have a draft")
+}
+
+fn non_text_focus(id: &'static str) -> session::Focus {
+    let target = interaction::Target::label(interaction::Id::new(id), id);
+    session::Focus::control(&target)
 }
 
 fn temp_text_path(name: &str) -> PathBuf {

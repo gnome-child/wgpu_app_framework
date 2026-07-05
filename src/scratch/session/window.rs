@@ -10,6 +10,7 @@ pub struct Window {
     pub(super) redraw_requested: bool,
     pub(super) presented_revision: Option<state::Revision>,
     pub(super) focus: Option<Focus>,
+    pub(super) menu_restore_focus: Option<Focus>,
     pub(super) file_dialog: Option<FileDialog>,
     pub(super) interaction: interaction::Interaction,
 }
@@ -38,6 +39,7 @@ impl Window {
             redraw_requested: true,
             presented_revision: None,
             focus: None,
+            menu_restore_focus: None,
             file_dialog: None,
             interaction: interaction::Interaction::default(),
         }
@@ -52,6 +54,7 @@ impl Window {
             redraw_requested: true,
             presented_revision: None,
             focus: snapshot.focus,
+            menu_restore_focus: None,
             file_dialog: None,
             interaction: interaction::Interaction::default(),
         }

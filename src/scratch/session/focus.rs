@@ -4,6 +4,8 @@ use super::{Session, Window};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Focus {
     kind: Kind,
+    reason: Reason,
+    visibility: Visibility,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -12,17 +14,66 @@ enum Kind {
     Control(u64),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Reason {
+    Programmatic,
+    Keyboard,
+    Pointer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Visibility {
+    Visible,
+    Hidden,
+}
+
 impl Focus {
     pub fn text(target: impl Into<interaction::Id>) -> Self {
         Self {
             kind: Kind::Text(target.into()),
+            reason: Reason::Programmatic,
+            visibility: Visibility::Visible,
         }
     }
 
     pub fn control(target: &interaction::Target) -> Self {
         Self {
             kind: Kind::Control(target.focus_key()),
+            reason: Reason::Programmatic,
+            visibility: Visibility::Visible,
         }
+    }
+
+    pub fn with_reason(mut self, reason: Reason) -> Self {
+        self.reason = reason;
+        self
+    }
+
+    pub fn with_visibility(mut self, visibility: Visibility) -> Self {
+        self.visibility = visibility;
+        self
+    }
+
+    pub fn keyboard(self) -> Self {
+        self.with_reason(Reason::Keyboard)
+            .with_visibility(Visibility::Visible)
+    }
+
+    pub fn pointer(self) -> Self {
+        self.with_reason(Reason::Pointer)
+            .with_visibility(Visibility::Hidden)
+    }
+
+    pub fn reason(self) -> Reason {
+        self.reason
+    }
+
+    pub fn visibility(self) -> Visibility {
+        self.visibility
+    }
+
+    pub fn is_visible(self) -> bool {
+        self.visibility == Visibility::Visible
     }
 
     pub fn target(self) -> interaction::Id {
@@ -53,11 +104,29 @@ impl Focus {
         }
     }
 
+    pub(in crate::scratch) fn from_text_target(target: &interaction::Target) -> Option<Self> {
+        if target.kind() == interaction::target::Kind::TextArea {
+            return target.element_id().map(Self::text);
+        }
+
+        None
+    }
+
     pub fn matches_target(self, target: &interaction::Target) -> bool {
         match self.kind {
-            Kind::Text(id) => target.kind() == interaction::target::Kind::TextArea
-                && target.element_id() == Some(id),
+            Kind::Text(id) => {
+                target.kind() == interaction::target::Kind::TextArea
+                    && target.element_id() == Some(id)
+            }
             Kind::Control(key) => target.focus_key() == key,
+        }
+    }
+
+    pub fn same_target(self, other: &Self) -> bool {
+        match (self.kind, other.kind) {
+            (Kind::Text(left), Kind::Text(right)) => left == right,
+            (Kind::Control(left), Kind::Control(right)) => left == right,
+            _ => false,
         }
     }
 }
@@ -71,7 +140,7 @@ impl Session {
         let input_changed = if let Some(target) = focus.text_target() {
             window.interaction.clear_text_input_unless(&target)
         } else {
-            window.interaction.clear_text_input()
+            window.interaction.clear_text_preedit()
         };
         window.focus = Some(focus);
         changed || input_changed
@@ -82,12 +151,23 @@ impl Session {
             return false;
         };
         let changed = window.focus.is_some();
-        let input_changed = window.interaction.clear_text_input();
+        let input_changed = window.interaction.clear_text_preedit();
         window.focus = None;
         changed || input_changed
     }
 
     pub fn focused(&self, id: app_window::Id) -> Option<Focus> {
         self.window(id).and_then(Window::focus)
+    }
+
+    pub(in crate::scratch) fn command_focus(&self, id: app_window::Id) -> Option<Focus> {
+        let window = self.window(id)?;
+        window.menu_restore_focus.or(window.focus).or_else(|| {
+            window
+                .interaction
+                .text_input()
+                .target()
+                .and_then(Focus::from_text_target)
+        })
     }
 }

@@ -121,8 +121,8 @@ impl Node {
         Self::new(Role::Panel)
     }
 
-    pub fn popup(id: impl Into<interaction::Id>, label: impl Into<String>) -> Self {
-        Self::new(Role::Popup).with_id(id).with_label(label)
+    pub fn popup(id: impl Into<interaction::Id>) -> Self {
+        Self::new(Role::Popup).with_id(id)
     }
 
     pub fn label(label: impl Into<String>) -> Self {
@@ -212,6 +212,10 @@ impl Node {
             binding: None,
             control: None,
             focused: false,
+            focus_visible: false,
+            hovered: false,
+            pressed: false,
+            active: false,
             children: Vec::new(),
         }
     }

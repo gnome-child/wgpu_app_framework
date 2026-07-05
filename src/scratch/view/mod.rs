@@ -112,8 +112,11 @@ impl View {
             return None;
         }
 
-        let index =
-            current.and_then(|focus| order.iter().position(|candidate| *candidate == focus));
+        let index = current.and_then(|focus| {
+            order
+                .iter()
+                .position(|candidate| candidate.same_target(&focus))
+        });
         match (index, direction) {
             (Some(index), FocusDirection::Forward) => Some(order[(index + 1) % order.len()]),
             (Some(0), FocusDirection::Backward) => order.last().copied(),
@@ -154,15 +157,15 @@ impl View {
     }
 
     pub(super) fn project_interaction(&mut self, interaction: &interaction::Interaction) {
-        self.root.project_interaction(interaction);
-
         if let Some(menu) = interaction.open_menu() {
             let popup = self
                 .root
                 .popup_for_menu(menu)
-                .unwrap_or_else(|| Node::popup(menu.id(), menu.label()));
+                .unwrap_or_else(|| Node::popup(menu.id()));
             self.root.push_child(popup);
         }
+
+        self.root.project_interaction(interaction);
     }
 
     pub(super) fn project_focus(&mut self, focus: Option<session::Focus>) {

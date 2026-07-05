@@ -1,4 +1,4 @@
-mod focus;
+pub mod focus;
 mod interaction;
 mod request;
 mod service;

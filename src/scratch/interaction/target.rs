@@ -5,13 +5,14 @@ use std::{
 };
 
 use super::super::{context::Source, session};
-use super::Id;
+use super::{Id, Menu};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Target {
     kind: Kind,
     identity: Identity,
     label: String,
+    source: Option<Source>,
     captures: bool,
 }
 
@@ -39,11 +40,12 @@ impl Target {
         Self::new(Kind::Menu, id, label)
     }
 
-    pub fn command_element(id: impl Into<Id>, command_name: &'static str) -> Self {
+    pub fn command_element(id: impl Into<Id>, command_name: &'static str, source: Source) -> Self {
         Self {
             kind: Kind::Command,
             identity: Identity::Element(id.into()),
             label: command_name.to_owned(),
+            source: Some(source),
             captures: false,
         }
     }
@@ -62,6 +64,7 @@ impl Target {
                 path: path.into(),
             },
             label: command_name.to_owned(),
+            source: Some(source),
             captures: false,
         }
     }
@@ -76,6 +79,7 @@ impl Target {
             kind: Kind::TextArea,
             identity: Identity::Element(id),
             label: id.as_str().to_owned(),
+            source: None,
             captures: true,
         }
     }
@@ -109,6 +113,18 @@ impl Target {
         &self.label
     }
 
+    pub fn as_menu(&self) -> Option<Menu> {
+        if self.kind != Kind::Menu {
+            return None;
+        }
+
+        Some(Menu::new(self.element_id()?, self.label.clone()))
+    }
+
+    pub fn is_menu_surface(&self) -> bool {
+        matches!(self.kind, Kind::Menu | Kind::Popup) || self.source == Some(Source::Menu)
+    }
+
     pub fn captures(&self) -> bool {
         self.captures
     }
@@ -123,6 +139,7 @@ impl Target {
             kind,
             identity: Identity::Element(id.into()),
             label: label.into(),
+            source: None,
             captures: false,
         }
     }

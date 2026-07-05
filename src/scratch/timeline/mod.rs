@@ -1,7 +1,9 @@
 mod command;
 mod service;
+mod undoable;
 
 pub use command::{Redo, Undo};
+pub use undoable::Undoable;
 
 pub(in crate::scratch) use command::register;
 pub(in crate::scratch) use service::Service;

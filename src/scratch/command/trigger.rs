@@ -11,7 +11,7 @@ use super::super::{
     response::{AnyResponse, Response},
     state,
 };
-use super::{Command, Registry, State};
+use super::{Command, HistoryGroup, Registry, State};
 pub struct Trigger<C: Command> {
     args: C::Args,
     _command: PhantomData<C>,
@@ -73,6 +73,8 @@ trait AnyArgs {
     fn as_any(&self) -> &dyn Any;
 
     fn clone_any(&self) -> Box<dyn Any + Send>;
+
+    fn history_group(&self) -> Option<HistoryGroup>;
 }
 
 struct TypedArgs<C: Command> {
@@ -122,6 +124,10 @@ impl AnyTrigger {
 
     pub(in crate::scratch) fn command_type(&self) -> TypeId {
         self.command_type
+    }
+
+    pub(in crate::scratch) fn history_group(&self) -> Option<HistoryGroup> {
+        self.args.history_group()
     }
 
     pub(in crate::scratch) fn state(
@@ -206,5 +212,9 @@ where
 
     fn clone_any(&self) -> Box<dyn Any + Send> {
         Box::new(self.args.clone())
+    }
+
+    fn history_group(&self) -> Option<HistoryGroup> {
+        C::history_group(&self.args)
     }
 }

@@ -31,10 +31,15 @@ fn to_paint_quad(quad: &scene::Quad) -> paint::Quad {
 }
 
 fn to_paint_text(text: &scene::Text) -> paint::Text {
+    let mut block = text::document::Block::new(into_text_align(text.align()));
+    block.push_run(text::document::Run::new(
+        text.value().to_owned(),
+        text::document::Style::default().with_color(super::color::text_color(text.color())),
+    ));
+
     paint::Text {
         rect: into_paint_rect(text.rect()),
-        document: text::document::Document::plain(text.value().to_owned())
-            .with_color(super::color::text_color(text.color())),
+        document: text::document::Document::from_block(block),
         wrap: into_paint_text_wrap(text.wrap()),
         vertical_align: paint::TextVerticalAlign::Center,
     }
@@ -68,7 +73,7 @@ fn to_paint_icon(icon: &scene::Icon) -> paint::Icon {
 
 fn to_paint_shadow(shadow: &scene::Shadow) -> paint::Shadow {
     paint::Shadow {
-        rect: into_paint_rect(shadow.rect()),
+        rect: into_paint_rounded_rect(shadow.rect(), shadow.rounding()),
         brush: paint::Brush::solid(super::color::paint_color(shadow.color())),
         blur: shadow.blur(),
         spread: shadow.spread(),
@@ -78,7 +83,7 @@ fn to_paint_shadow(shadow: &scene::Shadow) -> paint::Shadow {
 
 fn to_paint_outline(outline: &scene::Outline) -> paint::Outline {
     paint::Outline {
-        rect: into_paint_rect(outline.rect()),
+        rect: into_paint_rounded_rect(outline.rect(), outline.rounding()),
         brush: paint::Brush::solid(super::color::paint_color(outline.color())),
         width: outline.width(),
         offset: outline.offset(),
@@ -107,6 +112,14 @@ fn into_paint_text_wrap(wrap: scene::TextWrap) -> paint::TextWrap {
     match wrap {
         scene::TextWrap::None => paint::TextWrap::None,
         scene::TextWrap::WordOrGlyph => paint::TextWrap::WordOrGlyph,
+    }
+}
+
+fn into_text_align(align: scene::TextAlign) -> text::document::Align {
+    match align {
+        scene::TextAlign::Start => text::document::Align::Start,
+        scene::TextAlign::Center => text::document::Align::Center,
+        scene::TextAlign::End => text::document::Align::End,
     }
 }
 

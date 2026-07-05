@@ -90,28 +90,61 @@ pub fn smoke() -> Result {
         }
     }
     if app.state().query != "query" {
-        return Err(io::Error::other("text box input did not submit through binding").into());
+        let target = interaction::Target::text_area(session::Focus::text(super::view::QUERY_FOCUS));
+        let draft = app
+            .session()
+            .interaction(window)
+            .and_then(|interaction| interaction.text_input().draft_for(&target))
+            .ok_or_else(|| io::Error::other("text box input did not create a draft"))?;
+        if draft.text() != "query" || !app.state().query.is_empty() {
+            return Err(io::Error::other("text box input did not update focused draft").into());
+        }
     }
     let backspace = app.handle_input(
         window,
         input::Input::key_down(input::Key::Backspace, input::Modifiers::default()),
     )?;
-    if !backspace.is_handled() || !backspace.changed_state() || app.state().query != "quer" {
-        return Err(io::Error::other("text box backspace did not update query").into());
+    if !backspace.is_handled()
+        || backspace.changed_state()
+        || focused_query_draft_text(&app, window)? != "quer"
+    {
+        return Err(io::Error::other("text box backspace did not update query draft").into());
     }
     let field_undo = app.handle_input(window, input::Input::shortcut("Ctrl+Z"))?;
-    if !field_undo.is_handled() || !field_undo.changed_state() || app.state().query != "query" {
-        return Err(io::Error::other("text box undo did not restore query text").into());
+    if !field_undo.is_handled()
+        || field_undo.changed_state()
+        || focused_query_draft_text(&app, window)? != "query"
+    {
+        return Err(io::Error::other("text box undo did not restore query draft").into());
     }
     let field_redo = app.handle_input(window, input::Input::shortcut("Ctrl+Shift+Z"))?;
-    if !field_redo.is_handled() || !field_redo.changed_state() || app.state().query != "quer" {
-        return Err(io::Error::other("text box redo did not reapply query edit").into());
+    if !field_redo.is_handled()
+        || field_redo.changed_state()
+        || focused_query_draft_text(&app, window)? != "quer"
+    {
+        return Err(io::Error::other("text box redo did not reapply query draft edit").into());
     }
     let field_restore = app.handle_input(window, input::Input::shortcut("Ctrl+Z"))?;
-    if !field_restore.is_handled() || !field_restore.changed_state() || app.state().query != "query" {
-        return Err(io::Error::other("text box undo did not restore query before drag").into());
+    if !field_restore.is_handled()
+        || field_restore.changed_state()
+        || focused_query_draft_text(&app, window)? != "query"
+    {
+        return Err(
+            io::Error::other("text box undo did not restore query draft before drag").into(),
+        );
     }
     drag_text_box_selection(&mut app, window, size)?;
+
+    click_role_with_label(
+        &mut app,
+        window,
+        size,
+        view::node::Role::Checkbox,
+        "Wrap text",
+    )?;
+    if app.state().query != "query" {
+        return Err(io::Error::other("text box blur did not commit query draft").into());
+    }
 
     let reset = app.handle_input(window, input::Input::shortcut("Ctrl+R"))?;
     if !reset.is_handled() || !reset.changed_state() {
@@ -136,6 +169,18 @@ pub fn smoke() -> Result {
     Ok(())
 }
 
+fn focused_query_draft_text(
+    app: &super::super::Runtime<State, (), super::super::View>,
+    window: super::super::window::Id,
+) -> Result<String> {
+    let target = interaction::Target::text_area(session::Focus::text(super::view::QUERY_FOCUS));
+    app.session()
+        .interaction(window)
+        .and_then(|interaction| interaction.text_input().draft_for(&target))
+        .map(|draft| draft.text().to_owned())
+        .ok_or_else(|| io::Error::other("query text box draft is missing").into())
+}
+
 fn click_role_with_label(
     app: &mut super::super::Runtime<State, (), super::super::View>,
     window: super::super::window::Id,
@@ -156,6 +201,8 @@ fn click_role_with_label(
     let point = center(rect);
 
     app.pointer_down_at(window, size, point)?;
+    app.render_scene(window, size)
+        .ok_or_else(|| io::Error::other("control gallery did not present after pointer down"))?;
     app.pointer_up_at(window, size, point)?;
 
     Ok(())
@@ -180,6 +227,8 @@ fn click_first_role(
     let point = center(rect);
 
     app.pointer_down_at(window, size, point)?;
+    app.render_scene(window, size)
+        .ok_or_else(|| io::Error::other("control gallery did not present after pointer down"))?;
     app.pointer_up_at(window, size, point)?;
 
     Ok(())
@@ -237,12 +286,13 @@ fn drag_text_box_selection(
     let wobble = geometry::Point::new(rect.right() - 1, rect.y() + 2);
 
     app.pointer_down_at(window, size, press)?;
-    app.render_scene(window, size)
-        .ok_or_else(|| io::Error::other("control gallery did not present after text pointer down"))?;
+    app.render_scene(window, size).ok_or_else(|| {
+        io::Error::other("control gallery did not present after text pointer down")
+    })?;
     app.pointer_move_at(window, size, wobble)?;
-    let selected = app
-        .render_scene(window, size)
-        .ok_or_else(|| io::Error::other("control gallery did not present after text pointer move"))?;
+    let selected = app.render_scene(window, size).ok_or_else(|| {
+        io::Error::other("control gallery did not present after text pointer move")
+    })?;
     app.pointer_up_at(window, size, wobble)?;
     app.render_scene(window, size)
         .ok_or_else(|| io::Error::other("control gallery did not present after text pointer up"))?;
@@ -264,10 +314,12 @@ fn drag_text_box_selection(
         return Err(io::Error::other("text box drag did not create a selection").into());
     }
 
-    let selection_color = Theme::default().palette().selection;
-    let highlight_visible = selected.scene().quads().iter().any(|quad| {
-        quad.fill() == selection_color && rect_contains(text_rect, quad.rect())
-    });
+    let selection_color = Theme::default().text().selection;
+    let highlight_visible = selected
+        .scene()
+        .quads()
+        .iter()
+        .any(|quad| quad.fill() == selection_color && rect_contains(text_rect, quad.rect()));
     if !highlight_visible {
         return Err(io::Error::other("text box selection highlight did not paint").into());
     }
@@ -284,7 +336,7 @@ fn center(rect: geometry::Rect) -> geometry::Point {
 
 fn slider_track_rect(frame: &layout::frame::Frame) -> geometry::Rect {
     let theme = Theme::default();
-    layout::control::slider_track_rect(frame.rect(), theme.metrics())
+    layout::control::slider_track_rect(frame.rect(), &theme)
 }
 
 fn rect_contains(bounds: geometry::Rect, rect: geometry::Rect) -> bool {

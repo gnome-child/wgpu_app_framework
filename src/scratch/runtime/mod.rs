@@ -1,6 +1,6 @@
 use super::{
     clipboard::Clipboard,
-    command, composition, diagnostics, layout, responder, session,
+    command, composition, diagnostics, document, layout, responder, session,
     state::{self, Store},
     task,
     timeline::{self, Timeline},
@@ -56,6 +56,7 @@ impl<M: state::State> Runtime<M> {
         let mut registry = command::Registry::default();
         session::register(&mut registry);
         timeline::register(&mut registry);
+        document::register(&mut registry);
 
         Self {
             store: Store::new(model),

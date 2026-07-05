@@ -1,7 +1,5 @@
 use super::super::Runtime;
-use crate::scratch::{
-    context as command_context, error::Error, input, response, state, view, window,
-};
+use crate::scratch::{context as command_context, error::Error, input, state, view, window};
 
 fn text_for_key(
     key: input::Key,
@@ -42,7 +40,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             && !modifiers.alt()
             && !modifiers.super_key()
         {
-            return Ok(self.handle_tab_focus(window, modifiers.shift()));
+            return self.handle_tab_focus(window, modifiers.shift());
         }
 
         if let Some(outcome) = self.handle_text_box_key_shortcut(window, key, modifiers)? {
@@ -76,7 +74,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         self.handle_text_edit(window, edit, command_context::Source::Keyboard)
     }
 
-    fn handle_tab_focus(&mut self, window: window::Id, reverse: bool) -> input::Outcome {
+    fn handle_tab_focus(
+        &mut self,
+        window: window::Id,
+        reverse: bool,
+    ) -> std::result::Result<input::Outcome, Error> {
         let direction = if reverse {
             view::action::FocusDirection::Backward
         } else {
@@ -87,16 +89,10 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 .view()
                 .next_focus(self.session.focused(window), direction)
         }) else {
-            return input::Outcome::ignored();
+            return Ok(input::Outcome::ignored());
         };
 
-        let effect = if self.focus(window, next) {
-            response::Effect::Repaint
-        } else {
-            response::Effect::None
-        };
-
-        self.window_outcome(window, false, effect)
+        self.focus_committing_text_box(window, next)
     }
 
     fn handle_focused_activation(

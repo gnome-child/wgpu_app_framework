@@ -40,7 +40,7 @@ fn text_editor_menu_open_state_is_framework_owned_interaction() {
         .expect("window should still have a view");
 
     assert_eq!(projected.popups().len(), 1);
-    assert_eq!(projected.popups()[0].label_text(), Some("File"));
+    assert_eq!(projected.popups()[0].label_text(), None);
 
     app.clear_redraw_request(window);
     app.handle_view(window, action)
@@ -58,6 +58,84 @@ fn text_editor_menu_open_state_is_framework_owned_interaction() {
 
     assert!(projected.popups().is_empty());
     assert!(app.session().windows()[0].redraw_requested());
+}
+
+#[test]
+fn hovering_another_menu_title_switches_open_menu() {
+    let mut app = text_editor::app(text_editor::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(800, 600);
+    let initial = app
+        .render_scene(window, size)
+        .expect("text editor should render");
+    let file = labeled_frame(initial.layout(), view::node::Role::Menu, "File");
+    let edit = labeled_frame(initial.layout(), view::node::Role::Menu, "Edit");
+
+    app.pointer_down_at(window, size, frame_point(file))
+        .expect("file menu pointer down should be handled");
+    app.pointer_up_at(window, size, frame_point(file))
+        .expect("file menu pointer up should open the menu");
+    app.render_scene(window, size)
+        .expect("open file menu should render");
+
+    let switched = app
+        .pointer_move_at(window, size, frame_point(edit))
+        .expect("edit menu hover should be handled");
+
+    assert!(switched.is_handled());
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.open_menu())
+            .map(|menu| menu.label()),
+        Some("Edit")
+    );
+}
+
+#[test]
+fn pointer_down_outside_menu_surface_closes_open_menu() {
+    let mut app = text_editor::app(text_editor::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(800, 600);
+    let initial = app
+        .render_scene(window, size)
+        .expect("text editor should render");
+    let file = labeled_frame(initial.layout(), view::node::Role::Menu, "File");
+
+    app.pointer_down_at(window, size, frame_point(file))
+        .expect("file menu pointer down should be handled");
+    app.pointer_up_at(window, size, frame_point(file))
+        .expect("file menu pointer up should open the menu");
+    let opened = app
+        .render_scene(window, size)
+        .expect("open file menu should render");
+    let text_area = opened
+        .layout()
+        .find_role(view::node::Role::TextArea)
+        .into_iter()
+        .next()
+        .expect("text area should be laid out");
+
+    let outside_popup = geometry::Point::new(
+        size.width().saturating_sub(2),
+        text_area.rect().y().saturating_add(80),
+    );
+
+    app.pointer_down_at(window, size, outside_popup)
+        .expect("outside pointer down should be handled");
+
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.open_menu()),
+        None
+    );
 }
 
 #[test]
@@ -695,7 +773,16 @@ fn text_area_pointer_click_focuses_and_routes_cursor_edit() {
     assert!(outcome.is_handled());
     assert!(outcome.changed_state());
     assert_eq!(outcome.effect(), &response::Effect::Repaint);
-    assert_eq!(app.session().focused(window), Some(focus));
+    let actual_focus = app
+        .session()
+        .focused(window)
+        .expect("text area should be focused");
+    assert!(actual_focus.same_target(&focus));
+    assert_eq!(actual_focus.reason(), session::focus::Reason::Pointer);
+    assert_eq!(
+        actual_focus.visibility(),
+        session::focus::Visibility::Hidden
+    );
     assert_eq!(app.state().document.position().index, 5);
     assert_eq!(app.state().document.selected_text(), None);
     assert_eq!(
@@ -1035,4 +1122,16 @@ fn text_editor_host_presents_pending_redraws() {
         view::control::Wrap::None
     );
     assert!(!app.session().windows()[0].redraw_requested());
+}
+
+fn labeled_frame<'a>(
+    layout: &'a layout::Layout,
+    role: view::node::Role,
+    label: &str,
+) -> &'a layout::frame::Frame {
+    layout
+        .find_role(role)
+        .into_iter()
+        .find(|frame| frame.label_text() == Some(label))
+        .expect("labeled frame should be laid out")
 }

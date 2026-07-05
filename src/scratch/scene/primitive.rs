@@ -29,6 +29,7 @@ pub struct Text {
     value: String,
     color: Color,
     wrap: TextWrap,
+    align: TextAlign,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -52,6 +53,7 @@ pub struct Shadow {
     blur: f32,
     spread: f32,
     offset: Offset,
+    rounding: Rounding,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -60,12 +62,20 @@ pub struct Outline {
     color: Color,
     width: f32,
     offset: f32,
+    rounding: Rounding,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextWrap {
     None,
     WordOrGlyph,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextAlign {
+    Start,
+    Center,
+    End,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -210,7 +220,13 @@ impl Text {
             value: value.into(),
             color,
             wrap,
+            align: TextAlign::Start,
         }
+    }
+
+    pub(in crate::scratch::scene) fn with_align(mut self, align: TextAlign) -> Self {
+        self.align = align;
+        self
     }
 
     pub fn rect(&self) -> geometry::Rect {
@@ -227,6 +243,10 @@ impl Text {
 
     pub fn wrap(&self) -> TextWrap {
         self.wrap
+    }
+
+    pub fn align(&self) -> TextAlign {
+        self.align
     }
 }
 
@@ -316,7 +336,13 @@ impl Shadow {
             blur,
             spread,
             offset,
+            rounding: Rounding::none(),
         }
+    }
+
+    pub(in crate::scratch::scene) fn with_rounding(mut self, rounding: Rounding) -> Self {
+        self.rounding = rounding;
+        self
     }
 
     pub fn rect(&self) -> geometry::Rect {
@@ -337,6 +363,10 @@ impl Shadow {
 
     pub fn offset(&self) -> Offset {
         self.offset
+    }
+
+    pub fn rounding(&self) -> Rounding {
+        self.rounding
     }
 }
 
@@ -383,11 +413,17 @@ impl Outline {
             color,
             width: 1.0,
             offset: 0.0,
+            rounding: Rounding::none(),
         }
     }
 
     pub(in crate::scratch::scene) fn with_width(mut self, width: f32) -> Self {
         self.width = width.max(0.0);
+        self
+    }
+
+    pub(in crate::scratch::scene) fn with_rounding(mut self, rounding: Rounding) -> Self {
+        self.rounding = rounding;
         self
     }
 
@@ -405,6 +441,10 @@ impl Outline {
 
     pub fn offset(&self) -> f32 {
         self.offset
+    }
+
+    pub fn rounding(&self) -> Rounding {
+        self.rounding
     }
 }
 

@@ -122,13 +122,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let view = self.view.as_ref()?;
         let mut view = view(self.store.model(), self.view_context(window));
         let mut focus = self.session.focused(window);
-        if focus
-            .is_some_and(|focus| focus.target_id().is_some() && !view.contains_focus(focus))
-        {
+        if focus.is_some_and(|focus| focus.target_id().is_some() && !view.contains_focus(focus)) {
             self.clear_focus(window);
             focus = None;
         }
 
+        let command_focus = self.session.command_focus(window);
         let cx = command_context::Context::with_clipboard(&mut self.clipboard);
         {
             let services = Services::new(
@@ -140,7 +139,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             );
             let mut chain = self
                 .responders
-                .chain_for(&mut self.store, focus)
+                .chain_for(&mut self.store, command_focus)
                 .with_framework(services);
 
             view.resolve_commands(&self.registry, &mut chain, &cx);

@@ -10,7 +10,7 @@ use super::super::{
     response::{AnyResponse, Response},
     state,
 };
-use super::{Command, History, KeyChord, Spec, State};
+use super::{Command, History, HistoryGroup, KeyChord, Spec, State};
 #[derive(Default)]
 pub struct Registry {
     commands: HashMap<TypeId, AnyCommand>,
@@ -22,6 +22,7 @@ pub(in crate::scratch) struct AnyCommand {
     pub(in crate::scratch::command) command_type: TypeId,
     args_type: TypeId,
     history: History,
+    history_group: fn(&dyn Any) -> Option<HistoryGroup>,
     pub(in crate::scratch::command) spec: Spec,
 }
 
@@ -36,6 +37,10 @@ impl AnyCommand {
 
     pub(in crate::scratch) fn history(&self) -> History {
         self.history
+    }
+
+    pub(in crate::scratch) fn history_group(&self, args: &dyn Any) -> Option<HistoryGroup> {
+        (self.history_group)(args)
     }
 
     fn accepts_shortcut_args(&self) -> bool {
@@ -62,6 +67,7 @@ impl Registry {
                 command_type,
                 args_type: TypeId::of::<C::Args>(),
                 history: C::HISTORY,
+                history_group: history_group_for::<C>,
                 spec,
             },
         );
@@ -205,20 +211,19 @@ impl Registry {
             return Ok(None);
         };
         let args = ();
-        let state = self.state_any(
-            command.command_type,
-            command.command_name,
-            &args,
-            chain,
-            cx,
-        );
+        let state = self.state_any(command.command_type, command.command_name, &args, chain, cx);
         if !state.is_enabled() {
             return Ok(None);
         }
 
         Ok(Some(
             chain
-                .invoke_any(command.command_type, command.command_name, Box::new(args), cx)
+                .invoke_any(
+                    command.command_type,
+                    command.command_name,
+                    Box::new(args),
+                    cx,
+                )
                 .unwrap_or_else(|| {
                     AnyResponse::failed(Error::MissingTarget {
                         command: command.command_name,
@@ -262,4 +267,8 @@ impl Registry {
             .map(|command| command.command_name)
             .collect()
     }
+}
+
+fn history_group_for<C: Command>(args: &dyn Any) -> Option<HistoryGroup> {
+    args.downcast_ref::<C::Args>().and_then(C::history_group)
 }

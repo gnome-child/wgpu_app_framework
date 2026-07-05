@@ -71,12 +71,24 @@ impl Binding {
         self.trigger.command_type()
     }
 
+    pub(in crate::scratch) fn history_group(&self) -> Option<framework_command::HistoryGroup> {
+        self.trigger.history_group()
+    }
+
     pub fn state(&self) -> &framework_command::State {
         &self.state
     }
 
     pub fn label(&self) -> Option<&str> {
         self.state.label.as_deref()
+    }
+
+    pub fn checked(&self) -> Option<bool> {
+        self.state.checked
+    }
+
+    pub fn shortcut(&self) -> Option<framework_command::KeyChord> {
+        self.state.shortcut
     }
 
     pub fn source(&self) -> Source {
@@ -104,7 +116,7 @@ impl Binding {
     }
 
     pub(super) fn element_pointer_target(&self, id: interaction::Id) -> interaction::Target {
-        interaction::Target::command_element(id, self.command_name())
+        interaction::Target::command_element(id, self.command_name(), self.source)
     }
 
     pub(super) fn path_pointer_target(&self, path: &[usize]) -> interaction::Target {

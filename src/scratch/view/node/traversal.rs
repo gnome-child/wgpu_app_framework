@@ -96,10 +96,7 @@ impl Node {
         self.contains_focus_at(&focus, &[], false)
     }
 
-    pub(in crate::scratch::view) fn contains_enabled_focus(
-        &self,
-        focus: session::Focus,
-    ) -> bool {
+    pub(in crate::scratch::view) fn contains_enabled_focus(&self, focus: session::Focus) -> bool {
         self.contains_focus_at(&focus, &[], true)
     }
 
@@ -119,7 +116,11 @@ impl Node {
         focus: session::Focus,
         text: String,
     ) -> Option<Action> {
-        if self.text_box_model().and_then(TextBox::focus) == Some(focus.clone()) {
+        if self
+            .text_box_model()
+            .and_then(TextBox::focus)
+            .is_some_and(|text_focus| text_focus.same_target(&focus))
+        {
             return self
                 .binding
                 .as_ref()
@@ -135,10 +136,11 @@ impl Node {
         &self,
         focus: session::Focus,
     ) -> Option<&TextBox> {
-        if let Some(text_box) = self
-            .text_box_model()
-            .filter(|text_box| text_box.focus() == Some(focus.clone()))
-        {
+        if let Some(text_box) = self.text_box_model().filter(|text_box| {
+            text_box
+                .focus()
+                .is_some_and(|text_focus| text_focus.same_target(&focus))
+        }) {
             return Some(text_box);
         }
 
@@ -151,11 +153,19 @@ impl Node {
         &self,
         focus: session::Focus,
     ) -> Option<interaction::Target> {
-        if self.text_area_model().and_then(TextArea::focus) == Some(focus.clone()) {
+        if self
+            .text_area_model()
+            .and_then(TextArea::focus)
+            .is_some_and(|text_focus| text_focus.same_target(&focus))
+        {
             return self.text_control_target();
         }
 
-        if self.text_box_model().and_then(TextBox::focus) == Some(focus.clone()) {
+        if self
+            .text_box_model()
+            .and_then(TextBox::focus)
+            .is_some_and(|text_focus| text_focus.same_target(&focus))
+        {
             return self.text_control_target();
         }
 
@@ -221,8 +231,27 @@ impl Node {
         &mut self,
         interaction: &interaction::Interaction,
     ) {
+        self.project_interaction_at(interaction, &[]);
+    }
+
+    fn project_interaction_at(&mut self, interaction: &interaction::Interaction, path: &[usize]) {
+        let pointer_target = self.pointer_target_at_path(path);
+        self.hovered = pointer_target
+            .as_ref()
+            .is_some_and(|target| interaction.pointer().hovered() == Some(target));
+        self.pressed = pointer_target
+            .as_ref()
+            .is_some_and(|target| interaction.pointer().pressed() == Some(target));
+        self.active = match self.role {
+            Role::MenuBar => interaction.open_menu().is_some(),
+            Role::Menu => interaction
+                .open_menu()
+                .is_some_and(|menu| self.id == Some(menu.id())),
+            _ => false,
+        };
+
         let text_area_target = if self.role == Role::TextArea {
-            self.pointer_target()
+            pointer_target.clone()
         } else {
             None
         };
@@ -231,11 +260,13 @@ impl Node {
         }
 
         if let Some(Control::TextBox(text_box)) = &mut self.control {
-            text_box.project_interaction(interaction);
+            text_box.project_interaction(interaction, self.binding.is_some());
         }
 
-        for child in &mut self.children {
-            child.project_interaction(interaction);
+        for (index, child) in self.children.iter_mut().enumerate() {
+            let mut child_path = path.to_vec();
+            child_path.push(index);
+            child.project_interaction_at(interaction, &child_path);
         }
     }
 
@@ -247,7 +278,8 @@ impl Node {
         self.focused = self
             .focus_at(path, true)
             .as_ref()
-            .is_some_and(|node_focus| Some(node_focus) == focus);
+            .is_some_and(|node_focus| focus.is_some_and(|focus| node_focus.same_target(focus)));
+        self.focus_visible = self.focused && focus.is_some_and(|focus| focus.is_visible());
 
         if let Some(Control::TextArea(text_area)) = &mut self.control {
             text_area.project_focus(focus);
@@ -269,7 +301,7 @@ impl Node {
         menu: &interaction::Menu,
     ) -> Option<Node> {
         if self.role == Role::Menu && self.id == Some(menu.id()) {
-            let mut popup = Node::popup(menu.id(), menu.label());
+            let mut popup = Node::popup(menu.id());
             popup.children = self.children.clone();
             return Some(popup);
         }
@@ -281,10 +313,7 @@ impl Node {
 }
 
 impl Node {
-    pub(in crate::scratch::view) fn focus_action(
-        &self,
-        focus: &session::Focus,
-    ) -> Option<Action> {
+    pub(in crate::scratch::view) fn focus_action(&self, focus: &session::Focus) -> Option<Action> {
         self.focus_action_at(focus, &[])
     }
 
@@ -294,21 +323,19 @@ impl Node {
         path: &[usize],
         require_enabled: bool,
     ) -> bool {
-        self.focus_at(path, require_enabled).as_ref() == Some(focus)
-            || self
-                .children
-                .iter()
-                .enumerate()
-                .any(|(index, child)| {
-                    let mut child_path = path.to_vec();
-                    child_path.push(index);
-                    child.contains_focus_at(focus, &child_path, require_enabled)
-                })
+        self.focus_at(path, require_enabled)
+            .as_ref()
+            .is_some_and(|node_focus| node_focus.same_target(focus))
+            || self.children.iter().enumerate().any(|(index, child)| {
+                let mut child_path = path.to_vec();
+                child_path.push(index);
+                child.contains_focus_at(focus, &child_path, require_enabled)
+            })
     }
 
     fn collect_focus_order_at(&self, order: &mut Vec<session::Focus>, path: &[usize]) {
         if let Some(focus) = self.focus_at(path, true) {
-            push_focus(order, focus);
+            push_focus(order, focus.keyboard());
         }
 
         if self.role == Role::Menu {
@@ -343,7 +370,11 @@ impl Node {
     }
 
     fn focus_action_at(&self, focus: &session::Focus, path: &[usize]) -> Option<Action> {
-        if self.focus_at(path, true).as_ref() == Some(focus) {
+        if self
+            .focus_at(path, true)
+            .as_ref()
+            .is_some_and(|node_focus| node_focus.same_target(focus))
+        {
             return self.keyboard_activation_action();
         }
 
@@ -378,11 +409,10 @@ impl Node {
     fn is_keyboard_focusable(&self, require_enabled: bool) -> bool {
         match self.role {
             Role::Menu => true,
-            Role::Binding | Role::Button | Role::Checkbox | Role::Radio | Role::Slider => {
-                self.binding
-                    .as_ref()
-                    .is_some_and(|binding| !require_enabled || binding.is_enabled())
-            }
+            Role::Binding | Role::Button | Role::Checkbox | Role::Radio | Role::Slider => self
+                .binding
+                .as_ref()
+                .is_some_and(|binding| !require_enabled || binding.is_enabled()),
             Role::TextArea | Role::TextBox => true,
             Role::Root
             | Role::Stack
@@ -396,7 +426,7 @@ impl Node {
 }
 
 fn push_focus(order: &mut Vec<session::Focus>, focus: session::Focus) {
-    if !order.contains(&focus) {
+    if !order.iter().any(|existing| existing.same_target(&focus)) {
         order.push(focus);
     }
 }
