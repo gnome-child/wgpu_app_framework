@@ -15,11 +15,21 @@ mod text;
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub fn focus(&mut self, window: window::Id, focus: session::Focus) -> bool {
-        self.session.focus(window, focus)
+        let changed = self.session.focus(window, focus);
+        if changed {
+            self.session.request_redraw(window);
+        }
+
+        changed
     }
 
     pub fn clear_focus(&mut self, window: window::Id) -> bool {
-        self.session.clear_focus(window)
+        let changed = self.session.clear_focus(window);
+        if changed {
+            self.session.request_redraw(window);
+        }
+
+        changed
     }
 
     pub fn invoke_focused<C: Command>(

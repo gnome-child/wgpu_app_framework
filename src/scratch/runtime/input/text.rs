@@ -2,9 +2,20 @@ use crate::text;
 
 use super::super::Runtime;
 use crate::scratch::{
-    command, context as command_context, document, error::Error, input, interaction, response,
-    session, state, window,
+    clipboard, command, context as command_context, document, draft, error::Error, input,
+    interaction, response, session, state, window,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextBoxShortcut {
+    SelectAll,
+    ClearSelection,
+    Copy,
+    Cut,
+    Paste,
+    Undo,
+    Redo,
+}
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(in crate::scratch::runtime::input) fn handle_text_commit(
@@ -67,6 +78,15 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return Ok(input::Outcome::ignored());
         };
 
+        self.finish_text_box_change(window, focus, change)
+    }
+
+    fn finish_text_box_change(
+        &mut self,
+        window: window::Id,
+        focus: session::Focus,
+        change: draft::Change,
+    ) -> std::result::Result<input::Outcome, Error> {
         let mut handled = change.changed() || change.submit();
         let mut changed_state = false;
         let mut effect = if change.changed() {
@@ -95,6 +115,104 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         } else {
             Ok(input::Outcome::ignored())
         }
+    }
+
+    pub(in crate::scratch::runtime::input) fn handle_text_box_key_shortcut(
+        &mut self,
+        window: window::Id,
+        key: input::Key,
+        modifiers: input::Modifiers,
+    ) -> std::result::Result<Option<input::Outcome>, Error> {
+        let Some(shortcut) = text_box_shortcut_for_key(key, modifiers) else {
+            return Ok(None);
+        };
+
+        self.handle_text_box_shortcut(window, shortcut)
+    }
+
+    fn handle_text_box_shortcut(
+        &mut self,
+        window: window::Id,
+        shortcut: TextBoxShortcut,
+    ) -> std::result::Result<Option<input::Outcome>, Error> {
+        let Some(focus) = self.session.focused(window) else {
+            return Ok(None);
+        };
+        let Some(base) = self.text_box_base_text(window, focus) else {
+            return Ok(None);
+        };
+
+        let outcome = match shortcut {
+            TextBoxShortcut::SelectAll => {
+                self.handle_text_box_edit(window, focus, text::edit::Edit::SelectAll)?
+            }
+            TextBoxShortcut::ClearSelection => self.handle_text_box_edit(
+                window,
+                focus,
+                text::edit::Edit::MovePosition(text::edit::Motion::VisualRight),
+            )?,
+            TextBoxShortcut::Copy => {
+                if let Some(selection) = self.text_box_selected_text(window, focus, base) {
+                    self.clipboard.put(&clipboard::Text::new(selection));
+                }
+
+                self.window_outcome(window, false, response::Effect::None)
+            }
+            TextBoxShortcut::Cut => {
+                if let Some(selection) = self.text_box_selected_text(window, focus, base) {
+                    self.clipboard.put(&clipboard::Text::new(selection));
+
+                    self.handle_text_box_edit(window, focus, text::edit::Edit::Delete)?
+                } else {
+                    self.window_outcome(window, false, response::Effect::None)
+                }
+            }
+            TextBoxShortcut::Paste => {
+                if let Some(text) = self.clipboard.text() {
+                    self.handle_text_box_edit(window, focus, text::edit::Edit::insert(text))?
+                } else {
+                    self.window_outcome(window, false, response::Effect::None)
+                }
+            }
+            TextBoxShortcut::Undo => self.handle_text_box_history(window, focus, false)?,
+            TextBoxShortcut::Redo => self.handle_text_box_history(window, focus, true)?,
+        };
+
+        Ok(Some(outcome))
+    }
+
+    fn handle_text_box_history(
+        &mut self,
+        window: window::Id,
+        focus: session::Focus,
+        redo: bool,
+    ) -> std::result::Result<input::Outcome, Error> {
+        let change = if redo {
+            self.session.redo_text_draft(window, focus)
+        } else {
+            self.session.undo_text_draft(window, focus)
+        };
+
+        let Some(change) = change else {
+            return Ok(self.window_outcome(window, false, response::Effect::None));
+        };
+
+        self.finish_text_box_change(window, focus, change)
+    }
+
+    fn text_box_selected_text(
+        &self,
+        window: window::Id,
+        focus: session::Focus,
+        base: String,
+    ) -> Option<String> {
+        let target = interaction::Target::text_area(focus);
+
+        self.session
+            .interaction(window)
+            .and_then(|interaction| interaction.text_input().draft_for(&target).cloned())
+            .unwrap_or_else(|| draft::State::new(base))
+            .selected_text()
     }
 
     pub(in crate::scratch::runtime::input) fn handle_text_edit(
@@ -141,6 +259,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         window: window::Id,
         shortcut: command::KeyChord,
     ) -> std::result::Result<input::Outcome, Error> {
+        if let Some(text_box_outcome) =
+            self.handle_text_box_shortcut_for_chord(window, shortcut.as_str())?
+        {
+            return Ok(text_box_outcome);
+        }
+
         let Some(command) = self.registry.shortcut_command(shortcut)? else {
             return Ok(input::Outcome::ignored());
         };
@@ -166,6 +290,18 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .response
             .into_result()
             .map(|_| self.window_outcome(window, changed, effect))
+    }
+
+    fn handle_text_box_shortcut_for_chord(
+        &mut self,
+        window: window::Id,
+        shortcut: &'static str,
+    ) -> std::result::Result<Option<input::Outcome>, Error> {
+        let Some(shortcut) = text_box_shortcut_for_chord(shortcut) else {
+            return Ok(None);
+        };
+
+        self.handle_text_box_shortcut(window, shortcut)
     }
 
     pub(in crate::scratch::runtime::input) fn handle_text_drop(
@@ -237,5 +373,48 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
 
         Ok(self.window_outcome(window, changed, effect))
+    }
+}
+
+fn text_box_shortcut_for_key(
+    key: input::Key,
+    modifiers: input::Modifiers,
+) -> Option<TextBoxShortcut> {
+    if modifiers.alt() || modifiers.super_key() || !modifiers.control() {
+        return None;
+    }
+
+    match (key.normalized(), modifiers.shift()) {
+        (input::Key::Character('a'), false) | (input::Key::Character('/'), false) => {
+            Some(TextBoxShortcut::SelectAll)
+        }
+        (input::Key::Character('a'), true) | (input::Key::Character('\\'), false) => {
+            Some(TextBoxShortcut::ClearSelection)
+        }
+        (input::Key::Character('c'), false) => Some(TextBoxShortcut::Copy),
+        (input::Key::Character('x'), false) => Some(TextBoxShortcut::Cut),
+        (input::Key::Character('v'), false) => Some(TextBoxShortcut::Paste),
+        (input::Key::Character('z'), false) => Some(TextBoxShortcut::Undo),
+        (input::Key::Character('z'), true) | (input::Key::Character('y'), false) => {
+            Some(TextBoxShortcut::Redo)
+        }
+        _ => None,
+    }
+}
+
+fn text_box_shortcut_for_chord(shortcut: &'static str) -> Option<TextBoxShortcut> {
+    match shortcut.to_ascii_lowercase().as_str() {
+        "ctrl+a" | "control+a" | "ctrl+/" | "control+/" => Some(TextBoxShortcut::SelectAll),
+        "ctrl+shift+a" | "control+shift+a" | "ctrl+\\" | "control+\\" => {
+            Some(TextBoxShortcut::ClearSelection)
+        }
+        "ctrl+c" | "control+c" => Some(TextBoxShortcut::Copy),
+        "ctrl+x" | "control+x" => Some(TextBoxShortcut::Cut),
+        "ctrl+v" | "control+v" => Some(TextBoxShortcut::Paste),
+        "ctrl+z" | "control+z" => Some(TextBoxShortcut::Undo),
+        "ctrl+shift+z" | "control+shift+z" | "ctrl+y" | "control+y" => {
+            Some(TextBoxShortcut::Redo)
+        }
+        _ => None,
     }
 }

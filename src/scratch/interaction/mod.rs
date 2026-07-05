@@ -138,6 +138,14 @@ impl Interaction {
         self.text_input.edit(target, base, edit)
     }
 
+    pub(super) fn undo_text_draft(&mut self, target: &Target) -> Option<draft::Change> {
+        self.text_input.undo(target)
+    }
+
+    pub(super) fn redo_text_draft(&mut self, target: &Target) -> Option<draft::Change> {
+        self.text_input.redo(target)
+    }
+
     pub(super) fn clear_text_input(&mut self) -> bool {
         self.text_input.clear()
     }

@@ -20,5 +20,6 @@ pub struct Node {
     label: Option<String>,
     binding: Option<Binding>,
     control: Option<Control>,
+    focused: bool,
     children: Vec<Node>,
 }

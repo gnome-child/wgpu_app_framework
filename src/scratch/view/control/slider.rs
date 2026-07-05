@@ -50,9 +50,6 @@ impl Slider {
     }
 
     pub(in crate::scratch::view) fn display_label(&self) -> String {
-        format!(
-            "{}: {:.2} ({:.2}..{:.2})",
-            self.label, self.value, self.start, self.end
-        )
+        format!("{}: {:.2}", self.label, self.value)
     }
 }

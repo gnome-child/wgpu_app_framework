@@ -47,6 +47,96 @@ fn text_box_on_submit_invokes_command_with_draft_text() {
 }
 
 #[test]
+fn bound_text_box_scene_paints_text_box_text_not_command_label() {
+    let focus = session::Focus::text("search");
+    let mut app = Runtime::new(TextBoxSubmitState::default())
+        .commands(|commands| {
+            commands.register::<SubmitText>(command::Spec::new("Submit Text"));
+        })
+        .responders(|responders| {
+            responders.app().target::<SubmitText>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Text Box Scene"));
+        })
+        .view(move |state, _| {
+            widget::view(|ui| {
+                ui.text_box(
+                    widget::TextBox::new(state.submitted.clone())
+                        .placeholder("Search")
+                        .focus(focus)
+                        .on_submit::<SubmitText>(),
+                );
+            })
+        });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let initial = app
+        .render_scene(window, geometry::Size::new(240, 80))
+        .expect("text box view should render");
+
+    assert!(scene_contains_text(initial.scene(), "Search"));
+    assert!(!scene_contains_text(initial.scene(), "Submit Text"));
+
+    app.handle_input(window, Input::focus(focus))
+        .expect("text box focus should be handled");
+    app.handle_input(window, Input::text_commit("q"))
+        .expect("text box commit should be handled");
+
+    let typed = app
+        .render_scene(window, geometry::Size::new(240, 80))
+        .expect("updated text box view should render");
+
+    assert!(scene_contains_text_surface(typed.scene(), "q"));
+    assert!(!scene_contains_text(typed.scene(), "Submit Text"));
+}
+
+#[test]
+fn bound_text_box_pointer_target_stays_text_input_target() {
+    let focus = session::Focus::text("search");
+    let mut app = Runtime::new(TextBoxSubmitState::default())
+        .commands(|commands| {
+            commands.register::<SubmitText>(command::Spec::new("Submit Text"));
+        })
+        .responders(|responders| {
+            responders.app().target::<SubmitText>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Bound Text Box Target"));
+        })
+        .view(move |state, _| {
+            widget::view(|ui| {
+                ui.text_box(
+                    widget::TextBox::new(state.submitted.clone())
+                        .focus(focus)
+                        .on_submit::<SubmitText>(),
+                );
+            })
+        });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let rendered = app
+        .render_scene(window, geometry::Size::new(240, 80))
+        .expect("text box view should render");
+    let text_box = rendered
+        .layout()
+        .find_role(view::node::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("text box should be laid out");
+    let target = text_box
+        .target()
+        .expect("text box should have an interaction target");
+
+    assert_eq!(target, &interaction::Target::text_area(focus));
+    assert!(target.captures());
+}
+
+#[test]
 fn text_box_submit_with_maps_committed_text_into_custom_command_args() {
     let focus = session::Focus::text("filter");
     let mut app = Runtime::new(TextBoxSubmitState::default())
@@ -353,6 +443,383 @@ fn text_box_cursor_moves_before_next_text_commit() {
 }
 
 #[test]
+fn text_box_ctrl_a_then_cut_updates_bound_text_and_clipboard() {
+    let focus = session::Focus::text("search");
+    let mut app = Runtime::new(TextBoxSubmitState {
+        submitted: "alpha".to_owned(),
+        ..TextBoxSubmitState::default()
+    })
+    .commands(|commands| {
+        commands.register::<SubmitText>(command::Spec::new("Submit Text"));
+    })
+    .responders(|responders| {
+        responders.app().target::<SubmitText>();
+    })
+    .started(|cx| {
+        cx.open_window(window::Options::new("Text Box Cut"));
+    })
+    .view(move |state, _| {
+        widget::view(|ui| {
+            ui.text_box(
+                widget::TextBox::new(state.submitted.clone())
+                    .focus(focus)
+                    .on_submit::<SubmitText>(),
+            );
+        })
+    });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    app.present(window)
+        .expect("view should be presented before shortcut input");
+    app.handle_input(window, Input::focus(focus))
+        .expect("text box focus should be handled");
+
+    let selected = app
+        .handle_input(
+            window,
+            Input::key_down(
+                input::Key::Character('a'),
+                input::Modifiers::new(false, true, false, false),
+            ),
+        )
+        .expect("ctrl-a should be handled by focused text box");
+
+    assert!(selected.is_handled());
+    assert!(!selected.changed_state());
+
+    let target = interaction::Target::text_area(focus);
+    let draft = app
+        .session()
+        .interaction(window)
+        .expect("window should have interaction state")
+        .text_input()
+        .draft_for(&target)
+        .expect("select all should create a text box draft");
+
+    assert_eq!(draft.selection(), Some(0.."alpha".len()));
+
+    let cut = app
+        .handle_input(
+            window,
+            Input::key_down(
+                input::Key::Character('x'),
+                input::Modifiers::new(false, true, false, false),
+            ),
+        )
+        .expect("ctrl-x should cut the focused text box selection");
+
+    assert!(cut.is_handled());
+    assert!(cut.changed_state());
+    assert_eq!(app.clipboard().text().as_deref(), Some("alpha"));
+    assert_eq!(app.state().submitted, "");
+    assert_eq!(app.revision().get(), 1);
+
+    let draft = app
+        .session()
+        .interaction(window)
+        .expect("window should keep interaction state")
+        .text_input()
+        .draft_for(&target)
+        .expect("cut should keep the text box draft");
+
+    assert_eq!(draft.text(), "");
+    assert_eq!(draft.cursor(), 0);
+    assert_eq!(draft.selection(), None);
+}
+
+#[test]
+fn text_box_paste_replaces_selection_and_truncates_to_first_line() {
+    let focus = session::Focus::text("search");
+    let mut app = Runtime::new(TextBoxSubmitState {
+        submitted: "alpha".to_owned(),
+        ..TextBoxSubmitState::default()
+    })
+    .commands(|commands| {
+        commands.register::<SubmitText>(command::Spec::new("Submit Text"));
+    })
+    .responders(|responders| {
+        responders.app().target::<SubmitText>();
+    })
+    .started(|cx| {
+        cx.open_window(window::Options::new("Text Box Paste"));
+    })
+    .view(move |state, _| {
+        widget::view(|ui| {
+            ui.text_box(
+                widget::TextBox::new(state.submitted.clone())
+                    .focus(focus)
+                    .on_submit::<SubmitText>(),
+            );
+        })
+    });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    app.present(window)
+        .expect("view should be presented before shortcut input");
+    app.handle_input(window, Input::focus(focus))
+        .expect("text box focus should be handled");
+    app.handle_input(
+        window,
+        Input::key_down(
+            input::Key::Character('a'),
+            input::Modifiers::new(false, true, false, false),
+        ),
+    )
+    .expect("ctrl-a should select the focused text box");
+
+    app.clipboard().put(&clipboard::Text::new("beta\ngamma"));
+
+    let pasted = app
+        .handle_input(
+            window,
+            Input::key_down(
+                input::Key::Character('v'),
+                input::Modifiers::new(false, true, false, false),
+            ),
+        )
+        .expect("ctrl-v should paste into the focused text box");
+
+    assert!(pasted.is_handled());
+    assert!(pasted.changed_state());
+    assert_eq!(app.state().submitted, "beta");
+    assert_eq!(app.revision().get(), 1);
+
+    let target = interaction::Target::text_area(focus);
+    let draft = app
+        .session()
+        .interaction(window)
+        .expect("window should keep interaction state")
+        .text_input()
+        .draft_for(&target)
+        .expect("paste should keep the text box draft");
+
+    assert_eq!(draft.text(), "beta");
+    assert_eq!(draft.cursor(), "beta".len());
+    assert_eq!(draft.selection(), None);
+}
+
+#[test]
+fn text_box_undo_redo_uses_focused_draft_history() {
+    let focus = session::Focus::text("search");
+    let mut app = Runtime::new(TextBoxSubmitState::default())
+        .commands(|commands| {
+            commands.register::<SubmitText>(command::Spec::new("Submit Text"));
+        })
+        .responders(|responders| {
+            responders.app().target::<SubmitText>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Text Box Undo"));
+        })
+        .view(move |state, _| {
+            widget::view(|ui| {
+                ui.text_box(
+                    widget::TextBox::new(state.submitted.clone())
+                        .focus(focus)
+                        .on_submit::<SubmitText>(),
+                );
+            })
+        });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    app.present(window)
+        .expect("view should be presented before shortcut input");
+    app.handle_input(window, Input::focus(focus))
+        .expect("text box focus should be handled");
+
+    let empty_undo = app
+        .handle_input(window, Input::shortcut("Ctrl+Z"))
+        .expect("focused text box undo should be a local no-op when history is empty");
+    assert!(empty_undo.is_handled());
+    assert!(!empty_undo.changed_state());
+
+    for character in "abc".chars() {
+        app.handle_input(window, Input::text_commit(character.to_string()))
+            .expect("text commit should edit focused text box");
+    }
+    assert_eq!(app.state().submitted, "abc");
+
+    app.handle_input(window, Input::key_down(input::Key::Backspace, input::Modifiers::default()))
+        .expect("backspace should edit focused text box");
+    assert_eq!(app.state().submitted, "ab");
+    assert_eq!(app.timeline().undo_depth(), 0);
+
+    let undo_delete = app
+        .handle_input(window, Input::shortcut("Ctrl+Z"))
+        .expect("text box undo should restore deleted character");
+    assert!(undo_delete.is_handled());
+    assert!(undo_delete.changed_state());
+    assert_eq!(app.state().submitted, "abc");
+    assert_eq!(app.timeline().undo_depth(), 0);
+    let target = interaction::Target::text_area(focus);
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.text_input().draft_for(&target))
+            .is_some_and(|draft| draft.can_undo()),
+        "undoing the delete should leave the older typing entry available"
+    );
+
+    let redo_delete = app
+        .handle_input(window, Input::shortcut("Ctrl+Shift+Z"))
+        .expect("text box redo should reapply deleted character");
+    assert!(redo_delete.is_handled());
+    assert!(redo_delete.changed_state());
+    assert_eq!(app.state().submitted, "ab");
+
+    app.handle_input(window, Input::shortcut("Ctrl+Z"))
+        .expect("text box undo should restore deleted character again");
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.text_input().draft_for(&target))
+            .is_some_and(|draft| draft.can_undo()),
+        "undoing the delete again should still leave the older typing entry available"
+    );
+    app.handle_input(window, Input::shortcut("Ctrl+Z"))
+        .expect("coalesced typing should undo as one text box entry");
+    assert_eq!(app.state().submitted, "");
+    assert_eq!(app.timeline().undo_depth(), 0);
+}
+
+#[test]
+fn text_box_shift_arrow_selection_is_replaced_by_typing() {
+    let focus = session::Focus::text("find");
+    let mut app = Runtime::new(TextBoxSubmitState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Text Box Selection"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.text_box(widget::TextBox::new("abcd").focus(focus));
+            })
+        });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    app.present(window)
+        .expect("view should be presented before key input");
+    app.handle_input(window, Input::focus(focus))
+        .expect("text box focus should be handled");
+    app.handle_input(
+        window,
+        Input::key_down(
+            input::Key::ArrowLeft,
+            input::Modifiers::new(true, false, false, false),
+        ),
+    )
+    .expect("shift-left should extend the text box selection");
+
+    let target = interaction::Target::text_area(focus);
+    let draft = app
+        .session()
+        .interaction(window)
+        .expect("window should have interaction state")
+        .text_input()
+        .draft_for(&target)
+        .expect("shift-left should create a text box draft");
+
+    assert_eq!(draft.selection(), Some(3..4));
+
+    app.handle_input(window, Input::text_commit("Z"))
+        .expect("typing should replace the text box selection");
+
+    let draft = app
+        .session()
+        .interaction(window)
+        .expect("window should keep interaction state")
+        .text_input()
+        .draft_for(&target)
+        .expect("text box draft should remain active");
+
+    assert_eq!(draft.text(), "abcZ");
+    assert_eq!(draft.cursor(), 4);
+    assert_eq!(draft.selection(), None);
+}
+
+#[test]
+fn text_box_selection_and_caret_are_painted_as_widget_chrome() {
+    let focus = session::Focus::text("find");
+    let mut app = Runtime::new(TextBoxSubmitState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Text Box Paint"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.text_box(widget::TextBox::new("abcd").focus(focus));
+            })
+        });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    app.render_scene(window, geometry::Size::new(240, 80))
+        .expect("initial render should install a composition");
+    app.handle_input(window, Input::focus(focus))
+        .expect("text box focus should be handled");
+
+    let caret_scene = app
+        .render_scene(window, geometry::Size::new(240, 80))
+        .expect("focused text box should render a caret");
+    let text_box = caret_scene
+        .layout()
+        .find_role(view::node::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("text box should be laid out");
+
+    assert!(
+        caret_scene.scene().quads().iter().any(|quad| {
+            let Some(field) = text_box.text_box_layout() else {
+                return false;
+            };
+            let Some(caret) = field.layout().caret() else {
+                return false;
+            };
+            let text_rect = text_box.text_box_text_rect();
+            let expected = geometry::Rect::new(
+                text_rect.x().saturating_add(caret.x().floor() as i32),
+                text_rect.y().saturating_add(caret.y().floor() as i32),
+                1,
+                caret.height().ceil().max(0.0) as i32,
+            );
+
+            quad.rect() == expected
+        }),
+        "focused text box should paint the shaped field caret"
+    );
+
+    app.handle_input(
+        window,
+        Input::key_down(
+            input::Key::Character('a'),
+            input::Modifiers::new(false, true, false, false),
+        ),
+    )
+    .expect("ctrl-a should select text");
+
+    let selected_scene = app
+        .render_scene(window, geometry::Size::new(240, 80))
+        .expect("selected text box should render selection");
+
+    assert!(
+        selected_scene
+            .scene()
+            .quads()
+            .iter()
+            .any(|quad| quad.fill().channels() == (76, 132, 255, 96)),
+        "selected text box should paint a selection highlight"
+    );
+}
+
+#[test]
 fn text_box_pointer_click_positions_framework_owned_draft_caret() {
     let focus = session::Focus::text("find");
     let mut app = Runtime::new(TextBoxSubmitState::default())
@@ -429,4 +896,102 @@ fn text_box_pointer_click_positions_framework_owned_draft_caret() {
     assert_eq!(text_box.text(), "Xabcd");
     assert_eq!(text_box.cursor(), Some("X".len()));
     assert_eq!(app.revision(), state::Revision::initial());
+}
+
+#[test]
+fn text_box_pointer_drag_extends_selection_from_click_anchor() {
+    let focus = session::Focus::text("find");
+    let mut app = Runtime::new(TextBoxSubmitState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Text Box Drag Selection"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.text_box(widget::TextBox::new("abcd").focus(focus));
+            })
+        });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 80);
+    let presentation = app
+        .render_scene(window, size)
+        .expect("text box view should render");
+    let text_box = presentation
+        .layout()
+        .find_role(view::node::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("text box should be laid out");
+    let rect = text_box.rect();
+    let press_y = rect.y() + rect.height() / 2;
+    let left_edge = geometry::Point::new(rect.x() + 1, press_y);
+    let wobbled_right_edge = geometry::Point::new(rect.right() - 1, rect.y() + 2);
+
+    pointer_down_then_present(&mut app, window, size, left_edge);
+    pointer_move_then_present(&mut app, window, size, wobbled_right_edge);
+    pointer_up_then_present(&mut app, window, size, wobbled_right_edge);
+
+    let target = interaction::Target::text_area(focus);
+    let draft = app
+        .session()
+        .interaction(window)
+        .expect("window should have interaction state")
+        .text_input()
+        .draft_for(&target)
+        .expect("text box pointer drag should retain a draft");
+
+    assert_eq!(draft.text(), "abcd");
+    assert_eq!(draft.cursor(), "abcd".len());
+    assert_eq!(draft.selection(), Some(0.."abcd".len()));
+
+    let selected = app
+        .render_scene(window, size)
+        .expect("selected text box should render");
+    let selected_text_box = selected
+        .layout()
+        .find_role(view::node::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("selected text box should be laid out");
+    let field = selected_text_box
+        .text_box_layout()
+        .expect("selected text box should have field layout");
+    let selection = field
+        .layout()
+        .selection_spans()
+        .first()
+        .expect("selected text box should expose a shaped selection span");
+    let text_rect = selected_text_box.text_box_text_rect();
+    let expected = geometry::Rect::new(
+        text_rect.x().saturating_add(selection.x().floor() as i32),
+        text_rect.y().saturating_add(selection.y().floor() as i32),
+        selection.width().ceil().max(0.0) as i32,
+        selection.height().ceil().max(0.0) as i32,
+    );
+
+    assert!(
+        selected.scene().quads().iter().any(|quad| {
+            quad.fill().channels() == (76, 132, 255, 96) && quad.rect() == expected
+        }),
+        "text box drag should paint the shaped field selection span"
+    );
+}
+
+fn scene_contains_text(scene: &Scene, value: &str) -> bool {
+    scene.texts().iter().any(|text| text.value() == value)
+}
+
+fn scene_contains_text_surface(scene: &Scene, value: &str) -> bool {
+    scene.text_viewports().iter().any(|viewport| {
+        viewport.surfaces().iter().any(|surface| {
+            surface
+                .buffer()
+                .borrow()
+                .lines
+                .first()
+                .is_some_and(|line| line.text() == value)
+        })
+    })
 }

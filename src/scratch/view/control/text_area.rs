@@ -84,7 +84,7 @@ impl TextArea {
     }
 
     pub fn focus(&self) -> Option<session::Focus> {
-        self.focus
+        self.focus.clone()
     }
 
     pub fn is_focused(&self) -> bool {
@@ -96,7 +96,7 @@ impl TextArea {
     }
 
     pub fn focus_action(&self) -> Option<Action> {
-        self.focus.map(Action::focus)
+        self.focus.clone().map(Action::focus)
     }
 
     pub fn click_action(&self, position: text::buffer::Position) -> Option<Action> {
@@ -133,7 +133,7 @@ impl TextArea {
         self.preedit = interaction.text_input().preedit_for(target).cloned();
     }
 
-    pub(in crate::scratch::view) fn project_focus(&mut self, focus: Option<session::Focus>) {
-        self.focused = self.focus.is_some() && self.focus == focus;
+    pub(in crate::scratch::view) fn project_focus(&mut self, focus: Option<&session::Focus>) {
+        self.focused = self.focus.as_ref().is_some_and(|text_focus| Some(text_focus) == focus);
     }
 }

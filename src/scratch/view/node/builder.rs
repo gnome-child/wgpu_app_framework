@@ -81,7 +81,7 @@ impl Node {
     }
 
     pub fn checkbox_state(checkbox: Checkbox) -> Self {
-        let label = checkbox.display_label();
+        let label = checkbox.label().to_owned();
         Self::new(Role::Checkbox)
             .with_label(label)
             .with_control(Control::Checkbox(checkbox))
@@ -92,7 +92,7 @@ impl Node {
     }
 
     pub fn radio_state(radio: Radio) -> Self {
-        let label = radio.display_label();
+        let label = radio.label().to_owned();
         Self::new(Role::Radio)
             .with_label(label)
             .with_control(Control::Radio(radio))
@@ -211,6 +211,7 @@ impl Node {
             label: None,
             binding: None,
             control: None,
+            focused: false,
             children: Vec::new(),
         }
     }

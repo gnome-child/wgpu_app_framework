@@ -75,28 +75,84 @@ impl Input {
         base: impl Into<String>,
         edit: text::edit::Edit,
     ) -> Change {
-        let before = self
-            .draft_for(&target)
-            .cloned()
-            .unwrap_or_else(|| State::new(base.into()));
-        let mut draft = before.clone();
-        let submit = draft.apply(edit);
-        let text_changed = before.text() != draft.text();
-        let cursor_changed = before.cursor() != draft.cursor();
         let target_changed = self.target.as_ref() != Some(&target);
+        if target_changed {
+            self.target = Some(target);
+            self.draft = None;
+        }
+        let draft = self.draft.get_or_insert_with(|| State::new(base.into()));
+        let before_text = draft.text().to_owned();
+        let before_cursor = draft.cursor();
+        let before_selection = draft.selection();
+        let submit = draft.apply(edit);
+        let text = draft.text().to_owned();
+        let cursor = draft.cursor();
+        let selection = draft.selection();
+        let text_changed = before_text != text;
+        let cursor_changed = before_cursor != cursor;
+        let selection_changed = before_selection != selection;
         let preedit_cleared = self.preedit.is_some();
 
-        self.target = Some(target);
-        self.draft = Some(draft.clone());
         self.preedit = None;
 
         Change::new(
-            draft,
+            text,
             text_changed,
             cursor_changed,
-            target_changed || text_changed || cursor_changed || preedit_cleared,
+            selection_changed,
+            target_changed
+                || text_changed
+                || cursor_changed
+                || selection_changed
+                || preedit_cleared,
             submit,
         )
+    }
+
+    pub(in crate::scratch) fn undo(&mut self, target: &Target) -> Option<Change> {
+        self.change_existing(target, State::undo)
+    }
+
+    pub(in crate::scratch) fn redo(&mut self, target: &Target) -> Option<Change> {
+        self.change_existing(target, State::redo)
+    }
+
+    fn change_existing(
+        &mut self,
+        target: &Target,
+        change: impl FnOnce(&mut State) -> bool,
+    ) -> Option<Change> {
+        if self.target.as_ref() != Some(target) {
+            return None;
+        }
+
+        let draft = self.draft.as_mut()?;
+        let before_text = draft.text().to_owned();
+        let before_cursor = draft.cursor();
+        let before_selection = draft.selection();
+        let changed_by_operation = change(draft);
+        let text = draft.text().to_owned();
+        let cursor = draft.cursor();
+        let selection = draft.selection();
+        let text_changed = before_text != text;
+        let cursor_changed = before_cursor != cursor;
+        let selection_changed = before_selection != selection;
+        let preedit_cleared = self.preedit.is_some();
+
+        self.preedit = None;
+
+        Some(Change::new(
+            text,
+            text_changed,
+            cursor_changed,
+            selection_changed,
+            changed_by_operation
+                || text_changed
+                || cursor_changed
+                || selection_changed
+                || preedit_cleared,
+            false,
+        ))
     }
 
     pub(in crate::scratch) fn clear(&mut self) -> bool {

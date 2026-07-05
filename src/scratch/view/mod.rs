@@ -90,9 +90,15 @@ impl View {
         self.root.contains_focus(focus)
     }
 
+    pub fn contains_enabled_focus(&self, focus: session::Focus) -> bool {
+        self.root.contains_enabled_focus(focus)
+    }
+
     pub fn focus_order(&self) -> Vec<session::Focus> {
         let mut order = Vec::new();
-        self.root.collect_focus_order(&mut order);
+        if !self.root.collect_popup_focus_order(&mut order) {
+            self.root.collect_focus_order(&mut order);
+        }
         order
     }
 
@@ -160,7 +166,11 @@ impl View {
     }
 
     pub(super) fn project_focus(&mut self, focus: Option<session::Focus>) {
-        self.root.project_focus(focus);
+        self.root.project_focus(focus.as_ref());
+    }
+
+    pub(in crate::scratch) fn focus_action(&self, focus: &session::Focus) -> Option<Action> {
+        self.root.focus_action(focus)
     }
 
     pub(super) fn resolve_commands(
@@ -171,9 +181,5 @@ impl View {
     ) {
         self.root.resolve_commands(registry, chain, cx);
         self.root.prune_hidden_commands();
-    }
-
-    pub(super) fn visit_bindings_mut(&mut self, mut visit: impl FnMut(&mut Binding)) {
-        self.root.visit_bindings_mut(&mut visit);
     }
 }

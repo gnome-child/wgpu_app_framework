@@ -712,6 +712,146 @@ fn text_editor_wrap_command_changes_text_area_paint_wrap() {
 }
 
 #[test]
+fn scene_paints_controls_from_semantic_state() {
+    let view = widget::view(|ui| {
+        ui.column(|ui| {
+            ui.checkbox(widget::Checkbox::new("Wrap", true));
+            ui.radio(widget::Radio::new("Soft tabs", true));
+            ui.slider(widget::Slider::new("Zoom", 5.0, 0.0..=10.0));
+        });
+    });
+    let mut layout_engine = layout::engine::Engine::new();
+    let layout = layout::Layout::compose(&view, geometry::Size::new(320, 120), &mut layout_engine);
+    let scene = scene::Scene::paint(&layout);
+    let checkbox = layout
+        .find_role(view::node::Role::Checkbox)
+        .into_iter()
+        .next()
+        .expect("checkbox should be laid out");
+    let radio = layout
+        .find_role(view::node::Role::Radio)
+        .into_iter()
+        .next()
+        .expect("radio should be laid out");
+    let slider = layout
+        .find_role(view::node::Role::Slider)
+        .into_iter()
+        .next()
+        .expect("slider should be laid out");
+
+    assert!(scene.texts().iter().any(|text| text.value() == "Wrap"));
+    assert!(scene.texts().iter().any(|text| text.value() == "Soft tabs"));
+    assert!(
+        scene
+            .texts()
+            .iter()
+            .any(|text| text.value().starts_with("Zoom: 5.00"))
+    );
+    assert!(
+        scene
+            .texts()
+            .iter()
+            .all(|text| !text.value().contains("..")),
+        "slider range should not wrap into clipped control text"
+    );
+    assert!(
+        scene
+            .texts()
+            .iter()
+            .all(|text| !text.value().starts_with("[") && !text.value().starts_with("(")),
+        "control state should be painted, not encoded in labels"
+    );
+    assert!(scene.icons().iter().any(|icon| {
+        icon.icon().id().as_str() == "check" && rect_contains(checkbox.rect(), icon.rect())
+    }));
+    assert!(scene.quads().iter().any(|quad| {
+        quad.fill().channels() == (245, 247, 250, 255)
+            && rect_contains(checkbox.rect(), quad.rect())
+            && quad.rounding() == scene::Rounding::fixed(4.0)
+    }));
+    assert!(scene.quads().iter().any(|quad| {
+        quad.fill().channels() == (76, 132, 255, 255)
+            && rect_contains(radio.rect(), quad.rect())
+            && quad.rounding() == scene::Rounding::relative(1.0)
+    }));
+    assert!(scene.quads().iter().any(|quad| {
+        quad.fill().channels() == (75, 80, 88, 255)
+            && rect_contains(slider.rect(), quad.rect())
+            && quad.rect().height() == 4
+    }));
+    assert!(scene.quads().iter().any(|quad| {
+        quad.fill().channels() == (76, 132, 255, 255)
+            && rect_contains(slider.rect(), quad.rect())
+            && quad.rect().height() == 4
+    }));
+    assert!(scene.quads().iter().any(|quad| {
+        quad.fill().channels() == (238, 241, 245, 255)
+            && rect_contains(slider.rect(), quad.rect())
+            && quad.rounding() == scene::Rounding::relative(1.0)
+    }));
+}
+
+#[test]
+fn scene_paint_accepts_theme_data_variants() {
+    let view = widget::view(|ui| {
+        ui.button(widget::Button::new("Action"));
+    });
+    let mut layout_engine = layout::engine::Engine::new();
+    let layout = layout::Layout::compose(&view, geometry::Size::new(180, 60), &mut layout_engine);
+    let dark = scene::Scene::paint(&layout);
+    let light_theme = Theme::light();
+    let light = scene::Scene::paint_with_theme(&layout, &light_theme);
+    let root = geometry::Rect::new(0, 0, 180, 60);
+    let dark_root = dark
+        .quads()
+        .into_iter()
+        .find(|quad| quad.rect() == root)
+        .expect("dark scene should paint the root");
+    let light_root = light
+        .quads()
+        .into_iter()
+        .find(|quad| quad.rect() == root)
+        .expect("light scene should paint the root");
+
+    assert_eq!(light.clear(), light_theme.palette().canvas);
+    assert_ne!(dark.clear(), light.clear());
+    assert_ne!(dark_root.fill(), light_root.fill());
+}
+
+#[test]
+fn control_gallery_example_renders_interactive_widget_scene() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let rendered = app
+        .render_scene(window, geometry::Size::new(760, 520))
+        .expect("control gallery should render");
+    let scene = rendered.scene();
+
+    assert!(scene.texts().iter().any(|text| text.value() == "Controls"));
+    assert!(scene.texts().iter().any(|text| text.value() == "Wrap text"));
+    assert!(scene.texts().iter().any(|text| text.value() == "Design"));
+    assert!(
+        scene
+            .texts()
+            .iter()
+            .any(|text| text.value().starts_with("Level: 42.00"))
+    );
+    assert!(
+        scene
+            .icons()
+            .iter()
+            .any(|icon| icon.icon().id().as_str() == "check")
+    );
+    assert!(scene.quads().iter().any(|quad| {
+        quad.fill().channels() == (76, 132, 255, 255)
+            && quad.rounding() == scene::Rounding::relative(1.0)
+    }));
+}
+
+#[test]
 fn scene_preserves_popup_paint_order_after_base_content() {
     let mut app = text_editor::app(text_editor::State::default());
 
@@ -738,6 +878,14 @@ fn scene_preserves_popup_paint_order_after_base_content() {
         &mut layout_engine,
     );
     let scene = scene::Scene::paint(&layout);
+
+    assert!(
+        scene
+            .shadows()
+            .iter()
+            .any(|shadow| shadow.color().channels() == (0, 0, 0, 96)),
+        "popup paint should include theme-owned elevation"
+    );
 
     let file_menu_text = scene
         .primitives()
@@ -785,7 +933,7 @@ fn visible_text_area_surfaces(presentation: &scene::Presentation) -> Vec<(usize,
             frame
                 .text_area_layout()
                 .into_iter()
-                .flat_map(layout::text::TextAreaLayout::render_surfaces)
+                .flat_map(layout::text::Area::render_surfaces)
                 .filter(move |surface| surface.y() < height && surface.y() + surface.height() > 0.0)
         })
         .map(|surface| (surface.source_line(), surface.y(), surface.height()))

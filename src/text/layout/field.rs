@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{cell::RefCell, rc::Rc, time::Instant};
 
 use super::super::{
     buffer::{Buffer, Position},
@@ -15,7 +15,7 @@ use super::{
     glyph::{cosmic_buffer_from_text, cursor_position},
     highlight::spans_for_ranges as highlight_spans_for_ranges,
     map::TextLayoutMap,
-    output::TextFieldLayout,
+    output::{TextAreaSurface, TextFieldLayout, TextFieldPaintLayout},
     system,
 };
 use crate::geometry::{area, point};
@@ -40,6 +40,19 @@ impl Engine {
         state: ViewState,
         now: Instant,
     ) -> TextFieldLayout {
+        self.text_field_paint_layout_at_for_state(buffer, edit_state, style, area, state, now)
+            .layout
+    }
+
+    fn text_field_paint_layout_at_for_state(
+        &mut self,
+        buffer: &Buffer,
+        edit_state: State,
+        style: Style,
+        area: area::Logical,
+        state: ViewState,
+        now: Instant,
+    ) -> TextFieldPaintLayout {
         let projection = PreeditProjection::new(buffer, edit_state, &state);
         let (prepared, vertical_offset) =
             self.prepare_text_field_buffer(&projection.buffer, style, area);
@@ -63,15 +76,71 @@ impl Engine {
                 })
             })
             .flatten();
-        TextFieldLayout {
-            selection_spans: spans.selection,
-            preedit_underline_spans: spans.preedit_underline,
-            preedit_selection_spans: spans.preedit_selection,
-            caret,
-            scroll_x: state.field_scroll_x(),
-            scroll_y: 0.0,
-            content_area: buffer_content_area(&prepared),
+
+        let content_area = buffer_content_area(&prepared);
+        let source_text_len = projection.buffer.text_for_line_range(0, 1).len();
+        let surface = (area.width() > 0.0 && area.height() > 0.0).then(|| TextAreaSurface {
+            x: -state.field_scroll_x(),
+            y: vertical_offset,
+            width: content_area.width().max(area.width()) + state.field_scroll_x().max(0.0),
+            height: prepared.metrics().line_height.max(1.0),
+            source_line: 0,
+            source_line_id: projection
+                .buffer
+                .line_layout_identity(0)
+                .map(|identity| identity.id),
+            source_start: 0,
+            source_text_len,
+            buffer: Rc::new(RefCell::new(prepared)),
+            default_color: style.color(),
+        });
+
+        TextFieldPaintLayout {
+            layout: TextFieldLayout {
+                selection_spans: spans.selection,
+                preedit_underline_spans: spans.preedit_underline,
+                preedit_selection_spans: spans.preedit_selection,
+                caret,
+                scroll_x: state.field_scroll_x(),
+                scroll_y: 0.0,
+                content_area,
+            },
+            surface,
         }
+    }
+
+    pub fn text_field_paint_layout_for_field(
+        &mut self,
+        field: &Field,
+        style: Style,
+        area: area::Logical,
+        state: ViewState,
+    ) -> TextFieldPaintLayout {
+        self.text_field_paint_layout_for_field_at(field, style, area, state, Instant::now())
+    }
+
+    pub fn text_field_paint_layout_for_field_at(
+        &mut self,
+        field: &Field,
+        style: Style,
+        area: area::Logical,
+        state: ViewState,
+        now: Instant,
+    ) -> TextFieldPaintLayout {
+        let projection = FieldProjection::new(field);
+        let state = projected_state_for_field(field, state);
+        let mut layout = self.text_field_paint_layout_at_for_state(
+            &projection.buffer,
+            projection.edit_state,
+            style,
+            area,
+            state,
+            now,
+        );
+        if !field.paints_caret() {
+            layout.layout.caret = None;
+        }
+        layout
     }
 
     pub fn text_field_layout_for_field_at(

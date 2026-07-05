@@ -10,7 +10,7 @@ use crate::scratch::{
 };
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
-    pub(in crate::scratch::runtime::transaction) fn observe_response<C: Command>(
+    pub(in crate::scratch::runtime) fn observe_response<C: Command>(
         &mut self,
         response: &Response<C::Output>,
         source: Source,
@@ -24,7 +24,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         observers.observe_response::<C>(model, response, source)
     }
 
-    pub(in crate::scratch::runtime::transaction) fn observe_any_response(
+    pub(in crate::scratch::runtime) fn observe_any_response(
         &mut self,
         command_type: TypeId,
         response: &response::AnyResponse,

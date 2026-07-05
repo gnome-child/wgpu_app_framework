@@ -33,19 +33,25 @@ fn slider_on_change_invokes_command_with_layout_derived_value() {
         .into_iter()
         .next()
         .expect("slider should be laid out");
+    let track = slider_track_rect(slider);
     let target = slider
         .target()
         .expect("bound slider should expose a command target");
 
     assert!(target.captures());
+    assert!(
+        presentation
+            .scene()
+            .quads()
+            .iter()
+            .any(|quad| quad.rect() == track),
+        "slider input geometry should match the painted track"
+    );
 
-    let rect = slider.rect();
-    let middle = geometry::Point::new(rect.x() + rect.width() / 2, rect.y() + 1);
-    let end = geometry::Point::new(rect.x() + rect.width(), rect.y() + 1);
+    let middle = geometry::Point::new(track.x() + track.width() / 2, track.y() + 1);
+    let end = geometry::Point::new(track.right(), track.y() + 1);
 
-    let pressed = app
-        .pointer_down_at(window, size, middle)
-        .expect("slider pointer down should be handled");
+    let pressed = pointer_down_then_present(&mut app, window, size, middle);
 
     assert!(pressed.is_handled());
     assert!(pressed.changed_state());
@@ -59,9 +65,7 @@ fn slider_on_change_invokes_command_with_layout_derived_value() {
             .is_some()
     );
 
-    let dragged = app
-        .pointer_move_at(window, size, end)
-        .expect("captured slider drag should be handled");
+    let dragged = pointer_move_then_present(&mut app, window, size, end);
 
     assert!(dragged.is_handled());
     assert!(dragged.changed_state());
@@ -69,8 +73,7 @@ fn slider_on_change_invokes_command_with_layout_derived_value() {
     assert_eq!(app.state().invocations, 2);
     assert_eq!(app.revision().get(), 2);
 
-    app.pointer_up_at(window, size, end)
-        .expect("slider pointer up should clear capture");
+    pointer_up_then_present(&mut app, window, size, end);
     assert!(
         app.session()
             .interaction(window)
@@ -112,17 +115,14 @@ fn captured_slider_drag_coalesces_into_one_undo_entry() {
         .into_iter()
         .next()
         .expect("slider should be laid out");
-    let rect = slider.rect();
-    let quarter = geometry::Point::new(rect.x() + rect.width() / 4, rect.y() + 1);
-    let half = geometry::Point::new(rect.x() + rect.width() / 2, rect.y() + 1);
-    let end = geometry::Point::new(rect.x() + rect.width(), rect.y() + 1);
+    let track = slider_track_rect(slider);
+    let quarter = geometry::Point::new(track.x() + track.width() / 4, track.y() + 1);
+    let half = geometry::Point::new(track.x() + track.width() / 2, track.y() + 1);
+    let end = geometry::Point::new(track.right(), track.y() + 1);
 
-    app.pointer_down_at(window, size, quarter)
-        .expect("slider pointer down should be handled");
-    app.pointer_move_at(window, size, half)
-        .expect("slider midpoint drag should be handled");
-    app.pointer_move_at(window, size, end)
-        .expect("slider endpoint drag should be handled");
+    pointer_down_then_present(&mut app, window, size, quarter);
+    pointer_move_then_present(&mut app, window, size, half);
+    pointer_move_then_present(&mut app, window, size, end);
 
     assert_near(app.state().value, 10.0);
     assert_eq!(app.state().invocations, 3);
@@ -132,8 +132,7 @@ fn captured_slider_drag_coalesces_into_one_undo_entry() {
         "captured gesture should not publish undo entries until release"
     );
 
-    app.pointer_up_at(window, size, end)
-        .expect("slider pointer up should finish the gesture");
+    pointer_up_then_present(&mut app, window, size, end);
 
     assert_near(app.state().value, 10.0);
     assert_eq!(app.timeline().undo_depth(), 1);
@@ -183,8 +182,8 @@ fn slider_trigger_with_maps_layout_value_into_custom_command_args() {
         .into_iter()
         .next()
         .expect("mapped slider should be laid out");
-    let rect = slider.rect();
-    let middle = geometry::Point::new(rect.x() + rect.width() / 2, rect.y() + 1);
+    let track = slider_track_rect(slider);
+    let middle = geometry::Point::new(track.x() + track.width() / 2, track.y() + 1);
 
     let pressed = app
         .pointer_down_at(window, size, middle)
@@ -194,4 +193,9 @@ fn slider_trigger_with_maps_layout_value_into_custom_command_args() {
     assert!(pressed.changed_state());
     assert_near(app.state().raw, 10.0);
     assert_eq!(app.state().snapped, 5);
+}
+
+fn slider_track_rect(frame: &layout::frame::Frame) -> geometry::Rect {
+    let theme = Theme::default();
+    layout::control::slider_track_rect(frame.rect(), theme.metrics())
 }

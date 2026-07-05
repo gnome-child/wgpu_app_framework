@@ -11,7 +11,7 @@ pub(in crate::scratch::runtime) struct ActiveGroup {
 }
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
-    pub(in crate::scratch::runtime::transaction) fn snapshot_before_transaction(
+    pub(in crate::scratch::runtime) fn snapshot_before_transaction(
         &mut self,
         history: command::History,
     ) -> Option<state::PendingSnapshot<M>> {
@@ -21,7 +21,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
     }
 
-    pub(in crate::scratch::runtime::transaction) fn finish_transaction(
+    pub(in crate::scratch::runtime) fn finish_transaction(
         &mut self,
         before: Option<state::PendingSnapshot<M>>,
         history: command::History,

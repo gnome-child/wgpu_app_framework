@@ -204,10 +204,21 @@ impl Registry {
         let Some(command) = self.shortcut_command(shortcut)? else {
             return Ok(None);
         };
+        let args = ();
+        let state = self.state_any(
+            command.command_type,
+            command.command_name,
+            &args,
+            chain,
+            cx,
+        );
+        if !state.is_enabled() {
+            return Ok(None);
+        }
 
         Ok(Some(
             chain
-                .invoke_any(command.command_type, command.command_name, Box::new(()), cx)
+                .invoke_any(command.command_type, command.command_name, Box::new(args), cx)
                 .unwrap_or_else(|| {
                     AnyResponse::failed(Error::MissingTarget {
                         command: command.command_name,

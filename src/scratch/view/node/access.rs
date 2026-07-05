@@ -43,7 +43,8 @@ impl Node {
     }
 
     pub fn is_focused(&self) -> bool {
-        self.text_area_model().is_some_and(TextArea::is_focused)
+        self.focused
+            || self.text_area_model().is_some_and(TextArea::is_focused)
             || self.text_box_model().is_some_and(TextBox::is_focused)
     }
 

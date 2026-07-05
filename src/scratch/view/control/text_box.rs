@@ -2,6 +2,7 @@ use crate::text;
 
 use super::super::action::Action;
 use crate::scratch::{interaction, session};
+use std::ops::Range;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextBox {
@@ -10,6 +11,7 @@ pub struct TextBox {
     focus: Option<session::Focus>,
     focused: bool,
     cursor: Option<usize>,
+    selection: Option<Range<usize>>,
     preedit: Option<text::edit::Preedit>,
 }
 
@@ -21,6 +23,7 @@ impl TextBox {
             focus: None,
             focused: false,
             cursor: None,
+            selection: None,
             preedit: None,
         }
     }
@@ -52,7 +55,7 @@ impl TextBox {
     }
 
     pub fn focus(&self) -> Option<session::Focus> {
-        self.focus
+        self.focus.clone()
     }
 
     pub fn is_focused(&self) -> bool {
@@ -63,12 +66,16 @@ impl TextBox {
         self.cursor
     }
 
+    pub fn selection(&self) -> Option<Range<usize>> {
+        self.selection.clone()
+    }
+
     pub fn preedit(&self) -> Option<&text::edit::Preedit> {
         self.preedit.as_ref()
     }
 
     pub fn focus_action(&self) -> Option<Action> {
-        self.focus.map(Action::focus)
+        self.focus.clone().map(Action::focus)
     }
 
     pub fn click_action(&self, position: text::buffer::Position) -> Option<Action> {
@@ -79,6 +86,13 @@ impl TextBox {
                 position,
             )),
         ]))
+    }
+
+    pub fn drag_action(&self, position: text::buffer::Position) -> Action {
+        Action::text_edit(text::edit::Edit::pointer(
+            text::edit::PointerEditKind::Drag,
+            position,
+        ))
     }
 
     pub(in crate::scratch::view) fn project_interaction(
@@ -94,13 +108,18 @@ impl TextBox {
         if let Some(draft) = interaction.text_input().draft_for(&target) {
             self.text = draft.text().to_owned();
             self.cursor = Some(draft.cursor());
+            self.selection = draft.selection();
         } else {
             self.cursor = None;
+            self.selection = None;
         }
         self.preedit = interaction.text_input().preedit_for(&target).cloned();
     }
 
-    pub(in crate::scratch::view) fn project_focus(&mut self, focus: Option<session::Focus>) {
-        self.focused = self.focus.is_some() && self.focus == focus;
+    pub(in crate::scratch::view) fn project_focus(&mut self, focus: Option<&session::Focus>) {
+        self.focused = self.focus.as_ref().is_some_and(|text_focus| Some(text_focus) == focus);
+        if self.focused && self.cursor.is_none() {
+            self.cursor = Some(self.text.len());
+        }
     }
 }

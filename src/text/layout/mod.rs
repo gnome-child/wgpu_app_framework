@@ -58,7 +58,9 @@ pub(super) use map::TextLayoutMap;
 pub(super) use map::VisualLineGroup;
 #[cfg(test)]
 use measure_cache::MeasureCache;
-pub use output::{Measure, Metrics, TextAreaPaintLayout, TextAreaSurface, TextFieldLayout};
+pub use output::{
+    Measure, Metrics, TextAreaPaintLayout, TextAreaSurface, TextFieldLayout, TextFieldPaintLayout,
+};
 
 impl Engine {
     fn visual_motion_position(

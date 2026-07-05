@@ -8,18 +8,20 @@ use crate::{
 use super::super::{
     diagnostics,
     geometry::{Point, Rect},
-    interaction, view,
+    interaction, scene,
+    theme::Theme,
+    view,
 };
 
 const LABEL_PADDING: i32 = 24;
 
 #[derive(Clone)]
-pub(in crate::scratch) struct TextService {
+pub(in crate::scratch) struct Service {
     inner: Rc<RefCell<text_engine::layout::Engine>>,
 }
 
 #[derive(Clone)]
-pub struct TextAreaLayout {
+pub struct Area {
     layout: text_engine::layout::TextFieldLayout,
     interaction_surfaces: Vec<text_engine::layout::TextAreaSurface>,
     render_surfaces: Vec<text_engine::layout::TextAreaSurface>,
@@ -27,17 +29,13 @@ pub struct TextAreaLayout {
 }
 
 #[derive(Clone)]
-pub(super) struct TextHitMap {
-    boundaries: Vec<TextBoundary>,
+pub struct Field {
+    layout: text_engine::layout::TextFieldLayout,
+    render_surface: Option<text_engine::layout::TextAreaSurface>,
+    state: text_engine::edit::ViewState,
 }
 
-#[derive(Clone)]
-struct TextBoundary {
-    index: usize,
-    x: i32,
-}
-
-impl TextService {
+impl Service {
     pub(super) fn new() -> Self {
         Self {
             inner: Rc::new(RefCell::new(text_engine::layout::Engine::new())),
@@ -53,15 +51,6 @@ impl TextService {
         metrics.width().ceil().max(0.0) as i32 + LABEL_PADDING
     }
 
-    fn text_width(&self, text: &str) -> i32 {
-        let metrics = self.inner.borrow_mut().measure(
-            &text_engine::document::Document::plain(text),
-            text_engine::layout::Measure::unbounded(),
-        );
-
-        metrics.width().ceil().max(0.0) as i32
-    }
-
     pub(super) fn take_diagnostics(&self) -> diagnostics::Text {
         let mut engine = self.inner.borrow_mut();
         let mut diagnostics = diagnostics::Text::default();
@@ -70,14 +59,9 @@ impl TextService {
         diagnostics
     }
 
-    pub(super) fn text_area_layout(
-        &self,
-        text_area: &view::control::TextArea,
-        rect: Rect,
-    ) -> TextAreaLayout {
+    pub(super) fn text_area_layout(&self, text_area: &view::control::TextArea, rect: Rect) -> Area {
         let area_model = text_area.area_model();
-        let style = text_engine::document::Style::default()
-            .with_color(text_engine::Color::rgb(0.10, 0.11, 0.13));
+        let style = field_style();
         let viewport = area::logical(rect.width() as f32, rect.height() as f32);
         let now = Instant::now();
         let mut state = text_area.view_state();
@@ -113,7 +97,7 @@ impl TextService {
         let resolved_scroll = Some(scroll_offset_for_text_state(&state));
         let (layout, interaction_surfaces, render_surfaces) = paint_layout.into_projection_parts();
 
-        TextAreaLayout {
+        Area {
             layout,
             interaction_surfaces,
             render_surfaces,
@@ -124,7 +108,7 @@ impl TextService {
     pub(super) fn text_area_position_at(
         &self,
         text_area: &view::control::TextArea,
-        layout: &TextAreaLayout,
+        layout: &Area,
         rect: Rect,
         position: Point,
     ) -> Option<text_engine::buffer::Position> {
@@ -144,15 +128,70 @@ impl TextService {
                 layout.interaction_surfaces(),
             )
     }
-}
 
-impl fmt::Debug for TextService {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TextService").finish_non_exhaustive()
+    pub(super) fn text_field_layout(&self, text_box: &view::control::TextBox, rect: Rect) -> Field {
+        let field = field_model(text_box);
+        let style = field_style();
+        let viewport = area::logical(rect.width() as f32, rect.height() as f32);
+        let now = Instant::now();
+        let mut state =
+            text_engine::edit::ViewState::default().with_preedit(text_box.preedit().cloned());
+        let mut engine = self.inner.borrow_mut();
+
+        if text_box.cursor().is_some() {
+            state = state.ensure_caret_visible(now);
+            state = engine.ensure_caret_visible_for_field(&field, style, viewport, state);
+        }
+
+        let paint_layout = engine.text_field_paint_layout_for_field_at(
+            &field,
+            style,
+            viewport,
+            state.clone(),
+            now,
+        );
+        let (layout, render_surface) = paint_layout.into_parts();
+
+        Field {
+            layout,
+            render_surface,
+            state,
+        }
+    }
+
+    pub(super) fn text_field_position_at(
+        &self,
+        text_box: &view::control::TextBox,
+        layout: &Field,
+        rect: Rect,
+        position: Point,
+    ) -> Option<text_engine::buffer::Position> {
+        let field = field_model(text_box);
+        let style = field_style();
+        let viewport = area::logical(rect.width() as f32, rect.height() as f32);
+        let local = point::logical(
+            position.x().saturating_sub(rect.x()) as f32,
+            position.y().saturating_sub(rect.y()) as f32,
+        );
+
+        self.inner.borrow_mut().text_field_position_at_for_field(
+            &field,
+            style,
+            viewport,
+            local,
+            layout.state.clone(),
+        )
     }
 }
 
-impl text_engine::edit::CaretMap for TextService {
+impl fmt::Debug for Service {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("layout::text::Service")
+            .finish_non_exhaustive()
+    }
+}
+
+impl text_engine::edit::CaretMap for Service {
     fn position_for_motion(
         &mut self,
         buffer: &text_engine::Buffer,
@@ -168,7 +207,7 @@ impl text_engine::edit::CaretMap for TextService {
     }
 }
 
-impl TextAreaLayout {
+impl Area {
     pub fn layout(&self) -> &text_engine::layout::TextFieldLayout {
         &self.layout
     }
@@ -186,52 +225,71 @@ impl TextAreaLayout {
     }
 }
 
-impl TextHitMap {
-    pub(super) fn new(text: &str, service: &TextService) -> Self {
-        let mut boundaries = Vec::with_capacity(text.chars().count() + 1);
-        boundaries.push(TextBoundary { index: 0, x: 0 });
+impl Field {
+    pub fn layout(&self) -> &text_engine::layout::TextFieldLayout {
+        &self.layout
+    }
 
-        for (index, _) in text.char_indices().skip(1) {
-            boundaries.push(TextBoundary {
-                index,
-                x: service.text_width(&text[..index]),
-            });
-        }
+    pub fn render_surface(&self) -> Option<&text_engine::layout::TextAreaSurface> {
+        self.render_surface.as_ref()
+    }
+}
 
-        boundaries.push(TextBoundary {
-            index: text.len(),
-            x: service.text_width(text),
+fn field_model(text_box: &view::control::TextBox) -> text_engine::edit::Field {
+    let buffer = text_engine::Buffer::from_text(text_box.text());
+    let cursor = text_box.cursor().unwrap_or_else(|| text_box.text().len());
+    let cursor = buffer
+        .mark_for_position(text_engine::buffer::Position::new(cursor))
+        .unwrap_or_else(|| {
+            buffer
+                .mark_for_position(text_engine::buffer::Position::new(buffer.len()))
+                .expect("text buffers always contain a valid end position")
         });
+    let selection = text_box.selection().and_then(|selection| {
+        Some(text_engine::buffer::mark::Range {
+            start: buffer.mark_for_position(text_engine::buffer::Position::new(selection.start))?,
+            end: buffer.mark_for_position(text_engine::buffer::Position::new(selection.end))?,
+        })
+    });
+    let state = text_engine::edit::State::new(cursor, selection);
+    let field = text_engine::edit::Field::new(buffer).with_state(state);
 
-        Self { boundaries }
+    if text_box.cursor().is_some() {
+        field
+    } else {
+        field.read_only()
     }
+}
 
-    pub(super) fn position_at_x(&self, x: i32) -> text_engine::buffer::Position {
-        text_engine::buffer::Position::new(self.index_at_x(x))
+fn field_style() -> text_engine::document::Style {
+    text_engine::document::Style::default().with_color(text_color_from_scene(
+        Theme::default().palette().text_inverse,
+    ))
+}
+
+fn text_color_from_scene(color: scene::Color) -> text_engine::Color {
+    let (r, g, b, a) = color.channels();
+
+    text_engine::Color::rgba(
+        linear_channel(r),
+        linear_channel(g),
+        linear_channel(b),
+        alpha_channel(a),
+    )
+}
+
+fn linear_channel(channel: u8) -> f32 {
+    let value = alpha_channel(channel);
+
+    if value <= 0.04045 {
+        value / 12.92
+    } else {
+        ((value + 0.055) / 1.055).powf(2.4)
     }
+}
 
-    fn index_at_x(&self, x: i32) -> usize {
-        let Some(first) = self.boundaries.first() else {
-            return 0;
-        };
-        if x <= first.x {
-            return first.index;
-        }
-
-        for pair in self.boundaries.windows(2) {
-            let left = &pair[0];
-            let right = &pair[1];
-            let midpoint = left.x.saturating_add(right.x.saturating_sub(left.x) / 2);
-            if x < midpoint {
-                return left.index;
-            }
-        }
-
-        self.boundaries
-            .last()
-            .map(|boundary| boundary.index)
-            .unwrap_or(0)
-    }
+fn alpha_channel(channel: u8) -> f32 {
+    channel as f32 / 255.0
 }
 
 fn scroll_offset_for_text_state(state: &text_engine::edit::ViewState) -> interaction::ScrollOffset {

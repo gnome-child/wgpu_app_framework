@@ -550,22 +550,18 @@ fn text_editor_save_shortcut_dispatches_by_registered_command_type() {
 }
 
 #[test]
-fn text_editor_disabled_shortcut_claims_and_returns_disabled_error() {
+fn text_editor_disabled_shortcut_is_ignored_without_crashing() {
     let mut app = text_editor::app(text_editor::State::default());
 
     app.start();
 
     let window = app.session().windows()[0].id();
-    let error = app
+    let outcome = app
         .handle_input(window, Input::shortcut("Ctrl+S"))
-        .expect_err("disabled save shortcut should fail");
+        .expect("disabled save shortcut should not fail input handling");
 
-    assert!(matches!(
-        error,
-        Error::Disabled {
-            command: "document.save_file"
-        }
-    ));
+    assert!(!outcome.is_handled());
+    assert!(!outcome.changed_state());
     assert_eq!(app.session().file_dialog(window), None);
     assert_eq!(app.revision(), state::Revision::initial());
 }

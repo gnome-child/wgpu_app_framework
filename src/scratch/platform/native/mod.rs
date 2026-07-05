@@ -5,6 +5,7 @@ use crate::render;
 use super::super::{session, window as app_window};
 
 mod adapter;
+mod color;
 mod context;
 mod error;
 mod paint;

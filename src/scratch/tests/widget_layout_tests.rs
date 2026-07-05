@@ -60,8 +60,8 @@ fn widget_closure_api_models_layout_controls_and_trigger_bindings() {
 
     assert!(view.labels().contains(&"Inspector"));
     assert!(view.labels().contains(&"Record"));
-    assert!(view.labels().contains(&"[x] Wrap"));
-    assert!(view.labels().contains(&"( ) Soft tabs"));
+    assert!(view.labels().contains(&"Wrap"));
+    assert!(view.labels().contains(&"Soft tabs"));
     assert!(
         view.labels()
             .iter()

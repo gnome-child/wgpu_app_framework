@@ -19,9 +19,4 @@ impl Radio {
     pub fn selected(&self) -> bool {
         self.selected
     }
-
-    pub(in crate::scratch::view) fn display_label(&self) -> String {
-        let marker = if self.selected { "(o)" } else { "( )" };
-        format!("{marker} {}", self.label)
-    }
 }

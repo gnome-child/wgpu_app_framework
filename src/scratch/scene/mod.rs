@@ -5,9 +5,12 @@ mod primitive;
 
 pub use color::Color;
 pub use presentation::Presentation;
-pub use primitive::{Outline, Primitive, Quad, Text, TextSurface, TextViewport, TextWrap};
+pub use primitive::{
+    Brush, EdgeMode, Icon, Offset, Outline, Primitive, Quad, Radius, Rasterization, Rounding,
+    Shadow, Snapping, Stroke, Style, Text, TextSurface, TextViewport, TextWrap,
+};
 
-use super::{geometry, layout};
+use super::{geometry, layout, theme::Theme};
 
 const DEFAULT_CLEAR: Color = Color::rgb(20, 22, 25);
 
@@ -23,10 +26,23 @@ impl Scene {
         Self::paint_with_clear(layout, DEFAULT_CLEAR)
     }
 
+    pub fn paint_with_theme(layout: &layout::Layout, theme: &Theme) -> Self {
+        Self::paint_with_clear_and_theme(layout, theme.palette().canvas, theme)
+    }
+
     pub fn paint_with_clear(layout: &layout::Layout, clear: Color) -> Self {
+        let theme = Theme::default();
+        Self::paint_with_clear_and_theme(layout, clear, &theme)
+    }
+
+    pub fn paint_with_clear_and_theme(
+        layout: &layout::Layout,
+        clear: Color,
+        theme: &Theme,
+    ) -> Self {
         let mut scene = Self::new_with_clear(layout.size(), clear);
 
-        paint::paint_layout(layout, &mut scene);
+        paint::paint_layout_with_theme(layout, &mut scene, theme);
 
         scene
     }
@@ -89,6 +105,26 @@ impl Scene {
             .collect()
     }
 
+    pub fn icons(&self) -> Vec<&Icon> {
+        self.primitives
+            .iter()
+            .filter_map(|primitive| match primitive {
+                Primitive::Icon(icon) => Some(icon),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn shadows(&self) -> Vec<&Shadow> {
+        self.primitives
+            .iter()
+            .filter_map(|primitive| match primitive {
+                Primitive::Shadow(shadow) => Some(shadow),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub fn outlines(&self) -> Vec<&Outline> {
         self.primitives
             .iter()
@@ -97,10 +133,6 @@ impl Scene {
                 _ => None,
             })
             .collect()
-    }
-
-    pub(super) fn default_clear() -> Color {
-        DEFAULT_CLEAR
     }
 
     pub(super) fn push_quad(&mut self, quad: Quad) {
@@ -118,6 +150,21 @@ impl Scene {
     pub(super) fn push_text_viewport(&mut self, text: TextViewport) {
         if !text.surfaces().is_empty() && text.rect().width() > 0 && text.rect().height() > 0 {
             self.primitives.push(Primitive::TextViewport(text));
+        }
+    }
+
+    pub(super) fn push_icon(&mut self, icon: Icon) {
+        if icon.rect().width() > 0 && icon.rect().height() > 0 && icon.size() > 0.0 {
+            self.primitives.push(Primitive::Icon(icon));
+        }
+    }
+
+    pub(super) fn push_shadow(&mut self, shadow: Shadow) {
+        if shadow.rect().width() > 0
+            && shadow.rect().height() > 0
+            && shadow.color().channels().3 > 0
+        {
+            self.primitives.push(Primitive::Shadow(shadow));
         }
     }
 

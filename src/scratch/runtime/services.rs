@@ -87,32 +87,32 @@ impl<M: state::State> responder::Framework<M> for Services<'_, M> {
         cx: &mut context::Context,
     ) -> Option<AnyResponse> {
         if command_type == TypeId::of::<timeline::Undo>() {
-            let args = match framework_args_box::<timeline::Undo>(args) {
-                Ok(args) => args,
+            match framework_args_box::<timeline::Undo>(args) {
+                Ok(()) => {}
                 Err(error) => return Some(AnyResponse::failed(error)),
-            };
+            }
             let mut service = timeline::Service::new(store, &mut *self.timeline);
             return Some(AnyResponse::from_response(
-                Target::<timeline::Undo>::invoke(&mut service, args, cx),
+                Target::<timeline::Undo>::invoke(&mut service, (), cx),
             ));
         }
 
         if command_type == TypeId::of::<timeline::Redo>() {
-            let args = match framework_args_box::<timeline::Redo>(args) {
-                Ok(args) => args,
+            match framework_args_box::<timeline::Redo>(args) {
+                Ok(()) => {}
                 Err(error) => return Some(AnyResponse::failed(error)),
-            };
+            }
             let mut service = timeline::Service::new(store, &mut *self.timeline);
             return Some(AnyResponse::from_response(
-                Target::<timeline::Redo>::invoke(&mut service, args, cx),
+                Target::<timeline::Redo>::invoke(&mut service, (), cx),
             ));
         }
 
         if command_type == TypeId::of::<session::CloseWindow>() {
-            let args = match framework_args_box::<session::CloseWindow>(args) {
-                Ok(args) => args,
+            match framework_args_box::<session::CloseWindow>(args) {
+                Ok(()) => {}
                 Err(error) => return Some(AnyResponse::failed(error)),
-            };
+            }
             let mut service = session::Service::new(
                 &mut *self.session,
                 &mut *self.composition,
@@ -120,7 +120,7 @@ impl<M: state::State> responder::Framework<M> for Services<'_, M> {
                 self.window,
             );
             return Some(AnyResponse::from_response(
-                Target::<session::CloseWindow>::invoke(&mut service, args, cx),
+                Target::<session::CloseWindow>::invoke(&mut service, (), cx),
             ));
         }
 

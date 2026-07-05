@@ -1,12 +1,12 @@
 use super::{
     Clipboard, Command, Composition, Context, Diagnostics, Document as TextDocument, Error, Host,
     Input, Interaction, Layout, Platform, Response, Runtime, Scene, Session, Shell, State, Target,
-    Task, Timeline, View, clipboard, command, context, document, geometry, host, input,
-    interaction, layout, platform, responder, response, runtime, scene, session, shell, state,
-    task, text_editor, timeline, view, widget, window,
+    Task, Theme, Timeline, View, clipboard, command, context, control_gallery, document, geometry,
+    host, input, interaction, layout, platform, responder, response, runtime, scene, session,
+    shell, state, task, text_editor, timeline, view, widget, window,
 };
 use crate::text;
-use std::{any::TypeId, cell::Cell, path::PathBuf, rc::Rc};
+use std::{cell::Cell, path::PathBuf, rc::Rc};
 
 #[test]
 fn scratch_sources_do_not_import_legacy_framework_modules() {
@@ -235,6 +235,7 @@ impl Command for SubmitText {
     type Output = String;
 
     const NAME: &'static str = "app.submit_text";
+    const HISTORY: command::History = command::History::Ignored;
 }
 
 struct SubmitMappedText;
@@ -776,23 +777,11 @@ mod responder_tests;
 mod runtime_tests;
 mod text_input;
 mod widget_binding_tests;
+mod widget_focus_tests;
 mod widget_identity_tests;
 mod widget_layout_tests;
 mod widget_slider_tests;
 mod widget_text_box_tests;
-fn command_node<C: command::Command>(node: &view::Node) -> Option<&view::Node> {
-    if node
-        .binding()
-        .is_some_and(|command| command.command_type() == TypeId::of::<C>())
-    {
-        return Some(node);
-    }
-
-    node.children()
-        .iter()
-        .find_map(|child| command_node::<C>(child))
-}
-
 fn open_view_menu_and_wrap_command_point(
     app: &mut Runtime<text_editor::State, text_editor::Event, View>,
     window: window::Id,
@@ -833,6 +822,60 @@ fn open_view_menu_and_wrap_command_point(
 fn frame_point(frame: &layout::frame::Frame) -> geometry::Point {
     let rect = frame.rect();
     geometry::Point::new(rect.x() + 1, rect.y() + 1)
+}
+
+fn pointer_down_then_present<M, E>(
+    app: &mut Runtime<M, E, View>,
+    window: window::Id,
+    size: geometry::Size,
+    point: geometry::Point,
+) -> input::Outcome
+where
+    M: State,
+    E: Send + 'static,
+{
+    let outcome = app
+        .pointer_down_at(window, size, point)
+        .expect("pointer down should be handled");
+    app.render_scene(window, size)
+        .expect("native loop presents after pointer down");
+    outcome
+}
+
+fn pointer_move_then_present<M, E>(
+    app: &mut Runtime<M, E, View>,
+    window: window::Id,
+    size: geometry::Size,
+    point: geometry::Point,
+) -> input::Outcome
+where
+    M: State,
+    E: Send + 'static,
+{
+    let outcome = app
+        .pointer_move_at(window, size, point)
+        .expect("pointer move should be handled");
+    app.render_scene(window, size)
+        .expect("native loop presents after pointer move");
+    outcome
+}
+
+fn pointer_up_then_present<M, E>(
+    app: &mut Runtime<M, E, View>,
+    window: window::Id,
+    size: geometry::Size,
+    point: geometry::Point,
+) -> input::Outcome
+where
+    M: State,
+    E: Send + 'static,
+{
+    let outcome = app
+        .pointer_up_at(window, size, point)
+        .expect("pointer up should be handled");
+    app.render_scene(window, size)
+        .expect("native loop presents after pointer up");
+    outcome
 }
 
 fn rect_contains(bounds: geometry::Rect, rect: geometry::Rect) -> bool {

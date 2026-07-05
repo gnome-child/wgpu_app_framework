@@ -19,9 +19,4 @@ impl Checkbox {
     pub fn checked(&self) -> bool {
         self.checked
     }
-
-    pub(in crate::scratch::view) fn display_label(&self) -> String {
-        let marker = if self.checked { "[x]" } else { "[ ]" };
-        format!("{marker} {}", self.label)
-    }
 }

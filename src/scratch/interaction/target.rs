@@ -1,4 +1,8 @@
-use std::any::TypeId;
+use std::{
+    any::TypeId,
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
 
 use super::super::{context::Source, session};
 use super::Id;
@@ -63,7 +67,7 @@ impl Target {
     }
 
     pub fn text_area(focus: session::Focus) -> Self {
-        Self::text_area_id(focus.target())
+        focus.into_target()
     }
 
     pub fn text_area_id(id: impl Into<Id>) -> Self {
@@ -86,6 +90,19 @@ impl Target {
 
     pub fn kind(&self) -> Kind {
         self.kind
+    }
+
+    pub fn element_id(&self) -> Option<Id> {
+        match self.identity {
+            Identity::Element(id) => Some(id),
+            Identity::CommandPath { .. } => None,
+        }
+    }
+
+    pub fn focus_key(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
     }
 
     pub fn label_text(&self) -> &str {

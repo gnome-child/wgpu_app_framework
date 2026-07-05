@@ -116,10 +116,6 @@ impl Binding {
         )
     }
 
-    pub(super) fn set_state(&mut self, state: framework_command::State) {
-        self.state = state;
-    }
-
     pub fn is_enabled(&self) -> bool {
         self.state.is_enabled()
     }

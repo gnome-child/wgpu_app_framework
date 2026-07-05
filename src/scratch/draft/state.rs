@@ -1,16 +1,31 @@
-use crate::text::{self, unicode};
+use std::ops::Range;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+use crate::text;
+
+#[derive(Debug, Clone)]
 pub struct State {
+    buffer: text::Buffer,
+    edit_state: text::edit::State,
+    history: text::edit::History,
     text: String,
-    cursor: usize,
 }
 
 impl State {
-    pub(super) fn new(text: impl Into<String>) -> Self {
-        let text = text.into();
-        let cursor = text.len();
-        Self { text, cursor }
+    pub(in crate::scratch) fn new(text: impl Into<String>) -> Self {
+        let mut state = Self::from_buffer(text::Buffer::from_text(text.into()));
+        state.history.sync(&state.buffer, state.edit_state);
+        state
+    }
+
+    fn from_buffer(buffer: text::Buffer) -> Self {
+        let edit_state = buffer.initial_state();
+        let text = buffer.text();
+        Self {
+            buffer,
+            edit_state,
+            history: text::edit::History::default(),
+            text,
+        }
     }
 
     pub fn text(&self) -> &str {
@@ -18,149 +33,82 @@ impl State {
     }
 
     pub fn cursor(&self) -> usize {
-        self.cursor
+        self.buffer.position_for_state(self.edit_state).index
+    }
+
+    pub fn selection(&self) -> Option<Range<usize>> {
+        self.buffer
+            .selected_range_for_state(self.edit_state)
+            .map(text::buffer::Range::as_range)
+    }
+
+    pub fn selected_text(&self) -> Option<String> {
+        self.buffer.selected_text_for_state(self.edit_state)
+    }
+
+    pub fn can_undo(&self) -> bool {
+        self.history.can_undo()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.history.can_redo()
     }
 
     pub(super) fn apply(&mut self, edit: text::edit::Edit) -> bool {
-        match edit {
-            text::edit::Edit::Insert(text) | text::edit::Edit::ImeCommit(text) => {
-                self.insert(&text);
-                false
-            }
-            text::edit::Edit::ReplaceRange { range, text } => {
-                self.replace_range(range, &text);
-                false
-            }
-            text::edit::Edit::Backspace => {
-                self.backspace();
-                false
-            }
-            text::edit::Edit::Delete => {
-                self.delete();
-                false
-            }
-            text::edit::Edit::InsertLineBreak => true,
-            text::edit::Edit::MovePosition(motion) | text::edit::Edit::ExtendPosition(motion) => {
-                self.move_cursor(motion);
-                false
-            }
-            text::edit::Edit::DeleteWordBackward => {
-                self.delete_word_backward();
-                false
-            }
-            text::edit::Edit::DeleteWordForward => {
-                self.delete_word_forward();
-                false
-            }
-            text::edit::Edit::SelectAll => false,
-            text::edit::Edit::SetPosition(position) => {
-                self.set_cursor(position.index);
-                false
-            }
-            text::edit::Edit::Pointer { position, .. } => {
-                self.set_cursor(position.index);
-                false
-            }
-            text::edit::Edit::MoveRange { .. } => false,
-        }
-    }
-
-    fn insert(&mut self, text: &str) {
-        if text.is_empty() {
-            return;
+        let edit = normalize_single_line_edit(edit);
+        if edit == text::edit::Edit::InsertLineBreak {
+            return true;
         }
 
-        self.cursor = unicode::floor_boundary(&self.text, self.cursor);
-        self.text.insert_str(self.cursor, text);
-        self.cursor += text.len();
+        let mut editor = text::edit::Editor::new();
+        self.history
+            .apply_edit(&mut editor, &mut self.buffer, &mut self.edit_state, edit);
+        self.refresh_text();
+        false
     }
 
-    fn replace_range(&mut self, range: text::buffer::Range, value: &str) {
-        let start = unicode::floor_boundary(&self.text, range.start.min(self.text.len()));
-        let end = unicode::floor_boundary(&self.text, range.end.min(self.text.len()));
-        let range = start.min(end)..start.max(end);
-        self.text.replace_range(range.clone(), value);
-        self.cursor = range.start + value.len();
+    pub(super) fn undo(&mut self) -> bool {
+        let result = self.history.undo(&mut self.buffer, &mut self.edit_state);
+        self.refresh_text();
+        result.buffer_changed()
     }
 
-    fn backspace(&mut self) {
-        let cursor = unicode::floor_boundary(&self.text, self.cursor);
-        let previous = unicode::previous_grapheme_boundary(&self.text, cursor);
-        if previous == cursor {
-            return;
-        }
-
-        self.text.replace_range(previous..cursor, "");
-        self.cursor = previous;
+    pub(super) fn redo(&mut self) -> bool {
+        let result = self.history.redo(&mut self.buffer, &mut self.edit_state);
+        self.refresh_text();
+        result.buffer_changed()
     }
 
-    fn delete(&mut self) {
-        let cursor = unicode::floor_boundary(&self.text, self.cursor);
-        let next = unicode::next_grapheme_boundary(&self.text, cursor);
-        if next == cursor {
-            return;
-        }
-
-        self.text.replace_range(cursor..next, "");
-        self.cursor = cursor;
+    fn refresh_text(&mut self) {
+        self.text = self.buffer.text();
     }
+}
 
-    fn delete_word_backward(&mut self) {
-        let cursor = unicode::floor_boundary(&self.text, self.cursor);
-        let previous = unicode::previous_word_boundary(&self.text, cursor);
-        if previous == cursor {
-            return;
-        }
-
-        self.text.replace_range(previous..cursor, "");
-        self.cursor = previous;
+impl PartialEq for State {
+    fn eq(&self, other: &Self) -> bool {
+        self.text() == other.text()
+            && self.cursor() == other.cursor()
+            && self.selection() == other.selection()
     }
+}
 
-    fn delete_word_forward(&mut self) {
-        let cursor = unicode::floor_boundary(&self.text, self.cursor);
-        let next = unicode::next_word_boundary(&self.text, cursor);
-        if next == cursor {
-            return;
-        }
+impl Eq for State {}
 
-        self.text.replace_range(cursor..next, "");
-        self.cursor = cursor;
+fn normalize_single_line_edit(edit: text::edit::Edit) -> text::edit::Edit {
+    match edit {
+        text::edit::Edit::Insert(text) => text::edit::Edit::Insert(first_line(text)),
+        text::edit::Edit::ImeCommit(text) => text::edit::Edit::ImeCommit(first_line(text)),
+        text::edit::Edit::ReplaceRange { range, text } => text::edit::Edit::ReplaceRange {
+            range,
+            text: first_line(text),
+        },
+        edit => edit,
     }
+}
 
-    fn move_cursor(&mut self, motion: text::edit::Motion) {
-        match motion {
-            text::edit::Motion::VisualLeft
-            | text::edit::Motion::LogicalPrevious
-            | text::edit::Motion::WordPrevious => {
-                self.cursor = if motion == text::edit::Motion::WordPrevious {
-                    unicode::previous_word_boundary(&self.text, self.cursor)
-                } else {
-                    unicode::previous_grapheme_boundary(&self.text, self.cursor)
-                };
-            }
-            text::edit::Motion::VisualRight
-            | text::edit::Motion::LogicalNext
-            | text::edit::Motion::WordNext => {
-                self.cursor = if motion == text::edit::Motion::WordNext {
-                    unicode::next_word_boundary(&self.text, self.cursor)
-                } else {
-                    unicode::next_grapheme_boundary(&self.text, self.cursor)
-                };
-            }
-            text::edit::Motion::LineStart
-            | text::edit::Motion::ParagraphStart
-            | text::edit::Motion::DocumentStart => self.cursor = 0,
-            text::edit::Motion::LineEnd
-            | text::edit::Motion::ParagraphEnd
-            | text::edit::Motion::DocumentEnd => self.cursor = self.text.len(),
-            text::edit::Motion::VisualUp
-            | text::edit::Motion::VisualDown
-            | text::edit::Motion::PageUp
-            | text::edit::Motion::PageDown => {}
-        }
-    }
-
-    fn set_cursor(&mut self, cursor: usize) {
-        self.cursor = unicode::floor_boundary(&self.text, cursor.min(self.text.len()));
-    }
+fn first_line(text: String) -> String {
+    let end = text
+        .find(['\r', '\n'])
+        .unwrap_or(text.len());
+    text[..end].to_owned()
 }

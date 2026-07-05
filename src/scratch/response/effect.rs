@@ -1,17 +1,12 @@
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum Effect {
+    #[default]
     None,
     Repaint,
     ClosePopup,
     OpenFileDialog,
     SaveFileDialog,
     Batch(Vec<Effect>),
-}
-
-impl Default for Effect {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl Effect {

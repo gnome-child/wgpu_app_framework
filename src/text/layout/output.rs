@@ -36,6 +36,11 @@ pub struct TextAreaPaintLayout {
     pub(in crate::text) render_surfaces: Vec<TextAreaSurface>,
 }
 
+pub struct TextFieldPaintLayout {
+    pub(in crate::text) layout: TextFieldLayout,
+    pub(in crate::text) surface: Option<TextAreaSurface>,
+}
+
 #[derive(Clone)]
 pub struct TextAreaSurface {
     pub(in crate::text) x: f32,
@@ -203,6 +208,20 @@ impl TextAreaPaintLayout {
         self,
     ) -> (TextFieldLayout, Vec<TextAreaSurface>, Vec<TextAreaSurface>) {
         (self.layout, self.interaction_surfaces, self.render_surfaces)
+    }
+}
+
+impl TextFieldPaintLayout {
+    pub fn layout(&self) -> &TextFieldLayout {
+        &self.layout
+    }
+
+    pub fn surface(&self) -> Option<&TextAreaSurface> {
+        self.surface.as_ref()
+    }
+
+    pub fn into_parts(self) -> (TextFieldLayout, Option<TextAreaSurface>) {
+        (self.layout, self.surface)
     }
 }
 

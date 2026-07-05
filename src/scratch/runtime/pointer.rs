@@ -1,4 +1,6 @@
-use super::super::{error::Error, geometry, input, interaction, layout, state, view, window};
+use super::super::{
+    error::Error, geometry, input, interaction, layout, response, session, state, view, window,
+};
 use super::Runtime;
 impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     pub fn pointer_move_at(
@@ -30,10 +32,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         point: geometry::Point,
     ) -> std::result::Result<input::Outcome, Error> {
         let Some(hit) = self.hit_test(window, size, point) else {
-            return Ok(input::Outcome::ignored());
+            return Ok(self.clear_pointer_focus(window));
         };
         let Some(target) = hit.target().cloned() else {
-            return Ok(input::Outcome::ignored());
+            return Ok(self.clear_pointer_focus(window));
         };
 
         let action = if matches!(
@@ -48,14 +50,36 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         } else if hit.frame().role() == view::node::Role::Slider {
             hit.action_at_with_engine(point, &mut self.layout)
                 .map(|action| {
-                    view::Action::sequence([view::Action::pointer_down(target.clone()), action])
+                    view::Action::sequence([
+                        view::Action::focus(session::Focus::control(&target)),
+                        view::Action::pointer_down(target.clone()),
+                        action,
+                    ])
                 })
-                .unwrap_or_else(|| view::Action::pointer_down(target))
+                .unwrap_or_else(|| {
+                    view::Action::sequence([
+                        view::Action::focus(session::Focus::control(&target)),
+                        view::Action::pointer_down(target),
+                    ])
+                })
+        } else if is_pointer_focusable(hit.frame()) {
+            view::Action::sequence([
+                view::Action::focus(session::Focus::control(&target)),
+                view::Action::pointer_down(target),
+            ])
         } else {
             view::Action::pointer_down(target)
         };
 
         self.handle_view(window, action)
+    }
+
+    fn clear_pointer_focus(&mut self, window: window::Id) -> input::Outcome {
+        if self.clear_focus(window) {
+            self.window_outcome(window, false, response::Effect::Repaint)
+        } else {
+            input::Outcome::ignored()
+        }
     }
 
     pub fn pointer_up_at(
@@ -66,7 +90,14 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     ) -> std::result::Result<input::Outcome, Error> {
         let hit = self.hit_test(window, size, point);
         let target = hit.as_ref().and_then(|hit| hit.target().cloned());
-        let action = hit.as_ref().and_then(|hit| hit.action_at(point));
+        let action = hit.as_ref().and_then(|hit| {
+            (!matches!(
+                hit.frame().role(),
+                view::node::Role::Slider | view::node::Role::TextArea | view::node::Role::TextBox
+            ))
+            .then(|| hit.action_at(point))
+            .flatten()
+        });
 
         self.handle_view(window, view::Action::pointer_up(target, action))
     }
@@ -121,4 +152,16 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 
         self.handle_view(window, view::Action::scroll(target, delta))
     }
+}
+
+fn is_pointer_focusable(frame: &layout::frame::Frame) -> bool {
+    frame.is_enabled()
+        && matches!(
+            frame.role(),
+            view::node::Role::Menu
+                | view::node::Role::Binding
+                | view::node::Role::Button
+                | view::node::Role::Checkbox
+                | view::node::Role::Radio
+        )
 }

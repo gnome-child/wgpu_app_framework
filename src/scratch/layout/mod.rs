@@ -4,6 +4,7 @@ use super::{
 };
 
 mod algorithm;
+pub(in crate::scratch) mod control;
 pub mod engine;
 pub mod frame;
 pub mod hit;
@@ -13,7 +14,6 @@ pub(in crate::scratch) mod text;
 
 use frame::Frame;
 use hit::Hit;
-pub(super) use text::TextService;
 
 #[derive(Clone)]
 pub struct Layout {

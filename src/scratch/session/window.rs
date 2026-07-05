@@ -82,7 +82,7 @@ impl Window {
     }
 
     pub fn focus(&self) -> Option<Focus> {
-        self.focus
+        self.focus.clone()
     }
 
     pub fn interaction(&self) -> &interaction::Interaction {
@@ -107,7 +107,7 @@ impl WindowSnapshot {
             title: window.title.clone(),
             inner_size: window.inner_size,
             canvas_color: window.canvas_color,
-            focus: window.focus,
+            focus: window.focus.clone(),
         }
     }
 
@@ -128,7 +128,7 @@ impl WindowSnapshot {
     }
 
     pub fn focus(&self) -> Option<Focus> {
-        self.focus
+        self.focus.clone()
     }
 }
 

@@ -3,18 +3,62 @@ use super::{Session, Window};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Focus {
-    target: interaction::Id,
+    kind: Kind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Kind {
+    Text(interaction::Id),
+    Control(u64),
 }
 
 impl Focus {
     pub fn text(target: impl Into<interaction::Id>) -> Self {
         Self {
-            target: target.into(),
+            kind: Kind::Text(target.into()),
+        }
+    }
+
+    pub fn control(target: &interaction::Target) -> Self {
+        Self {
+            kind: Kind::Control(target.focus_key()),
         }
     }
 
     pub fn target(self) -> interaction::Id {
-        self.target
+        match self.kind {
+            Kind::Text(target) => target,
+            Kind::Control(_) => {
+                panic!("control focus does not have a text target id")
+            }
+        }
+    }
+
+    pub fn into_target(self) -> interaction::Target {
+        self.text_target()
+            .expect("control focus does not have a text target")
+    }
+
+    pub fn target_id(&self) -> Option<interaction::Id> {
+        match self.kind {
+            Kind::Text(target) => Some(target),
+            Kind::Control(_) => None,
+        }
+    }
+
+    pub fn text_target(self) -> Option<interaction::Target> {
+        match self.kind {
+            Kind::Text(target) => Some(interaction::Target::text_area_id(target)),
+            Kind::Control(_) => None,
+        }
+    }
+
+    pub fn matches_target(self, target: &interaction::Target) -> bool {
+        match self.kind {
+            Kind::Text(id) => target.kind() == interaction::target::Kind::TextArea
+                && target.element_id() == Some(id),
+            Kind::Control(key) => target.focus_key() == key,
+        }
     }
 }
 
@@ -23,9 +67,12 @@ impl Session {
         let Some(window) = self.window_mut(id) else {
             return false;
         };
-        let target = interaction::Target::text_area(focus);
-        let changed = window.focus != Some(focus);
-        let input_changed = window.interaction.clear_text_input_unless(&target);
+        let changed = window.focus.as_ref() != Some(&focus);
+        let input_changed = if let Some(target) = focus.text_target() {
+            window.interaction.clear_text_input_unless(&target)
+        } else {
+            window.interaction.clear_text_input()
+        };
         window.focus = Some(focus);
         changed || input_changed
     }

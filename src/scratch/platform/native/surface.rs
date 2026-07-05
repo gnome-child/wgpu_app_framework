@@ -1,9 +1,9 @@
-use crate::{geometry::area as surface_area, paint as renderer_paint, render};
+use crate::{geometry::area as surface_area, render};
 
 use super::super::{NativeError, Window};
 use super::window::{InitialSize, Options, Window as NativeWindow};
 use super::{Native, NativeContext};
-use crate::scratch::{geometry, scene, shell, window as app_window};
+use crate::scratch::{geometry, shell, window as app_window};
 
 impl Native {
     pub(in crate::scratch::platform::native) fn ensure_context(
@@ -56,7 +56,7 @@ impl Native {
             render::canvas::Options {
                 area: surface_area::physical(inner_size.width, inner_size.height).clamp_min(1),
                 scale_factor: handle.scale_factor() as f32,
-                color: render::color_to_wgpu(paint_color(window.canvas_color())),
+                color: render::color_to_wgpu(super::color::paint_color(window.canvas_color())),
             },
             render_context,
             handle.clone(),
@@ -151,14 +151,4 @@ fn render_context_options() -> render::context::Options {
 
 fn native_logical_area(area: geometry::LogicalArea) -> surface_area::Logical {
     surface_area::logical(area.width(), area.height())
-}
-
-fn paint_color(color: scene::Color) -> renderer_paint::Color {
-    let (r, g, b, a) = color.channels();
-    renderer_paint::Color::rgba(
-        r as f32 / 255.0,
-        g as f32 / 255.0,
-        b as f32 / 255.0,
-        a as f32 / 255.0,
-    )
 }

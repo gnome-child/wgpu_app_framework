@@ -45,11 +45,24 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return Ok(self.handle_tab_focus(window, modifiers.shift()));
         }
 
+        if let Some(outcome) = self.handle_text_box_key_shortcut(window, key, modifiers)? {
+            return Ok(outcome);
+        }
+
         if let Some(shortcut) = self.registry.shortcut_for_key(key, modifiers) {
             let outcome = self.handle_shortcut(window, shortcut)?;
             if outcome.is_handled() {
                 return Ok(outcome);
             }
+        }
+
+        if matches!(key, input::Key::Enter | input::Key::Space)
+            && !modifiers.control()
+            && !modifiers.alt()
+            && !modifiers.super_key()
+            && let Some(outcome) = self.handle_focused_activation(window)?
+        {
+            return Ok(outcome);
         }
 
         if let Some(text) = text_for_key(key, modifiers, text.as_deref()) {
@@ -83,6 +96,24 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             response::Effect::None
         };
 
-        input::Outcome::handled(false, effect)
+        self.window_outcome(window, false, effect)
+    }
+
+    fn handle_focused_activation(
+        &mut self,
+        window: window::Id,
+    ) -> std::result::Result<Option<input::Outcome>, Error> {
+        let Some(focus) = self.session.focused(window) else {
+            return Ok(None);
+        };
+        let Some(action) = self
+            .composition
+            .get(window)
+            .and_then(|composition| composition.view().focus_action(&focus))
+        else {
+            return Ok(None);
+        };
+
+        self.handle_view(window, action).map(Some)
     }
 }

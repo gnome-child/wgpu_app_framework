@@ -1,37 +1,34 @@
-use super::State;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {
-    draft: State,
+    text: String,
     text_changed: bool,
     cursor_changed: bool,
+    selection_changed: bool,
     changed: bool,
     submit: bool,
 }
 
 impl Change {
     pub(super) fn new(
-        draft: State,
+        text: String,
         text_changed: bool,
         cursor_changed: bool,
+        selection_changed: bool,
         changed: bool,
         submit: bool,
     ) -> Self {
         Self {
-            draft,
+            text,
             text_changed,
             cursor_changed,
+            selection_changed,
             changed,
             submit,
         }
     }
 
-    pub fn draft(&self) -> &State {
-        &self.draft
-    }
-
     pub fn text(&self) -> &str {
-        self.draft.text()
+        &self.text
     }
 
     pub fn text_changed(&self) -> bool {
@@ -40,6 +37,10 @@ impl Change {
 
     pub fn cursor_changed(&self) -> bool {
         self.cursor_changed
+    }
+
+    pub fn selection_changed(&self) -> bool {
+        self.selection_changed
     }
 
     pub fn changed(&self) -> bool {

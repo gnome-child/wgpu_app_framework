@@ -17,6 +17,10 @@ impl Node {
     }
 
     fn pointer_target_with_path(&self, path: Option<&[usize]>) -> Option<interaction::Target> {
+        if let Some(target) = self.text_control_target() {
+            return Some(target);
+        }
+
         if let Some(binding) = &self.binding {
             let target = self
                 .id
@@ -35,15 +39,7 @@ impl Node {
                 .id
                 .zip(self.label.as_ref())
                 .map(|(id, label)| interaction::Target::menu(id, label.clone())),
-            Role::TextArea => self.id.map(interaction::Target::text_area_id).or_else(|| {
-                self.text_area_model()
-                    .and_then(TextArea::focus)
-                    .map(interaction::Target::text_area)
-            }),
-            Role::TextBox => self
-                .text_box_model()
-                .and_then(TextBox::focus)
-                .map(interaction::Target::text_area),
+            Role::TextArea | Role::TextBox => None,
             Role::Popup => self
                 .id
                 .zip(self.label.as_ref())
@@ -62,6 +58,21 @@ impl Node {
             | Role::Radio
             | Role::Slider
             | Role::Panel => None,
+        }
+    }
+
+    pub(in crate::scratch::view) fn text_control_target(&self) -> Option<interaction::Target> {
+        match self.role {
+            Role::TextArea => self.id.map(interaction::Target::text_area_id).or_else(|| {
+                self.text_area_model()
+                    .and_then(TextArea::focus)
+                    .map(interaction::Target::text_area)
+            }),
+            Role::TextBox => self
+                .text_box_model()
+                .and_then(TextBox::focus)
+                .map(interaction::Target::text_area),
+            _ => None,
         }
     }
 
@@ -141,23 +152,51 @@ impl Node {
     }
 
     fn pointer_activation_action(&self) -> Option<Action> {
+        match self.role {
+            Role::TextArea => return self.text_area_model().and_then(TextArea::focus_action),
+            Role::TextBox => return self.text_box_model().and_then(TextBox::focus_action),
+            _ => {}
+        }
+
         if let Some(binding) = &self.binding {
             return binding.is_enabled().then(|| Action::activate(binding));
         }
 
         match self.role {
             Role::Menu => self.menu_action(),
-            Role::TextArea => self.text_area_model().and_then(TextArea::focus_action),
-            Role::TextBox => self.text_box_model().and_then(TextBox::focus_action),
             Role::Root
             | Role::Stack
             | Role::MenuBar
             | Role::Binding
             | Role::Separator
+            | Role::TextArea
             | Role::Button
             | Role::Checkbox
             | Role::Radio
             | Role::Slider
+            | Role::Panel
+            | Role::TextBox
+            | Role::Popup
+            | Role::Label => None,
+        }
+    }
+
+    pub(in crate::scratch::view) fn keyboard_activation_action(&self) -> Option<Action> {
+        match self.role {
+            Role::Menu => self.menu_action(),
+            Role::Binding | Role::Button | Role::Checkbox | Role::Radio | Role::Slider => {
+                self.binding.as_ref().and_then(|binding| {
+                    binding
+                        .is_enabled()
+                        .then(|| Action::activate(binding))
+                })
+            }
+            Role::Root
+            | Role::Stack
+            | Role::MenuBar
+            | Role::Separator
+            | Role::TextArea
+            | Role::TextBox
             | Role::Panel
             | Role::Popup
             | Role::Label => None,

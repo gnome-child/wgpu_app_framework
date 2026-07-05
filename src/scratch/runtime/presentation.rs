@@ -59,7 +59,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         for frame in layout.frames() {
             let Some(offset) = frame
                 .text_area_layout()
-                .and_then(layout::text::TextAreaLayout::resolved_scroll)
+                .and_then(layout::text::Area::resolved_scroll)
             else {
                 continue;
             };
@@ -121,16 +121,15 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 
         let view = self.view.as_ref()?;
         let mut view = view(self.store.model(), self.view_context(window));
-        if self
-            .session
-            .focused(window)
-            .is_some_and(|focus| !view.contains_focus(focus))
+        let mut focus = self.session.focused(window);
+        if focus
+            .is_some_and(|focus| focus.target_id().is_some() && !view.contains_focus(focus))
         {
-            self.session.clear_focus(window);
+            self.clear_focus(window);
+            focus = None;
         }
 
         let cx = command_context::Context::with_clipboard(&mut self.clipboard);
-        let focus = self.session.focused(window);
         {
             let services = Services::new(
                 &mut self.timeline,
@@ -148,6 +147,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         }
         if let Some(interaction) = self.session.interaction(window) {
             view.project_interaction(interaction);
+        }
+        if focus.is_some_and(|focus| !view.contains_enabled_focus(focus)) {
+            self.clear_focus(window);
+            focus = None;
         }
         view.project_focus(focus);
 

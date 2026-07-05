@@ -44,10 +44,6 @@ impl<E: Send + 'static> Queue<E> {
         })
     }
 
-    pub(in crate::scratch) fn push(&mut self, task: Task<E>) -> Id {
-        self.inner.borrow_mut().push(task)
-    }
-
     pub(in crate::scratch) fn pop(&mut self) -> Option<(Id, Task<E>)> {
         self.inner.borrow_mut().pop()
     }
@@ -79,10 +75,6 @@ impl<E: Send + 'static> Queue<E> {
 
     pub(in crate::scratch) fn cancel(&mut self, id: Id) -> bool {
         self.inner.borrow_mut().cancel(id)
-    }
-
-    pub(in crate::scratch) fn complete(&mut self, id: Id) {
-        self.inner.borrow_mut().complete(id);
     }
 
     pub(in crate::scratch) fn status(&self, id: Id) -> Option<Status> {

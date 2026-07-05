@@ -115,6 +115,10 @@ impl Document {
         self.buffer.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.buffer.is_empty()
+    }
+
     pub fn line_count(&self) -> usize {
         self.buffer.logical_line_count()
     }

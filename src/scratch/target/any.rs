@@ -1,4 +1,4 @@
-use std::any::{Any, TypeId, type_name};
+use std::any::{Any, TypeId};
 
 use super::{Selector, Target};
 use crate::scratch::{
@@ -9,13 +9,13 @@ use crate::scratch::{
     state,
 };
 
+type StateThunk<M> = dyn Fn(&mut M, &dyn Any, &Context) -> Result<State>;
+type InvokeThunk<M> = dyn Fn(&mut M, Box<dyn Any + Send>, &mut Context) -> AnyResponse;
+
 pub(in crate::scratch) struct AnyTarget<M: state::State> {
     command_type: TypeId,
-    command_name: &'static str,
-    concrete_type: TypeId,
-    concrete_name: &'static str,
-    state: Box<dyn Fn(&mut M, &dyn Any, &Context) -> Result<State>>,
-    invoke: Box<dyn Fn(&mut M, Box<dyn Any + Send>, &mut Context) -> AnyResponse>,
+    state: Box<StateThunk<M>>,
+    invoke: Box<InvokeThunk<M>>,
 }
 
 impl<M: state::State> AnyTarget<M> {
@@ -29,9 +29,6 @@ impl<M: state::State> AnyTarget<M> {
 
         Self {
             command_type: TypeId::of::<C>(),
-            command_name: C::NAME,
-            concrete_type: TypeId::of::<T>(),
-            concrete_name: type_name::<T>(),
             state: Box::new(move |model, args, cx| {
                 let args = args
                     .downcast_ref::<C::Args>()

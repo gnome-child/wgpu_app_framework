@@ -30,7 +30,10 @@ impl<M: state::State> Responder<M> {
 
     pub(super) fn matches_focus(&self, focus: Option<session::Focus>) -> bool {
         match self.kind {
-            Kind::Focused => focus.is_some_and(|focus| self.identity == focus.target()),
+            Kind::Focused => focus
+                .as_ref()
+                .and_then(session::Focus::target_id)
+                .is_some_and(|target| self.identity == target),
             _ => true,
         }
     }

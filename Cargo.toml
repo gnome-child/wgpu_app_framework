@@ -11,6 +11,11 @@ name = "text_editor"
 path = "examples/text_editor/main.rs"
 required-features = ["scratch"]
 
+[[example]]
+name = "control_gallery"
+path = "examples/control_gallery/main.rs"
+required-features = ["scratch"]
+
 [dependencies]
 arboard = "3.6.1"
 bytemuck = "1.25.0"

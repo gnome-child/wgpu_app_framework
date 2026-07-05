@@ -24,7 +24,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         Ok(self.window_outcome(window, false, effect))
     }
 
-    pub(in crate::scratch::runtime::input) fn window_outcome(
+    pub(in crate::scratch::runtime) fn window_outcome(
         &mut self,
         window: window::Id,
         changed_state: bool,

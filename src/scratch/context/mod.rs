@@ -8,7 +8,7 @@ use super::{clipboard::Clipboard, layout, task};
 pub struct Context {
     source: Source,
     clipboard: Option<Clipboard>,
-    text: Option<layout::TextService>,
+    text: Option<layout::text::Service>,
     tasks: Option<task::Sink>,
 }
 
@@ -37,10 +37,6 @@ impl Context {
         }
     }
 
-    pub(super) fn with_services(clipboard: &mut Clipboard, tasks: task::Sink) -> Self {
-        Self::with_services_source(clipboard, tasks, Source::Programmatic)
-    }
-
     pub(super) fn with_services_source(
         clipboard: &mut Clipboard,
         tasks: task::Sink,
@@ -54,7 +50,7 @@ impl Context {
         }
     }
 
-    pub(super) fn with_text_service(mut self, text: layout::TextService) -> Self {
+    pub(super) fn with_text_service(mut self, text: layout::text::Service) -> Self {
         self.text = Some(text);
         self
     }
@@ -86,7 +82,7 @@ impl Context {
         self.clipboard.clone()
     }
 
-    pub(super) fn text_service(&self) -> Option<layout::TextService> {
+    pub(super) fn text_service(&self) -> Option<layout::text::Service> {
         self.text.clone()
     }
 }

@@ -92,7 +92,9 @@ impl Transaction {
         }
         let current = &mut self.deltas[0];
         let next = &next.deltas[0];
-        if current.kind != Kind::Insert || next.kind != Kind::Insert {
+        if !matches!(current.kind, Kind::Insert | Kind::ImeCommit)
+            || !matches!(next.kind, Kind::Insert | Kind::ImeCommit)
+        {
             return false;
         }
         if !current.deleted.is_empty() || !next.deleted.is_empty() {

@@ -344,7 +344,7 @@ fn text_editor_shell_handles_file_dialog_selection() {
         shell.runtime().state().last_status,
         format!("opened {}", text_editor::compact_path(&path))
     );
-    assert!(shell.drain().presentations().len() >= 1);
+    assert!(!shell.drain().presentations().is_empty());
 
     let _ = std::fs::remove_file(path);
 }

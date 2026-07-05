@@ -151,6 +151,36 @@ impl Session {
         )
     }
 
+    pub fn undo_text_draft(
+        &mut self,
+        id: app_window::Id,
+        focus: Focus,
+    ) -> Option<draft::Change> {
+        let window = self.window_mut(id)?;
+        if window.focus != Some(focus) {
+            return None;
+        }
+
+        window
+            .interaction
+            .undo_text_draft(&interaction::Target::text_area(focus))
+    }
+
+    pub fn redo_text_draft(
+        &mut self,
+        id: app_window::Id,
+        focus: Focus,
+    ) -> Option<draft::Change> {
+        let window = self.window_mut(id)?;
+        if window.focus != Some(focus) {
+            return None;
+        }
+
+        window
+            .interaction
+            .redo_text_draft(&interaction::Target::text_area(focus))
+    }
+
     pub fn clear_text_input(&mut self, id: app_window::Id) -> bool {
         let Some(window) = self.window_mut(id) else {
             return false;

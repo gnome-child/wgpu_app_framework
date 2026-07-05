@@ -9,10 +9,6 @@ pub struct Presentation {
 }
 
 impl Presentation {
-    pub(in crate::scratch) fn new(window: window::Id, layout: layout::Layout) -> Self {
-        Self::with_canvas_color(window, layout, Scene::default_clear())
-    }
-
     pub(in crate::scratch) fn with_canvas_color(
         window: window::Id,
         layout: layout::Layout,
