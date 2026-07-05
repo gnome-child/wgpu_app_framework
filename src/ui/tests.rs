@@ -14,6 +14,11 @@ const D: Id = Id::new("d");
 const E: Id = Id::new("e");
 const F: Id = Id::new("f");
 const G: Id = Id::new("g");
+
+fn text_color(color: paint::Color) -> text::Color {
+    text::Color::rgba(color.r, color.g, color.b, color.a)
+}
+
 struct Click;
 struct OtherClick;
 
@@ -546,7 +551,14 @@ fn cursor_overlay_text_paints_after_tree_content_and_follows_pointer() {
         theme::Theme::default_dark().text().control_size()
     );
     assert!(
-        (overlay.document.blocks()[0].runs()[0].style().color().a - 0.65).abs() <= f32::EPSILON
+        (overlay.document.blocks()[0].runs()[0]
+            .style()
+            .color()
+            .channels()
+            .3
+            - 0.65)
+            .abs()
+            <= f32::EPSILON
     );
 }
 
@@ -1628,32 +1640,33 @@ fn tree_collects_intents_and_menu_definitions() {
 fn node_with_responder_stores_handled_command() {
     let node = Node::leaf()
         .key(A)
-        .with_responder_key(command::Key::of::<crate::text::command::SelectAll>().action());
+        .with_responder_key(command::Key::of::<crate::widget::text_command::SelectAll>().action());
 
     assert_eq!(
         node.responders(),
-        &[command::Key::of::<crate::text::command::SelectAll>().action()]
+        &[command::Key::of::<crate::widget::text_command::SelectAll>().action()]
     );
     assert_eq!(
         node.responder_bindings(),
-        &[
-            command::binding::Binding::new(command::Key::of::<crate::text::command::SelectAll>())
-                .action()
-        ]
+        &[command::binding::Binding::new(
+            command::Key::of::<crate::widget::text_command::SelectAll>()
+        )
+        .action()]
     );
 }
 
 #[test]
 fn node_with_responder_binding_stores_projected_state() {
-    let binding =
-        command::binding::Binding::new(command::Key::of::<crate::text::command::SelectAll>())
-            .available(false)
-            .running(true);
+    let binding = command::binding::Binding::new(command::Key::of::<
+        crate::widget::text_command::SelectAll,
+    >())
+    .available(false)
+    .running(true);
     let node = Node::leaf().key(A).with_responder_binding(binding.action());
 
     assert_eq!(
         node.responders(),
-        &[command::Key::of::<crate::text::command::SelectAll>().action()]
+        &[command::Key::of::<crate::widget::text_command::SelectAll>().action()]
     );
     assert_eq!(node.responder_bindings(), &[binding.action()]);
 }
@@ -1693,12 +1706,11 @@ fn composition_indexes_node_cursors_by_path() {
 
 #[test]
 fn tree_collects_responder_commands_by_path() {
-    let root =
-        Node::container(layout::Axis::Vertical)
-            .key(ROOT)
-            .with_child(Node::leaf().key(A).with_responder_key(
-                command::Key::of::<crate::text::command::SelectAll>().action(),
-            ));
+    let root = Node::container(layout::Axis::Vertical)
+        .key(ROOT)
+        .with_child(Node::leaf().key(A).with_responder_key(
+            command::Key::of::<crate::widget::text_command::SelectAll>().action(),
+        ));
     let mut tree = Tree::new();
 
     tree.set_root(root);
@@ -1706,16 +1718,17 @@ fn tree_collects_responder_commands_by_path() {
     assert_eq!(
         tree.responders().get(&Path::new([ROOT, A])),
         Some(&vec![
-            command::Key::of::<crate::text::command::SelectAll>().action()
+            command::Key::of::<crate::widget::text_command::SelectAll>().action()
         ])
     );
 }
 
 #[test]
 fn tree_collects_responder_bindings_by_path() {
-    let binding =
-        command::binding::Binding::new(command::Key::of::<crate::text::command::SelectAll>())
-            .available(false);
+    let binding = command::binding::Binding::new(command::Key::of::<
+        crate::widget::text_command::SelectAll,
+    >())
+    .available(false);
     let root = Node::container(layout::Axis::Vertical)
         .key(ROOT)
         .with_child(Node::leaf().key(A).with_responder_binding(binding.action()));
@@ -1825,7 +1838,7 @@ fn text_field_paint_clips_content_and_offsets_scrolled_text() {
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut text_engine = text::layout::Engine::new();
-    let states = HashMap::from([(path(A), text::view::TextViewState::new(12.0))]);
+    let states = HashMap::from([(path(A), text::edit::ViewState::new(12.0))]);
 
     tree.set_root(root);
     let layout = layout(&tree);
@@ -1872,7 +1885,7 @@ fn text_field_paint_emits_caret_during_visible_blink_phase() {
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut text_engine = text::layout::Engine::new();
-    let states = HashMap::from([(path(A), text::view::TextViewState::new_at(0.0, epoch))]);
+    let states = HashMap::from([(path(A), text::edit::ViewState::new_at(0.0, epoch))]);
 
     tree.set_root(root);
     let layout = layout(&tree);
@@ -1914,7 +1927,7 @@ fn text_field_paint_omits_caret_during_hidden_blink_phase() {
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut text_engine = text::layout::Engine::new();
-    let states = HashMap::from([(path(A), text::view::TextViewState::new_at(0.0, epoch))]);
+    let states = HashMap::from([(path(A), text::edit::ViewState::new_at(0.0, epoch))]);
     let hidden = epoch + Duration::from_millis(500);
 
     tree.set_root(root);
@@ -1934,13 +1947,13 @@ fn text_field_paint_omits_caret_during_hidden_blink_phase() {
 #[test]
 fn read_only_text_field_paint_omits_caret_even_when_focused() {
     let epoch = Instant::now();
-    let root = widget::text_field(text::Field::new("hello").read_only())
+    let root = widget::text_field(text::edit::Field::new("hello").read_only())
         .key(A)
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut text_engine = text::layout::Engine::new();
-    let states = HashMap::from([(path(A), text::view::TextViewState::new_at(0.0, epoch))]);
+    let states = HashMap::from([(path(A), text::edit::ViewState::new_at(0.0, epoch))]);
 
     tree.set_root(root);
     let layout = layout(&tree);
@@ -1959,10 +1972,12 @@ fn read_only_text_field_paint_omits_caret_even_when_focused() {
 #[test]
 fn empty_text_field_paints_placeholder_until_preedit_starts() {
     let theme = theme::Theme::default_dark();
-    let root =
-        widget::text_field_with_theme(text::Field::new("").with_placeholder("Search"), &theme)
-            .key(A)
-            .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
+    let root = widget::text_field_with_theme(
+        text::edit::Field::new("").with_placeholder("Search"),
+        &theme,
+    )
+    .key(A)
+    .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut text_engine = text::layout::Engine::new();
@@ -1982,15 +1997,17 @@ fn empty_text_field_paints_placeholder_until_preedit_starts() {
     assert_eq!(placeholder.document.blocks()[0].runs()[0].text(), "Search");
     assert_eq!(
         placeholder.document.blocks()[0].runs()[0].style().color(),
-        theme.text().disabled()
+        text_color(theme.text().disabled())
     );
     let placeholder_size = placeholder.document.blocks()[0].runs()[0].style().size();
     assert_eq!(placeholder_size, theme.text().control_size());
 
-    let filled_root =
-        widget::text_field_with_theme(text::Field::new("S").with_placeholder("Search"), &theme)
-            .key(A)
-            .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
+    let filled_root = widget::text_field_with_theme(
+        text::edit::Field::new("S").with_placeholder("Search"),
+        &theme,
+    )
+    .key(A)
+    .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut filled_tree = Tree::new();
     let mut filled_scene = paint::Scene::new();
     filled_tree.set_root(filled_root);
@@ -2010,14 +2027,14 @@ fn empty_text_field_paints_placeholder_until_preedit_starts() {
     );
     assert_eq!(
         content.document.blocks()[0].runs()[0].style().color(),
-        theme.text().primary()
+        text_color(theme.text().primary())
     );
 
     let mut preedit_scene = paint::Scene::new();
     let preedit_states = HashMap::from([(
         path(A),
-        text::view::TextViewState::default()
-            .with_preedit(Some(text::Preedit::new("s", Some((0, 1))))),
+        text::edit::ViewState::default()
+            .with_preedit(Some(text::edit::Preedit::new("s", Some((0, 1))))),
     )]);
     tree.paint_with_text_engine(
         &layout,
@@ -2033,7 +2050,7 @@ fn empty_text_field_paints_placeholder_until_preedit_starts() {
         preedit_content.document.blocks()[0].runs()[0]
             .style()
             .color(),
-        theme.text().primary()
+        text_color(theme.text().primary())
     );
 }
 
@@ -2041,7 +2058,7 @@ fn empty_text_field_paints_placeholder_until_preedit_starts() {
 fn empty_text_area_paints_placeholder_without_changing_content_style() {
     let theme = theme::Theme::default_dark();
     let empty_area =
-        text::Area::new(text::Buffer::from_multiline_text("")).with_placeholder("Note");
+        text::edit::Area::new(text::Buffer::from_multiline_text("")).with_placeholder("Note");
     let root = widget::text_area_with_theme(empty_area, &theme)
         .key(A)
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(80.0));
@@ -2064,7 +2081,7 @@ fn empty_text_area_paints_placeholder_without_changing_content_style() {
     assert_eq!(placeholder.document.blocks()[0].runs()[0].text(), "Note");
     assert_eq!(
         placeholder.document.blocks()[0].runs()[0].style().color(),
-        theme.text().disabled()
+        text_color(theme.text().disabled())
     );
     assert_eq!(
         placeholder.document.blocks()[0].runs()[0].style().size(),
@@ -2079,7 +2096,7 @@ fn empty_text_area_paints_placeholder_without_changing_content_style() {
     );
 
     let filled_area =
-        text::Area::new(text::Buffer::from_multiline_text("N")).with_placeholder("Note");
+        text::edit::Area::new(text::Buffer::from_multiline_text("N")).with_placeholder("Note");
     let filled_root = widget::text_area_with_theme(filled_area, &theme)
         .key(A)
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(80.0));
@@ -2116,7 +2133,7 @@ fn empty_text_area_paints_placeholder_without_changing_content_style() {
 
 #[test]
 fn obscured_text_field_paints_dot_glyphs_instead_of_source_text() {
-    let root = widget::text_field(text::Field::new("secret").obscured_dot())
+    let root = widget::text_field(text::edit::Field::new("secret").obscured_dot())
         .key(A)
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut tree = Tree::new();
@@ -2149,8 +2166,9 @@ fn text_field_paint_omits_selection_without_text_editing_target() {
     let mut buffer = text::Buffer::from_text("hello");
     let mut engine = text::layout::Engine::new();
     let mut editor = text::edit::Editor::new();
-    editor.apply_text_edit(&mut buffer, text::edit::Edit::SelectAll);
-    let root = widget::text_field(buffer)
+    let mut edit_state = buffer.initial_state();
+    editor.apply_edit(&mut buffer, &mut edit_state, text::edit::Edit::SelectAll);
+    let root = widget::text_field(text::edit::Field::new(buffer).with_state(edit_state))
         .key(A)
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut tree = Tree::new();
@@ -2175,8 +2193,9 @@ fn text_field_paint_emits_selection_for_text_editing_target() {
     let mut buffer = text::Buffer::from_text("hello");
     let mut engine = text::layout::Engine::new();
     let mut editor = text::edit::Editor::new();
-    editor.apply_text_edit(&mut buffer, text::edit::Edit::SelectAll);
-    let root = widget::text_field(buffer)
+    let mut edit_state = buffer.initial_state();
+    editor.apply_edit(&mut buffer, &mut edit_state, text::edit::Edit::SelectAll);
+    let root = widget::text_field(text::edit::Field::new(buffer).with_state(edit_state))
         .key(A)
         .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(30.0));
     let mut tree = Tree::new();
@@ -2201,8 +2220,9 @@ fn text_area_paint_emits_selection_for_text_editing_target() {
     let mut buffer = text::Buffer::from_multiline_text("alpha\nbeta\ngamma");
     let mut engine = text::layout::Engine::new();
     let mut editor = text::edit::Editor::new();
-    editor.apply_text_edit(&mut buffer, text::edit::Edit::SelectAll);
-    let root = widget::text_area(text::Area::new(buffer))
+    let mut edit_state = buffer.initial_state();
+    editor.apply_edit(&mut buffer, &mut edit_state, text::edit::Edit::SelectAll);
+    let root = widget::text_area(text::edit::Area::new(buffer).with_state(edit_state))
         .key(A)
         .with_size(layout::Size::Fixed(160.0), layout::Size::Fixed(80.0));
     let mut tree = Tree::new();
@@ -2233,15 +2253,15 @@ fn text_area_paint_emits_selection_for_text_editing_target() {
 fn text_area_paint_emits_preedit_overlay_for_text_editing_target() {
     let buffer = text::Buffer::from_multiline_text("alpha");
     let mut engine = text::layout::Engine::new();
-    let root = widget::text_area(text::Area::new(buffer))
+    let root = widget::text_area(text::edit::Area::new(buffer))
         .key(A)
         .with_size(layout::Size::Fixed(160.0), layout::Size::Fixed(80.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let states = HashMap::from([(
         path(A),
-        text::view::TextViewState::default()
-            .with_preedit(Some(text::Preedit::new("仮", Some((0, 3))))),
+        text::edit::ViewState::default()
+            .with_preedit(Some(text::edit::Preedit::new("仮", Some((0, 3))))),
     )]);
 
     tree.set_root(root);
@@ -2269,17 +2289,19 @@ fn text_area_paint_emits_caret_during_visible_blink_phase() {
     let epoch = Instant::now();
     let mut buffer = text::Buffer::from_multiline_text("alpha");
     let mut editor = text::edit::Editor::new();
-    editor.apply_text_edit(
+    let mut edit_state = buffer.initial_state();
+    editor.apply_edit(
         &mut buffer,
+        &mut edit_state,
         text::edit::Edit::set_cursor(text::buffer::Cursor::new(0, 2)),
     );
-    let root = widget::text_area(text::Area::new(buffer))
+    let root = widget::text_area(text::edit::Area::new(buffer).with_state(edit_state))
         .key(A)
         .with_size(layout::Size::Fixed(160.0), layout::Size::Fixed(80.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut engine = text::layout::Engine::new();
-    let states = HashMap::from([(path(A), text::view::TextViewState::new_at(0.0, epoch))]);
+    let states = HashMap::from([(path(A), text::edit::ViewState::new_at(0.0, epoch))]);
 
     tree.set_root(root);
     let layout = layout_area(&tree, area::logical(160.0, 80.0));
@@ -2303,13 +2325,13 @@ fn text_area_paint_emits_caret_during_visible_blink_phase() {
 fn text_area_paint_omits_caret_during_hidden_blink_phase() {
     let epoch = Instant::now();
     let buffer = text::Buffer::from_multiline_text("alpha");
-    let root = widget::text_area(text::Area::new(buffer))
+    let root = widget::text_area(text::edit::Area::new(buffer))
         .key(A)
         .with_size(layout::Size::Fixed(160.0), layout::Size::Fixed(80.0));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
     let mut engine = text::layout::Engine::new();
-    let states = HashMap::from([(path(A), text::view::TextViewState::new_at(0.0, epoch))]);
+    let states = HashMap::from([(path(A), text::edit::ViewState::new_at(0.0, epoch))]);
     let hidden = epoch + Duration::from_millis(500);
 
     tree.set_root(root);
@@ -2484,9 +2506,11 @@ fn disabled_button_uses_disabled_label_color() {
         text(&scene, 2).document.blocks()[0].runs()[0]
             .style()
             .color(),
-        root.style()
-            .disabled_label_color()
-            .expect("control has disabled label color")
+        text_color(
+            root.style()
+                .disabled_label_color()
+                .expect("control has disabled label color")
+        )
     );
     assert_eq!(
         tint(&scene, 1).brush,
@@ -2715,7 +2739,7 @@ fn disabled_visual_state_removes_interactivity_and_interactive_paint() {
         first_text(&scene).document.blocks()[0].runs()[0]
             .style()
             .color(),
-        theme.text().disabled()
+        text_color(theme.text().disabled())
     );
     assert!(
         scene
@@ -2934,7 +2958,7 @@ fn disabled_actionable_parent_paints_child_label_with_disabled_color() {
         text(&scene, 0).document.blocks()[0].runs()[0]
             .style()
             .color(),
-        theme.text().disabled()
+        text_color(theme.text().disabled())
     );
 }
 
@@ -3001,7 +3025,7 @@ fn enabled_actionable_parent_paints_child_content_with_normal_color() {
         text(&scene, 0).document.blocks()[0].runs()[0]
             .style()
             .color(),
-        theme.text().primary()
+        text_color(theme.text().primary())
     );
     assert_eq!(icon_item(&scene, 1).color, theme.text().primary());
 }
@@ -3035,7 +3059,7 @@ fn child_command_uses_own_state_instead_of_inherited_disabled_state() {
         text(&scene, 0).document.blocks()[0].runs()[0]
             .style()
             .color(),
-        theme.text().primary()
+        text_color(theme.text().primary())
     );
 }
 
@@ -3057,9 +3081,11 @@ fn busy_button_uses_busy_label_color() {
         text(&scene, 2).document.blocks()[0].runs()[0]
             .style()
             .color(),
-        root.style()
-            .busy_label_color()
-            .expect("control has busy label color")
+        text_color(
+            root.style()
+                .busy_label_color()
+                .expect("control has busy label color")
+        )
     );
     assert_eq!(
         tint(&scene, 1).brush,

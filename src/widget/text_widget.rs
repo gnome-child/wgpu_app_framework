@@ -53,19 +53,22 @@ pub fn paragraph_with_theme(
     )
 }
 
-pub fn text_field(field: impl Into<text::Field>) -> ui::Node {
+pub fn text_field(field: impl Into<text::edit::Field>) -> ui::Node {
     text_field_with_theme(field, &theme::Theme::default_dark())
 }
 
-pub fn text_area(area: impl Into<text::Area>) -> ui::Node {
+pub fn text_area(area: impl Into<text::edit::Area>) -> ui::Node {
     text_area_with_theme(area, &theme::Theme::default_dark())
 }
 
-pub fn text_area_surface(area: impl Into<text::Area>) -> ui::Node {
+pub fn text_area_surface(area: impl Into<text::edit::Area>) -> ui::Node {
     text_area_surface_with_theme(area, &theme::Theme::default_dark())
 }
 
-pub fn text_field_with_theme(field: impl Into<text::Field>, theme: &theme::Theme) -> ui::Node {
+pub fn text_field_with_theme(
+    field: impl Into<text::edit::Field>,
+    theme: &theme::Theme,
+) -> ui::Node {
     let field = field.into();
     let label = text_field_document(&field, theme);
     let outline = theme.control().focus_outline();
@@ -97,11 +100,11 @@ pub fn text_field_with_theme(field: impl Into<text::Field>, theme: &theme::Theme
             right: theme.density().app_padding(),
             bottom: 0.0,
         }),
-        &text::Surface::Field(field),
+        &text::edit::Surface::Field(field),
     )
 }
 
-pub fn text_area_with_theme(area: impl Into<text::Area>, theme: &theme::Theme) -> ui::Node {
+pub fn text_area_with_theme(area: impl Into<text::edit::Area>, theme: &theme::Theme) -> ui::Node {
     let outline = theme.control().focus_outline();
 
     text_area_surface_with_theme(area, theme)
@@ -121,7 +124,10 @@ pub fn text_area_with_theme(area: impl Into<text::Area>, theme: &theme::Theme) -
         })
 }
 
-pub fn text_area_surface_with_theme(area: impl Into<text::Area>, theme: &theme::Theme) -> ui::Node {
+pub fn text_area_surface_with_theme(
+    area: impl Into<text::edit::Area>,
+    theme: &theme::Theme,
+) -> ui::Node {
     let area = area.into();
     let label = text_area_document(&area, theme);
     let mut interactivity = ui::Interactivity::NONE.with_hit_test(true);
@@ -131,7 +137,7 @@ pub fn text_area_surface_with_theme(area: impl Into<text::Area>, theme: &theme::
         cursor = ui::Cursor::Text;
     }
 
-    let surface = text::Surface::Area(area.clone());
+    let surface = text::edit::Surface::Area(area.clone());
     let scroll = theme.scroll();
     let text_scroll = super::Scroll::new()
         .with_axes(text_area_scroll_axes(&area))
@@ -159,7 +165,10 @@ pub fn text_area_surface_with_theme(area: impl Into<text::Area>, theme: &theme::
     bind_text_surface_responders(node, &surface)
 }
 
-fn text_field_document(field: &text::Field, theme: &theme::Theme) -> text::document::Document {
+fn text_field_document(
+    field: &text::edit::Field,
+    theme: &theme::Theme,
+) -> text::document::Document {
     let color = if field.is_disabled() {
         theme.text().disabled()
     } else {
@@ -172,7 +181,7 @@ fn text_field_document(field: &text::Field, theme: &theme::Theme) -> text::docum
     )
 }
 
-fn text_area_document(area: &text::Area, theme: &theme::Theme) -> text::document::Document {
+fn text_area_document(area: &text::edit::Area, theme: &theme::Theme) -> text::document::Document {
     let color = if area.is_disabled() {
         theme.text().disabled()
     } else {
@@ -183,21 +192,21 @@ fn text_area_document(area: &text::Area, theme: &theme::Theme) -> text::document
         .document(text::document::Role::Control, "", color)
 }
 
-fn text_area_scroll_bars(area: &text::Area) -> super::scroll::Bars {
+fn text_area_scroll_bars(area: &text::edit::Area) -> super::scroll::Bars {
     match area.wrap() {
-        text::AreaWrap::None => super::scroll::Bars::both(),
-        text::AreaWrap::WordOrGlyph => super::scroll::Bars::vertical(),
+        text::edit::AreaWrap::None => super::scroll::Bars::both(),
+        text::edit::AreaWrap::WordOrGlyph => super::scroll::Bars::vertical(),
     }
 }
 
-fn text_area_scroll_axes(area: &text::Area) -> super::scroll::Axes {
+fn text_area_scroll_axes(area: &text::edit::Area) -> super::scroll::Axes {
     match area.wrap() {
-        text::AreaWrap::None => super::scroll::Axes::both(),
-        text::AreaWrap::WordOrGlyph => super::scroll::Axes::vertical(),
+        text::edit::AreaWrap::None => super::scroll::Axes::both(),
+        text::edit::AreaWrap::WordOrGlyph => super::scroll::Axes::vertical(),
     }
 }
 
-fn bind_text_surface_responders(node: ui::Node, surface: &text::Surface) -> ui::Node {
+fn bind_text_surface_responders(node: ui::Node, surface: &text::edit::Surface) -> ui::Node {
     let mut node = node;
 
     for target in surface.command_targets() {

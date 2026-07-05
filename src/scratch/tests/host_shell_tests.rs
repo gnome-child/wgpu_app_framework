@@ -11,7 +11,7 @@ fn present_pending_uses_revision_staleness_across_windows_after_command_undo() {
             View::new(
                 view::Node::root()
                     .child(view::Node::label(format!("events {}", state.event_count)))
-                    .child(view::Node::command::<timeline::Undo>()),
+                    .child(view::Node::bound::<timeline::Undo>()),
             )
         });
 
@@ -40,7 +40,7 @@ fn present_pending_uses_revision_staleness_across_windows_after_command_undo() {
         .find(|presentation| presentation.window() == first)
         .expect("first window should have presented")
         .view()
-        .command::<timeline::Undo>()
+        .binding::<timeline::Undo>()
         .expect("undo command should be in the view")
         .clone();
 
@@ -99,7 +99,7 @@ fn text_editor_host_drains_presentations_and_platform_requests() {
 
     let open = work.presentations()[0]
         .view()
-        .command::<document::OpenFile>()
+        .binding::<document::OpenFile>()
         .expect("open command should be in the presented view")
         .action();
 
@@ -178,7 +178,7 @@ fn text_editor_host_work_reports_pending_tasks() {
 }
 
 #[test]
-fn shell_drains_text_editor_to_production_paint_scene_and_requests() {
+fn shell_drains_text_editor_to_scene_work_and_requests() {
     let mut shell = Shell::new(text_editor::app(text_editor::State::default()));
 
     shell.start();
@@ -195,17 +195,13 @@ fn shell_drains_text_editor_to_production_paint_scene_and_requests() {
         geometry::Size::new(640, 480)
     );
     assert!(work.requests().is_empty());
-    assert!(work.presentations()[0].scene().items().iter().any(|item| {
-        let paint::Item::Text(text) = item else {
-            return false;
-        };
-
-        text.document
-            .blocks()
+    assert!(
+        work.presentations()[0]
+            .scene()
+            .texts()
             .iter()
-            .flat_map(text::document::Block::runs)
-            .any(|run| run.text() == "File")
-    }));
+            .any(|text| text.value() == "File")
+    );
 
     shell
         .handle_input(window, Input::shortcut("Ctrl+O"))
@@ -275,7 +271,7 @@ fn shell_routes_coordinate_input_and_task_completions() {
 
 #[test]
 fn text_editor_shell_entrypoint_runs_host_loop_step() {
-    let path = temp_text_path("scratch_text_editor_shell_step.txt");
+    let path = temp_text_path("text_editor_shell_step.txt");
     let mut shell = text_editor::shell(text_editor::State::default());
 
     shell.start();
@@ -310,7 +306,7 @@ fn text_editor_shell_entrypoint_runs_host_loop_step() {
 
 #[test]
 fn text_editor_shell_handles_file_dialog_selection() {
-    let path = temp_text_path("scratch_text_editor_shell_open.txt");
+    let path = temp_text_path("text_editor_shell_open.txt");
     std::fs::write(&path, "opened through shell").expect("fixture file should be writable");
     let mut shell = text_editor::shell(text_editor::State::default());
 
@@ -355,7 +351,7 @@ fn text_editor_shell_handles_file_dialog_selection() {
 
 #[test]
 fn text_editor_shell_event_surface_drives_save_flow() {
-    let path = temp_text_path("scratch_text_editor_shell_event_save.txt");
+    let path = temp_text_path("text_editor_shell_event_save.txt");
     let _ = std::fs::remove_file(&path);
     let mut shell = text_editor::shell(text_editor::State::default());
 
@@ -382,13 +378,8 @@ fn text_editor_shell_event_surface_drives_save_flow() {
         text_editor::window_size()
     );
     assert_eq!(
-        started.presentations()[0].scene().clear_color(),
-        Some(paint::Color::rgba(
-            17.0 / 255.0,
-            17.0 / 255.0,
-            19.0 / 255.0,
-            1.0
-        ))
+        started.presentations()[0].scene().clear(),
+        text_editor::CANVAS_COLOR
     );
 
     let window = started.opened_windows()[0].id();
@@ -405,7 +396,7 @@ fn text_editor_shell_event_surface_drives_save_flow() {
         .expect("resized window should present");
     let text_area = presentation
         .layout()
-        .find_role(view::Role::TextArea)
+        .find_role(view::node::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");
@@ -518,7 +509,7 @@ fn shell_reports_existing_runtime_windows_on_first_drain() {
 
 #[test]
 fn text_editor_host_adapter_consumes_shell_work_end_to_end() {
-    let path = temp_text_path("scratch_text_editor_host_adapter_save.txt");
+    let path = temp_text_path("text_editor_host_adapter_save.txt");
     let _ = std::fs::remove_file(&path);
     let mut host = Host::new(text_editor::shell(text_editor::State::default()));
 
@@ -551,7 +542,7 @@ fn text_editor_host_adapter_consumes_shell_work_end_to_end() {
         .presentation(window)
         .expect("host should retain latest presentation")
         .layout()
-        .find_role(view::Role::TextArea)
+        .find_role(view::node::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");

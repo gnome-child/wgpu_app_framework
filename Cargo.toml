@@ -7,8 +7,8 @@ edition = "2024"
 scratch = []
 
 [[example]]
-name = "scratch_text_editor"
-path = "examples/scratch_text_editor/main.rs"
+name = "text_editor"
+path = "examples/text_editor/main.rs"
 required-features = ["scratch"]
 
 [dependencies]

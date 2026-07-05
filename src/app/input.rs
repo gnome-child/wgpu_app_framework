@@ -62,7 +62,7 @@ pub fn pointer_moved_with_text_engine(
         }];
         if state
             .text_surface(&target)
-            .is_some_and(text::Surface::is_area)
+            .is_some_and(text::edit::Surface::is_area)
         {
             state.scroll.record_thumb_drag_move();
             state.queue_text_area_scroll_to(&target, offset, text_engine);
@@ -203,7 +203,7 @@ pub fn pointer_pressed(
             state.pressed_source = Some(PressSource::Pointer);
             if state
                 .text_surface(hit.target())
-                .is_some_and(text::Surface::is_area)
+                .is_some_and(text::edit::Surface::is_area)
             {
                 state.queue_text_area_scroll_to(hit.target(), offset, text_engine);
             } else {
@@ -564,18 +564,18 @@ fn text_edit_for_key(
 
     let jump = jump_modifier_pressed(modifiers);
     let motion = match key {
-        ui::Key::ArrowLeft if jump => Some(text::TextMotion::WordPrevious),
-        ui::Key::ArrowRight if jump => Some(text::TextMotion::WordNext),
-        ui::Key::ArrowLeft => Some(text::TextMotion::VisualLeft),
-        ui::Key::ArrowRight => Some(text::TextMotion::VisualRight),
-        ui::Key::ArrowUp if multiline => Some(text::TextMotion::VisualUp),
-        ui::Key::ArrowDown if multiline => Some(text::TextMotion::VisualDown),
-        ui::Key::PageUp if multiline => Some(text::TextMotion::PageUp),
-        ui::Key::PageDown if multiline => Some(text::TextMotion::PageDown),
-        ui::Key::Home if multiline && jump => Some(text::TextMotion::DocumentStart),
-        ui::Key::End if multiline && jump => Some(text::TextMotion::DocumentEnd),
-        ui::Key::Home => Some(text::TextMotion::LineStart),
-        ui::Key::End => Some(text::TextMotion::LineEnd),
+        ui::Key::ArrowLeft if jump => Some(text::edit::Motion::WordPrevious),
+        ui::Key::ArrowRight if jump => Some(text::edit::Motion::WordNext),
+        ui::Key::ArrowLeft => Some(text::edit::Motion::VisualLeft),
+        ui::Key::ArrowRight => Some(text::edit::Motion::VisualRight),
+        ui::Key::ArrowUp if multiline => Some(text::edit::Motion::VisualUp),
+        ui::Key::ArrowDown if multiline => Some(text::edit::Motion::VisualDown),
+        ui::Key::PageUp if multiline => Some(text::edit::Motion::PageUp),
+        ui::Key::PageDown if multiline => Some(text::edit::Motion::PageDown),
+        ui::Key::Home if multiline && jump => Some(text::edit::Motion::DocumentStart),
+        ui::Key::End if multiline && jump => Some(text::edit::Motion::DocumentEnd),
+        ui::Key::Home => Some(text::edit::Motion::LineStart),
+        ui::Key::End => Some(text::edit::Motion::LineEnd),
         _ => None,
     };
 
@@ -613,8 +613,8 @@ fn insert_text_request(
 ) -> command::call::Raw {
     command::call::Raw::from_route(
         command::binding::Route::new(
-            command::Key::of::<text::command::InsertText>(),
-            text::command::text_target_kind(),
+            command::Key::of::<crate::widget::text_command::InsertText>(),
+            crate::widget::text_command::text_target_kind(),
         ),
         command::call::Source::Keyboard,
         command::call::Context::path(window, target.clone()),
@@ -829,7 +829,7 @@ pub fn ime(state: &mut WindowState, event: Ime) -> Outcome {
     match event {
         Ime::Enabled => Outcome::default(),
         Ime::Preedit(text, selection) => {
-            let preedit = (!text.is_empty()).then(|| text::Preedit::new(text, selection));
+            let preedit = (!text.is_empty()).then(|| text::edit::Preedit::new(text, selection));
             let redraw = state.set_focused_text_field_preedit(preedit).is_some();
 
             Outcome {
@@ -1223,7 +1223,7 @@ mod tests {
                 .key(ROOT)
                 .with_size(layout::Size::Fill, layout::Size::Fill)
                 .with_child(
-                    widget::text_area(text::Area::new(buffer))
+                    widget::text_area(text::edit::Area::new(buffer))
                         .key(CHILD)
                         .with_scroll_bars(widget::scroll::Bars::none())
                         .with_size(layout::Size::Fixed(120.0), layout::Size::Fixed(48.0)),
@@ -1323,17 +1323,17 @@ mod tests {
 
     fn text_route<C>() -> command::binding::Route
     where
-        C: crate::text::command::EditCommand,
+        C: crate::widget::text_command::EditCommand,
     {
         command::binding::Route::new(
             command::Key::of::<C>(),
-            crate::text::command::text_target_kind(),
+            crate::widget::text_command::text_target_kind(),
         )
     }
 
     fn register_text_command<C>(registry: &mut command::Registry, display: &'static str)
     where
-        C: crate::text::command::EditCommand,
+        C: crate::widget::text_command::EditCommand,
     {
         define_text_command::<C>(registry, |command| command.with_display(display));
     }
@@ -1346,10 +1346,10 @@ mod tests {
         registry: &mut command::Registry,
         configure: impl FnOnce(command::definition::Definition) -> command::definition::Definition,
     ) where
-        C: crate::text::command::EditCommand,
+        C: crate::widget::text_command::EditCommand,
     {
         registry.commands(|commands| {
-            crate::text::command::define::<C>(commands, configure);
+            crate::widget::text_command::define::<C>(commands, configure);
         });
     }
 
@@ -1382,7 +1382,7 @@ mod tests {
         text_field_state_with_field(crate::text::Buffer::from_text("hello"))
     }
 
-    fn text_field_state_with_field(field: impl Into<crate::text::Field>) -> WindowState {
+    fn text_field_state_with_field(field: impl Into<crate::text::edit::Field>) -> WindowState {
         let mut tree = ui::Tree::new();
         let mut measurer = crate::text::layout::Engine::new();
 
@@ -1408,8 +1408,8 @@ mod tests {
     }
 
     fn two_text_field_state(
-        first: impl Into<crate::text::Field>,
-        second: impl Into<crate::text::Field>,
+        first: impl Into<crate::text::edit::Field>,
+        second: impl Into<crate::text::edit::Field>,
     ) -> WindowState {
         let mut tree = ui::Tree::new();
         let mut measurer = crate::text::layout::Engine::new();
@@ -1451,7 +1451,7 @@ mod tests {
             .map(|line| format!("line {line:02} abcdefghijklmnopqrstuvwxyz"))
             .collect::<Vec<_>>()
             .join("\n");
-        let area = crate::text::Area::new(crate::text::Buffer::from_multiline_text(text));
+        let area = crate::text::edit::Area::new(crate::text::Buffer::from_multiline_text(text));
 
         tree.set_root(
             ui::Node::container(layout::Axis::Vertical)
@@ -1475,7 +1475,7 @@ mod tests {
             composition: Some(composition),
             text: HashMap::from([(
                 path.clone(),
-                crate::text::view::TextViewState::default().with_scroll_y(scroll_y),
+                crate::text::edit::ViewState::default().with_scroll_y(scroll_y),
             )])
             .into(),
             ..WindowState::default()
@@ -1494,7 +1494,7 @@ mod tests {
     }
 
     fn text_field_state_with_registry(
-        buffer: crate::text::Buffer,
+        field: impl Into<crate::text::edit::Field>,
         registry: &mut command::Registry,
     ) -> WindowState {
         let window = window::Id::new(1);
@@ -1502,7 +1502,7 @@ mod tests {
         let mut measurer = crate::text::layout::Engine::new();
 
         tree.set_root(
-            widget::text_field(buffer)
+            widget::text_field(field)
                 .key(CHILD)
                 .with_size(layout::Size::Fixed(100.0), layout::Size::Fixed(24.0)),
         );
@@ -1534,9 +1534,10 @@ mod tests {
         let mut floating = crate::app::floating::State::default();
 
         registry.commands(|commands| {
-            crate::text::command::define::<crate::text::command::SelectAll>(commands, |command| {
-                command.with_display("Select All")
-            });
+            crate::widget::text_command::define::<crate::widget::text_command::SelectAll>(
+                commands,
+                |command| command.with_display("Select All"),
+            );
         });
         registry.register(command::definition::Definition::for_command::<
             Click,
@@ -1546,14 +1547,13 @@ mod tests {
             ui::Node::container(layout::Axis::Vertical)
                 .key(ROOT)
                 .with_child(
-                    widget::menu_bar(
-                        menu::Bar::new().menu(
-                            menu::Menu::new("File").key(FILE).section(
-                                menu::Section::new()
-                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
-                            ),
+                    widget::menu_bar(menu::Bar::new().menu(
+                        menu::Menu::new("File").key(FILE).section(
+                            menu::Section::new().item(menu::Item::command::<
+                                crate::widget::text_command::SelectAll,
+                            >()),
                         ),
-                    )
+                    ))
                     .key(MENU_BAR),
                 )
                 .with_child(
@@ -1564,7 +1564,9 @@ mod tests {
                 .with_child(
                     ui::Node::leaf()
                         .key(SECOND)
-                        .with_action_route(text_route::<crate::text::command::SelectAll>().action())
+                        .with_action_route(
+                            text_route::<crate::widget::text_command::SelectAll>().action(),
+                        )
                         .with_action_subject(ui::ActionSubject::Current)
                         .with_interactivity(ui::Interactivity::CONTROL)
                         .with_size(layout::Size::Fixed(20.0), layout::Size::Fixed(20.0)),
@@ -1626,7 +1628,8 @@ mod tests {
             .actions()
             .iter()
             .find_map(|(path, route)| {
-                (route.key() == command::Key::of::<crate::text::command::SelectAll>().action()
+                (route.key()
+                    == command::Key::of::<crate::widget::text_command::SelectAll>().action()
                     && state.is_menu_path(path))
                 .then(|| path.clone())
             })
@@ -1695,9 +1698,12 @@ mod tests {
 
         assert_eq!(
             request.command(),
-            command::Key::of::<crate::text::command::InsertText>()
+            command::Key::of::<crate::widget::text_command::InsertText>()
         );
-        assert_eq!(request.target(), crate::text::command::text_target_kind());
+        assert_eq!(
+            request.target(),
+            crate::widget::text_command::text_target_kind()
+        );
         assert_eq!(request.source(), command::call::Source::Keyboard);
         assert_eq!(
             request.context(),
@@ -1803,7 +1809,7 @@ mod tests {
 
         assert_eq!(
             request.command(),
-            command::Key::of::<crate::text::command::SelectAll>()
+            command::Key::of::<crate::widget::text_command::SelectAll>()
         );
         assert_eq!(
             request.context(),
@@ -2308,7 +2314,10 @@ mod tests {
         let mut state = text_field_command_tree(true);
         let field = root_path(CHILD);
         let row = select_all_menu_row(&state);
-        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        register_text_command::<crate::widget::text_command::SelectAll>(
+            &mut registry,
+            "Select All",
+        );
         publish_text_command_states(&mut registry, &state);
         assert!(state.set_focus(
             row.clone(),
@@ -2342,7 +2351,10 @@ mod tests {
         let mut state = text_field_command_tree(true);
         let field = root_path(CHILD);
         let row = select_all_menu_row(&state);
-        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        register_text_command::<crate::widget::text_command::SelectAll>(
+            &mut registry,
+            "Select All",
+        );
         publish_text_command_states(&mut registry, &state);
         assert!(state.set_focus(
             row.clone(),
@@ -2370,7 +2382,10 @@ mod tests {
         let mut state = text_field_command_tree(false);
         let field = root_path(CHILD);
         let button = root_path(SECOND);
-        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        register_text_command::<crate::widget::text_command::SelectAll>(
+            &mut registry,
+            "Select All",
+        );
         publish_text_command_states(&mut registry, &state);
         state.focus = FocusState::focused(Focus::new(
             button.clone(),
@@ -2482,7 +2497,7 @@ mod tests {
         let window = window::Id::new(1);
         let mut registry = command::Registry::new();
         let mut state = text_field_state();
-        define_text_command::<crate::text::command::SelectAll>(&mut registry, |command| {
+        define_text_command::<crate::widget::text_command::SelectAll>(&mut registry, |command| {
             command
                 .with_display("Plain A")
                 .shortcut(command::shortcut::Shortcut::new(
@@ -2506,7 +2521,8 @@ mod tests {
     fn read_only_text_field_suppresses_character_edit_requests() {
         let window = window::Id::new(1);
         let registry = command::Registry::new();
-        let mut state = text_field_state_with_field(crate::text::Field::new("hello").read_only());
+        let mut state =
+            text_field_state_with_field(crate::text::edit::Field::new("hello").read_only());
 
         let outcome = key_pressed(
             &registry,
@@ -2528,19 +2544,21 @@ mod tests {
     fn read_only_text_field_still_emits_selection_navigation_requests() {
         let window = window::Id::new(1);
         let registry = command::Registry::new();
-        let mut state = text_field_state_with_field(crate::text::Field::new("hello").read_only());
+        let mut state =
+            text_field_state_with_field(crate::text::edit::Field::new("hello").read_only());
 
         let outcome = key_pressed(&registry, &mut state, window, ui::Key::ArrowLeft, false);
 
         assert!(outcome.events.contains(&ui::Event::TextEditRequested {
             target: path(CHILD),
-            edit: crate::text::edit::Edit::move_position(crate::text::TextMotion::VisualLeft),
+            edit: crate::text::edit::Edit::move_position(crate::text::edit::Motion::VisualLeft),
         }));
     }
 
     #[test]
     fn read_only_text_field_does_not_enable_ime_or_commit_text() {
-        let mut state = text_field_state_with_field(crate::text::Field::new("hello").read_only());
+        let mut state =
+            text_field_state_with_field(crate::text::edit::Field::new("hello").read_only());
 
         assert!(!state.text_input_enabled());
         let preedit = ime(&mut state, Ime::Preedit("compose".into(), Some((0, 1))));
@@ -2558,7 +2576,7 @@ mod tests {
         let old_epoch = Instant::now() - Duration::from_millis(500);
         state.text.insert(
             path(CHILD),
-            crate::text::view::TextViewState::new_at(0.0, old_epoch),
+            crate::text::edit::ViewState::new_at(0.0, old_epoch),
         );
 
         assert!(
@@ -2593,8 +2611,9 @@ mod tests {
         let mut state = text_field_state();
         state.text.insert(
             path(CHILD),
-            crate::text::view::TextViewState::default()
-                .with_preedit(Some(crate::text::Preedit::new("preedit", Some((0, 3))))),
+            crate::text::edit::ViewState::default().with_preedit(Some(
+                crate::text::edit::Preedit::new("preedit", Some((0, 3))),
+            )),
         );
 
         let outcome = ime(&mut state, Ime::Commit("a\nb".into()));
@@ -2612,7 +2631,7 @@ mod tests {
                 .text
                 .states()
                 .get(&path(CHILD))
-                .and_then(crate::text::view::TextViewState::preedit),
+                .and_then(crate::text::edit::ViewState::preedit),
             None
         );
     }
@@ -2628,7 +2647,7 @@ mod tests {
             .text
             .states()
             .get(&path(CHILD))
-            .and_then(crate::text::view::TextViewState::preedit)
+            .and_then(crate::text::edit::ViewState::preedit)
             .expect("preedit should be stored on focused text field");
         assert_eq!(stored.text(), "compose");
         assert_eq!(stored.selection(), Some((1, 4)));
@@ -2641,7 +2660,7 @@ mod tests {
                 .text
                 .states()
                 .get(&path(CHILD))
-                .and_then(crate::text::view::TextViewState::preedit),
+                .and_then(crate::text::edit::ViewState::preedit),
             None
         );
     }
@@ -2674,7 +2693,7 @@ mod tests {
 
         assert!(outcome.events.contains(&ui::Event::TextEditRequested {
             target: path(CHILD),
-            edit: crate::text::edit::Edit::move_position(crate::text::TextMotion::VisualLeft),
+            edit: crate::text::edit::Edit::move_position(crate::text::edit::Motion::VisualLeft),
         }));
     }
 
@@ -2689,7 +2708,7 @@ mod tests {
 
         assert!(outcome.events.contains(&ui::Event::TextEditRequested {
             target: path(CHILD),
-            edit: crate::text::edit::Edit::extend_position(crate::text::TextMotion::VisualRight),
+            edit: crate::text::edit::Edit::extend_position(crate::text::edit::Motion::VisualRight),
         }));
     }
 
@@ -2708,7 +2727,7 @@ mod tests {
 
         assert!(outcome.events.contains(&ui::Event::TextEditRequested {
             target: path(CHILD),
-            edit: crate::text::edit::Edit::move_position(crate::text::TextMotion::WordPrevious),
+            edit: crate::text::edit::Edit::move_position(crate::text::edit::Motion::WordPrevious),
         }));
     }
 
@@ -2818,7 +2837,8 @@ mod tests {
 
     #[test]
     fn secondary_click_on_disabled_text_field_does_not_open_context_menu() {
-        let mut state = text_field_state_with_field(crate::text::Field::new("Disabled").disabled());
+        let mut state =
+            text_field_state_with_field(crate::text::edit::Field::new("Disabled").disabled());
 
         pointer_pressed_for_test(
             &mut state,
@@ -2898,21 +2918,24 @@ mod tests {
         assert_eq!(state.text_pointer_gesture, None);
     }
 
-    fn selected_text_buffer(selection_end: usize) -> crate::text::Buffer {
+    fn selected_text_field(selection_end: usize) -> crate::text::edit::Field {
         let mut text_editor = crate::text::edit::Editor::new();
         let mut buffer = crate::text::Buffer::from_text("hello");
-        text_editor.apply_text_edit(
+        let mut edit_state = buffer.initial_state();
+        text_editor.apply_edit(
             &mut buffer,
+            &mut edit_state,
             crate::text::edit::Edit::set_cursor(crate::text::buffer::Cursor::new(0, 0)),
         );
-        text_editor.apply_text_edit(
+        text_editor.apply_edit(
             &mut buffer,
+            &mut edit_state,
             crate::text::edit::Edit::pointer(
                 crate::text::edit::PointerEditKind::Drag,
                 crate::text::buffer::Cursor::new(0, selection_end),
             ),
         );
-        buffer
+        crate::text::edit::Field::new(buffer).with_state(edit_state)
     }
 
     #[test]
@@ -2920,7 +2943,7 @@ mod tests {
         let window = window::Id::new(1);
         let registry = command::Registry::new();
         let mut text_engine = crate::text::layout::Engine::new();
-        let mut state = text_field_state_with_field(selected_text_buffer(5));
+        let mut state = text_field_state_with_field(selected_text_field(5));
 
         let pressed = pointer_pressed(
             &mut state,
@@ -2963,7 +2986,7 @@ mod tests {
         let window = window::Id::new(1);
         let registry = command::Registry::new();
         let mut text_engine = crate::text::layout::Engine::new();
-        let mut state = text_field_state_with_field(selected_text_buffer(2));
+        let mut state = text_field_state_with_field(selected_text_field(2));
 
         pointer_pressed(
             &mut state,
@@ -2999,7 +3022,7 @@ mod tests {
         let window = window::Id::new(1);
         let registry = command::Registry::new();
         let mut text_engine = crate::text::layout::Engine::new();
-        let mut state = text_field_state_with_field(selected_text_buffer(2));
+        let mut state = text_field_state_with_field(selected_text_field(2));
 
         pointer_pressed(
             &mut state,
@@ -3132,7 +3155,7 @@ mod tests {
         let window = window::Id::new(1);
         let registry = command::Registry::new();
         let mut text_engine = crate::text::layout::Engine::new();
-        let mut state = text_field_state_with_field(selected_text_buffer(2));
+        let mut state = text_field_state_with_field(selected_text_field(2));
 
         let pressed = pointer_pressed(
             &mut state,
@@ -3191,7 +3214,7 @@ mod tests {
         let window = window::Id::new(1);
         let registry = command::Registry::new();
         let mut text_engine = crate::text::layout::Engine::new();
-        let mut state = text_field_state_with_field(selected_text_buffer(2));
+        let mut state = text_field_state_with_field(selected_text_field(2));
 
         pointer_pressed(
             &mut state,
@@ -3244,7 +3267,7 @@ mod tests {
         let registry = command::Registry::new();
         let mut text_engine = crate::text::layout::Engine::new();
         let mut state = two_text_field_state(
-            selected_text_buffer(2),
+            selected_text_field(2),
             crate::text::Buffer::from_text("world"),
         );
 
@@ -3295,7 +3318,7 @@ mod tests {
     fn active_text_drag_requests_redraw_even_when_drop_target_is_unchanged() {
         let window = window::Id::new(1);
         let mut text_engine = crate::text::layout::Engine::new();
-        let mut state = text_field_state_with_field(selected_text_buffer(2));
+        let mut state = text_field_state_with_field(selected_text_field(2));
 
         pointer_pressed(
             &mut state,
@@ -3325,20 +3348,10 @@ mod tests {
         let window = window::Id::new(1);
         let registry = command::Registry::new();
         let mut text_engine = crate::text::layout::Engine::new();
-        let mut text_editor = crate::text::edit::Editor::new();
-        let mut buffer = crate::text::Buffer::from_text("hello");
-        text_editor.apply_text_edit(
-            &mut buffer,
-            crate::text::edit::Edit::set_cursor(crate::text::buffer::Cursor::new(0, 0)),
+        let mut state = two_text_field_state(
+            selected_text_field(2),
+            crate::text::Buffer::from_text("world"),
         );
-        text_editor.apply_text_edit(
-            &mut buffer,
-            crate::text::edit::Edit::pointer(
-                crate::text::edit::PointerEditKind::Drag,
-                crate::text::buffer::Cursor::new(0, 2),
-            ),
-        );
-        let mut state = two_text_field_state(buffer, crate::text::Buffer::from_text("world"));
 
         pointer_pressed(
             &mut state,
@@ -3380,20 +3393,10 @@ mod tests {
         let window = window::Id::new(1);
         let registry = command::Registry::new();
         let mut text_engine = crate::text::layout::Engine::new();
-        let mut text_editor = crate::text::edit::Editor::new();
-        let mut buffer = crate::text::Buffer::from_text("hello");
-        text_editor.apply_text_edit(
-            &mut buffer,
-            crate::text::edit::Edit::set_cursor(crate::text::buffer::Cursor::new(0, 0)),
+        let mut state = two_text_field_state(
+            selected_text_field(2),
+            crate::text::Buffer::from_text("world"),
         );
-        text_editor.apply_text_edit(
-            &mut buffer,
-            crate::text::edit::Edit::pointer(
-                crate::text::edit::PointerEditKind::Drag,
-                crate::text::buffer::Cursor::new(0, 2),
-            ),
-        );
-        let mut state = two_text_field_state(buffer, crate::text::Buffer::from_text("world"));
         state.modifiers = text_drag_copy_modifier();
 
         pointer_pressed(
@@ -3433,22 +3436,9 @@ mod tests {
         let window = window::Id::new(1);
         let registry = command::Registry::new();
         let mut text_engine = crate::text::layout::Engine::new();
-        let mut text_editor = crate::text::edit::Editor::new();
-        let mut buffer = crate::text::Buffer::from_text("hello");
-        text_editor.apply_text_edit(
-            &mut buffer,
-            crate::text::edit::Edit::set_cursor(crate::text::buffer::Cursor::new(0, 0)),
-        );
-        text_editor.apply_text_edit(
-            &mut buffer,
-            crate::text::edit::Edit::pointer(
-                crate::text::edit::PointerEditKind::Drag,
-                crate::text::buffer::Cursor::new(0, 2),
-            ),
-        );
         let mut state = two_text_field_state(
-            buffer,
-            crate::text::Field::new(crate::text::Buffer::from_text("world")).read_only(),
+            selected_text_field(2),
+            crate::text::edit::Field::new(crate::text::Buffer::from_text("world")).read_only(),
         );
 
         pointer_pressed(
@@ -4039,7 +4029,7 @@ mod tests {
             HashMap::new(),
             HashMap::from([(
                 path(SECOND),
-                vec![command::Key::of::<crate::text::command::SelectAll>()],
+                vec![command::Key::of::<crate::widget::text_command::SelectAll>()],
             )]),
             HashMap::new(),
             HashMap::new(),
@@ -4048,7 +4038,7 @@ mod tests {
         state.modifiers = ui::Modifiers::new(false, true, false, false);
         state.command.subject = Some(command::call::Scope::Path(path(SECOND)));
 
-        define_text_command::<crate::text::command::SelectAll>(&mut registry, |command| {
+        define_text_command::<crate::widget::text_command::SelectAll>(&mut registry, |command| {
             command
                 .with_display("Select All")
                 .shortcut(command::shortcut::Shortcut::ctrl('a'))
@@ -4065,7 +4055,7 @@ mod tests {
         assert_eq!(
             outcome.request,
             Some(command::call::Raw::from_route(
-                text_route::<crate::text::command::SelectAll>(),
+                text_route::<crate::widget::text_command::SelectAll>(),
                 command::call::Source::Shortcut,
                 command::call::Context::path(window, path(SECOND))
             ))
@@ -4080,7 +4070,7 @@ mod tests {
         let mut state = text_field_state();
         state.modifiers = ui::Modifiers::new(false, true, false, false);
 
-        define_text_command::<crate::text::command::Copy>(&mut registry, |command| {
+        define_text_command::<crate::widget::text_command::Copy>(&mut registry, |command| {
             command
                 .with_display("Copy")
                 .shortcut(command::shortcut::Shortcut::ctrl('c'))
@@ -4097,7 +4087,7 @@ mod tests {
         assert_eq!(
             outcome.request,
             Some(command::call::Raw::from_route(
-                text_route::<crate::text::command::Copy>(),
+                text_route::<crate::widget::text_command::Copy>(),
                 command::call::Source::Shortcut,
                 command::call::Context::path(window, path(CHILD))
             ))
@@ -4117,7 +4107,7 @@ mod tests {
     fn paste_shortcut_press_is_repeatable() {
         let window = window::Id::new(1);
         let mut registry = command::Registry::new();
-        define_text_command::<crate::text::command::Paste>(&mut registry, |command| {
+        define_text_command::<crate::widget::text_command::Paste>(&mut registry, |command| {
             command
                 .with_display("Paste")
                 .shortcut(command::shortcut::Shortcut::ctrl('v'))
@@ -4138,7 +4128,7 @@ mod tests {
         assert_eq!(
             outcome.request,
             Some(command::call::Raw::from_route(
-                text_route::<crate::text::command::Paste>(),
+                text_route::<crate::widget::text_command::Paste>(),
                 command::call::Source::Shortcut,
                 command::call::Context::path(window, path(CHILD))
             ))
@@ -4150,7 +4140,7 @@ mod tests {
     fn repeated_paste_shortcut_emits_request() {
         let window = window::Id::new(1);
         let mut registry = command::Registry::new();
-        define_text_command::<crate::text::command::Paste>(&mut registry, |command| {
+        define_text_command::<crate::widget::text_command::Paste>(&mut registry, |command| {
             command
                 .with_display("Paste")
                 .shortcut(command::shortcut::Shortcut::ctrl('v'))
@@ -4166,7 +4156,7 @@ mod tests {
             outcome.request,
             Some(
                 command::call::Raw::from_route(
-                    text_route::<crate::text::command::Paste>(),
+                    text_route::<crate::widget::text_command::Paste>(),
                     command::call::Source::Shortcut,
                     command::call::Context::path(window, path(CHILD))
                 )
@@ -4180,7 +4170,7 @@ mod tests {
     fn copy_shortcut_targeting_text_field_without_selection_is_not_executable() {
         let window = window::Id::new(1);
         let mut registry = command::Registry::new();
-        define_text_command::<crate::text::command::Copy>(&mut registry, |command| {
+        define_text_command::<crate::widget::text_command::Copy>(&mut registry, |command| {
             command
                 .with_display("Copy")
                 .shortcut(command::shortcut::Shortcut::ctrl('c'))
@@ -4212,13 +4202,21 @@ mod tests {
         let mut registry = command::Registry::new();
         let mut editor = crate::text::edit::Editor::new();
         let mut buffer = crate::text::Buffer::from_text("hello");
-        define_text_command::<crate::text::command::Copy>(&mut registry, |command| {
+        let mut edit_state = buffer.initial_state();
+        define_text_command::<crate::widget::text_command::Copy>(&mut registry, |command| {
             command
                 .with_display("Copy")
                 .shortcut(command::shortcut::Shortcut::ctrl('c'))
         });
-        editor.apply_text_edit(&mut buffer, crate::text::edit::Edit::SelectAll);
-        let mut state = text_field_state_with_registry(buffer, &mut registry);
+        editor.apply_edit(
+            &mut buffer,
+            &mut edit_state,
+            crate::text::edit::Edit::SelectAll,
+        );
+        let mut state = text_field_state_with_registry(
+            crate::text::edit::Field::new(buffer).with_state(edit_state),
+            &mut registry,
+        );
         state.modifiers = ui::Modifiers::new(false, true, false, false);
 
         let request = key_pressed(
@@ -4242,7 +4240,7 @@ mod tests {
     fn undo_shortcut_targeting_text_field_without_history_is_not_executable() {
         let window = window::Id::new(1);
         let mut registry = command::Registry::new();
-        define_text_command::<crate::text::command::Undo>(&mut registry, |command| {
+        define_text_command::<crate::widget::text_command::Undo>(&mut registry, |command| {
             command
                 .with_display("Undo")
                 .shortcut(command::shortcut::Shortcut::ctrl('z'))
@@ -4275,14 +4273,21 @@ mod tests {
         let mut editor = crate::text::edit::Editor::new();
         let mut buffer = crate::text::Buffer::from_text("hello");
 
-        define_text_command::<crate::text::command::Undo>(&mut registry, |command| {
+        define_text_command::<crate::widget::text_command::Undo>(&mut registry, |command| {
             command
                 .with_display("Undo")
                 .shortcut(command::shortcut::Shortcut::ctrl('z'))
         });
-        let result =
-            editor.apply_text_edit_with_result(&mut buffer, crate::text::edit::Edit::insert("!"));
-        let mut state = text_field_state_with_registry(buffer, &mut registry);
+        let mut edit_state = buffer.initial_state();
+        let result = editor.apply_edit(
+            &mut buffer,
+            &mut edit_state,
+            crate::text::edit::Edit::insert("!"),
+        );
+        let mut state = text_field_state_with_registry(
+            crate::text::edit::Field::new(buffer).with_state(edit_state),
+            &mut registry,
+        );
         state.record_text_field_history(
             &path(CHILD),
             result.change.expect("insert should change text"),
@@ -4316,15 +4321,22 @@ mod tests {
         let mut editor = crate::text::edit::Editor::new();
         let mut buffer = crate::text::Buffer::from_text("hello");
 
-        define_text_command::<crate::text::command::Redo>(&mut registry, |command| {
+        define_text_command::<crate::widget::text_command::Redo>(&mut registry, |command| {
             command
                 .with_display("Redo")
                 .shortcut(command::shortcut::Shortcut::ctrl_shift('z'))
                 .shortcut(command::shortcut::Shortcut::ctrl('y'))
         });
-        let result =
-            editor.apply_text_edit_with_result(&mut buffer, crate::text::edit::Edit::insert("!"));
-        let mut state = text_field_state_with_registry(buffer.clone(), &mut registry);
+        let mut edit_state = buffer.initial_state();
+        let result = editor.apply_edit(
+            &mut buffer,
+            &mut edit_state,
+            crate::text::edit::Edit::insert("!"),
+        );
+        let mut state = text_field_state_with_registry(
+            crate::text::edit::Field::new(buffer.clone()).with_state(edit_state),
+            &mut registry,
+        );
         state.record_text_field_history(
             &path(CHILD),
             result.change.expect("insert should change text"),
@@ -4334,7 +4346,7 @@ mod tests {
         state.apply_text_history_command(
             &path(CHILD),
             &mut buffer,
-            crate::text::edit::Command::Undo,
+            crate::text::edit::Action::Undo,
         );
         crate::app::text_input::publish_command_states(&state, &mut registry, window);
 
@@ -4367,13 +4379,13 @@ mod tests {
     fn repeated_undo_and_redo_shortcuts_emit_requests() {
         let window = window::Id::new(1);
         let mut registry = command::Registry::new();
-        define_text_command::<crate::text::command::Undo>(&mut registry, |command| {
+        define_text_command::<crate::widget::text_command::Undo>(&mut registry, |command| {
             command
                 .with_display("Undo")
                 .shortcut(command::shortcut::Shortcut::ctrl('z'))
                 .repeatable()
         });
-        define_text_command::<crate::text::command::Redo>(&mut registry, |command| {
+        define_text_command::<crate::widget::text_command::Redo>(&mut registry, |command| {
             command
                 .with_display("Redo")
                 .shortcut(command::shortcut::Shortcut::ctrl_shift('z'))
@@ -4389,7 +4401,7 @@ mod tests {
             undo.request,
             Some(
                 command::call::Raw::from_route(
-                    text_route::<crate::text::command::Undo>(),
+                    text_route::<crate::widget::text_command::Undo>(),
                     command::call::Source::Shortcut,
                     command::call::Context::path(window, path(CHILD))
                 )
@@ -4404,7 +4416,7 @@ mod tests {
             redo.request,
             Some(
                 command::call::Raw::from_route(
-                    text_route::<crate::text::command::Redo>(),
+                    text_route::<crate::widget::text_command::Redo>(),
                     command::call::Source::Shortcut,
                     command::call::Context::path(window, path(CHILD))
                 )
@@ -4419,7 +4431,7 @@ mod tests {
             redo.request,
             Some(
                 command::call::Raw::from_route(
-                    text_route::<crate::text::command::Redo>(),
+                    text_route::<crate::widget::text_command::Redo>(),
                     command::call::Source::Shortcut,
                     command::call::Context::path(window, path(CHILD))
                 )
@@ -4435,14 +4447,22 @@ mod tests {
         let mut registry = command::Registry::new();
         let mut editor = crate::text::edit::Editor::new();
         let mut buffer = crate::text::Buffer::from_text("hello");
+        let mut edit_state = buffer.initial_state();
 
-        define_text_command::<crate::text::command::SelectAll>(&mut registry, |command| {
+        define_text_command::<crate::widget::text_command::SelectAll>(&mut registry, |command| {
             command
                 .with_display("Select All")
                 .shortcut(command::shortcut::Shortcut::ctrl('a'))
         });
-        editor.apply_text_edit(&mut buffer, crate::text::edit::Edit::SelectAll);
-        let mut state = text_field_state_with_registry(buffer, &mut registry);
+        editor.apply_edit(
+            &mut buffer,
+            &mut edit_state,
+            crate::text::edit::Edit::SelectAll,
+        );
+        let mut state = text_field_state_with_registry(
+            crate::text::edit::Field::new(buffer).with_state(edit_state),
+            &mut registry,
+        );
         state.modifiers = ui::Modifiers::new(false, true, false, false);
 
         let request = key_pressed(
@@ -4470,13 +4490,13 @@ mod tests {
             single_box(CHILD),
             HashMap::from([(
                 path(CHILD),
-                command::Key::of::<crate::text::command::SelectAll>(),
+                command::Key::of::<crate::widget::text_command::SelectAll>(),
             )]),
             HashMap::from([(path(CHILD), ui::ActionSubject::Current)]),
             HashMap::new(),
             HashMap::from([(
                 path(SECOND),
-                vec![command::Key::of::<crate::text::command::SelectAll>()],
+                vec![command::Key::of::<crate::widget::text_command::SelectAll>()],
             )]),
             HashMap::new(),
             HashMap::new(),
@@ -4489,7 +4509,7 @@ mod tests {
         ));
         state.modifiers = ui::Modifiers::new(false, true, false, false);
 
-        define_text_command::<crate::text::command::SelectAll>(&mut registry, |command| {
+        define_text_command::<crate::widget::text_command::SelectAll>(&mut registry, |command| {
             command
                 .with_display("Select All")
                 .shortcut(command::shortcut::Shortcut::ctrl('a'))
@@ -4530,7 +4550,7 @@ mod tests {
             HashMap::new(),
             HashMap::from([(
                 path(SECOND),
-                vec![command::Key::of::<crate::text::command::SelectAll>()],
+                vec![command::Key::of::<crate::widget::text_command::SelectAll>()],
             )]),
             HashMap::new(),
             HashMap::new(),
@@ -4539,7 +4559,7 @@ mod tests {
         state.modifiers = ui::Modifiers::new(false, true, false, false);
         state.command.subject = Some(command::call::Scope::Path(path(SECOND)));
 
-        define_text_command::<crate::text::command::SelectAll>(&mut registry, |command| {
+        define_text_command::<crate::widget::text_command::SelectAll>(&mut registry, |command| {
             command
                 .with_display("Select All")
                 .shortcut(command::shortcut::Shortcut::ctrl('a'))

@@ -83,7 +83,7 @@ fn menu_command_activation_closes_framework_owned_menu_state() {
         .present(window)
         .expect("window should still have a view");
     let open = projected
-        .command::<document::OpenFile>()
+        .binding::<document::OpenFile>()
         .expect("open command should be in the view")
         .action();
 
@@ -383,7 +383,7 @@ fn text_area_interaction_id_scrolls_without_focus() {
         .collect::<Vec<_>>()
         .join("\n");
     let buffer = text::Buffer::from_multiline_text(document);
-    let edit_state = buffer.edit_state();
+    let edit_state = buffer.initial_state();
     let mut app = Runtime::new(SourceState::default())
         .started(|cx| {
             cx.open_window(window::Options::new("Preview"));
@@ -391,7 +391,7 @@ fn text_area_interaction_id_scrolls_without_focus() {
         .view(move |_, _| {
             View::new(
                 view::Node::root().child(
-                    view::Node::text_area_state(view::TextArea::from_buffer(
+                    view::Node::text_area_state(view::control::TextArea::from_buffer(
                         buffer.clone(),
                         edit_state,
                     ))
@@ -409,7 +409,7 @@ fn text_area_interaction_id_scrolls_without_focus() {
         .expect("initial preview scene should render");
     let text_area = presentation
         .layout()
-        .find_role(view::Role::TextArea)
+        .find_role(view::node::Role::TextArea)
         .into_iter()
         .next()
         .expect("preview text area should be laid out");
@@ -445,7 +445,7 @@ fn text_area_interaction_id_scrolls_without_focus() {
     );
     let text_area = presentation
         .layout()
-        .find_role(view::Role::TextArea)
+        .find_role(view::node::Role::TextArea)
         .into_iter()
         .next()
         .expect("preview text area should be laid out after scrolling");
@@ -470,12 +470,12 @@ fn text_input_preedit_is_framework_owned_and_projected_into_text_area() {
     let text_area = text_area_node(projected.root()).expect("text area should be in the view");
     let focus = text_area
         .text_area_model()
-        .and_then(view::TextArea::focus)
+        .and_then(view::control::TextArea::focus)
         .expect("text area should declare a focus target");
     let target = text_area
         .pointer_target()
         .expect("text area should have an interaction target");
-    let preedit = text::Preedit::new("世界", Some((0, "世".len())));
+    let preedit = text::edit::Preedit::new("世界", Some((0, "世".len())));
 
     app.handle_input(window, Input::focus(focus))
         .expect("focus input should be handled");
@@ -520,14 +520,14 @@ fn text_input_commit_routes_to_focused_document_and_clears_preedit() {
     let text_area = text_area_node(projected.root()).expect("text area should be in the view");
     let focus = text_area
         .text_area_model()
-        .and_then(view::TextArea::focus)
+        .and_then(view::control::TextArea::focus)
         .expect("text area should declare a focus target");
 
     app.handle_input(window, Input::focus(focus))
         .expect("focus input should be handled");
     app.handle_input(
         window,
-        Input::text_preedit(text::Preedit::new("世", Some((0, "世".len())))),
+        Input::text_preedit(text::edit::Preedit::new("世", Some((0, "世".len())))),
     )
     .expect("preedit input should be handled");
 
@@ -573,14 +573,14 @@ fn cancel_input_clears_text_preedit_before_clearing_focus() {
     let text_area = text_area_node(projected.root()).expect("text area should be in the view");
     let focus = text_area
         .text_area_model()
-        .and_then(view::TextArea::focus)
+        .and_then(view::control::TextArea::focus)
         .expect("text area should declare a focus target");
 
     app.handle_input(window, Input::focus(focus))
         .expect("focus input should be handled");
     app.handle_input(
         window,
-        Input::text_preedit(text::Preedit::new("世", Some((0, "世".len())))),
+        Input::text_preedit(text::edit::Preedit::new("世", Some((0, "世".len())))),
     )
     .expect("preedit input should be handled");
 
@@ -620,7 +620,7 @@ fn text_input_preedit_is_transient_and_clears_on_restore() {
     let text_area = text_area_node(projected.root()).expect("text area should be in the view");
     let focus = text_area
         .text_area_model()
-        .and_then(view::TextArea::focus)
+        .and_then(view::control::TextArea::focus)
         .expect("text area should declare a focus target");
 
     app.handle_input(window, Input::focus(focus))
@@ -629,7 +629,7 @@ fn text_input_preedit_is_transient_and_clears_on_restore() {
 
     app.handle_input(
         window,
-        Input::text_preedit(text::Preedit::new("世", Some((0, "世".len())))),
+        Input::text_preedit(text::edit::Preedit::new("世", Some((0, "世".len())))),
     )
     .expect("preedit input should be handled");
     assert!(
@@ -677,7 +677,7 @@ fn text_area_pointer_click_focuses_and_routes_cursor_edit() {
     let text_area = text_area_node(projected.root()).expect("text area should be in the view");
     let focus = text_area
         .text_area_model()
-        .and_then(view::TextArea::focus)
+        .and_then(view::control::TextArea::focus)
         .expect("text area should declare a focus target");
     let target = text_area
         .pointer_target()
@@ -687,7 +687,7 @@ fn text_area_pointer_click_focuses_and_routes_cursor_edit() {
         .handle_view(
             window,
             text_area
-                .text_pointer_down_action(text::TextPosition::new(5))
+                .text_pointer_down_action(text::buffer::Position::new(5))
                 .expect("text area should expose pointer click"),
         )
         .expect("text area pointer click should be handled");
@@ -776,7 +776,7 @@ fn cancel_input_clears_pointer_capture_before_clearing_focus() {
     let text_area = text_area_node(projected.root()).expect("text area should be in the view");
     let focus = text_area
         .text_area_model()
-        .and_then(view::TextArea::focus)
+        .and_then(view::control::TextArea::focus)
         .expect("text area should declare a focus target");
     app.handle_input(window, Input::focus(focus))
         .expect("focus input should be handled");
@@ -830,7 +830,7 @@ fn captured_pointer_drag_routes_text_edit_to_captured_text_area() {
     app.handle_view(
         window,
         text_area
-            .text_pointer_down_action(text::TextPosition::new(0))
+            .text_pointer_down_action(text::buffer::Position::new(0))
             .expect("text area should expose pointer click"),
     )
     .expect("text area pointer down should be handled");
@@ -839,7 +839,7 @@ fn captured_pointer_drag_routes_text_edit_to_captured_text_area() {
         .handle_view(
             window,
             text_area
-                .text_pointer_drag_action(text::TextPosition::new(5))
+                .text_pointer_drag_action(text::buffer::Position::new(5))
                 .expect("text area should expose pointer drag"),
         )
         .expect("captured pointer drag should be handled");
@@ -880,7 +880,7 @@ fn pointer_drag_without_matching_capture_does_not_invoke_text_edit() {
         .handle_view(
             window,
             text_area
-                .text_pointer_drag_action(text::TextPosition::new(5))
+                .text_pointer_drag_action(text::buffer::Position::new(5))
                 .expect("text area should expose pointer drag"),
         )
         .expect("uncaptured pointer drag should still be handled as pointer state");
@@ -1010,14 +1010,14 @@ fn text_editor_host_presents_pending_redraws() {
     assert_eq!(presentations[0].window(), window);
     assert_eq!(
         presentations[0].view().text_areas()[0].wrap(),
-        view::Wrap::Word
+        view::control::Wrap::Word
     );
     assert!(!app.session().windows()[0].redraw_requested());
     assert!(app.present_pending().is_empty());
 
     let wrap_action = presentations[0]
         .view()
-        .command::<text_editor::ToggleWrapText>()
+        .binding::<text_editor::ToggleWrapText>()
         .expect("wrap command should be in the presented view")
         .action();
 
@@ -1032,7 +1032,7 @@ fn text_editor_host_presents_pending_redraws() {
     assert_eq!(presentations[0].window(), window);
     assert_eq!(
         presentations[0].view().text_areas()[0].wrap(),
-        view::Wrap::None
+        view::control::Wrap::None
     );
     assert!(!app.session().windows()[0].redraw_requested());
 }

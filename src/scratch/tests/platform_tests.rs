@@ -600,12 +600,7 @@ fn text_editor_platform_applies_host_work_to_backend() {
             clear_color,
         } if *presented == window
             && *size == text_editor::window_size()
-            && *clear_color == Some(paint::Color::rgba(
-                17.0 / 255.0,
-                17.0 / 255.0,
-                19.0 / 255.0,
-                1.0
-            ))
+            && *clear_color == text_editor::CANVAS_COLOR
     )));
 
     platform
@@ -626,7 +621,7 @@ fn text_editor_platform_applies_host_work_to_backend() {
 
 #[test]
 fn text_editor_platform_deduplicates_dialogs_and_poll_scheduling() {
-    let path = temp_text_path("scratch_text_editor_platform_save.txt");
+    let path = temp_text_path("text_editor_platform_save.txt");
     let _ = std::fs::remove_file(&path);
     let mut platform = Platform::new(
         text_editor::shell(text_editor::State::default()),

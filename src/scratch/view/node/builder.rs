@@ -1,0 +1,232 @@
+use super::super::{
+    binding::Binding,
+    control::{Button, Checkbox, Control, Radio, Slider, TextArea, TextBox},
+    style::Style,
+};
+use super::{Axis, Node, Role};
+use crate::scratch::{command as framework_command, context::Source, interaction};
+
+impl Node {
+    pub fn root() -> Self {
+        Self::new(Role::Root)
+    }
+
+    pub fn stack(axis: Axis) -> Self {
+        Self::new(Role::Stack).with_axis(axis)
+    }
+
+    pub fn menu_bar() -> Self {
+        Self::new(Role::MenuBar)
+    }
+
+    pub fn menu(id: impl Into<interaction::Id>, label: impl Into<String>) -> Self {
+        Self::new(Role::Menu).with_id(id).with_label(label)
+    }
+
+    pub fn bound<C>() -> Self
+    where
+        C: framework_command::Command<Args = ()>,
+    {
+        Self::bound_with_args::<C>(())
+    }
+
+    pub fn menu_bound<C>() -> Self
+    where
+        C: framework_command::Command<Args = ()>,
+    {
+        Self::menu_bound_with_args::<C>(())
+    }
+
+    pub fn bound_with_args<C>(args: C::Args) -> Self
+    where
+        C: framework_command::Command,
+        C::Args: Clone,
+    {
+        Self::new(Role::Binding).with_binding(Binding::new::<C>(args, Source::Button))
+    }
+
+    pub fn menu_bound_with_args<C>(args: C::Args) -> Self
+    where
+        C: framework_command::Command,
+        C::Args: Clone,
+    {
+        Self::new(Role::Binding).with_binding(Binding::new::<C>(args, Source::Menu))
+    }
+
+    pub fn separator() -> Self {
+        Self::new(Role::Separator)
+    }
+
+    pub fn text_area(text: impl Into<String>) -> Self {
+        Self::text_area_state(TextArea::new(text))
+    }
+
+    pub fn text_area_state(text_area: TextArea) -> Self {
+        Self::new(Role::TextArea).with_control(Control::TextArea(text_area))
+    }
+
+    pub fn button(label: impl Into<String>) -> Self {
+        Self::button_state(Button::new(label))
+    }
+
+    pub fn button_state(button: Button) -> Self {
+        let label = button.label().to_owned();
+        Self::new(Role::Button)
+            .with_label(label)
+            .with_control(Control::Button(button))
+    }
+
+    pub fn checkbox(label: impl Into<String>, checked: bool) -> Self {
+        Self::checkbox_state(Checkbox::new(label, checked))
+    }
+
+    pub fn checkbox_state(checkbox: Checkbox) -> Self {
+        let label = checkbox.display_label();
+        Self::new(Role::Checkbox)
+            .with_label(label)
+            .with_control(Control::Checkbox(checkbox))
+    }
+
+    pub fn radio(label: impl Into<String>, selected: bool) -> Self {
+        Self::radio_state(Radio::new(label, selected))
+    }
+
+    pub fn radio_state(radio: Radio) -> Self {
+        let label = radio.display_label();
+        Self::new(Role::Radio)
+            .with_label(label)
+            .with_control(Control::Radio(radio))
+    }
+
+    pub fn slider(label: impl Into<String>, value: f64, start: f64, end: f64) -> Self {
+        Self::slider_state(Slider::new(label, value, start, end))
+    }
+
+    pub fn slider_state(slider: Slider) -> Self {
+        let label = slider.display_label();
+        Self::new(Role::Slider)
+            .with_label(label)
+            .with_control(Control::Slider(slider))
+    }
+
+    pub fn text_box(text: impl Into<String>) -> Self {
+        Self::text_box_state(TextBox::new(text))
+    }
+
+    pub fn text_box_state(text_box: TextBox) -> Self {
+        Self::new(Role::TextBox).with_control(Control::TextBox(text_box))
+    }
+
+    pub fn panel() -> Self {
+        Self::new(Role::Panel)
+    }
+
+    pub fn popup(id: impl Into<interaction::Id>, label: impl Into<String>) -> Self {
+        Self::new(Role::Popup).with_id(id).with_label(label)
+    }
+
+    pub fn label(label: impl Into<String>) -> Self {
+        Self::new(Role::Label).with_label(label)
+    }
+
+    pub fn child(mut self, child: Node) -> Self {
+        self.children.push(child);
+        self
+    }
+
+    pub(in crate::scratch::view) fn push_child(&mut self, child: Node) {
+        self.children.push(child);
+    }
+
+    pub(in crate::scratch) fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    pub(in crate::scratch) fn with_layout_axis(mut self, axis: Axis) -> Self {
+        self.role = Role::Stack;
+        self.axis = Some(axis);
+        self
+    }
+
+    pub(in crate::scratch) fn with_style(mut self, style: Style) -> Self {
+        self.style = style;
+        self
+    }
+
+    pub(in crate::scratch) fn bind_command<C>(mut self, args: C::Args, source: Source) -> Self
+    where
+        C: framework_command::Command,
+        C::Args: Clone,
+    {
+        self.binding = Some(Binding::new::<C>(args, source));
+        self
+    }
+
+    pub(in crate::scratch) fn bind_trigger(
+        mut self,
+        trigger: framework_command::AnyTrigger,
+        source: Source,
+    ) -> Self {
+        self.binding = Some(Binding::from_trigger(trigger, source));
+        self
+    }
+
+    pub(in crate::scratch) fn bind_slider_trigger(
+        mut self,
+        value: f64,
+        source: Source,
+        slider_trigger: framework_command::AnyValueTrigger<f64>,
+    ) -> Self {
+        self.binding = Some(Binding::slider(value, source, slider_trigger));
+        self
+    }
+
+    pub(in crate::scratch) fn bind_text_trigger(
+        mut self,
+        text: String,
+        source: Source,
+        text_trigger: framework_command::AnyValueTrigger<String>,
+    ) -> Self {
+        self.binding = Some(Binding::text(text, source, text_trigger));
+        self
+    }
+
+    pub(in crate::scratch) fn with_control(mut self, control: Control) -> Self {
+        self.control = Some(control);
+        self
+    }
+
+    pub fn with_interaction_id(mut self, id: impl Into<interaction::Id>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    fn new(role: Role) -> Self {
+        Self {
+            role,
+            id: None,
+            axis: None,
+            style: Style::default(),
+            label: None,
+            binding: None,
+            control: None,
+            children: Vec::new(),
+        }
+    }
+
+    fn with_axis(mut self, axis: Axis) -> Self {
+        self.axis = Some(axis);
+        self
+    }
+
+    fn with_id(mut self, id: impl Into<interaction::Id>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    fn with_binding(mut self, binding: Binding) -> Self {
+        self.binding = Some(binding);
+        self
+    }
+}

@@ -67,8 +67,8 @@ impl TextAreaProjection {
             .filter(move |surface| surface_intersects_viewport(surface, viewport))
     }
 
-    pub fn observed_area(&self) -> text::view::ObservedArea<'_> {
-        text::view::ObservedArea::new(
+    pub fn observed_area(&self) -> text::edit::ObservedArea<'_> {
+        text::edit::ObservedArea::new(
             self.metrics.viewport(),
             self.metrics.offset(),
             self.layout.content_area(),
@@ -76,8 +76,8 @@ impl TextAreaProjection {
         )
     }
 
-    pub fn scroll_anchor(&self, area_model: &text::Area) -> Option<text::ScrollAnchor> {
-        text::View::scroll_anchor_for_text_area(
+    pub fn scroll_anchor(&self, area_model: &text::edit::Area) -> Option<text::edit::ScrollAnchor> {
+        text::edit::View::scroll_anchor_for_text_area(
             area_model,
             self.observed_area(),
             &self.render_surfaces,

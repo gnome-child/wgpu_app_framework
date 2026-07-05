@@ -1,4 +1,4 @@
-use super::{LineId, TextAffinity};
+use super::{Affinity, LineId};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum Gravity {
@@ -11,7 +11,7 @@ pub enum Gravity {
 pub struct Mark {
     pub line_id: LineId,
     pub byte_offset: usize,
-    pub affinity: TextAffinity,
+    pub affinity: Affinity,
     pub gravity: Gravity,
 }
 

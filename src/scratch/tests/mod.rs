@@ -5,8 +5,127 @@ use super::{
     interaction, layout, platform, responder, response, runtime, scene, session, shell, state,
     task, text_editor, timeline, view, widget, window,
 };
-use crate::{paint, text};
+use crate::text;
 use std::{any::TypeId, cell::Cell, path::PathBuf, rc::Rc};
+
+#[test]
+fn scratch_sources_do_not_import_legacy_framework_modules() {
+    let scratch_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("scratch");
+    let legacy_modules = [
+        "app",
+        "ui",
+        "widget",
+        "command",
+        "window",
+        "native",
+        "theme",
+        "text_system",
+    ];
+
+    assert_no_legacy_framework_imports(&scratch_dir, &legacy_modules);
+}
+
+#[test]
+fn renderer_dependencies_stay_in_native_platform() {
+    let scratch_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("scratch");
+    let native_dir = scratch_dir.join("platform").join("native");
+    let renderer_modules = ["geometry", "paint", "render"];
+
+    assert_imports_only_under(&scratch_dir, &native_dir, &renderer_modules);
+}
+
+fn assert_no_legacy_framework_imports(path: &std::path::Path, modules: &[&str]) {
+    for entry in std::fs::read_dir(path).expect("scratch source directory should be readable") {
+        let path = entry
+            .expect("scratch source entry should be readable")
+            .path();
+        if path.is_dir() {
+            assert_no_legacy_framework_imports(&path, modules);
+            continue;
+        }
+
+        if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
+            continue;
+        }
+
+        let source = std::fs::read_to_string(&path).expect("scratch source file should read");
+        for module in modules {
+            assert!(
+                !source_imports_crate_module(&source, module),
+                "{} must not import or reference legacy framework module {}",
+                path.display(),
+                module
+            );
+        }
+    }
+}
+
+fn assert_imports_only_under(
+    path: &std::path::Path,
+    allowed_root: &std::path::Path,
+    modules: &[&str],
+) {
+    for entry in std::fs::read_dir(path).expect("scratch source directory should be readable") {
+        let path = entry
+            .expect("scratch source entry should be readable")
+            .path();
+        if path.is_dir() {
+            assert_imports_only_under(&path, allowed_root, modules);
+            continue;
+        }
+
+        if path.starts_with(allowed_root)
+            || path.extension().and_then(|extension| extension.to_str()) != Some("rs")
+        {
+            continue;
+        }
+
+        let source = std::fs::read_to_string(&path).expect("scratch source file should read");
+        for module in modules {
+            assert!(
+                !source_imports_crate_module(&source, module),
+                "{} must import crate::{} only under {}",
+                path.display(),
+                module,
+                allowed_root.display()
+            );
+        }
+    }
+}
+
+fn source_imports_crate_module(source: &str, module: &str) -> bool {
+    if source.contains(&format!("crate::{module}")) {
+        return true;
+    }
+
+    source.lines().any(|line| {
+        let line = line.trim();
+        if line.starts_with(&format!("use crate::{module}")) {
+            return true;
+        }
+
+        let Some(grouped) = line
+            .strip_prefix("use crate::{")
+            .and_then(|line| line.strip_suffix(';'))
+        else {
+            return false;
+        };
+
+        grouped.split(',').any(|segment| {
+            let segment = segment.trim();
+            let root = segment
+                .split_once("::")
+                .map_or(segment, |(root, _)| root.trim())
+                .split_once(" as ")
+                .map_or_else(|| segment, |(root, _)| root.trim());
+            root == module
+        })
+    })
+}
 
 struct Save;
 
@@ -252,7 +371,7 @@ enum BackendEvent {
     Present {
         window: window::Id,
         size: geometry::Size,
-        clear_color: Option<paint::Color>,
+        clear_color: scene::Color,
     },
     FileDialog {
         window: window::Id,
@@ -302,7 +421,7 @@ impl platform::Backend for FakeBackend {
         self.events.push(BackendEvent::Present {
             window: presentation.window(),
             size: presentation.layout().size(),
-            clear_color: presentation.scene().clear_color(),
+            clear_color: presentation.scene().clear(),
         });
         Ok(())
     }
@@ -656,7 +775,7 @@ mod platform_tests;
 mod responder_tests;
 mod runtime_tests;
 mod text_input;
-mod widget_command_tests;
+mod widget_binding_tests;
 mod widget_identity_tests;
 mod widget_layout_tests;
 mod widget_slider_tests;
@@ -685,7 +804,7 @@ fn open_view_menu_and_wrap_command_point(
             .expect("initial scene should install a composition");
         let view_menu = presentation
             .layout()
-            .find_role(view::Role::Menu)
+            .find_role(view::node::Role::Menu)
             .into_iter()
             .find(|frame| frame.label_text() == Some("View"))
             .expect("view menu should be laid out");
@@ -703,7 +822,7 @@ fn open_view_menu_and_wrap_command_point(
         .expect("open view menu should install a composition");
     let wrap_command = presentation
         .layout()
-        .find_role(view::Role::Command)
+        .find_role(view::node::Role::Binding)
         .into_iter()
         .find(|frame| frame.label_text() == Some("Wrap text"))
         .expect("wrap text command should be laid out");
@@ -711,7 +830,7 @@ fn open_view_menu_and_wrap_command_point(
     frame_point(wrap_command)
 }
 
-fn frame_point(frame: &layout::Frame) -> geometry::Point {
+fn frame_point(frame: &layout::frame::Frame) -> geometry::Point {
     let rect = frame.rect();
     geometry::Point::new(rect.x() + 1, rect.y() + 1)
 }
@@ -744,24 +863,6 @@ fn text_box_node(node: &view::Node) -> Option<&view::Node> {
     }
 
     node.children().iter().find_map(text_box_node)
-}
-
-fn text_wrap_for_paint_text_containing(
-    scene: &paint::Scene,
-    value: &str,
-) -> Option<paint::TextWrap> {
-    scene.items().iter().find_map(|item| {
-        let paint::Item::Text(text) = item else {
-            return None;
-        };
-
-        text.document
-            .blocks()
-            .iter()
-            .flat_map(text::document::Block::runs)
-            .any(|run| run.text().contains(value))
-            .then_some(text.wrap)
-    })
 }
 
 fn temp_text_path(name: &str) -> PathBuf {

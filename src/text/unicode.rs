@@ -143,13 +143,11 @@ pub(super) fn word_range_at(text: &str, index: usize) -> std::ops::Range<usize> 
     start..end
 }
 
-#[allow(dead_code)]
 pub(super) fn paragraph_start_boundary(text: &str, index: usize) -> usize {
     let index = floor_boundary(text, index);
     text[..index].rfind('\n').map(|line| line + 1).unwrap_or(0)
 }
 
-#[allow(dead_code)]
 pub(super) fn paragraph_end_boundary(text: &str, index: usize) -> usize {
     let index = floor_boundary(text, index);
     text[index..]

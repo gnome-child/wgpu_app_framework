@@ -26,7 +26,7 @@ fn host_window_event_mapper_routes_common_window_events() {
             .presentation(window)
             .expect("host should retain latest presentation")
             .layout()
-            .find_role(view::Role::TextArea)
+            .find_role(view::node::Role::TextArea)
             .into_iter()
             .next()
             .expect("text area should be laid out");
@@ -74,7 +74,7 @@ fn host_window_event_mapper_routes_common_window_events() {
         Some(&target)
     );
 
-    let preedit = text::Preedit::new("世", Some((0, "世".len())));
+    let preedit = text::edit::Preedit::new("世", Some((0, "世".len())));
     host.handle_event(host::Event::window(
         window,
         host::WindowEvent::TextPreedit {
@@ -144,7 +144,7 @@ fn host_window_event_mapper_routes_common_window_events() {
 }
 
 #[test]
-fn text_editor_host_drains_renderer_ready_scene_work() {
+fn text_editor_host_drains_scene_work() {
     let mut app = text_editor::app(text_editor::State::default());
 
     app.start();

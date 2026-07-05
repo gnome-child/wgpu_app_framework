@@ -713,10 +713,14 @@ fn document(
         label,
         text::document::Style::default()
             .with_size(size)
-            .with_color(color),
+            .with_color(text_color(color)),
     ));
 
     text::document::Document::from_block(block)
+}
+
+fn text_color(color: paint::Color) -> text::Color {
+    text::Color::rgba(color.r, color.g, color.b, color.a)
 }
 
 fn last_select_text(target: &Option<String>, origin: &Option<String>) -> String {

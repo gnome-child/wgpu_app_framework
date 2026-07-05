@@ -31,7 +31,7 @@ pub struct TextSource {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextTarget {
     path: ui::Path,
-    position: text::TextPosition,
+    position: text::buffer::Position,
     insert_index: usize,
     caret_rect: Rect,
 }
@@ -249,7 +249,7 @@ impl TextSource {
 impl TextTarget {
     pub fn new(
         path: ui::Path,
-        position: text::TextPosition,
+        position: text::buffer::Position,
         insert_index: usize,
         caret_rect: Rect,
     ) -> Self {

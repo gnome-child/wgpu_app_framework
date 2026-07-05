@@ -309,7 +309,7 @@ pub(crate) enum RetainedLayerMiss {
 struct TextAreaModel {
     key: text::layout::AreaScrollKey,
     content_size: area::Logical,
-    state: text::view::TextViewState,
+    state: text::edit::ViewState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -331,7 +331,7 @@ impl Driver {
     #[cfg(test)]
     pub fn resolve(
         composition: &ui::Composition,
-        text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
+        text_field_states: &HashMap<ui::Path, text::edit::ViewState>,
         text_engine: &mut text::layout::Engine,
         now: Instant,
     ) -> Self {
@@ -344,7 +344,7 @@ impl Driver {
     pub fn sync(
         &mut self,
         composition: &ui::Composition,
-        text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
+        text_field_states: &HashMap<ui::Path, text::edit::ViewState>,
         text_engine: &mut text::layout::Engine,
         now: Instant,
     ) {
@@ -354,7 +354,7 @@ impl Driver {
     pub fn sync_filtered(
         &mut self,
         composition: &ui::Composition,
-        text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
+        text_field_states: &HashMap<ui::Path, text::edit::ViewState>,
         text_engine: &mut text::layout::Engine,
         now: Instant,
         text_area_targets: Option<&HashSet<ui::Path>>,
@@ -516,7 +516,7 @@ impl Driver {
     pub fn refine_idle_text_area_models(
         &mut self,
         composition: &ui::Composition,
-        text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
+        text_field_states: &HashMap<ui::Path, text::edit::ViewState>,
         text_engine: &mut text::layout::Engine,
         now: Instant,
         max_refinements: usize,
@@ -587,14 +587,14 @@ impl Driver {
     pub fn observe_text_area(
         &mut self,
         composition: &ui::Composition,
-        text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
+        text_field_states: &HashMap<ui::Path, text::edit::ViewState>,
         path: &ui::Path,
         text_engine: &mut text::layout::Engine,
         now: Instant,
     ) -> bool {
         if !composition
             .text_surface(path)
-            .is_some_and(text::Surface::is_area)
+            .is_some_and(text::edit::Surface::is_area)
         {
             return false;
         }
@@ -1833,7 +1833,7 @@ mod tests {
     }
 
     fn text_area_composition_for(
-        area_model: text::Area,
+        area_model: text::edit::Area,
     ) -> (ui::Composition, text::layout::Engine, ui::Path) {
         let root = ui::Node::container(layout::Axis::Vertical)
             .key(ROOT)
@@ -1856,7 +1856,7 @@ mod tests {
     }
 
     fn text_area_composition() -> (ui::Composition, text::layout::Engine, ui::Path) {
-        text_area_composition_for(text::Area::new(long_text_area_buffer()))
+        text_area_composition_for(text::edit::Area::new(long_text_area_buffer()))
     }
 
     #[test]
@@ -2152,7 +2152,7 @@ mod tests {
     #[test]
     fn repeated_wheel_events_accumulate_snap_target_before_frame() {
         let (composition, mut text_engine, path) =
-            text_area_composition_for(text::Area::new(multiline_buffer(200)));
+            text_area_composition_for(text::edit::Area::new(multiline_buffer(200)));
         let text_states = HashMap::new();
         let now = Instant::now();
         let mut driver = Driver::resolve(&composition, &text_states, &mut text_engine, now);
@@ -2178,7 +2178,7 @@ mod tests {
     #[test]
     fn full_sync_preserves_in_flight_wheel_target() {
         let (composition, mut text_engine, path) =
-            text_area_composition_for(text::Area::new(multiline_buffer(200)));
+            text_area_composition_for(text::edit::Area::new(multiline_buffer(200)));
         let text_states = HashMap::new();
         let now = Instant::now();
         let mut driver = Driver::resolve(&composition, &text_states, &mut text_engine, now);
@@ -2221,7 +2221,7 @@ mod tests {
     #[test]
     fn rapid_wheel_burst_accelerates_target_distance() {
         let (composition, mut text_engine, path) =
-            text_area_composition_for(text::Area::new(multiline_buffer(200)));
+            text_area_composition_for(text::edit::Area::new(multiline_buffer(200)));
         let text_states = HashMap::new();
         let now = Instant::now();
         let mut driver = Driver::resolve(&composition, &text_states, &mut text_engine, now);
@@ -2269,7 +2269,7 @@ mod tests {
     #[test]
     fn wheel_burst_resets_after_pause() {
         let (composition, mut text_engine, path) =
-            text_area_composition_for(text::Area::new(multiline_buffer(200)));
+            text_area_composition_for(text::edit::Area::new(multiline_buffer(200)));
         let text_states = HashMap::new();
         let now = Instant::now();
         let mut driver = Driver::resolve(&composition, &text_states, &mut text_engine, now);
@@ -2311,7 +2311,7 @@ mod tests {
     #[test]
     fn moved_pixel_delta_without_precision_start_uses_impulse_wheel_path() {
         let (composition, mut text_engine, path) =
-            text_area_composition_for(text::Area::new(multiline_buffer(200)));
+            text_area_composition_for(text::edit::Area::new(multiline_buffer(200)));
         let text_states = HashMap::new();
         let now = Instant::now();
         let mut driver = Driver::resolve(&composition, &text_states, &mut text_engine, now);
@@ -2335,7 +2335,7 @@ mod tests {
     #[test]
     fn tiny_pixel_impulse_normalizes_to_notch_distance() {
         let (composition, mut text_engine, path) =
-            text_area_composition_for(text::Area::new(multiline_buffer(200)));
+            text_area_composition_for(text::edit::Area::new(multiline_buffer(200)));
         let text_states = HashMap::new();
         let now = Instant::now();
         let mut driver = Driver::resolve(&composition, &text_states, &mut text_engine, now);
@@ -2354,7 +2354,7 @@ mod tests {
     #[test]
     fn precision_pixel_delta_with_started_phase_stays_direct() {
         let (composition, mut text_engine, path) =
-            text_area_composition_for(text::Area::new(multiline_buffer(200)));
+            text_area_composition_for(text::edit::Area::new(multiline_buffer(200)));
         let text_states = HashMap::new();
         let now = Instant::now();
         let mut driver = Driver::resolve(&composition, &text_states, &mut text_engine, now);
@@ -2381,7 +2381,7 @@ mod tests {
     #[test]
     fn unchanged_extent_target_keeps_wheel_animation_active_until_visual_offset_arrives() {
         let (composition, mut text_engine, path) =
-            text_area_composition_for(text::Area::new(multiline_buffer(200)));
+            text_area_composition_for(text::edit::Area::new(multiline_buffer(200)));
         let text_states = HashMap::new();
         let now = Instant::now();
         let mut driver = Driver::resolve(&composition, &text_states, &mut text_engine, now);
@@ -2622,7 +2622,7 @@ mod tests {
     fn wrapped_text_area_pending_caret_visibility_clamps_stale_horizontal_scroll() {
         let (composition, mut text_engine, path) = text_area_composition();
         let now = Instant::now();
-        let state = text::view::TextViewState::default()
+        let state = text::edit::ViewState::default()
             .with_scroll(80.0, 0.0)
             .ensure_caret_visible(now);
         let projections = Driver::resolve(
@@ -2640,7 +2640,7 @@ mod tests {
 
     #[test]
     fn no_wrap_text_area_long_line_activates_horizontal_scrollbar() {
-        let area_model = text::Area::new(long_text_area_buffer()).no_wrap();
+        let area_model = text::edit::Area::new(long_text_area_buffer()).no_wrap();
         let (composition, mut text_engine, path) = text_area_composition_for(area_model);
         let projections = Driver::resolve(
             &composition,
@@ -2708,9 +2708,10 @@ mod tests {
             .map(|line| format!("line {line} with enough text to wrap in a narrow area"))
             .collect::<Vec<_>>()
             .join("\n");
-        let (composition, mut text_engine, path) =
-            text_area_composition_for(text::Area::new(text::Buffer::from_multiline_text(text)));
-        let initial_state = text::view::TextViewState::default();
+        let (composition, mut text_engine, path) = text_area_composition_for(
+            text::edit::Area::new(text::Buffer::from_multiline_text(text)),
+        );
+        let initial_state = text::edit::ViewState::default();
         let mut projections = Driver::resolve(
             &composition,
             &HashMap::from([(path.clone(), initial_state.clone())]),
@@ -2783,7 +2784,7 @@ mod tests {
 
         projections.sync(
             &composition,
-            &HashMap::from([(path.clone(), text::view::TextViewState::default())]),
+            &HashMap::from([(path.clone(), text::edit::ViewState::default())]),
             &mut text_engine,
             Instant::now(),
         );
@@ -2831,7 +2832,7 @@ mod tests {
 
         projections.sync(
             &composition,
-            &HashMap::from([(path.clone(), text::view::TextViewState::default())]),
+            &HashMap::from([(path.clone(), text::edit::ViewState::default())]),
             &mut text_engine,
             Instant::now(),
         );
@@ -2878,7 +2879,7 @@ mod tests {
         let mut scene = paint::Scene::new();
         composition.paint_at_recording_scroll_ranges(
             ui::Interaction::default(),
-            &HashMap::from([(path.clone(), text::view::TextViewState::default())]),
+            &HashMap::from([(path.clone(), text::edit::ViewState::default())]),
             &mut text_engine,
             crate::animation::Frame::new(Instant::now(), None),
             Some(&projections),
@@ -2903,7 +2904,7 @@ mod tests {
     #[test]
     fn painting_text_area_uses_supplied_scroll_metrics_viewport_when_projection_is_missing() {
         let (composition, mut text_engine, path) =
-            text_area_composition_for(text::Area::new(multiline_buffer(200)));
+            text_area_composition_for(text::edit::Area::new(multiline_buffer(200)));
         let projections = Driver::resolve(
             &composition,
             &HashMap::new(),
@@ -2924,7 +2925,7 @@ mod tests {
         let mut scene = paint::Scene::new();
         composition.paint_at_recording_scroll_ranges(
             ui::Interaction::default(),
-            &HashMap::from([(path.clone(), text::view::TextViewState::default())]),
+            &HashMap::from([(path.clone(), text::edit::ViewState::default())]),
             &mut text_engine,
             crate::animation::Frame::new(Instant::now(), None),
             Some(&layer_scroll),
@@ -2946,7 +2947,7 @@ mod tests {
     #[test]
     fn full_sync_clamps_existing_offset_when_content_height_changes() {
         let (large_composition, mut text_engine, path) =
-            text_area_composition_for(text::Area::new(multiline_buffer(200)));
+            text_area_composition_for(text::edit::Area::new(multiline_buffer(200)));
         let mut projections = Driver::resolve(
             &large_composition,
             &HashMap::new(),
@@ -2966,7 +2967,7 @@ mod tests {
         projections.drain_pending_offsets();
 
         let (small_composition, mut small_text_engine, _) =
-            text_area_composition_for(text::Area::new(multiline_buffer(12)));
+            text_area_composition_for(text::edit::Area::new(multiline_buffer(12)));
         let expected = Driver::resolve(
             &small_composition,
             &HashMap::new(),
@@ -2981,7 +2982,7 @@ mod tests {
 
         projections.sync(
             &small_composition,
-            &HashMap::from([(path.clone(), text::view::TextViewState::default())]),
+            &HashMap::from([(path.clone(), text::edit::ViewState::default())]),
             &mut text_engine,
             Instant::now(),
         );
@@ -2998,7 +2999,7 @@ mod tests {
     #[test]
     fn small_scroll_offsets_refresh_shifted_text_area_projection_on_next_sync() {
         let (composition, mut text_engine, path) = text_area_composition();
-        let initial_state = text::view::TextViewState::default();
+        let initial_state = text::edit::ViewState::default();
         let mut projections = Driver::resolve(
             &composition,
             &HashMap::from([(path.clone(), initial_state.clone())]),
@@ -3053,7 +3054,7 @@ mod tests {
     #[test]
     fn projection_sync_preserves_last_scroll_input_diagnostics() {
         let (composition, mut text_engine, path) = text_area_composition();
-        let initial_state = text::view::TextViewState::default();
+        let initial_state = text::edit::ViewState::default();
         let now = Instant::now();
         let mut projections = Driver::resolve(
             &composition,
@@ -3153,7 +3154,7 @@ mod tests {
     #[test]
     fn fast_vertical_projection_shift_uses_text_render_guard() {
         let (composition, mut text_engine, path) =
-            text_area_composition_for(text::Area::new(multiline_buffer(500)));
+            text_area_composition_for(text::edit::Area::new(multiline_buffer(500)));
         let mut projections = Driver::resolve(
             &composition,
             &HashMap::new(),
@@ -3181,7 +3182,7 @@ mod tests {
     #[test]
     fn text_area_projection_keeps_render_surface_without_observed_coverage() {
         let (composition, mut text_engine, path) =
-            text_area_composition_for(text::Area::new(multiline_buffer(200)));
+            text_area_composition_for(text::edit::Area::new(multiline_buffer(200)));
         let projections = Driver::resolve(
             &composition,
             &HashMap::new(),
@@ -3213,7 +3214,7 @@ mod tests {
 
     #[test]
     fn horizontal_projection_scroll_reuses_covered_text_projection() {
-        let area_model = text::Area::new(long_text_area_buffer()).no_wrap();
+        let area_model = text::edit::Area::new(long_text_area_buffer()).no_wrap();
         let (composition, mut text_engine, path) = text_area_composition_for(area_model);
         let mut projections = Driver::resolve(
             &composition,
@@ -3243,7 +3244,7 @@ mod tests {
     #[test]
     fn text_area_smooth_wheel_retains_target_outside_projection_coverage() {
         let (composition, mut text_engine, path) =
-            text_area_composition_for(text::Area::new(multiline_buffer(200)));
+            text_area_composition_for(text::edit::Area::new(multiline_buffer(200)));
         let now = Instant::now();
         let mut projections = Driver::resolve(&composition, &HashMap::new(), &mut text_engine, now);
         let metrics = projections
@@ -3281,7 +3282,7 @@ mod tests {
             .expect("initial thumb");
         states.insert(
             path.clone(),
-            text::view::TextViewState::default().with_scroll_y(200.0),
+            text::edit::ViewState::default().with_scroll_y(200.0),
         );
         projections.sync(&composition, &states, &mut text_engine, Instant::now());
         let after = projections

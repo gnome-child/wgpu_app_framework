@@ -197,7 +197,7 @@ fn character_key_updates_focused_text_box_draft_and_focus_outline() {
         .expect("focused text box should render");
     let text_box = rendered
         .layout()
-        .find_role(view::Role::TextBox)
+        .find_role(view::node::Role::TextBox)
         .into_iter()
         .next()
         .expect("text box should be laid out");
@@ -232,7 +232,7 @@ fn tab_key_moves_focus_through_current_view_order() {
                 ui.text_area(
                     widget::TextArea::from_buffer(
                         state.document.buffer().clone(),
-                        state.document.edit_state(),
+                        state.document.text_state(),
                     )
                     .focus(document),
                 );
@@ -374,7 +374,7 @@ fn text_box_pointer_click_positions_framework_owned_draft_caret() {
         .expect("text box view should render");
     let text_box = presentation
         .layout()
-        .find_role(view::Role::TextBox)
+        .find_role(view::node::Role::TextBox)
         .into_iter()
         .next()
         .expect("text box should be laid out");

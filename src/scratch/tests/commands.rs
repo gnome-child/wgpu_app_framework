@@ -514,13 +514,14 @@ fn presentation_clears_stale_focus_before_resolving_command_state() {
         cx.open_window(window::Options::new("Editor"));
     })
     .view(|state, _| {
-        let mut root = view::Node::root().child(view::Node::menu_bar().child(
-            view::Node::menu("menu.file", "File").child(view::Node::menu_command::<Save>()),
-        ));
+        let mut root =
+            view::Node::root().child(view::Node::menu_bar().child(
+                view::Node::menu("menu.file", "File").child(view::Node::menu_bound::<Save>()),
+            ));
 
         if state.wrap_text {
             root = root.child(view::Node::text_area_state(
-                view::TextArea::new("").with_focus(session::Focus::text("document")),
+                view::control::TextArea::new("").with_focus(session::Focus::text("document")),
             ));
         }
 
@@ -535,7 +536,7 @@ fn presentation_clears_stale_focus_before_resolving_command_state() {
     let projected = app.present(window).expect("window should have a view");
     assert!(
         projected
-            .command::<Save>()
+            .binding::<Save>()
             .expect("save command should be in the view")
             .is_enabled()
     );
@@ -551,7 +552,7 @@ fn presentation_clears_stale_focus_before_resolving_command_state() {
     assert_eq!(app.session().focused(window), None);
     assert!(
         !projected
-            .command::<Save>()
+            .binding::<Save>()
             .expect("save command should remain in the view")
             .is_enabled()
     );
@@ -578,7 +579,7 @@ fn presentation_is_retained_as_framework_owned_composition() {
     assert!(
         composition
             .view()
-            .command::<document::OpenFile>()
+            .binding::<document::OpenFile>()
             .expect("open command should be retained")
             .is_enabled()
     );

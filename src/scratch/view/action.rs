@@ -6,7 +6,7 @@ use super::Binding;
 #[derive(Clone)]
 pub enum Action {
     Sequence(Vec<Action>),
-    Command(Binding),
+    Activate(Binding),
     Focus(session::Focus),
     PointerMove(Option<interaction::Target>),
     PointerDown(interaction::Target),
@@ -40,8 +40,8 @@ impl Action {
         Self::Sequence(actions.into_iter().collect())
     }
 
-    pub fn command(binding: &Binding) -> Self {
-        Self::Command(binding.clone())
+    pub fn activate(binding: &Binding) -> Self {
+        Self::Activate(binding.clone())
     }
 
     pub fn focus(focus: session::Focus) -> Self {

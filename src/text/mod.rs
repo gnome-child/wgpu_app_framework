@@ -1,29 +1,12 @@
 pub mod buffer;
-pub mod command;
+mod color;
 pub mod document;
 pub mod edit;
 pub mod layout;
-pub mod surface;
 pub mod unicode;
-pub mod view;
 
-pub use buffer::{
-    Buffer, LineId, TextAffinity, TextMotion, TextPosition, TextRange, TextSelection,
-};
-pub use document::{Align, Block, Document, Role, Run, Style, TextDirection, Weight};
-pub use edit::{
-    Clipboard, ClipboardError, ClipboardResult, Command, CommandResult, Edit, Editor,
-    PointerEditKind,
-};
-pub use layout::{
-    Caret, CaretLayout, Diagnostics, Engine, Measure, Metrics, SelectionSpan, TextAreaPaintLayout,
-    TextAreaSurface, TextFieldLayout,
-};
-pub use surface::{Area, AreaWrap, Field, FieldMode, Obscuring, Surface};
-pub use view::{
-    Preedit, RevealIntent, ScrollAnchor, State as ViewState, TextViewState, View, Viewport,
-    Visibility,
-};
-
+pub use buffer::Buffer;
+pub use color::Color;
+pub use document::Document;
 #[cfg(test)]
 mod tests;

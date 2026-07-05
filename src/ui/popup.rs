@@ -20,4 +20,8 @@ impl Popup {
     pub fn root(&self) -> &Node {
         &self.root
     }
+
+    pub(crate) fn root_mut(&mut self) -> &mut Node {
+        &mut self.root
+    }
 }

@@ -9,7 +9,7 @@ fn text_editor_view_composes_to_layout_without_runtime_mutation() {
     let window = app.session().windows()[0].id();
     let projected = app.present(window).expect("window should have a view");
     let revision = app.revision();
-    let mut layout_engine = layout::Engine::new();
+    let mut layout_engine = layout::engine::Engine::new();
     let _: &Layout = &layout::Layout::compose(
         &projected,
         geometry::Size::new(800, 600),
@@ -25,13 +25,13 @@ fn text_editor_view_composes_to_layout_without_runtime_mutation() {
     assert_eq!(app.revision(), revision);
     assert_eq!(app.session().file_dialog(window), None);
 
-    let menus = layout.find_role(view::Role::Menu);
+    let menus = layout.find_role(view::node::Role::Menu);
     assert_eq!(menus.len(), 3);
     assert_eq!(menus[0].label_text(), Some("File"));
     assert_eq!(menus[1].label_text(), Some("Edit"));
     assert_eq!(menus[2].label_text(), Some("View"));
 
-    let text_areas = layout.find_role(view::Role::TextArea);
+    let text_areas = layout.find_role(view::node::Role::TextArea);
     assert_eq!(text_areas.len(), 1);
     assert_eq!(text_areas[0].rect().y(), 28);
     assert!(text_areas[0].rect().height() > 0);
@@ -45,7 +45,7 @@ fn text_editor_view_composes_to_layout_without_runtime_mutation() {
     let menu_hit = layout
         .hit_test(geometry::Point::new(10, 10))
         .expect("file menu should be hit");
-    assert_eq!(menu_hit.frame().role(), view::Role::Menu);
+    assert_eq!(menu_hit.frame().role(), view::node::Role::Menu);
     assert_eq!(menu_hit.frame().label_text(), Some("File"));
     assert!(matches!(
         menu_hit.action(),
@@ -55,7 +55,7 @@ fn text_editor_view_composes_to_layout_without_runtime_mutation() {
     let text_hit = layout
         .hit_test(geometry::Point::new(10, 80))
         .expect("text area should be hit");
-    assert_eq!(text_hit.frame().role(), view::Role::TextArea);
+    assert_eq!(text_hit.frame().role(), view::node::Role::TextArea);
     assert!(matches!(text_hit.action(), Some(view::Action::Focus(_))));
 }
 
@@ -68,9 +68,9 @@ fn layout_intrinsic_width_uses_text_measurement() {
                 .child(view::Node::menu("menu.narrow", "iiiiii")),
         ),
     );
-    let mut layout_engine = layout::Engine::new();
+    let mut layout_engine = layout::engine::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(400, 120), &mut layout_engine);
-    let menus = layout.find_role(view::Role::Menu);
+    let menus = layout.find_role(view::node::Role::Menu);
 
     assert_eq!(menus.len(), 2);
     assert!(
@@ -88,13 +88,13 @@ fn layout_hit_testing_uses_stable_identity_and_topmost_popup_order() {
                 .child(view::Node::menu("menu.second", "Same")),
         ),
     );
-    let mut layout_engine = layout::Engine::new();
+    let mut layout_engine = layout::engine::Engine::new();
     let duplicate_layout = layout::Layout::compose(
         &duplicate,
         geometry::Size::new(320, 120),
         &mut layout_engine,
     );
-    let duplicate_menus = duplicate_layout.find_role(view::Role::Menu);
+    let duplicate_menus = duplicate_layout.find_role(view::node::Role::Menu);
 
     assert_eq!(duplicate_menus.len(), 2);
     assert_eq!(duplicate_menus[0].label_text(), Some("Same"));
@@ -131,14 +131,14 @@ fn layout_hit_testing_uses_stable_identity_and_topmost_popup_order() {
         .hit_test(geometry::Point::new(10, 34))
         .expect("popup should be hit above the text area");
 
-    assert_eq!(popup_hit.frame().role(), view::Role::Command);
+    assert_eq!(popup_hit.frame().role(), view::node::Role::Binding);
     assert_eq!(popup_hit.frame().label_text(), Some("New"));
     assert_eq!(
         popup_hit
             .target()
             .expect("popup command should expose a target")
             .kind(),
-        interaction::Kind::Command
+        interaction::target::Kind::Command
     );
 }
 
@@ -156,7 +156,7 @@ fn runtime_host_pointer_coordinates_route_to_view_actions() {
     let hit = app
         .hit_test(window, size, geometry::Point::new(10, 10))
         .expect("file menu should be hit");
-    assert_eq!(hit.frame().role(), view::Role::Menu);
+    assert_eq!(hit.frame().role(), view::node::Role::Menu);
     assert_eq!(hit.frame().label_text(), Some("File"));
 
     let moved = app
@@ -202,7 +202,7 @@ fn runtime_host_scroll_coordinates_route_to_scroll_target() {
         .expect("initial scene should install a composition");
     let text_area = presentation
         .layout()
-        .find_role(view::Role::TextArea)
+        .find_role(view::node::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");
@@ -232,7 +232,7 @@ fn runtime_host_scroll_coordinates_route_to_scroll_target() {
         .expect("scrolled scene should render");
     let text_area = scrolled
         .layout()
-        .find_role(view::Role::TextArea)
+        .find_role(view::node::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out after scrolling");
@@ -244,6 +244,69 @@ fn runtime_host_scroll_coordinates_route_to_scroll_target() {
             .scroll_y(),
         96.0
     );
+}
+
+#[test]
+fn platform_wheel_down_scroll_moves_text_area_content_up() {
+    use winit::event::MouseScrollDelta;
+
+    let document = (0..160)
+        .map(|line| format!("direction line {line:03}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut app = text_editor::app(text_editor::State {
+        document: TextDocument::from_multiline_text(document),
+        ..text_editor::State::default()
+    });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(520, 180);
+    let initial = app
+        .render_scene(window, size)
+        .expect("initial scene should render");
+    let initial_y = first_visible_text_area_surface_y(&initial);
+    let text_area = initial
+        .layout()
+        .find_role(view::node::Role::TextArea)
+        .into_iter()
+        .next()
+        .expect("text area should be laid out");
+    let target = text_area
+        .target()
+        .expect("text area should expose a scroll target")
+        .clone();
+    let point = geometry::Point::new(text_area.rect().x() + 8, text_area.rect().y() + 8);
+    let wheel_down = platform::scroll_delta(MouseScrollDelta::LineDelta(0.0, -16.0), 1.0);
+
+    let outcome = app
+        .scroll_at(window, size, point, wheel_down)
+        .expect("wheel scroll should route to text area");
+    assert!(outcome.is_handled());
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("window should retain interaction state")
+            .scroll()
+            .offset(&target),
+        interaction::ScrollOffset::new(0, 448)
+    );
+
+    let scrolled = app
+        .render_scene(window, size)
+        .expect("scrolled scene should render");
+    let scrolled_y = first_visible_text_area_surface_y(&scrolled);
+    let scroll_y = scrolled
+        .layout()
+        .find_role(view::node::Role::TextArea)
+        .first()
+        .and_then(|frame| frame.text_area_layout())
+        .map(|text_area| text_area.layout().scroll_y())
+        .expect("text area should have a text layout");
+
+    assert!(scroll_y > 0.0);
+    assert!(scrolled_y < initial_y);
 }
 
 #[test]
@@ -262,7 +325,7 @@ fn text_area_render_writes_back_clamped_scroll_offset() {
         .expect("initial scene should install a composition");
     let text_area = presentation
         .layout()
-        .find_role(view::Role::TextArea)
+        .find_role(view::node::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");
@@ -309,7 +372,7 @@ fn text_area_render_writes_back_clamped_scroll_offset() {
     );
     let text_area = clamped
         .layout()
-        .find_role(view::Role::TextArea)
+        .find_role(view::node::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out after clamping");
@@ -349,7 +412,7 @@ fn text_area_caret_reveal_resolves_framework_owned_scroll_after_edit() {
         .expect("initial scene should install a composition");
     let text_area = presentation
         .layout()
-        .find_role(view::Role::TextArea)
+        .find_role(view::node::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");
@@ -375,7 +438,9 @@ fn text_area_caret_reveal_resolves_framework_owned_scroll_after_edit() {
     let moved = app
         .handle_input(
             window,
-            Input::text_edit(text::edit::Edit::set_position(text::TextPosition::new(0))),
+            Input::text_edit(text::edit::Edit::set_position(text::buffer::Position::new(
+                0,
+            ))),
         )
         .expect("caret move should be handled");
 
@@ -397,7 +462,7 @@ fn text_area_caret_reveal_resolves_framework_owned_scroll_after_edit() {
     );
     let text_area = revealed
         .layout()
-        .find_role(view::Role::TextArea)
+        .find_role(view::node::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out after reveal");
@@ -426,7 +491,7 @@ fn text_editor_layout_paints_to_renderer_neutral_scene() {
         .expect("stress text command should resolve");
     let projected = app.present(window).expect("window should have a view");
     let revision = app.revision();
-    let mut layout_engine = layout::Engine::new();
+    let mut layout_engine = layout::engine::Engine::new();
     let layout = layout::Layout::compose(
         &projected,
         geometry::Size::new(800, 600),
@@ -457,44 +522,11 @@ fn text_editor_layout_paints_to_renderer_neutral_scene() {
     assert!(scene.quads().iter().any(|quad| {
         quad.fill().channels() == (245, 247, 250, 255)
             && layout
-                .find_role(view::Role::TextArea)
+                .find_role(view::node::Role::TextArea)
                 .iter()
                 .any(|frame| frame.rect() == quad.rect())
     }));
-    let paint_scene = scene.to_paint_scene();
-    assert_eq!(
-        paint_scene.clear_color(),
-        Some(paint::Color::rgba(
-            20.0 / 255.0,
-            22.0 / 255.0,
-            25.0 / 255.0,
-            1.0
-        ))
-    );
-    assert!(paint_scene.items().iter().any(|item| {
-        matches!(
-            item,
-            paint::Item::Quad(paint::Quad {
-                style: paint::Style {
-                    fill: Some(paint::Fill::Brush(paint::Brush::Solid(color))),
-                    ..
-                },
-                ..
-            }) if *color == paint::Color::rgba(
-                245.0 / 255.0,
-                247.0 / 255.0,
-                250.0 / 255.0,
-                1.0
-            )
-        )
-    }));
-    assert!(paint_scene.items().iter().any(|item| {
-        matches!(
-            item,
-            paint::Item::TextViewport(paint::TextViewport { surfaces, .. })
-                if !surfaces.is_empty()
-        )
-    }));
+    assert_eq!(scene.clear().channels(), (20, 22, 25, 255));
     assert_eq!(app.revision(), revision);
 }
 
@@ -506,7 +538,7 @@ fn text_area_selection_highlight_is_clipped_to_text_area_viewport() {
         .join("\n");
     let mut document = TextDocument::from_multiline_text(text);
     let mut clipboard = Clipboard::default();
-    let selected = document.apply_command(text::edit::Command::SelectAll, &mut clipboard);
+    let selected = document.apply_action(text::edit::Action::SelectAll, &mut clipboard);
 
     assert!(selected.selection_changed());
 
@@ -524,7 +556,7 @@ fn text_area_selection_highlight_is_clipped_to_text_area_viewport() {
         .expect("initial scene should render");
     let text_area = initial
         .layout()
-        .find_role(view::Role::TextArea)
+        .find_role(view::node::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");
@@ -542,7 +574,7 @@ fn text_area_selection_highlight_is_clipped_to_text_area_viewport() {
         .expect("scrolled scene should render");
     let text_area_rect = scrolled
         .layout()
-        .find_role(view::Role::TextArea)
+        .find_role(view::node::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out after scrolling")
@@ -575,6 +607,68 @@ fn text_area_selection_highlight_is_clipped_to_text_area_viewport() {
 }
 
 #[test]
+fn text_area_selection_highlight_paints_below_menu_bar_chrome() {
+    let text = (0..24)
+        .map(|line| format!("selected line {line:03}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut document = TextDocument::from_multiline_text(text);
+    let mut clipboard = Clipboard::default();
+    document.apply_action(text::edit::Action::SelectAll, &mut clipboard);
+
+    let mut app = text_editor::app(text_editor::State {
+        document,
+        ..text_editor::State::default()
+    });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let rendered = app
+        .render_scene(window, geometry::Size::new(520, 180))
+        .expect("selected text area should render");
+    let primitives = rendered.scene().primitives();
+    let highlight = primitives
+        .iter()
+        .position(|primitive| {
+            matches!(
+                primitive,
+                scene::Primitive::Quad(quad)
+                    if quad.fill().channels() == (76, 132, 255, 96)
+            )
+        })
+        .expect("selection highlight should be painted");
+    let menu_bar_chrome = primitives
+        .iter()
+        .position(|primitive| {
+            matches!(
+                primitive,
+                scene::Primitive::Quad(quad)
+                    if quad.fill().channels() == (34, 37, 42, 255)
+            )
+        })
+        .expect("menu bar chrome should be painted");
+    let file_menu_text = primitives
+        .iter()
+        .position(|primitive| {
+            matches!(
+                primitive,
+                scene::Primitive::Text(text) if text.value() == "File"
+            )
+        })
+        .expect("menu bar file text should be painted");
+
+    assert!(
+        highlight < menu_bar_chrome,
+        "selection highlight should paint below menu bar background"
+    );
+    assert!(
+        highlight < file_menu_text,
+        "selection highlight should paint below menu bar text"
+    );
+}
+
+#[test]
 fn text_editor_wrap_command_changes_text_area_paint_wrap() {
     let mut app = text_editor::app(text_editor::State {
         document: TextDocument::from_multiline_text("alpha beta gamma"),
@@ -591,10 +685,10 @@ fn text_editor_wrap_command_changes_text_area_paint_wrap() {
     assert_eq!(
         wrapped
             .layout()
-            .find_role(view::Role::TextArea)
+            .find_role(view::node::Role::TextArea)
             .first()
             .and_then(|frame| frame.text_wrap()),
-        Some(view::Wrap::Word)
+        Some(view::control::Wrap::Word)
     );
     assert!(!wrapped.scene().text_viewports().is_empty());
 
@@ -609,10 +703,10 @@ fn text_editor_wrap_command_changes_text_area_paint_wrap() {
     assert_eq!(
         unwrapped
             .layout()
-            .find_role(view::Role::TextArea)
+            .find_role(view::node::Role::TextArea)
             .first()
             .and_then(|frame| frame.text_wrap()),
-        Some(view::Wrap::None)
+        Some(view::control::Wrap::None)
     );
     assert!(!unwrapped.scene().text_viewports().is_empty());
 }
@@ -637,7 +731,7 @@ fn scene_preserves_popup_paint_order_after_base_content() {
         .expect("menu action should be handled");
 
     let projected = app.present(window).expect("window should have a view");
-    let mut layout_engine = layout::Engine::new();
+    let mut layout_engine = layout::engine::Engine::new();
     let layout = layout::Layout::compose(
         &projected,
         geometry::Size::new(800, 600),
@@ -671,4 +765,29 @@ fn scene_preserves_popup_paint_order_after_base_content() {
         scene.primitives().last(),
         Some(scene::Primitive::Text(text)) if text.value() == "Exit"
     ));
+}
+
+fn first_visible_text_area_surface_y(presentation: &scene::Presentation) -> f32 {
+    visible_text_area_surfaces(presentation)
+        .into_iter()
+        .map(|(_, y, _)| y)
+        .min_by(f32::total_cmp)
+        .expect("text area should render at least one visible surface")
+}
+
+fn visible_text_area_surfaces(presentation: &scene::Presentation) -> Vec<(usize, f32, f32)> {
+    presentation
+        .layout()
+        .find_role(view::node::Role::TextArea)
+        .into_iter()
+        .flat_map(|frame| {
+            let height = frame.rect().height() as f32;
+            frame
+                .text_area_layout()
+                .into_iter()
+                .flat_map(layout::text::TextAreaLayout::render_surfaces)
+                .filter(move |surface| surface.y() < height && surface.y() + surface.height() > 0.0)
+        })
+        .map(|surface| (surface.source_line(), surface.y(), surface.height()))
+        .collect()
 }

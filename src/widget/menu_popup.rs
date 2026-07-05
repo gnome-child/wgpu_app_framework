@@ -15,7 +15,6 @@ const ROW_LABEL: ui::Id = ui::Id::new("__menu_row_label");
 const ROW_SHORTCUT: ui::Id = ui::Id::new("__menu_row_shortcut");
 const ROW_TRAILING: ui::Id = ui::Id::new("__menu_row_trailing");
 const ROW_SEPARATOR: ui::Id = ui::Id::new("__menu_row_separator");
-const TEXT_CONTEXT_MENU: menu::Id = menu::Id::new("__text_context_menu");
 
 pub trait Presenter {
     fn item_label(&self, surface: Option<&ui::floating::Surface>, item: &menu::Item) -> String;
@@ -79,6 +78,7 @@ pub fn submenu_popup(
 
 pub fn text_context_menu_popup(
     surface: &ui::floating::Surface,
+    menu: &menu::Menu,
     presenter: &dyn Presenter,
     measurer: &mut text::layout::Engine,
     bounds: Rect,
@@ -86,8 +86,7 @@ pub fn text_context_menu_popup(
     surface.context_menu_target()?;
 
     let theme = theme::Theme::default_dark();
-    let menu = text_context_menu();
-    let chrome = popup_chrome_with_surface(&menu, presenter, surface, &theme, measurer);
+    let chrome = popup_chrome_with_surface(menu, presenter, surface, &theme, measurer);
     let origin = match surface.anchor() {
         ui::floating::Anchor::Point(point) => point,
         ui::floating::Anchor::Rect(rect) => rect.origin,
@@ -98,7 +97,7 @@ pub fn text_context_menu_popup(
         popup_rect,
         popup_node(
             TEXT_CONTEXT_MENU_POPUP,
-            &menu,
+            menu,
             presenter,
             surface,
             chrome,
@@ -168,20 +167,6 @@ fn clamped_origin(
     point::logical(
         origin.x().clamp(min_x, max_x),
         origin.y().clamp(min_y, max_y),
-    )
-}
-
-fn text_context_menu() -> menu::Menu {
-    menu::Menu::new("Text").key(TEXT_CONTEXT_MENU).section(
-        menu::Section::new()
-            .text::<crate::text::command::Undo>()
-            .text::<crate::text::command::Redo>()
-            .separator()
-            .text::<crate::text::command::Cut>()
-            .text::<crate::text::command::Copy>()
-            .text::<crate::text::command::Paste>()
-            .separator()
-            .text::<crate::text::command::SelectAll>(),
     )
 }
 
@@ -433,9 +418,13 @@ fn document(
         theme
             .text()
             .style(text::document::Role::Menu)
-            .with_color(color),
+            .with_color(text_color(color)),
     ));
     text::document::Document::from_block(block)
+}
+
+fn text_color(color: paint::Color) -> text::Color {
+    text::Color::rgba(color.r, color.g, color.b, color.a)
 }
 
 #[cfg(test)]
@@ -1002,7 +991,7 @@ mod tests {
         for text in label {
             assert_eq!(
                 text.document.blocks()[0].runs()[0].style().color(),
-                theme.text().disabled()
+                text_color(theme.text().disabled())
             );
         }
     }
@@ -1050,7 +1039,7 @@ mod tests {
         for text in label {
             assert_eq!(
                 text.document.blocks()[0].runs()[0].style().color(),
-                theme.text().primary()
+                text_color(theme.text().primary())
             );
         }
     }

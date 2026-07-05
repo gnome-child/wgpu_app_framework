@@ -102,10 +102,7 @@ where
     let mut block = text::document::Block::new(text::document::Align::Center);
     block.push_run(text::document::Run::new(
         label,
-        theme
-            .text()
-            .style(text::document::Role::Control)
-            .with_color(theme.text().primary()),
+        theme.text().style(text::document::Role::Control),
     ));
 
     button_with_theme::<C, TTarget>(theme).with_label(text::document::Document::from_block(block))
@@ -120,10 +117,7 @@ pub(crate) fn labeled_button_with_theme_key(
     let mut block = text::document::Block::new(text::document::Align::Center);
     block.push_run(text::document::Run::new(
         label,
-        theme
-            .text()
-            .style(text::document::Role::Control)
-            .with_color(theme.text().primary()),
+        theme.text().style(text::document::Role::Control),
     ));
 
     button_with_theme_key(command, theme).with_label(text::document::Document::from_block(block))

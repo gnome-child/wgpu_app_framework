@@ -18,7 +18,6 @@ mod input;
 mod native;
 mod path;
 mod render;
-mod text_system;
 
 pub use command::{Command, Registry, Response, State, Target};
 pub use event::Event;

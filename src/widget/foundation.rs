@@ -5,7 +5,7 @@ pub fn document(
     label: impl Into<String>,
     align: text::document::Align,
     size: f32,
-    color: paint::Color,
+    color: text::Color,
 ) -> text::document::Document {
     let mut block = text::document::Block::new(align);
     block.push_run(text::document::Run::new(

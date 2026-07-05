@@ -7,7 +7,6 @@ use crate::command::call::{Context, Invocation, Raw, Scope, Source};
 use crate::command::definition::Definition;
 use crate::command::registry::{RegisterError, Rejection};
 use crate::command::shortcut::Shortcut;
-use crate::text::command::{Copy, InsertText, Paste, SelectAll};
 use crate::{
     path::{Id, Path},
     window,
@@ -18,8 +17,37 @@ const TEXT_BOX: Id = Id::new("text_box");
 struct CustomFlag;
 struct SaveAs;
 trait MacroTarget: 'static {}
+trait TextCommandTarget: 'static {}
 
 impl target::Category for dyn MacroTarget {}
+impl target::Category for dyn TextCommandTarget {}
+
+crate::command!(SelectAll {
+    name: "select_all",
+    display: "Select All",
+    target: dyn TextCommandTarget,
+});
+
+crate::command!(Copy {
+    name: "copy",
+    display: "Copy",
+    target: dyn TextCommandTarget,
+});
+
+crate::command!(Paste {
+    name: "paste",
+    display: "Paste",
+    repeatable: true,
+    target: dyn TextCommandTarget,
+});
+
+crate::command!(InsertText {
+    name: "insert_text",
+    display: "Insert Text",
+    args: String,
+    repeatable: true,
+    target: dyn TextCommandTarget,
+});
 
 crate::command!(MacroGenerated {
     name: "macro_generated",
@@ -306,13 +334,13 @@ fn registry_accepts_closure_command_batches() {
 }
 
 #[test]
-fn built_in_edit_commands_expose_expected_metadata() {
+fn command_definitions_can_share_a_named_target_category() {
     let mut registry = Registry::new();
-    let text_target = crate::text::command::text_target_kind();
+    let text_target = <dyn TextCommandTarget as target::Category>::kind();
 
     registry.commands(|commands| {
-        crate::text::command::define::<SelectAll>(commands, |command| command);
-        crate::text::command::define::<Paste>(commands, |command| command);
+        commands.define_with_target::<SelectAll>(text_target, |command| command);
+        commands.define_with_target::<Paste>(text_target, |command| command);
     });
 
     let default = registry.command::<SelectAll>().expect("select all command");

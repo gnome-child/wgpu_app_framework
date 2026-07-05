@@ -1,4 +1,4 @@
-use crate::paint;
+use super::Color;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ResolvedTextDirection {
@@ -63,7 +63,7 @@ pub struct Run {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Style {
     size: f32,
-    color: paint::Color,
+    color: Color,
     weight: Weight,
     direction: TextDirection,
 }
@@ -133,7 +133,7 @@ impl Document {
             .or(first_run_style)
     }
 
-    pub fn with_color(mut self, color: paint::Color) -> Self {
+    pub fn with_color(mut self, color: Color) -> Self {
         for block in &mut self.blocks {
             for run in &mut block.runs {
                 run.style = run.style.with_color(color);
@@ -241,7 +241,7 @@ impl Style {
         self.size
     }
 
-    pub fn color(self) -> paint::Color {
+    pub fn color(self) -> Color {
         self.color
     }
 
@@ -253,7 +253,7 @@ impl Style {
         self.direction
     }
 
-    pub fn with_color(mut self, color: paint::Color) -> Self {
+    pub fn with_color(mut self, color: Color) -> Self {
         self.color = color;
         self
     }
@@ -278,7 +278,7 @@ impl Default for Style {
     fn default() -> Self {
         Self {
             size: 16.0,
-            color: paint::Color::rgb(0.92, 0.94, 0.98),
+            color: Color::rgb(0.92, 0.94, 0.98),
             weight: Weight::Normal,
             direction: TextDirection::Auto,
         }

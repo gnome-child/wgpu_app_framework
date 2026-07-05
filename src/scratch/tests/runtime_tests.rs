@@ -839,9 +839,9 @@ fn command_context_source_tracks_invocation_origin() {
                 view::Node::root()
                     .child(
                         view::Node::menu("menu.actions", "Actions")
-                            .child(view::Node::menu_command::<RecordSource>()),
+                            .child(view::Node::menu_bound::<RecordSource>()),
                     )
-                    .child(view::Node::command::<RecordSource>()),
+                    .child(view::Node::bound::<RecordSource>()),
             )
         });
 

@@ -29,7 +29,7 @@ fn slider_on_change_invokes_command_with_layout_derived_value() {
         .expect("slider view should render");
     let slider = presentation
         .layout()
-        .find_role(view::Role::Slider)
+        .find_role(view::node::Role::Slider)
         .into_iter()
         .next()
         .expect("slider should be laid out");
@@ -108,7 +108,7 @@ fn captured_slider_drag_coalesces_into_one_undo_entry() {
         .expect("slider view should render");
     let slider = presentation
         .layout()
-        .find_role(view::Role::Slider)
+        .find_role(view::node::Role::Slider)
         .into_iter()
         .next()
         .expect("slider should be laid out");
@@ -179,7 +179,7 @@ fn slider_trigger_with_maps_layout_value_into_custom_command_args() {
         .expect("mapped slider view should render");
     let slider = presentation
         .layout()
-        .find_role(view::Role::Slider)
+        .find_role(view::node::Role::Slider)
         .into_iter()
         .next()
         .expect("mapped slider should be laid out");

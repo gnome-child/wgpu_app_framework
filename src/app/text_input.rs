@@ -46,7 +46,7 @@ pub fn is_editing_target(state: &WindowState, target: &ui::Path) -> bool {
 pub fn command_state(
     state: &WindowState,
     target: &ui::Path,
-    command: text::edit::Command,
+    command: text::edit::Action,
 ) -> command::State {
     let enabled = state
         .composition
@@ -60,16 +60,16 @@ pub fn command_state(
 pub fn can_apply_command(
     state: &WindowState,
     target: &ui::Path,
-    surface: &text::Surface,
-    command: text::edit::Command,
+    surface: &text::edit::Surface,
+    command: text::edit::Action,
 ) -> bool {
     if !is_editing_target(state, target) {
         return false;
     }
 
     match command {
-        text::edit::Command::Undo => surface.is_editable() && state.text.can_undo(target),
-        text::edit::Command::Redo => surface.is_editable() && state.text.can_redo(target),
+        text::edit::Action::Undo => surface.is_editable() && state.text.can_undo(target),
+        text::edit::Action::Redo => surface.is_editable() && state.text.can_redo(target),
         other => command_would_do_work(surface, other),
     }
 }
@@ -96,9 +96,16 @@ pub fn publish_command_states(
     for path in composition.text_surfaces().keys() {
         let context = command::call::Context::path(window, path.clone());
 
-        text::command::for_each_edit_command!(project_state, commands, &target, context);
-        changed |= commands
-            .project_command_state::<crate::text::command::InsertText, _>(&target, context.clone());
+        crate::widget::text_command::for_each_edit_command!(
+            project_state,
+            commands,
+            &target,
+            context
+        );
+        changed |= commands.project_command_state::<crate::widget::text_command::InsertText, _>(
+            &target,
+            context.clone(),
+        );
     }
 
     changed
@@ -116,14 +123,14 @@ impl<'a> CommandStateTarget<'a> {
 
 impl<C> command::Target<C> for CommandStateTarget<'_>
 where
-    C: text::command::EditCommand,
+    C: crate::widget::text_command::EditCommand,
 {
     fn state(&self, context: &command::call::Context) -> command::State {
         let command::call::Scope::Path(path) = context.scope() else {
             return command::State::unavailable();
         };
 
-        command_state(self.state, path, C::edit_command())
+        command_state(self.state, path, C::edit_action())
     }
 
     fn invoke(
@@ -131,14 +138,14 @@ where
         _args: C::Args,
         _invocation: command::call::Invocation<C>,
     ) -> command::Response<C::Output> {
-        command::Response::output(text::edit::CommandResult {
+        command::Response::output(text::edit::ActionResult {
             unavailable: true,
-            ..text::edit::CommandResult::default()
+            ..text::edit::ActionResult::default()
         })
     }
 }
 
-impl command::Target<text::command::InsertText> for CommandStateTarget<'_> {
+impl command::Target<crate::widget::text_command::InsertText> for CommandStateTarget<'_> {
     fn state(&self, context: &command::call::Context) -> command::State {
         let command::call::Scope::Path(path) = context.scope() else {
             return command::State::unavailable();
@@ -150,11 +157,11 @@ impl command::Target<text::command::InsertText> for CommandStateTarget<'_> {
     fn invoke(
         &mut self,
         _args: String,
-        _invocation: command::call::Invocation<text::command::InsertText>,
-    ) -> command::Response<text::edit::CommandResult> {
-        command::Response::output(text::edit::CommandResult {
+        _invocation: command::call::Invocation<crate::widget::text_command::InsertText>,
+    ) -> command::Response<text::edit::ActionResult> {
+        command::Response::output(text::edit::ActionResult {
             unavailable: true,
-            ..text::edit::CommandResult::default()
+            ..text::edit::ActionResult::default()
         })
     }
 }
@@ -187,7 +194,7 @@ impl<'a> CommandTarget<'a> {
 
 impl<C> command::Target<C> for CommandTarget<'_>
 where
-    C: text::command::EditCommand,
+    C: crate::widget::text_command::EditCommand,
 {
     fn state(&self, context: &command::call::Context) -> command::State {
         let command::call::Scope::Path(target) = context.scope() else {
@@ -201,7 +208,7 @@ where
                     .composition
                     .as_ref()
                     .and_then(|composition| composition.text_surface(target))
-                    .map(|_| command_state(state, target, C::edit_command()))
+                    .map(|_| command_state(state, target, C::edit_action()))
             })
             .unwrap_or_else(command::State::unavailable)
     }
@@ -212,9 +219,9 @@ where
         invocation: command::call::Invocation<C>,
     ) -> command::Response<C::Output> {
         let command::call::Scope::Path(target) = invocation.context().scope() else {
-            return command::Response::output(text::edit::CommandResult {
+            return command::Response::output(text::edit::ActionResult {
                 unavailable: true,
-                ..text::edit::CommandResult::default()
+                ..text::edit::ActionResult::default()
             });
         };
 
@@ -225,12 +232,12 @@ where
             self.clipboard,
             target,
             self.buffer,
-            C::edit_command(),
+            C::edit_action(),
         ))
     }
 }
 
-impl command::Target<text::command::InsertText> for CommandTarget<'_> {
+impl command::Target<crate::widget::text_command::InsertText> for CommandTarget<'_> {
     fn state(&self, context: &command::call::Context) -> command::State {
         let command::call::Scope::Path(target) = context.scope() else {
             return command::State::unavailable();
@@ -251,12 +258,12 @@ impl command::Target<text::command::InsertText> for CommandTarget<'_> {
     fn invoke(
         &mut self,
         text: String,
-        invocation: command::call::Invocation<text::command::InsertText>,
-    ) -> command::Response<text::edit::CommandResult> {
+        invocation: command::call::Invocation<crate::widget::text_command::InsertText>,
+    ) -> command::Response<text::edit::ActionResult> {
         let command::call::Scope::Path(target) = invocation.context().scope() else {
-            return command::Response::output(text::edit::CommandResult {
+            return command::Response::output(text::edit::ActionResult {
                 unavailable: true,
-                ..text::edit::CommandResult::default()
+                ..text::edit::ActionResult::default()
             });
         };
 
@@ -292,28 +299,39 @@ pub(crate) fn apply_command_for(
     clipboard: &mut dyn text::edit::Clipboard,
     target: &ui::Path,
     buffer: &mut text::Buffer,
-    command: text::edit::Command,
-) -> text::edit::CommandResult {
-    if matches!(
-        command,
-        text::edit::Command::Undo | text::edit::Command::Redo
-    ) {
+    command: text::edit::Action,
+) -> text::edit::ActionResult {
+    if matches!(command, text::edit::Action::Undo | text::edit::Action::Redo) {
         let scroll_anchors = window_states
             .iter()
             .map(|(window, state)| (*window, state.text_area_scroll_anchor(target)))
             .collect::<HashMap<_, _>>();
-        let Some(result) = window_states.values_mut().find_map(|state| {
+        let mut result = None;
+        let mut edit_state = None;
+        for state in window_states.values_mut() {
             let can_apply = state
                 .text_surface(target)
                 .is_some_and(|surface| can_apply_command(state, target, surface, command));
+            if can_apply {
+                let command_result = state.apply_text_history_command(target, buffer, command);
+                edit_state = Some(state.text_edit_state_or_initial(target, buffer));
+                result = Some(command_result);
+                break;
+            }
+        }
 
-            can_apply.then(|| state.apply_text_history_command(target, buffer, command))
-        }) else {
-            return text::edit::CommandResult {
+        let Some(result) = result else {
+            return text::edit::ActionResult {
                 unavailable: true,
-                ..text::edit::CommandResult::default()
+                ..text::edit::ActionResult::default()
             };
         };
+
+        if let Some(edit_state) = edit_state {
+            for state in window_states.values_mut() {
+                state.store_text_edit_state(target, edit_state);
+            }
+        }
 
         if result.buffer_changed() {
             text_engine.invalidate_text_area_surfaces_for(buffer);
@@ -331,23 +349,24 @@ pub(crate) fn apply_command_for(
         return result;
     }
 
-    if !window_states.values().any(|state| {
+    let Some(mut edit_state) = window_states.values().find_map(|state| {
         state
             .text_surface(target)
-            .is_some_and(|surface| can_apply_command(state, target, surface, command))
-    }) {
-        return text::edit::CommandResult {
+            .filter(|surface| can_apply_command(state, target, surface, command))
+            .map(|_| state.text_edit_state_or_initial(target, buffer))
+    }) else {
+        return text::edit::ActionResult {
             unavailable: true,
-            ..text::edit::CommandResult::default()
+            ..text::edit::ActionResult::default()
         };
-    }
+    };
 
-    let selection_only = matches!(command, text::edit::Command::SelectAll);
+    let selection_only = matches!(command, text::edit::Action::SelectAll);
     let scroll_anchors = window_states
         .iter()
         .map(|(window, state)| (*window, state.text_area_scroll_anchor(target)))
         .collect::<HashMap<_, _>>();
-    let outcome = text_editor.apply_text_command_with_result(buffer, command, clipboard);
+    let outcome = text_editor.apply_action(buffer, &mut edit_state, command, clipboard);
     if outcome.result.text_changed {
         text_engine.invalidate_text_area_for_edit(buffer, &outcome.impacts);
     }
@@ -367,6 +386,7 @@ pub(crate) fn apply_command_for(
 
     if result.buffer_changed() {
         for (window, state) in window_states.iter_mut() {
+            state.store_text_edit_state(target, edit_state);
             if selection_only {
                 state.reset_text_field_caret_blink_without_scroll(target, now);
             } else if result.text_changed || result.selection_changed {
@@ -392,24 +412,24 @@ pub(crate) fn apply_insert_text_for(
     target: &ui::Path,
     buffer: &mut text::Buffer,
     inserted: String,
-) -> text::edit::CommandResult {
+) -> text::edit::ActionResult {
     let edit = text::edit::Edit::insert(inserted);
-    if !window_states
-        .values()
-        .any(|state| state.can_apply_text_edit(target, &edit))
-    {
-        return text::edit::CommandResult {
-            unavailable: true,
-            ..text::edit::CommandResult::default()
-        };
-    }
-
     let scroll_anchors = window_states
         .iter()
         .map(|(window, state)| (*window, state.text_area_scroll_anchor(target)))
         .collect::<HashMap<_, _>>();
     let history_kind = app_text::HistoryKind::for_edit(&edit);
-    let result = text_editor.apply_text_edit_with_result(buffer, edit);
+    let Some(mut edit_state) = window_states.values().find_map(|state| {
+        state
+            .can_apply_text_edit(target, &edit)
+            .then(|| state.text_edit_state_or_initial(target, buffer))
+    }) else {
+        return text::edit::ActionResult {
+            unavailable: true,
+            ..text::edit::ActionResult::default()
+        };
+    };
+    let result = text_editor.apply_edit(buffer, &mut edit_state, edit);
     if result.text_changed {
         text_engine.invalidate_text_area_for_edit(buffer, &result.impacts);
     }
@@ -423,6 +443,7 @@ pub(crate) fn apply_insert_text_for(
     if result.buffer_changed() {
         let now = Instant::now();
         for (window, state) in window_states.iter_mut() {
+            state.store_text_edit_state(target, edit_state);
             state.ensure_text_caret_visible_after_edit(
                 target,
                 now,
@@ -432,7 +453,7 @@ pub(crate) fn apply_insert_text_for(
         }
     }
 
-    text::edit::CommandResult {
+    text::edit::ActionResult {
         text_changed: result.text_changed,
         selection_changed: result.selection_changed,
         clipboard_changed: false,
@@ -440,25 +461,30 @@ pub(crate) fn apply_insert_text_for(
     }
 }
 
-fn command_would_do_work(surface: &text::Surface, command: text::edit::Command) -> bool {
+fn command_would_do_work(surface: &text::edit::Surface, command: text::edit::Action) -> bool {
     let buffer = surface.buffer();
+    let edit_state = surface.state();
 
     if surface.is_disabled() {
         return false;
     }
 
     match command {
-        text::edit::Command::Copy => surface.allows_copy() && buffer.has_selection(),
-        text::edit::Command::Cut => surface.allows_cut() && buffer.has_selection(),
-        text::edit::Command::Delete | text::edit::Command::Paste => surface.is_editable(),
-        text::edit::Command::SelectAll => {
+        text::edit::Action::Copy => {
+            surface.allows_copy() && buffer.has_selection_for_state(edit_state)
+        }
+        text::edit::Action::Cut => {
+            surface.allows_cut() && buffer.has_selection_for_state(edit_state)
+        }
+        text::edit::Action::Delete | text::edit::Action::Paste => surface.is_editable(),
+        text::edit::Action::SelectAll => {
             surface.is_selectable()
                 && !buffer.is_empty()
                 && buffer
-                    .selected_range()
+                    .selected_range_for_state(edit_state)
                     .is_none_or(|range| range.start != 0 || range.end != buffer.len())
         }
-        text::edit::Command::Undo | text::edit::Command::Redo => false,
+        text::edit::Action::Undo | text::edit::Action::Redo => false,
     }
 }
 
@@ -527,32 +553,36 @@ mod tests {
         window::Id::new(1)
     }
 
-    fn buffer_with_partial_selection() -> text::Buffer {
+    fn field_with_partial_selection() -> text::edit::Field {
         let mut editor = text::edit::Editor::new();
         let mut buffer = text::Buffer::from_text("hello");
+        let mut edit_state = buffer.initial_state();
 
-        editor.apply_text_edit(
+        editor.apply_edit(
             &mut buffer,
+            &mut edit_state,
             text::edit::Edit::set_cursor(text::buffer::Cursor::new(0, 2)),
         );
-        editor.apply_text_edit(
+        editor.apply_edit(
             &mut buffer,
-            text::edit::Edit::extend_position(text::TextMotion::VisualRight),
+            &mut edit_state,
+            text::edit::Edit::extend_position(text::edit::Motion::VisualRight),
         );
 
-        buffer
+        text::edit::Field::new(buffer).with_state(edit_state)
     }
 
-    fn buffer_with_full_selection() -> text::Buffer {
+    fn field_with_full_selection() -> text::edit::Field {
         let mut editor = text::edit::Editor::new();
         let mut buffer = text::Buffer::from_text("hello");
+        let mut edit_state = buffer.initial_state();
 
-        editor.apply_text_edit(&mut buffer, text::edit::Edit::SelectAll);
+        editor.apply_edit(&mut buffer, &mut edit_state, text::edit::Edit::SelectAll);
 
-        buffer
+        text::edit::Field::new(buffer).with_state(edit_state)
     }
 
-    fn state(field: impl Into<text::Field>, focused: bool) -> WindowState {
+    fn state(field: impl Into<text::edit::Field>, focused: bool) -> WindowState {
         let mut tree = ui::Tree::new();
         let mut text_engine = text::layout::Engine::new();
 
@@ -639,22 +669,22 @@ mod tests {
         let mut text_engine = text::layout::Engine::new();
 
         registry.commands(|commands| {
-            crate::text::command::define::<crate::text::command::SelectAll>(commands, |command| {
-                command
-            });
+            crate::widget::text_command::define::<crate::widget::text_command::SelectAll>(
+                commands,
+                |command| command,
+            );
         });
         tree.set_root(
             ui::Node::container(layout::Axis::Vertical)
                 .key(ROOT)
                 .with_child(
-                    widget::menu_bar(
-                        menu::Bar::new().menu(
-                            menu::Menu::new("File").key(FILE).section(
-                                menu::Section::new()
-                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
-                            ),
+                    widget::menu_bar(menu::Bar::new().menu(
+                        menu::Menu::new("File").key(FILE).section(
+                            menu::Section::new().item(menu::Item::command::<
+                                crate::widget::text_command::SelectAll,
+                            >()),
                         ),
-                    )
+                    ))
                     .key(MENU_BAR),
                 )
                 .with_child(
@@ -695,12 +725,12 @@ mod tests {
         let state = state(text::Buffer::from_text("hello"), false);
 
         for command in [
-            text::edit::Command::SelectAll,
-            text::edit::Command::Copy,
-            text::edit::Command::Cut,
-            text::edit::Command::Paste,
-            text::edit::Command::Undo,
-            text::edit::Command::Redo,
+            text::edit::Action::SelectAll,
+            text::edit::Action::Copy,
+            text::edit::Action::Cut,
+            text::edit::Action::Paste,
+            text::edit::Action::Undo,
+            text::edit::Action::Redo,
         ] {
             assert!(!command_state(&state, &path(FIELD), command).is_available());
         }
@@ -710,61 +740,52 @@ mod tests {
     fn focused_caret_only_field_enables_select_all_and_paste() {
         let state = state(text::Buffer::from_text("hello"), true);
 
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_available());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Paste).is_available());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Copy).is_available());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Cut).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Action::SelectAll).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Action::Paste).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Action::Copy).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Action::Cut).is_available());
     }
 
     #[test]
     fn read_only_field_enables_selection_commands_but_not_mutation_commands() {
-        let state = state(text::Field::new("hello").read_only(), true);
+        let state = state(text::edit::Field::new("hello").read_only(), true);
 
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_available());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Paste).is_available());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Cut).is_available());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Undo).is_available());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Redo).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Action::SelectAll).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Action::Paste).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Action::Cut).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Action::Undo).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Action::Redo).is_available());
     }
 
     #[test]
     fn selected_read_only_field_enables_copy_only_for_selected_text() {
-        let state = state(
-            text::Field::new(buffer_with_partial_selection()).read_only(),
-            true,
-        );
+        let state = state(field_with_partial_selection().read_only(), true);
 
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Copy).is_available());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Cut).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Action::Copy).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Action::Cut).is_available());
     }
 
     #[test]
     fn obscured_field_disables_copy_and_cut_without_blocking_edit_commands() {
-        let state = state(
-            text::Field::new(buffer_with_partial_selection()).obscured_dot(),
-            true,
-        );
+        let state = state(field_with_partial_selection().obscured_dot(), true);
 
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Copy).is_available());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Cut).is_available());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Paste).is_available());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Action::Copy).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Action::Cut).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Action::Paste).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Action::SelectAll).is_available());
     }
 
     #[test]
     fn disabled_field_disables_all_text_commands() {
-        let state = state(
-            text::Field::new(buffer_with_partial_selection()).disabled(),
-            false,
-        );
+        let state = state(field_with_partial_selection().disabled(), false);
 
         for command in [
-            text::edit::Command::SelectAll,
-            text::edit::Command::Copy,
-            text::edit::Command::Cut,
-            text::edit::Command::Paste,
-            text::edit::Command::Undo,
-            text::edit::Command::Redo,
+            text::edit::Action::SelectAll,
+            text::edit::Action::Copy,
+            text::edit::Action::Cut,
+            text::edit::Action::Paste,
+            text::edit::Action::Undo,
+            text::edit::Action::Redo,
         ] {
             assert!(!command_state(&state, &path(FIELD), command).is_available());
         }
@@ -772,24 +793,22 @@ mod tests {
 
     #[test]
     fn fully_selected_field_disables_select_all() {
-        let state = state(buffer_with_full_selection(), true);
+        let state = state(field_with_full_selection(), true);
 
-        assert!(
-            !command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_available()
-        );
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Copy).is_available());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Cut).is_available());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Paste).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Action::SelectAll).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Action::Copy).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Action::Cut).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Action::Paste).is_available());
     }
 
     #[test]
     fn partially_selected_field_keeps_select_all_enabled() {
-        let state = state(buffer_with_partial_selection(), true);
+        let state = state(field_with_partial_selection(), true);
 
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_available());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Copy).is_available());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Cut).is_available());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Paste).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Action::SelectAll).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Action::Copy).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Action::Cut).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Action::Paste).is_available());
     }
 
     #[test]
@@ -797,7 +816,8 @@ mod tests {
         let mut state = state(text::Buffer::from_text("hello!"), true);
         let mut editor = text::edit::Editor::new();
         let mut before = text::Buffer::from_text("hello");
-        let result = editor.apply_text_edit_with_result(&mut before, text::edit::Edit::insert("!"));
+        let mut edit_state = before.initial_state();
+        let result = editor.apply_edit(&mut before, &mut edit_state, text::edit::Edit::insert("!"));
 
         state.record_text_field_history(
             &path(FIELD),
@@ -806,17 +826,17 @@ mod tests {
             std::time::Instant::now(),
         );
 
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Undo).is_available());
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Redo).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Action::Undo).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Action::Redo).is_available());
 
         state.apply_text_history_command(
             &path(FIELD),
             &mut text::Buffer::from_text("hello!"),
-            text::edit::Command::Undo,
+            text::edit::Action::Undo,
         );
 
-        assert!(!command_state(&state, &path(FIELD), text::edit::Command::Undo).is_available());
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::Redo).is_available());
+        assert!(!command_state(&state, &path(FIELD), text::edit::Action::Undo).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Action::Redo).is_available());
     }
 
     #[test]
@@ -824,7 +844,7 @@ mod tests {
         let state = state_with_open_menu(text::Buffer::from_text("hello"));
 
         assert_eq!(editing_target(&state), Some(path(FIELD)));
-        assert!(command_state(&state, &path(FIELD), text::edit::Command::SelectAll).is_available());
+        assert!(command_state(&state, &path(FIELD), text::edit::Action::SelectAll).is_available());
     }
 
     #[test]
@@ -853,14 +873,14 @@ mod tests {
             command::call::Context::path(window(), child_path(OTHER_FIELD))
         );
         assert!(
-            !command_state(&state, &child_path(FIELD), text::edit::Command::SelectAll)
+            !command_state(&state, &child_path(FIELD), text::edit::Action::SelectAll)
                 .is_available()
         );
         assert!(
             command_state(
                 &state,
                 &child_path(OTHER_FIELD),
-                text::edit::Command::SelectAll
+                text::edit::Action::SelectAll
             )
             .is_available()
         );
@@ -905,21 +925,20 @@ mod tests {
 
     #[test]
     fn publish_command_states_projects_single_text_policy() {
-        let state = state(buffer_with_full_selection(), true);
+        let state = state(field_with_full_selection(), true);
         let mut registry = command::Registry::new();
 
         registry.register(command::definition::Definition::for_command::<
-            crate::text::command::SelectAll,
+            crate::widget::text_command::SelectAll,
             command::TestTarget,
         >());
 
         assert!(publish_command_states(&state, &mut registry, window()));
         assert!(
             !registry
-                .configured_state::<crate::text::command::SelectAll>(command::call::Context::path(
-                    window(),
-                    path(FIELD),
-                ))
+                .configured_state::<crate::widget::text_command::SelectAll>(
+                    command::call::Context::path(window(), path(FIELD),)
+                )
                 .is_available()
         );
     }

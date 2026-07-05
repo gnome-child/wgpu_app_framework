@@ -61,6 +61,10 @@ impl Tree {
         &self.popups
     }
 
+    pub(crate) fn popups_mut(&mut self) -> &mut [super::Popup] {
+        &mut self.popups
+    }
+
     pub fn is_empty(&self) -> bool {
         self.root.is_none()
     }
@@ -179,7 +183,7 @@ impl Tree {
         &self,
         layout: &Frame,
         interaction: Interaction,
-        text_field_states: &HashMap<Path, text::view::TextViewState>,
+        text_field_states: &HashMap<Path, text::edit::ViewState>,
         text_engine: &mut text::layout::Engine,
         scene: &mut paint::Scene,
     ) {
@@ -197,7 +201,7 @@ impl Tree {
         &self,
         layout: &Frame,
         interaction: Interaction,
-        text_field_states: &HashMap<Path, text::view::TextViewState>,
+        text_field_states: &HashMap<Path, text::edit::ViewState>,
         text_engine: &mut text::layout::Engine,
         frame: AnimationFrame,
         scene: &mut paint::Scene,
@@ -220,7 +224,7 @@ impl Tree {
         &self,
         layout: &Frame,
         interaction: Interaction,
-        text_field_states: &HashMap<Path, text::view::TextViewState>,
+        text_field_states: &HashMap<Path, text::edit::ViewState>,
         text_engine: &mut text::layout::Engine,
         frame: AnimationFrame,
         scroll_projections: Option<&dyn scroll::Projections>,
@@ -244,7 +248,7 @@ impl Tree {
         &self,
         layout: &Frame,
         interaction: Interaction,
-        text_field_states: &HashMap<Path, text::view::TextViewState>,
+        text_field_states: &HashMap<Path, text::edit::ViewState>,
         text_engine: &mut text::layout::Engine,
         frame: AnimationFrame,
         scroll_projections: Option<&dyn scroll::Projections>,
@@ -471,30 +475,46 @@ impl Composition {
         &self.snapshot.action_scopes
     }
 
-    pub fn text_field(&self, path: &Path) -> Option<&text::Field> {
+    pub fn text_field(&self, path: &Path) -> Option<&text::edit::Field> {
         self.snapshot
             .text_surfaces
             .get(path)
-            .and_then(text::Surface::as_field)
+            .and_then(text::edit::Surface::as_field)
     }
 
-    pub fn text_area(&self, path: &Path) -> Option<&text::Area> {
+    pub fn text_area(&self, path: &Path) -> Option<&text::edit::Area> {
         self.snapshot
             .text_surfaces
             .get(path)
-            .and_then(text::Surface::as_area)
+            .and_then(text::edit::Surface::as_area)
     }
 
-    pub fn text_surface(&self, path: &Path) -> Option<&text::Surface> {
+    pub fn text_surface(&self, path: &Path) -> Option<&text::edit::Surface> {
         self.snapshot.text_surfaces.get(path)
     }
 
-    pub fn text_fields(&self) -> &HashMap<Path, text::Field> {
+    pub fn text_fields(&self) -> &HashMap<Path, text::edit::Field> {
         &self.snapshot.text_fields
     }
 
-    pub fn text_surfaces(&self) -> &HashMap<Path, text::Surface> {
+    pub fn text_surfaces(&self) -> &HashMap<Path, text::edit::Surface> {
         &self.snapshot.text_surfaces
+    }
+
+    pub(crate) fn project_text_edit_states(
+        &mut self,
+        states: &HashMap<Path, text::edit::State>,
+    ) -> bool {
+        if states.is_empty() {
+            return false;
+        }
+
+        let mut changed = false;
+        project_text_edit_states_in_tree(&mut self.tree, states, &mut changed);
+        if changed {
+            self.snapshot = Snapshot::from_tree(&self.tree);
+        }
+        changed
     }
 
     pub fn text_field_edit_at(
@@ -502,7 +522,7 @@ impl Composition {
         path: &Path,
         position: point::Logical,
         kind: text::edit::PointerEditKind,
-        state: text::view::TextViewState,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
     ) -> Option<text::edit::Edit> {
         let position =
@@ -514,9 +534,9 @@ impl Composition {
         &self,
         path: &Path,
         position: point::Logical,
-        state: text::view::TextViewState,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
-    ) -> Option<text::TextPosition> {
+    ) -> Option<text::buffer::Position> {
         self.text_position_at_for_text_surface(path, position, state, text_engine)
     }
 
@@ -524,9 +544,9 @@ impl Composition {
         &self,
         path: &Path,
         position: point::Logical,
-        state: text::view::TextViewState,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
-    ) -> Option<text::TextPosition> {
+    ) -> Option<text::buffer::Position> {
         let node = self.node(path)?;
         let surface = node.text_surface()?;
         let style = node
@@ -534,7 +554,7 @@ impl Composition {
             .and_then(text::document::Document::first_style)
             .unwrap_or_default();
 
-        if let text::Surface::Area(area_model) = surface {
+        if let text::edit::Surface::Area(area_model) = surface {
             let layout = self.layout.find_path(path)?;
             if let Some((metrics, paint_layout)) = self.text_area_scroll_paint_layout_for_node(
                 node,
@@ -586,7 +606,7 @@ impl Composition {
     pub fn text_field_caret_rect(
         &self,
         path: &Path,
-        state: text::view::TextViewState,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
     ) -> Option<Rect> {
         let node = self.node(path)?;
@@ -597,10 +617,10 @@ impl Composition {
             .unwrap_or_default();
         let rect = self.text_content_rect_for_state(path, state.clone(), text_engine)?;
         let caret = match surface {
-            text::Surface::Field(field) => {
+            text::edit::Surface::Field(field) => {
                 text_engine.text_field_caret_for_field(field, style, rect.area, state)
             }
-            text::Surface::Area(area) => {
+            text::edit::Surface::Area(area) => {
                 text_engine.text_area_caret_for_area(area, style, rect.area, state)
             }
         }?;
@@ -614,8 +634,8 @@ impl Composition {
     pub fn text_field_caret_rect_at_position(
         &self,
         path: &Path,
-        position: text::TextPosition,
-        state: text::view::TextViewState,
+        position: text::buffer::Position,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
     ) -> Option<Rect> {
         let node = self.node(path)?;
@@ -626,14 +646,21 @@ impl Composition {
             .unwrap_or_default();
         let rect = self.text_content_rect_for_state(path, state.clone(), text_engine)?;
         let mut buffer = surface.buffer().clone();
+        let mut edit_state = surface.state();
         let mut text_editor = text::edit::Editor::new();
-        text_editor.apply_text_edit(&mut buffer, text::edit::Edit::set_position(position));
+        text_editor.apply_edit(
+            &mut buffer,
+            &mut edit_state,
+            text::edit::Edit::set_position(position),
+        );
         let caret = match surface {
-            text::Surface::Field(_) => {
-                text_engine.text_field_caret(&buffer, style, rect.area, state)
+            text::edit::Surface::Field(field) => {
+                let field = field.clone().with_state(edit_state);
+                text_engine.text_field_caret_for_field(&field, style, rect.area, state)
             }
-            text::Surface::Area(area) => {
-                let area = text::Area::new(buffer)
+            text::edit::Surface::Area(area) => {
+                let area = text::edit::Area::new(buffer)
+                    .with_state(edit_state)
                     .with_mode(area.mode())
                     .with_wrap(area.wrap());
                 text_engine.text_area_caret_for_area(&area, style, rect.area, state)
@@ -648,7 +675,7 @@ impl Composition {
 
     pub fn sync_text_field_states(
         &self,
-        states: &mut HashMap<Path, text::view::TextViewState>,
+        states: &mut HashMap<Path, text::edit::ViewState>,
         focused: Option<&Path>,
         text_engine: &mut text::layout::Engine,
     ) -> bool {
@@ -659,7 +686,7 @@ impl Composition {
 
         for path in self.snapshot.text_surfaces.keys() {
             if !states.contains_key(path) {
-                states.insert(path.clone(), text::view::TextViewState::default());
+                states.insert(path.clone(), text::edit::ViewState::default());
                 changed = true;
             }
         }
@@ -712,9 +739,9 @@ impl Composition {
         path: &Path,
         delta: point::Logical,
         horizontal_from_vertical: bool,
-        state: text::view::TextViewState,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
-    ) -> Option<text::view::TextViewState> {
+    ) -> Option<text::edit::ViewState> {
         let node = self.node(path)?;
         node.text_area()?;
         let layout = self.layout.find_path(path)?;
@@ -738,7 +765,7 @@ impl Composition {
     pub fn text_area_scroll_metrics(
         &self,
         path: &Path,
-        state: text::view::TextViewState,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
     ) -> Option<scroll::Metrics> {
         let node = self.node(path)?;
@@ -750,7 +777,7 @@ impl Composition {
     pub(crate) fn text_area_scroll_paint_layout_with_content_hint(
         &self,
         path: &Path,
-        state: text::view::TextViewState,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
         now: Instant,
         content_hint: Option<(text::layout::AreaScrollKey, area::Logical)>,
@@ -776,7 +803,7 @@ impl Composition {
     pub(crate) fn text_area_scroll_render_layout_with_content_hint(
         &self,
         path: &Path,
-        state: text::view::TextViewState,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
         now: Instant,
         content_hint: Option<(text::layout::AreaScrollKey, area::Logical)>,
@@ -802,7 +829,7 @@ impl Composition {
     pub(crate) fn text_area_scroll_metrics_with_content_hint(
         &self,
         path: &Path,
-        state: text::view::TextViewState,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
         now: Instant,
         content_hint: Option<(text::layout::AreaScrollKey, area::Logical)>,
@@ -838,13 +865,13 @@ impl Composition {
     pub fn text_area_scroll_y_for_anchor(
         &self,
         path: &Path,
-        state: text::view::TextViewState,
-        anchor: text::view::ScrollAnchor,
+        state: text::edit::ViewState,
+        anchor: text::edit::ScrollAnchor,
         text_engine: &mut text::layout::Engine,
     ) -> Option<f32> {
         let node = self.node(path)?;
         let surface = node.text_surface()?;
-        let text::Surface::Area(area_model) = surface else {
+        let text::edit::Surface::Area(area_model) = surface else {
             return None;
         };
         let style = node
@@ -878,9 +905,9 @@ impl Composition {
     pub fn ensure_caret_visible_for_text_surface(
         &self,
         path: &Path,
-        state: text::view::TextViewState,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
-    ) -> Option<text::view::TextViewState> {
+    ) -> Option<text::edit::ViewState> {
         let node = self.node(path)?;
         let surface = node.text_surface()?;
         let style = node
@@ -888,7 +915,7 @@ impl Composition {
             .and_then(text::document::Document::first_style)
             .unwrap_or_default();
 
-        if let text::Surface::Area(area_model) = surface {
+        if let text::edit::Surface::Area(area_model) = surface {
             let layout = self.layout.find_path(path)?;
             let (metrics, paint_layout) = self.text_area_scroll_paint_layout_for_node(
                 node,
@@ -914,7 +941,7 @@ impl Composition {
     fn text_content_rect_for_state(
         &self,
         path: &Path,
-        state: text::view::TextViewState,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
     ) -> Option<Rect> {
         let node = self.node(path)?;
@@ -934,7 +961,7 @@ impl Composition {
         &self,
         node: &Node,
         layout: &Frame,
-        state: text::view::TextViewState,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
         now: Instant,
     ) -> Option<scroll::Metrics> {
@@ -953,7 +980,7 @@ impl Composition {
         &self,
         node: &Node,
         layout: &Frame,
-        state: text::view::TextViewState,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
         now: Instant,
     ) -> Option<(scroll::Metrics, text::layout::TextAreaPaintLayout)> {
@@ -972,7 +999,7 @@ impl Composition {
         &self,
         node: &Node,
         layout: &Frame,
-        state: text::view::TextViewState,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
         now: Instant,
         content_hint: Option<(text::layout::AreaScrollKey, area::Logical)>,
@@ -1017,7 +1044,7 @@ impl Composition {
         &self,
         node: &Node,
         layout: &Frame,
-        state: text::view::TextViewState,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
         now: Instant,
         content_hint: Option<(text::layout::AreaScrollKey, area::Logical)>,
@@ -1063,7 +1090,7 @@ impl Composition {
         &self,
         node: &Node,
         layout: &Frame,
-        state: text::view::TextViewState,
+        state: text::edit::ViewState,
         text_engine: &mut text::layout::Engine,
         now: Instant,
         content_hint: Option<(text::layout::AreaScrollKey, area::Logical)>,
@@ -1134,10 +1161,10 @@ impl Composition {
         if state.caret_visibility_pending() {
             let viewport = scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
             let width = match area_model.wrap() {
-                text::AreaWrap::None => content_area
+                text::edit::AreaWrap::None => content_area
                     .width()
                     .max(state.scroll_x() + viewport.area.width()),
-                text::AreaWrap::WordOrGlyph => viewport.area.width().max(0.0),
+                text::edit::AreaWrap::WordOrGlyph => viewport.area.width().max(0.0),
             };
             content_area = area::logical(
                 width,
@@ -1222,7 +1249,7 @@ impl Composition {
     pub fn paint(
         &self,
         interaction: Interaction,
-        text_field_states: &HashMap<Path, text::view::TextViewState>,
+        text_field_states: &HashMap<Path, text::edit::ViewState>,
         text_engine: &mut text::layout::Engine,
         scene: &mut paint::Scene,
     ) {
@@ -1239,7 +1266,7 @@ impl Composition {
     pub(crate) fn paint_at(
         &self,
         interaction: Interaction,
-        text_field_states: &HashMap<Path, text::view::TextViewState>,
+        text_field_states: &HashMap<Path, text::edit::ViewState>,
         text_engine: &mut text::layout::Engine,
         frame: AnimationFrame,
         scroll_projections: Option<&dyn scroll::Projections>,
@@ -1260,7 +1287,7 @@ impl Composition {
     pub(crate) fn paint_at_recording_scroll_ranges(
         &self,
         interaction: Interaction,
-        text_field_states: &HashMap<Path, text::view::TextViewState>,
+        text_field_states: &HashMap<Path, text::edit::ViewState>,
         text_engine: &mut text::layout::Engine,
         frame: AnimationFrame,
         scroll_projections: Option<&dyn scroll::Projections>,
@@ -1285,7 +1312,7 @@ impl Composition {
         &self,
         target: &Path,
         interaction: Interaction,
-        text_field_states: &HashMap<Path, text::view::TextViewState>,
+        text_field_states: &HashMap<Path, text::edit::ViewState>,
         text_engine: &mut text::layout::Engine,
         frame: AnimationFrame,
         scroll_projections: Option<&dyn scroll::Projections>,
@@ -1368,6 +1395,41 @@ impl Composition {
             widget_metrics,
             focus_order,
         }
+    }
+}
+
+fn project_text_edit_states_in_tree(
+    tree: &mut Tree,
+    states: &HashMap<Path, text::edit::State>,
+    changed: &mut bool,
+) {
+    let Some(root) = tree.root_mut() else {
+        return;
+    };
+
+    let root_path = Path::root(root.path_id(0));
+    project_text_edit_states_in_node(root, &root_path, states, changed);
+
+    for (popup_index, popup) in tree.popups_mut().iter_mut().enumerate() {
+        let path = root_path.child(popup.root().path_id(popup_index));
+        project_text_edit_states_in_node(popup.root_mut(), &path, states, changed);
+    }
+}
+
+fn project_text_edit_states_in_node(
+    node: &mut Node,
+    path: &Path,
+    states: &HashMap<Path, text::edit::State>,
+    changed: &mut bool,
+) {
+    if let Some(edit_state) = states.get(path).copied()
+        && let Some(surface) = node.text_surface_mut()
+    {
+        *changed |= surface.set_state(edit_state);
+    }
+
+    for (index, child) in node.children_mut().iter_mut().enumerate() {
+        project_text_edit_states_in_node(child, &path.child(child.path_id(index)), states, changed);
     }
 }
 

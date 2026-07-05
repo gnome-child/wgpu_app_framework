@@ -388,7 +388,7 @@ impl Text {
     pub fn style(self, role: text::document::Role) -> text::document::Style {
         text::document::Style::default()
             .with_size(self.size_for_role(role))
-            .with_color(self.color_for_role(role))
+            .with_color(text_color(self.color_for_role(role)))
     }
 
     pub fn document(
@@ -400,7 +400,7 @@ impl Text {
         let mut block = text::document::Block::new(text::document::Align::Start);
         block.push_run(text::document::Run::new(
             label,
-            self.style(role).with_color(color),
+            self.style(role).with_color(text_color(color)),
         ));
         text::document::Document::from_block(block)
     }
@@ -686,6 +686,10 @@ fn linear_channel(channel: u8) -> f32 {
     }
 }
 
+fn text_color(color: paint::Color) -> text::Color {
+    text::Color::rgba(color.r, color.g, color.b, color.a)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -777,7 +781,7 @@ mod tests {
         );
         assert_eq!(
             text.style(text::document::Role::Placeholder).color(),
-            text.disabled()
+            text_color(text.disabled())
         );
     }
 
@@ -793,7 +797,7 @@ mod tests {
 
         assert_eq!(run.text(), "Control");
         assert_eq!(run.style().size(), theme.text().control_size());
-        assert_eq!(run.style().color(), theme.text().secondary());
+        assert_eq!(run.style().color(), text_color(theme.text().secondary()));
     }
 
     #[test]

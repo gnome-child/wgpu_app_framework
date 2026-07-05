@@ -61,12 +61,12 @@ pub(crate) struct QueuedCommandEffect {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextCommandOutcome {
     label: &'static str,
-    result: text::edit::CommandResult,
+    result: text::edit::ActionResult,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Diagnostics {
-    pub text: text::Diagnostics,
+    pub text: text::layout::Diagnostics,
     pub edit: text::edit::Diagnostics,
     pub scroll: ScrollDiagnostics,
     pub frame: frame::Diagnostics,
@@ -393,10 +393,15 @@ impl<T: Send + 'static> Context<'_, T> {
         task_runner::spawn(task, self.sender.clone());
     }
 
-    pub fn apply_text_edit(&mut self, buffer: &mut text::Buffer, edit: text::edit::Edit) -> bool {
+    pub fn apply_text_edit(
+        &mut self,
+        buffer: &mut text::Buffer,
+        edit_state: &mut text::edit::State,
+        edit: text::edit::Edit,
+    ) -> bool {
         let result =
             self.text_editor
-                .apply_text_edit_with_caret_map(buffer, edit, self.text_engine);
+                .apply_edit_with_caret_map(buffer, edit_state, edit, self.text_engine);
         if result.text_changed {
             self.text_engine
                 .invalidate_text_area_for_edit(buffer, &result.impacts);
@@ -410,13 +415,13 @@ impl<T: Send + 'static> Context<'_, T> {
         buffer: &mut text::Buffer,
         edit: text::edit::Edit,
     ) -> bool {
-        if !self
-            .window_states
-            .values()
-            .any(|state| state.can_apply_text_edit(target, &edit))
-        {
+        let Some(mut edit_state) = self.window_states.values().find_map(|state| {
+            state
+                .can_apply_text_edit(target, &edit)
+                .then(|| state.text_edit_state_or_initial(target, buffer))
+        }) else {
             return false;
-        }
+        };
 
         let history_kind = app_text::HistoryKind::for_edit(&edit);
         let pointer_placement = matches!(edit, text::edit::Edit::Pointer { .. });
@@ -427,9 +432,12 @@ impl<T: Send + 'static> Context<'_, T> {
             .map(|(window, state)| (*window, state.text_area_scroll_anchor(target)))
             .collect::<std::collections::HashMap<_, _>>();
         let now = Instant::now();
-        let result =
-            self.text_editor
-                .apply_text_edit_with_caret_map(buffer, edit, self.text_engine);
+        let result = self.text_editor.apply_edit_with_caret_map(
+            buffer,
+            &mut edit_state,
+            edit,
+            self.text_engine,
+        );
         if result.text_changed {
             self.text_engine
                 .invalidate_text_area_for_edit(buffer, &result.impacts);
@@ -449,6 +457,7 @@ impl<T: Send + 'static> Context<'_, T> {
                 selection_only,
             );
             for (window, state) in self.window_states.iter_mut() {
+                state.store_text_edit_state(target, edit_state);
                 if ensure_caret {
                     state.ensure_text_caret_visible_after_edit(
                         target,
@@ -469,8 +478,8 @@ impl<T: Send + 'static> Context<'_, T> {
         &mut self,
         target: &ui::Path,
         buffer: &mut text::Buffer,
-        command: text::edit::Command,
-    ) -> text::edit::CommandResult {
+        command: text::edit::Action,
+    ) -> text::edit::ActionResult {
         text_input::apply_command_for(
             self.window_states,
             self.text_editor,
@@ -488,16 +497,16 @@ impl<T: Send + 'static> Context<'_, T> {
         context: command::call::Context,
         source: command::call::Source,
     ) -> std::result::Result<
-        command::Response<text::edit::CommandResult>,
+        command::Response<text::edit::ActionResult>,
         command::registry::Rejection,
     >
     where
-        C: text::command::EditCommand,
+        C: crate::widget::text_command::EditCommand,
     {
         let call = command::Call::<C>::for_context_with_target(
             (),
             context,
-            text::command::text_target_kind(),
+            crate::widget::text_command::text_target_kind(),
         )
         .expect("unit command args should validate")
         .with_source(source);
@@ -509,11 +518,11 @@ impl<T: Send + 'static> Context<'_, T> {
         buffer: &mut text::Buffer,
         call: command::Call<C>,
     ) -> std::result::Result<
-        command::Response<text::edit::CommandResult>,
+        command::Response<text::edit::ActionResult>,
         command::registry::Rejection,
     >
     where
-        C: text::command::EditCommand,
+        C: crate::widget::text_command::EditCommand,
     {
         let mut target = text_input::CommandTarget::new(
             self.window_states,
@@ -529,9 +538,9 @@ impl<T: Send + 'static> Context<'_, T> {
     pub fn invoke_insert_text_call(
         &mut self,
         buffer: &mut text::Buffer,
-        call: command::Call<text::command::InsertText>,
+        call: command::Call<crate::widget::text_command::InsertText>,
     ) -> std::result::Result<
-        command::Response<text::edit::CommandResult>,
+        command::Response<text::edit::ActionResult>,
         command::registry::Rejection,
     > {
         let mut target = text_input::CommandTarget::new(
@@ -734,7 +743,7 @@ impl<'cx, T: Send + 'static> CommandDispatch<'cx, T> {
             };
         }
 
-        text::command::for_each_edit_command!(dispatch_text_command, self, buffer);
+        crate::widget::text_command::for_each_edit_command!(dispatch_text_command, self, buffer);
         None
     }
 
@@ -777,20 +786,20 @@ impl<'cx, T: Send + 'static> CommandDispatch<'cx, T> {
 
     fn text_command<C>(&mut self, buffer: &mut text::Buffer) -> Option<TextCommandOutcome>
     where
-        C: text::command::EditCommand,
+        C: crate::widget::text_command::EditCommand,
     {
         if !self
             .call
             .as_ref()
-            .is_some_and(|call| call.target() == text::command::text_target_kind())
+            .is_some_and(|call| call.target() == crate::widget::text_command::text_target_kind())
         {
             return None;
         }
 
         let call = self.take_call::<C>()?;
         let context = call.requested_context()?;
-        let command = C::edit_command();
-        let label = text::command::edit_command_label(command);
+        let command = C::edit_action();
+        let label = crate::widget::text_command::edit_action_label(command);
         let result = match self.cx.invoke_text_call::<C>(buffer, call) {
             Ok(response) => response.into_output(),
             Err(error) => {
@@ -798,9 +807,9 @@ impl<'cx, T: Send + 'static> CommandDispatch<'cx, T> {
                     "text command dispatch rejected command={}: {error}",
                     C::NAME
                 );
-                text::edit::CommandResult {
+                text::edit::ActionResult {
                     unavailable: true,
-                    ..text::edit::CommandResult::default()
+                    ..text::edit::ActionResult::default()
                 }
             }
         };
@@ -826,12 +835,12 @@ impl<'cx, T: Send + 'static> CommandDispatch<'cx, T> {
         if !self
             .call
             .as_ref()
-            .is_some_and(|call| call.target() == text::command::text_target_kind())
+            .is_some_and(|call| call.target() == crate::widget::text_command::text_target_kind())
         {
             return None;
         }
 
-        let Some(call) = self.take_call::<text::command::InsertText>() else {
+        let Some(call) = self.take_call::<crate::widget::text_command::InsertText>() else {
             return None;
         };
         let context = call.requested_context();
@@ -842,7 +851,7 @@ impl<'cx, T: Send + 'static> CommandDispatch<'cx, T> {
                     self.request_redraw(context.window_id());
                     for effect in effects {
                         self.effects.push(QueuedCommandEffect {
-                            command: command::Key::of::<text::command::InsertText>(),
+                            command: command::Key::of::<crate::widget::text_command::InsertText>(),
                             context: context.clone(),
                             effect,
                         });
@@ -857,9 +866,9 @@ impl<'cx, T: Send + 'static> CommandDispatch<'cx, T> {
                     self.request_redraw(context.window_id());
                 }
                 self.handled = true;
-                text::edit::CommandResult {
+                text::edit::ActionResult {
                     unavailable: true,
-                    ..text::edit::CommandResult::default()
+                    ..text::edit::ActionResult::default()
                 }
             }
         };
@@ -908,7 +917,7 @@ impl TextCommandOutcome {
         self.label
     }
 
-    pub fn result(self) -> text::edit::CommandResult {
+    pub fn result(self) -> text::edit::ActionResult {
         self.result
     }
 }

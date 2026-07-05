@@ -79,6 +79,7 @@ impl Commands {
         self.command(configure(Definition::for_command::<C, TTarget>()))
     }
 
+    #[cfg(test)]
     pub(crate) fn define_with_target<C: Command>(
         &mut self,
         target: target::Kind,

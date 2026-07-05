@@ -1,7 +1,7 @@
-use crate::paint;
 use crate::render;
 use crate::render::batch;
-use crate::text_system;
+use crate::text::layout::system;
+use crate::{icon, paint};
 
 use std::cell::Ref;
 
@@ -63,7 +63,7 @@ impl TextRenderer {
             viewport,
             atlas,
             renderers: Vec::new(),
-            font_system: text_system::font_system(),
+            font_system: system::font_system(),
             swash_cache: glyphon::SwashCache::new(),
         }
     }
@@ -184,7 +184,7 @@ fn prepare_text(
 ) -> Option<PreparedText<'static>> {
     let width = text.rect.area.width().max(0.0);
     let height = text.rect.area.height().max(0.0);
-    let prepared = text_system::prepare_document_buffer(
+    let prepared = system::prepare_document_buffer(
         font_system,
         &text.document,
         width,
@@ -222,7 +222,8 @@ fn prepare_text(
 #[cfg(test)]
 mod tests {
     use crate::geometry::{Rect, area, point};
-    use crate::{paint, text, text_system};
+    use crate::text::layout::system;
+    use crate::{paint, text};
 
     use super::*;
 
@@ -236,8 +237,8 @@ mod tests {
     }
 
     fn document_height(document: &text::document::Document) -> f32 {
-        let mut font_system = text_system::font_system();
-        text_system::measure_document(
+        let mut font_system = system::font_system();
+        system::measure_document(
             &mut font_system,
             document,
             text::layout::Measure::bounded(area::logical(240.0, 1_000.0)),
@@ -257,7 +258,7 @@ mod tests {
         let document = text::document::Document::plain("one\ntwo\nthree");
         let content_height = document_height(&document);
         let text = centered_text(document, content_height);
-        let mut font_system = text_system::font_system();
+        let mut font_system = system::font_system();
 
         let prepared = prepare_text(&mut font_system, &text, 1.0).expect("text should prepare");
 
@@ -270,7 +271,7 @@ mod tests {
         let content_height = document_height(&document);
         let rect_height = content_height + 40.0;
         let text = centered_text(document, rect_height);
-        let mut font_system = text_system::font_system();
+        let mut font_system = system::font_system();
 
         let prepared = prepare_text(&mut font_system, &text, 1.0).expect("text should prepare");
 
@@ -322,7 +323,7 @@ fn prepare_text_surface_in_bounds<'a>(
             right: clip_right.ceil() as i32,
             bottom: clip_bottom.ceil() as i32,
         },
-        default_color: text_system::color(text.default_color),
+        default_color: paint_color(text.default_color),
     })
 }
 
@@ -349,8 +350,7 @@ fn prepare_icon(
 
     let width = icon.rect.area.width().max(0.0);
     let height = icon.rect.area.height().max(0.0);
-    let prepared =
-        text_system::prepare_icon_buffer(font_system, glyph, icon.size, icon.color, width, height)?;
+    let prepared = prepare_icon_buffer(font_system, glyph, icon.size, icon.color, width, height)?;
     let buffer_height = height.min(prepared.line_height);
 
     let clip_left = icon.rect.origin.x() * scale_factor;
@@ -372,4 +372,69 @@ fn prepare_icon(
         },
         default_color: prepared.default_color,
     })
+}
+
+struct PreparedIconBuffer {
+    buffer: glyphon::Buffer,
+    default_color: glyphon::Color,
+    line_height: f32,
+}
+
+fn prepare_icon_buffer(
+    font_system: &mut glyphon::FontSystem,
+    icon: icon::Glyph,
+    size: f32,
+    color: paint::Color,
+    width: f32,
+    height: f32,
+) -> Option<PreparedIconBuffer> {
+    let Some(character) = icon.character() else {
+        log::debug!("skipping invalid icon codepoint: {:?}", icon);
+        return None;
+    };
+
+    let font_size = size.max(1.0);
+    let line_height = font_size;
+    let buffer_height = height.min(line_height);
+    let mut buffer = glyphon::Buffer::new(font_system, glyphon::Metrics::relative(font_size, 1.0));
+    let attrs = attrs_for_icon(icon, font_size, color);
+    let text = character.to_string();
+
+    buffer.set_size(
+        font_system,
+        Some(width.max(0.0)),
+        Some(buffer_height.max(0.0)),
+    );
+    buffer.set_rich_text(
+        font_system,
+        vec![(text.as_str(), attrs.clone())],
+        &attrs,
+        glyphon::Shaping::Basic,
+        Some(glyphon::cosmic_text::Align::Center),
+    );
+    buffer.shape_until_scroll(font_system, false);
+
+    Some(PreparedIconBuffer {
+        buffer,
+        default_color: paint_color(color),
+        line_height,
+    })
+}
+
+fn attrs_for_icon(glyph: icon::Glyph, size: f32, color: paint::Color) -> glyphon::Attrs<'static> {
+    glyphon::Attrs::new()
+        .family(glyphon::Family::Name(glyph.family()))
+        .color(paint_color(color))
+        .metrics(glyphon::Metrics::relative(size.max(1.0), 1.0))
+}
+
+fn paint_color(color: paint::Color) -> glyphon::Color {
+    let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+
+    glyphon::Color::rgba(
+        channel(color.r),
+        channel(color.g),
+        channel(color.b),
+        channel(color.a),
+    )
 }

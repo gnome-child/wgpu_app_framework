@@ -84,7 +84,7 @@ impl Binding {
     }
 
     pub fn action(&self) -> Action {
-        Action::command(self)
+        Action::activate(self)
     }
 
     pub(in crate::scratch) fn slider_action(&self, value: f64) -> Option<Action> {
@@ -92,7 +92,7 @@ impl Binding {
             return None;
         }
 
-        Some(Action::Command(self.with_slider_value(value)?))
+        Some(Action::Activate(self.with_slider_value(value)?))
     }
 
     pub(super) fn text_action(&self, text: String) -> Option<Action> {
@@ -100,7 +100,7 @@ impl Binding {
             return None;
         }
 
-        Some(Action::Command(self.with_text_value(text)?))
+        Some(Action::Activate(self.with_text_value(text)?))
     }
 
     pub(super) fn element_pointer_target(&self, id: interaction::Id) -> interaction::Target {

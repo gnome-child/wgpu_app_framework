@@ -187,11 +187,11 @@ impl Section {
         self.item(Item::invokes::<C, TTarget>())
     }
 
-    pub fn text<C>(self) -> Self
+    pub fn command<C>(self) -> Self
     where
-        C: crate::text::command::EditCommand,
+        C: Command,
     {
-        self.item(Item::text::<C>())
+        self.item(Item::command::<C>())
     }
 
     #[cfg(test)]
@@ -247,16 +247,12 @@ impl Item {
         Self::from_action(command::binding::Route::invokes::<C, TTarget>().action())
     }
 
-    pub fn text<C>() -> Self
+    pub fn command<C>() -> Self
     where
-        C: crate::text::command::EditCommand,
+        C: Command,
     {
         Self::from_action(
-            command::binding::Route::new(
-                command::Key::of::<C>(),
-                crate::text::command::text_target_kind(),
-            )
-            .action(),
+            command::binding::Route::new(command::Key::of::<C>(), C::target()).action(),
         )
     }
 

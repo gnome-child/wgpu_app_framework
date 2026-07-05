@@ -14,7 +14,7 @@ fn closing_window_removes_framework_owned_composition() {
         .composition(window)
         .expect("composition should be retained")
         .view()
-        .command::<session::CloseWindow>()
+        .binding::<session::CloseWindow>()
         .expect("close command should be in the retained view")
         .action();
 
@@ -226,7 +226,7 @@ fn document_text_command_outcome_is_framework_owned() {
     assert!(!selected.text_changed());
     assert!(selected.selection_changed());
 
-    let copied = document.apply_command(text::edit::Command::Copy, &mut clipboard);
+    let copied = document.apply_action(text::edit::Action::Copy, &mut clipboard);
 
     assert!(!copied.text_changed());
     assert!(!copied.selection_changed());
@@ -238,29 +238,33 @@ fn document_text_command_outcome_is_framework_owned() {
 }
 
 #[test]
-fn scratch_document_owns_text_edit_state_separately_from_text_storage() {
+fn scratch_document_owns_text_state_separately_from_text_storage() {
     let mut document = TextDocument::from_multiline_text("alpha beta");
-    let initial = document.edit_state();
+    let initial = document.text_state();
 
-    let moved = document.apply_edit(text::edit::Edit::set_position(text::TextPosition::new(0)));
+    let moved = document.apply_edit(text::edit::Edit::set_position(text::buffer::Position::new(
+        0,
+    )));
 
     assert!(moved.selection_changed());
-    assert_ne!(document.edit_state(), initial);
-    assert_eq!(document.buffer().edit_state(), initial);
+    assert_ne!(document.text_state(), initial);
+    assert_eq!(document.buffer().initial_state(), initial);
 
     let selected = document.apply_edit(text::edit::Edit::pointer(
-        text::PointerEditKind::Drag,
-        text::TextPosition::new("alpha".len()),
+        text::edit::PointerEditKind::Drag,
+        text::buffer::Position::new("alpha".len()),
     ));
 
     assert!(selected.selection_changed());
     assert_eq!(document.selected_text().as_deref(), Some("alpha"));
 
     let snapshot = document.clone();
-    document.apply_edit(text::edit::Edit::set_position(text::TextPosition::new(0)));
+    document.apply_edit(text::edit::Edit::set_position(text::buffer::Position::new(
+        0,
+    )));
 
     assert_eq!(snapshot.text(), document.text());
-    assert_ne!(snapshot.edit_state(), document.edit_state());
+    assert_ne!(snapshot.text_state(), document.text_state());
     assert_eq!(snapshot.selected_text().as_deref(), Some("alpha"));
     assert_eq!(document.selected_text(), None);
 }
@@ -520,7 +524,7 @@ fn text_editor_open_menu_requests_dialog_and_selected_path_opens_document() {
     let window = app.session().windows()[0].id();
     let projected = app.present(window).expect("window should have a view");
     let open = projected
-        .command::<document::OpenFile>()
+        .binding::<document::OpenFile>()
         .expect("open command should be in the view");
 
     assert!(open.is_enabled());
@@ -581,7 +585,7 @@ fn sequenced_view_actions_preserve_all_effects() {
         .focus()
         .expect("text area should declare a focus target");
     let open = projected
-        .command::<document::OpenFile>()
+        .binding::<document::OpenFile>()
         .expect("open command should be in the view")
         .action();
     assert!(app.clear_redraw_request(window));
@@ -615,7 +619,7 @@ fn text_editor_open_dialog_cancel_updates_status_without_touching_document() {
     let window = app.session().windows()[0].id();
     let projected = app.present(window).expect("window should have a view");
     let open = projected
-        .command::<document::OpenFile>()
+        .binding::<document::OpenFile>()
         .expect("open command should be in the view");
 
     let effect = app
@@ -668,7 +672,7 @@ fn text_editor_save_menu_for_untitled_dirty_document_requests_save_dialog() {
         .present(window)
         .expect("window should still have a view");
     let save = projected
-        .command::<document::SaveFile>()
+        .binding::<document::SaveFile>()
         .expect("save command should be in the view");
 
     assert!(save.is_enabled());
@@ -755,7 +759,7 @@ fn text_editor_save_dialog_cancel_updates_status_without_saving() {
         .present(window)
         .expect("window should still have a view");
     let save = projected
-        .command::<document::SaveFile>()
+        .binding::<document::SaveFile>()
         .expect("save command should be in the view");
 
     let effect = app
@@ -813,13 +817,13 @@ fn text_editor_view_resolves_command_bindings_from_runtime() {
     let window = app.session().windows()[0].id();
     let projected = app.present(window).expect("window should have a view");
 
-    assert_eq!(projected.root().role(), view::Role::Root);
+    assert_eq!(projected.root().role(), view::node::Role::Root);
     assert!(projected.labels().contains(&"File"));
     assert!(projected.labels().contains(&"View"));
     assert!(!projected.labels().contains(&"Debug"));
 
     let save = projected
-        .command::<document::SaveFile>()
+        .binding::<document::SaveFile>()
         .expect("save command should be in the view");
 
     assert_eq!(save.command_name(), document::SaveFile::NAME);
@@ -831,16 +835,16 @@ fn text_editor_view_resolves_command_bindings_from_runtime() {
     );
 
     let wrap = projected
-        .command::<text_editor::ToggleWrapText>()
+        .binding::<text_editor::ToggleWrapText>()
         .expect("wrap command should be in the view");
     let debug = projected
-        .command::<text_editor::ToggleDebugPanel>()
+        .binding::<text_editor::ToggleDebugPanel>()
         .expect("debug command should be in the view");
 
     assert_eq!(wrap.state().checked, Some(true));
     assert_eq!(debug.state().checked, Some(false));
-    assert_eq!(projected.text_areas()[0].text(), "");
-    assert_eq!(projected.text_areas()[0].wrap(), view::Wrap::Word);
+    assert_eq!(projected.text_areas()[0].buffer().text(), "");
+    assert_eq!(projected.text_areas()[0].wrap(), view::control::Wrap::Word);
     assert_eq!(
         projected.text_areas()[0].focus(),
         Some(session::Focus::text("document"))
@@ -868,11 +872,11 @@ fn text_editor_view_resolves_command_bindings_from_runtime() {
         .expect("window should still have a view");
 
     assert!(projected.labels().contains(&"Debug"));
-    assert_eq!(projected.text_areas()[0].text(), "alpha");
-    assert_eq!(projected.text_areas()[0].wrap(), view::Wrap::None);
+    assert_eq!(projected.text_areas()[0].buffer().text(), "alpha");
+    assert_eq!(projected.text_areas()[0].wrap(), view::control::Wrap::None);
     assert_eq!(
         projected
-            .command::<text_editor::ToggleWrapText>()
+            .binding::<text_editor::ToggleWrapText>()
             .expect("wrap command should remain in the view")
             .state()
             .checked,
@@ -880,7 +884,7 @@ fn text_editor_view_resolves_command_bindings_from_runtime() {
     );
     assert_eq!(
         projected
-            .command::<text_editor::ToggleDebugPanel>()
+            .binding::<text_editor::ToggleDebugPanel>()
             .expect("debug command should remain in the view")
             .state()
             .checked,
@@ -988,7 +992,7 @@ fn text_editor_view_command_activation_invokes_typed_target() {
     let window = app.session().windows()[0].id();
     let projected = app.present(window).expect("window should have a view");
     let wrap = projected
-        .command::<text_editor::ToggleWrapText>()
+        .binding::<text_editor::ToggleWrapText>()
         .expect("wrap command should be in the view");
 
     let effect = app.activate(wrap).expect("wrap command should activate");
@@ -1005,7 +1009,7 @@ fn text_editor_view_command_activation_invokes_typed_target() {
         .present(window)
         .expect("window should still have a view");
     let save = projected
-        .command::<document::SaveFile>()
+        .binding::<document::SaveFile>()
         .expect("save command should be in the view");
 
     let error = app
@@ -1034,7 +1038,7 @@ fn text_editor_view_actions_are_owned_host_events() {
     let wrap_action = {
         let projected = app.present(window).expect("window should have a view");
         projected
-            .command::<text_editor::ToggleWrapText>()
+            .binding::<text_editor::ToggleWrapText>()
             .expect("wrap command should be in the view")
             .action()
     };

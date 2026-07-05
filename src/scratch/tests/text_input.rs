@@ -36,7 +36,7 @@ fn text_editor_text_area_focus_routes_edits_through_runtime() {
         .present(window)
         .expect("window should still have a view");
 
-    assert_eq!(projected.text_areas()[0].text(), "alpha");
+    assert_eq!(projected.text_areas()[0].buffer().text(), "alpha");
 }
 
 #[test]
@@ -73,7 +73,7 @@ fn text_editor_input_flow_is_framework_owned() {
         .present(window)
         .expect("window should still have a view");
 
-    assert_eq!(projected.text_areas()[0].text(), "alpha");
+    assert_eq!(projected.text_areas()[0].buffer().text(), "alpha");
 }
 
 #[test]
@@ -285,7 +285,7 @@ fn focused_text_area_renders_focus_outline_and_controls_caret_visibility() {
         .expect("unfocused scene should render");
     let text_area = unfocused
         .layout()
-        .find_role(view::Role::TextArea)
+        .find_role(view::node::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");
@@ -307,7 +307,7 @@ fn focused_text_area_renders_focus_outline_and_controls_caret_visibility() {
         .expect("focused scene should render");
     let focused_text_area = focused
         .layout()
-        .find_role(view::Role::TextArea)
+        .find_role(view::node::Role::TextArea)
         .into_iter()
         .next()
         .expect("focused text area should be laid out");
@@ -339,7 +339,7 @@ fn text_editor_key_down_escape_uses_cancel_flow_for_preedit() {
         .expect("focus input should be handled");
     app.handle_input(
         window,
-        Input::text_preedit(text::Preedit::new("x", Some((0, 1)))),
+        Input::text_preedit(text::edit::Preedit::new("x", Some((0, 1)))),
     )
     .expect("preedit input should be handled");
 
@@ -774,7 +774,7 @@ fn text_editor_edit_menu_undo_redo_commands_use_runtime_timeline() {
     assert!(projected.labels().contains(&"Edit"));
     assert!(
         !projected
-            .command::<timeline::Undo>()
+            .binding::<timeline::Undo>()
             .expect("undo command should be in the view")
             .is_enabled()
     );
@@ -791,7 +791,7 @@ fn text_editor_edit_menu_undo_redo_commands_use_runtime_timeline() {
         .present(window)
         .expect("window should still have a view");
     let undo = projected
-        .command::<timeline::Undo>()
+        .binding::<timeline::Undo>()
         .expect("undo command should be in the view");
 
     assert!(undo.is_enabled());
@@ -813,7 +813,7 @@ fn text_editor_edit_menu_undo_redo_commands_use_runtime_timeline() {
         .present(window)
         .expect("window should still have a view");
     let redo = projected
-        .command::<timeline::Redo>()
+        .binding::<timeline::Redo>()
         .expect("redo command should be in the view");
 
     assert!(redo.is_enabled());
@@ -849,19 +849,19 @@ fn text_editor_edit_menu_clipboard_commands_use_focused_document() {
 
     assert!(
         projected
-            .command::<document::SelectAll>()
+            .binding::<document::SelectAll>()
             .expect("select-all command should be in the view")
             .is_enabled()
     );
     assert!(
         !projected
-            .command::<document::Copy>()
+            .binding::<document::Copy>()
             .expect("copy command should be in the view")
             .is_enabled()
     );
     assert!(
         !projected
-            .command::<document::Paste>()
+            .binding::<document::Paste>()
             .expect("paste command should be in the view")
             .is_enabled()
     );
@@ -869,7 +869,7 @@ fn text_editor_edit_menu_clipboard_commands_use_focused_document() {
     app.activate_in(
         window,
         projected
-            .command::<document::SelectAll>()
+            .binding::<document::SelectAll>()
             .expect("select-all command should be in the view"),
     )
     .expect("select-all should activate");
@@ -880,10 +880,10 @@ fn text_editor_edit_menu_clipboard_commands_use_focused_document() {
         .present(window)
         .expect("window should still have a view");
     let copy = projected
-        .command::<document::Copy>()
+        .binding::<document::Copy>()
         .expect("copy command should be in the view");
     let cut = projected
-        .command::<document::Cut>()
+        .binding::<document::Cut>()
         .expect("cut command should be in the view");
 
     assert!(copy.is_enabled());
@@ -912,7 +912,7 @@ fn text_editor_edit_menu_clipboard_commands_use_focused_document() {
         .present(window)
         .expect("window should still have a view");
     let paste = projected
-        .command::<document::Paste>()
+        .binding::<document::Paste>()
         .expect("paste command should be in the view");
 
     assert!(paste.is_enabled());
@@ -930,7 +930,7 @@ fn text_editor_edit_menu_clipboard_commands_use_focused_document() {
     app.activate_in(
         window,
         projected
-            .command::<document::SelectAll>()
+            .binding::<document::SelectAll>()
             .expect("select-all command should be in the view"),
     )
     .expect("select-all should activate");
@@ -939,7 +939,7 @@ fn text_editor_edit_menu_clipboard_commands_use_focused_document() {
         .present(window)
         .expect("window should still have a view");
     let delete = projected
-        .command::<document::Delete>()
+        .binding::<document::Delete>()
         .expect("delete command should be in the view");
 
     assert!(delete.is_enabled());
@@ -961,7 +961,7 @@ fn text_editor_file_menu_exit_closes_framework_window() {
     let window = app.session().windows()[0].id();
     let projected = app.present(window).expect("window should have a view");
     let exit = projected
-        .command::<session::CloseWindow>()
+        .binding::<session::CloseWindow>()
         .expect("exit command should be in the view");
 
     assert!(exit.is_enabled());
@@ -994,7 +994,7 @@ fn text_editor_file_menu_load_stress_text_updates_document_and_status() {
 
     let projected = app.present(window).expect("window should have a view");
     let load = projected
-        .command::<text_editor::LoadStressText>()
+        .binding::<text_editor::LoadStressText>()
         .expect("load stress command should be in the view");
 
     assert!(load.is_enabled());

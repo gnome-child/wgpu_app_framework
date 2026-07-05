@@ -6,6 +6,8 @@ use crate::app::{command as command_layer, frame, state::WindowState, text_input
 use crate::geometry::{Rect, area};
 use crate::{command, paint, text, ui, widget, window};
 
+const TEXT_CONTEXT_MENU: widget::menu::Id = widget::menu::Id::new("__text_context_menu");
+
 pub(crate) struct PaintResult {
     pub scene: paint::Scene,
     pub timings: frame::StageTimings,
@@ -127,17 +129,36 @@ pub(crate) fn tree_with_runtime_popups(
 
     if let Some(surface) = context_menu
         && let Some(base_layout) = presentation_tree.layout(area, text_engine)
-        && let Some(popup) = widget::text_context_menu_popup(
+    {
+        let menu = text_context_menu();
+        if let Some(popup) = widget::text_context_menu_popup(
             surface,
+            &menu,
             menu_presenter,
             text_engine,
             base_layout.rect(),
-        )
-    {
-        presentation_tree.push_popup(popup);
+        ) {
+            presentation_tree.push_popup(popup);
+        }
     }
 
     (presentation_tree, open_menu, open_submenu)
+}
+
+fn text_context_menu() -> widget::menu::Menu {
+    widget::menu::Menu::new("Text")
+        .key(TEXT_CONTEXT_MENU)
+        .section(
+            widget::menu::Section::new()
+                .command::<crate::widget::text_command::Undo>()
+                .command::<crate::widget::text_command::Redo>()
+                .separator()
+                .command::<crate::widget::text_command::Cut>()
+                .command::<crate::widget::text_command::Copy>()
+                .command::<crate::widget::text_command::Paste>()
+                .separator()
+                .command::<crate::widget::text_command::SelectAll>(),
+        )
 }
 
 pub(crate) fn compose_with_timings(
@@ -190,7 +211,14 @@ fn compose_tree_with_runtime_state(
     let (presentation_tree, open_menu, open_submenu) =
         build_runtime_popup_presentation(tree, state, &layer, logical_area, text_engine);
 
-    presentation_tree.compose_with_open_menus(logical_area, open_menu, open_submenu, text_engine)
+    let mut composition = presentation_tree.compose_with_open_menus(
+        logical_area,
+        open_menu,
+        open_submenu,
+        text_engine,
+    )?;
+    composition.project_text_edit_states(state.text.edit_states());
+    Some(composition)
 }
 
 fn build_runtime_popup_presentation(
@@ -389,7 +417,7 @@ fn paint_scroll_only_retained(
         };
         let text_area_target = state
             .text_surface(&target)
-            .is_some_and(text::Surface::is_area);
+            .is_some_and(text::edit::Surface::is_area);
         let text_projection_shifted =
             text_area_target && state.scroll.text_area_projection_shifted(&target);
         if !text_area_target {
@@ -640,7 +668,7 @@ fn try_layer_retained_scroll_target(
     };
     if state
         .text_surface(target)
-        .is_some_and(text::Surface::is_area)
+        .is_some_and(text::edit::Surface::is_area)
         && !state.scroll.text_area_projection_shifted(target)
     {
         state.scroll.record_retained_projection_miss();
@@ -847,14 +875,16 @@ mod tests {
 
     fn register_text_command<C>(registry: &mut command::Registry, display: &'static str)
     where
-        C: text::command::EditCommand,
+        C: crate::widget::text_command::EditCommand,
     {
         registry.commands(|commands| {
-            text::command::define::<C>(commands, |command| command.with_display(display));
+            crate::widget::text_command::define::<C>(commands, |command| {
+                command.with_display(display)
+            });
         });
     }
 
-    fn text_color_for(scene: &paint::Scene, label: &str) -> Option<paint::Color> {
+    fn text_color_for(scene: &paint::Scene, label: &str) -> Option<text::Color> {
         scene.items().iter().find_map(|item| {
             let paint::Item::Text(text) = item else {
                 return None;
@@ -867,6 +897,10 @@ mod tests {
                     .find_map(|run| (run.text() == label).then_some(run.style().color()))
             })
         })
+    }
+
+    fn text_color(color: paint::Color) -> text::Color {
+        text::Color::rgba(color.r, color.g, color.b, color.a)
     }
 
     fn glyph_paint_items(scene: &paint::Scene) -> usize {
@@ -934,14 +968,15 @@ mod tests {
         )
     }
 
-    fn selected_large_text_area_buffer(lines: usize) -> text::Buffer {
+    fn selected_large_text_area(lines: usize) -> text::edit::Area {
         let mut buffer = large_text_area_buffer(lines);
         let mut editor = text::edit::Editor::new();
-        editor.apply_text_edit(&mut buffer, text::edit::Edit::SelectAll);
-        buffer
+        let mut edit_state = buffer.initial_state();
+        editor.apply_edit(&mut buffer, &mut edit_state, text::edit::Edit::SelectAll);
+        text::edit::Area::new(buffer).with_state(edit_state)
     }
 
-    fn large_text_area_buffer_with_cursor(lines: usize, line: usize, index: usize) -> text::Buffer {
+    fn large_text_area_with_cursor(lines: usize, line: usize, index: usize) -> text::edit::Area {
         let content = (0..lines)
             .map(|line| format!("line {line:03}: scrolling text area content"))
             .collect::<Vec<_>>();
@@ -956,11 +991,13 @@ mod tests {
                 .unwrap_or_default();
         let mut buffer = text::Buffer::from_multiline_text(content.join("\n"));
         let mut editor = text::edit::Editor::new();
-        editor.apply_text_edit(
+        let mut edit_state = buffer.initial_state();
+        editor.apply_edit(
             &mut buffer,
-            text::edit::Edit::set_position(text::TextPosition::new(cursor_index)),
+            &mut edit_state,
+            text::edit::Edit::set_position(text::buffer::Position::new(cursor_index)),
         );
-        buffer
+        text::edit::Area::new(buffer).with_state(edit_state)
     }
 
     #[test]
@@ -1161,7 +1198,7 @@ mod tests {
         let mut tree = ui::Tree::new();
         tree.set_root(
             widget::panel().key(ROOT).with_child(
-                widget::text_area(text::Area::new(buffer))
+                widget::text_area(text::edit::Area::new(buffer))
                     .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
@@ -1347,7 +1384,7 @@ mod tests {
         let mut tree = ui::Tree::new();
         tree.set_root(
             widget::panel().key(ROOT).with_child(
-                widget::text_area(text::Area::new(buffer))
+                widget::text_area(text::edit::Area::new(buffer))
                     .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
@@ -1441,7 +1478,7 @@ mod tests {
                 .key(ROOT)
                 .with_child(widget::label("Diagnostics").key(label))
                 .with_child(
-                    widget::text_area(text::Area::new(buffer))
+                    widget::text_area(text::edit::Area::new(buffer))
                         .key(CHILD)
                         .with_size(layout::Size::Fill, layout::Size::Fill),
                 ),
@@ -1510,7 +1547,7 @@ mod tests {
         let window = window::Id::new(1);
         let path = ui::Path::new([ROOT, CHILD]);
         let epoch = std::time::Instant::now();
-        let buffer = selected_large_text_area_buffer(120);
+        let area = selected_large_text_area(120);
         let mut state = WindowState {
             focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
                 path.clone(),
@@ -1524,13 +1561,13 @@ mod tests {
         };
         state
             .text
-            .insert(path.clone(), text::view::TextViewState::new_at(0.0, epoch));
+            .insert(path.clone(), text::edit::ViewState::new_at(0.0, epoch));
         let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
         let mut tree = ui::Tree::new();
         tree.set_root(
             widget::panel().key(ROOT).with_child(
-                widget::text_area(text::Area::new(buffer))
+                widget::text_area(area)
                     .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
@@ -1592,7 +1629,7 @@ mod tests {
         let window = window::Id::new(1);
         let path = ui::Path::new([ROOT, CHILD]);
         let epoch = std::time::Instant::now();
-        let buffer = large_text_area_buffer_with_cursor(120, 0, 5);
+        let area = large_text_area_with_cursor(120, 0, 5);
         let mut state = WindowState {
             focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
                 path.clone(),
@@ -1606,13 +1643,13 @@ mod tests {
         };
         state
             .text
-            .insert(path.clone(), text::view::TextViewState::new_at(0.0, epoch));
+            .insert(path.clone(), text::edit::ViewState::new_at(0.0, epoch));
         let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
         let mut tree = ui::Tree::new();
         tree.set_root(
             widget::panel().key(ROOT).with_child(
-                widget::text_area(text::Area::new(buffer))
+                widget::text_area(area)
                     .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
@@ -1674,7 +1711,7 @@ mod tests {
         let window = window::Id::new(1);
         let path = ui::Path::new([ROOT, CHILD]);
         let epoch = std::time::Instant::now();
-        let buffer = large_text_area_buffer_with_cursor(80, 0, 5);
+        let area = large_text_area_with_cursor(80, 0, 5);
         let mut state = WindowState {
             focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
                 path.clone(),
@@ -1688,13 +1725,13 @@ mod tests {
         };
         state
             .text
-            .insert(path.clone(), text::view::TextViewState::new_at(0.0, epoch));
+            .insert(path.clone(), text::edit::ViewState::new_at(0.0, epoch));
         let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
         let mut tree = ui::Tree::new();
         tree.set_root(
             widget::panel().key(ROOT).with_child(
-                widget::text_area(text::Area::new(buffer))
+                widget::text_area(area)
                     .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
@@ -1728,7 +1765,7 @@ mod tests {
         let window = window::Id::new(1);
         let path = ui::Path::new([ROOT, CHILD]);
         let epoch = std::time::Instant::now();
-        let buffer = large_text_area_buffer_with_cursor(120, 100, 5);
+        let area = large_text_area_with_cursor(120, 100, 5);
         let mut state = WindowState {
             focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
                 path.clone(),
@@ -1742,13 +1779,13 @@ mod tests {
         };
         state
             .text
-            .insert(path.clone(), text::view::TextViewState::new_at(0.0, epoch));
+            .insert(path.clone(), text::edit::ViewState::new_at(0.0, epoch));
         let mut registry = command::Registry::new();
         let mut text_engine = text::layout::Engine::new();
         let mut tree = ui::Tree::new();
         tree.set_root(
             widget::panel().key(ROOT).with_child(
-                widget::text_area(text::Area::new(buffer))
+                widget::text_area(area)
                     .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
@@ -1802,7 +1839,7 @@ mod tests {
         let mut tree = ui::Tree::new();
         tree.set_root(
             widget::panel().key(ROOT).with_child(
-                widget::text_area(text::Area::new(buffer))
+                widget::text_area(text::edit::Area::new(buffer))
                     .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
@@ -1934,7 +1971,7 @@ mod tests {
         let mut tree = ui::Tree::new();
         tree.set_root(
             widget::panel().key(ROOT).with_child(
-                widget::text_area(text::Area::new(buffer))
+                widget::text_area(text::edit::Area::new(buffer))
                     .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
@@ -1991,7 +2028,7 @@ mod tests {
         let mut tree = ui::Tree::new();
         tree.set_root(
             widget::panel().key(ROOT).with_child(
-                widget::text_area(text::Area::new(buffer))
+                widget::text_area(text::edit::Area::new(buffer))
                     .key(CHILD)
                     .with_size(layout::Size::Fill, layout::Size::Fill),
             ),
@@ -2137,7 +2174,7 @@ mod tests {
                 ui::Node::leaf()
                     .key(CHILD)
                     .with_responder_key(
-                        command::Key::of::<crate::text::command::SelectAll>().action(),
+                        command::Key::of::<crate::widget::text_command::SelectAll>().action(),
                     )
                     .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
             ),
@@ -2154,7 +2191,7 @@ mod tests {
 
         assert_eq!(
             composition.responders(&ui::Path::new([ROOT, CHILD])),
-            Some(&[command::Key::of::<crate::text::command::SelectAll>().action()][..])
+            Some(&[command::Key::of::<crate::widget::text_command::SelectAll>().action()][..])
         );
     }
 
@@ -2165,13 +2202,17 @@ mod tests {
         let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
         let path = ui::Path::new([ROOT, CHILD]);
-        let binding =
-            command::binding::Binding::new(command::Key::of::<crate::text::command::SelectAll>())
-                .available(false)
-                .active(true)
-                .running(true);
+        let binding = command::binding::Binding::new(command::Key::of::<
+            crate::widget::text_command::SelectAll,
+        >())
+        .available(false)
+        .active(true)
+        .running(true);
 
-        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        register_text_command::<crate::widget::text_command::SelectAll>(
+            &mut registry,
+            "Select All",
+        );
         tree.set_root(
             widget::panel().key(ROOT).with_child(
                 ui::Node::leaf()
@@ -2192,7 +2233,7 @@ mod tests {
 
         assert_eq!(
             composition.responders(&path),
-            Some(&[command::Key::of::<crate::text::command::SelectAll>().action()][..])
+            Some(&[command::Key::of::<crate::widget::text_command::SelectAll>().action()][..])
         );
         assert_eq!(
             composition.responder_bindings(&path),
@@ -2200,7 +2241,7 @@ mod tests {
         );
         assert_eq!(
             registry.configured_state_key(
-                command::Key::of::<crate::text::command::SelectAll>(),
+                command::Key::of::<crate::widget::text_command::SelectAll>(),
                 command::call::Context::path(window, path)
             ),
             binding.state().expect("projected binding state").clone()
@@ -2215,8 +2256,11 @@ mod tests {
         let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
-        register_text_command::<crate::text::command::Paste>(&mut registry, "Paste");
+        register_text_command::<crate::widget::text_command::SelectAll>(
+            &mut registry,
+            "Select All",
+        );
+        register_text_command::<crate::widget::text_command::Paste>(&mut registry, "Paste");
         tree.set_root(
             widget::panel()
                 .key(ROOT)
@@ -2233,17 +2277,16 @@ mod tests {
 
         assert!(
             !registry
-                .configured_state::<crate::text::command::SelectAll>(command::call::Context::path(
-                    window,
-                    path.clone(),
-                ))
+                .configured_state::<crate::widget::text_command::SelectAll>(
+                    command::call::Context::path(window, path.clone(),)
+                )
                 .is_available()
         );
         assert!(
             !registry
-                .configured_state::<crate::text::command::Paste>(command::call::Context::path(
-                    window, path
-                ))
+                .configured_state::<crate::widget::text_command::Paste>(
+                    command::call::Context::path(window, path)
+                )
                 .is_available()
         );
     }
@@ -2263,8 +2306,11 @@ mod tests {
         let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
-        register_text_command::<crate::text::command::Paste>(&mut registry, "Paste");
+        register_text_command::<crate::widget::text_command::SelectAll>(
+            &mut registry,
+            "Select All",
+        );
+        register_text_command::<crate::widget::text_command::Paste>(&mut registry, "Paste");
         tree.set_root(
             widget::panel()
                 .key(ROOT)
@@ -2281,17 +2327,16 @@ mod tests {
 
         assert!(
             registry
-                .configured_state::<crate::text::command::SelectAll>(command::call::Context::path(
-                    window,
-                    path.clone(),
-                ))
+                .configured_state::<crate::widget::text_command::SelectAll>(
+                    command::call::Context::path(window, path.clone(),)
+                )
                 .is_available()
         );
         assert!(
             registry
-                .configured_state::<crate::text::command::Paste>(command::call::Context::path(
-                    window, path
-                ))
+                .configured_state::<crate::widget::text_command::Paste>(
+                    command::call::Context::path(window, path)
+                )
                 .is_available()
         );
     }
@@ -2302,6 +2347,7 @@ mod tests {
         let field = ui::Path::new([ROOT, CHILD]);
         let mut editor = text::edit::Editor::new();
         let mut buffer = text::Buffer::from_text("hello");
+        let mut edit_state = buffer.initial_state();
         let mut state = WindowState {
             focus: crate::app::state::FocusState::focused(crate::app::state::Focus::new(
                 field.clone(),
@@ -2313,23 +2359,28 @@ mod tests {
         let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        editor.apply_text_edit(&mut buffer, text::edit::Edit::SelectAll);
-        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        editor.apply_edit(&mut buffer, &mut edit_state, text::edit::Edit::SelectAll);
+        register_text_command::<crate::widget::text_command::SelectAll>(
+            &mut registry,
+            "Select All",
+        );
         tree.set_root(
             widget::panel()
                 .key(ROOT)
                 .with_child(
-                    widget::menu_bar(
-                        menu::Bar::new().menu(
-                            menu::Menu::new("File").key(FILE).section(
-                                menu::Section::new()
-                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
-                            ),
+                    widget::menu_bar(menu::Bar::new().menu(
+                        menu::Menu::new("File").key(FILE).section(
+                            menu::Section::new().item(menu::Item::command::<
+                                crate::widget::text_command::SelectAll,
+                            >()),
                         ),
-                    )
+                    ))
                     .key(MENU_BAR),
                 )
-                .with_child(widget::text_field(buffer).key(CHILD)),
+                .with_child(
+                    widget::text_field(text::edit::Field::new(buffer).with_state(edit_state))
+                        .key(CHILD),
+                ),
         );
 
         compose(
@@ -2357,13 +2408,13 @@ mod tests {
 
         assert_eq!(
             composition.action(&row).map(|route| route.key()),
-            Some(command::Key::of::<crate::text::command::SelectAll>().action())
+            Some(command::Key::of::<crate::widget::text_command::SelectAll>().action())
         );
         assert!(
             !registry
-                .configured_state::<crate::text::command::SelectAll>(command::call::Context::path(
-                    window, field,
-                ))
+                .configured_state::<crate::widget::text_command::SelectAll>(
+                    command::call::Context::path(window, field,)
+                )
                 .is_available()
         );
     }
@@ -2389,7 +2440,7 @@ mod tests {
                     ui::Node::leaf()
                         .key(CHILD)
                         .with_responder_key(
-                            command::Key::of::<crate::text::command::SelectAll>().action(),
+                            command::Key::of::<crate::widget::text_command::SelectAll>().action(),
                         )
                         .with_size(layout::Size::Fixed(10.0), layout::Size::Fixed(10.0)),
                 )
@@ -2458,9 +2509,12 @@ mod tests {
         let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        register_text_command::<crate::widget::text_command::SelectAll>(
+            &mut registry,
+            "Select All",
+        );
         registry.set_state_key(
-            command::Key::of::<crate::text::command::SelectAll>(),
+            command::Key::of::<crate::widget::text_command::SelectAll>(),
             command::call::Context::path(window, subject.clone()),
             command::State::available(),
         );
@@ -2469,21 +2523,20 @@ mod tests {
             widget::panel()
                 .key(ROOT)
                 .with_child(
-                    widget::menu_bar(
-                        menu::Bar::new().menu(
-                            menu::Menu::new("File").key(FILE).section(
-                                menu::Section::new()
-                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
-                            ),
+                    widget::menu_bar(menu::Bar::new().menu(
+                        menu::Menu::new("File").key(FILE).section(
+                            menu::Section::new().item(menu::Item::command::<
+                                crate::widget::text_command::SelectAll,
+                            >()),
                         ),
-                    )
+                    ))
                     .key(MENU_BAR),
                 )
                 .with_child(
                     ui::Node::leaf()
                         .key(CHILD)
                         .with_responder_key(
-                            command::Key::of::<crate::text::command::SelectAll>().action(),
+                            command::Key::of::<crate::widget::text_command::SelectAll>().action(),
                         )
                         .with_interactivity(ui::Interactivity::CONTROL),
                 ),
@@ -2531,7 +2584,7 @@ mod tests {
         );
         assert_eq!(
             composition.action(&row).map(|route| route.key()),
-            Some(command::Key::of::<crate::text::command::SelectAll>().action())
+            Some(command::Key::of::<crate::widget::text_command::SelectAll>().action())
         );
         assert_eq!(
             composition.action_subject(&row),
@@ -2603,7 +2656,9 @@ mod tests {
         assert!(!composition.focus_order().contains(&menu_title));
         assert_eq!(
             text_color_for(&scene, "File"),
-            Some(crate::theme::Theme::default_dark().text().disabled())
+            Some(text_color(
+                crate::theme::Theme::default_dark().text().disabled()
+            ))
         );
         let title_rect = composition
             .layout()
@@ -2724,23 +2779,25 @@ mod tests {
         let mut tree = ui::Tree::new();
         let menu_title = ui::Path::new([ROOT, MENU_BAR, top_level_menu_title(0)]);
 
-        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        register_text_command::<crate::widget::text_command::SelectAll>(
+            &mut registry,
+            "Select All",
+        );
         tree.set_root(
             widget::panel()
                 .key(ROOT)
                 .with_child(
-                    widget::menu_bar(
-                        menu::Bar::new().menu(
-                            menu::Menu::new("Edit").key(FILE).section(
-                                menu::Section::new()
-                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
-                            ),
+                    widget::menu_bar(menu::Bar::new().menu(
+                        menu::Menu::new("Edit").key(FILE).section(
+                            menu::Section::new().item(menu::Item::command::<
+                                crate::widget::text_command::SelectAll,
+                            >()),
                         ),
-                    )
+                    ))
                     .key(MENU_BAR),
                 )
                 .with_child(
-                    widget::text_area(text::Area::new(text::Buffer::from_text("hello")))
+                    widget::text_area(text::edit::Area::new(text::Buffer::from_text("hello")))
                         .key(CHILD)
                         .with_size(layout::Size::Fill, layout::Size::Fixed(80.0)),
                 ),
@@ -2799,7 +2856,7 @@ mod tests {
                     .key(MENU_BAR),
                 )
                 .with_child(
-                    widget::text_area(text::Area::new(text::Buffer::from_text("hello")))
+                    widget::text_area(text::edit::Area::new(text::Buffer::from_text("hello")))
                         .key(CHILD)
                         .with_size(layout::Size::Fill, layout::Size::Fixed(80.0)),
                 ),
@@ -2838,9 +2895,12 @@ mod tests {
         let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        register_text_command::<crate::widget::text_command::SelectAll>(
+            &mut registry,
+            "Select All",
+        );
         registry.set_state_key(
-            command::Key::of::<crate::text::command::SelectAll>(),
+            command::Key::of::<crate::widget::text_command::SelectAll>(),
             command::call::Context::path(window, field.clone()),
             command::State::available(),
         );
@@ -2849,21 +2909,20 @@ mod tests {
             widget::panel()
                 .key(ROOT)
                 .with_child(
-                    widget::menu_bar(
-                        menu::Bar::new().menu(
-                            menu::Menu::new("File").key(FILE).section(
-                                menu::Section::new()
-                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
-                            ),
+                    widget::menu_bar(menu::Bar::new().menu(
+                        menu::Menu::new("File").key(FILE).section(
+                            menu::Section::new().item(menu::Item::command::<
+                                crate::widget::text_command::SelectAll,
+                            >()),
                         ),
-                    )
+                    ))
                     .key(MENU_BAR),
                 )
                 .with_child(
                     widget::text_field(text::Buffer::from_text("hello"))
                         .key(CHILD)
                         .with_responder_key(
-                            command::Key::of::<crate::text::command::SelectAll>().action(),
+                            command::Key::of::<crate::widget::text_command::SelectAll>().action(),
                         ),
                 ),
         );
@@ -2898,9 +2957,12 @@ mod tests {
         let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        register_text_command::<crate::widget::text_command::SelectAll>(
+            &mut registry,
+            "Select All",
+        );
         registry.set_state_key(
-            command::Key::of::<crate::text::command::SelectAll>(),
+            command::Key::of::<crate::widget::text_command::SelectAll>(),
             command::call::Context::path(window, area.clone()),
             command::State::available(),
         );
@@ -2909,22 +2971,21 @@ mod tests {
             widget::panel()
                 .key(ROOT)
                 .with_child(
-                    widget::menu_bar(
-                        menu::Bar::new().menu(
-                            menu::Menu::new("File").key(FILE).section(
-                                menu::Section::new()
-                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
-                            ),
+                    widget::menu_bar(menu::Bar::new().menu(
+                        menu::Menu::new("File").key(FILE).section(
+                            menu::Section::new().item(menu::Item::command::<
+                                crate::widget::text_command::SelectAll,
+                            >()),
                         ),
-                    )
+                    ))
                     .key(MENU_BAR),
                 )
                 .with_child(
-                    widget::text_area(text::Area::new(selected_large_text_area_buffer(3)))
+                    widget::text_area(selected_large_text_area(3))
                         .key(CHILD)
                         .with_size(layout::Size::Fill, layout::Size::Fixed(80.0))
                         .with_responder_key(
-                            command::Key::of::<crate::text::command::SelectAll>().action(),
+                            command::Key::of::<crate::widget::text_command::SelectAll>().action(),
                         ),
                 ),
         );
@@ -2968,9 +3029,12 @@ mod tests {
         let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        register_text_command::<crate::widget::text_command::SelectAll>(
+            &mut registry,
+            "Select All",
+        );
         registry.set_state_key(
-            command::Key::of::<crate::text::command::SelectAll>(),
+            command::Key::of::<crate::widget::text_command::SelectAll>(),
             command::call::Context::path(window, field.clone()),
             command::State::available(),
         );
@@ -2978,21 +3042,20 @@ mod tests {
             widget::panel()
                 .key(ROOT)
                 .with_child(
-                    widget::menu_bar(
-                        menu::Bar::new().menu(
-                            menu::Menu::new("File").key(FILE).section(
-                                menu::Section::new()
-                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
-                            ),
+                    widget::menu_bar(menu::Bar::new().menu(
+                        menu::Menu::new("File").key(FILE).section(
+                            menu::Section::new().item(menu::Item::command::<
+                                crate::widget::text_command::SelectAll,
+                            >()),
                         ),
-                    )
+                    ))
                     .key(MENU_BAR),
                 )
                 .with_child(
                     widget::text_field(text::Buffer::from_text("hello"))
                         .key(CHILD)
                         .with_responder_key(
-                            command::Key::of::<crate::text::command::SelectAll>().action(),
+                            command::Key::of::<crate::widget::text_command::SelectAll>().action(),
                         ),
                 ),
         );
@@ -3040,9 +3103,12 @@ mod tests {
         let mut registry = command::Registry::new();
         let mut tree = ui::Tree::new();
 
-        register_text_command::<crate::text::command::SelectAll>(&mut registry, "Select All");
+        register_text_command::<crate::widget::text_command::SelectAll>(
+            &mut registry,
+            "Select All",
+        );
         registry.set_state_key(
-            command::Key::of::<crate::text::command::SelectAll>(),
+            command::Key::of::<crate::widget::text_command::SelectAll>(),
             command::call::Context::path(window, subject.clone()),
             command::State::available(),
         );
@@ -3051,21 +3117,20 @@ mod tests {
             widget::panel()
                 .key(ROOT)
                 .with_child(
-                    widget::menu_bar(
-                        menu::Bar::new().menu(
-                            menu::Menu::new("File").key(FILE).section(
-                                menu::Section::new()
-                                    .item(menu::Item::text::<crate::text::command::SelectAll>()),
-                            ),
+                    widget::menu_bar(menu::Bar::new().menu(
+                        menu::Menu::new("File").key(FILE).section(
+                            menu::Section::new().item(menu::Item::command::<
+                                crate::widget::text_command::SelectAll,
+                            >()),
                         ),
-                    )
+                    ))
                     .key(MENU_BAR),
                 )
                 .with_child(
                     ui::Node::leaf()
                         .key(CHILD)
                         .with_responder_key(
-                            command::Key::of::<crate::text::command::SelectAll>().action(),
+                            command::Key::of::<crate::widget::text_command::SelectAll>().action(),
                         )
                         .with_interactivity(ui::Interactivity::CONTROL),
                 ),

@@ -1,0 +1,88 @@
+use super::super::Runtime;
+use crate::scratch::{
+    context as command_context, error::Error, input, response, state, view, window,
+};
+
+fn text_for_key(
+    key: input::Key,
+    modifiers: input::Modifiers,
+    inserted_text: Option<&str>,
+) -> Option<String> {
+    if modifiers.control() || modifiers.alt() || modifiers.super_key() {
+        return None;
+    }
+
+    if let Some(text) =
+        inserted_text.filter(|text| text.chars().all(|character| !character.is_control()))
+    {
+        return Some(text.to_owned());
+    }
+
+    match key {
+        input::Key::Space => Some(" ".to_owned()),
+        input::Key::Character(character) if !character.is_control() => Some(character.to_string()),
+        _ => None,
+    }
+}
+
+impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
+    pub(in crate::scratch::runtime::input) fn handle_key_down(
+        &mut self,
+        window: window::Id,
+        key: input::Key,
+        modifiers: input::Modifiers,
+        text: Option<String>,
+    ) -> std::result::Result<input::Outcome, Error> {
+        if key == input::Key::Escape {
+            return self.handle_input(window, input::Input::cancel());
+        }
+
+        if key == input::Key::Tab
+            && !modifiers.control()
+            && !modifiers.alt()
+            && !modifiers.super_key()
+        {
+            return Ok(self.handle_tab_focus(window, modifiers.shift()));
+        }
+
+        if let Some(shortcut) = self.registry.shortcut_for_key(key, modifiers) {
+            let outcome = self.handle_shortcut(window, shortcut)?;
+            if outcome.is_handled() {
+                return Ok(outcome);
+            }
+        }
+
+        if let Some(text) = text_for_key(key, modifiers, text.as_deref()) {
+            return self.handle_text_commit(window, text);
+        }
+
+        let Some(edit) = input::edit_for_key(key, modifiers) else {
+            return Ok(input::Outcome::ignored());
+        };
+
+        self.handle_text_edit(window, edit, command_context::Source::Keyboard)
+    }
+
+    fn handle_tab_focus(&mut self, window: window::Id, reverse: bool) -> input::Outcome {
+        let direction = if reverse {
+            view::action::FocusDirection::Backward
+        } else {
+            view::action::FocusDirection::Forward
+        };
+        let Some(next) = self.composition.get(window).and_then(|composition| {
+            composition
+                .view()
+                .next_focus(self.session.focused(window), direction)
+        }) else {
+            return input::Outcome::ignored();
+        };
+
+        let effect = if self.focus(window, next) {
+            response::Effect::Repaint
+        } else {
+            response::Effect::None
+        };
+
+        input::Outcome::handled(false, effect)
+    }
+}

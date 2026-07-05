@@ -16,8 +16,8 @@ pub(crate) struct Snapshot {
     pub(crate) responder_bindings: HashMap<Path, Vec<action::Binding>>,
     pub(crate) action_targets: HashMap<Path, Vec<action::Target>>,
     pub(crate) action_scopes: Vec<Path>,
-    pub(crate) text_fields: HashMap<Path, text::Field>,
-    pub(crate) text_surfaces: HashMap<Path, text::Surface>,
+    pub(crate) text_fields: HashMap<Path, text::edit::Field>,
+    pub(crate) text_surfaces: HashMap<Path, text::edit::Surface>,
     pub(crate) interactivity: HashMap<Path, Interactivity>,
     pub(crate) cursors: HashMap<Path, Cursor>,
 }

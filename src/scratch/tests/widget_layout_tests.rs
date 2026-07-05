@@ -7,33 +7,45 @@ fn widget_closure_api_models_layout_controls_and_trigger_bindings() {
             layout
                 .row()
                 .gap(12)
-                .padding(widget::Padding::symmetric(8, 4))
-                .align_items(widget::Align::Center)
-                .justify_content(widget::Align::End)
+                .padding(view::style::Padding::symmetric(8, 4))
+                .align_items(view::style::Align::Center)
+                .justify_content(view::style::Align::End)
         })
-        .width(widget::Size::grow())
-        .height(widget::Size::fixed(44));
+        .width(view::style::Dimension::grow())
+        .height(view::style::Dimension::fixed(44));
 
     assert_eq!(element.layout_state().direction(), widget::Direction::Row);
     assert_eq!(element.layout_state().gap_value(), 12);
     assert_eq!(
         element.layout_state().padding_value(),
-        widget::Padding::symmetric(8, 4)
+        view::style::Padding::symmetric(8, 4)
     );
-    assert_eq!(element.width_state(), Some(widget::Size::Grow));
-    assert_eq!(element.height_state(), Some(widget::Size::Fixed(44)));
+    assert_eq!(element.width_state(), Some(view::style::Dimension::Grow));
+    assert_eq!(
+        element.height_state(),
+        Some(view::style::Dimension::Fixed(44))
+    );
 
     let styled_node = widget::Widget::into_node(element);
     assert_eq!(styled_node.style().gap(), 12);
     assert_eq!(styled_node.style().padding().left(), 8);
     assert_eq!(styled_node.style().padding().top(), 4);
-    assert_eq!(styled_node.style().width(), Some(view::Dimension::Grow));
+    assert_eq!(
+        styled_node.style().width(),
+        Some(view::style::Dimension::Grow)
+    );
     assert_eq!(
         styled_node.style().height(),
-        Some(view::Dimension::Fixed(44))
+        Some(view::style::Dimension::Fixed(44))
     );
-    assert_eq!(styled_node.style().align_items(), view::Align::Center);
-    assert_eq!(styled_node.style().justify_content(), view::Align::End);
+    assert_eq!(
+        styled_node.style().align_items(),
+        view::style::Align::Center
+    );
+    assert_eq!(
+        styled_node.style().justify_content(),
+        view::style::Align::End
+    );
 
     let view = widget::view(|ui| {
         ui.column(|ui| {
@@ -80,29 +92,29 @@ fn widget_element_style_affects_row_layout_frames() {
                 .layout(|layout| {
                     layout
                         .gap(10)
-                        .padding(widget::Padding::symmetric(5, 2))
-                        .align_items(widget::Align::Center)
+                        .padding(view::style::Padding::symmetric(5, 2))
+                        .align_items(view::style::Align::Center)
                 })
                 .children(|ui| {
                     ui.add(
                         widget::Element::new()
                             .label("Fixed")
-                            .width(widget::Size::fixed(50)),
+                            .width(view::style::Dimension::fixed(50)),
                     );
                     ui.add(
                         widget::Element::new()
                             .label("Grow")
-                            .width(widget::Size::grow()),
+                            .width(view::style::Dimension::grow()),
                     );
                     ui.button(widget::Button::new("Fit"));
                 }),
         );
     });
 
-    let mut layout_engine = layout::Engine::new();
+    let mut layout_engine = layout::engine::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(300, 80), &mut layout_engine);
-    let panels = layout.find_role(view::Role::Panel);
-    let buttons = layout.find_role(view::Role::Button);
+    let panels = layout.find_role(view::node::Role::Panel);
+    let buttons = layout.find_role(view::node::Role::Button);
 
     assert_eq!(panels.len(), 2);
     assert_eq!(buttons.len(), 1);
@@ -129,29 +141,29 @@ fn widget_element_alignment_affects_layout_frames() {
                 .layout(|layout| {
                     layout
                         .gap(10)
-                        .align_items(widget::Align::Center)
-                        .justify_content(widget::Align::End)
+                        .align_items(view::style::Align::Center)
+                        .justify_content(view::style::Align::End)
                 })
                 .children(|ui| {
                     ui.add(
                         widget::Element::new()
                             .label("One")
-                            .width(widget::Size::fixed(40))
-                            .height(widget::Size::fixed(20)),
+                            .width(view::style::Dimension::fixed(40))
+                            .height(view::style::Dimension::fixed(20)),
                     );
                     ui.add(
                         widget::Element::new()
                             .label("Two")
-                            .width(widget::Size::fixed(60))
-                            .height(widget::Size::fixed(30)),
+                            .width(view::style::Dimension::fixed(60))
+                            .height(view::style::Dimension::fixed(30)),
                     );
                 }),
         );
     });
 
-    let mut layout_engine = layout::Engine::new();
+    let mut layout_engine = layout::engine::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(200, 100), &mut layout_engine);
-    let panels = layout.find_role(view::Role::Panel);
+    let panels = layout.find_role(view::node::Role::Panel);
 
     assert_eq!(panels.len(), 2);
     assert_eq!(panels[0].rect(), geometry::Rect::new(90, 40, 40, 20));
@@ -164,27 +176,27 @@ fn widget_element_style_affects_column_layout_frames() {
         ui.add(
             widget::Element::new()
                 .column()
-                .layout(|layout| layout.gap(4).padding(widget::Padding::all(6)))
+                .layout(|layout| layout.gap(4).padding(view::style::Padding::all(6)))
                 .children(|ui| {
                     ui.add(
                         widget::Element::new()
                             .label("Fixed")
-                            .height(widget::Size::fixed(20)),
+                            .height(view::style::Dimension::fixed(20)),
                     );
                     ui.add(
                         widget::Element::new()
                             .label("Grow")
-                            .height(widget::Size::grow()),
+                            .height(view::style::Dimension::grow()),
                     );
                     ui.label("Fit");
                 }),
         );
     });
 
-    let mut layout_engine = layout::Engine::new();
+    let mut layout_engine = layout::engine::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(100, 100), &mut layout_engine);
-    let panels = layout.find_role(view::Role::Panel);
-    let labels = layout.find_role(view::Role::Label);
+    let panels = layout.find_role(view::node::Role::Panel);
+    let labels = layout.find_role(view::node::Role::Label);
 
     assert_eq!(panels.len(), 2);
     assert_eq!(labels.len(), 1);

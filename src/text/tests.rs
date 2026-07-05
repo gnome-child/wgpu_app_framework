@@ -3,28 +3,78 @@
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use crate::{
-    geometry::{area, point},
-    paint, text_system,
-};
+use crate::geometry::{area, point};
 
 use super::buffer::{
-    Cursor, Selection, TEXT_DOCUMENT_BLOCK_TARGET_LINES, TextDocumentStatsSnapshot,
-    collapsed_cursor_for_motion,
+    Affinity, Cursor, CursorSelection, Mark, Position, Range, TEXT_DOCUMENT_BLOCK_TARGET_LINES,
+    TextDocumentStatsSnapshot,
 };
-use super::document::ResolvedTextDirection;
+use super::document::{
+    Align, Block, ResolvedTextDirection, Role, Run, Style, TextDirection, Weight,
+};
+use super::edit::{
+    Action, ActionResult, Area, Clipboard, ClipboardError, ClipboardResult, Edit, Editor, Field,
+    Motion, PointerEditKind, Preedit, State, ViewState, Viewport, Visibility,
+};
 use super::layout::{
-    HighlightStats, TEXT_AREA_FRAME_MAX_LOGICAL_LINES, TEXT_AREA_FRAME_MIN_OVERSCAN_LINES,
+    Caret, CaretLayout, Diagnostics, Engine, HighlightStats, Measure, Metrics, SelectionSpan,
+    TEXT_AREA_FRAME_MAX_LOGICAL_LINES, TEXT_AREA_FRAME_MIN_OVERSCAN_LINES,
     TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY, TEXT_AREA_RENDER_GUARD_LINES, TEXT_FIELD_CARET_MARGIN,
-    TEXT_LAYOUT_VISUAL_LINE_EPSILON, TextLayoutMap, VisualLineGroup, buffer_text_len,
-    clamp_cursor_in_buffer, clamp_selection_in_buffer, cosmic_buffer_from_text,
-    cursor_for_text_index, cursor_for_text_index_in_buffer, cursor_position,
-    fast_selection_bounds_in_buffer, floor_text_index_in_buffer, has_non_empty_selection_in_buffer,
-    line_start_offsets_for_buffer, normalized_range_in_buffer, selection_anchor,
-    text_area_estimated_line_height, text_index_for_cursor_in_buffer,
-    text_position_for_motion_in_buffer, text_range_for_cursors, word_selection_cursors,
+    TEXT_LAYOUT_VISUAL_LINE_EPSILON, TextAreaPaintLayout, TextAreaSurface, TextFieldLayout,
+    TextLayoutMap, VisualLineGroup, buffer_text_len, clamp_cursor_in_buffer,
+    clamp_selection_in_buffer, cosmic_buffer_from_text, cursor_for_text_index,
+    cursor_for_text_index_in_buffer, cursor_position, fast_selection_bounds_in_buffer,
+    floor_text_index_in_buffer, has_non_empty_selection_in_buffer, line_start_offsets_for_buffer,
+    normalized_range_in_buffer, selection_anchor, text_area_estimated_line_height,
+    text_index_for_cursor_in_buffer, text_position_for_motion_in_buffer, text_range_for_cursors,
+    word_selection_cursors,
 };
-use super::*;
+use super::{Buffer, Color, Document, edit, layout};
+
+#[test]
+fn text_sources_do_not_import_framework_or_renderer_modules() {
+    let text_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("text");
+    let modules = [
+        "app", "ui", "widget", "command", "window", "paint", "render", "native", "scratch",
+    ];
+
+    assert_text_sources_do_not_import_modules(&text_dir, &modules);
+}
+
+fn assert_text_sources_do_not_import_modules(path: &std::path::Path, modules: &[&str]) {
+    for entry in std::fs::read_dir(path).expect("text source directory should be readable") {
+        let path = entry.expect("text source entry should be readable").path();
+        if path.is_dir() {
+            assert_text_sources_do_not_import_modules(&path, modules);
+            continue;
+        }
+
+        if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
+            continue;
+        }
+
+        let source = std::fs::read_to_string(&path).expect("text source file should read");
+        for module in modules {
+            let absolute_path = format!("crate::{module}");
+            let absolute_use = format!("use crate::{module}");
+            let grouped_use = format!("use crate::{{{module}");
+            let grouped_path = format!("use crate::{{{module},");
+            let grouped_nested = format!("use crate::{{{module}::");
+            assert!(
+                !source.contains(&absolute_path)
+                    && !source.contains(&absolute_use)
+                    && !source.contains(&grouped_use)
+                    && !source.contains(&grouped_path)
+                    && !source.contains(&grouped_nested),
+                "{} must not import or reference framework/render module {}",
+                path.display(),
+                module
+            );
+        }
+    }
+}
 
 fn surface_line_text(surfaces: &[TextAreaSurface], line: usize) -> String {
     surfaces
@@ -99,9 +149,66 @@ impl Clipboard for MockClipboard {
     }
 }
 
+fn apply_edit(editor: &mut Editor, buffer: &mut Buffer, state: &mut State, edit: Edit) -> bool {
+    editor.apply_edit(buffer, state, edit).buffer_changed()
+}
+
+fn apply_edit_with_result(
+    editor: &mut Editor,
+    buffer: &mut Buffer,
+    state: &mut State,
+    edit: Edit,
+) -> edit::Outcome {
+    editor.apply_edit(buffer, state, edit)
+}
+
+fn apply_edit_with_caret_map(
+    editor: &mut Editor,
+    buffer: &mut Buffer,
+    state: &mut State,
+    edit: Edit,
+    caret_map: &mut dyn edit::CaretMap,
+) -> edit::Outcome {
+    editor.apply_edit_with_caret_map(buffer, state, edit, caret_map)
+}
+
+fn apply_action(
+    editor: &mut Editor,
+    buffer: &mut Buffer,
+    state: &mut State,
+    action: Action,
+    clipboard: &mut dyn Clipboard,
+) -> ActionResult {
+    editor.apply_action(buffer, state, action, clipboard).result
+}
+
+fn position(buffer: &Buffer, state: State) -> Position {
+    buffer.position_for_state(state)
+}
+
+fn mark(state: State) -> Mark {
+    state.cursor()
+}
+
+fn cursor(buffer: &Buffer, state: State) -> Cursor {
+    buffer.cursor_for_state(state)
+}
+
+fn selected_range(buffer: &Buffer, state: State) -> Option<Range> {
+    buffer.selected_range_for_state(state)
+}
+
+fn selected_text(buffer: &Buffer, state: State) -> Option<String> {
+    buffer.selected_text_for_state(state)
+}
+
+fn has_selection(buffer: &Buffer, state: State) -> bool {
+    buffer.has_non_empty_selection_for_state(state)
+}
+
 struct StubCaretMap {
     calls: usize,
-    position: TextPosition,
+    position: Position,
 }
 
 impl super::edit::CaretMap for StubCaretMap {
@@ -109,10 +216,10 @@ impl super::edit::CaretMap for StubCaretMap {
         &mut self,
         _buffer: &Buffer,
         _state: super::edit::State,
-        motion: TextMotion,
-    ) -> Option<TextPosition> {
+        motion: Motion,
+    ) -> Option<Position> {
         self.calls += 1;
-        (motion == TextMotion::VisualDown).then_some(self.position)
+        (motion == Motion::VisualDown).then_some(self.position)
     }
 }
 
@@ -120,7 +227,7 @@ impl super::edit::CaretMap for StubCaretMap {
 fn document_stores_block_run_and_style_data() {
     let style = Style::default()
         .with_size(18.0)
-        .with_color(paint::Color::RED)
+        .with_color(Color::RED)
         .with_weight(Weight::Bold);
     let mut block = Block::new(Align::Center);
     block.push_run(Run::new("Label", style));
@@ -141,12 +248,9 @@ fn empty_document_is_empty() {
 
 #[test]
 fn document_color_can_be_overridden() {
-    let document = Document::plain("Label").with_color(paint::Color::BLACK);
+    let document = Document::plain("Label").with_color(Color::BLACK);
 
-    assert_eq!(
-        document.blocks()[0].runs()[0].style().color(),
-        paint::Color::BLACK
-    );
+    assert_eq!(document.blocks()[0].runs()[0].style().color(), Color::BLACK);
 }
 
 #[test]
@@ -205,16 +309,21 @@ fn longer_text_measures_wider_than_shorter_text() {
 fn cloning_buffer_creates_independent_value_snapshot() {
     let mut editor = Editor::new();
     let buffer = Buffer::from_multiline_text("one\ntwo\nthree");
+    let buffer_state = buffer.initial_state();
     let mut clone = buffer.clone();
+    let mut clone_state = buffer_state;
 
     assert_ne!(buffer.id(), clone.id());
     assert_eq!(buffer.revision(), clone.revision());
     assert_eq!(buffer.text(), clone.text());
-    assert_eq!(buffer.position(), clone.position());
+    assert_eq!(
+        buffer.position_for_state(buffer_state),
+        clone.position_for_state(clone_state)
+    );
     assert!(buffer.shares_add_buffer_with(&clone));
     assert!(buffer.shares_line_text_with(&clone, 0));
 
-    editor.apply_text_edit(&mut clone, Edit::insert("!"));
+    editor.apply_edit(&mut clone, &mut clone_state, Edit::insert("!"));
 
     assert_eq!(buffer.text(), "one\ntwo\nthree");
     assert_eq!(clone.text(), "one\ntwo\nthree!");
@@ -223,28 +332,79 @@ fn cloning_buffer_creates_independent_value_snapshot() {
 }
 
 #[test]
-fn buffer_edit_state_is_one_copied_mark_pair_value() {
+fn buffer_state_can_be_copied_separately_from_buffer_content() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text("alpha beta gamma");
-    editor.apply_text_edit(&mut buffer, Edit::set_position(TextPosition::new(0)));
-    editor.apply_text_edit(
+    let mut state = buffer.initial_state();
+    editor.apply_edit(
         &mut buffer,
-        Edit::pointer(PointerEditKind::Drag, TextPosition::new("alpha beta".len())),
+        &mut state,
+        Edit::set_position(Position::new(0)),
     );
-    let initial_state = buffer.edit_state();
+    editor.apply_edit(
+        &mut buffer,
+        &mut state,
+        Edit::pointer(PointerEditKind::Drag, Position::new("alpha beta".len())),
+    );
+    let initial_state = state;
     let mut clone = buffer.clone();
+    let mut clone_state = initial_state;
 
-    assert_eq!(clone.edit_state(), initial_state);
-    assert_eq!(clone.selected_text().as_deref(), Some("alpha beta"));
+    assert_eq!(
+        clone.selected_text_for_state(clone_state).as_deref(),
+        Some("alpha beta")
+    );
 
-    editor.apply_text_edit(&mut clone, Edit::set_position(TextPosition::new(0)));
+    editor.apply_edit(
+        &mut clone,
+        &mut clone_state,
+        Edit::set_position(Position::new(0)),
+    );
 
-    assert_eq!(buffer.edit_state(), initial_state);
-    assert_ne!(clone.edit_state(), initial_state);
-    assert_eq!(buffer.selected_text().as_deref(), Some("alpha beta"));
-    assert_eq!(clone.selected_text(), None);
+    assert_eq!(state, initial_state);
+    assert_ne!(clone_state, initial_state);
+    assert_eq!(
+        buffer.selected_text_for_state(state).as_deref(),
+        Some("alpha beta")
+    );
+    assert_eq!(clone.selected_text_for_state(clone_state), None);
     assert_eq!(buffer.text(), clone.text());
     assert!(buffer.shares_line_text_with(&clone, 0));
+}
+
+#[test]
+fn area_model_owns_buffer_state_separately_from_buffer() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_multiline_text("alpha beta");
+    let mut start_state = buffer.initial_state();
+    let end_state = buffer.initial_state();
+
+    editor.apply_edit(
+        &mut buffer,
+        &mut start_state,
+        Edit::set_position(Position::new(0)),
+    );
+
+    let start_area = Area::new(buffer.clone()).with_state(start_state);
+    let end_area = Area::new(buffer.clone()).with_state(end_state);
+    let mut engine = Engine::new();
+    let viewport = area::logical(240.0, 80.0);
+    let style = Style::default();
+    let now = Instant::now();
+    let state = ViewState::new_at(0.0, now);
+    let start_caret = engine
+        .text_area_paint_layout_for_area_at(&start_area, style, viewport, state.clone(), now)
+        .layout()
+        .caret()
+        .expect("start-state area should paint a caret");
+    let end_caret = engine
+        .text_area_paint_layout_for_area_at(&end_area, style, viewport, state, now)
+        .layout()
+        .caret()
+        .expect("end-state area should paint a caret");
+
+    assert_eq!(buffer.initial_state(), end_state);
+    assert!(start_caret.x < end_caret.x);
 }
 
 #[test]
@@ -256,12 +416,18 @@ fn cloned_buffer_shares_unchanged_line_tree_blocks() {
         .join("\n");
     let buffer = Buffer::from_multiline_text(text);
     let mut clone = buffer.clone();
+    let mut clone_state = clone.initial_state();
 
     assert!(buffer.shares_line_block_with(&clone, 0));
     assert!(buffer.shares_line_block_with(&clone, 250));
 
-    editor.apply_text_edit(&mut clone, Edit::set_position(0));
-    editor.apply_text_edit(&mut clone, Edit::insert("!"));
+    apply_edit(
+        &mut editor,
+        &mut clone,
+        &mut clone_state,
+        Edit::set_position(0),
+    );
+    apply_edit(&mut editor, &mut clone, &mut clone_state, Edit::insert("!"));
 
     assert!(buffer.text().starts_with("line 0"));
     assert!(clone.text().starts_with("!line 0"));
@@ -278,6 +444,7 @@ fn buffer_clone_preserves_line_layout_identity() {
         .join("\n");
     let buffer = Buffer::from_multiline_text(text);
     let mut clone = buffer.clone();
+    let mut clone_state = clone.initial_state();
 
     assert_ne!(buffer.id(), clone.id());
     for line in 0..buffer.logical_line_count() {
@@ -288,8 +455,13 @@ fn buffer_clone_preserves_line_layout_identity() {
         );
     }
 
-    editor.apply_text_edit(&mut clone, Edit::set_position(0));
-    editor.apply_text_edit(&mut clone, Edit::insert("!"));
+    apply_edit(
+        &mut editor,
+        &mut clone,
+        &mut clone_state,
+        Edit::set_position(0),
+    );
+    apply_edit(&mut editor, &mut clone, &mut clone_state, Edit::insert("!"));
 
     assert_ne!(
         buffer.line_layout_identity(0),
@@ -305,14 +477,19 @@ fn buffer_clone_preserves_line_layout_identity() {
 fn typing_edit_records_transaction_delta() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text("one\ntwo\nthree");
+    let mut edit_state = buffer.initial_state();
     let before_revision = buffer.revision();
-    let result = editor.apply_text_edit_with_result(&mut buffer, Edit::insert("!"));
+    let result =
+        apply_edit_with_result(&mut editor, &mut buffer, &mut edit_state, Edit::insert("!"));
     let change = result.change.expect("typing should produce an undo delta");
 
     assert!(result.text_changed);
     assert!(buffer.revision() > before_revision);
     assert_eq!(change.transaction.deltas.len(), 1);
-    assert_eq!(change.transaction.deltas[0].kind, edit::Kind::Insert);
+    assert_eq!(
+        change.transaction.deltas[0].kind,
+        edit::transaction::Kind::Insert
+    );
     assert_eq!(change.transaction.deltas[0].inserted, "!");
 }
 
@@ -321,9 +498,10 @@ fn text_area_frame_cache_reuses_unchanged_frame_and_rebuilds_after_typing() {
     let mut engine = Engine::new();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text("one\ntwo\nthree");
+    let mut edit_state = buffer.initial_state();
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 120.0);
-    let state = TextViewState::default();
+    let state = ViewState::default();
     let now = Instant::now();
 
     let first = engine
@@ -349,9 +527,15 @@ fn text_area_frame_cache_reuses_unchanged_frame_and_rebuilds_after_typing() {
     assert_eq!(surface_line_text(&first, 2), surface_line_text(&second, 2));
     assert!(engine.text_area_line_displays.len() > 0);
 
-    editor.apply_text_edit(&mut buffer, Edit::insert("!"));
+    apply_edit(&mut editor, &mut buffer, &mut edit_state, Edit::insert("!"));
     let third = engine
-        .text_area_paint_layout_for_area_at(&Area::new(buffer), style, viewport, state, now)
+        .text_area_paint_layout_for_area_at(
+            &Area::new(buffer).with_state(edit_state),
+            style,
+            viewport,
+            state,
+            now,
+        )
         .into_interaction_parts()
         .1;
     assert_eq!(surface_line_text(&third, 2), "three!");
@@ -364,11 +548,12 @@ fn undo_restored_clone_reuses_line_keyed_text_area_caches() {
     let mut buffer = Buffer::from_multiline_text(
         "one two three four five\nsix seven eight nine ten\neleven twelve thirteen",
     );
+    let mut edit_state = buffer.initial_state();
     let undo_snapshot = buffer.clone();
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 120.0);
     let content_area = area::logical(240.0, 360.0);
-    let state = TextViewState::default();
+    let state = ViewState::default();
     let now = Instant::now();
 
     assert_ne!(buffer.id(), undo_snapshot.id());
@@ -389,18 +574,28 @@ fn undo_restored_clone_reuses_line_keyed_text_area_caches() {
         content_area,
     );
 
-    editor.apply_text_edit(&mut buffer, Edit::set_position(0));
-    let edit = editor.apply_text_edit_with_result(&mut buffer, Edit::insert("edited "));
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::set_position(0),
+    );
+    let edit = apply_edit_with_result(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::insert("edited "),
+    );
     assert!(edit.text_changed);
     engine.text_area_paint_layout_for_area_at(
-        &Area::new(buffer.clone()),
+        &Area::new(buffer.clone()).with_state(edit_state),
         style,
         viewport,
         state.clone(),
         now,
     );
     engine.text_area_render_layout_for_area_at(
-        &Area::new(buffer),
+        &Area::new(buffer).with_state(edit_state),
         style,
         viewport,
         state.clone(),
@@ -458,7 +653,7 @@ fn text_area_interaction_surfaces_keep_bounded_observation_coverage() {
     let area_model = Area::new(buffer).read_only();
     let style = Style::default();
     let viewport = area::logical(360.0, 72.0);
-    let state = TextViewState::new_at(0.0, Instant::now()).with_scroll_y(900.0);
+    let state = ViewState::new_at(0.0, Instant::now()).with_scroll_y(900.0);
     let mut engine = Engine::new();
 
     let layout = engine.text_area_paint_layout_for_area_at(
@@ -496,7 +691,7 @@ fn text_diagnostics_record_visible_text_area_cache_work() {
     let area_model = Area::new(buffer);
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 120.0);
-    let state = TextViewState::default();
+    let state = ViewState::default();
     let now = Instant::now();
 
     engine.reset_diagnostics();
@@ -524,7 +719,7 @@ fn text_area_render_buffer_is_shaped_once_and_reused_without_resize() {
     let area_model = Area::new(buffer).read_only();
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 120.0);
-    let state = TextViewState::default();
+    let state = ViewState::default();
     let now = Instant::now();
     let content_area = area::logical(240.0, 360.0);
 
@@ -581,11 +776,12 @@ gamma
 delta",
     );
     let mut editor = Editor::new();
-    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
-    let area_model = Area::new(buffer);
+    let mut edit_state = buffer.initial_state();
+    apply_edit(&mut editor, &mut buffer, &mut edit_state, Edit::SelectAll);
+    let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 120.0);
-    let state = TextViewState::default().with_preedit(Some(Preedit::new("x", None)));
+    let state = ViewState::default().with_preedit(Some(Preedit::new("x", None)));
     let content_area = area::logical(240.0, 360.0);
 
     let layout = engine.text_area_render_layout_for_area_at(
@@ -624,7 +820,7 @@ fn text_area_render_buffer_reuses_chunk_after_small_scroll() {
         &area_model,
         style,
         viewport,
-        TextViewState::default(),
+        ViewState::default(),
         now,
         content_area,
     );
@@ -638,7 +834,7 @@ fn text_area_render_buffer_reuses_chunk_after_small_scroll() {
         &area_model,
         style,
         viewport,
-        TextViewState::default().with_scroll_y(line_height * 4.0),
+        ViewState::default().with_scroll_y(line_height * 4.0),
         now,
         content_area,
     );
@@ -676,7 +872,7 @@ fn text_area_frame_cache_is_bounded() {
     let mut engine = Engine::new();
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 80.0);
-    let state = TextViewState::default();
+    let state = ViewState::default();
     let now = Instant::now();
 
     for index in 0..(TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY + 16) {
@@ -703,7 +899,7 @@ fn text_area_preedit_projection_is_not_cached() {
     let area_model = Area::new(buffer.clone());
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 80.0);
-    let state = TextViewState::default();
+    let state = ViewState::default();
     let now = Instant::now();
     let committed = engine
         .text_area_paint_layout_for_area_at(&area_model, style, viewport, state.clone(), now)
@@ -719,7 +915,7 @@ fn text_area_preedit_projection_is_not_cached() {
             &Area::new(buffer),
             style,
             viewport,
-            TextViewState::default(),
+            ViewState::default(),
             now,
         )
         .into_interaction_parts()
@@ -744,7 +940,7 @@ fn text_area_prepared_frame_is_bounded_to_viewport_window() {
     let buffer = Buffer::from_multiline_text(text);
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 52.0);
-    let state = TextViewState::default();
+    let state = ViewState::default();
     let now = Instant::now();
     let (layout, surfaces) = engine
         .text_area_paint_layout_for_area_at(&Area::new(buffer), style, viewport, state, now)
@@ -763,11 +959,12 @@ fn large_text_area_scroll_and_highlight_work_are_viewport_bounded() {
         .collect::<Vec<_>>()
         .join("\n");
     let mut buffer = Buffer::from_multiline_text(text);
-    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
-    let area_model = Area::new(buffer);
+    let mut edit_state = buffer.initial_state();
+    editor.apply_edit(&mut buffer, &mut edit_state, Edit::SelectAll);
+    let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 52.0);
-    let state = TextViewState::default().with_scroll_y(13.0 * 1.25 * 50_000.0);
+    let state = ViewState::default().with_scroll_y(13.0 * 1.25 * 50_000.0);
 
     engine.reset_interaction_stats();
     engine.reset_highlight_stats();
@@ -803,13 +1000,19 @@ fn piece_tree_insert_updates_touched_storage_without_full_materialization() {
         .collect::<Vec<_>>()
         .join("\n");
     let mut buffer = Buffer::from_multiline_text(text);
+    let mut edit_state = buffer.initial_state();
     let paste = (0..512)
         .map(|index| format!("paste {index}"))
         .collect::<Vec<_>>()
         .join("\n");
 
     buffer.reset_document_stats();
-    editor.apply_text_edit(&mut buffer, Edit::insert(paste.clone()));
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::insert(paste.clone()),
+    );
     let stats = buffer.document_stats();
     let (_owned, _mapped, add) = buffer.document_piece_source_lengths();
 
@@ -823,14 +1026,18 @@ fn piece_tree_insert_updates_touched_storage_without_full_materialization() {
 fn marks_round_trip_through_line_identity() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text("alpha\nbeta\ngamma");
+    let mut edit_state = buffer.initial_state();
     let beta = "alpha\nbe".len();
 
-    editor.apply_text_edit(&mut buffer, Edit::set_position(TextPosition::new(beta)));
-    let anchor = buffer.mark().expect("cursor should map to a stable anchor");
-    editor.apply_text_edit(&mut buffer, Edit::insert("X"));
-    let after = buffer
-        .mark()
-        .expect("edited cursor should still map to an anchor");
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::set_position(Position::new(beta)),
+    );
+    let anchor = mark(edit_state);
+    apply_edit(&mut editor, &mut buffer, &mut edit_state, Edit::insert("X"));
+    let after = mark(edit_state);
 
     assert_eq!(anchor.line_id, after.line_id);
     assert!(after.byte_offset > anchor.byte_offset);
@@ -915,8 +1122,8 @@ fn repeated_measurement_reuses_cached_metrics() {
 #[test]
 fn color_only_changes_reuse_cached_metrics() {
     let mut engine = Engine::new();
-    let red = Document::plain("Cached Label").with_color(paint::Color::RED);
-    let black = Document::plain("Cached Label").with_color(paint::Color::BLACK);
+    let red = Document::plain("Cached Label").with_color(Color::RED);
+    let black = Document::plain("Cached Label").with_color(Color::BLACK);
 
     let red = engine.measure(&red, Measure::unbounded());
     let black = engine.measure(&black, Measure::unbounded());
@@ -965,71 +1172,100 @@ fn bounded_fifo_cache_evicts_oldest_entries() {
 fn buffer_inserts_and_deletes_text() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("ab");
+    let mut state = buffer.initial_state();
 
-    editor.apply_text_edit(&mut buffer, Edit::insert("c"));
-    editor.apply_text_edit(&mut buffer, Edit::move_position(TextMotion::VisualLeft));
-    editor.apply_text_edit(&mut buffer, Edit::backspace());
+    apply_edit(&mut editor, &mut buffer, &mut state, Edit::insert("c"));
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::move_position(Motion::VisualLeft),
+    );
+    apply_edit(&mut editor, &mut buffer, &mut state, Edit::backspace());
 
     assert_eq!(buffer.text(), "ac");
-    assert_eq!(buffer.cursor().index, 1);
+    assert_eq!(cursor(&buffer, state).index, 1);
 
-    editor.apply_text_edit(&mut buffer, Edit::delete());
+    apply_edit(&mut editor, &mut buffer, &mut state, Edit::delete());
 
     assert_eq!(buffer.text(), "a");
-    assert_eq!(buffer.cursor().index, 1);
+    assert_eq!(cursor(&buffer, state).index, 1);
 }
 
 #[test]
 fn buffer_select_all_replaces_selection() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello");
+    let mut state = buffer.initial_state();
 
-    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
-    assert_eq!(buffer.selected_range(), Some(TextRange::new(0, 5)));
+    apply_edit(&mut editor, &mut buffer, &mut state, Edit::SelectAll);
+    assert_eq!(selected_range(&buffer, state), Some(Range::new(0, 5)));
 
-    editor.apply_text_edit(&mut buffer, Edit::insert("hi"));
+    apply_edit(&mut editor, &mut buffer, &mut state, Edit::insert("hi"));
 
     assert_eq!(buffer.text(), "hi");
-    assert_eq!(buffer.cursor().index, 2);
-    assert_eq!(buffer.selected_range(), None);
+    assert_eq!(cursor(&buffer, state).index, 2);
+    assert_eq!(selected_range(&buffer, state), None);
 }
 
 #[test]
 fn replace_range_normalizes_inserted_text_and_restores_caret() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello world");
+    let mut state = buffer.initial_state();
 
-    assert!(editor.apply_text_edit(&mut buffer, Edit::replace_range(6..11, "there\nfriend")));
+    assert!(apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::replace_range(6..11, "there\nfriend")
+    ));
 
     assert_eq!(buffer.text(), "hello there friend");
-    assert_eq!(buffer.cursor(), Cursor::new(0, "hello there friend".len()));
-    assert_eq!(buffer.selected_range(), None);
+    assert_eq!(
+        cursor(&buffer, state),
+        Cursor::new(0, "hello there friend".len())
+    );
+    assert_eq!(selected_range(&buffer, state), None);
 }
 
 #[test]
 fn move_range_adjusts_forward_drop_position() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("abcdef");
+    let mut state = buffer.initial_state();
 
-    assert!(editor.apply_text_edit(&mut buffer, Edit::move_range(1..3, 5)));
+    assert!(apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::move_range(1..3, 5)
+    ));
 
     assert_eq!(buffer.text(), "adebcf");
-    assert_eq!(buffer.cursor(), Cursor::new(0, 5));
-    assert_eq!(buffer.selected_range(), None);
+    assert_eq!(cursor(&buffer, state), Cursor::new(0, 5));
+    assert_eq!(selected_range(&buffer, state), None);
 }
 
 #[test]
 fn text_command_copy_writes_selection_without_mutating_buffer() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello");
+    let mut state = buffer.initial_state();
     let mut clipboard = MockClipboard::default();
 
-    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
-    let result = editor.apply_text_command(&mut buffer, Command::Copy, &mut clipboard);
+    apply_edit(&mut editor, &mut buffer, &mut state, Edit::SelectAll);
+    let result = apply_action(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Action::Copy,
+        &mut clipboard,
+    );
 
     assert_eq!(clipboard.text.as_deref(), Some("hello"));
     assert_eq!(buffer.text(), "hello");
-    assert_eq!(buffer.selected_range(), Some(TextRange::new(0, 5)));
+    assert_eq!(selected_range(&buffer, state), Some(Range::new(0, 5)));
     assert!(result.clipboard_changed);
     assert!(!result.buffer_changed());
     assert!(!result.unavailable);
@@ -1039,14 +1275,21 @@ fn text_command_copy_writes_selection_without_mutating_buffer() {
 fn text_command_cut_copies_and_deletes_selection() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello");
+    let mut state = buffer.initial_state();
     let mut clipboard = MockClipboard::default();
 
-    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
-    let result = editor.apply_text_command(&mut buffer, Command::Cut, &mut clipboard);
+    apply_edit(&mut editor, &mut buffer, &mut state, Edit::SelectAll);
+    let result = apply_action(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Action::Cut,
+        &mut clipboard,
+    );
 
     assert_eq!(clipboard.text.as_deref(), Some("hello"));
     assert_eq!(buffer.text(), "");
-    assert_eq!(buffer.selected_range(), None);
+    assert_eq!(selected_range(&buffer, state), None);
     assert!(result.clipboard_changed);
     assert!(result.text_changed);
     assert!(result.selection_changed);
@@ -1057,13 +1300,20 @@ fn text_command_cut_copies_and_deletes_selection() {
 fn text_command_paste_replaces_selection_and_normalizes_line_endings() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello");
+    let mut state = buffer.initial_state();
     let mut clipboard = MockClipboard::with_text("a\nb\rc");
 
-    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
-    let result = editor.apply_text_command(&mut buffer, Command::Paste, &mut clipboard);
+    apply_edit(&mut editor, &mut buffer, &mut state, Edit::SelectAll);
+    let result = apply_action(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Action::Paste,
+        &mut clipboard,
+    );
 
     assert_eq!(buffer.text(), "a b c");
-    assert_eq!(buffer.selected_range(), None);
+    assert_eq!(selected_range(&buffer, state), None);
     assert!(result.text_changed);
     assert!(result.selection_changed);
     assert!(!result.clipboard_changed);
@@ -1078,17 +1328,33 @@ fn repeated_large_paste_updates_line_index_without_full_rebuild() {
         .collect::<Vec<_>>()
         .join("\n");
     let mut buffer = Buffer::from_multiline_text(text);
+    let mut state = buffer.initial_state();
     let block = (0..64)
         .map(|line| format!("paste {line}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let end = TextPosition::new(buffer.len());
+    let end = Position::new(buffer.len());
 
-    editor.apply_text_edit(&mut buffer, Edit::set_position(end));
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::set_position(end),
+    );
     buffer.reset_line_index_stats();
 
-    assert!(editor.apply_text_edit(&mut buffer, Edit::insert(format!("\n{block}"))));
-    assert!(editor.apply_text_edit(&mut buffer, Edit::insert(format!("\n{block}"))));
+    assert!(apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::insert(format!("\n{block}"))
+    ));
+    assert!(apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::insert(format!("\n{block}"))
+    ));
 
     let (full_rebuilds, splice_updates) = buffer.line_index_stats();
     assert_eq!(full_rebuilds, 0);
@@ -1100,17 +1366,29 @@ fn repeated_large_paste_updates_line_index_without_full_rebuild() {
 fn text_command_paste_without_text_or_clipboard_does_not_mutate() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello");
+    let mut state = buffer.initial_state();
     let mut empty_clipboard = MockClipboard::default();
 
-    let empty = editor.apply_text_command(&mut buffer, Command::Paste, &mut empty_clipboard);
+    let empty = apply_action(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Action::Paste,
+        &mut empty_clipboard,
+    );
 
     assert_eq!(buffer.text(), "hello");
     assert!(!empty.changed());
     assert!(!empty.unavailable);
 
     let mut unavailable_clipboard = MockClipboard::unavailable();
-    let unavailable =
-        editor.apply_text_command(&mut buffer, Command::Paste, &mut unavailable_clipboard);
+    let unavailable = apply_action(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Action::Paste,
+        &mut unavailable_clipboard,
+    );
 
     assert_eq!(buffer.text(), "hello");
     assert!(!unavailable.changed());
@@ -1121,73 +1399,116 @@ fn text_command_paste_without_text_or_clipboard_does_not_mutate() {
 fn buffer_shift_motion_extends_selection() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello");
+    let mut state = buffer.initial_state();
 
-    editor.apply_text_edit(&mut buffer, Edit::extend_position(TextMotion::VisualLeft));
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::extend_position(Motion::VisualLeft),
+    );
 
-    assert_eq!(buffer.cursor().index, 4);
-    assert_eq!(buffer.selected_range(), Some(TextRange::new(4, 5)));
+    assert_eq!(cursor(&buffer, state).index, 4);
+    assert_eq!(selected_range(&buffer, state), Some(Range::new(4, 5)));
 
-    editor.apply_text_edit(&mut buffer, Edit::extend_position(TextMotion::LineStart));
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::extend_position(Motion::LineStart),
+    );
 
-    assert_eq!(buffer.cursor().index, 0);
-    assert_eq!(buffer.selected_range(), Some(TextRange::new(0, 5)));
+    assert_eq!(cursor(&buffer, state).index, 0);
+    assert_eq!(selected_range(&buffer, state), Some(Range::new(0, 5)));
 }
 
 #[test]
 fn buffer_plain_motion_collapses_selection() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello");
+    let mut state = buffer.initial_state();
 
-    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
-    editor.apply_text_edit(&mut buffer, Edit::move_position(TextMotion::VisualLeft));
+    apply_edit(&mut editor, &mut buffer, &mut state, Edit::SelectAll);
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::move_position(Motion::VisualLeft),
+    );
 
-    assert_eq!(buffer.cursor().index, 0);
-    assert_eq!(buffer.selected_range(), None);
+    assert_eq!(cursor(&buffer, state).index, 0);
+    assert_eq!(selected_range(&buffer, state), None);
 
-    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
-    editor.apply_text_edit(&mut buffer, Edit::move_position(TextMotion::VisualRight));
+    apply_edit(&mut editor, &mut buffer, &mut state, Edit::SelectAll);
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::move_position(Motion::VisualRight),
+    );
 
-    assert_eq!(buffer.cursor().index, 5);
-    assert_eq!(buffer.selected_range(), None);
+    assert_eq!(cursor(&buffer, state).index, 5);
+    assert_eq!(selected_range(&buffer, state), None);
 }
 
 #[test]
 fn buffer_word_delete_uses_cosmic_word_motion() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello world again");
+    let mut state = buffer.initial_state();
 
-    editor.apply_text_edit(&mut buffer, Edit::delete_word_backward());
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::delete_word_backward(),
+    );
 
     assert_eq!(buffer.text(), "hello world ");
-    assert_eq!(buffer.cursor().index, "hello world ".len());
+    assert_eq!(cursor(&buffer, state).index, "hello world ".len());
 
-    editor.apply_text_edit(&mut buffer, Edit::set_cursor(Cursor::new(0, 0)));
-    editor.apply_text_edit(&mut buffer, Edit::delete_word_forward());
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::set_cursor(Cursor::new(0, 0)),
+    );
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::delete_word_forward(),
+    );
 
     assert_eq!(buffer.text(), " world ");
-    assert_eq!(buffer.cursor().index, 0);
+    assert_eq!(cursor(&buffer, state).index, 0);
 }
 
 #[test]
 fn buffer_pointer_double_click_selects_word_and_triple_click_selects_all() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello world");
+    let mut state = buffer.initial_state();
 
-    editor.apply_text_edit(
+    apply_edit(
+        &mut editor,
         &mut buffer,
+        &mut state,
         Edit::pointer(PointerEditKind::DoubleClick, Cursor::new(0, 1)),
     );
 
-    assert_eq!(buffer.selected_range(), Some(TextRange::new(0, 5)));
+    assert_eq!(selected_range(&buffer, state), Some(Range::new(0, 5)));
 
-    editor.apply_text_edit(
+    apply_edit(
+        &mut editor,
         &mut buffer,
+        &mut state,
         Edit::pointer(PointerEditKind::TripleClick, Cursor::new(0, 7)),
     );
 
     assert_eq!(
-        buffer.selected_range(),
-        Some(TextRange::new(0, "hello world".len()))
+        selected_range(&buffer, state),
+        Some(Range::new(0, "hello world".len()))
     );
 }
 
@@ -1195,34 +1516,50 @@ fn buffer_pointer_double_click_selects_word_and_triple_click_selects_all() {
 fn buffer_pointer_drag_extends_from_click_anchor() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello world");
+    let mut state = buffer.initial_state();
 
-    editor.apply_text_edit(
+    apply_edit(
+        &mut editor,
         &mut buffer,
+        &mut state,
         Edit::pointer(PointerEditKind::Click, Cursor::new(0, 0)),
     );
-    editor.apply_text_edit(
+    apply_edit(
+        &mut editor,
         &mut buffer,
+        &mut state,
         Edit::pointer(PointerEditKind::Drag, Cursor::new(0, 5)),
     );
 
-    assert_eq!(buffer.selected_range(), Some(TextRange::new(0, 5)));
+    assert_eq!(selected_range(&buffer, state), Some(Range::new(0, 5)));
 }
 
 #[test]
 fn buffer_edits_preserve_unicode_boundaries() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("aé🙂");
+    let mut state = buffer.initial_state();
 
-    editor.apply_text_edit(&mut buffer, Edit::set_cursor(Cursor::new(0, 3)));
-    assert_eq!(buffer.cursor().index, "aé".len());
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::set_cursor(Cursor::new(0, 3)),
+    );
+    assert_eq!(cursor(&buffer, state).index, "aé".len());
 
-    editor.apply_text_edit(&mut buffer, Edit::backspace());
+    apply_edit(&mut editor, &mut buffer, &mut state, Edit::backspace());
     assert_eq!(buffer.text(), "a🙂");
 
-    editor.apply_text_edit(&mut buffer, Edit::move_position(TextMotion::LineEnd));
-    editor.apply_text_edit(&mut buffer, Edit::backspace());
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::move_position(Motion::LineEnd),
+    );
+    apply_edit(&mut editor, &mut buffer, &mut state, Edit::backspace());
     assert_eq!(buffer.text(), "a");
-    assert!(buffer.text().is_char_boundary(buffer.cursor().index));
+    assert!(buffer.text().is_char_boundary(cursor(&buffer, state).index));
 }
 #[test]
 fn byte_index_edits_snap_to_grapheme_boundaries() {
@@ -1232,17 +1569,35 @@ fn byte_index_edits_snap_to_grapheme_boundaries() {
     let flag = "🇺🇸";
 
     let mut replace = Buffer::from_text(format!("a{combining}b"));
-    assert!(editor.apply_text_edit(&mut replace, Edit::replace_range(2..3, "X")));
+    let mut replace_state = replace.initial_state();
+    assert!(apply_edit(
+        &mut editor,
+        &mut replace,
+        &mut replace_state,
+        Edit::replace_range(2..3, "X")
+    ));
     assert_eq!(replace.text(), "aXb");
 
     let mut insert = Buffer::from_text(format!("a{family}b"));
+    let mut insert_state = insert.initial_state();
     let inside_family = 1 + "👨".len();
-    assert!(editor.apply_text_edit(&mut insert, Edit::insert_at(inside_family, "X")));
+    assert!(apply_edit(
+        &mut editor,
+        &mut insert,
+        &mut insert_state,
+        Edit::insert_at(inside_family, "X")
+    ));
     assert_eq!(insert.text(), format!("aX{family}b"));
 
     let flag_source = format!("a{flag}bc");
     let mut moved = Buffer::from_text(flag_source.clone());
-    assert!(editor.apply_text_edit(&mut moved, Edit::move_range(3..6, flag_source.len())));
+    let mut moved_state = moved.initial_state();
+    assert!(apply_edit(
+        &mut editor,
+        &mut moved,
+        &mut moved_state,
+        Edit::move_range(3..6, flag_source.len())
+    ));
     assert_eq!(moved.text(), format!("abc{flag}"));
 
     let cursor_buffer = Buffer::from_text(format!("a{family}b"));
@@ -1261,41 +1616,54 @@ fn logical_motion_respects_grapheme_boundaries() {
     let mut editor = Editor::new();
     let family = "👨‍👩‍👧‍👦";
     let mut buffer = Buffer::from_text(format!("a{family}b"));
+    let mut state = buffer.initial_state();
 
     let end = buffer.text().len();
-    editor.apply_text_edit(&mut buffer, Edit::set_position(end));
-    editor.apply_text_edit(
+    apply_edit(
+        &mut editor,
         &mut buffer,
-        Edit::move_position(TextMotion::LogicalPrevious),
+        &mut state,
+        Edit::set_position(end),
     );
-    assert_eq!(buffer.position().index, 1 + family.len());
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::move_position(Motion::LogicalPrevious),
+    );
+    assert_eq!(position(&buffer, state).index, 1 + family.len());
 
-    editor.apply_text_edit(
+    apply_edit(
+        &mut editor,
         &mut buffer,
-        Edit::move_position(TextMotion::LogicalPrevious),
+        &mut state,
+        Edit::move_position(Motion::LogicalPrevious),
     );
-    assert_eq!(buffer.position().index, 1);
+    assert_eq!(position(&buffer, state).index, 1);
 }
 
 #[test]
 fn unresolved_visual_motion_uses_caret_map() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("one\ntwo\nthree");
-    let target = TextPosition::new("one\n".len());
+    let mut state = buffer.initial_state();
+    let target = Position::new("one\n".len());
     let mut caret_map = StubCaretMap {
         calls: 0,
         position: target,
     };
 
-    let result = editor.apply_text_edit_with_caret_map(
+    let result = apply_edit_with_caret_map(
+        &mut editor,
         &mut buffer,
-        Edit::move_position(TextMotion::VisualDown),
+        &mut state,
+        Edit::move_position(Motion::VisualDown),
         &mut caret_map,
     );
 
     assert_eq!(caret_map.calls, 1);
     assert!(result.selection_changed);
-    assert_eq!(buffer.position(), target);
+    assert_eq!(position(&buffer, state), target);
 }
 
 #[test]
@@ -1303,25 +1671,38 @@ fn unicode_word_boundaries_drive_selection_and_delete() {
     let mut engine = Engine::new();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello שלום again");
+    let mut state = buffer.initial_state();
     let hebrew_start = "hello ".len();
 
-    editor.apply_text_edit(
+    apply_edit(
+        &mut editor,
         &mut buffer,
+        &mut state,
         Edit::pointer(
             PointerEditKind::DoubleClick,
-            TextPosition::new(hebrew_start + 2),
+            Position::new(hebrew_start + 2),
         ),
     );
-    assert_eq!(buffer.selected_text().as_deref(), Some("שלום"));
+    assert_eq!(selected_text(&buffer, state).as_deref(), Some("שלום"));
     assert_eq!(
-        buffer.selected_range(),
-        Some(TextRange::new(hebrew_start, hebrew_start + "שלום".len()))
+        selected_range(&buffer, state),
+        Some(Range::new(hebrew_start, hebrew_start + "שלום".len()))
     );
 
     let end = buffer.text().len();
-    editor.apply_text_edit(&mut buffer, Edit::set_position(end));
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::set_position(end),
+    );
     engine.reset_interaction_stats();
-    editor.apply_text_edit(&mut buffer, Edit::delete_word_backward());
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::delete_word_backward(),
+    );
     assert_eq!(buffer.text(), "hello שלום ");
 }
 
@@ -1358,26 +1739,26 @@ fn bidi_hit_testing_preserves_visual_affinity() {
 
     assert_eq!(
         left,
-        TextPosition::with_affinity(line_start + glyph.end, TextAffinity::Upstream)
+        Position::with_affinity(line_start + glyph.end, Affinity::Upstream)
     );
     assert_eq!(
         right,
-        TextPosition::with_affinity(line_start + glyph.start, TextAffinity::Downstream)
+        Position::with_affinity(line_start + glyph.start, Affinity::Downstream)
     );
 }
 
 #[test]
 fn start_end_alignment_resolves_against_base_direction() {
     assert_eq!(
-        text_system::align(Align::Start, ResolvedTextDirection::Ltr),
+        layout::system::align(Align::Start, ResolvedTextDirection::Ltr),
         glyphon::cosmic_text::Align::Left
     );
     assert_eq!(
-        text_system::align(Align::Start, ResolvedTextDirection::Rtl),
+        layout::system::align(Align::Start, ResolvedTextDirection::Rtl),
         glyphon::cosmic_text::Align::Right
     );
     assert_eq!(
-        text_system::align(Align::End, ResolvedTextDirection::Rtl),
+        layout::system::align(Align::End, ResolvedTextDirection::Rtl),
         glyphon::cosmic_text::Align::Left
     );
 }
@@ -1386,10 +1767,11 @@ fn start_end_alignment_resolves_against_base_direction() {
 fn mixed_direction_preedit_spans_are_projected_inline() {
     let mut engine = Engine::new();
     let buffer = Buffer::from_text("abc אבג");
+    let field = Field::new(buffer);
     let state =
-        TextViewState::default().with_preedit(Some(Preedit::new("שלום", Some((0, "של".len())))));
-    let layout = engine.text_field_layout_at(
-        &buffer,
+        ViewState::default().with_preedit(Some(Preedit::new("שלום", Some((0, "של".len())))));
+    let layout = engine.text_field_layout_for_field_at(
+        &field,
         Style::default().with_size(18.0),
         area::logical(400.0, 32.0),
         state,
@@ -1404,10 +1786,16 @@ fn mixed_direction_preedit_spans_are_projected_inline() {
 fn buffer_normalizes_inserted_line_endings_to_spaces() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("a\nb");
+    let mut edit_state = buffer.initial_state();
 
     assert_eq!(buffer.text(), "a b");
 
-    editor.apply_text_edit(&mut buffer, Edit::insert("\nc\r"));
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::insert("\nc\r"),
+    );
 
     assert_eq!(buffer.text(), "a b c ");
 }
@@ -1417,14 +1805,16 @@ fn text_field_selection_layout_uses_shaped_text_span() {
     let mut engine = Engine::new();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello");
+    let mut edit_state = buffer.initial_state();
 
-    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    editor.apply_edit(&mut buffer, &mut edit_state, Edit::SelectAll);
+    let field = Field::new(buffer.clone()).with_state(edit_state);
 
-    let layout = engine.text_field_layout(
-        &buffer,
+    let layout = engine.text_field_layout_for_field(
+        &field,
         Style::default().with_size(16.0),
         area::logical(240.0, 32.0),
-        TextViewState::default(),
+        ViewState::default(),
     );
     let span = layout
         .selection_spans()
@@ -1440,14 +1830,15 @@ fn text_field_preedit_renders_inline_text_spans_and_commit_clears_projection() {
     let mut engine = Engine::new();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello");
-    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
-    let state = TextViewState::default().with_preedit(Some(Preedit::new("xy", Some((0, 1)))));
-    let field = Field::new(buffer.clone());
+    let mut edit_state = buffer.initial_state();
+    editor.apply_edit(&mut buffer, &mut edit_state, Edit::SelectAll);
+    let state = ViewState::default().with_preedit(Some(Preedit::new("xy", Some((0, 1)))));
+    let field = Field::new(buffer.clone()).with_state(edit_state);
 
     assert_eq!(field.presentation_text_for_state(&state), "xy");
 
-    let layout = engine.text_field_layout_at(
-        &buffer,
+    let layout = engine.text_field_layout_for_field_at(
+        &field,
         Style::default().with_size(16.0),
         area::logical(240.0, 32.0),
         state,
@@ -1458,12 +1849,13 @@ fn text_field_preedit_renders_inline_text_spans_and_commit_clears_projection() {
     assert!(!layout.preedit_underline_spans().is_empty());
     assert!(!layout.preedit_selection_spans().is_empty());
 
-    editor.apply_text_edit(&mut buffer, Edit::ime_commit("xy"));
-    let committed = engine.text_field_layout(
-        &buffer,
+    editor.apply_edit(&mut buffer, &mut edit_state, Edit::ime_commit("xy"));
+    let committed_field = Field::new(buffer.clone()).with_state(edit_state);
+    let committed = engine.text_field_layout_for_field(
+        &committed_field,
         Style::default().with_size(16.0),
         area::logical(240.0, 32.0),
-        TextViewState::default(),
+        ViewState::default(),
     );
 
     assert_eq!(buffer.text(), "xy");
@@ -1475,19 +1867,20 @@ fn text_field_preedit_renders_inline_text_spans_and_commit_clears_projection() {
 fn text_field_preedit_caret_uses_composed_projection() {
     let mut engine = Engine::new();
     let buffer = Buffer::from_text("hello");
+    let field = Field::new(buffer);
     let style = Style::default().with_size(16.0);
     let viewport = area::logical(240.0, 32.0);
     let now = Instant::now();
     let committed = engine
-        .text_field_layout_at(&buffer, style, viewport, TextViewState::default(), now)
+        .text_field_layout_for_field_at(&field, style, viewport, ViewState::default(), now)
         .caret()
         .expect("committed caret should be visible");
     let composed = engine
-        .text_field_layout_at(
-            &buffer,
+        .text_field_layout_for_field_at(
+            &field,
             style,
             viewport,
-            TextViewState::default().with_preedit(Some(Preedit::new(" world", None))),
+            ViewState::default().with_preedit(Some(Preedit::new(" world", None))),
             now,
         )
         .caret()
@@ -1505,8 +1898,9 @@ fn text_area_metrics_layout_skips_highlight_overlay_work() {
         .collect::<Vec<_>>()
         .join("\n");
     let mut buffer = Buffer::from_multiline_text(text);
-    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
-    let area_model = Area::new(buffer);
+    let mut edit_state = buffer.initial_state();
+    editor.apply_edit(&mut buffer, &mut edit_state, Edit::SelectAll);
+    let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 52.0);
 
@@ -1516,7 +1910,7 @@ fn text_area_metrics_layout_skips_highlight_overlay_work() {
         &area_model,
         style,
         viewport,
-        TextViewState::default(),
+        ViewState::default(),
         Instant::now(),
     );
 
@@ -1538,11 +1932,12 @@ fn text_area_paint_layout_computes_highlight_overlays_from_interaction_surfaces(
         .collect::<Vec<_>>()
         .join("\n");
     let mut buffer = Buffer::from_multiline_text(text);
-    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
-    let area_model = Area::new(buffer);
+    let mut edit_state = buffer.initial_state();
+    editor.apply_edit(&mut buffer, &mut edit_state, Edit::SelectAll);
+    let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 52.0);
-    let state = TextViewState::default();
+    let state = ViewState::default();
     let now = Instant::now();
 
     engine.reset_highlight_stats();
@@ -1590,7 +1985,7 @@ fn wrapped_text_area_line_displays_do_not_overlap() {
         &area_model,
         style,
         viewport,
-        TextViewState::default(),
+        ViewState::default(),
         Instant::now(),
     );
     let surfaces = paint_layout.interaction_surfaces();
@@ -1656,7 +2051,7 @@ fn wrapped_text_area_hit_testing_uses_clicked_visual_row() {
             style,
             viewport,
             point::logical(x, y),
-            TextViewState::default(),
+            ViewState::default(),
         )
         .expect("wrapped visual row hit should resolve to a caret");
 
@@ -1676,6 +2071,7 @@ fn wrapped_text_area_drag_selection_extends_into_lower_visual_row() {
     let mut editor = Editor::new();
     let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu";
     let mut buffer = Buffer::from_multiline_text(text);
+    let mut edit_state = buffer.initial_state();
     let area_model = Area::new(buffer.clone());
     let style = Style::default().with_size(16.0);
     let viewport = area::logical(86.0, 180.0);
@@ -1727,7 +2123,7 @@ fn wrapped_text_area_drag_selection_extends_into_lower_visual_row() {
             style,
             viewport,
             start_point,
-            TextViewState::default(),
+            ViewState::default(),
         )
         .expect("drag start should resolve to a caret");
     let end = engine
@@ -1736,15 +2132,23 @@ fn wrapped_text_area_drag_selection_extends_into_lower_visual_row() {
             style,
             viewport,
             end_point,
-            TextViewState::default(),
+            ViewState::default(),
         )
         .expect("drag end should resolve to a caret");
 
-    editor.apply_text_edit(&mut buffer, Edit::pointer(PointerEditKind::Click, start));
-    editor.apply_text_edit(&mut buffer, Edit::pointer(PointerEditKind::Drag, end));
+    editor.apply_edit(
+        &mut buffer,
+        &mut edit_state,
+        Edit::pointer(PointerEditKind::Click, start),
+    );
+    editor.apply_edit(
+        &mut buffer,
+        &mut edit_state,
+        Edit::pointer(PointerEditKind::Drag, end),
+    );
 
     let selected = buffer
-        .selected_range()
+        .selected_range_for_state(edit_state)
         .expect("drag across wrapped rows should create a selection");
     assert!(
         selected.end > first_row_end,
@@ -1754,11 +2158,12 @@ fn wrapped_text_area_drag_selection_extends_into_lower_visual_row() {
     );
 
     let selected_area = Area::new(buffer.clone()).with_wrap(area_model.wrap());
+    let selected_area = selected_area.with_state(edit_state);
     let layout = engine.text_area_paint_layout_for_area_at(
         &selected_area,
         style,
         viewport,
-        TextViewState::default(),
+        ViewState::default(),
         Instant::now(),
     );
     assert!(
@@ -1777,7 +2182,7 @@ fn text_area_metrics_reuse_measured_wrapped_heights_after_paint() {
     let area_model = Area::new(Buffer::from_multiline_text(format!("{long}\nnext")));
     let style = Style::default().with_size(16.0);
     let viewport = area::logical(72.0, 24.0);
-    let state = TextViewState::default();
+    let state = ViewState::default();
 
     let cold = engine.text_area_metrics_layout_for_area_at(
         &area_model,
@@ -1817,8 +2222,9 @@ fn text_area_overlay_cache_key_tracks_scroll_window() {
         .collect::<Vec<_>>()
         .join("\n");
     let mut buffer = Buffer::from_multiline_text(text);
-    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
-    let area_model = Area::new(buffer);
+    let mut edit_state = buffer.initial_state();
+    apply_edit(&mut editor, &mut buffer, &mut edit_state, Edit::SelectAll);
+    let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 52.0);
     let line_height = 13.0 * 1.25;
@@ -1829,7 +2235,7 @@ fn text_area_overlay_cache_key_tracks_scroll_window() {
         &area_model,
         style,
         viewport,
-        TextViewState::default(),
+        ViewState::default(),
         now,
     );
     let first = engine.highlight_stats();
@@ -1837,7 +2243,7 @@ fn text_area_overlay_cache_key_tracks_scroll_window() {
     assert_eq!(first.highlight_calls, 0);
 
     engine.reset_highlight_stats();
-    let scrolled_state = TextViewState::default().with_scroll_y(line_height * 100.0);
+    let scrolled_state = ViewState::default().with_scroll_y(line_height * 100.0);
     engine.text_area_paint_layout_for_area_at(
         &area_model,
         style,
@@ -1864,13 +2270,24 @@ fn offscreen_text_area_selection_skips_run_highlight_calls() {
         .collect::<Vec<_>>()
         .join("\n");
     let mut buffer = Buffer::from_multiline_text(text);
-    editor.apply_text_edit(&mut buffer, Edit::set_position(TextPosition::new(0)));
-    editor.apply_text_edit(&mut buffer, Edit::extend_position(TextMotion::WordNext));
-    assert!(buffer.has_selection());
-    let area_model = Area::new(buffer);
+    let mut edit_state = buffer.initial_state();
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::set_position(Position::new(0)),
+    );
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::extend_position(Motion::WordNext),
+    );
+    assert!(has_selection(&buffer, edit_state));
+    let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 52.0);
-    let state = TextViewState::default().with_scroll_y(13.0 * 1.25 * 500.0);
+    let state = ViewState::default().with_scroll_y(13.0 * 1.25 * 500.0);
 
     engine.reset_highlight_stats();
     let layout = engine
@@ -1887,41 +2304,63 @@ fn offscreen_text_area_selection_skips_run_highlight_calls() {
 
 #[test]
 fn fast_selection_check_matches_canonical_selected_range() {
-    fn assert_matches(buffer: &Buffer) {
+    fn assert_matches(buffer: &Buffer, state: State) {
         assert_eq!(
-            buffer.has_non_empty_selection(),
-            buffer.selected_range().is_some()
+            buffer.has_non_empty_selection_for_state(state),
+            buffer.selected_range_for_state(state).is_some()
         );
     }
 
     let mut editor = Editor::new();
 
-    let mut collapsed = Buffer::from_text("abc");
+    let collapsed = Buffer::from_text("abc");
+    let mut collapsed_state = collapsed.initial_state();
     let cursor = collapsed.cursor_for_text_index(1);
-    collapsed.set_cursor_and_selection(cursor, Selection::Normal(cursor));
-    assert_matches(&collapsed);
+    collapsed.set_cursor_and_selection_for_state(
+        &mut collapsed_state,
+        cursor,
+        CursorSelection::Normal(cursor),
+    );
+    assert_matches(&collapsed, collapsed_state);
 
     let mut single = Buffer::from_text("hello world");
-    assert_matches(&single);
-    editor.apply_text_edit(&mut single, Edit::SelectAll);
-    assert_matches(&single);
-    editor.apply_text_edit(&mut single, Edit::insert("x"));
-    assert_matches(&single);
+    let mut single_state = single.initial_state();
+    assert_matches(&single, single_state);
+    apply_edit(&mut editor, &mut single, &mut single_state, Edit::SelectAll);
+    assert_matches(&single, single_state);
+    apply_edit(
+        &mut editor,
+        &mut single,
+        &mut single_state,
+        Edit::insert("x"),
+    );
+    assert_matches(&single, single_state);
 
     let mut multiline = Buffer::from_multiline_text("one\ntwo\nthree");
-    editor.apply_text_edit(&mut multiline, Edit::set_position(TextPosition::new(0)));
-    editor.apply_text_edit(
+    let mut multiline_state = multiline.initial_state();
+    apply_edit(
+        &mut editor,
         &mut multiline,
-        Edit::extend_position(TextMotion::DocumentEnd),
+        &mut multiline_state,
+        Edit::set_position(Position::new(0)),
     );
-    assert_matches(&multiline);
+    apply_edit(
+        &mut editor,
+        &mut multiline,
+        &mut multiline_state,
+        Edit::extend_position(Motion::DocumentEnd),
+    );
+    assert_matches(&multiline, multiline_state);
 
     let mut word = Buffer::from_text("hello world");
-    editor.apply_text_edit(
+    let mut word_state = word.initial_state();
+    apply_edit(
+        &mut editor,
         &mut word,
-        Edit::pointer(PointerEditKind::DoubleClick, TextPosition::new(1)),
+        &mut word_state,
+        Edit::pointer(PointerEditKind::DoubleClick, Position::new(1)),
     );
-    assert_matches(&word);
+    assert_matches(&word, word_state);
 }
 #[test]
 fn selection_only_pointer_edits_do_not_bump_revision_or_invalidate_surfaces() {
@@ -1932,6 +2371,7 @@ fn selection_only_pointer_edits_do_not_bump_revision_or_invalidate_surfaces() {
         .collect::<Vec<_>>()
         .join("\n");
     let mut buffer = Buffer::from_multiline_text(text);
+    let mut edit_state = buffer.initial_state();
     let area_model = Area::new(buffer.clone());
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 52.0);
@@ -1939,27 +2379,34 @@ fn selection_only_pointer_edits_do_not_bump_revision_or_invalidate_surfaces() {
         &area_model,
         style,
         viewport,
-        TextViewState::default(),
+        ViewState::default(),
         Instant::now(),
     );
     let revision = buffer.revision();
     let cached_frames = engine.text_area_line_displays.len();
 
-    let set = editor.apply_text_edit_with_result(&mut buffer, Edit::set_position(0));
+    let set = apply_edit_with_result(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::set_position(0),
+    );
     assert!(set.selection_changed);
     assert!(!set.text_changed);
     assert!(set.change.is_none());
     assert_eq!(buffer.revision(), revision);
     assert_eq!(engine.text_area_line_displays.len(), cached_frames);
 
-    let drag = editor.apply_text_edit_with_result(
+    let drag = apply_edit_with_result(
+        &mut editor,
         &mut buffer,
-        Edit::pointer(PointerEditKind::Drag, TextPosition::new(20)),
+        &mut edit_state,
+        Edit::pointer(PointerEditKind::Drag, Position::new(20)),
     );
     assert!(drag.selection_changed);
     assert!(!drag.text_changed);
     assert!(drag.change.is_none());
-    assert!(buffer.selected_range().is_some());
+    assert!(selected_range(&buffer, edit_state).is_some());
     assert_eq!(buffer.revision(), revision);
     assert_eq!(engine.text_area_line_displays.len(), cached_frames);
 }
@@ -1969,6 +2416,7 @@ fn text_area_hit_testing_refreshes_cached_line_offsets_after_edit_above() {
     let mut engine = Engine::new();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text("abcdefghij\nclick target\nlast line");
+    let mut edit_state = buffer.initial_state();
     let style = Style::default().with_size(16.0);
     let viewport = area::logical(320.0, 120.0);
 
@@ -1976,7 +2424,7 @@ fn text_area_hit_testing_refreshes_cached_line_offsets_after_edit_above() {
         &Area::new(buffer.clone()),
         style,
         viewport,
-        TextViewState::default(),
+        ViewState::default(),
         Instant::now(),
     );
     assert!(
@@ -1984,14 +2432,19 @@ fn text_area_hit_testing_refreshes_cached_line_offsets_after_edit_above() {
         "warm paint should cache multiple line displays"
     );
 
-    let result = editor.apply_text_edit_with_result(&mut buffer, Edit::replace_range(0..4, ""));
+    let result = apply_edit_with_result(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::replace_range(0..4, ""),
+    );
     assert!(result.text_changed);
     let area_model = Area::new(buffer.clone());
     let paint_layout = engine.text_area_paint_layout_for_area_at(
         &area_model,
         style,
         viewport,
-        TextViewState::default(),
+        ViewState::default(),
         Instant::now(),
     );
     let target_y = paint_layout
@@ -2019,7 +2472,7 @@ fn text_area_hit_testing_refreshes_cached_line_offsets_after_edit_above() {
             style,
             viewport,
             point::logical(1.0, target_y),
-            TextViewState::default(),
+            ViewState::default(),
         )
         .expect("clicking visible lower line should resolve a caret");
     let stats = engine.interaction_stats();
@@ -2046,9 +2499,10 @@ fn text_area_hit_testing_uses_current_line_order_after_line_delete_above() {
         .collect::<Vec<_>>();
     let text = lines.join("\n");
     let mut buffer = Buffer::from_multiline_text(text);
+    let mut edit_state = buffer.initial_state();
     let style = Style::default().with_size(16.0);
     let viewport = area::logical(320.0, 120.0);
-    let state = TextViewState::default().with_scroll(0.0, 500.0);
+    let state = ViewState::default().with_scroll(0.0, 500.0);
     let now = Instant::now();
 
     engine.text_area_paint_layout_for_area_at(
@@ -2060,8 +2514,12 @@ fn text_area_hit_testing_uses_current_line_order_after_line_delete_above() {
     );
 
     let delete_len = lines[0].len() + 1 + lines[1].len() + 1 + lines[2].len() + 1;
-    let result =
-        editor.apply_text_edit_with_result(&mut buffer, Edit::replace_range(0..delete_len, ""));
+    let result = apply_edit_with_result(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::replace_range(0..delete_len, ""),
+    );
     assert!(result.text_changed);
     let expected_current_start = buffer
         .text()
@@ -2138,9 +2596,10 @@ fn text_area_hit_testing_uses_current_line_order_after_line_insert_above() {
         .collect::<Vec<_>>();
     let text = lines.join("\n");
     let mut buffer = Buffer::from_multiline_text(text);
+    let mut edit_state = buffer.initial_state();
     let style = Style::default().with_size(16.0);
     let viewport = area::logical(320.0, 120.0);
-    let state = TextViewState::default().with_scroll(0.0, 480.0);
+    let state = ViewState::default().with_scroll(0.0, 480.0);
     let now = Instant::now();
 
     engine.text_area_paint_layout_for_area_at(
@@ -2152,8 +2611,12 @@ fn text_area_hit_testing_uses_current_line_order_after_line_insert_above() {
     );
 
     let inserted = "inserted a\ninserted b\n";
-    let result =
-        editor.apply_text_edit_with_result(&mut buffer, Edit::replace_range(0..0, inserted));
+    let result = apply_edit_with_result(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::replace_range(0..0, inserted),
+    );
     assert!(result.text_changed);
     let expected_current_start = buffer
         .text()
@@ -2204,8 +2667,8 @@ fn text_area_observed_hit_testing_uses_observed_horizontal_scroll() {
     let area_model = Area::new(buffer).no_wrap();
     let style = Style::default().with_size(16.0);
     let viewport = area::logical(120.0, 48.0);
-    let observed_state = TextViewState::default().with_scroll(80.0, 0.0);
-    let stale_state = TextViewState::default();
+    let observed_state = ViewState::default().with_scroll(80.0, 0.0);
+    let stale_state = ViewState::default();
     let paint_layout = engine.text_area_paint_layout_for_area_at(
         &area_model,
         style,
@@ -2252,7 +2715,7 @@ fn text_area_hit_testing_uses_nearest_caret_in_empty_space() {
             style,
             viewport,
             point::logical(-4.0, 100.0),
-            TextViewState::default(),
+            ViewState::default(),
         )
         .expect("click below short text should resolve on the nearest line");
     assert_eq!(below_near_start.index, "one\n".len());
@@ -2263,7 +2726,7 @@ fn text_area_hit_testing_uses_nearest_caret_in_empty_space() {
             style,
             viewport,
             point::logical(220.0, 100.0),
-            TextViewState::default(),
+            ViewState::default(),
         )
         .expect("click below short text should still honor x on the nearest line");
     assert_eq!(below_far_right.index, buffer.text().len());
@@ -2274,7 +2737,7 @@ fn text_area_hit_testing_uses_nearest_caret_in_empty_space() {
             style,
             viewport,
             point::logical(220.0, 8.0),
-            TextViewState::default(),
+            ViewState::default(),
         )
         .expect("click to the right of a line should resolve to a caret");
     assert_eq!(right_of_first_line.index, "one".len());
@@ -2285,7 +2748,7 @@ fn text_area_hit_testing_uses_nearest_caret_in_empty_space() {
             style,
             viewport,
             point::logical(-4.0, -8.0),
-            TextViewState::default(),
+            ViewState::default(),
         )
         .expect("click above text should resolve on the nearest line");
     assert_eq!(above_near_start.index, 0);
@@ -2296,7 +2759,7 @@ fn text_area_hit_testing_uses_nearest_caret_in_empty_space() {
             style,
             viewport,
             point::logical(220.0, -8.0),
-            TextViewState::default(),
+            ViewState::default(),
         )
         .expect("click above text should still honor x on the nearest line");
     assert_eq!(above_far_right.index, "one".len());
@@ -2308,7 +2771,7 @@ fn text_area_hit_testing_uses_nearest_caret_in_empty_space() {
             style,
             viewport,
             point::logical(12.0, 80.0),
-            TextViewState::default(),
+            ViewState::default(),
         )
         .expect("empty text area should still resolve to a caret");
     assert_eq!(empty_hit.index, 0);
@@ -2369,7 +2832,7 @@ fn repeated_large_text_area_hit_tests_reuse_cached_frame() {
     let area_model = Area::new(Buffer::from_multiline_text(text));
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 52.0);
-    let state = TextViewState::default();
+    let state = ViewState::default();
 
     engine.reset_interaction_stats();
     let first = engine.text_area_position_at_for_area(
@@ -2408,7 +2871,7 @@ fn warmed_large_text_area_hit_test_does_not_reshape_visible_window() {
     let area_model = Area::new(Buffer::from_multiline_text(text));
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 52.0);
-    let state = TextViewState::default();
+    let state = ViewState::default();
 
     let _ = engine.text_area_position_at_for_area(
         &area_model,
@@ -2440,13 +2903,19 @@ fn text_area_preedit_reveal_scroll_uses_composed_projection() {
     let mut engine = Engine::new();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text("one\ntwo");
+    let mut edit_state = buffer.initial_state();
     let end = buffer.position_for_text_index(buffer.text().len());
-    editor.apply_text_edit(&mut buffer, Edit::set_position(end));
-    let area_model = Area::new(buffer);
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::set_position(end),
+    );
+    let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(16.0);
     let viewport = area::logical(120.0, 36.0);
     let state =
-        TextViewState::default().with_preedit(Some(Preedit::new("\nthree\nfour\nfive\nsix", None)));
+        ViewState::default().with_preedit(Some(Preedit::new("\nthree\nfour\nfive\nsix", None)));
 
     let revealed =
         engine.ensure_caret_visible_for_area(&area_model, style, viewport, state.clone(), None);
@@ -2475,7 +2944,7 @@ fn obscured_text_field_hit_testing_maps_display_cursor_to_source_cursor() {
             Style::default().with_size(16.0),
             area::logical(200.0, 24.0),
             point::logical(200.0, 8.0),
-            TextViewState::default(),
+            ViewState::default(),
         )
         .expect("hit testing should return a position");
 
@@ -2488,17 +2957,19 @@ fn obscured_text_field_hit_testing_maps_display_cursor_to_source_cursor() {
 fn ensure_caret_visible_keeps_caret_inside_content_rect() {
     let mut engine = Engine::new();
     let buffer = Buffer::from_text("hello world this is a long single-line field");
+    let field = Field::new(buffer);
     let area = area::logical(80.0, 32.0);
-    let state = engine.ensure_caret_visible(
-        &buffer,
+    let state = engine.ensure_caret_visible_for_field(
+        &field,
         Style::default().with_size(16.0),
         area,
-        TextViewState::default(),
+        ViewState::default(),
     );
 
     assert!(state.scroll_x() > 0.0);
 
-    let layout = engine.text_field_layout(&buffer, Style::default().with_size(16.0), area, state);
+    let layout =
+        engine.text_field_layout_for_field(&field, Style::default().with_size(16.0), area, state);
     let caret = layout.caret().expect("focused long text should have caret");
 
     assert!(caret.x() >= 0.0);
@@ -2509,26 +2980,27 @@ fn ensure_caret_visible_keeps_caret_inside_content_rect() {
 fn text_field_caret_visibility_follows_blink_phase() {
     let mut engine = Engine::new();
     let buffer = Buffer::from_text("hello");
+    let field = Field::new(buffer);
     let area = area::logical(100.0, 24.0);
     let epoch = Instant::now();
-    let state = TextViewState::new_at(0.0, epoch);
+    let state = ViewState::new_at(0.0, epoch);
 
-    let visible = engine.text_field_layout_at(
-        &buffer,
+    let visible = engine.text_field_layout_for_field_at(
+        &field,
         Style::default().with_size(16.0),
         area,
         state.clone(),
         epoch,
     );
-    let hidden = engine.text_field_layout_at(
-        &buffer,
+    let hidden = engine.text_field_layout_for_field_at(
+        &field,
         Style::default().with_size(16.0),
         area,
         state.clone(),
         epoch + Duration::from_millis(500),
     );
-    let visible_again = engine.text_field_layout_at(
-        &buffer,
+    let visible_again = engine.text_field_layout_for_field_at(
+        &field,
         Style::default().with_size(16.0),
         area,
         state,
@@ -2545,16 +3017,18 @@ fn text_field_selection_suppresses_caret_layout() {
     let mut engine = Engine::new();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello");
+    let mut edit_state = buffer.initial_state();
     let area = area::logical(100.0, 24.0);
     let epoch = Instant::now();
 
-    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    editor.apply_edit(&mut buffer, &mut edit_state, Edit::SelectAll);
+    let field = Field::new(buffer.clone()).with_state(edit_state);
 
-    let layout = engine.text_field_layout_at(
-        &buffer,
+    let layout = engine.text_field_layout_for_field_at(
+        &field,
         Style::default().with_size(16.0),
         area,
-        TextViewState::new_at(0.0, epoch),
+        ViewState::new_at(0.0, epoch),
         epoch,
     );
 
@@ -2566,13 +3040,29 @@ fn text_field_selection_suppresses_caret_layout() {
 fn multiline_buffer_preserves_line_breaks_and_enter_inserts_newline() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text("one\r\ntwo\rthree");
+    let mut edit_state = buffer.initial_state();
 
     assert_eq!(buffer.text(), "one\ntwo\nthree");
 
     let end = buffer.position_for_text_index(buffer.text().len());
-    editor.apply_text_edit(&mut buffer, Edit::set_position(end));
-    editor.apply_text_edit(&mut buffer, Edit::insert_line_break());
-    editor.apply_text_edit(&mut buffer, Edit::insert("four\nfive"));
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::set_position(end),
+    );
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::insert_line_break(),
+    );
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::insert("four\nfive"),
+    );
 
     assert_eq!(buffer.text(), "one\ntwo\nthree\nfour\nfive");
 }
@@ -2581,13 +3071,29 @@ fn multiline_buffer_preserves_line_breaks_and_enter_inserts_newline() {
 fn empty_multiline_buffer_accepts_line_breaks() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::new_multiline();
+    let mut edit_state = buffer.initial_state();
 
     assert_eq!(buffer.text(), "");
     assert!(buffer.is_multiline());
 
-    editor.apply_text_edit(&mut buffer, Edit::insert("one"));
-    editor.apply_text_edit(&mut buffer, Edit::insert_line_break());
-    editor.apply_text_edit(&mut buffer, Edit::insert("two"));
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::insert("one"),
+    );
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::insert_line_break(),
+    );
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::insert("two"),
+    );
 
     assert_eq!(buffer.text(), "one\ntwo");
 }
@@ -2596,14 +3102,23 @@ fn empty_multiline_buffer_accepts_line_breaks() {
 fn text_area_promotes_its_owned_buffer_value_to_multiline() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello");
+    let mut edit_state = buffer.initial_state();
     let original_id = buffer.id();
 
-    editor.apply_text_edit(&mut buffer, Edit::set_position(TextPosition::new(0)));
-    editor.apply_text_edit(&mut buffer, Edit::extend_position(TextMotion::WordNext));
-    let before_position = buffer.position();
-    let before_selection = buffer.selected_range();
+    editor.apply_edit(
+        &mut buffer,
+        &mut edit_state,
+        Edit::set_position(Position::new(0)),
+    );
+    editor.apply_edit(
+        &mut buffer,
+        &mut edit_state,
+        Edit::extend_position(Motion::WordNext),
+    );
+    let before_position = buffer.position_for_state(edit_state);
+    let before_selection = buffer.selected_range_for_state(edit_state);
 
-    let area = Area::new(buffer.clone());
+    let area = Area::new(buffer.clone()).with_state(edit_state);
 
     assert_ne!(area.buffer().id(), original_id);
     assert_eq!(buffer.id(), original_id);
@@ -2611,14 +3126,27 @@ fn text_area_promotes_its_owned_buffer_value_to_multiline() {
     assert!(!buffer.is_multiline());
     assert_eq!(buffer.text(), "hello");
     assert_eq!(area.buffer().text(), "hello");
-    assert_eq!(buffer.position(), before_position);
-    assert_eq!(buffer.selected_range(), before_selection);
-    assert_eq!(area.buffer().position(), before_position);
-    assert_eq!(area.buffer().selected_range(), before_selection);
+    assert_eq!(buffer.position_for_state(edit_state), before_position);
+    assert_eq!(
+        buffer.selected_range_for_state(edit_state),
+        before_selection
+    );
+    assert_eq!(
+        area.buffer().position_for_state(area.state()),
+        before_position
+    );
+    assert_eq!(
+        area.buffer().selected_range_for_state(area.state()),
+        before_selection
+    );
 
     let end = buffer.len();
-    editor.apply_text_edit(&mut buffer, Edit::set_position(TextPosition::new(end)));
-    editor.apply_text_edit(&mut buffer, Edit::insert("!"));
+    editor.apply_edit(
+        &mut buffer,
+        &mut edit_state,
+        Edit::set_position(Position::new(end)),
+    );
+    editor.apply_edit(&mut buffer, &mut edit_state, Edit::insert("!"));
 
     assert_eq!(buffer.text(), "hello!");
     assert_eq!(area.buffer().text(), "hello");
@@ -2629,16 +3157,17 @@ fn text_area_promotes_its_owned_buffer_value_to_multiline() {
 fn multiline_select_all_selects_the_entire_document() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text("alpha\nbeta\ngamma");
+    let mut edit_state = buffer.initial_state();
 
-    editor.apply_text_edit(&mut buffer, Edit::SelectAll);
+    apply_edit(&mut editor, &mut buffer, &mut edit_state, Edit::SelectAll);
 
     assert_eq!(
-        buffer.selected_text(),
+        selected_text(&buffer, edit_state),
         Some("alpha\nbeta\ngamma".to_owned())
     );
     assert_eq!(
-        buffer.selected_range(),
-        Some(TextRange::new(0, "alpha\nbeta\ngamma".len()))
+        selected_range(&buffer, edit_state),
+        Some(Range::new(0, "alpha\nbeta\ngamma".len()))
     );
 }
 
@@ -2679,13 +3208,15 @@ fn text_area_reveal_scroll_uses_wrapped_visual_caret_row() {
         )
     };
 
-    editor.apply_text_edit(
+    let mut edit_state = buffer.initial_state();
+    editor.apply_edit(
         &mut buffer,
-        Edit::set_position(TextPosition::new(cursor_index)),
+        &mut edit_state,
+        Edit::set_position(Position::new(cursor_index)),
     );
-    let area_model = Area::new(buffer);
+    let area_model = Area::new(buffer).with_state(edit_state);
     let scroll_y = (second_row_top - 2.0).max(0.0);
-    let state = TextViewState::default().with_scroll_y(scroll_y);
+    let state = ViewState::default().with_scroll_y(scroll_y);
     let revealed = engine.ensure_caret_visible_for_area(&area_model, style, viewport, state, None);
 
     assert!(
@@ -2712,16 +3243,22 @@ fn text_area_reveal_scroll_keeps_caret_inside_vertical_viewport() {
     let mut engine = Engine::new();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text("one\ntwo\nthree\nfour\nfive\nsix");
+    let mut edit_state = buffer.initial_state();
     let end = buffer.position_for_text_index(buffer.text().len());
-    editor.apply_text_edit(&mut buffer, Edit::set_position(end));
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::set_position(end),
+    );
 
-    let area_model = Area::new(buffer);
+    let area_model = Area::new(buffer).with_state(edit_state);
     let viewport = area::logical(120.0, 36.0);
     let state = engine.ensure_caret_visible_for_area(
         &area_model,
         Style::default().with_size(16.0),
         viewport,
-        TextViewState::default(),
+        ViewState::default(),
         None,
     );
 
@@ -2753,17 +3290,19 @@ fn text_area_ensure_caret_visible_preserves_visible_caret_scroll_after_backspace
         .join("\n");
     let mut buffer = Buffer::from_multiline_text(text.clone());
     let cursor_index = text.find("line 20 abc").unwrap() + "line 20 abc".len();
-    editor.apply_text_edit(
+    let mut edit_state = buffer.initial_state();
+    editor.apply_edit(
         &mut buffer,
-        Edit::set_position(TextPosition::new(cursor_index)),
+        &mut edit_state,
+        Edit::set_position(Position::new(cursor_index)),
     );
-    editor.apply_text_edit(&mut buffer, Edit::backspace());
+    editor.apply_edit(&mut buffer, &mut edit_state, Edit::backspace());
 
-    let area_model = Area::new(buffer);
+    let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(16.0);
     let viewport = area::logical(200.0, 64.0);
     let scroll_y = text_area_estimated_line_height(style) * 18.0;
-    let state = TextViewState::default()
+    let state = ViewState::default()
         .with_scroll_y(scroll_y)
         .ensure_caret_visible(Instant::now());
 
@@ -2803,9 +3342,11 @@ fn large_wrapped_text_area_ensure_caret_visible_uses_observed_visible_caret_afte
     let needle = format!("line {target_line:04} ");
     let cursor_index = text.find(&needle).unwrap() + needle.len();
     let mut buffer = Buffer::from_multiline_text(text);
-    editor.apply_text_edit(
+    let mut edit_state = buffer.initial_state();
+    editor.apply_edit(
         &mut buffer,
-        Edit::set_position(TextPosition::new(cursor_index)),
+        &mut edit_state,
+        Edit::set_position(Position::new(cursor_index)),
     );
 
     let style = Style::default().with_size(16.0);
@@ -2813,11 +3354,11 @@ fn large_wrapped_text_area_ensure_caret_visible_uses_observed_visible_caret_afte
     let initial_scroll_y = text_area_estimated_line_height(style)
         * (target_line + TEXT_AREA_FRAME_MIN_OVERSCAN_LINES) as f32;
     let now = Instant::now();
-    let mut state = TextViewState::default()
+    let mut state = ViewState::default()
         .with_scroll_y(initial_scroll_y)
         .ensure_caret_visible(now);
 
-    let area_model = Area::new(buffer.clone());
+    let area_model = Area::new(buffer.clone()).with_state(edit_state);
     let mut warm_layout = None;
     for _ in 0..8 {
         let layout = engine.text_area_paint_layout_for_area_at(
@@ -2871,7 +3412,7 @@ fn large_wrapped_text_area_ensure_caret_visible_uses_observed_visible_caret_afte
     let expected_misses_per_backspace = 2;
     let mut observed = None;
     for step in 0..3 {
-        let result = editor.apply_text_edit_with_result(&mut buffer, Edit::backspace());
+        let result = editor.apply_edit(&mut buffer, &mut edit_state, Edit::backspace());
         assert_eq!(
             result.impacts.len(),
             1,
@@ -2884,7 +3425,7 @@ fn large_wrapped_text_area_ensure_caret_visible_uses_observed_visible_caret_afte
         );
         assert!(result.impacts[0].affected_start_line_id.is_some());
 
-        let area_model = Area::new(buffer.clone());
+        let area_model = Area::new(buffer.clone()).with_state(edit_state);
         engine.reset_interaction_stats();
         let next = engine.text_area_paint_layout_for_area_at(
             &area_model,
@@ -2909,7 +3450,7 @@ fn large_wrapped_text_area_ensure_caret_visible_uses_observed_visible_caret_afte
         observed = Some(next);
     }
 
-    let area_model = Area::new(buffer);
+    let area_model = Area::new(buffer).with_state(edit_state);
     let observed = observed.expect("backspace loop should produce an observed layout");
     let observed_caret = observed
         .layout()
@@ -2950,16 +3491,18 @@ fn text_area_ensure_caret_visible_uses_observed_hidden_caret_minimally() {
         .join("\n");
     let mut buffer = Buffer::from_multiline_text(text.clone());
     let cursor_index = text.find("line 08").unwrap() + "line 08".len();
-    editor.apply_text_edit(
+    let mut edit_state = buffer.initial_state();
+    editor.apply_edit(
         &mut buffer,
-        Edit::set_position(TextPosition::new(cursor_index)),
+        &mut edit_state,
+        Edit::set_position(Position::new(cursor_index)),
     );
 
-    let area_model = Area::new(buffer);
+    let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(16.0);
     let viewport = area::logical(200.0, 36.0);
     let now = Instant::now();
-    let state = TextViewState::default().ensure_caret_visible(now);
+    let state = ViewState::default().ensure_caret_visible(now);
     let observed =
         engine.text_area_paint_layout_for_area_at(&area_model, style, viewport, state.clone(), now);
     let caret = observed
@@ -3005,15 +3548,18 @@ fn text_area_ensure_caret_visible_scrolls_hidden_caret_into_view() {
         .join("\n");
     let mut buffer = Buffer::from_multiline_text(text.clone());
     let cursor_index = text.find("line 30").unwrap() + "line 30".len();
-    editor.apply_text_edit(
+    let mut edit_state = buffer.initial_state();
+    apply_edit(
+        &mut editor,
         &mut buffer,
-        Edit::set_position(TextPosition::new(cursor_index)),
+        &mut edit_state,
+        Edit::set_position(Position::new(cursor_index)),
     );
 
-    let area_model = Area::new(buffer);
+    let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(16.0);
     let viewport = area::logical(200.0, 64.0);
-    let state = TextViewState::default().ensure_caret_visible(Instant::now());
+    let state = ViewState::default().ensure_caret_visible(Instant::now());
 
     let revealed = engine.ensure_caret_visible_for_area(&area_model, style, viewport, state, None);
 
@@ -3046,18 +3592,20 @@ fn large_wrapped_text_area_ensure_caret_visible_preserves_scroll_after_selection
     let selection_end =
         text.find(&format!("line {:04}", target_line + 3)).unwrap() + "line 0000 alpha beta".len();
     let mut buffer = Buffer::from_multiline_text(text);
-    editor.apply_text_edit(
+    let mut edit_state = buffer.initial_state();
+    editor.apply_edit(
         &mut buffer,
-        Edit::set_position(TextPosition::new(selection_start)),
+        &mut edit_state,
+        Edit::set_position(Position::new(selection_start)),
     );
 
     let style = Style::default().with_size(16.0);
     let viewport = area::logical(126.0, 80.0);
     let now = Instant::now();
-    let mut state = TextViewState::default()
+    let mut state = ViewState::default()
         .with_scroll_y(text_area_estimated_line_height(style) * target_line as f32)
         .ensure_caret_visible(now);
-    let area_model = Area::new(buffer.clone());
+    let area_model = Area::new(buffer.clone()).with_state(edit_state);
     for _ in 0..8 {
         let observed = engine.text_area_paint_layout_for_area_at(
             &area_model,
@@ -3092,17 +3640,18 @@ fn large_wrapped_text_area_ensure_caret_visible_preserves_scroll_after_selection
     }
     let scroll_y = state.scroll_y();
 
-    editor.apply_text_edit(
+    editor.apply_edit(
         &mut buffer,
-        Edit::pointer(PointerEditKind::Drag, TextPosition::new(selection_end)),
+        &mut edit_state,
+        Edit::pointer(PointerEditKind::Drag, Position::new(selection_end)),
     );
-    assert!(buffer.has_selection());
-    let result = editor.apply_text_edit_with_result(&mut buffer, Edit::backspace());
+    assert!(buffer.has_selection_for_state(edit_state));
+    let result = editor.apply_edit(&mut buffer, &mut edit_state, Edit::backspace());
     assert!(result.text_changed);
     engine.invalidate_text_area_for_edit(&buffer, &result.impacts);
-    assert!(!buffer.has_selection());
+    assert!(!buffer.has_selection_for_state(edit_state));
 
-    let area_model = Area::new(buffer);
+    let area_model = Area::new(buffer).with_state(edit_state);
     let state = state.ensure_caret_visible(now);
     let observed =
         engine.text_area_paint_layout_for_area_at(&area_model, style, viewport, state.clone(), now);
@@ -3140,10 +3689,10 @@ fn text_area_edit_commands_preserve_scroll_when_resulting_caret_is_visible() {
         area_model: &Area,
         style: Style,
         viewport: area::Logical,
-        state: TextViewState,
+        state: ViewState,
         scroll_y: f32,
         now: Instant,
-    ) -> TextViewState {
+    ) -> ViewState {
         let state = state.ensure_caret_visible(now);
         let observed = engine.text_area_paint_layout_for_area_at(
             area_model,
@@ -3182,23 +3731,26 @@ fn text_area_edit_commands_preserve_scroll_when_resulting_caret_is_visible() {
     let mut engine = Engine::new();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text(text.clone());
-    let state = TextViewState::default().with_scroll_y(scroll_y);
-    editor.apply_text_edit(
+    let mut edit_state = buffer.initial_state();
+    let state = ViewState::default().with_scroll_y(scroll_y);
+    editor.apply_edit(
         &mut buffer,
-        Edit::set_position(TextPosition::new(target_start)),
+        &mut edit_state,
+        Edit::set_position(Position::new(target_start)),
     );
-    editor.apply_text_edit(
+    editor.apply_edit(
         &mut buffer,
-        Edit::pointer(PointerEditKind::Drag, TextPosition::new(target_end)),
+        &mut edit_state,
+        Edit::pointer(PointerEditKind::Drag, Position::new(target_end)),
     );
     let mut clipboard = MockClipboard::default();
     let cut = editor
-        .apply_text_command_with_result(&mut buffer, Command::Cut, &mut clipboard)
+        .apply_action(&mut buffer, &mut edit_state, Action::Cut, &mut clipboard)
         .result;
     assert!(cut.text_changed);
     let _ = assert_command_preserves_scroll(
         &mut engine,
-        &Area::new(buffer.clone()),
+        &Area::new(buffer.clone()).with_state(edit_state),
         style,
         viewport,
         state,
@@ -3207,23 +3759,26 @@ fn text_area_edit_commands_preserve_scroll_when_resulting_caret_is_visible() {
     );
 
     let mut buffer = Buffer::from_multiline_text(text.clone());
-    let state = TextViewState::default().with_scroll_y(scroll_y);
-    editor.apply_text_edit(
+    let mut edit_state = buffer.initial_state();
+    let state = ViewState::default().with_scroll_y(scroll_y);
+    editor.apply_edit(
         &mut buffer,
-        Edit::set_position(TextPosition::new(target_start)),
+        &mut edit_state,
+        Edit::set_position(Position::new(target_start)),
     );
-    editor.apply_text_edit(
+    editor.apply_edit(
         &mut buffer,
-        Edit::pointer(PointerEditKind::Drag, TextPosition::new(target_end)),
+        &mut edit_state,
+        Edit::pointer(PointerEditKind::Drag, Position::new(target_end)),
     );
     let mut clipboard = MockClipboard::with_text("XX");
     let paste = editor
-        .apply_text_command_with_result(&mut buffer, Command::Paste, &mut clipboard)
+        .apply_action(&mut buffer, &mut edit_state, Action::Paste, &mut clipboard)
         .result;
     assert!(paste.text_changed);
     let _ = assert_command_preserves_scroll(
         &mut engine,
-        &Area::new(buffer.clone()),
+        &Area::new(buffer.clone()).with_state(edit_state),
         style,
         viewport,
         state,
@@ -3232,30 +3787,32 @@ fn text_area_edit_commands_preserve_scroll_when_resulting_caret_is_visible() {
     );
 
     let mut buffer = Buffer::from_multiline_text(text);
-    let mut state = TextViewState::default().with_scroll_y(scroll_y);
-    editor.apply_text_edit(
+    let mut edit_state = buffer.initial_state();
+    let mut state = ViewState::default().with_scroll_y(scroll_y);
+    editor.apply_edit(
         &mut buffer,
-        Edit::set_position(TextPosition::new(target_end)),
+        &mut edit_state,
+        Edit::set_position(Position::new(target_end)),
     );
-    let edit = editor.apply_text_edit_with_result(&mut buffer, Edit::insert("!"));
+    let edit = editor.apply_edit(&mut buffer, &mut edit_state, Edit::insert("!"));
     assert!(edit.text_changed);
     let change = edit.change.expect("insert should produce transaction");
-    assert!(buffer.apply_transaction(&change.transaction.inverse()));
-    buffer.restore_marker(change.before.clone());
+    assert!(buffer.apply_transaction_for_state(&mut edit_state, &change.transaction.inverse()));
+    buffer.restore_marker_for_state(&mut edit_state, change.before.clone());
     state = assert_command_preserves_scroll(
         &mut engine,
-        &Area::new(buffer.clone()),
+        &Area::new(buffer.clone()).with_state(edit_state),
         style,
         viewport,
         state,
         scroll_y,
         now,
     );
-    assert!(buffer.apply_transaction(&change.transaction));
-    buffer.restore_marker(change.after);
+    assert!(buffer.apply_transaction_for_state(&mut edit_state, &change.transaction));
+    buffer.restore_marker_for_state(&mut edit_state, change.after);
     let _ = assert_command_preserves_scroll(
         &mut engine,
-        &Area::new(buffer),
+        &Area::new(buffer).with_state(edit_state),
         style,
         viewport,
         state,

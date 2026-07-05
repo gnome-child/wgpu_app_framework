@@ -4,10 +4,11 @@ pub mod scroll;
 mod control;
 mod foundation;
 mod menu_popup;
+pub(crate) mod text_command;
 mod text_widget;
 
 use crate::geometry::{Rect, area};
-use crate::text as text_model;
+use crate::text::{self as text_model, document as text_document};
 use crate::theme;
 use crate::ui::{self, layout};
 
@@ -28,6 +29,11 @@ pub use text_widget::{
     text_with_theme,
 };
 pub use ui::scroll::Scroll;
+
+#[cfg(test)]
+fn text_color(color: crate::paint::Color) -> text_model::Color {
+    text_model::Color::rgba(color.r, color.g, color.b, color.a)
+}
 
 pub const MENU_POPUP: ui::Id = ui::Id::new("__menu_popup");
 pub const MENU_SUBMENU_POPUP: ui::Id = ui::Id::new("__menu_submenu_popup");
@@ -60,8 +66,8 @@ pub fn label_with_theme(label: impl Into<String>, theme: &theme::Theme) -> ui::N
         .with_label(document_with_theme(
             label,
             theme,
-            text_model::Align::Center,
-            text_model::Role::Label,
+            text_document::Align::Center,
+            text_document::Role::Label,
         ))
         .with_label_color(theme.text().secondary())
         .with_size(
@@ -134,23 +140,20 @@ pub fn menu_bar_with_theme(bar: menu::Bar, theme: &theme::Theme) -> ui::Node {
 pub fn document(label: impl Into<String>) -> text_model::Document {
     foundation::document(
         label,
-        text_model::Align::Center,
-        text_model::Style::default().size(),
-        text_model::Style::default().color(),
+        text_document::Align::Center,
+        text_document::Style::default().size(),
+        text_document::Style::default().color(),
     )
 }
 
 fn document_with_theme(
     label: impl Into<String>,
     theme: &theme::Theme,
-    align: text_model::Align,
-    role: text_model::Role,
+    align: text_document::Align,
+    role: text_document::Role,
 ) -> text_model::Document {
-    let mut block = text_model::Block::new(align);
-    block.push_run(text_model::Run::new(
-        label,
-        theme.text().style(role).with_color(theme.text().primary()),
-    ));
+    let mut block = text_document::Block::new(align);
+    block.push_run(text_document::Run::new(label, theme.text().style(role)));
     text_model::Document::from_block(block)
 }
 
@@ -165,8 +168,8 @@ fn menu_title(menu: &menu::Menu, theme: &theme::Theme) -> ui::Node {
         .with_label(document_with_theme(
             menu.label(),
             theme,
-            text_model::Align::Center,
-            text_model::Role::Menu,
+            text_document::Align::Center,
+            text_document::Role::Menu,
         ))
         .with_background(theme.menu().title_background())
         .with_hover_tint(theme.menu().title_hover_tint())
@@ -249,6 +252,31 @@ mod tests {
     }
 
     #[test]
+    fn widget_sources_do_not_import_app_module() {
+        let widget_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("widget");
+        let forbidden = ["crate", "::app"].concat();
+
+        for entry in std::fs::read_dir(widget_dir).expect("widget source directory should exist") {
+            let path = entry
+                .expect("widget source entry should be readable")
+                .path();
+            if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
+                continue;
+            }
+
+            let source = std::fs::read_to_string(&path).expect("widget source file should read");
+            let grouped = ["use crate::{", "app"].concat();
+            assert!(
+                !source.contains(&forbidden) && !source.contains(&grouped),
+                "{} must not import or reference the app module",
+                path.display()
+            );
+        }
+    }
+
+    #[test]
     fn scroll_stores_offset_bars_and_style() {
         let style = scroll::Style::new(
             8.0,
@@ -304,12 +332,13 @@ mod tests {
     fn text_area_scrollbars_follow_wrap_mode() {
         let theme = theme::Theme::default_dark();
         let wrapped = text_area_with_theme(
-            text_model::Area::new(text_model::Buffer::from_multiline_text("wrapped")),
+            text_model::edit::Area::new(text_model::Buffer::from_multiline_text("wrapped")),
             &theme,
         )
         .key(ROOT);
         let unwrapped = text_area_with_theme(
-            text_model::Area::new(text_model::Buffer::from_multiline_text("unwrapped")).no_wrap(),
+            text_model::edit::Area::new(text_model::Buffer::from_multiline_text("unwrapped"))
+                .no_wrap(),
             &theme,
         )
         .key(ROOT);
@@ -336,12 +365,13 @@ mod tests {
     fn text_area_surface_is_bare_focusable_text_surface() {
         let theme = theme::Theme::default_dark();
         let wrapped = text_area_surface_with_theme(
-            text_model::Area::new(text_model::Buffer::from_multiline_text("Editable")),
+            text_model::edit::Area::new(text_model::Buffer::from_multiline_text("Editable")),
             &theme,
         )
         .key(ROOT);
         let unwrapped = text_area_surface_with_theme(
-            text_model::Area::new(text_model::Buffer::from_multiline_text("Editable")).no_wrap(),
+            text_model::edit::Area::new(text_model::Buffer::from_multiline_text("Editable"))
+                .no_wrap(),
             &theme,
         )
         .key(ROOT);
@@ -364,12 +394,12 @@ mod tests {
         assert!(
             wrapped
                 .responders()
-                .contains(&command::Key::of::<crate::text::command::SelectAll>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::SelectAll>().action())
         );
         assert!(
             wrapped
                 .responders()
-                .contains(&command::Key::of::<crate::text::command::InsertText>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::InsertText>().action())
         );
         assert_eq!(
             wrapped.scroll().map(Scroll::bars),
@@ -402,7 +432,7 @@ mod tests {
     fn text_area_with_theme_preserves_control_chrome() {
         let theme = theme::Theme::default_dark();
         let node = text_area_with_theme(
-            text_model::Area::new(text_model::Buffer::from_multiline_text("Editable")),
+            text_model::edit::Area::new(text_model::Buffer::from_multiline_text("Editable")),
             &theme,
         )
         .key(ROOT);
@@ -447,7 +477,7 @@ mod tests {
         assert_eq!(label.blocks()[0].runs()[0].text(), "Status");
         assert_eq!(
             label.blocks()[0].runs()[0].style().color(),
-            theme.text().primary()
+            text_color(theme.text().primary())
         );
         assert_eq!(
             label.blocks()[0].runs()[0].style().size(),
@@ -497,7 +527,7 @@ mod tests {
         let node = text_field_with_theme(buffer.clone(), &theme).key(ROOT);
 
         assert_eq!(
-            node.text_field().map(text_model::Field::buffer),
+            node.text_field().map(text_model::edit::Field::buffer),
             Some(&buffer)
         );
         let label = node.label().expect("text field should store a label");
@@ -511,11 +541,11 @@ mod tests {
         assert_eq!(node.cursor(), ui::Cursor::Text);
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::SelectAll>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::SelectAll>().action())
         );
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::InsertText>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::InsertText>().action())
         );
     }
 
@@ -523,12 +553,12 @@ mod tests {
     fn text_area_content_and_placeholder_share_control_typography() {
         let theme = theme::Theme::default_dark();
         let content = text_area_with_theme(
-            text_model::Area::new(text_model::Buffer::from_multiline_text("Editable")),
+            text_model::edit::Area::new(text_model::Buffer::from_multiline_text("Editable")),
             &theme,
         )
         .key(ROOT);
         let placeholder = text_area_with_theme(
-            text_model::Area::new(text_model::Buffer::from_multiline_text(""))
+            text_model::edit::Area::new(text_model::Buffer::from_multiline_text(""))
                 .with_placeholder("Hint"),
             &theme,
         )
@@ -562,16 +592,18 @@ mod tests {
                 .label()
                 .and_then(text_model::Document::first_style)
                 .map(|style| style.color()),
-            Some(theme.text().primary())
+            Some(text_color(theme.text().primary()))
         );
     }
 
     #[test]
     fn text_field_placeholder_stores_content_style_carrier() {
         let theme = theme::Theme::default_dark();
-        let node =
-            text_field_with_theme(text_model::Field::new("").with_placeholder("Hint"), &theme)
-                .key(ROOT);
+        let node = text_field_with_theme(
+            text_model::edit::Field::new("").with_placeholder("Hint"),
+            &theme,
+        )
+        .key(ROOT);
         let label = node
             .label()
             .expect("placeholder text field should store a content style carrier");
@@ -583,7 +615,7 @@ mod tests {
         );
         assert_eq!(
             label.first_style().map(|style| style.color()),
-            Some(theme.text().primary())
+            Some(text_color(theme.text().primary()))
         );
     }
 
@@ -592,36 +624,36 @@ mod tests {
         let theme = theme::Theme::default_dark();
         let node =
             text_field_with_theme(text_model::Buffer::from_text("Editable"), &theme).key(ROOT);
-        let text_target = crate::text::command::text_target_kind();
+        let text_target = crate::widget::text_command::text_target_kind();
 
         assert!(node.action_targets().contains(&text_target.action()));
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::SelectAll>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::SelectAll>().action())
         );
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::Copy>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::Copy>().action())
         );
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::Cut>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::Cut>().action())
         );
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::Paste>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::Paste>().action())
         );
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::Undo>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::Undo>().action())
         );
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::Redo>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::Redo>().action())
         );
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::InsertText>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::InsertText>().action())
         );
         assert!(
             node.responder_bindings()
@@ -633,7 +665,7 @@ mod tests {
     #[test]
     fn read_only_text_field_is_focusable_and_copy_select_all_responder_bound() {
         let theme = theme::Theme::default_dark();
-        let field = text_model::Field::new("Readonly").read_only();
+        let field = text_model::edit::Field::new("Readonly").read_only();
         let node = text_field_with_theme(field, &theme).key(ROOT);
 
         assert!(node.interactivity().hit_test());
@@ -641,43 +673,43 @@ mod tests {
         assert_eq!(node.cursor(), ui::Cursor::Text);
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::SelectAll>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::SelectAll>().action())
         );
         assert!(
             node.responders()
-                .contains(&command::Key::of::<crate::text::command::Copy>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::Copy>().action())
         );
         assert!(
             !node
                 .responders()
-                .contains(&command::Key::of::<crate::text::command::Cut>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::Cut>().action())
         );
         assert!(
             !node
                 .responders()
-                .contains(&command::Key::of::<crate::text::command::Paste>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::Paste>().action())
         );
         assert!(
             !node
                 .responders()
-                .contains(&command::Key::of::<crate::text::command::Undo>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::Undo>().action())
         );
         assert!(
             !node
                 .responders()
-                .contains(&command::Key::of::<crate::text::command::Redo>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::Redo>().action())
         );
         assert!(
             !node
                 .responders()
-                .contains(&command::Key::of::<crate::text::command::InsertText>().action())
+                .contains(&command::Key::of::<crate::widget::text_command::InsertText>().action())
         );
     }
 
     #[test]
     fn disabled_text_field_is_hit_testable_but_not_focusable_or_responder_bound() {
         let theme = theme::Theme::default_dark();
-        let field = text_model::Field::new("Disabled").disabled();
+        let field = text_model::edit::Field::new("Disabled").disabled();
         let node = text_field_with_theme(field, &theme).key(ROOT);
 
         assert!(node.interactivity().hit_test());
@@ -705,7 +737,7 @@ mod tests {
             .menu(menu::Menu::new("A").key(menu::Id::new("a")))
             .menu(menu::Menu::new("Workspace Tools").key(menu::Id::new("workspace_tools")));
         let mut tree = ui::Tree::new();
-        let mut measurer = text_model::Engine::new();
+        let mut measurer = text_model::layout::Engine::new();
 
         tree.set_root(menu_bar(bar).key(ROOT));
         let layout = tree

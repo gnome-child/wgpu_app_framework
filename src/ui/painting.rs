@@ -21,7 +21,7 @@ pub fn tree(
     root: &ui::Node,
     layout: &ui::Frame,
     interaction: &ui::Interaction,
-    text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
+    text_field_states: &HashMap<ui::Path, text::edit::ViewState>,
     text_engine: &mut text::layout::Engine,
     frame: AnimationFrame,
     scroll_projections: Option<&dyn scroll::Projections>,
@@ -132,7 +132,7 @@ fn node(
     layout: &ui::Frame,
     inherited_content: Option<ContentVisualState>,
     interaction: &ui::Interaction,
-    text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
+    text_field_states: &HashMap<ui::Path, text::edit::ViewState>,
     text_engine: &mut text::layout::Engine,
     frame: AnimationFrame,
     scroll_projections: Option<&dyn scroll::Projections>,
@@ -194,36 +194,35 @@ fn node(
         .or_else(|| node.label())
         .and_then(text::document::Document::first_style)
         .unwrap_or_default();
-    let text_area_scroll_projection =
-        text_surface
-            .and_then(text::Surface::as_area)
-            .and_then(|area| {
-                scroll_projections
-                    .and_then(|projections| projections.text_area(layout.path()).cloned())
-                    .or_else(|| {
-                        scroll_metrics.and_then(|metrics| {
-                            text_area_scroll_projection_for_metrics(
-                                area,
-                                text_style,
-                                metrics,
-                                &text_field_state,
-                                text_engine,
-                                frame.now(),
-                            )
-                        })
-                    })
-                    .or_else(|| {
-                        text_area_scroll_projection(
-                            node,
-                            layout,
+    let text_area_scroll_projection = text_surface
+        .and_then(text::edit::Surface::as_area)
+        .and_then(|area| {
+            scroll_projections
+                .and_then(|projections| projections.text_area(layout.path()).cloned())
+                .or_else(|| {
+                    scroll_metrics.and_then(|metrics| {
+                        text_area_scroll_projection_for_metrics(
                             area,
                             text_style,
+                            metrics,
                             &text_field_state,
                             text_engine,
                             frame.now(),
                         )
                     })
-            });
+                })
+                .or_else(|| {
+                    text_area_scroll_projection(
+                        node,
+                        layout,
+                        area,
+                        text_style,
+                        &text_field_state,
+                        text_engine,
+                        frame.now(),
+                    )
+                })
+        });
     let text_scroll_metrics = text_area_scroll_projection
         .as_ref()
         .map(|projection| projection.metrics());
@@ -231,7 +230,7 @@ fn node(
         .map(ui::scroll::Metrics::viewport)
         .unwrap_or_else(|| text_content_rect(node, layout));
     let text_area_layout_owned = text_surface
-        .and_then(text::Surface::as_area)
+        .and_then(text::edit::Surface::as_area)
         .zip(text_area_scroll_projection.as_ref())
         .map(|(area, projection)| {
             let metrics = projection.metrics();
@@ -296,7 +295,7 @@ fn node(
     paint_text_preedit_selection(layout, text_rect, interaction, text_field_layout, scene);
 
     if text_surface
-        .and_then(text::Surface::as_area)
+        .and_then(text::edit::Surface::as_area)
         .is_some_and(|area| !area.buffer().is_empty() || text_field_state.preedit().is_some())
         && let Some(projection) = text_area_scroll_projection.as_ref()
     {
@@ -313,7 +312,7 @@ fn node(
                         geometry::area::logical(surface.width(), surface.height()),
                     ),
                     buffer: surface.buffer(),
-                    default_color: surface.default_color(),
+                    default_color: paint_text_color(surface.default_color()),
                 })
                 .collect(),
         });
@@ -449,7 +448,7 @@ pub(crate) fn scroll_subtree_recording(
     root: &ui::Node,
     layout: &ui::Frame,
     interaction: &ui::Interaction,
-    text_field_states: &HashMap<ui::Path, text::view::TextViewState>,
+    text_field_states: &HashMap<ui::Path, text::edit::ViewState>,
     text_engine: &mut text::layout::Engine,
     frame: AnimationFrame,
     scroll_projections: Option<&dyn scroll::Projections>,
@@ -718,7 +717,7 @@ fn resolved_label(
 
     if content_visual.busy {
         if let Some(color) = style.busy_label_color().or(style.label_color()) {
-            document = document.with_color(color);
+            document = document.with_color(text_color(color));
         }
 
         return Some(document);
@@ -726,14 +725,14 @@ fn resolved_label(
 
     if !content_visual.enabled {
         if let Some(color) = style.disabled_label_color().or(style.label_color()) {
-            document = document.with_color(color);
+            document = document.with_color(text_color(color));
         }
 
         return Some(document);
     }
 
     if let Some(color) = style.label_color() {
-        document = document.with_color(color);
+        document = document.with_color(text_color(color));
     }
 
     Some(document)
@@ -741,25 +740,27 @@ fn resolved_label(
 
 fn resolved_text_surface_label(
     node: &ui::Node,
-    surface: &text::Surface,
+    surface: &text::edit::Surface,
     content_visual: &ContentVisualState,
-    state: &text::view::TextViewState,
+    state: &text::edit::ViewState,
 ) -> Option<crate::text::document::Document> {
     let style = node.style();
     let default_color = text::document::Style::default().color();
     let disabled_color = style
         .disabled_label_color()
         .or(style.label_color())
+        .map(text_color)
         .unwrap_or(default_color);
     let normal_color = if content_visual.busy {
         style
             .busy_label_color()
             .or(style.label_color())
+            .map(text_color)
             .unwrap_or(default_color)
     } else if !content_visual.enabled || surface.is_disabled() {
         disabled_color
     } else {
-        style.label_color().unwrap_or(default_color)
+        style.label_color().map(text_color).unwrap_or(default_color)
     };
 
     if state.preedit().is_some() {
@@ -795,6 +796,15 @@ fn resolved_text_surface_label(
     Some(source.with_color(normal_color))
 }
 
+fn text_color(color: paint::Color) -> text::Color {
+    text::Color::rgba(color.r, color.g, color.b, color.a)
+}
+
+fn paint_text_color(color: text::Color) -> paint::Color {
+    let (r, g, b, a) = color.channels();
+    paint::Color::rgba(r, g, b, a)
+}
+
 fn resolved_icon(
     node: &ui::Node,
     layout: &ui::Frame,
@@ -815,7 +825,7 @@ fn resolved_icon(
 
 fn resolved_icon_color(node: &ui::Node, content_visual: &ContentVisualState) -> paint::Color {
     let style = node.style();
-    let fallback = crate::text::document::Style::default().color();
+    let fallback = paint_text_color(crate::text::document::Style::default().color());
 
     if content_visual.busy {
         return style
@@ -846,7 +856,7 @@ fn paint_text_field_selection(
         return;
     };
 
-    if !surface.is_selectable() || !surface.buffer().has_selection() {
+    if !surface.is_selectable() || !surface.buffer().has_selection_for_state(surface.state()) {
         return;
     }
 
@@ -930,7 +940,7 @@ fn paint_text_preedit_underline(
     let color = node
         .style()
         .label_color()
-        .unwrap_or_else(|| text::document::Style::default().color());
+        .unwrap_or_else(|| paint_text_color(text::document::Style::default().color()));
 
     for span in text_field_layout.preedit_underline_spans() {
         let y = rect.origin.y() + span.y() + span.height().max(1.0) - 2.0;
@@ -984,7 +994,7 @@ fn paint_text_field_caret(
             fill: Some(paint::Fill::Brush(
                 node.style()
                     .label_color()
-                    .unwrap_or_else(|| text::document::Style::default().color())
+                    .unwrap_or_else(|| paint_text_color(text::document::Style::default().color()))
                     .into(),
             )),
             stroke: None,
@@ -1024,7 +1034,7 @@ fn paint_text_drop_caret(
             fill: Some(paint::Fill::Brush(
                 node.style()
                     .label_color()
-                    .unwrap_or_else(|| text::document::Style::default().color())
+                    .unwrap_or_else(|| paint_text_color(text::document::Style::default().color()))
                     .into(),
             )),
             stroke: None,
@@ -1060,9 +1070,9 @@ fn scrolled_text_rect(rect: geometry::Rect, scroll_x: f32, scroll_y: f32) -> geo
 fn text_area_scroll_projection(
     node: &ui::Node,
     layout: &ui::Frame,
-    area_model: &text::Area,
+    area_model: &text::edit::Area,
     style: text::document::Style,
-    state: &text::view::TextViewState,
+    state: &text::edit::ViewState,
     text_engine: &mut text::layout::Engine,
     now: std::time::Instant,
 ) -> Option<scroll::TextAreaProjection> {
@@ -1117,10 +1127,10 @@ fn text_area_scroll_projection(
     if state.caret_visibility_pending() {
         let viewport = ui::scroll::viewport_rect_for_axes(viewport_base, scroll.style(), axes);
         let width = match area_model.wrap() {
-            text::AreaWrap::None => content_area
+            text::edit::AreaWrap::None => content_area
                 .width()
                 .max(state.scroll_x() + viewport.area.width()),
-            text::AreaWrap::WordOrGlyph => viewport.area.width().max(0.0),
+            text::edit::AreaWrap::WordOrGlyph => viewport.area.width().max(0.0),
         };
         content_area = geometry::area::logical(
             width,
@@ -1144,10 +1154,10 @@ fn text_area_scroll_projection(
 }
 
 fn text_area_scroll_projection_for_metrics(
-    area_model: &text::Area,
+    area_model: &text::edit::Area,
     style: text::document::Style,
     metrics: ui::scroll::Metrics,
-    state: &text::view::TextViewState,
+    state: &text::edit::ViewState,
     text_engine: &mut text::layout::Engine,
     now: std::time::Instant,
 ) -> Option<scroll::TextAreaProjection> {
@@ -1178,20 +1188,20 @@ fn scroll_metrics_for_node(
         .or_else(|| ui::scroll::metrics(node, layout))
 }
 
-fn text_surface_wrap(surface: &text::Surface) -> paint::TextWrap {
+fn text_surface_wrap(surface: &text::edit::Surface) -> paint::TextWrap {
     match surface {
-        text::Surface::Field(_) => paint::TextWrap::None,
-        text::Surface::Area(area) => match area.wrap() {
-            text::AreaWrap::None => paint::TextWrap::None,
-            text::AreaWrap::WordOrGlyph => paint::TextWrap::WordOrGlyph,
+        text::edit::Surface::Field(_) => paint::TextWrap::None,
+        text::edit::Surface::Area(area) => match area.wrap() {
+            text::edit::AreaWrap::None => paint::TextWrap::None,
+            text::edit::AreaWrap::WordOrGlyph => paint::TextWrap::WordOrGlyph,
         },
     }
 }
 
-fn text_surface_vertical_align(surface: &text::Surface) -> paint::TextVerticalAlign {
+fn text_surface_vertical_align(surface: &text::edit::Surface) -> paint::TextVerticalAlign {
     match surface {
-        text::Surface::Field(_) => paint::TextVerticalAlign::Center,
-        text::Surface::Area(_) => paint::TextVerticalAlign::Start,
+        text::edit::Surface::Field(_) => paint::TextVerticalAlign::Center,
+        text::edit::Surface::Area(_) => paint::TextVerticalAlign::Start,
     }
 }
 

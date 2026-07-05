@@ -15,9 +15,9 @@ pub(crate) enum HistoryKind {
 
 #[derive(Debug, Clone)]
 struct HistoryEntry {
-    before: text::buffer::BufferMarker,
-    after: text::buffer::BufferMarker,
-    transaction: text::edit::Transaction,
+    before: text::edit::Marker,
+    after: text::edit::Marker,
+    transaction: text::edit::transaction::Transaction,
     kind: HistoryKind,
     recorded_at: Instant,
 }
@@ -26,12 +26,13 @@ struct HistoryEntry {
 struct History {
     undo: Vec<HistoryEntry>,
     redo: Vec<HistoryEntry>,
-    current: Option<text::buffer::BufferMarker>,
+    current: Option<text::edit::Marker>,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct Driver {
-    states: HashMap<ui::Path, text::view::TextViewState>,
+    states: HashMap<ui::Path, text::edit::ViewState>,
+    edit_states: HashMap<ui::Path, text::edit::State>,
     histories: HashMap<ui::Path, History>,
 }
 
@@ -81,7 +82,7 @@ fn typing_history_kind(text: &str) -> HistoryKind {
 }
 
 impl History {
-    fn sync(&mut self, marker: text::buffer::BufferMarker) -> bool {
+    fn sync(&mut self, marker: text::edit::Marker) -> bool {
         if self.current.as_ref() == Some(&marker) {
             return false;
         }
@@ -100,7 +101,7 @@ impl History {
         changed
     }
 
-    fn record(&mut self, change: text::edit::Change, kind: HistoryKind, now: Instant) {
+    fn record(&mut self, change: text::edit::transaction::Change, kind: HistoryKind, now: Instant) {
         if change.before == change.after {
             self.current = Some(change.after);
             return;
@@ -154,52 +155,60 @@ impl History {
         !self.redo.is_empty()
     }
 
-    fn undo(&mut self, buffer: &mut text::Buffer) -> text::edit::CommandResult {
+    fn undo(
+        &mut self,
+        buffer: &mut text::Buffer,
+        state: &mut text::edit::State,
+    ) -> text::edit::ActionResult {
         let Some(entry) = self.undo.pop() else {
-            return text::edit::CommandResult {
+            return text::edit::ActionResult {
                 unavailable: true,
-                ..text::edit::CommandResult::default()
+                ..text::edit::ActionResult::default()
             };
         };
 
-        let before = buffer.marker();
+        let before = buffer.marker_for_state(*state);
         let reverse = entry.transaction.inverse();
 
-        if !buffer.apply_transaction(&reverse) {
+        if !buffer.apply_transaction_for_state(state, &reverse) {
             self.undo.push(entry);
-            return text::edit::CommandResult {
+            return text::edit::ActionResult {
                 unavailable: true,
-                ..text::edit::CommandResult::default()
+                ..text::edit::ActionResult::default()
             };
         }
 
-        buffer.restore_marker(entry.before.clone());
-        let after = buffer.marker();
+        buffer.restore_marker_for_state(state, entry.before.clone());
+        let after = buffer.marker_for_state(*state);
         self.current = Some(after.clone());
         self.redo.push(entry);
         command_result_from_markers(before, after)
     }
 
-    fn redo(&mut self, buffer: &mut text::Buffer) -> text::edit::CommandResult {
+    fn redo(
+        &mut self,
+        buffer: &mut text::Buffer,
+        state: &mut text::edit::State,
+    ) -> text::edit::ActionResult {
         let Some(entry) = self.redo.pop() else {
-            return text::edit::CommandResult {
+            return text::edit::ActionResult {
                 unavailable: true,
-                ..text::edit::CommandResult::default()
+                ..text::edit::ActionResult::default()
             };
         };
 
-        let before = buffer.marker();
+        let before = buffer.marker_for_state(*state);
 
-        if !buffer.apply_transaction(&entry.transaction) {
+        if !buffer.apply_transaction_for_state(state, &entry.transaction) {
             self.redo.push(entry);
-            return text::edit::CommandResult {
+            return text::edit::ActionResult {
                 unavailable: true,
-                ..text::edit::CommandResult::default()
+                ..text::edit::ActionResult::default()
             };
         }
 
-        buffer.restore_marker(entry.after.clone());
-        let after = buffer.marker();
+        buffer.restore_marker_for_state(state, entry.after.clone());
+        let after = buffer.marker_for_state(*state);
         self.current = Some(after.clone());
         self.undo.push(entry);
         command_result_from_markers(before, after)
@@ -207,10 +216,10 @@ impl History {
 }
 
 fn command_result_from_markers(
-    before: text::buffer::BufferMarker,
-    after: text::buffer::BufferMarker,
-) -> text::edit::CommandResult {
-    text::edit::CommandResult {
+    before: text::edit::Marker,
+    after: text::edit::Marker,
+) -> text::edit::ActionResult {
+    text::edit::ActionResult {
         text_changed: before.revision != after.revision,
         selection_changed: before.cursor != after.cursor || before.selection != after.selection,
         clipboard_changed: false,
@@ -225,6 +234,7 @@ impl Driver {
 
     pub(crate) fn clear(&mut self) {
         self.states.clear();
+        self.edit_states.clear();
         self.histories.clear();
     }
 
@@ -232,52 +242,86 @@ impl Driver {
         self.states.contains_key(path)
     }
 
-    pub(crate) fn states(&self) -> &HashMap<ui::Path, text::view::TextViewState> {
+    pub(crate) fn states(&self) -> &HashMap<ui::Path, text::edit::ViewState> {
         &self.states
     }
 
-    pub(crate) fn states_mut(&mut self) -> &mut HashMap<ui::Path, text::view::TextViewState> {
+    pub(crate) fn states_mut(&mut self) -> &mut HashMap<ui::Path, text::edit::ViewState> {
         &mut self.states
     }
 
-    pub(crate) fn get(&self, path: &ui::Path) -> Option<&text::view::TextViewState> {
+    pub(crate) fn edit_states(&self) -> &HashMap<ui::Path, text::edit::State> {
+        &self.edit_states
+    }
+
+    pub(crate) fn edit_state(&self, path: &ui::Path) -> Option<text::edit::State> {
+        self.edit_states.get(path).copied()
+    }
+
+    pub(crate) fn edit_state_or_initial(
+        &self,
+        path: &ui::Path,
+        buffer: &text::Buffer,
+    ) -> text::edit::State {
+        self.edit_state(path)
+            .unwrap_or_else(|| buffer.initial_state())
+    }
+
+    pub(crate) fn store_edit_state(&mut self, path: &ui::Path, state: text::edit::State) -> bool {
+        if self.edit_states.get(path).copied() == Some(state) {
+            return false;
+        }
+
+        self.edit_states.insert(path.clone(), state);
+        true
+    }
+
+    pub(crate) fn get(&self, path: &ui::Path) -> Option<&text::edit::ViewState> {
         self.states.get(path)
     }
 
-    pub(crate) fn get_cloned_or_default(&self, path: &ui::Path) -> text::view::TextViewState {
+    pub(crate) fn get_cloned_or_default(&self, path: &ui::Path) -> text::edit::ViewState {
         self.states.get(path).cloned().unwrap_or_default()
     }
 
     pub(crate) fn insert(
         &mut self,
         path: ui::Path,
-        state: text::view::TextViewState,
-    ) -> Option<text::view::TextViewState> {
+        state: text::edit::ViewState,
+    ) -> Option<text::edit::ViewState> {
         self.states.insert(path, state)
     }
 
-    pub(crate) fn entry(
-        &mut self,
-        path: ui::Path,
-    ) -> Entry<'_, ui::Path, text::view::TextViewState> {
+    pub(crate) fn entry(&mut self, path: ui::Path) -> Entry<'_, ui::Path, text::edit::ViewState> {
         self.states.entry(path)
     }
 
-    pub(crate) fn values_mut(&mut self) -> ValuesMut<'_, ui::Path, text::view::TextViewState> {
+    pub(crate) fn values_mut(&mut self) -> ValuesMut<'_, ui::Path, text::edit::ViewState> {
         self.states.values_mut()
     }
 
-    pub(crate) fn sync_history(&mut self, path: &ui::Path, buffer: &text::Buffer) -> bool {
+    pub(crate) fn sync_surface(&mut self, path: &ui::Path, surface: &text::edit::Surface) -> bool {
+        let edit_changed = self.store_edit_state(path, surface.state());
+        let history_changed = self.sync_history_for_state(path, surface.buffer(), surface.state());
+        edit_changed || history_changed
+    }
+
+    fn sync_history_for_state(
+        &mut self,
+        path: &ui::Path,
+        buffer: &text::Buffer,
+        state: text::edit::State,
+    ) -> bool {
         self.histories
             .entry(path.clone())
             .or_default()
-            .sync(buffer.marker())
+            .sync(buffer.marker_for_state(state))
     }
 
     pub(crate) fn record_history_at(
         &mut self,
         path: &ui::Path,
-        change: text::edit::Change,
+        change: text::edit::transaction::Change,
         kind: HistoryKind,
         now: Instant,
     ) {
@@ -304,35 +348,44 @@ impl Driver {
         &mut self,
         path: &ui::Path,
         buffer: &mut text::Buffer,
-    ) -> text::edit::CommandResult {
-        self.histories.get_mut(path).map_or_else(
-            || text::edit::CommandResult {
+    ) -> text::edit::ActionResult {
+        let Some(history) = self.histories.get_mut(path) else {
+            return text::edit::ActionResult {
                 unavailable: true,
-                ..text::edit::CommandResult::default()
-            },
-            |history| history.undo(buffer),
-        )
+                ..text::edit::ActionResult::default()
+            };
+        };
+        let edit_state = self
+            .edit_states
+            .entry(path.clone())
+            .or_insert_with(|| buffer.initial_state());
+        history.undo(buffer, edit_state)
     }
 
     pub(crate) fn apply_redo(
         &mut self,
         path: &ui::Path,
         buffer: &mut text::Buffer,
-    ) -> text::edit::CommandResult {
-        self.histories.get_mut(path).map_or_else(
-            || text::edit::CommandResult {
+    ) -> text::edit::ActionResult {
+        let Some(history) = self.histories.get_mut(path) else {
+            return text::edit::ActionResult {
                 unavailable: true,
-                ..text::edit::CommandResult::default()
-            },
-            |history| history.redo(buffer),
-        )
+                ..text::edit::ActionResult::default()
+            };
+        };
+        let edit_state = self
+            .edit_states
+            .entry(path.clone())
+            .or_insert_with(|| buffer.initial_state());
+        history.redo(buffer, edit_state)
     }
 }
 
-impl From<HashMap<ui::Path, text::view::TextViewState>> for Driver {
-    fn from(states: HashMap<ui::Path, text::view::TextViewState>) -> Self {
+impl From<HashMap<ui::Path, text::edit::ViewState>> for Driver {
+    fn from(states: HashMap<ui::Path, text::edit::ViewState>) -> Self {
         Self {
             states,
+            edit_states: HashMap::new(),
             histories: HashMap::new(),
         }
     }
@@ -372,6 +425,18 @@ mod tests {
         ui::Path::from(FIELD)
     }
 
+    fn edit_state(driver: &Driver, path: &ui::Path, buffer: &text::Buffer) -> text::edit::State {
+        driver.edit_state_or_initial(path, buffer)
+    }
+
+    fn has_selection(driver: &Driver, path: &ui::Path, buffer: &text::Buffer) -> bool {
+        buffer.has_selection_for_state(edit_state(driver, path, buffer))
+    }
+
+    fn selected_text(driver: &Driver, path: &ui::Path, buffer: &text::Buffer) -> Option<String> {
+        buffer.selected_text_for_state(edit_state(driver, path, buffer))
+    }
+
     fn record_edit(
         editor: &mut text::edit::Editor,
         driver: &mut Driver,
@@ -390,9 +455,11 @@ mod tests {
         edit: text::edit::Edit,
         now: Instant,
     ) -> text::edit::Outcome {
-        driver.sync_history(path, buffer);
+        let mut edit_state = driver.edit_state_or_initial(path, buffer);
+        driver.sync_history_for_state(path, buffer, edit_state);
         let kind = HistoryKind::for_edit(&edit);
-        let result = editor.apply_text_edit_with_result(buffer, edit);
+        let result = editor.apply_edit(buffer, &mut edit_state, edit);
+        driver.store_edit_state(path, edit_state);
         if let Some(change) = result.change.clone() {
             driver.record_history_at(path, change, kind, now);
         }
@@ -404,11 +471,13 @@ mod tests {
         driver: &mut Driver,
         path: &ui::Path,
         buffer: &mut text::Buffer,
-        command: text::edit::Command,
+        command: text::edit::Action,
         clipboard: &mut dyn text::edit::Clipboard,
-    ) -> text::edit::CommandResult {
-        driver.sync_history(path, buffer);
-        let outcome = editor.apply_text_command_with_result(buffer, command, clipboard);
+    ) -> text::edit::ActionResult {
+        let mut edit_state = driver.edit_state_or_initial(path, buffer);
+        driver.sync_history_for_state(path, buffer, edit_state);
+        let outcome = editor.apply_action(buffer, &mut edit_state, command, clipboard);
+        driver.store_edit_state(path, edit_state);
         if let Some(change) = outcome.change.clone() {
             driver.record_history_at(path, change, HistoryKind::Boundary, Instant::now());
         }
@@ -541,7 +610,13 @@ mod tests {
             &mut buffer,
             text::edit::Edit::insert("a"),
         );
-        editor.apply_text_edit(&mut buffer, text::edit::Edit::set_position(0));
+        let mut edit_state = edit_state(&driver, &path, &buffer);
+        editor.apply_edit(
+            &mut buffer,
+            &mut edit_state,
+            text::edit::Edit::set_position(0),
+        );
+        driver.store_edit_state(&path, edit_state);
         record_edit(
             &mut editor,
             &mut driver,
@@ -569,7 +644,7 @@ mod tests {
             &mut driver,
             &path,
             &mut buffer,
-            text::edit::Command::Paste,
+            text::edit::Action::Paste,
             &mut clipboard,
         );
         record_edit(
@@ -594,14 +669,16 @@ mod tests {
             text::edit::Edit::ime_commit("x"),
         );
 
-        editor.apply_text_edit(&mut buffer, text::edit::Edit::SelectAll);
+        let mut edit_state = edit_state(&driver, &path, &buffer);
+        editor.apply_edit(&mut buffer, &mut edit_state, text::edit::Edit::SelectAll);
+        driver.store_edit_state(&path, edit_state);
         let mut clipboard = MockClipboard::default();
         record_command(
             &mut editor,
             &mut driver,
             &path,
             &mut buffer,
-            text::edit::Command::Cut,
+            text::edit::Action::Cut,
             &mut clipboard,
         );
 
@@ -615,8 +692,10 @@ mod tests {
         let path = path();
         let mut buffer = text::Buffer::from_text("hello");
 
-        driver.sync_history(&path, &buffer);
-        editor.apply_text_edit(&mut buffer, text::edit::Edit::SelectAll);
+        let mut edit_state = edit_state(&driver, &path, &buffer);
+        driver.sync_history_for_state(&path, &buffer, edit_state);
+        editor.apply_edit(&mut buffer, &mut edit_state, text::edit::Edit::SelectAll);
+        driver.store_edit_state(&path, edit_state);
         record_edit(
             &mut editor,
             &mut driver,
@@ -626,17 +705,20 @@ mod tests {
         );
 
         assert_eq!(buffer.text(), "x");
-        assert!(!buffer.has_selection());
+        assert!(!has_selection(&driver, &path, &buffer));
 
         let undo = driver.apply_undo(&path, &mut buffer);
         assert_eq!(buffer.text(), "hello");
-        assert_eq!(buffer.selected_text().as_deref(), Some("hello"));
+        assert_eq!(
+            selected_text(&driver, &path, &buffer).as_deref(),
+            Some("hello")
+        );
         assert!(undo.text_changed);
         assert!(undo.selection_changed);
 
         let redo = driver.apply_redo(&path, &mut buffer);
         assert_eq!(buffer.text(), "x");
-        assert!(!buffer.has_selection());
+        assert!(!has_selection(&driver, &path, &buffer));
         assert!(redo.text_changed);
     }
 
@@ -687,7 +769,7 @@ mod tests {
         assert!(driver.can_undo(&path));
 
         let external = text::Buffer::from_text("external");
-        assert!(driver.sync_history(&path, &external));
+        assert!(driver.sync_history_for_state(&path, &external, external.initial_state()));
         assert!(!driver.can_undo(&path));
         assert!(!driver.can_redo(&path));
     }

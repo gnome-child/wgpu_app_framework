@@ -19,7 +19,7 @@ pub struct Node {
     action_targets: Vec<action::Target>,
     action_scope: bool,
     label: Option<text::document::Document>,
-    text_surface: Option<text::Surface>,
+    text_surface: Option<text::edit::Surface>,
     icon: Option<icon::Icon>,
     icon_size: Option<f32>,
     icon_requires_active: bool,
@@ -276,16 +276,24 @@ impl Node {
         self.label.as_ref()
     }
 
-    pub fn text_field(&self) -> Option<&text::Field> {
-        self.text_surface.as_ref().and_then(text::Surface::as_field)
+    pub fn text_field(&self) -> Option<&text::edit::Field> {
+        self.text_surface
+            .as_ref()
+            .and_then(text::edit::Surface::as_field)
     }
 
-    pub fn text_area(&self) -> Option<&text::Area> {
-        self.text_surface.as_ref().and_then(text::Surface::as_area)
+    pub fn text_area(&self) -> Option<&text::edit::Area> {
+        self.text_surface
+            .as_ref()
+            .and_then(text::edit::Surface::as_area)
     }
 
-    pub fn text_surface(&self) -> Option<&text::Surface> {
+    pub fn text_surface(&self) -> Option<&text::edit::Surface> {
         self.text_surface.as_ref()
+    }
+
+    pub(crate) fn text_surface_mut(&mut self) -> Option<&mut text::edit::Surface> {
+        self.text_surface.as_mut()
     }
 
     pub fn icon(&self) -> Option<icon::Icon> {
@@ -314,6 +322,10 @@ impl Node {
 
     pub fn children(&self) -> &[Node] {
         &self.children
+    }
+
+    pub(crate) fn children_mut(&mut self) -> &mut [Node] {
+        &mut self.children
     }
 
     pub fn with_layout(mut self, layout: Layout) -> Self {
@@ -531,13 +543,13 @@ impl Node {
         self
     }
 
-    pub fn with_text_field(mut self, field: impl Into<text::Field>) -> Self {
-        self.text_surface = Some(text::Surface::Field(field.into()));
+    pub fn with_text_field(mut self, field: impl Into<text::edit::Field>) -> Self {
+        self.text_surface = Some(text::edit::Surface::Field(field.into()));
         self
     }
 
-    pub fn with_text_area(mut self, area: impl Into<text::Area>) -> Self {
-        self.text_surface = Some(text::Surface::Area(area.into()));
+    pub fn with_text_area(mut self, area: impl Into<text::edit::Area>) -> Self {
+        self.text_surface = Some(text::edit::Surface::Area(area.into()));
         self
     }
 
