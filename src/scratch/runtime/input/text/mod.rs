@@ -107,8 +107,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let command_type = command.command_type();
         let command_name = command.command_name();
         let history_group = command.history_group(&());
-        let text_box_command =
-            services::text::handles(&self.session, &self.composition, Some(window), command_type);
+        let text_box_command = services::text::has_target(
+            &self.session,
+            &self.composition,
+            Some(window),
+            command_type,
+        );
         let text_box_commit = if text_box_command {
             None
         } else {

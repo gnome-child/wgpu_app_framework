@@ -1,38 +1,69 @@
-use std::{
-    any::{Any, TypeId},
-    result,
-};
+use std::any::{Any, TypeId};
 
 use crate::scratch::{
-    clipboard, command as framework_command, composition, context as command_context, draft,
-    error::Error, interaction, session, window,
+    command as framework_command, composition, context as command_context, document, session,
+    window,
 };
+use crate::scratch::{response::AnyResponse, target::Target, timeline};
 
-mod command;
 mod target;
 
-use command::Command as EditCommand;
+use super::target as service_target;
 use target::FocusedTextBox;
 
+const RESPONDER_NAME: &str = "focused_text";
+
+struct Text<'a> {
+    session: &'a mut session::Session,
+    composition: &'a composition::Store,
+    window: window::Id,
+    focus: session::Focus,
+}
+
+impl Text<'_> {
+    fn target(&mut self) -> FocusedTextBox<'_> {
+        FocusedTextBox::new(self.session, self.composition, self.window, self.focus)
+    }
+}
+
 pub(super) fn state(
-    session: &session::Session,
+    session: &mut session::Session,
     composition: &composition::Store,
     window: Option<window::Id>,
     command_type: TypeId,
     args: &dyn Any,
     cx: &command_context::Context,
-) -> result::Result<Option<framework_command::State>, Error> {
-    Ok(EditCommand::from_args(command_type, args)?
-        .and_then(|command| state_for_command(command, session, composition, window, cx)))
+) -> crate::scratch::error::Result<Option<framework_command::State>> {
+    let Some((window, focus)) = base_text_for(session, composition, window) else {
+        return Ok(None);
+    };
+    let mut text = Text {
+        session,
+        composition,
+        window,
+        focus,
+    };
+
+    service_target::state(
+        RESPONDER_NAME,
+        targets(),
+        &mut text,
+        command_type,
+        command_name(command_type),
+        args,
+        cx,
+    )
 }
 
-pub(in crate::scratch::runtime) fn handles(
+pub(in crate::scratch::runtime) fn has_target(
     session: &session::Session,
     composition: &composition::Store,
     window: Option<window::Id>,
     command_type: TypeId,
 ) -> bool {
-    EditCommand::from_type(command_type).is_some()
+    targets()
+        .iter()
+        .any(|target| target.handles_type(command_type))
         && base_text_for(session, composition, window).is_some()
 }
 
@@ -44,7 +75,7 @@ pub(super) fn invoke(
     args: Box<dyn Any + Send>,
     cx: &mut command_context::Context,
 ) -> Option<crate::scratch::response::AnyResponse> {
-    let Some((window, focus, _)) = base_text_for(session, composition, window) else {
+    let Some((window, focus)) = base_text_for(session, composition, window) else {
         return None;
     };
 
@@ -55,76 +86,22 @@ pub(super) fn invoke(
         session.focus(window, focus);
     }
 
-    let command = match EditCommand::from_box(command_type, args) {
-        Ok(Some(command)) => command,
-        Ok(None) => return None,
-        Err(error) => return Some(crate::scratch::response::AnyResponse::failed(error)),
+    let targets = targets();
+    let mut text = Text {
+        session,
+        composition,
+        window,
+        focus,
     };
 
-    let mut target = FocusedTextBox::new(session, composition, window, focus);
-
-    Some(command.invoke(&mut target, cx))
-}
-
-fn state_for_command(
-    command: EditCommand,
-    session: &session::Session,
-    composition: &composition::Store,
-    window: Option<window::Id>,
-    cx: &command_context::Context,
-) -> Option<framework_command::State> {
-    match command {
-        EditCommand::SelectAll | EditCommand::Delete => draft_for(session, composition, window)
-            .map(|draft| {
-                if draft.text().is_empty() {
-                    framework_command::State::disabled()
-                } else {
-                    framework_command::State::enabled()
-                }
-            }),
-        EditCommand::Copy | EditCommand::Cut => {
-            draft_for(session, composition, window).map(selection_state)
-        }
-        EditCommand::Paste => base_text_for(session, composition, window).map(|_| {
-            if cx
-                .clipboard()
-                .is_some_and(|clipboard| clipboard.contains::<clipboard::Text>())
-            {
-                framework_command::State::enabled()
-            } else {
-                framework_command::State::disabled()
-            }
-        }),
-        EditCommand::Undo => draft_for(session, composition, window).map(|draft| {
-            if draft.can_undo() {
-                framework_command::State::enabled()
-            } else {
-                framework_command::State::disabled()
-            }
-        }),
-        EditCommand::Redo => draft_for(session, composition, window).map(|draft| {
-            if draft.can_redo() {
-                framework_command::State::enabled()
-            } else {
-                framework_command::State::disabled()
-            }
-        }),
-    }
-}
-
-fn draft_for(
-    session: &session::Session,
-    composition: &composition::Store,
-    window: Option<window::Id>,
-) -> Option<draft::State> {
-    let (window, focus, base) = base_text_for(session, composition, window)?;
-    let target = interaction::Target::text_area(focus);
-
-    Some(
-        session
-            .interaction(window)
-            .and_then(|interaction| interaction.text_input().draft_for(&target).cloned())
-            .unwrap_or_else(|| draft::State::new(base)),
+    service_target::invoke(
+        RESPONDER_NAME,
+        &targets,
+        &mut text,
+        command_type,
+        command_name(command_type),
+        args,
+        cx,
     )
 }
 
@@ -132,22 +109,85 @@ fn base_text_for(
     session: &session::Session,
     composition: &composition::Store,
     window: Option<window::Id>,
-) -> Option<(window::Id, session::Focus, String)> {
+) -> Option<(window::Id, session::Focus)> {
     let window = window?;
     let focus = session.command_focus(window)?;
-    let base = composition
-        .get(window)?
-        .view()
-        .text_box_text(focus)?
-        .to_owned();
+    composition.get(window)?.view().text_box_text(focus)?;
 
-    Some((window, focus, base))
+    Some((window, focus))
 }
 
-fn selection_state(draft: draft::State) -> framework_command::State {
-    if draft.selected_text().is_some() {
-        framework_command::State::enabled()
-    } else {
-        framework_command::State::disabled()
+fn targets<'a>() -> [service_target::AnyTarget<Text<'a>>; 7] {
+    [
+        service_target::AnyTarget::new::<document::SelectAll>(select_all_state, select_all_invoke),
+        service_target::AnyTarget::new::<document::Copy>(copy_state, copy_invoke),
+        service_target::AnyTarget::new::<document::Cut>(cut_state, cut_invoke),
+        service_target::AnyTarget::new::<document::Delete>(delete_state, delete_invoke),
+        service_target::AnyTarget::new::<document::Paste>(paste_state, paste_invoke),
+        service_target::AnyTarget::new::<timeline::Undo>(undo_state, undo_invoke),
+        service_target::AnyTarget::new::<timeline::Redo>(redo_state, redo_invoke),
+    ]
+}
+
+macro_rules! text_target {
+    ($state:ident, $invoke:ident, $command:ty) => {
+        fn $state(
+            text: &mut Text<'_>,
+            args: &dyn Any,
+            cx: &command_context::Context,
+        ) -> crate::scratch::error::Result<framework_command::State> {
+            let args = service_target::args::<$command>(args)?;
+            let target = text.target();
+
+            Ok(Target::<$command>::state(&target, args, cx))
+        }
+
+        fn $invoke(
+            text: &mut Text<'_>,
+            args: Box<dyn Any + Send>,
+            cx: &mut command_context::Context,
+        ) -> AnyResponse {
+            let args = match service_target::args_box::<$command>(args) {
+                Ok(args) => args,
+                Err(error) => return AnyResponse::failed(error),
+            };
+            let mut target = text.target();
+
+            AnyResponse::from_response(Target::<$command>::invoke(&mut target, args, cx))
+        }
+    };
+}
+
+text_target!(select_all_state, select_all_invoke, document::SelectAll);
+text_target!(copy_state, copy_invoke, document::Copy);
+text_target!(cut_state, cut_invoke, document::Cut);
+text_target!(delete_state, delete_invoke, document::Delete);
+text_target!(paste_state, paste_invoke, document::Paste);
+text_target!(undo_state, undo_invoke, timeline::Undo);
+text_target!(redo_state, redo_invoke, timeline::Redo);
+
+fn command_name(command_type: TypeId) -> &'static str {
+    if command_type == TypeId::of::<document::SelectAll>() {
+        return <document::SelectAll as framework_command::Command>::NAME;
     }
+    if command_type == TypeId::of::<document::Copy>() {
+        return <document::Copy as framework_command::Command>::NAME;
+    }
+    if command_type == TypeId::of::<document::Cut>() {
+        return <document::Cut as framework_command::Command>::NAME;
+    }
+    if command_type == TypeId::of::<document::Delete>() {
+        return <document::Delete as framework_command::Command>::NAME;
+    }
+    if command_type == TypeId::of::<document::Paste>() {
+        return <document::Paste as framework_command::Command>::NAME;
+    }
+    if command_type == TypeId::of::<timeline::Undo>() {
+        return <timeline::Undo as framework_command::Command>::NAME;
+    }
+    if command_type == TypeId::of::<timeline::Redo>() {
+        return <timeline::Redo as framework_command::Command>::NAME;
+    }
+
+    "unknown"
 }

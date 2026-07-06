@@ -42,7 +42,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let mut chain = self
             .responders
             .chain_for(&mut self.store, focus)
-            .with_framework(services);
+            .with_service(services);
         let mut response = match invoke(&self.registry, &mut chain, &mut cx) {
             Ok(Some(response)) => response,
             Ok(None) => {

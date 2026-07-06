@@ -1,8 +1,12 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use glyphon::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping};
 
 use crate::{geometry::area, text};
+
+type FontDatabase = glyphon::fontdb::Database;
+
+static FONT_DATABASE: OnceLock<(String, FontDatabase)> = OnceLock::new();
 
 pub(crate) struct PreparedBuffer {
     pub(crate) buffer: Buffer,
@@ -11,6 +15,12 @@ pub(crate) struct PreparedBuffer {
 }
 
 pub(crate) fn font_system() -> FontSystem {
+    let (locale, database) = FONT_DATABASE.get_or_init(loaded_font_database);
+
+    FontSystem::new_with_locale_and_db(locale.clone(), database.clone())
+}
+
+fn loaded_font_database() -> (String, FontDatabase) {
     let mut font_system = FontSystem::new();
 
     for font in iconflow::fonts() {
@@ -21,7 +31,7 @@ pub(crate) fn font_system() -> FontSystem {
             )));
     }
 
-    font_system
+    font_system.into_locale_and_db()
 }
 
 pub(crate) fn measure_document(

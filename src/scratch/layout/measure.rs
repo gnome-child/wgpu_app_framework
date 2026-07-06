@@ -60,7 +60,7 @@ pub(in crate::scratch::layout) fn popup_height(node: &view::Node, theme: &theme:
         .sum();
     child_height
         .max(theme.menu().row_height)
-        .saturating_add(theme.menu().padding.saturating_mul(2))
+        .saturating_add(theme.floating_panel().padding.saturating_mul(2))
 }
 
 pub(in crate::scratch::layout) fn popup_width(
@@ -76,7 +76,7 @@ pub(in crate::scratch::layout) fn popup_width(
         .unwrap_or_default()
         .max(theme.menu().popup_min_width);
 
-    content_width.saturating_add(theme.menu().padding.saturating_mul(2))
+    content_width.saturating_add(theme.floating_panel().padding.saturating_mul(2))
 }
 
 pub(in crate::scratch::layout) fn menu_shortcut_width(

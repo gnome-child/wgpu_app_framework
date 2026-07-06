@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use thiserror::Error;
 
 use super::{
-    Choice, Control, Focus, Menu, Palette, Popup, Slider, Surfaces, Text, TextInput, Theme,
-    Variant, scene,
+    Choice, Control, FloatingPanel, Focus, Menu, Palette, Popup, Slider, Surfaces, Text, TextInput,
+    Theme, Variant, scene,
 };
 
 #[derive(Debug, Error)]
@@ -38,6 +38,8 @@ struct ThemePatch {
     slider: Option<SliderPatch>,
     #[serde(rename = "text-input")]
     text_input: Option<TextInputPatch>,
+    #[serde(rename = "floating-panel")]
+    floating_panel: Option<FloatingPanelPatch>,
     popup: Option<PopupPatch>,
 }
 
@@ -71,6 +73,7 @@ struct FocusPatch {
     color: Option<String>,
     outline: Option<String>,
     width: Option<i32>,
+    offset: Option<f32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,7 +155,21 @@ struct PopupPatch {
     shadow_offset_y: Option<f32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+struct FloatingPanelPatch {
+    backdrop_tint: Option<BrushToml>,
+    backdrop_blur: Option<f32>,
+    background: Option<BrushToml>,
+    rounding: Option<RoundingToml>,
+    shadow: Option<String>,
+    shadow_blur: Option<f32>,
+    shadow_spread: Option<f32>,
+    shadow_offset_y: Option<f32>,
+    padding: Option<i32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 #[serde(untagged, rename_all = "kebab-case")]
 enum RoundingToml {
     Name(String),
@@ -160,8 +177,13 @@ enum RoundingToml {
     Relative { relative: f32 },
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged, rename_all = "kebab-case")]
+enum BrushToml {
+    Color(String),
+    LinearGradient { from: String, to: String },
+}
+
 struct ThemeExport {
     variant: &'static str,
     palette: PaletteExport,
@@ -172,27 +194,21 @@ struct ThemeExport {
     menu: MenuExport,
     choice: ChoiceExport,
     slider: SliderExport,
-    #[serde(rename = "text-input")]
     text_input: TextInputExport,
+    floating_panel: FloatingPanelExport,
     popup: PopupExport,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "kebab-case")]
 struct PaletteExport {
     accent: String,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "kebab-case")]
 struct SurfacesExport {
     canvas: String,
     root: String,
     panel: String,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "kebab-case")]
 struct TextExport {
     primary: String,
     inverse: String,
@@ -200,16 +216,13 @@ struct TextExport {
     selection: String,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "kebab-case")]
 struct FocusExport {
     color: String,
     outline: String,
     width: i32,
+    offset: f32,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "kebab-case")]
 struct ControlExport {
     background: String,
     button_background: String,
@@ -220,8 +233,6 @@ struct ControlExport {
     padding: i32,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "kebab-case")]
 struct MenuExport {
     bar_background: String,
     title_background: String,
@@ -239,8 +250,6 @@ struct MenuExport {
     padding: i32,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "kebab-case")]
 struct ChoiceExport {
     background: String,
     mark: String,
@@ -252,8 +261,6 @@ struct ChoiceExport {
     icon_size: f32,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "kebab-case")]
 struct SliderExport {
     background: String,
     track: String,
@@ -268,16 +275,12 @@ struct SliderExport {
     thumb_height: i32,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "kebab-case")]
 struct TextInputExport {
     area_background: String,
     field_background: String,
     padding_x: i32,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "kebab-case")]
 struct PopupExport {
     background: String,
     rounding: RoundingToml,
@@ -285,6 +288,18 @@ struct PopupExport {
     shadow_blur: f32,
     shadow_spread: f32,
     shadow_offset_y: f32,
+}
+
+struct FloatingPanelExport {
+    backdrop_tint: BrushToml,
+    backdrop_blur: f32,
+    background: BrushToml,
+    rounding: RoundingToml,
+    shadow: String,
+    shadow_blur: f32,
+    shadow_spread: f32,
+    shadow_offset_y: f32,
+    padding: i32,
 }
 
 pub(super) fn theme_from_str(input: &str) -> Result<Theme, ThemeTomlError> {
@@ -329,6 +344,9 @@ pub(super) fn theme_from_str(input: &str) -> Result<Theme, ThemeTomlError> {
     if let Some(text_input) = patch.text_input {
         apply_text_input(&mut theme.text_input, text_input, &palette)?;
     }
+    if let Some(floating_panel) = patch.floating_panel {
+        apply_floating_panel(&mut theme.floating_panel, floating_panel, &palette)?;
+    }
     if let Some(popup) = patch.popup {
         apply_popup(&mut theme.popup, popup, &palette)?;
     }
@@ -338,7 +356,7 @@ pub(super) fn theme_from_str(input: &str) -> Result<Theme, ThemeTomlError> {
 
 pub(super) fn theme_to_string(theme: &Theme) -> Result<String, ThemeTomlError> {
     let export = ThemeExport::from_theme(theme)?;
-    Ok(::toml::to_string_pretty(&export)?)
+    Ok(export.to_toml_string())
 }
 
 fn apply_surfaces(
@@ -382,6 +400,7 @@ fn apply_focus(
     apply_color(&mut focus.color, patch.color, palette, "focus.color")?;
     apply_color(&mut focus.outline, patch.outline, palette, "focus.outline")?;
     apply_i32(&mut focus.width, patch.width);
+    apply_f32(&mut focus.offset, patch.offset);
     Ok(())
 }
 
@@ -573,6 +592,42 @@ fn apply_text_input(
     Ok(())
 }
 
+fn apply_floating_panel(
+    floating_panel: &mut FloatingPanel,
+    patch: FloatingPanelPatch,
+    palette: &HashMap<String, scene::Color>,
+) -> Result<(), ThemeTomlError> {
+    apply_brush(
+        &mut floating_panel.backdrop_tint,
+        patch.backdrop_tint,
+        palette,
+        "floating-panel.backdrop-tint",
+    )?;
+    apply_f32(&mut floating_panel.backdrop_blur, patch.backdrop_blur);
+    apply_brush(
+        &mut floating_panel.background,
+        patch.background,
+        palette,
+        "floating-panel.background",
+    )?;
+    apply_rounding(
+        &mut floating_panel.rounding,
+        patch.rounding,
+        "floating-panel.rounding",
+    )?;
+    apply_color(
+        &mut floating_panel.shadow,
+        patch.shadow,
+        palette,
+        "floating-panel.shadow",
+    )?;
+    apply_f32(&mut floating_panel.shadow_blur, patch.shadow_blur);
+    apply_f32(&mut floating_panel.shadow_spread, patch.shadow_spread);
+    apply_f32(&mut floating_panel.shadow_offset_y, patch.shadow_offset_y);
+    apply_i32(&mut floating_panel.padding, patch.padding);
+    Ok(())
+}
+
 fn apply_popup(
     popup: &mut Popup,
     patch: PopupPatch,
@@ -589,6 +644,18 @@ fn apply_popup(
     apply_f32(&mut popup.shadow_blur, patch.shadow_blur);
     apply_f32(&mut popup.shadow_spread, patch.shadow_spread);
     apply_f32(&mut popup.shadow_offset_y, patch.shadow_offset_y);
+    Ok(())
+}
+
+fn apply_brush(
+    target: &mut scene::Brush,
+    value: Option<BrushToml>,
+    palette: &HashMap<String, scene::Color>,
+    field: &'static str,
+) -> Result<(), ThemeTomlError> {
+    if let Some(value) = value {
+        *target = brush_from_toml(field, value, palette)?;
+    }
     Ok(())
 }
 
@@ -656,6 +723,20 @@ fn parse_color(
             field: field.to_owned(),
             name: value.to_owned(),
         })
+}
+
+fn brush_from_toml(
+    field: &'static str,
+    value: BrushToml,
+    palette: &HashMap<String, scene::Color>,
+) -> Result<scene::Brush, ThemeTomlError> {
+    match value {
+        BrushToml::Color(value) => Ok(scene::Brush::solid(parse_color(field, &value, palette)?)),
+        BrushToml::LinearGradient { from, to } => Ok(scene::Brush::linear_gradient(
+            parse_color(field, &from, palette)?,
+            parse_color(field, &to, palette)?,
+        )),
+    }
 }
 
 fn parse_hex_color(
@@ -743,6 +824,7 @@ impl ThemeExport {
                 color: color_string(theme.focus.color, theme.palette),
                 outline: color_string(theme.focus.outline, theme.palette),
                 width: theme.focus.width,
+                offset: theme.focus.offset,
             },
             control: ControlExport {
                 background: color_string(theme.control.background, theme.palette),
@@ -797,6 +879,20 @@ impl ThemeExport {
                 field_background: color_string(theme.text_input.field_background, theme.palette),
                 padding_x: theme.text_input.padding_x,
             },
+            floating_panel: FloatingPanelExport {
+                backdrop_tint: brush_to_toml(theme.floating_panel.backdrop_tint, theme.palette),
+                backdrop_blur: theme.floating_panel.backdrop_blur,
+                background: brush_to_toml(theme.floating_panel.background, theme.palette),
+                rounding: rounding_to_toml(
+                    "floating-panel.rounding",
+                    theme.floating_panel.rounding,
+                )?,
+                shadow: color_string(theme.floating_panel.shadow, theme.palette),
+                shadow_blur: theme.floating_panel.shadow_blur,
+                shadow_spread: theme.floating_panel.shadow_spread,
+                shadow_offset_y: theme.floating_panel.shadow_offset_y,
+                padding: theme.floating_panel.padding,
+            },
             popup: PopupExport {
                 background: color_string(theme.popup.background, theme.palette),
                 rounding: rounding_to_toml("popup.rounding", theme.popup.rounding)?,
@@ -807,6 +903,266 @@ impl ThemeExport {
             },
         })
     }
+
+    fn to_toml_string(&self) -> String {
+        let mut out = String::new();
+
+        push_string_field(&mut out, "variant", self.variant);
+        push_blank_line(&mut out);
+
+        push_header(&mut out, "palette");
+        push_string_field(&mut out, "accent", &self.palette.accent);
+        push_blank_line(&mut out);
+
+        push_header(&mut out, "surfaces");
+        push_string_field(&mut out, "canvas", &self.surfaces.canvas);
+        push_string_field(&mut out, "root", &self.surfaces.root);
+        push_string_field(&mut out, "panel", &self.surfaces.panel);
+        push_blank_line(&mut out);
+
+        push_header(&mut out, "text");
+        push_string_field(&mut out, "primary", &self.text.primary);
+        push_string_field(&mut out, "inverse", &self.text.inverse);
+        push_string_field(&mut out, "muted", &self.text.muted);
+        push_string_field(&mut out, "selection", &self.text.selection);
+        push_blank_line(&mut out);
+
+        push_header(&mut out, "focus");
+        push_string_field(&mut out, "color", &self.focus.color);
+        push_string_field(&mut out, "outline", &self.focus.outline);
+        push_i32_field(&mut out, "width", self.focus.width);
+        push_f32_field(&mut out, "offset", self.focus.offset);
+        push_blank_line(&mut out);
+
+        push_header(&mut out, "control");
+        push_string_field(&mut out, "background", &self.control.background);
+        push_string_field(
+            &mut out,
+            "button-background",
+            &self.control.button_background,
+        );
+        push_string_field(
+            &mut out,
+            "disabled-background",
+            &self.control.disabled_background,
+        );
+        push_string_field(&mut out, "hover-tint", &self.control.hover_tint);
+        push_string_field(&mut out, "pressed-tint", &self.control.pressed_tint);
+        push_rounding_field(&mut out, "rounding", &self.control.rounding);
+        push_i32_field(&mut out, "padding", self.control.padding);
+        push_blank_line(&mut out);
+
+        push_header(&mut out, "menu");
+        push_string_field(&mut out, "bar-background", &self.menu.bar_background);
+        push_string_field(&mut out, "title-background", &self.menu.title_background);
+        push_string_field(&mut out, "title-hover-tint", &self.menu.title_hover_tint);
+        push_string_field(
+            &mut out,
+            "title-pressed-tint",
+            &self.menu.title_pressed_tint,
+        );
+        push_string_field(&mut out, "title-active-tint", &self.menu.title_active_tint);
+        push_string_field(&mut out, "row-background", &self.menu.row_background);
+        push_string_field(&mut out, "row-hover-tint", &self.menu.row_hover_tint);
+        push_string_field(&mut out, "row-pressed-tint", &self.menu.row_pressed_tint);
+        push_string_field(&mut out, "separator", &self.menu.separator);
+        push_i32_field(&mut out, "bar-height", self.menu.bar_height);
+        push_i32_field(&mut out, "row-height", self.menu.row_height);
+        push_i32_field(
+            &mut out,
+            "separator-line-height",
+            self.menu.separator_line_height,
+        );
+        push_i32_field(&mut out, "popup-min-width", self.menu.popup_min_width);
+        push_i32_field(&mut out, "padding", self.menu.padding);
+        push_blank_line(&mut out);
+
+        push_header(&mut out, "choice");
+        push_string_field(&mut out, "background", &self.choice.background);
+        push_string_field(&mut out, "mark", &self.choice.mark);
+        push_string_field(&mut out, "outline", &self.choice.outline);
+        push_string_field(&mut out, "indicator", &self.choice.indicator);
+        push_i32_field(&mut out, "mark-size", self.choice.mark_size);
+        push_i32_field(&mut out, "mark-inset", self.choice.mark_inset);
+        push_i32_field(&mut out, "label-gap", self.choice.label_gap);
+        push_f32_field(&mut out, "icon-size", self.choice.icon_size);
+        push_blank_line(&mut out);
+
+        push_header(&mut out, "slider");
+        push_string_field(&mut out, "background", &self.slider.background);
+        push_string_field(&mut out, "track", &self.slider.track);
+        push_string_field(&mut out, "value", &self.slider.value);
+        push_string_field(&mut out, "thumb", &self.slider.thumb);
+        push_string_field(&mut out, "thumb-outline", &self.slider.thumb_outline);
+        push_i32_field(&mut out, "label-width", self.slider.label_width);
+        push_i32_field(&mut out, "inset", self.slider.inset);
+        push_i32_field(&mut out, "gap", self.slider.gap);
+        push_i32_field(&mut out, "track-height", self.slider.track_height);
+        push_i32_field(&mut out, "thumb-width", self.slider.thumb_width);
+        push_i32_field(&mut out, "thumb-height", self.slider.thumb_height);
+        push_blank_line(&mut out);
+
+        push_header(&mut out, "text-input");
+        push_string_field(
+            &mut out,
+            "area-background",
+            &self.text_input.area_background,
+        );
+        push_string_field(
+            &mut out,
+            "field-background",
+            &self.text_input.field_background,
+        );
+        push_i32_field(&mut out, "padding-x", self.text_input.padding_x);
+        push_blank_line(&mut out);
+
+        push_header(&mut out, "floating-panel");
+        push_brush_field(
+            &mut out,
+            "backdrop-tint",
+            &self.floating_panel.backdrop_tint,
+        );
+        push_f32_field(&mut out, "backdrop-blur", self.floating_panel.backdrop_blur);
+        push_brush_field(&mut out, "background", &self.floating_panel.background);
+        push_rounding_field(&mut out, "rounding", &self.floating_panel.rounding);
+        push_string_field(&mut out, "shadow", &self.floating_panel.shadow);
+        push_f32_field(&mut out, "shadow-blur", self.floating_panel.shadow_blur);
+        push_f32_field(&mut out, "shadow-spread", self.floating_panel.shadow_spread);
+        push_f32_field(
+            &mut out,
+            "shadow-offset-y",
+            self.floating_panel.shadow_offset_y,
+        );
+        push_i32_field(&mut out, "padding", self.floating_panel.padding);
+        push_blank_line(&mut out);
+
+        push_header(&mut out, "popup");
+        push_string_field(&mut out, "background", &self.popup.background);
+        push_rounding_field(&mut out, "rounding", &self.popup.rounding);
+        push_string_field(&mut out, "shadow", &self.popup.shadow);
+        push_f32_field(&mut out, "shadow-blur", self.popup.shadow_blur);
+        push_f32_field(&mut out, "shadow-spread", self.popup.shadow_spread);
+        push_f32_field(&mut out, "shadow-offset-y", self.popup.shadow_offset_y);
+
+        out
+    }
+}
+
+fn brush_to_toml(brush: scene::Brush, palette: Palette) -> BrushToml {
+    match brush {
+        scene::Brush::Solid(color) => BrushToml::Color(color_string(color, palette)),
+        scene::Brush::LinearGradient { from, to } => BrushToml::LinearGradient {
+            from: color_string(from, palette),
+            to: color_string(to, palette),
+        },
+    }
+}
+
+fn push_header(out: &mut String, name: &str) {
+    out.push('[');
+    out.push_str(name);
+    out.push_str("]\n");
+}
+
+fn push_blank_line(out: &mut String) {
+    out.push('\n');
+}
+
+fn push_string_field(out: &mut String, key: &str, value: &str) {
+    out.push_str(key);
+    out.push_str(" = ");
+    out.push_str(&toml_string(value));
+    out.push('\n');
+}
+
+fn push_i32_field(out: &mut String, key: &str, value: i32) {
+    out.push_str(key);
+    out.push_str(" = ");
+    out.push_str(&value.to_string());
+    out.push('\n');
+}
+
+fn push_f32_field(out: &mut String, key: &str, value: f32) {
+    out.push_str(key);
+    out.push_str(" = ");
+    out.push_str(&f32_literal(value));
+    out.push('\n');
+}
+
+fn push_rounding_field(out: &mut String, key: &str, value: &RoundingToml) {
+    out.push_str(key);
+    out.push_str(" = ");
+    out.push_str(&rounding_literal(value));
+    out.push('\n');
+}
+
+fn push_brush_field(out: &mut String, key: &str, value: &BrushToml) {
+    out.push_str(key);
+    out.push_str(" = ");
+    out.push_str(&brush_literal(value));
+    out.push('\n');
+}
+
+fn rounding_literal(value: &RoundingToml) -> String {
+    match value {
+        RoundingToml::Name(name) => toml_string(name),
+        RoundingToml::Fixed { fixed } => format!("{{ fixed = {} }}", f32_literal(*fixed)),
+        RoundingToml::Relative { relative } => {
+            format!("{{ relative = {} }}", f32_literal(*relative))
+        }
+    }
+}
+
+fn brush_literal(value: &BrushToml) -> String {
+    match value {
+        BrushToml::Color(color) => toml_string(color),
+        BrushToml::LinearGradient { from, to } => {
+            format!(
+                "{{ from = {}, to = {} }}",
+                toml_string(from),
+                toml_string(to)
+            )
+        }
+    }
+}
+
+fn toml_string(value: &str) -> String {
+    let mut quoted = String::from("\"");
+
+    for character in value.chars() {
+        match character {
+            '\\' => quoted.push_str("\\\\"),
+            '"' => quoted.push_str("\\\""),
+            '\n' => quoted.push_str("\\n"),
+            '\r' => quoted.push_str("\\r"),
+            '\t' => quoted.push_str("\\t"),
+            character if character.is_control() => {
+                quoted.push_str(&format!("\\u{:04x}", character as u32));
+            }
+            character => quoted.push(character),
+        }
+    }
+
+    quoted.push('"');
+    quoted
+}
+
+fn f32_literal(value: f32) -> String {
+    let mut literal = if value.is_nan() {
+        "nan".to_owned()
+    } else if value == f32::INFINITY {
+        "inf".to_owned()
+    } else if value == f32::NEG_INFINITY {
+        "-inf".to_owned()
+    } else {
+        value.to_string()
+    };
+
+    if !literal.contains('.') && !literal.contains('e') && !literal.contains('E') {
+        literal.push_str(".0");
+    }
+
+    literal
 }
 
 fn color_string(color: scene::Color, palette: Palette) -> String {
@@ -883,6 +1239,9 @@ mod tests {
             [surfaces]
             canvas = "base"
 
+            [focus]
+            offset = 3.5
+
             [menu]
             title-background = "transparent"
             row-hover-tint = "overlay"
@@ -899,6 +1258,77 @@ mod tests {
             theme.menu().row_hover_tint,
             scene::Color::rgba(68, 85, 102, 119)
         );
+        assert_eq!(theme.focus().offset, 3.5);
+    }
+
+    #[test]
+    fn floating_panel_defaults_match_production_glass_tokens() {
+        let theme = Theme::dark();
+        let floating = theme.floating_panel();
+
+        assert_eq!(
+            floating.backdrop_tint,
+            scene::Brush::linear_gradient(
+                scene::Color::rgba(28, 28, 30, 87),
+                scene::Color::rgba(44, 44, 46, 117),
+            )
+        );
+        assert_eq!(floating.backdrop_blur, 0.86);
+        assert_eq!(floating.rounding, scene::Rounding::fixed(10.0));
+        assert_eq!(floating.padding, 6);
+        assert_eq!(floating.shadow_blur, 24.0);
+        assert_eq!(floating.shadow_spread, 0.5);
+        assert_eq!(floating.shadow_offset_y, 10.0);
+    }
+
+    #[test]
+    fn floating_panel_toml_accepts_gradient_solid_and_round_trips() {
+        let theme = Theme::from_toml_str(
+            r##"
+            [palette]
+            accent = "#3366cc"
+            glass-end = "#44556677"
+
+            [floating-panel]
+            backdrop-tint = { from = "#11223344", to = "glass-end" }
+            backdrop-blur = 0.42
+            background = "transparent"
+            rounding = { fixed = 12.0 }
+            shadow = "accent"
+            shadow-blur = 11.5
+            shadow-spread = 0.25
+            shadow-offset-y = 5.0
+            padding = 9
+            "##,
+        )
+        .expect("theme should parse");
+        let floating = theme.floating_panel();
+
+        assert_eq!(
+            floating.backdrop_tint,
+            scene::Brush::linear_gradient(
+                scene::Color::rgba(17, 34, 51, 68),
+                scene::Color::rgba(68, 85, 102, 119),
+            )
+        );
+        assert_eq!(
+            floating.background,
+            scene::Brush::solid(scene::Color::rgba(0, 0, 0, 0))
+        );
+        assert_eq!(floating.backdrop_blur, 0.42);
+        assert_eq!(floating.rounding, scene::Rounding::fixed(12.0));
+        assert_eq!(floating.shadow, scene::Color::rgb(51, 102, 204));
+        assert_eq!(floating.shadow_blur, 11.5);
+        assert_eq!(floating.shadow_spread, 0.25);
+        assert_eq!(floating.shadow_offset_y, 5.0);
+        assert_eq!(floating.padding, 9);
+
+        let serialized = theme
+            .to_toml_string()
+            .expect("theme should serialize to TOML");
+        let parsed = Theme::from_toml_str(&serialized).expect("theme should parse again");
+
+        assert_eq!(parsed, theme);
     }
 
     #[test]
@@ -924,6 +1354,33 @@ mod tests {
             ThemeTomlError::UnknownColor { field, name }
                 if field == "text.primary" && name == "missing"
         ));
+
+        let unknown_gradient_stop = Theme::from_toml_str(
+            r##"
+            [floating-panel]
+            backdrop-tint = { from = "missing", to = "#ffffff" }
+            "##,
+        )
+        .expect_err("unknown palette names in brushes should fail");
+        assert!(matches!(
+            unknown_gradient_stop,
+            ThemeTomlError::UnknownColor { field, name }
+                if field == "floating-panel.backdrop-tint" && name == "missing"
+        ));
+    }
+
+    #[test]
+    fn serializes_rounding_and_gradient_brushes_as_inline_values() {
+        let serialized = Theme::dark()
+            .to_toml_string()
+            .expect("theme should serialize");
+
+        assert!(serialized.contains("rounding = { fixed = 4.0 }\n"));
+        assert!(
+            serialized.contains("backdrop-tint = { from = \"#1c1c1e57\", to = \"#2c2c2e75\" }\n")
+        );
+        assert!(!serialized.contains("[control.rounding]"));
+        assert!(!serialized.contains("[floating-panel.backdrop-tint]"));
     }
 
     #[test]

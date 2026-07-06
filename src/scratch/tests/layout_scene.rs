@@ -859,15 +859,23 @@ fn theme_toml_tokens_drive_layout_and_scene_primitives() {
         bar-background = "#010203"
         bar-height = 34
         row-height = 34
+
+        [floating-panel]
+        backdrop-tint = { from = "#22334488", to = "#33445599" }
+        backdrop-blur = 0.31
+        rounding = { fixed = 13.0 }
+        padding = 10
         "##,
     )
     .expect("theme TOML should parse");
     let view = View::new(
-        view::Node::root().child(
-            view::Node::stack(view::node::Axis::Vertical)
-                .child(view::Node::menu_bar().child(view::Node::menu("menu.file", "File")))
-                .child(view::Node::button("Run")),
-        ),
+        view::Node::root()
+            .child(
+                view::Node::stack(view::node::Axis::Vertical)
+                    .child(view::Node::menu_bar().child(view::Node::menu("menu.file", "File")))
+                    .child(view::Node::button("Run")),
+            )
+            .child(view::Node::popup("popup").child(view::Node::label("Item"))),
     );
     let mut layout_engine = layout::engine::Engine::new();
     let layout = layout::Layout::compose_with_theme(
@@ -887,8 +895,14 @@ fn theme_toml_tokens_drive_layout_and_scene_primitives() {
         .into_iter()
         .next()
         .expect("button should be laid out");
+    let popup = layout
+        .find_role(view::node::Role::Popup)
+        .into_iter()
+        .next()
+        .expect("popup should be laid out");
 
     assert_eq!(menu_bar.rect().height(), 34);
+    assert_eq!(popup.rect().height(), 54);
     assert!(scene.quads().iter().any(|quad| {
         quad.rect() == menu_bar.rect() && quad.fill() == scene::Color::rgb(1, 2, 3)
     }));
@@ -903,6 +917,23 @@ fn theme_toml_tokens_drive_layout_and_scene_primitives() {
             .iter()
             .any(|text| text.value() == "Run" && text.color() == scene::Color::rgb(68, 85, 102))
     );
+    assert!(
+        scene
+            .backdrops()
+            .iter()
+            .any(|backdrop| backdrop.rect() == popup.rect()
+                && backdrop.blur() == 0.31
+                && backdrop.rounding() == scene::Rounding::fixed(13.0))
+    );
+    assert!(scene.quads().iter().any(|quad| {
+        quad.rect() == popup.rect()
+            && quad.style().fill()
+                == Some(scene::Brush::linear_gradient(
+                    scene::Color::rgba(34, 51, 68, 136),
+                    scene::Color::rgba(51, 68, 85, 153),
+                ))
+            && quad.rounding() == scene::Rounding::fixed(13.0)
+    }));
 }
 
 #[test]
@@ -1083,11 +1114,11 @@ fn menu_popup_rows_use_slot_layout_for_labels_shortcuts_and_separators() {
     assert_eq!(separator.rect().height(), theme.menu().row_height);
     assert_eq!(
         separator.rect().x(),
-        popup.rect().x() + theme.menu().padding
+        popup.rect().x() + theme.floating_panel().padding
     );
     assert_eq!(
         separator.rect().right(),
-        popup.rect().right() - theme.menu().padding
+        popup.rect().right() - theme.floating_panel().padding
     );
     assert_eq!(separator_slots.separator.x(), separator.rect().x());
     assert_eq!(separator_slots.separator.width(), separator.rect().width());
@@ -1340,6 +1371,7 @@ fn focus_outline_uses_frame_rounding() {
         .expect("focus outline should paint");
 
     assert_eq!(outline.rounding(), Theme::default().control().rounding);
+    assert_eq!(outline.offset(), Theme::default().focus().offset);
 }
 
 #[test]
@@ -1369,6 +1401,12 @@ fn scene_preserves_popup_paint_order_after_base_content() {
         &mut layout_engine,
     );
     let scene = scene::Scene::paint(&layout);
+    let popup = layout
+        .find_role(view::node::Role::Popup)
+        .into_iter()
+        .next()
+        .expect("file menu popup should be laid out");
+    let theme = Theme::default();
 
     assert!(
         scene
@@ -1378,6 +1416,43 @@ fn scene_preserves_popup_paint_order_after_base_content() {
         "popup paint should include theme-owned elevation"
     );
 
+    let popup_shadow = scene
+        .primitives()
+        .iter()
+        .position(|primitive| {
+            matches!(
+                primitive,
+                scene::Primitive::Shadow(shadow) if shadow.rect() == popup.rect()
+            )
+        })
+        .expect("popup shadow should be painted");
+    let popup_backdrop = scene
+        .primitives()
+        .iter()
+        .position(|primitive| {
+            matches!(
+                primitive,
+                scene::Primitive::Backdrop(backdrop)
+                    if backdrop.rect() == popup.rect()
+                        && backdrop.blur() == theme.floating_panel().backdrop_blur
+                        && backdrop.rounding() == theme.floating_panel().rounding
+            )
+        })
+        .expect("popup backdrop should be painted");
+    let popup_material = scene
+        .primitives()
+        .iter()
+        .position(|primitive| {
+            matches!(
+                primitive,
+                scene::Primitive::Quad(quad)
+                    if quad.rect() == popup.rect()
+                        && quad.style().fill()
+                            == Some(theme.floating_panel().backdrop_tint)
+                        && quad.rounding() == theme.floating_panel().rounding
+            )
+        })
+        .expect("popup material fill should be painted");
     let file_menu_text = scene
         .primitives()
         .iter()
@@ -1419,6 +1494,9 @@ fn scene_preserves_popup_paint_order_after_base_content() {
         })
         .expect("popup exit shortcut text should be painted");
 
+    assert!(popup_shadow < popup_backdrop);
+    assert!(popup_backdrop < popup_material);
+    assert!(popup_material < open_command_text);
     assert!(file_menu_text < open_command_text);
     assert!(file_menu_text < exit_command_text);
     assert!(exit_command_text < exit_shortcut_text);

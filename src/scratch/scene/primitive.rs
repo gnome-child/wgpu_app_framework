@@ -12,6 +12,7 @@ pub enum Primitive {
     TextViewport(TextViewport),
     Icon(Icon),
     Shadow(Shadow),
+    Backdrop(Backdrop),
     Outline(Outline),
 }
 
@@ -57,6 +58,13 @@ pub struct Shadow {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Backdrop {
+    rect: geometry::Rect,
+    blur: f32,
+    rounding: Rounding,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Outline {
     rect: geometry::Rect,
     color: Color,
@@ -88,6 +96,7 @@ pub struct Style {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Brush {
     Solid(Color),
+    LinearGradient { from: Color, to: Color },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -191,6 +200,7 @@ impl Quad {
     pub fn fill(&self) -> Color {
         match self.style.fill {
             Some(Brush::Solid(color)) => color,
+            Some(Brush::LinearGradient { .. }) => Color::rgba(0, 0, 0, 0),
             None => Color::rgba(0, 0, 0, 0),
         }
     }
@@ -370,6 +380,33 @@ impl Shadow {
     }
 }
 
+impl Backdrop {
+    pub(in crate::scratch::scene) fn new(rect: geometry::Rect, blur: f32) -> Self {
+        Self {
+            rect,
+            blur,
+            rounding: Rounding::none(),
+        }
+    }
+
+    pub(in crate::scratch::scene) fn with_rounding(mut self, rounding: Rounding) -> Self {
+        self.rounding = rounding;
+        self
+    }
+
+    pub fn rect(&self) -> geometry::Rect {
+        self.rect
+    }
+
+    pub fn blur(&self) -> f32 {
+        self.blur
+    }
+
+    pub fn rounding(&self) -> Rounding {
+        self.rounding
+    }
+}
+
 impl fmt::Debug for TextSurface {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TextSurface")
@@ -422,6 +459,11 @@ impl Outline {
         self
     }
 
+    pub(in crate::scratch::scene) fn with_offset(mut self, offset: f32) -> Self {
+        self.offset = offset.max(0.0);
+        self
+    }
+
     pub(in crate::scratch::scene) fn with_rounding(mut self, rounding: Rounding) -> Self {
         self.rounding = rounding;
         self
@@ -452,6 +494,14 @@ impl Style {
     pub const fn filled(color: Color) -> Self {
         Self {
             fill: Some(Brush::Solid(color)),
+            stroke: None,
+            tint: None,
+        }
+    }
+
+    pub const fn filled_with(brush: Brush) -> Self {
+        Self {
+            fill: Some(brush),
             stroke: None,
             tint: None,
         }
@@ -500,6 +550,17 @@ impl Stroke {
 impl Brush {
     pub const fn solid(color: Color) -> Self {
         Self::Solid(color)
+    }
+
+    pub const fn linear_gradient(from: Color, to: Color) -> Self {
+        Self::LinearGradient { from, to }
+    }
+
+    pub fn is_visible(self) -> bool {
+        match self {
+            Self::Solid(color) => color.channels().3 > 0,
+            Self::LinearGradient { from, to } => from.channels().3 > 0 || to.channels().3 > 0,
+        }
     }
 }
 

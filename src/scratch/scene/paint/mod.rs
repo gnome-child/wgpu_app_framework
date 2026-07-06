@@ -6,7 +6,9 @@ mod text_box;
 use crate::icon as framework_icon;
 
 use super::super::{context, geometry, layout, theme::Theme, view};
-use super::{Icon, Offset, Outline, Quad, Scene, Shadow, Text, TextAlign, TextWrap};
+use super::{
+    Backdrop, Brush, Icon, Offset, Outline, Quad, Scene, Shadow, Style, Text, TextAlign, TextWrap,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Layer {
@@ -41,10 +43,13 @@ fn paint_frame(
 ) {
     if frame.role() == view::node::Role::Popup {
         paint_popup_shadow(frame, scene, theme);
+        paint_popup_backdrop(frame, scene, theme);
     }
 
     let rounding = role_rounding(frame, theme);
-    if let Some(fill) = role_fill(frame, theme) {
+    if frame.role() == view::node::Role::Popup {
+        paint_popup_material(frame, scene, theme);
+    } else if let Some(fill) = role_fill(frame, theme) {
         scene.push_quad(Quad::new(frame.rect(), fill).with_rounding(rounding));
     }
 
@@ -104,6 +109,7 @@ fn paint_frame(
         overlays.push(
             Outline::new(frame.rect(), color)
                 .with_width(theme.focus().width as f32)
+                .with_offset(theme.focus().offset)
                 .with_rounding(rounding),
         );
     } else if let Some(color) = outline_color_for(frame, theme) {
@@ -131,7 +137,7 @@ fn role_fill(frame: &layout::frame::Frame, theme: &Theme) -> Option<super::Color
         view::node::Role::Root => Some(theme.surfaces().root),
         view::node::Role::MenuBar => Some(theme.menu().bar_background),
         view::node::Role::Menu => visible_fill(theme.menu().title_background),
-        view::node::Role::Popup => Some(theme.popup().background),
+        view::node::Role::Popup => None,
         view::node::Role::Binding if frame.binding_source() == Some(context::Source::Menu) => {
             visible_fill(theme.menu().row_background)
         }
@@ -157,7 +163,7 @@ fn visible_fill(color: super::Color) -> Option<super::Color> {
 
 fn role_rounding(frame: &layout::frame::Frame, theme: &Theme) -> super::Rounding {
     match frame.role() {
-        view::node::Role::Popup => theme.popup().rounding,
+        view::node::Role::Popup => theme.floating_panel().rounding,
         view::node::Role::Menu => theme.control().rounding,
         view::node::Role::Binding if frame.binding_source() == Some(context::Source::Menu) => {
             theme.control().rounding
@@ -173,7 +179,7 @@ fn role_rounding(frame: &layout::frame::Frame, theme: &Theme) -> super::Rounding
 }
 
 fn paint_popup_shadow(frame: &layout::frame::Frame, scene: &mut Scene, theme: &Theme) {
-    let popup = theme.popup();
+    let popup = theme.floating_panel();
     scene.push_shadow(
         Shadow::new(
             frame.rect(),
@@ -184,6 +190,29 @@ fn paint_popup_shadow(frame: &layout::frame::Frame, scene: &mut Scene, theme: &T
         )
         .with_rounding(role_rounding(frame, theme)),
     );
+}
+
+fn paint_popup_backdrop(frame: &layout::frame::Frame, scene: &mut Scene, theme: &Theme) {
+    let popup = theme.floating_panel();
+    scene.push_backdrop(
+        Backdrop::new(frame.rect(), popup.backdrop_blur).with_rounding(role_rounding(frame, theme)),
+    );
+}
+
+fn paint_popup_material(frame: &layout::frame::Frame, scene: &mut Scene, theme: &Theme) {
+    let popup = theme.floating_panel();
+    let fill = popup_material_fill(popup.backdrop_tint, popup.background);
+
+    if fill.is_visible() {
+        scene.push_quad(
+            Quad::styled(frame.rect(), Style::filled_with(fill))
+                .with_rounding(role_rounding(frame, theme)),
+        );
+    }
+}
+
+fn popup_material_fill(tint: Brush, background: Brush) -> Brush {
+    if tint.is_visible() { tint } else { background }
 }
 
 fn paint_menu_row(frame: &layout::frame::Frame, scene: &mut Scene, theme: &Theme) {

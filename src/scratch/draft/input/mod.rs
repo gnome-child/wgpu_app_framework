@@ -1,17 +1,18 @@
-use std::collections::{HashMap, VecDeque};
-
 use crate::text;
 
 use super::{Change, State};
 use crate::scratch::interaction::Target;
 
-const DRAFT_LIMIT: usize = 64;
+mod store;
+
+use store::Store;
+
+pub(in crate::scratch) use store::DEFAULT_DRAFT_LIMIT;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Input {
     target: Option<Target>,
-    drafts: HashMap<Target, State>,
-    draft_order: VecDeque<Target>,
+    drafts: Store,
     preedit: Option<text::edit::Preedit>,
 }
 
@@ -46,7 +47,7 @@ impl Input {
         preedit: text::edit::Preedit,
     ) -> bool {
         if preedit.text().is_empty() {
-            if self.target.as_ref() == Some(&target) && self.drafts.contains_key(&target) {
+            if self.target.as_ref() == Some(&target) && self.drafts.contains(&target) {
                 let changed = self.preedit.is_some();
                 self.preedit = None;
                 return changed;
@@ -78,7 +79,7 @@ impl Input {
         let base = base.into();
         let target_changed = self.target.as_ref() != Some(&target);
         self.target = Some(target.clone());
-        self.touch_draft(&target);
+        self.drafts.touch(&target, self.target.as_ref());
 
         if target_changed
             && self
@@ -89,10 +90,7 @@ impl Input {
             self.drafts.insert(target.clone(), State::new(base.clone()));
         }
 
-        let draft = self
-            .drafts
-            .entry(target)
-            .or_insert_with(|| State::new(base));
+        let draft = self.drafts.get_or_insert_with(target, || State::new(base));
         let before_text = draft.text().to_owned();
         let before_cursor = draft.cursor();
         let before_selection = draft.selection();
@@ -142,13 +140,13 @@ impl Input {
         target: &Target,
         change: impl FnOnce(&mut State) -> bool,
     ) -> Option<Change> {
-        if !self.drafts.contains_key(target) {
+        if !self.drafts.contains(target) {
             return None;
         }
 
         let target_changed = self.target.as_ref() != Some(target);
         self.target = Some(target.clone());
-        self.touch_draft(target);
+        self.drafts.touch(target, self.target.as_ref());
 
         let draft = self.drafts.get_mut(target)?;
         let before_text = draft.text().to_owned();
@@ -184,7 +182,6 @@ impl Input {
         let changed = self.target.is_some() || !self.drafts.is_empty() || self.preedit.is_some();
         self.target = None;
         self.drafts.clear();
-        self.draft_order.clear();
         self.preedit = None;
         changed
     }
@@ -195,7 +192,7 @@ impl Input {
         if self
             .target
             .as_ref()
-            .is_none_or(|target| !self.drafts.contains_key(target))
+            .is_none_or(|target| !self.drafts.contains(target))
         {
             self.target = None;
         }
@@ -204,10 +201,7 @@ impl Input {
     }
 
     pub(in crate::scratch) fn clear_draft(&mut self, target: &Target) -> bool {
-        let draft_changed = self.drafts.remove(target).is_some();
-        let order_len = self.draft_order.len();
-        self.draft_order.retain(|existing| existing != target);
-        let order_changed = self.draft_order.len() != order_len;
+        let store_changed = self.drafts.remove(target);
         let target_changed = if self.target.as_ref() == Some(target) {
             self.target = None;
             self.preedit = None;
@@ -216,7 +210,7 @@ impl Input {
             false
         };
 
-        draft_changed || order_changed || target_changed
+        store_changed || target_changed
     }
 
     pub(in crate::scratch) fn deactivate(&mut self, target: &Target) -> bool {
@@ -235,7 +229,7 @@ impl Input {
         }
 
         let preedit_changed = self.preedit.take().is_some();
-        if self.drafts.contains_key(target) {
+        if self.drafts.contains(target) {
             self.target = Some(target.clone());
             return true;
         }
@@ -243,7 +237,7 @@ impl Input {
         if self
             .target
             .as_ref()
-            .is_some_and(|target| !self.drafts.contains_key(target))
+            .is_some_and(|target| !self.drafts.contains(target))
         {
             self.target = None;
             return true;
@@ -252,17 +246,7 @@ impl Input {
         preedit_changed
     }
 
-    fn touch_draft(&mut self, target: &Target) {
-        self.draft_order.retain(|existing| existing != target);
-        self.draft_order.push_back(target.clone());
-
-        while self.draft_order.len() > DRAFT_LIMIT {
-            let Some(stale) = self.draft_order.pop_front() else {
-                break;
-            };
-            if self.target.as_ref() != Some(&stale) {
-                self.drafts.remove(&stale);
-            }
-        }
+    pub(in crate::scratch) fn set_draft_limit(&mut self, limit: usize) {
+        self.drafts.set_limit(limit, self.target.as_ref());
     }
 }

@@ -16,6 +16,7 @@ pub struct Theme {
     choice: Choice,
     slider: Slider,
     text_input: TextInput,
+    floating_panel: FloatingPanel,
     popup: Popup,
 }
 
@@ -50,6 +51,7 @@ pub struct Focus {
     pub(in crate::scratch) color: scene::Color,
     pub(in crate::scratch) outline: scene::Color,
     pub(in crate::scratch) width: i32,
+    pub(in crate::scratch) offset: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -125,6 +127,19 @@ pub struct Popup {
     pub(in crate::scratch) shadow_offset_y: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FloatingPanel {
+    pub(in crate::scratch) backdrop_tint: scene::Brush,
+    pub(in crate::scratch) backdrop_blur: f32,
+    pub(in crate::scratch) background: scene::Brush,
+    pub(in crate::scratch) rounding: scene::Rounding,
+    pub(in crate::scratch) shadow: scene::Color,
+    pub(in crate::scratch) shadow_blur: f32,
+    pub(in crate::scratch) shadow_spread: f32,
+    pub(in crate::scratch) shadow_offset_y: f32,
+    pub(in crate::scratch) padding: i32,
+}
+
 impl Theme {
     pub const fn dark() -> Self {
         Self {
@@ -147,6 +162,7 @@ impl Theme {
                 color: scene::Color::rgb(76, 132, 255),
                 outline: scene::Color::rgb(75, 80, 88),
                 width: 1,
+                offset: 2.0,
             },
             control: Control {
                 background: scene::Color::rgb(38, 42, 48),
@@ -201,6 +217,20 @@ impl Theme {
                 field_background: scene::Color::rgb(245, 247, 250),
                 padding_x: 8,
             },
+            floating_panel: FloatingPanel {
+                backdrop_tint: scene::Brush::linear_gradient(
+                    scene::Color::rgba(28, 28, 30, 87),
+                    scene::Color::rgba(44, 44, 46, 117),
+                ),
+                backdrop_blur: 0.86,
+                background: scene::Brush::solid(scene::Color::rgb(32, 35, 40)),
+                rounding: scene::Rounding::fixed(10.0),
+                shadow: scene::Color::rgba(0, 0, 0, 96),
+                shadow_blur: 24.0,
+                shadow_spread: 0.5,
+                shadow_offset_y: 10.0,
+                padding: 6,
+            },
             popup: Popup {
                 background: scene::Color::rgb(32, 35, 40),
                 rounding: scene::Rounding::fixed(6.0),
@@ -233,6 +263,7 @@ impl Theme {
                 color: scene::Color::rgb(42, 104, 230),
                 outline: scene::Color::rgb(185, 193, 204),
                 width: 1,
+                offset: 2.0,
             },
             control: Control {
                 background: scene::Color::rgb(248, 250, 253),
@@ -286,6 +317,20 @@ impl Theme {
                 area_background: scene::Color::rgb(255, 255, 255),
                 field_background: scene::Color::rgb(255, 255, 255),
                 padding_x: 8,
+            },
+            floating_panel: FloatingPanel {
+                backdrop_tint: scene::Brush::linear_gradient(
+                    scene::Color::rgba(28, 28, 30, 87),
+                    scene::Color::rgba(44, 44, 46, 117),
+                ),
+                backdrop_blur: 0.86,
+                background: scene::Brush::solid(scene::Color::rgb(255, 255, 255)),
+                rounding: scene::Rounding::fixed(10.0),
+                shadow: scene::Color::rgba(20, 22, 25, 48),
+                shadow_blur: 24.0,
+                shadow_spread: 0.5,
+                shadow_offset_y: 10.0,
+                padding: 6,
             },
             popup: Popup {
                 background: scene::Color::rgb(255, 255, 255),
@@ -350,8 +395,8 @@ impl Theme {
         &self.text_input
     }
 
-    pub(in crate::scratch) fn popup(&self) -> &Popup {
-        &self.popup
+    pub(in crate::scratch) fn floating_panel(&self) -> &FloatingPanel {
+        &self.floating_panel
     }
 }
 

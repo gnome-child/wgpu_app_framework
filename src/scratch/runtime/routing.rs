@@ -29,7 +29,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             self.session.focused(window)
         };
         let text_box_command = binding.source() == command_context::Source::Menu
-            && services::text::handles(
+            && services::text::has_target(
                 &self.session,
                 &self.composition,
                 Some(window),

@@ -140,7 +140,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             let mut chain = self
                 .responders
                 .chain_for(&mut self.store, command_focus)
-                .with_framework(services);
+                .with_service(services);
 
             view.resolve_commands(&self.registry, &mut chain, &cx);
         }

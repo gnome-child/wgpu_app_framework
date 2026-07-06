@@ -15,6 +15,9 @@ pub(in crate::scratch::platform::native) fn to_paint_scene(source: &scene::Scene
             }
             scene::Primitive::Icon(icon) => scene.push_icon(to_paint_icon(icon)),
             scene::Primitive::Shadow(shadow) => scene.push_shadow(to_paint_shadow(shadow)),
+            scene::Primitive::Backdrop(backdrop) => {
+                scene.push_backdrop(to_paint_backdrop(backdrop))
+            }
             scene::Primitive::Outline(outline) => scene.push_outline(to_paint_outline(outline)),
         }
     }
@@ -81,6 +84,15 @@ fn to_paint_shadow(shadow: &scene::Shadow) -> paint::Shadow {
     }
 }
 
+fn to_paint_backdrop(backdrop: &scene::Backdrop) -> paint::Backdrop {
+    paint::Backdrop {
+        rect: into_paint_rounded_rect(backdrop.rect(), backdrop.rounding()),
+        filter: paint::BackdropFilter::Blur {
+            amount: backdrop.blur(),
+        },
+    }
+}
+
 fn to_paint_outline(outline: &scene::Outline) -> paint::Outline {
     paint::Outline {
         rect: into_paint_rounded_rect(outline.rect(), outline.rounding()),
@@ -143,6 +155,10 @@ fn to_paint_stroke(stroke: scene::Stroke) -> paint::Stroke {
 fn to_paint_brush(brush: scene::Brush) -> paint::Brush {
     match brush {
         scene::Brush::Solid(color) => paint::Brush::solid(super::color::paint_color(color)),
+        scene::Brush::LinearGradient { from, to } => paint::Brush::linear_gradient(
+            super::color::paint_color(from),
+            super::color::paint_color(to),
+        ),
     }
 }
 
@@ -187,7 +203,7 @@ fn into_paint_radius(radius: scene::Radius) -> paint_geometry::rect::Radius {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scratch::{geometry, layout, theme::Theme, widget};
+    use crate::scratch::{control_gallery, geometry, input, layout, theme::Theme, view, widget};
 
     #[test]
     fn text_box_surface_color_is_preserved_in_paint_viewport() {
@@ -222,5 +238,100 @@ mod tests {
                 .map(|line| line.text().to_owned()),
             Some("query".to_owned())
         );
+    }
+
+    #[test]
+    fn popup_backdrop_and_gradient_material_convert_to_native_paint() {
+        let theme = Theme::dark();
+        let view = view::View::new(
+            view::Node::root().child(view::Node::popup("popup").child(view::Node::label("Row"))),
+        );
+        let mut engine = layout::engine::Engine::new();
+        let layout = layout::Layout::compose_with_theme(
+            &view,
+            geometry::Size::new(240, 160),
+            &mut engine,
+            &theme,
+        );
+        let source_scene = scene::Scene::paint_with_theme(&layout, &theme);
+        let paint = to_paint_scene(&source_scene);
+        let backdrop = paint
+            .items()
+            .iter()
+            .find_map(|item| match item {
+                paint::Item::Backdrop(backdrop) => Some(backdrop),
+                _ => None,
+            })
+            .expect("popup should convert to native backdrop");
+        let paint::BackdropFilter::Blur { amount } = backdrop.filter;
+
+        assert_eq!(amount, theme.floating_panel().backdrop_blur);
+        assert_eq!(
+            backdrop.rect.rounding,
+            paint_geometry::rect::Rounding::fixed(10.0)
+        );
+
+        let material = paint
+            .items()
+            .iter()
+            .find_map(|item| match item {
+                paint::Item::Quad(quad) if quad.rect == backdrop.rect => Some(quad),
+                _ => None,
+            })
+            .expect("popup material should convert to native quad");
+
+        assert_eq!(
+            material.style.fill,
+            Some(paint::Fill::Brush(paint::Brush::linear_gradient(
+                super::super::color::paint_color(scene::Color::rgba(28, 28, 30, 87)),
+                super::super::color::paint_color(scene::Color::rgba(44, 44, 46, 117)),
+            )))
+        );
+    }
+
+    #[test]
+    fn focus_outline_offset_and_rounding_convert_to_native_paint() {
+        let theme = Theme::default();
+        let mut app = control_gallery::app(control_gallery::State::default());
+
+        app.start();
+
+        let window = app.session().windows()[0].id();
+        let size = geometry::Size::new(760, 520);
+        app.render_scene(window, size)
+            .expect("control gallery should render before focus");
+        app.handle_input(
+            window,
+            input::Input::key_down(input::Key::Tab, input::Modifiers::default()),
+        )
+        .expect("tab should focus first control");
+
+        let focused = app
+            .render_scene(window, size)
+            .expect("focused control should render");
+        let frame = focused
+            .layout()
+            .frames()
+            .iter()
+            .find(|frame| frame.is_focused())
+            .expect("focused frame should be present");
+        let paint = to_paint_scene(focused.scene());
+        let expected_brush =
+            paint::Brush::solid(super::super::color::paint_color(theme.focus().color));
+        let outline = paint
+            .items()
+            .iter()
+            .find_map(|item| match item {
+                paint::Item::Outline(outline) if outline.brush == expected_brush => Some(outline),
+                _ => None,
+            })
+            .expect("focus outline should convert to native paint");
+
+        assert_eq!(
+            outline.rect,
+            into_paint_rounded_rect(frame.rect(), theme.control().rounding)
+        );
+        assert_eq!(outline.width, theme.focus().width as f32);
+        assert_eq!(outline.offset, theme.focus().offset);
     }
 }

@@ -6,8 +6,9 @@ mod primitive;
 pub use color::Color;
 pub use presentation::Presentation;
 pub use primitive::{
-    Brush, EdgeMode, Icon, Offset, Outline, Primitive, Quad, Radius, Rasterization, Rounding,
-    Shadow, Snapping, Stroke, Style, Text, TextAlign, TextSurface, TextViewport, TextWrap,
+    Backdrop, Brush, EdgeMode, Icon, Offset, Outline, Primitive, Quad, Radius, Rasterization,
+    Rounding, Shadow, Snapping, Stroke, Style, Text, TextAlign, TextSurface, TextViewport,
+    TextWrap,
 };
 
 use super::{geometry, layout, theme::Theme};
@@ -125,6 +126,16 @@ impl Scene {
             .collect()
     }
 
+    pub fn backdrops(&self) -> Vec<&Backdrop> {
+        self.primitives
+            .iter()
+            .filter_map(|primitive| match primitive {
+                Primitive::Backdrop(backdrop) => Some(backdrop),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub fn outlines(&self) -> Vec<&Outline> {
         self.primitives
             .iter()
@@ -165,6 +176,12 @@ impl Scene {
             && shadow.color().channels().3 > 0
         {
             self.primitives.push(Primitive::Shadow(shadow));
+        }
+    }
+
+    pub(super) fn push_backdrop(&mut self, backdrop: Backdrop) {
+        if backdrop.rect().width() > 0 && backdrop.rect().height() > 0 && backdrop.blur() > 0.0 {
+            self.primitives.push(Primitive::Backdrop(backdrop));
         }
     }
 

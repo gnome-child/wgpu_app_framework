@@ -1,134 +1,165 @@
-use std::{
-    any::{Any, TypeId},
-    result,
-};
+use std::any::{Any, TypeId};
 
 use crate::scratch::{
-    command::{self, Command as CommandTrait},
-    context,
-    error::Error,
-    response::AnyResponse,
-    session, state,
-    target::Target,
+    command, context, error::Result, response::AnyResponse, session, state, target::Target,
     timeline,
 };
 
-use super::Services;
+use super::{Services, target};
 
-#[derive(Clone, Copy)]
-pub(super) enum Command {
-    Undo,
-    Redo,
-    CloseWindow,
+const RESPONDER_NAME: &str = "framework";
+
+struct ServiceContext<'a, 'services, M: state::State> {
+    services: &'a mut Services<'services, M>,
+    store: &'a mut state::Store<M>,
 }
 
-impl Command {
-    pub(super) fn from_type(command_type: TypeId) -> Option<Self> {
-        if command_type == TypeId::of::<timeline::Undo>() {
-            return Some(Self::Undo);
-        }
+pub(super) fn state<M: state::State>(
+    services: &mut Services<'_, M>,
+    store: &mut state::Store<M>,
+    command_type: TypeId,
+    command_name: &'static str,
+    args: &dyn Any,
+    cx: &context::Context,
+) -> Result<Option<command::State>> {
+    let mut service = ServiceContext { services, store };
 
-        if command_type == TypeId::of::<timeline::Redo>() {
-            return Some(Self::Redo);
-        }
-
-        if command_type == TypeId::of::<session::CloseWindow>() {
-            return Some(Self::CloseWindow);
-        }
-
-        None
-    }
-
-    pub(super) fn state<M: state::State>(
-        self,
-        services: &mut Services<'_, M>,
-        store: &mut state::Store<M>,
-        args: &dyn Any,
-        cx: &context::Context,
-    ) -> result::Result<command::State, Error> {
-        match self {
-            Self::Undo => {
-                let args = framework_args::<timeline::Undo>(args)?;
-                let service = timeline::Service::new(store, &mut *services.timeline);
-                Ok(Target::<timeline::Undo>::state(&service, args, cx))
-            }
-            Self::Redo => {
-                let args = framework_args::<timeline::Redo>(args)?;
-                let service = timeline::Service::new(store, &mut *services.timeline);
-                Ok(Target::<timeline::Redo>::state(&service, args, cx))
-            }
-            Self::CloseWindow => {
-                let args = framework_args::<session::CloseWindow>(args)?;
-                let service = session::Service::new(
-                    &mut *services.session,
-                    &mut *services.composition,
-                    &mut *services.diagnostics,
-                    services.window,
-                );
-                Ok(Target::<session::CloseWindow>::state(&service, args, cx))
-            }
-        }
-    }
-
-    pub(super) fn invoke<M: state::State>(
-        self,
-        services: &mut Services<'_, M>,
-        store: &mut state::Store<M>,
-        args: Box<dyn Any + Send>,
-        cx: &mut context::Context,
-    ) -> AnyResponse {
-        match self {
-            Self::Undo => match framework_args_box::<timeline::Undo>(args) {
-                Ok(()) => {
-                    let mut service = timeline::Service::new(store, &mut *services.timeline);
-                    AnyResponse::from_response(Target::<timeline::Undo>::invoke(
-                        &mut service,
-                        (),
-                        cx,
-                    ))
-                }
-                Err(error) => AnyResponse::failed(error),
-            },
-            Self::Redo => match framework_args_box::<timeline::Redo>(args) {
-                Ok(()) => {
-                    let mut service = timeline::Service::new(store, &mut *services.timeline);
-                    AnyResponse::from_response(Target::<timeline::Redo>::invoke(
-                        &mut service,
-                        (),
-                        cx,
-                    ))
-                }
-                Err(error) => AnyResponse::failed(error),
-            },
-            Self::CloseWindow => match framework_args_box::<session::CloseWindow>(args) {
-                Ok(()) => {
-                    let mut service = session::Service::new(
-                        &mut *services.session,
-                        &mut *services.composition,
-                        &mut *services.diagnostics,
-                        services.window,
-                    );
-                    AnyResponse::from_response(Target::<session::CloseWindow>::invoke(
-                        &mut service,
-                        (),
-                        cx,
-                    ))
-                }
-                Err(error) => AnyResponse::failed(error),
-            },
-        }
-    }
+    target::state(
+        RESPONDER_NAME,
+        targets(),
+        &mut service,
+        command_type,
+        command_name,
+        args,
+        cx,
+    )
 }
 
-fn framework_args<C: CommandTrait>(args: &dyn Any) -> result::Result<&C::Args, Error> {
-    args.downcast_ref::<C::Args>()
-        .ok_or(Error::ArgsMismatch { command: C::NAME })
-}
-
-fn framework_args_box<C: CommandTrait>(
+pub(super) fn invoke<M: state::State>(
+    services: &mut Services<'_, M>,
+    store: &mut state::Store<M>,
+    command_type: TypeId,
+    command_name: &'static str,
     args: Box<dyn Any + Send>,
-) -> result::Result<C::Args, Error> {
-    args.downcast::<C::Args>()
-        .map(|args| *args)
-        .map_err(|_| Error::ArgsMismatch { command: C::NAME })
+    cx: &mut context::Context,
+) -> Option<AnyResponse> {
+    let targets = targets();
+    let mut service = ServiceContext { services, store };
+
+    target::invoke(
+        RESPONDER_NAME,
+        &targets,
+        &mut service,
+        command_type,
+        command_name,
+        args,
+        cx,
+    )
+}
+
+fn targets<'a, 'services, M: state::State>()
+-> [target::AnyTarget<ServiceContext<'a, 'services, M>>; 3] {
+    [
+        target::AnyTarget::new::<timeline::Undo>(
+            timeline_undo_state::<M>,
+            timeline_undo_invoke::<M>,
+        ),
+        target::AnyTarget::new::<timeline::Redo>(
+            timeline_redo_state::<M>,
+            timeline_redo_invoke::<M>,
+        ),
+        target::AnyTarget::new::<session::CloseWindow>(
+            close_window_state::<M>,
+            close_window_invoke::<M>,
+        ),
+    ]
+}
+
+fn timeline_undo_state<M: state::State>(
+    context: &mut ServiceContext<'_, '_, M>,
+    args: &dyn Any,
+    cx: &context::Context,
+) -> Result<command::State> {
+    let args = target::args::<timeline::Undo>(args)?;
+    let service = timeline::Service::new(context.store, &mut *context.services.timeline);
+
+    Ok(Target::<timeline::Undo>::state(&service, args, cx))
+}
+
+fn timeline_undo_invoke<M: state::State>(
+    context: &mut ServiceContext<'_, '_, M>,
+    args: Box<dyn Any + Send>,
+    cx: &mut context::Context,
+) -> AnyResponse {
+    let args = match target::args_box::<timeline::Undo>(args) {
+        Ok(args) => args,
+        Err(error) => return AnyResponse::failed(error),
+    };
+    let mut service = timeline::Service::new(context.store, &mut *context.services.timeline);
+
+    AnyResponse::from_response(Target::<timeline::Undo>::invoke(&mut service, args, cx))
+}
+
+fn timeline_redo_state<M: state::State>(
+    context: &mut ServiceContext<'_, '_, M>,
+    args: &dyn Any,
+    cx: &context::Context,
+) -> Result<command::State> {
+    let args = target::args::<timeline::Redo>(args)?;
+    let service = timeline::Service::new(context.store, &mut *context.services.timeline);
+
+    Ok(Target::<timeline::Redo>::state(&service, args, cx))
+}
+
+fn timeline_redo_invoke<M: state::State>(
+    context: &mut ServiceContext<'_, '_, M>,
+    args: Box<dyn Any + Send>,
+    cx: &mut context::Context,
+) -> AnyResponse {
+    let args = match target::args_box::<timeline::Redo>(args) {
+        Ok(args) => args,
+        Err(error) => return AnyResponse::failed(error),
+    };
+    let mut service = timeline::Service::new(context.store, &mut *context.services.timeline);
+
+    AnyResponse::from_response(Target::<timeline::Redo>::invoke(&mut service, args, cx))
+}
+
+fn close_window_state<M: state::State>(
+    context: &mut ServiceContext<'_, '_, M>,
+    args: &dyn Any,
+    cx: &context::Context,
+) -> Result<command::State> {
+    let args = target::args::<session::CloseWindow>(args)?;
+    let service = session::Service::new(
+        &mut *context.services.session,
+        &mut *context.services.composition,
+        &mut *context.services.diagnostics,
+        context.services.window,
+    );
+
+    Ok(Target::<session::CloseWindow>::state(&service, args, cx))
+}
+
+fn close_window_invoke<M: state::State>(
+    context: &mut ServiceContext<'_, '_, M>,
+    args: Box<dyn Any + Send>,
+    cx: &mut context::Context,
+) -> AnyResponse {
+    let args = match target::args_box::<session::CloseWindow>(args) {
+        Ok(args) => args,
+        Err(error) => return AnyResponse::failed(error),
+    };
+    let mut service = session::Service::new(
+        &mut *context.services.session,
+        &mut *context.services.composition,
+        &mut *context.services.diagnostics,
+        context.services.window,
+    );
+
+    AnyResponse::from_response(Target::<session::CloseWindow>::invoke(
+        &mut service,
+        args,
+        cx,
+    ))
 }

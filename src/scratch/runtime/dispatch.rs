@@ -26,7 +26,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let mut chain = self
             .responders
             .chain(&mut self.store)
-            .with_framework(services);
+            .with_service(services);
 
         self.registry.state::<C>(&mut chain, trigger.args(), &cx)
     }
@@ -57,7 +57,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let mut chain = self
             .responders
             .chain_for(&mut self.store, focus)
-            .with_framework(services);
+            .with_service(services);
 
         self.registry.state::<C>(&mut chain, trigger.args(), &cx)
     }

@@ -9,6 +9,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub fn retention(mut self, retention: Retention) -> Self {
         self.store.set_change_limit(retention.change_limit());
         self.timeline.set_snapshot_limit(retention.snapshot_limit());
+        self.session.set_draft_limit(retention.draft_limit());
         self
     }
 

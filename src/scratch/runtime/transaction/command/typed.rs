@@ -43,7 +43,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let mut chain = self
             .responders
             .chain_for(&mut self.store, focus)
-            .with_framework(services);
+            .with_service(services);
         let mut response = self.registry.invoke::<C>(&mut chain, args, &mut cx);
         let command_changed = response.is_ok() && response.changed_state();
 

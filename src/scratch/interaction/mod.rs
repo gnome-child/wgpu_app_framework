@@ -23,6 +23,12 @@ pub struct Interaction {
 }
 
 impl Interaction {
+    pub(in crate::scratch) fn new(draft_limit: usize) -> Self {
+        let mut interaction = Self::default();
+        interaction.set_text_draft_limit(draft_limit);
+        interaction
+    }
+
     pub fn open_menu(&self) -> Option<&Menu> {
         self.open_menu.as_ref()
     }
@@ -168,5 +174,9 @@ impl Interaction {
 
     pub(super) fn clear_text_input_unless(&mut self, target: &Target) -> bool {
         self.text_input.clear_unless(target)
+    }
+
+    pub(super) fn set_text_draft_limit(&mut self, limit: usize) {
+        self.text_input.set_draft_limit(limit);
     }
 }

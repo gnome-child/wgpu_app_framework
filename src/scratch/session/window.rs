@@ -30,6 +30,7 @@ impl Window {
         title: String,
         inner_size: geometry::Size,
         canvas_color: scene::Color,
+        draft_limit: usize,
     ) -> Self {
         Self {
             id,
@@ -41,11 +42,11 @@ impl Window {
             focus: None,
             menu_restore_focus: None,
             file_dialog: None,
-            interaction: interaction::Interaction::default(),
+            interaction: interaction::Interaction::new(draft_limit),
         }
     }
 
-    pub(super) fn restore(snapshot: WindowSnapshot) -> Self {
+    pub(super) fn restore(snapshot: WindowSnapshot, draft_limit: usize) -> Self {
         Self {
             id: snapshot.id,
             title: snapshot.title,
@@ -56,7 +57,7 @@ impl Window {
             focus: snapshot.focus,
             menu_restore_focus: None,
             file_dialog: None,
-            interaction: interaction::Interaction::default(),
+            interaction: interaction::Interaction::new(draft_limit),
         }
     }
 
@@ -140,8 +141,13 @@ impl Session {
         let (title, inner_size, canvas_color) = options.into_parts();
         let id = app_window::Id::new(self.next_window_id);
         self.next_window_id += 1;
-        self.windows
-            .push(Window::new(id, title, inner_size, canvas_color));
+        self.windows.push(Window::new(
+            id,
+            title,
+            inner_size,
+            canvas_color,
+            self.draft_limit,
+        ));
 
         id
     }
@@ -211,7 +217,7 @@ impl Session {
         self.windows = snapshot
             .into_windows()
             .into_iter()
-            .map(Window::restore)
+            .map(|window| Window::restore(window, self.draft_limit))
             .collect();
         self.next_window_id = self
             .windows
@@ -219,6 +225,13 @@ impl Session {
             .map(|window| window.id.get() + 1)
             .max()
             .unwrap_or_default();
+    }
+
+    pub(in crate::scratch) fn set_draft_limit(&mut self, limit: usize) {
+        self.draft_limit = limit;
+        for window in &mut self.windows {
+            window.interaction.set_text_draft_limit(limit);
+        }
     }
 
     pub(in crate::scratch::session) fn window_mut(

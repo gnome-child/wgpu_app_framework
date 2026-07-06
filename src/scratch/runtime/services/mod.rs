@@ -9,6 +9,7 @@ use super::super::{
 };
 
 mod framework;
+mod target;
 pub(in crate::scratch::runtime) mod text;
 
 pub(super) struct Services<'a, M: state::State> {
@@ -37,12 +38,12 @@ impl<'a, M: state::State> Services<'a, M> {
     }
 }
 
-impl<M: state::State> responder::Framework<M> for Services<'_, M> {
+impl<M: state::State> responder::Service<M> for Services<'_, M> {
     fn state(
         &mut self,
         store: &mut state::Store<M>,
         command_type: TypeId,
-        _command_name: &'static str,
+        command_name: &'static str,
         args: &dyn Any,
         cx: &context::Context,
     ) -> result::Result<Option<command::State>, Error> {
@@ -57,8 +58,8 @@ impl<M: state::State> responder::Framework<M> for Services<'_, M> {
             return Ok(Some(state));
         }
 
-        if let Some(command) = framework::Command::from_type(command_type) {
-            return command.state(self, store, args, cx).map(Some);
+        if let Some(state) = framework::state(self, store, command_type, command_name, args, cx)? {
+            return Ok(Some(state));
         }
 
         Ok(None)
@@ -68,11 +69,11 @@ impl<M: state::State> responder::Framework<M> for Services<'_, M> {
         &mut self,
         store: &mut state::Store<M>,
         command_type: TypeId,
-        _command_name: &'static str,
+        command_name: &'static str,
         args: Box<dyn Any + Send>,
         cx: &mut context::Context,
     ) -> Option<AnyResponse> {
-        if text::handles(self.session, self.composition, self.window, command_type) {
+        if text::has_target(self.session, self.composition, self.window, command_type) {
             return text::invoke(
                 self.session,
                 self.composition,
@@ -83,7 +84,6 @@ impl<M: state::State> responder::Framework<M> for Services<'_, M> {
             );
         }
 
-        framework::Command::from_type(command_type)
-            .map(|command| command.invoke(self, store, args, cx))
+        framework::invoke(self, store, command_type, command_name, args, cx)
     }
 }

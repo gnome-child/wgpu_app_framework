@@ -6,7 +6,7 @@ pub use builder::Builder;
 #[allow(unused_imports)]
 pub use builder::Object;
 pub use chain::Chain;
-pub(in crate::scratch) use chain::Framework;
+pub(in crate::scratch) use chain::Service;
 pub use kind::Kind;
 
 use super::{interaction, session, state, target::AnyTarget};

@@ -266,11 +266,10 @@ fn layout_popup(
     theme: &theme::Theme,
     frames: &mut Vec<Frame>,
 ) {
-    let mut y = rect.y.saturating_add(theme.menu().padding);
-    let row_x = rect.x.saturating_add(theme.menu().padding);
-    let row_width = rect
-        .width
-        .saturating_sub(theme.menu().padding.saturating_mul(2));
+    let padding = theme.floating_panel().padding;
+    let mut y = rect.y.saturating_add(padding);
+    let row_x = rect.x.saturating_add(padding);
+    let row_width = rect.width.saturating_sub(padding.saturating_mul(2));
     let shortcut_width = menu_shortcut_width(node, engine);
 
     for (index, child) in node.children().iter().enumerate() {

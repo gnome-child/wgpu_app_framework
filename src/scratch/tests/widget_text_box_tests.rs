@@ -522,6 +522,60 @@ fn text_box_drafts_keep_independent_history_across_focus_changes() {
     assert!(!app.is_dirty());
 }
 
+#[test]
+fn runtime_retention_bounds_inactive_text_box_drafts() {
+    let first = session::Focus::text("first");
+    let second = session::Focus::text("second");
+    let mut app = Runtime::new(TextBoxSubmitState::default())
+        .retention(runtime::Retention::new().drafts(1))
+        .started(|cx| {
+            cx.open_window(window::Options::new("Text Box Draft Retention"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.column(|ui| {
+                    ui.text_box(widget::TextBox::new("").focus(first));
+                    ui.text_box(widget::TextBox::new("").focus(second));
+                });
+            })
+        });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    app.present(window)
+        .expect("view should be presented before text input");
+
+    app.handle_input(window, Input::focus(first))
+        .expect("first field should focus");
+    app.handle_input(window, Input::text_commit("ab"))
+        .expect("first field should accept text");
+    app.handle_input(window, Input::focus(second))
+        .expect("second field should focus");
+    app.handle_input(window, Input::text_commit("xy"))
+        .expect("second field should accept text");
+
+    let first_target = interaction::Target::text_area(first);
+    let second_target = interaction::Target::text_area(second);
+    let input = app
+        .session()
+        .interaction(window)
+        .expect("window should keep interaction state")
+        .text_input();
+
+    assert!(
+        input.draft_for(&first_target).is_none(),
+        "inactive first draft should be pruned by runtime retention"
+    );
+    assert_eq!(
+        input
+            .draft_for(&second_target)
+            .expect("active second draft should be retained")
+            .text(),
+        "xy"
+    );
+}
+
 fn assert_keyboard_focus(actual: Option<session::Focus>, expected: session::Focus) {
     let actual = actual.expect("window should have focus");
     assert!(actual.same_target(&expected));

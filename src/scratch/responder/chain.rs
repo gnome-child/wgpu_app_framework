@@ -9,7 +9,7 @@ use crate::scratch::{
     state,
 };
 
-pub(in crate::scratch) trait Framework<M: state::State> {
+pub(in crate::scratch) trait Service<M: state::State> {
     fn state(
         &mut self,
         store: &mut state::Store<M>,
@@ -33,7 +33,7 @@ pub(in crate::scratch) trait Framework<M: state::State> {
 pub struct Chain<'a, M: state::State> {
     store: &'a mut state::Store<M>,
     responders: Vec<&'a Responder<M>>,
-    framework: Option<Box<dyn Framework<M> + 'a>>,
+    services: Vec<Box<dyn Service<M> + 'a>>,
 }
 
 impl<'a, M: state::State> Chain<'a, M> {
@@ -44,12 +44,12 @@ impl<'a, M: state::State> Chain<'a, M> {
         Self {
             store,
             responders,
-            framework: None,
+            services: Vec::new(),
         }
     }
 
-    pub(in crate::scratch) fn with_framework(mut self, framework: impl Framework<M> + 'a) -> Self {
-        self.framework = Some(Box::new(framework));
+    pub(in crate::scratch) fn with_service(mut self, service: impl Service<M> + 'a) -> Self {
+        self.services.push(Box::new(service));
         self
     }
 
@@ -84,10 +84,13 @@ impl<'a, M: state::State> Chain<'a, M> {
             }
         }
 
-        match self.framework.as_mut() {
-            Some(framework) => framework.state(self.store, TypeId::of::<C>(), C::NAME, args, cx),
-            None => Ok(None),
+        for service in &mut self.services {
+            if let Some(state) = service.state(self.store, TypeId::of::<C>(), C::NAME, args, cx)? {
+                return Ok(Some(state));
+            }
         }
+
+        Ok(None)
     }
 
     pub(in crate::scratch) fn state_any(
@@ -123,10 +126,13 @@ impl<'a, M: state::State> Chain<'a, M> {
             }
         }
 
-        match self.framework.as_mut() {
-            Some(framework) => framework.state(self.store, command_type, command_name, args, cx),
-            None => Ok(None),
+        for service in &mut self.services {
+            if let Some(state) = service.state(self.store, command_type, command_name, args, cx)? {
+                return Ok(Some(state));
+            }
         }
+
+        Ok(None)
     }
 
     pub(in crate::scratch) fn invoke<C: Command>(
@@ -178,11 +184,24 @@ impl<'a, M: state::State> Chain<'a, M> {
             }
         }
 
-        self.framework.as_mut().and_then(|framework| {
-            framework
-                .invoke(self.store, TypeId::of::<C>(), C::NAME, Box::new(args), cx)
-                .map(|response| response.into_response(C::NAME))
-        })
+        for service in &mut self.services {
+            match service.state(self.store, TypeId::of::<C>(), C::NAME, &args, cx) {
+                Ok(Some(_)) => {
+                    return Some(
+                        service
+                            .invoke(self.store, TypeId::of::<C>(), C::NAME, Box::new(args), cx)
+                            .map(|response| response.into_response(C::NAME))
+                            .unwrap_or_else(|| {
+                                Response::failed(Error::MissingTarget { command: C::NAME })
+                            }),
+                    );
+                }
+                Ok(None) => {}
+                Err(error) => return Some(Response::failed(error)),
+            }
+        }
+
+        None
     }
 
     pub(in crate::scratch) fn invoke_any(
@@ -238,8 +257,24 @@ impl<'a, M: state::State> Chain<'a, M> {
             }
         }
 
-        self.framework.as_mut().and_then(|framework| {
-            framework.invoke(self.store, command_type, command_name, args, cx)
-        })
+        for service in &mut self.services {
+            match service.state(self.store, command_type, command_name, args.as_ref(), cx) {
+                Ok(Some(_)) => {
+                    return Some(
+                        service
+                            .invoke(self.store, command_type, command_name, args, cx)
+                            .unwrap_or_else(|| {
+                                AnyResponse::failed(Error::MissingTarget {
+                                    command: command_name,
+                                })
+                            }),
+                    );
+                }
+                Ok(None) => {}
+                Err(error) => return Some(AnyResponse::failed(error)),
+            }
+        }
+
+        None
     }
 }
