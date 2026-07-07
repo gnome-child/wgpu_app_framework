@@ -494,8 +494,12 @@ fn structural_layout_paths_stay_internal() {
         "layout structural paths must stay internal to layout/composition ancestry"
     );
     assert!(
-        !frame.contains("pub fn path(&self)"),
-        "layout frames must not expose structural paths as public identity"
+        !layout_mod.contains("pub(crate) mod path;"),
+        "layout structural path file module must stay private"
+    );
+    assert!(
+        !frame.contains("pub(crate) fn path(&self)") && !frame.contains("pub fn path(&self)"),
+        "layout frames must not expose structural paths as crate-wide identity"
     );
 }
 

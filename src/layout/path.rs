@@ -13,11 +13,11 @@ impl Path {
     }
 
     #[cfg(test)]
-    pub(crate) fn indexes(&self) -> &[usize] {
-        &self.0
+    pub(super) fn len(&self) -> usize {
+        self.0.len()
     }
 
-    pub(crate) fn is_descendant_of(&self, ancestor: &Self) -> bool {
+    pub(super) fn is_descendant_of(&self, ancestor: &Self) -> bool {
         self.0.len() > ancestor.0.len() && self.0.starts_with(&ancestor.0)
     }
 }

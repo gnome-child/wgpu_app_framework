@@ -15,7 +15,7 @@ pub(crate) mod flow;
 pub(crate) mod frame;
 pub(crate) mod hit;
 mod measure;
-pub(crate) mod path;
+mod path;
 pub(crate) mod text;
 pub(crate) mod typography;
 pub(crate) mod viewport;
@@ -201,19 +201,18 @@ impl Layout {
             .iter()
             .find(|frame| frame.target() == Some(viewport_target))?;
         let viewport = viewport_frame.viewport()?;
-        let viewport_path = viewport_frame.path();
         let descendant = if let Some(selected_index) = selected_index {
             self.frames
                 .iter()
                 .filter(|frame| {
                     frame.binding_source() == Some(crate::context::Source::Palette)
-                        && frame.path().is_descendant_of(viewport_path)
+                        && frame.is_descendant_of(viewport_frame)
                 })
                 .nth(selected_index)?
         } else {
             self.frames
                 .iter()
-                .find(|frame| frame.is_selected() && frame.path().is_descendant_of(viewport_path))?
+                .find(|frame| frame.is_selected() && frame.is_descendant_of(viewport_frame))?
         };
 
         Some(viewport.reveal_rect(descendant.rect(), margin))

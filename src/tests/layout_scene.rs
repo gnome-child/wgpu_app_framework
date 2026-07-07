@@ -4407,14 +4407,11 @@ fn immediate_scroll_child_frames<'a>(
     layout: &'a layout::Layout,
     scroll: &layout::frame::Frame,
 ) -> Vec<&'a layout::frame::Frame> {
-    let child_depth = scroll.path().indexes().len() + 1;
+    let child_depth = scroll.path_depth() + 1;
     layout
         .frames()
         .iter()
-        .filter(|frame| {
-            frame.path().indexes().len() == child_depth
-                && frame.path().is_descendant_of(scroll.path())
-        })
+        .filter(|frame| frame.path_depth() == child_depth && frame.is_descendant_of(scroll))
         .collect()
 }
 

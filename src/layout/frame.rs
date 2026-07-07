@@ -225,8 +225,13 @@ impl Frame {
         self
     }
 
-    pub(crate) fn path(&self) -> &path::Path {
-        &self.path
+    pub(crate) fn is_descendant_of(&self, ancestor: &Self) -> bool {
+        self.path.is_descendant_of(&ancestor.path)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn path_depth(&self) -> usize {
+        self.path.len()
     }
 
     pub(crate) fn node_id(&self) -> composition::NodeId {
