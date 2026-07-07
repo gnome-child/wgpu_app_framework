@@ -22,7 +22,7 @@ mod viewport;
 
 pub(crate) use chrome::{Chrome, Kind as ChromeKind, Scrollbar};
 pub(crate) use control::{
-    choice_label_rect, choice_mark_rect, control_content_extent, menu_row_slots, palette_row_slots,
+    choice_label_rect, choice_mark_rect, control_content_extent, menu_row_parts, palette_row_parts,
     slider_label_rect, slider_thumb_rect, slider_track_rect,
 };
 pub(crate) use engine::Engine;

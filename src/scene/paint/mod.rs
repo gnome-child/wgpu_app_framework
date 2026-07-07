@@ -411,12 +411,12 @@ fn brush_with_opacity(brush: Brush, opacity: f32) -> Brush {
 }
 
 fn paint_menu_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
-    let slots = layout::menu_row_slots(frame.rect(), frame.shortcut_width(), theme);
+    let parts = layout::menu_row_parts(frame.rect(), frame.shortcut_width(), theme);
     let color = text_color_for(frame, theme);
 
     if frame.checked() == Some(true) {
         scene.push_icon(Icon::new(
-            slots.glyph,
+            parts.glyph,
             icons::Icon::phosphor(icons::Id::new("check")).with_style(icons::Style::Bold),
             color,
             layout::control_content_extent(theme.menu().row_height, theme) as f32,
@@ -425,35 +425,35 @@ fn paint_menu_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
 
     if let Some(label) = frame.label_text() {
         scene.push_text(
-            Text::new(slots.label, label, color, TextWrap::None)
+            Text::new(parts.label, label, color, TextWrap::None)
                 .with_style(scene_text_style(layout::interface_text_style(theme)))
                 .with_align(TextAlign::Start),
         );
     }
 
-    paint_shortcut(frame, slots.shortcut, scene, theme);
+    paint_shortcut(frame, parts.shortcut, scene, theme);
 }
 
 fn paint_menu_separator(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
-    let slots = layout::menu_row_slots(frame.rect(), frame.shortcut_width(), theme);
+    let parts = layout::menu_row_parts(frame.rect(), frame.shortcut_width(), theme);
 
-    scene.push_quad(Quad::new(slots.separator, theme.menu().separator));
+    scene.push_quad(Quad::new(parts.separator, theme.menu().separator));
 }
 
 fn paint_palette_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     let rect = frame.rect();
-    let slots = layout::palette_row_slots(rect, frame.shortcut_width(), theme);
+    let parts = layout::palette_row_parts(rect, frame.shortcut_width(), theme);
     let color = theme.text().primary;
 
     if let Some(label) = frame.label_text() {
         scene.push_text(
-            Text::new(slots.label, label, color, TextWrap::None)
+            Text::new(parts.label, label, color, TextWrap::None)
                 .with_style(scene_text_style(layout::interface_text_style(theme)))
                 .with_align(TextAlign::Start),
         );
     }
 
-    paint_shortcut(frame, slots.shortcut, scene, theme);
+    paint_shortcut(frame, parts.shortcut, scene, theme);
 }
 
 fn shortcut_text_color(theme: &Theme) -> super::Color {

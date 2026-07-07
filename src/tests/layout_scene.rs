@@ -1411,9 +1411,9 @@ fn command_palette_rows_use_interface_shortcut_typography() {
         .iter()
         .find(|frame| frame.label_text() == Some("Palette One"))
         .expect("palette row should be laid out");
-    let slots = layout::palette_row_slots(row.rect(), row.shortcut_width(), &expected);
-    let shortcut = scene_text_in_rect(rendered.scene(), "R", slots.shortcut);
-    let shortcut_icon = scene_icon_in_rect(rendered.scene(), "caret-up", slots.shortcut);
+    let parts = layout::palette_row_parts(row.rect(), row.shortcut_width(), &expected);
+    let shortcut = scene_text_in_rect(rendered.scene(), "R", parts.shortcut);
+    let shortcut_icon = scene_icon_in_rect(rendered.scene(), "caret-up", parts.shortcut);
 
     assert_eq!(
         command.style().size(),
@@ -1436,7 +1436,7 @@ fn command_palette_rows_use_interface_shortcut_typography() {
     assert_eq!(shortcut_icon.color(), expected.text().muted);
     assert!(
         row.shortcut_width() > 0 && row.shortcut_width() < 120,
-        "palette shortcut slots should be measured from interface typography, not body or hint"
+        "palette shortcut parts should be measured from interface typography, not body or hint"
     );
 }
 
@@ -1458,11 +1458,11 @@ fn command_palette_formats_shortcuts_with_active_keymap_profile() {
         .iter()
         .find(|frame| frame.label_text() == Some("Palette One"))
         .expect("palette row should be laid out");
-    let slots = layout::palette_row_slots(row.rect(), row.shortcut_width(), &Theme::dark());
+    let parts = layout::palette_row_parts(row.rect(), row.shortcut_width(), &Theme::dark());
 
-    assert!(scene_icon_in_rect(rendered.scene(), "command", slots.shortcut).size() > 0.0);
+    assert!(scene_icon_in_rect(rendered.scene(), "command", parts.shortcut).size() > 0.0);
     assert_eq!(
-        scene_text_in_rect(rendered.scene(), "R", slots.shortcut).align(),
+        scene_text_in_rect(rendered.scene(), "R", parts.shortcut).align(),
         scene::TextAlign::Start
     );
     assert!(
@@ -3298,7 +3298,7 @@ fn menu_popup_rows_use_row_layout_for_labels_shortcuts_and_separators() {
         .find(|frame| frame.role() == view::Role::Binding && frame.label_text() == Some("Exit"))
         .expect("exit row should be laid out");
     let theme = Theme::default();
-    let slots = layout::menu_row_slots(exit.rect(), exit.shortcut_width(), &theme);
+    let parts = layout::menu_row_parts(exit.rect(), exit.shortcut_width(), &theme);
     let exit_label = rendered
         .scene()
         .texts()
@@ -3309,13 +3309,13 @@ fn menu_popup_rows_use_row_layout_for_labels_shortcuts_and_separators() {
         .scene()
         .texts()
         .into_iter()
-        .find(|text| text.value() == "F4" && rect_contains(slots.shortcut, text.rect()))
+        .find(|text| text.value() == "F4" && rect_contains(parts.shortcut, text.rect()))
         .expect("exit shortcut key should paint");
-    let exit_shortcut_icon = scene_icon_in_rect(rendered.scene(), "option", slots.shortcut);
+    let exit_shortcut_icon = scene_icon_in_rect(rendered.scene(), "option", parts.shortcut);
 
-    assert_eq!(exit_label.rect(), slots.label);
+    assert_eq!(exit_label.rect(), parts.label);
     assert_eq!(exit_label.align(), scene::TextAlign::Start);
-    assert!(rect_contains(slots.shortcut, exit_shortcut.rect()));
+    assert!(rect_contains(parts.shortcut, exit_shortcut.rect()));
     assert_eq!(exit_shortcut.align(), scene::TextAlign::Start);
     assert_eq!(
         exit_shortcut.style().size(),
@@ -3327,8 +3327,8 @@ fn menu_popup_rows_use_row_layout_for_labels_shortcuts_and_separators() {
     );
     assert_eq!(exit_shortcut.color(), theme.text().muted);
     assert_eq!(exit_shortcut_icon.color(), theme.text().muted);
-    assert_eq!(slots.glyph.width(), slots.glyph.height());
-    assert_eq!(slots.trailing.width(), slots.trailing.height());
+    assert_eq!(parts.glyph.width(), parts.glyph.height());
+    assert_eq!(parts.trailing.width(), parts.trailing.height());
 
     let separator = rendered
         .layout()
@@ -3342,8 +3342,8 @@ fn menu_popup_rows_use_row_layout_for_labels_shortcuts_and_separators() {
         .into_iter()
         .next()
         .expect("file menu popup should be laid out");
-    let separator_slots =
-        layout::menu_row_slots(separator.rect(), separator.shortcut_width(), &theme);
+    let separator_parts =
+        layout::menu_row_parts(separator.rect(), separator.shortcut_width(), &theme);
 
     assert_eq!(separator.rect().height(), theme.menu().row_height);
     assert_eq!(
@@ -3354,10 +3354,10 @@ fn menu_popup_rows_use_row_layout_for_labels_shortcuts_and_separators() {
         separator.rect().right(),
         popup.rect().right() - theme.floating_panel().padding
     );
-    assert_eq!(separator_slots.separator.x(), separator.rect().x());
-    assert_eq!(separator_slots.separator.width(), separator.rect().width());
+    assert_eq!(separator_parts.separator.x(), separator.rect().x());
+    assert_eq!(separator_parts.separator.width(), separator.rect().width());
     assert!(rendered.scene().quads().iter().any(|quad| {
-        quad.rect() == separator_slots.separator && quad.fill() == theme.menu().separator
+        quad.rect() == separator_parts.separator && quad.fill() == theme.menu().separator
     }));
 }
 
@@ -3572,7 +3572,7 @@ fn checked_menu_popup_rows_do_not_paint_active_tint() {
         })
         .expect("checked wrap row should be laid out");
     let theme = Theme::default();
-    let slots = layout::menu_row_slots(wrap.rect(), wrap.shortcut_width(), &theme);
+    let parts = layout::menu_row_parts(wrap.rect(), wrap.shortcut_width(), &theme);
 
     assert_eq!(wrap.checked(), Some(true));
     assert_no_tint_quad(opened.scene(), wrap.rect(), theme.menu().title_active_tint);
@@ -3581,7 +3581,7 @@ fn checked_menu_popup_rows_do_not_paint_active_tint() {
             .scene()
             .icons()
             .iter()
-            .any(|icon| { icon.rect() == slots.glyph && icon.icon().id().as_str() == "check" })
+            .any(|icon| { icon.rect() == parts.glyph && icon.icon().id().as_str() == "check" })
     );
 }
 

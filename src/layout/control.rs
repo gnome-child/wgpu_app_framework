@@ -5,7 +5,7 @@ use super::super::{
 use super::flow::{Item, Row, SizeHint};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct MenuRowSlots {
+pub(crate) struct MenuRowParts {
     pub glyph: Rect,
     pub label: Rect,
     pub shortcut: Rect,
@@ -14,7 +14,7 @@ pub(crate) struct MenuRowSlots {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct PaletteRowSlots {
+pub(crate) struct PaletteRowParts {
     pub label: Rect,
     pub shortcut: Rect,
 }
@@ -31,11 +31,11 @@ pub(crate) fn control_content_extent(control_extent: i32, theme: &theme::Theme) 
         .saturating_sub(theme.control().padding.max(0).saturating_mul(2))
 }
 
-pub(crate) fn menu_row_slots(
+pub(crate) fn menu_row_parts(
     rect: Rect,
     shortcut_width: i32,
     theme: &theme::Theme,
-) -> MenuRowSlots {
+) -> MenuRowParts {
     let parts = menu_row(0, shortcut_width, theme).layout(rect);
     let glyph = rect_part(&parts, rect, 0);
     let label = rect_part(&parts, rect, 1);
@@ -53,7 +53,7 @@ pub(crate) fn menu_row_slots(
         theme.menu().separator_line_height,
     );
 
-    MenuRowSlots {
+    MenuRowParts {
         glyph,
         label,
         shortcut,
@@ -69,14 +69,14 @@ pub(crate) fn menu_row_width(label_width: i32, shortcut_width: i32, theme: &them
         .width()
 }
 
-pub(crate) fn palette_row_slots(
+pub(crate) fn palette_row_parts(
     rect: Rect,
     shortcut_width: i32,
     theme: &theme::Theme,
-) -> PaletteRowSlots {
+) -> PaletteRowParts {
     let parts = palette_row(0, shortcut_width, theme).layout(rect);
 
-    PaletteRowSlots {
+    PaletteRowParts {
         label: rect_part(&parts, rect, 0),
         shortcut: rect_part(&parts, rect, 1),
     }
