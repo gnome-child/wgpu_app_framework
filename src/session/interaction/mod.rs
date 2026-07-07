@@ -9,7 +9,10 @@ use crate::window as app_window;
 use super::{Session, Window};
 
 impl Session {
-    pub fn interaction(&self, id: app_window::Id) -> Option<&crate::interaction::Interaction> {
+    pub(crate) fn interaction(
+        &self,
+        id: app_window::Id,
+    ) -> Option<&crate::interaction::Interaction> {
         self.window(id).map(Window::interaction)
     }
 }

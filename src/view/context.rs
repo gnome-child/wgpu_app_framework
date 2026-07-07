@@ -1,22 +1,16 @@
-use super::super::{diagnostics::Diagnostics, interaction, window};
+use super::super::{diagnostics::Diagnostics, window};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Context {
     window: window::Id,
     diagnostics: Diagnostics,
-    interaction: interaction::Interaction,
 }
 
 impl Context {
-    pub(crate) fn new(
-        window: window::Id,
-        diagnostics: Diagnostics,
-        interaction: interaction::Interaction,
-    ) -> Self {
+    pub(crate) fn new(window: window::Id, diagnostics: Diagnostics) -> Self {
         Self {
             window,
             diagnostics,
-            interaction,
         }
     }
 
@@ -26,9 +20,5 @@ impl Context {
 
     pub fn diagnostics(&self) -> &Diagnostics {
         &self.diagnostics
-    }
-
-    pub fn interaction(&self) -> &interaction::Interaction {
-        &self.interaction
     }
 }

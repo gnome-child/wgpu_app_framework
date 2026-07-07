@@ -93,7 +93,7 @@ impl Window {
         self.focus
     }
 
-    pub fn interaction(&self) -> &interaction::Interaction {
+    pub(crate) fn interaction(&self) -> &interaction::Interaction {
         &self.interaction
     }
 }

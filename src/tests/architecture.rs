@@ -526,6 +526,31 @@ fn composition_tree_owns_identity_not_behavior() {
         !interaction_mod.contains("pub use command_palette::CommandPalette;"),
         "command palette state is internal interaction/session state, not public interaction API"
     );
+    assert!(
+        !lib.contains("pub use interaction::Interaction;"),
+        "interaction state storage is runtime/session state, not public root API"
+    );
+    assert!(
+        !interaction_mod.contains("pub struct Interaction"),
+        "interaction state storage should stay crate-internal"
+    );
+    assert!(
+        !interaction_mod.contains("pub use pointer::{Capture, Pointer")
+            && !interaction_mod.contains("pub use scroll::Scroll")
+            && !interaction_mod.contains("pub use scroll::{Scroll,"),
+        "interaction pointer/scroll storage should not be public API"
+    );
+
+    let session_window = std::fs::read_to_string(src_dir.join("session").join("window.rs"))
+        .expect("session window should read");
+    let session_interaction =
+        std::fs::read_to_string(src_dir.join("session").join("interaction").join("mod.rs"))
+            .expect("session interaction should read");
+    assert!(
+        !session_window.contains("pub fn interaction(&self)")
+            && !session_interaction.contains("pub fn interaction(&self"),
+        "session interaction accessors should stay crate-internal"
+    );
 
     let session_mod =
         std::fs::read_to_string(src_dir.join("session").join("mod.rs")).expect("session mod read");

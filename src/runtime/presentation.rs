@@ -126,10 +126,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         view::Context::new(
             window,
             self.diagnostics.get(window).cloned().unwrap_or_default(),
-            self.session
-                .interaction(window)
-                .cloned()
-                .unwrap_or_default(),
         )
     }
 

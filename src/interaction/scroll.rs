@@ -1,7 +1,7 @@
 use super::Target;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Scroll {
+pub(crate) struct Scroll {
     offsets: Vec<ScrollEntry>,
     reveal_requests: Vec<Reveal>,
 }
@@ -13,7 +13,7 @@ struct ScrollEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Reveal {
+pub(crate) enum Reveal {
     Viewport(Target),
     ActiveDescendant { viewport: Target },
 }
@@ -31,7 +31,7 @@ pub struct ScrollDelta {
 }
 
 impl Scroll {
-    pub fn offset(&self, target: &Target) -> ScrollOffset {
+    pub(crate) fn offset(&self, target: &Target) -> ScrollOffset {
         self.offsets
             .iter()
             .find(|entry| &entry.target == target)
@@ -39,7 +39,7 @@ impl Scroll {
             .unwrap_or_default()
     }
 
-    pub fn should_reveal(&self, target: &Target) -> bool {
+    pub(crate) fn should_reveal(&self, target: &Target) -> bool {
         self.reveal_requests
             .iter()
             .any(|request| matches!(request, Reveal::Viewport(viewport) if viewport == target))

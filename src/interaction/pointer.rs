@@ -1,7 +1,7 @@
 use super::Target;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Pointer {
+pub(crate) struct Pointer {
     pub(super) hovered: Option<Target>,
     pub(super) pressed: Option<Target>,
     pub(super) capture: Option<Capture>,
@@ -9,7 +9,7 @@ pub struct Pointer {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Capture {
+pub(crate) struct Capture {
     target: Target,
 }
 
@@ -20,23 +20,19 @@ pub enum PressIntent {
 }
 
 impl Pointer {
-    pub fn hovered(&self) -> Option<&Target> {
+    pub(crate) fn hovered(&self) -> Option<&Target> {
         self.hovered.as_ref()
     }
 
-    pub fn pressed(&self) -> Option<&Target> {
+    pub(crate) fn pressed(&self) -> Option<&Target> {
         self.pressed.as_ref()
     }
 
-    pub fn capture(&self) -> Option<&Capture> {
+    pub(crate) fn capture(&self) -> Option<&Capture> {
         self.capture.as_ref()
     }
 
-    pub fn press_intent(&self) -> Option<PressIntent> {
-        self.press_intent
-    }
-
-    pub fn activation_target(&self) -> Option<&Target> {
+    pub(crate) fn activation_target(&self) -> Option<&Target> {
         (self.press_intent == Some(PressIntent::Activate))
             .then_some(self.pressed.as_ref())
             .flatten()
@@ -48,7 +44,7 @@ impl Capture {
         Self { target }
     }
 
-    pub fn target(&self) -> &Target {
+    pub(crate) fn target(&self) -> &Target {
         &self.target
     }
 }

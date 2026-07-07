@@ -57,7 +57,6 @@ pub use document::Document;
 pub use error::Error;
 pub use host::Host;
 pub use input::Input;
-pub use interaction::Interaction;
 pub use platform::Platform;
 pub use responder::Responder;
 pub use response::Response;

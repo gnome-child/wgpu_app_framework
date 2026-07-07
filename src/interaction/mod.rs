@@ -8,8 +8,10 @@ mod target;
 pub(crate) use command_palette::CommandPalette;
 pub use id::Id;
 pub use menu::Menu;
-pub use pointer::{Capture, Pointer, PressIntent};
-pub use scroll::{Scroll, ScrollDelta, ScrollOffset};
+pub use pointer::PressIntent;
+pub(crate) use pointer::{Capture, Pointer};
+pub(crate) use scroll::Scroll;
+pub use scroll::{ScrollDelta, ScrollOffset};
 pub use target::{Kind, Target};
 
 use crate::text;
@@ -18,7 +20,7 @@ use std::time::Instant;
 use super::draft;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Interaction {
+pub(crate) struct Interaction {
     open_menu: Option<Menu>,
     command_palette: Option<CommandPalette>,
     pointer: Pointer,
@@ -33,7 +35,7 @@ impl Interaction {
         interaction
     }
 
-    pub fn open_menu(&self) -> Option<&Menu> {
+    pub(crate) fn open_menu(&self) -> Option<&Menu> {
         self.open_menu.as_ref()
     }
 
@@ -41,11 +43,11 @@ impl Interaction {
         self.command_palette.as_ref()
     }
 
-    pub fn pointer(&self) -> &Pointer {
+    pub(crate) fn pointer(&self) -> &Pointer {
         &self.pointer
     }
 
-    pub fn scroll(&self) -> &Scroll {
+    pub(crate) fn scroll(&self) -> &Scroll {
         &self.scroll
     }
 
