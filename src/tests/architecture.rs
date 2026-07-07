@@ -258,6 +258,13 @@ fn composition_tree_owns_identity_not_behavior() {
         "interaction target file module must stay private; re-export named target concepts instead"
     );
 
+    let session_mod =
+        std::fs::read_to_string(src_dir.join("session").join("mod.rs")).expect("session mod read");
+    assert!(
+        !session_mod.contains("pub mod focus;"),
+        "session focus file module must stay private; re-export named focus concepts instead"
+    );
+
     assert_source_patterns_absent(
         &widget_dir,
         &[

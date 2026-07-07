@@ -1,11 +1,11 @@
-pub mod focus;
+mod focus;
 mod interaction;
 mod request;
 mod service;
 mod snapshot;
 mod window;
 
-pub use focus::Focus;
+pub use focus::{Focus, Reason, Visibility};
 pub use request::{FileDialog, Request, RequestKind};
 pub use service::{CloseWindow, OpenCommandPalette};
 pub use snapshot::Snapshot;

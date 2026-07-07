@@ -123,8 +123,8 @@ fn focused_menu_opens_with_enter_and_tabs_within_popup() {
         .focused(window)
         .expect("menu close should restore the menu title focus");
     assert!(restored.same_target(&menu_focus));
-    assert_eq!(restored.reason(), session::focus::Reason::Keyboard);
-    assert_eq!(restored.visibility(), session::focus::Visibility::Visible);
+    assert_eq!(restored.reason(), session::Reason::Keyboard);
+    assert_eq!(restored.visibility(), session::Visibility::Visible);
 }
 
 #[test]
@@ -213,10 +213,7 @@ fn pointer_focus_is_hidden_and_tab_continues_from_pointer_target() {
         app.session()
             .focused(window)
             .map(|focus| (focus.reason(), focus.visibility())),
-        Some((
-            session::focus::Reason::Pointer,
-            session::focus::Visibility::Hidden
-        ))
+        Some((session::Reason::Pointer, session::Visibility::Hidden))
     );
 
     let hidden_focus = app

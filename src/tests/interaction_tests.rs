@@ -778,11 +778,8 @@ fn text_area_pointer_click_focuses_and_routes_cursor_edit() {
         .focused(window)
         .expect("text area should be focused");
     assert!(actual_focus.same_target(&focus));
-    assert_eq!(actual_focus.reason(), session::focus::Reason::Pointer);
-    assert_eq!(
-        actual_focus.visibility(),
-        session::focus::Visibility::Hidden
-    );
+    assert_eq!(actual_focus.reason(), session::Reason::Pointer);
+    assert_eq!(actual_focus.visibility(), session::Visibility::Hidden);
     let focused = app
         .render_scene(window, geometry::Size::new(480, 180))
         .expect("pointer-focused text area should render");

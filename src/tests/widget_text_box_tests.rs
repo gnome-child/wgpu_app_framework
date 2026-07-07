@@ -580,8 +580,8 @@ fn runtime_retention_bounds_inactive_text_box_drafts() {
 fn assert_keyboard_focus(actual: Option<session::Focus>, expected: session::Focus) {
     let actual = actual.expect("window should have focus");
     assert!(actual.same_target(&expected));
-    assert_eq!(actual.reason(), session::focus::Reason::Keyboard);
-    assert_eq!(actual.visibility(), session::focus::Visibility::Visible);
+    assert_eq!(actual.reason(), session::Reason::Keyboard);
+    assert_eq!(actual.visibility(), session::Visibility::Visible);
 }
 
 #[test]
@@ -1273,7 +1273,7 @@ fn text_box_pointer_down_to_focus_paints_activation_tint() {
             .focused(window)
             .expect("text box should be pointer focused")
             .visibility(),
-        session::focus::Visibility::Hidden
+        session::Visibility::Hidden
     );
     assert_text_box_focus_outline(&pressed);
     assert_text_box_control_pressed_tint(&pressed);
