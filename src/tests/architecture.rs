@@ -103,6 +103,18 @@ fn text_buffer_mark_module_stays_private() {
 }
 
 #[test]
+fn text_edit_surface_module_stays_private() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let edit_mod = std::fs::read_to_string(src_dir.join("text").join("edit").join("mod.rs"))
+        .expect("text edit module should read");
+
+    assert!(
+        !edit_mod.contains("pub mod surface;"),
+        "text edit surface file module must stay private; re-export named surface concepts instead"
+    );
+}
+
+#[test]
 fn demo_apps_do_not_leak_into_framework_source_or_public_api() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let examples_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");

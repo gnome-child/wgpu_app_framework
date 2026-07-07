@@ -4,8 +4,7 @@ use super::super::{
     buffer::{Buffer, Position},
     document::Style,
     edit::{
-        Field, State, ViewState,
-        surface::{FieldProjection, PreeditProjection, projected_state_for_field},
+        Field, FieldProjection, PreeditProjection, State, ViewState, projected_state_for_field,
     },
 };
 use super::{

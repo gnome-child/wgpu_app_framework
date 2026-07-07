@@ -3,7 +3,7 @@ use std::time::Instant;
 use super::super::super::{
     buffer::Cursor,
     document::Style,
-    edit::{Area, ScrollAnchor, ViewState, surface::PreeditProjection},
+    edit::{Area, PreeditProjection, ScrollAnchor, ViewState},
 };
 use super::super::{
     caret::{Caret, CaretLayout, ensure_visible_from_layout as ensure_caret_visible_from_layout},

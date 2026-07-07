@@ -3,7 +3,7 @@ use std::rc::Rc;
 use super::super::super::{
     buffer::Position,
     document::Style,
-    edit::{Area, ViewState, surface::PreeditProjection},
+    edit::{Area, PreeditProjection, ViewState},
 };
 use super::super::{
     engine::Engine,
