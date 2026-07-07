@@ -4,10 +4,9 @@ use super::super::{
     keymap, theme, view,
 };
 use super::{
-    engine, flow,
+    Viewport, engine, flow,
     frame::{Clip, Frame, Input as FrameInput},
     measure, path,
-    viewport::Viewport,
 };
 use crate::animation;
 use measure::{

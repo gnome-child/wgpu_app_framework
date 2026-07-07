@@ -5,7 +5,7 @@ use super::super::{
     theme::Theme,
     view,
 };
-use super::{control, engine, measure, path, text, typography, viewport};
+use super::{Viewport, control, engine, measure, path, text, typography};
 use crate::animation;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -62,7 +62,7 @@ pub(crate) struct Frame {
     floating_layer: bool,
     background: Option<scene::Brush>,
     clip: Option<Clip>,
-    viewport: Option<viewport::Viewport>,
+    viewport: Option<Viewport>,
     text_area_layout: Option<text::Area>,
     text_box_layout: Option<text::Field>,
     text_box_text_rect: Rect,
@@ -215,7 +215,7 @@ impl Frame {
         }
     }
 
-    pub(super) fn with_viewport(mut self, viewport: viewport::Viewport) -> Self {
+    pub(super) fn with_viewport(mut self, viewport: Viewport) -> Self {
         self.viewport = Some(viewport);
         self
     }
@@ -300,12 +300,12 @@ impl Frame {
         self.clip
     }
 
-    pub(crate) fn viewport(&self) -> Option<viewport::Viewport> {
+    pub(crate) fn viewport(&self) -> Option<Viewport> {
         self.viewport
     }
 
     pub(crate) fn resolved_scroll(&self) -> Option<interaction::ScrollOffset> {
-        self.viewport.map(viewport::Viewport::resolved_scroll)
+        self.viewport.map(Viewport::resolved_scroll)
     }
 
     pub(crate) fn is_enabled(&self) -> bool {

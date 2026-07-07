@@ -18,11 +18,12 @@ mod measure;
 mod path;
 pub(crate) mod text;
 pub(crate) mod typography;
-pub(crate) mod viewport;
+mod viewport;
 
 pub(crate) use engine::Engine;
 pub(crate) use frame::Frame;
 pub(crate) use hit::Hit;
+pub(crate) use viewport::Viewport;
 
 #[derive(Clone)]
 pub(crate) struct Layout {

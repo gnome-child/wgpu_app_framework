@@ -9,7 +9,7 @@ use super::super::{
     theme::Theme,
     view,
 };
-use super::viewport::Viewport;
+use super::Viewport;
 
 #[derive(Clone)]
 pub(crate) struct Service {

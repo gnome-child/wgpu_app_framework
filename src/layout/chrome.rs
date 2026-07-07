@@ -1,5 +1,5 @@
 use super::super::{geometry::Rect, interaction, theme};
-use super::{frame::Frame, viewport::Viewport};
+use super::{Frame, Viewport};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Chrome {
