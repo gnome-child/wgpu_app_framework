@@ -75,27 +75,24 @@ impl Surface {
         self.inner.configure(render_context.device(), &self.config);
     }
 
-    pub fn acquire_frame(
-        &self,
-        render_context: &render::Context,
-    ) -> Result<render::frame::Outcome> {
+    pub fn acquire_frame(&self, render_context: &render::Context) -> Result<render::FrameOutcome> {
         use wgpu::CurrentSurfaceTexture::*;
 
         match self.inner.get_current_texture() {
-            Success(surface_texture) => Ok(render::frame::Outcome::Acquired(render::Frame::new(
+            Success(surface_texture) => Ok(render::FrameOutcome::Acquired(render::Frame::new(
                 surface_texture,
             ))),
             Suboptimal(surface_texture) => {
                 self.reconfigure(render_context);
-                Ok(render::frame::Outcome::Acquired(render::Frame::new(
+                Ok(render::FrameOutcome::Acquired(render::Frame::new(
                     surface_texture,
                 )))
             }
             Outdated => {
                 self.reconfigure(render_context);
-                Ok(render::frame::Outcome::Skipped)
+                Ok(render::FrameOutcome::Skipped)
             }
-            Timeout | Occluded | Validation => Ok(render::frame::Outcome::Skipped),
+            Timeout | Occluded | Validation => Ok(render::FrameOutcome::Skipped),
             Lost => Err(Error::Lost),
         }
     }
@@ -107,7 +104,7 @@ impl Surface {
     ) -> Result<()> {
         let outcome = self.acquire_frame(render_context)?;
 
-        use render::frame::Outcome::*;
+        use render::FrameOutcome::*;
         let frame = match outcome {
             Acquired(frame) => frame,
             Skipped => return Ok(()),

@@ -456,7 +456,7 @@ mod tests {
     #[test]
     #[ignore = "requires a GPU adapter; run with the renderer smoke tier"]
     fn shared_silhouette_shaders_compile_in_wgpu_pipelines() {
-        let context = pollster::block_on(render::Context::new(render::context::Options {
+        let context = pollster::block_on(render::Context::new(render::ContextOptions {
             device_label: "wgpu_l3 silhouette shader smoke device",
             backends: wgpu::Backends::all(),
             power_preference: wgpu::PowerPreference::HighPerformance,

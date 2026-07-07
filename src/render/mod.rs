@@ -1,21 +1,22 @@
 use thiserror::Error;
 
-pub use canvas::Canvas;
-pub use context::Context;
-pub use frame::Frame;
-pub use renderer::Renderer;
-pub use surface::Surface;
+pub(crate) use canvas::{Canvas, Options as CanvasOptions};
+pub(crate) use context::{Context, Options as ContextOptions};
+pub(crate) use frame::{Frame, Outcome as FrameOutcome};
+pub(crate) use primitive::Vertex;
+pub(crate) use renderer::Renderer;
+pub(crate) use surface::Surface;
 
 mod batch;
-pub mod canvas;
-pub mod context;
+mod canvas;
+mod context;
 mod filter;
-pub mod frame;
-pub mod primitive;
+mod frame;
+mod primitive;
 mod quad;
-pub mod renderer;
+mod renderer;
 mod silhouette;
-pub mod surface;
+mod surface;
 mod text_renderer;
 
 pub fn color_to_wgpu(color: crate::paint::Color) -> wgpu::Color {

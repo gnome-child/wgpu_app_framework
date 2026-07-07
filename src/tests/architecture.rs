@@ -77,6 +77,31 @@ fn renderer_paint_vocabulary_stays_private() {
 }
 
 #[test]
+fn renderer_file_modules_stay_private() {
+    let render_mod = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("render")
+            .join("mod.rs"),
+    )
+    .expect("render module should read");
+
+    for module in [
+        "canvas",
+        "context",
+        "frame",
+        "primitive",
+        "renderer",
+        "surface",
+    ] {
+        assert!(
+            !render_mod.contains(&format!("pub mod {module};")),
+            "private renderer file module should not be part of the renderer facade: {module}"
+        );
+    }
+}
+
+#[test]
 fn paint_geometry_stays_below_text_and_native_rendering() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let allowed_roots = [

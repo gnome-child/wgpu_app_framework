@@ -55,7 +55,7 @@ pub fn pipeline(
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[render::primitive::Vertex::layout()],
+                buffers: &[render::Vertex::layout()],
                 compilation_options: Default::default(),
             },
             primitive: wgpu::PrimitiveState::default(),
@@ -157,7 +157,7 @@ struct PreparedBrush {
 }
 
 fn push_shape_vertices(
-    buffer: &mut Vec<render::primitive::Vertex>,
+    buffer: &mut Vec<render::Vertex>,
     viewport: render::Viewport,
     shape: &batch::Shape<'_>,
 ) {
@@ -250,7 +250,7 @@ fn analytic_shapes_for_outline(outline: &paint::Outline) -> Vec<AnalyticShape> {
 }
 
 fn push_analytic_shape_vertices(
-    buffer: &mut Vec<render::primitive::Vertex>,
+    buffer: &mut Vec<render::Vertex>,
     canvas_area: area::Logical,
     pixel_geometry: PixelGeometry,
     shape: AnalyticShape,
@@ -289,7 +289,7 @@ fn push_analytic_shape_vertices(
     };
 
     let mut push = |x: f32, y: f32| {
-        buffer.push(render::primitive::Vertex {
+        buffer.push(render::Vertex {
             position: to_clip(x, y),
             local_position: [x, y],
             outer_rect,
@@ -643,7 +643,7 @@ mod tests {
         vertices_for_shape(shape).len()
     }
 
-    fn vertices_for_shape(shape: AnalyticShape) -> Vec<render::primitive::Vertex> {
+    fn vertices_for_shape(shape: AnalyticShape) -> Vec<render::Vertex> {
         let mut vertices = Vec::new();
 
         push_analytic_shape_vertices(

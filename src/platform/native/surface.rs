@@ -48,7 +48,7 @@ impl Native {
             .expect("render context should exist before creating window canvas");
         let inner_size = handle.inner_size();
         let canvas = render::Canvas::new(
-            render::canvas::Options {
+            render::CanvasOptions {
                 area: surface_area::physical(inner_size.width, inner_size.height).clamp_min(1),
                 scale_factor: handle.scale_factor() as f32,
                 color: render::color_to_wgpu(super::color::paint_color(window.canvas_color())),
@@ -133,8 +133,8 @@ impl Native {
     }
 }
 
-fn render_context_options() -> render::context::Options {
-    render::context::Options {
+fn render_context_options() -> render::ContextOptions {
+    render::ContextOptions {
         device_label: "wgpu_l3 device",
         backends: wgpu::Backends::all(),
         power_preference: wgpu::PowerPreference::HighPerformance,
