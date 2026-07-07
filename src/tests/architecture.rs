@@ -530,6 +530,8 @@ fn layout_frame_and_hit_inspection_stays_internal() {
         "pub(crate) mod control;",
         "pub mod engine;",
         "pub(crate) mod engine;",
+        "pub mod flow;",
+        "pub(crate) mod flow;",
         "pub mod frame;",
         "pub(crate) mod frame;",
         "pub mod hit;",

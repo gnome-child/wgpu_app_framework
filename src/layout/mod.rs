@@ -11,7 +11,7 @@ mod algorithm;
 mod chrome;
 mod control;
 mod engine;
-pub(crate) mod flow;
+mod flow;
 mod frame;
 mod hit;
 mod measure;
