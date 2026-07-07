@@ -42,7 +42,7 @@ pub fn view(state: &State, cx: ViewContext) -> View {
         let scroll = &diagnostics.scroll;
         let frame = &diagnostics.frame;
         let status = format!(
-            "File: {path} ({dirty}) | Wrap: {wrap}\nDocument: {} lines, {} bytes | Edits: {} | Status: {}\nText layout: paint {}, metrics {}, visible {}, shaped {}, segments {}+{}, overlays {}, highlight scans {}\nText caches: line {}/{}, render surfaces {}, render cache {}/{}, render source {} lines / {} bytes\nScroll: wheel {}, offsets {}, queued {}, redraws {}, commits {}, pending {}/{}\nText scroll: projections {}, resolve/reuse/shift {}/{}/{}, shift misses {}, cold jumps {}, async reconcile/skips {}/{}\nRetained scroll: layer hits {}, text skips {}, target fallbacks {}, layer rebuilds {}\nFrames: full {}, scroll-only {}, scroll fallbacks {}, render skips {}\nFrame us latest/avg: paint {}/{}, render {}/{}, text {}/{}, total {}/{}\nLast scroll frame: text {}us, render {}us, total {}us, surfaces {}, glyph batches {}",
+            "File: {path} ({dirty}) | Wrap: {wrap}\nDocument: {} lines, {} bytes | Edits: {} | Status: {}\nText layout: paint {}, metrics {}, visible {}, shaped {}, segments {}+{}, overlays {}, highlight scans {}\nText caches: line {}/{}, render surfaces {}, render cache {}/{}, render source {} lines / {} bytes\nScroll: wheel {}, offsets {}, queued {}, redraws {}, commits {}, pending {}/{}\nText scroll: projections {}, resolve/reuse/shift {}/{}/{}, shift misses {}, cold jumps {}, async reconcile/skips {}/{}\nFrames: full {}, rebuilds {}, layout recomposes {}, layout reuses {}, text surfaces {}",
             state.document.line_count(),
             state.document.len(),
             state.document.edit_count(),
@@ -77,27 +77,11 @@ pub fn view(state: &State, cx: ViewContext) -> View {
             scroll.text_area_projection_cold_jumps,
             scroll.async_scroll_reconciles,
             scroll.async_scroll_projection_sync_skips,
-            scroll.retained_scroll_layer_hits,
-            scroll.retained_scroll_layer_text_prepare_skips,
-            scroll.retained_scroll_target_repaint_fallbacks,
-            scroll.retained_scroll_layer_rebuilds,
             frame.full_redraws,
-            frame.scroll_only_redraws,
-            frame.scroll_only_fallbacks_to_full,
-            frame.render_skips,
-            frame.paint.latest_us,
-            frame.paint.average_us,
-            frame.render.latest_us,
-            frame.render.average_us,
-            frame.render_text_prepare.latest_us,
-            frame.render_text_prepare.average_us,
-            frame.total.latest_us,
-            frame.total.average_us,
-            frame.last_scroll_frame.render_text_prepare_us,
-            frame.last_scroll_frame.render_total_us,
-            frame.last_scroll_frame.total_us,
-            frame.last_scroll_frame.text_surfaces,
-            frame.last_scroll_frame.glyph_batches,
+            frame.view_rebuilds,
+            frame.layout_recomposes,
+            frame.layout_reuses,
+            frame.text_area_render_surfaces,
         );
         Some(
             widget::Panel::new()

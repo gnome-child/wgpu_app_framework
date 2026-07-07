@@ -15,8 +15,4 @@ pub struct Scroll {
     pub text_area_projection_cold_jumps: usize,
     pub async_scroll_reconciles: usize,
     pub async_scroll_projection_sync_skips: usize,
-    pub retained_scroll_layer_hits: usize,
-    pub retained_scroll_layer_text_prepare_skips: usize,
-    pub retained_scroll_target_repaint_fallbacks: usize,
-    pub retained_scroll_layer_rebuilds: usize,
 }

@@ -56,7 +56,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         diagnostics.scroll.projection_count += text_area_count;
         diagnostics.frame.full_redraws += 1;
         diagnostics.frame.layout_recomposes += 1;
-        diagnostics.frame.last_scroll_frame.text_surfaces = text_surfaces;
+        diagnostics.frame.text_area_render_surfaces = text_surfaces;
     }
 
     pub(super) fn record_layout_reuse(&mut self, window: window::Id) {

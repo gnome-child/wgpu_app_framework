@@ -907,9 +907,9 @@ fn text_editor_debug_panel_reads_framework_diagnostics_from_view_context() {
     diagnostics.scroll.wheel_events = 5;
     diagnostics.scroll.text_area_projection_reuses = 2;
     diagnostics.frame.full_redraws = 11;
-    diagnostics.frame.render.latest_us = 19;
-    diagnostics.frame.render.average_us = 13;
-    diagnostics.frame.last_scroll_frame.glyph_batches = 4;
+    diagnostics.frame.view_rebuilds = 12;
+    diagnostics.frame.layout_reuses = 13;
+    diagnostics.frame.text_area_render_surfaces = 4;
 
     app.invoke(app.trigger::<text_editor::ToggleDebugPanel>(()))
         .output
@@ -924,13 +924,12 @@ fn text_editor_debug_panel_reads_framework_diagnostics_from_view_context() {
             .any(|label| label.contains("Text layout: paint 7, metrics 3"))
     );
     assert!(labels.iter().any(|label| label.contains("Scroll: wheel 5")));
-    assert!(labels.iter().any(|label| label.contains("Frames: full 11")));
     assert!(
         labels
             .iter()
-            .any(|label| label.contains("Frame us latest/avg: paint 0/0, render 19/13"))
+            .any(|label| label.contains("Frames: full 11, rebuilds 13"))
     );
-    assert!(labels.iter().any(|label| label.contains("glyph batches 4")));
+    assert!(labels.iter().any(|label| label.contains("text surfaces 4")));
 }
 
 #[test]
@@ -966,7 +965,7 @@ fn text_editor_render_records_live_text_and_frame_diagnostics() {
     assert!(diagnostics.text.text_area_paint_layout_calls > 0);
     assert!(diagnostics.text.text_area_visible_logical_lines > 0);
     assert!(diagnostics.text.text_area_render_surface_calls > 0);
-    assert!(diagnostics.frame.last_scroll_frame.text_surfaces > 0);
+    assert!(diagnostics.frame.text_area_render_surfaces > 0);
 
     app.invoke(app.trigger::<text_editor::ToggleDebugPanel>(()))
         .output
