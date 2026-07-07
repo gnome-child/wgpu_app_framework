@@ -23,11 +23,12 @@ pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme, vis
         scene.push_quad(mark_quad);
     }
 
-    if let Some(tint) = choice_tint_for(frame, theme, visuals) {
-        scene.push_quad(Quad::new(mark, tint).with_rounding(mark_rounding));
-    }
+    let tint = choice_tint_for(frame, theme, visuals);
 
     if !selected {
+        if let Some(tint) = tint {
+            scene.push_quad(Quad::new(mark, tint).with_rounding(mark_rounding));
+        }
         return;
     }
 
@@ -47,6 +48,10 @@ pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme, vis
             );
         }
         _ => {}
+    }
+
+    if let Some(tint) = tint {
+        scene.push_quad(Quad::new(mark, tint).with_rounding(mark_rounding));
     }
 }
 

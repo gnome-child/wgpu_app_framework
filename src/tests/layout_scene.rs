@@ -2959,7 +2959,7 @@ fn choice_marks_paint_pressed_tint_above_mark_without_label_overlay() {
         "checkbox frame should project pressed state"
     );
     assert!(pressed_checkbox.is_enabled());
-    assert_choice_pressed_tint_above_mark(&checkbox_pressed, pressed_checkbox.active_rect());
+    assert_choice_pressed_tint_above_mark_chrome(&checkbox_pressed, pressed_checkbox.active_rect());
     assert_no_choice_label_overlay(&checkbox_pressed, pressed_checkbox.rect());
 
     app.handle_input(window, Input::cancel())
@@ -2993,7 +2993,7 @@ fn choice_marks_paint_pressed_tint_above_mark_without_label_overlay() {
         "radio frame should project pressed state"
     );
     assert!(pressed_radio.is_enabled());
-    assert_choice_pressed_tint_above_mark(&radio_pressed, pressed_radio.active_rect());
+    assert_choice_pressed_tint_above_mark_chrome(&radio_pressed, pressed_radio.active_rect());
     assert_no_choice_label_overlay(&radio_pressed, pressed_radio.rect());
 }
 
@@ -4139,9 +4139,13 @@ fn assert_no_tint_quad(scene: &Scene, rect: geometry::Rect, color: scene::Color)
     );
 }
 
-fn assert_choice_pressed_tint_above_mark(presentation: &scene::Presentation, mark: geometry::Rect) {
+fn assert_choice_pressed_tint_above_mark_chrome(
+    presentation: &scene::Presentation,
+    mark: geometry::Rect,
+) {
     let primitives = presentation.scene().primitives();
     let mark_color = Theme::default().choice().mark;
+    let indicator = Theme::default().choice().indicator;
     let pressed_tint = Theme::default().choice().pressed_tint;
     let mark_index = primitives
         .iter()
@@ -4166,6 +4170,21 @@ fn assert_choice_pressed_tint_above_mark(presentation: &scene::Presentation, mar
         mark_index < tint_index,
         "choice pressed tint should paint above the mark base"
     );
+
+    let indicator_index = primitives.iter().position(|primitive| match primitive {
+        scene::Primitive::Icon(icon) => icon.icon().id().as_str() == "check" && icon.rect() == mark,
+        scene::Primitive::Quad(quad) => {
+            quad.fill() == indicator && rect_contains(mark, quad.rect())
+        }
+        _ => false,
+    });
+
+    if let Some(indicator_index) = indicator_index {
+        assert!(
+            indicator_index < tint_index,
+            "choice pressed tint should paint above the selected mark indicator"
+        );
+    }
 }
 
 fn assert_no_choice_label_overlay(presentation: &scene::Presentation, rect: geometry::Rect) {
