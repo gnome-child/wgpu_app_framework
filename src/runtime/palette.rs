@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use super::{Runtime, services::Services};
+use super::{Runtime, services::Services, transaction};
 use crate::{
     command, context as command_context, error::Error, fuzzy, input, interaction, responder,
     response, state, subject, view, window,
@@ -154,12 +154,14 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let focused_text = self.prepare_focused_text_for_command(window, command_type)?;
 
         let Some(transaction) = self.transact_any_command(
-            focus,
-            Some(window),
-            command_type,
-            command_name,
-            history_group,
-            command_context::Source::Palette,
+            transaction::AnyInvocation {
+                focus,
+                window: Some(window),
+                command_type,
+                command_name,
+                history_group,
+                source: command_context::Source::Palette,
+            },
             |registry, chain, cx| {
                 Ok(registry.invoke_any(command_type, command_name, Box::new(()), chain, cx))
             },

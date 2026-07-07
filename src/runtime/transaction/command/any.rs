@@ -1,27 +1,31 @@
 use std::any::TypeId;
 
 use super::super::super::{Runtime, services::Services};
+use super::super::AnyInvocation;
 use super::super::outcome::Outcome;
 use crate::{
-    command, context as command_context, error::Error, responder, response::AnyResponse, session,
-    state, timeline, window,
+    command, context as command_context, error::Error, responder, response::AnyResponse, state,
+    timeline,
 };
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(in crate::runtime) fn transact_any_command(
         &mut self,
-        focus: Option<session::Focus>,
-        window: Option<window::Id>,
-        command_type: TypeId,
-        command_name: &'static str,
-        history_group: Option<command::HistoryGroup>,
-        source: command_context::Source,
+        invocation: AnyInvocation,
         invoke: impl FnOnce(
             &command::Registry,
             &mut responder::Chain<'_, M>,
             &mut command_context::Context,
         ) -> std::result::Result<Option<AnyResponse>, Error>,
     ) -> std::result::Result<Option<Outcome>, Error> {
+        let AnyInvocation {
+            focus,
+            window,
+            command_type,
+            command_name,
+            history_group,
+            source,
+        } = invocation;
         let history = self
             .registry
             .history_for(command_type)

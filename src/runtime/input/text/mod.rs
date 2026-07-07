@@ -1,7 +1,7 @@
 use crate::text;
 use std::time::Instant;
 
-use super::super::Runtime;
+use super::super::{Runtime, transaction};
 use crate::{
     command, context as command_context, document, error::Error, input, interaction, response,
     session, state, window,
@@ -118,12 +118,14 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 
         let source = command_context::Source::Shortcut;
         let Some(transaction) = self.transact_any_command(
-            self.session.focused(window),
-            Some(window),
-            command_type,
-            command_name,
-            history_group,
-            source,
+            transaction::AnyInvocation {
+                focus: self.session.focused(window),
+                window: Some(window),
+                command_type,
+                command_name,
+                history_group,
+                source,
+            },
             |registry, chain, cx| registry.invoke_shortcut(shortcut, keymap, chain, cx),
         )?
         else {

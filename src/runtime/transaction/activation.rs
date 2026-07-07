@@ -1,4 +1,4 @@
-use super::super::Runtime;
+use super::{super::Runtime, AnyInvocation};
 use crate::{error::Error, response, session, state, view, window};
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
@@ -11,12 +11,14 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let source = binding.source();
         let transaction = self
             .transact_any_command(
-                focus,
-                window,
-                binding.command_type(),
-                binding.command_name(),
-                binding.history_group(),
-                source,
+                AnyInvocation {
+                    focus,
+                    window,
+                    command_type: binding.command_type(),
+                    command_name: binding.command_name(),
+                    history_group: binding.history_group(),
+                    source,
+                },
                 |registry, chain, cx| Ok(Some(binding.invoke(registry, chain, cx))),
             )?
             .expect("view binding activation always invokes a command");
