@@ -184,6 +184,7 @@ fn focused_text_service_stays_behind_runtime_boundary() {
 #[test]
 fn composition_tree_owns_identity_not_behavior() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let lib = std::fs::read_to_string(src_dir.join("lib.rs")).expect("lib module should read");
     let composition_dir = src_dir.join("composition");
     let widget_dir = src_dir.join("widget");
     let composition_mod = std::fs::read_to_string(composition_dir.join("mod.rs"))
@@ -201,9 +202,16 @@ fn composition_tree_owns_identity_not_behavior() {
             "fn unmount".to_owned(),
         ],
     );
+    for pattern in ["pub mod composition;", "pub use composition::Composition;"] {
+        assert!(
+            !lib.contains(pattern),
+            "retained composition must not be public root API: {pattern}"
+        );
+    }
     for pattern in [
         "pub use tree::NodeId",
         "pub struct NodeId",
+        "pub struct Composition",
         "pub use tree::{Changes",
         "pub use tree::{Node",
         "pub use tree::{Tree",
@@ -217,6 +225,13 @@ fn composition_tree_owns_identity_not_behavior() {
             "retained composition tree internals must not be public API: {pattern}"
         );
     }
+
+    let runtime_access = std::fs::read_to_string(src_dir.join("runtime").join("access.rs"))
+        .expect("runtime access module should read");
+    assert!(
+        !runtime_access.contains("pub fn composition("),
+        "runtime composition accessor must stay crate/test-visible"
+    );
 
     let interaction_target = std::fs::read_to_string(src_dir.join("interaction").join("target.rs"))
         .expect("interaction target module should read");

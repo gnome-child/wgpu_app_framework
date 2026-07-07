@@ -950,7 +950,7 @@ fn presentation_is_retained_as_framework_owned_composition() {
     assert!(app.composition(window).is_none());
 
     let projected = app.present(window).expect("window should have a view");
-    let composition: &Composition = app
+    let composition: &composition::Composition = app
         .composition(window)
         .expect("presenting should retain a composition");
 

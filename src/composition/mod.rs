@@ -7,7 +7,7 @@ pub(crate) use tree::{Changes, Node, Tree};
 
 use super::{interaction, session, subject, view, window};
 
-pub struct Composition {
+pub(crate) struct Composition {
     window: window::Id,
     view: view::View,
     tree: Tree,
@@ -62,10 +62,6 @@ impl Composition {
     #[cfg(test)]
     pub(crate) fn changes(&self) -> &Changes {
         &self.changes
-    }
-
-    pub fn contains_focus(&self, focus: session::Focus) -> bool {
-        self.view.contains_focus(focus)
     }
 
     pub(crate) fn next_focus(

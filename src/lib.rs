@@ -2,7 +2,6 @@ extern crate self as wgpu_l3;
 
 pub mod clipboard;
 pub mod command;
-pub mod composition;
 pub mod context;
 pub mod diagnostics;
 pub mod document;
@@ -35,6 +34,7 @@ pub mod widget;
 pub mod window;
 
 mod animation;
+mod composition;
 mod paint;
 mod paint_geometry;
 mod render;
@@ -51,7 +51,6 @@ mod text_editor;
 
 pub use clipboard::Clipboard;
 pub use command::Command;
-pub use composition::Composition;
 pub use context::Context;
 pub use diagnostics::Diagnostics;
 pub use document::Document;

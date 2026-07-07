@@ -1,6 +1,7 @@
+#[cfg(test)]
+use super::super::composition;
 use super::super::{
     clipboard::Clipboard,
-    composition,
     diagnostics::Diagnostics,
     session,
     state::{self, Store},
@@ -26,7 +27,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         &self.session
     }
 
-    pub fn composition(&self, window: window::Id) -> Option<&composition::Composition> {
+    #[cfg(test)]
+    pub(crate) fn composition(&self, window: window::Id) -> Option<&composition::Composition> {
         self.composition.get(window)
     }
 
