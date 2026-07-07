@@ -10,7 +10,7 @@ use crate::animation;
 mod algorithm;
 pub(crate) mod chrome;
 pub(crate) mod control;
-pub(crate) mod engine;
+mod engine;
 pub(crate) mod flow;
 pub(crate) mod frame;
 pub(crate) mod hit;
@@ -19,6 +19,8 @@ mod path;
 pub(crate) mod text;
 pub(crate) mod typography;
 pub(crate) mod viewport;
+
+pub(crate) use engine::Engine;
 
 use frame::Frame;
 use hit::Hit;
@@ -32,7 +34,7 @@ pub(crate) struct Layout {
 
 impl Layout {
     #[cfg(test)]
-    pub(crate) fn compose(view: &view::View, size: Size, engine: &mut engine::Engine) -> Self {
+    pub(crate) fn compose(view: &view::View, size: Size, engine: &mut Engine) -> Self {
         Self::compose_with_theme(view, size, engine, &Theme::default())
     }
 
@@ -40,7 +42,7 @@ impl Layout {
     pub(crate) fn compose_with_theme(
         view: &view::View,
         size: Size,
-        engine: &mut engine::Engine,
+        engine: &mut Engine,
         theme: &Theme,
     ) -> Self {
         Self::compose_with_theme_at(
@@ -57,7 +59,7 @@ impl Layout {
     pub(crate) fn compose_with_theme_at(
         view: &view::View,
         size: Size,
-        engine: &mut engine::Engine,
+        engine: &mut Engine,
         theme: &Theme,
         frame: animation::Frame,
         keymap: keymap::Profile,
@@ -69,7 +71,7 @@ impl Layout {
     pub(crate) fn compose_composition_with_theme_at(
         composition: &composition::Composition,
         size: Size,
-        engine: &mut engine::Engine,
+        engine: &mut Engine,
         theme: &Theme,
         frame: animation::Frame,
         keymap: keymap::Profile,
@@ -89,7 +91,7 @@ impl Layout {
         view: &view::View,
         tree: &composition::Tree,
         size: Size,
-        engine: &mut engine::Engine,
+        engine: &mut Engine,
         theme: &Theme,
         frame: animation::Frame,
         keymap: keymap::Profile,
@@ -148,7 +150,7 @@ impl Layout {
         &self,
         target: &interaction::Target,
         point: Point,
-        engine: &mut engine::Engine,
+        engine: &mut Engine,
     ) -> Option<(view::node::Role, Option<view::Action>)> {
         if let Some(chrome) = self.chrome.iter().find(|chrome| chrome.target() == target) {
             return Some((

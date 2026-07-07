@@ -106,7 +106,7 @@ fn idless_binding_hit_targets_use_retained_identity() {
     let mut store = composition::Store::default();
     let window = window::Id::new(1);
     let composition = store.install(window, anonymous_button_view());
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose_composition_with_theme_at(
         composition,
         geometry::Size::new(120, 40),

@@ -46,7 +46,7 @@ fn text_editor_view_composes_to_layout_without_runtime_mutation() {
     let window = app.session().windows()[0].id();
     let projected = app.present(window).expect("window should have a view");
     let revision = app.revision();
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let _: &layout::Layout = &layout::Layout::compose(
         &projected,
         geometry::Size::new(800, 600),
@@ -106,7 +106,7 @@ fn menu_bar_buttons_share_largest_label_width() {
                 .child(view::Node::menu("menu.view", "V")),
         ),
     );
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(400, 120), &mut layout_engine);
     let menus = layout.find_role(view::node::Role::Menu);
 
@@ -125,7 +125,7 @@ fn single_character_menu_titles_are_square_from_control_padding() {
                 .child(view::Node::menu("menu.b", "B")),
         ),
     );
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(160, 80), &mut layout_engine);
     let menus = layout.find_role(view::node::Role::Menu);
 
@@ -160,7 +160,7 @@ fn menu_bar_intrinsic_height_matches_bar_content_height() {
                 .child(view::Node::label("Below")),
         ),
     );
-    let mut engine = layout::engine::Engine::new();
+    let mut engine = layout::Engine::new();
     let layout = layout::Layout::compose_with_theme(
         &view,
         geometry::Size::new(240, 120),
@@ -207,7 +207,7 @@ fn menu_bar_title_typography_uses_interface_domain() {
         "##,
     )
     .expect("interface-large theme should parse");
-    let mut engine = layout::engine::Engine::new();
+    let mut engine = layout::Engine::new();
     let default_layout = layout::Layout::compose_with_theme(
         &view,
         geometry::Size::new(400, 120),
@@ -272,7 +272,7 @@ fn generic_scroll_measures_content_clips_children_and_paints_scrollbar() {
             );
         });
     });
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(220, 120), &mut layout_engine);
     let scroll = layout
         .find_role(view::node::Role::Scroll)
@@ -346,7 +346,7 @@ fn viewport_content_extent_equals_placed_child_bounds() {
         )
         .child(view::Node::label("Body row"));
     let view = View::new(view::Node::root().child(scroll));
-    let mut engine = layout::engine::Engine::new();
+    let mut engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(240, 120), &mut engine);
     let scroll = layout
         .find_role(view::node::Role::Scroll)
@@ -469,7 +469,7 @@ fn grow_children_collapse_to_intrinsic_inside_scroll_axis() {
                 }),
         );
     });
-    let mut engine = layout::engine::Engine::new();
+    let mut engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(220, 120), &mut engine);
     let scroll = layout
         .find_role(view::node::Role::Scroll)
@@ -511,7 +511,7 @@ fn justify_content_is_start_when_scroll_content_exceeds_viewport() {
             );
         });
     });
-    let mut engine = layout::engine::Engine::new();
+    let mut engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(220, 100), &mut engine);
     let scroll = layout
         .find_role(view::node::Role::Scroll)
@@ -616,7 +616,7 @@ fn gutter_scrollbar_metrics_reduce_viewport_width() {
             );
         });
     });
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose_with_theme(
         &view,
         geometry::Size::new(220, 120),
@@ -735,7 +735,7 @@ fn viewport_intrinsics_ignore_content_extent() {
             );
         });
     });
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose_with_theme(
         &view,
         geometry::Size::new(240, 400),
@@ -767,7 +767,7 @@ fn scrollbar_thumb_wins_hit_test_over_content() {
                 }),
         );
     });
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(220, 120), &mut layout_engine);
     let track = first_scrollbar_track(&layout);
     let hit = layout
@@ -1026,7 +1026,7 @@ fn viewport_clip_applies_inside_floating_panel() {
                 }),
         );
     });
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(240, 180), &mut layout_engine);
     let scroll = layout
         .find_role(view::node::Role::Scroll)
@@ -1162,7 +1162,7 @@ fn editable_text_surfaces_use_active_text_input_foreground() {
             ));
         });
     });
-    let mut engine = layout::engine::Engine::new();
+    let mut engine = layout::Engine::new();
     let layout = layout::Layout::compose_with_theme(
         &view,
         geometry::Size::new(260, 120),
@@ -1199,7 +1199,7 @@ fn text_box_placeholder_uses_text_input_placeholder_color() {
     let view = widget::view(|ui| {
         ui.text_box(widget::TextBox::new("").placeholder("Find"));
     });
-    let mut engine = layout::engine::Engine::new();
+    let mut engine = layout::Engine::new();
     let layout = layout::Layout::compose_with_theme(
         &view,
         geometry::Size::new(220, 64),
@@ -1570,7 +1570,7 @@ fn explicit_zero_floating_panel_gap_disables_default_content_gap() {
                 }),
         );
     });
-    let mut engine = layout::engine::Engine::new();
+    let mut engine = layout::Engine::new();
     let layout = layout::Layout::compose_with_theme(
         &view,
         geometry::Size::new(240, 160),
@@ -1843,7 +1843,7 @@ fn label_means_visible_text() {
             .child(view::Node::panel().with_interaction_id("identity.only"))
             .child(view::Node::panel().with_label("Visible Panel")),
     );
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(240, 120), &mut layout_engine);
     let scene = scene::Scene::paint(&layout);
 
@@ -1880,7 +1880,7 @@ fn typography_metrics_affect_label_measurement() {
                 .child(view::Node::label("Typography")),
         ),
     );
-    let mut engine = layout::engine::Engine::new();
+    let mut engine = layout::Engine::new();
     let default_layout = layout::Layout::compose_with_theme(
         &view,
         geometry::Size::new(320, 120),
@@ -1953,7 +1953,7 @@ fn interface_metrics_affect_system_widgets_without_body_metrics() {
             );
         });
     });
-    let mut engine = layout::engine::Engine::new();
+    let mut engine = layout::Engine::new();
     let default_layout = layout::Layout::compose_with_theme(
         &view,
         geometry::Size::new(420, 160),
@@ -2195,7 +2195,7 @@ fn layout_hit_testing_uses_stable_identity_and_topmost_popup_order() {
                 .child(view::Node::menu("menu.second", "Same")),
         ),
     );
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let duplicate_layout = layout::Layout::compose(
         &duplicate,
         geometry::Size::new(320, 120),
@@ -2598,7 +2598,7 @@ fn text_editor_layout_paints_to_renderer_neutral_scene() {
         .expect("stress text command should resolve");
     let projected = app.present(window).expect("window should have a view");
     let revision = app.revision();
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(
         &projected,
         geometry::Size::new(800, 600),
@@ -2835,7 +2835,7 @@ fn scene_paints_controls_from_semantic_state() {
             ui.slider(widget::Slider::new("Zoom", 5.0, 0.0..=10.0));
         });
     });
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(320, 120), &mut layout_engine);
     let scene = scene::Scene::paint(&layout);
     let checkbox = layout
@@ -3003,7 +3003,7 @@ fn scene_paint_accepts_theme_data_variants() {
     let view = widget::view(|ui| {
         ui.button(widget::Button::new("Action"));
     });
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(180, 60), &mut layout_engine);
     let dark = scene::Scene::paint(&layout);
     let light_theme = Theme::light();
@@ -3068,7 +3068,7 @@ fn theme_toml_tokens_drive_layout_and_scene_primitives() {
             )
             .child(view::Node::floating_panel("panel").child(view::Node::label("Item"))),
     );
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose_with_theme(
         &view,
         geometry::Size::new(220, 120),
@@ -3680,7 +3680,7 @@ fn scene_preserves_popup_paint_order_after_base_content() {
         .expect("menu action should be handled");
 
     let projected = app.present(window).expect("window should have a view");
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(
         &projected,
         geometry::Size::new(800, 600),
@@ -3837,7 +3837,7 @@ fn generic_floating_panel_uses_shared_chrome_before_content() {
                 }),
         );
     });
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(240, 160), &mut layout_engine);
     let scene = scene::Scene::paint(&layout);
     let panel = layout
@@ -3907,7 +3907,7 @@ fn generic_floating_panel_uses_stack_padding_and_gap_for_content() {
                 }),
         );
     });
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(260, 180), &mut layout_engine);
     let theme = Theme::default();
     let panel = layout
@@ -3949,7 +3949,7 @@ fn slider_labels_are_single_line_without_default_row_fill() {
                 }),
         );
     });
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(360, 80), &mut layout_engine);
     let scene = scene::Scene::paint(&layout);
     let slider = layout
@@ -4000,7 +4000,7 @@ fn overlay_layout_paints_styled_backgrounds_under_floating_panel() {
                 }),
         );
     });
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(200, 120), &mut layout_engine);
     let scene = scene::Scene::paint(&layout);
     let panel = layout

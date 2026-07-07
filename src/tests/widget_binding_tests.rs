@@ -31,7 +31,7 @@ fn widget_trigger_binding_activates_from_non_command_element() {
         .expect("trigger-bound element should collect a command");
     assert_eq!(command.source(), context::Source::Button);
 
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(
         &projected,
         geometry::Size::new(320, 120),
@@ -82,7 +82,7 @@ fn widget_button_trigger_hit_tests_as_button_and_invokes_command() {
 
     let window = app.session().windows()[0].id();
     let projected = app.present(window).expect("window should have a view");
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(
         &projected,
         geometry::Size::new(320, 120),
@@ -137,7 +137,7 @@ fn hidden_command_bound_widgets_are_pruned_after_resolution() {
     assert!(projected.buttons().is_empty());
     assert_eq!(projected.menus().len(), 1);
 
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(
         &projected,
         geometry::Size::new(320, 120),
@@ -189,7 +189,7 @@ fn disabled_command_bound_widgets_are_visible_but_not_activating() {
     assert!(!command.is_enabled());
     assert_eq!(projected.buttons().len(), 1);
 
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(
         &projected,
         geometry::Size::new(320, 120),

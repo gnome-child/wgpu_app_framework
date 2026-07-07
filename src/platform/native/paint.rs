@@ -269,7 +269,7 @@ mod tests {
         let view = widget::view(|ui| {
             ui.text_box(widget::TextBox::new("query"));
         });
-        let mut engine = layout::engine::Engine::new();
+        let mut engine = layout::Engine::new();
         let layout = layout::Layout::compose(&view, geometry::Size::new(160, 40), &mut engine);
         let source_scene = scene::Scene::paint_with_theme(&layout, &Theme::dark());
         let paint = to_paint_scene(&source_scene);
@@ -306,7 +306,7 @@ mod tests {
             view::Node::root()
                 .child(view::Node::floating_panel("panel").child(view::Node::label("Row"))),
         );
-        let mut engine = layout::engine::Engine::new();
+        let mut engine = layout::Engine::new();
         let layout = layout::Layout::compose_with_theme(
             &view,
             geometry::Size::new(240, 160),
@@ -396,7 +396,7 @@ mod tests {
                 );
             });
         });
-        let mut engine = layout::engine::Engine::new();
+        let mut engine = layout::Engine::new();
         let layout = layout::Layout::compose(&view, geometry::Size::new(200, 120), &mut engine);
         let source_scene = scene::Scene::paint_with_theme(&layout, &Theme::dark());
         let paint = to_paint_scene(&source_scene);

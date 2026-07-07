@@ -11,7 +11,7 @@ fn command_control_pointer_identity_is_shared_by_node_and_layout_paths() {
         .pointer_target()
         .expect("explicit id command control should expose a node target");
     let explicit_view = View::new(view::Node::root().child(explicit));
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let explicit_layout = layout::Layout::compose(
         &explicit_view,
         geometry::Size::new(160, 80),

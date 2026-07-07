@@ -111,7 +111,7 @@ fn widget_element_style_affects_row_layout_frames() {
         );
     });
 
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(300, 80), &mut layout_engine);
     let panels = layout.find_role(view::node::Role::Panel);
     let buttons = layout.find_role(view::node::Role::Button);
@@ -160,7 +160,7 @@ fn row_layout_fits_children_unless_width_grows() {
         );
     });
 
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(300, 80), &mut layout_engine);
     let buttons = layout.find_role(view::node::Role::Button);
 
@@ -189,7 +189,7 @@ fn fit_height_text_uses_height_for_allocated_width() {
         );
     });
 
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(300, 160), &mut layout_engine);
     let label = layout
         .find_role(view::node::Role::Panel)
@@ -222,7 +222,7 @@ fn button_text_is_center_aligned_by_default() {
     let view = widget::view(|ui| {
         ui.button(widget::Button::new("Hide panel").reserve_labels(["Show panel"]));
     });
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(240, 80), &mut layout_engine);
     let painted = scene::Scene::paint(&layout);
 
@@ -243,7 +243,7 @@ fn choice_and_slider_labels_are_passive_hit_regions() {
             ui.slider(widget::Slider::new("Level", 0.4, 0.0..=1.0).on_change::<SetLevel>());
         });
     });
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(260, 90), &mut layout_engine);
     let checkbox = layout
         .find_role(view::node::Role::Checkbox)
@@ -320,7 +320,7 @@ fn widget_element_alignment_affects_layout_frames() {
         );
     });
 
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(200, 100), &mut layout_engine);
     let panels = layout.find_role(view::node::Role::Panel);
 
@@ -352,7 +352,7 @@ fn widget_element_style_affects_column_layout_frames() {
         );
     });
 
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(100, 100), &mut layout_engine);
     let panels = layout.find_role(view::node::Role::Panel);
     let labels = layout.find_role(view::node::Role::Label);
@@ -373,7 +373,7 @@ fn reserved_toggle_button_width(label: &str) -> i32 {
     let view = widget::view(|ui| {
         ui.button(widget::Button::new(label).reserve_labels(["Show panel", "Hide panel"]));
     });
-    let mut layout_engine = layout::engine::Engine::new();
+    let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(240, 80), &mut layout_engine);
 
     layout

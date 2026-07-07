@@ -5,12 +5,12 @@ use crate::text as text_engine;
 use super::super::{diagnostics, geometry, theme, view};
 use super::text;
 
-pub struct Engine {
+pub(crate) struct Engine {
     pub(super) text: text::Service,
 }
 
 impl Engine {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             text: text::Service::new(),
         }

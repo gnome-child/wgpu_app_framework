@@ -525,6 +525,7 @@ fn layout_frame_and_hit_inspection_stays_internal() {
         "pub struct Layout",
         "pub fn size(&self)",
         "pub mod engine;",
+        "pub(crate) mod engine;",
         "pub mod frame;",
         "pub mod hit;",
         "pub mod viewport;",
