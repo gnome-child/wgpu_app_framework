@@ -1,207 +1,140 @@
 # Command Module Organization
 
-This document captures the organization scheme used by `src/command`.
+This document applies `docs/master_design.md` to the current command,
+responder, target, and response modules.
 
-The command module is organized around one rule:
+The command system is organized around one rule:
 
 ```text
-Central concepts are re-exported.
-Supporting concepts stay namespaced.
-Internal routing details stay private.
+Commands describe what can be asked.
+Targets execute commands.
+Responders decide where a command can run.
+Responses report what happened.
+Runtime orchestrates the route.
 ```
+
+The registry does not know focus, widgets, platform input, or application
+intent. It stores command contracts and asks the responder chain for resolved
+capability.
 
 ## Public Shape
 
-Callsites should import central concepts from the framework root or from `command`:
+Central command concepts are re-exported from `command`:
 
 ```rust
-use wgpu_l3::{Command, Registry, Response, State, Target};
-use wgpu_l3::command::{Call, Effect};
+command::Command
+command::History
+command::HistoryGroup
+command::KeyChord
+command::Observation
+command::Registry
+command::Spec
+command::Standard
+command::State
+command::Trigger
 ```
 
-They should not reach through implementation modules for central concepts:
+The related execution concepts live in their own root modules because they
+answer different questions:
 
 ```rust
-// Avoid.
-// Import central concepts from `command` or the crate root, not from implementation modules.
+target::Target      // this value can execute this command
+responder::Builder  // these are the available command scopes
+responder::Chain    // nearest-to-outermost runtime resolution
+response::Response  // command output plus side-effect metadata
+context::Context    // invocation environment
 ```
 
-Supporting concepts remain behind their module namespace:
-
-```rust
-command::call::Context
-command::call::Scope
-command::call::Source
-command::definition::Definition
-command::shortcut::Shortcut
-command::target::Kind
-command::binding::Route
-```
-
-That keeps the main API readable while preserving context around narrower concepts.
+Do not collapse these into a single command object. That was the old hidden
+assumption: command identity, execution target, routing scope, and result were
+treated as one thing. They are separate concepts.
 
 ## Module Map
 
 `command::Command`
 
-The command contract. It lives at `command` module root because it is the central concept, not a support type. A command is a type-level description: args, output, name, display text, hint, repeatability, and target kind.
+The type-level command contract. App code dispatches by Rust type, while
+`Command::NAME` provides stable metadata for keymaps, debugging, settings, and
+future plugin surfaces. A command declares its argument type, output type,
+history policy, and optional history grouping.
 
-`command::Target`
+`command::Spec`
 
-The execution contract for a specific command on a specific runtime target. Implementing `Target<C>` says: this target knows how to execute command `C`.
+Registration-time presentation metadata: display label and semantic shortcut.
+Shortcut declarations stay semantic (`Primary+S`, `Standard::Save`) and are
+resolved through the active keymap profile at match and presentation time.
 
 `command::Registry`
 
-Stores command definitions, shortcuts, configured state, running state, and typed call preparation. The registry does not decide focus or scope by itself; runtime/app layers provide context.
-Registering a command definition does not make it available in every context.
-Unprojected state is treated as unavailable for presentation, but request preparation only rejects explicit disabled/running state, target-contract mismatches, unknown commands, and invalid args. Final execution still validates the concrete target state.
-
-`command::Call`
-
-A typed request to invoke a command. It carries typed args plus requested target kind, source, scope, window, origin, and repeat state.
-
-`command::Response`
-
-The result of invoking a command. It carries command output and follow-up effects. A response can pipe output into another command call or attach runtime/task effects.
-
-`command::Effect`
-
-Follow-up work produced by a response: runtime effect, batch, command call, or task.
+Stores registered command types, specs, shortcut bindings, and registration
+order. It can resolve a typed command state, enumerate unit commands for the
+palette, and invoke a command after a responder claim has been found. It does
+not choose focus or mutate app state by itself.
 
 `command::State`
 
-Runtime command affordance for a context: available, active, running, display override, and hint override.
+Resolved affordance for a command in a concrete context: enabled, disabled, or
+hidden, with optional checked state, label override, shortcut override, and
+tooltip. Availability is runtime state, not a property of registration.
 
-`command::Args`
+`command::Trigger`
 
-Controlled command invocation arguments. Standard arg types implement conversion to and from `args::Raw`, with validation such as string size limits.
+A typed invocation request carrying command arguments. Widgets and runtime
+helpers produce triggers; the registry converts them to erased internal form
+only at the routing boundary.
 
-`command::Output`
+`command::Observation`
 
-Marker trait for command output values.
+Post-command observation context. Observers can react to command outputs and
+effects without becoming the command target.
 
-## Namespaced Support Modules
+`target::Target<C>`
 
-`command::args`
+The execution contract. Implementing `Target<C>` for a value says that value can
+report state for `C` and invoke `C`. Target implementations own behavior; they
+return `response::Response<C::Output>`.
 
-Defines `Raw`, `Kind`, and argument validation errors. This is the boundary for external/raw command arguments.
+`responder`
 
-`command::binding`
+Responder builders describe the available command scopes: app, object,
+focused object, and framework services. Runtime builds a nearest-first chain
+from these responders plus services. Claim provenance is routing and diagnostic
+data; user-facing palette labels come from subject ancestry.
 
-Defines command-facing binding support: `Route`, `Binding`, and `Responder`. A binding says what command route a widget or responder exposes; it is not command execution.
+`response`
 
-UI does not store these command types directly. Command-backed widgets project them into generic action metadata with `.action()`, and the app command bridge decodes that action metadata back into command routes when it resolves registry state or builds a command request. Menu items follow the same rule: `widget::menu::Item` stores `action::Route`, while its command-facing builders project command routes immediately. The reverse conversion is runtime/internal; callers should keep naming commands by Rust type.
-
-`command::call`
-
-Defines invocation context vocabulary: `Context`, `Scope`, `Source`, erased `Any`, internal raw calls, and typed `Invocation<C>`.
-
-`command::definition`
-
-Defines `Definition`, `Contract`, and the erased function pointers used by registration. This is where static command metadata is attached to runtime invocation machinery.
-
-`command::shortcut`
-
-Defines keyboard shortcut matching and display formatting.
-
-`command::target`
-
-Defines target capability vocabulary. `target::Kind` is a runtime category used for routing and resolution. `target::Category` lets command definitions advertise trait-style target categories.
-
-## Private Internals
-
-`command::key`
-
-Internal routing identity for command types. It is intentionally not public API. Callers name commands by Rust type, not by an exposed command id.
-
-`command::output`
-
-Small internal module for the `Output` marker trait. The trait itself is re-exported as `command::Output`.
-
-`command::response`
-
-Implementation module for `Response`. The type is re-exported as `command::Response`.
-
-## Typed And Erased Boundary
-
-The public API is typed:
-
-```rust
-Call::<Save>::new::<Editor>(())
-```
-
-The runtime needs erased storage and dispatch:
-
-```text
-Call<C> -> call::Any -> definition invoker -> Target<C>::invoke
-```
-
-The erased layer is private to the command runtime. It exists so the registry and app runtime can queue, validate, and route calls without exposing command ids or forcing callsites to handle dynamic typing.
+Response owns command output, changed-state reporting, and follow-up effects.
+Runtime consumes responses to update history, invalidation depth, tasks,
+requests, and observations.
 
 ## Execution Flow
 
 ```text
-Command type defines contract
-Registry stores Definition
-UI/app creates or resolves Call<C>
-Runtime resolves target from scope/focus/capture/window/path
-Runtime/app resolves whether the call has a handler path
-Registry validates target contract, configured state, and args
-Registry invokes Target<C>
-Target returns Response<Output>
-Runtime handles Response effects
+Command type declares contract
+Runtime registers command Spec in Registry
+App/framework registers Target implementations in responder scopes
+UI/input produces a Trigger
+Runtime builds a responder Chain for the current focus/source
+Registry asks the chain for State or invocation claim
+Target<C> executes and returns Response<C::Output>
+Runtime applies response effects, history, invalidation, and observers
 ```
 
-The target decides behavior. The runtime decides where the command runs.
-
-## Adding A Command
-
-Use the macro for ordinary command definitions:
-
-```rust
-command!(pub Save {
-    name: "save",
-    display: "Save",
-    hint: "Write the current document",
-    repeatable: false,
-});
-```
-
-Then implement behavior on a target:
-
-```rust
-impl command::Target<Save> for Editor {
-    fn state(&self, context: &command::call::Context) -> command::State {
-        command::State::available_if(self.is_dirty())
-    }
-
-    fn invoke(
-        &mut self,
-        _args: (),
-        invocation: command::call::Invocation<Save>,
-    ) -> command::Response<()> {
-        self.save(invocation.context());
-        command::Response::none()
-    }
-}
-```
-
-Register the definition with the target implementation:
-
-```rust
-registry.define::<Save, Editor>(|definition| {
-    definition.shortcut(command::shortcut::Shortcut::ctrl('s'))
-});
-```
+The target decides behavior. The responder chain decides where behavior is
+available. Runtime coordinates the transaction.
 
 ## Boundary Rules
 
-- Command definitions describe invocation and effect contracts.
-- Target implementations execute commands.
-- Registry stores definitions and context-scoped state.
-- Availability is runtime state, not a side effect of definition registration.
-- Runtime/app layers resolve scope, focus, capture, and concrete target selection.
-- Widgets may project command bindings into generic UI action metadata, but UI should not own command execution or command registry state.
-- Command keys are internal routing details, not caller-facing ids.
-- If a concept is meant to be used everywhere, re-export it from `command`.
-- If a concept only makes sense with its module context, keep it namespaced.
+- Commands are contracts, not action ids.
+- Targets execute commands; widgets do not.
+- Responders describe capability scopes; they are not subject labels.
+- Registry stores command metadata and typed/erased dispatch glue; it does not
+  know focus or composition ancestry by itself.
+- State describes current affordance and can hide a command from continued
+  resolution.
+- Shortcut resolution is platform-truthful data. Shortcut display is themed
+  presentation.
+- Erased command storage is private to the command/runtime boundary.
+- If a public example needs crate-private command constructors, that is evidence
+  for a deliberate application API pass, not a reason to leak internals
+  incidentally.
