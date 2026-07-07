@@ -1,3 +1,4 @@
+#[cfg(test)]
 use crate::text;
 
 use super::super::{
@@ -8,7 +9,7 @@ use super::{Node, Role};
 use crate::{composition, interaction};
 
 impl Node {
-    pub fn pointer_target(&self) -> Option<interaction::Target> {
+    pub(crate) fn pointer_target(&self) -> Option<interaction::Target> {
         self.explicit_pointer_target()
     }
 
@@ -112,36 +113,34 @@ impl Node {
         }
     }
 
-    pub fn label_target(&self) -> Option<interaction::Target> {
-        if self.role != Role::Label {
-            return None;
-        }
-
-        self.id
-            .zip(self.label.as_ref())
-            .map(|(id, label)| interaction::Target::label(id, label.clone()))
-    }
-
-    pub fn pointer_move_action(&self) -> Option<Action> {
+    #[cfg(test)]
+    pub(crate) fn pointer_move_action(&self) -> Option<Action> {
         Some(Action::pointer_move(Some(self.pointer_target()?)))
     }
 
-    pub fn pointer_down_action(&self) -> Option<Action> {
+    #[cfg(test)]
+    pub(crate) fn pointer_down_action(&self) -> Option<Action> {
         Some(Action::pointer_down(self.pointer_target()?))
     }
 
-    pub fn pointer_up_action(&self) -> Option<Action> {
+    #[cfg(test)]
+    pub(crate) fn pointer_up_action(&self) -> Option<Action> {
         Some(Action::pointer_up(
             Some(self.pointer_target()?),
             self.pointer_activation_action(),
         ))
     }
 
-    pub fn scroll_action(&self, delta: interaction::ScrollDelta) -> Option<Action> {
+    #[cfg(test)]
+    pub(crate) fn scroll_action(&self, delta: interaction::ScrollDelta) -> Option<Action> {
         Some(Action::scroll(self.pointer_target()?, delta))
     }
 
-    pub fn text_pointer_down_action(&self, position: text::buffer::Position) -> Option<Action> {
+    #[cfg(test)]
+    pub(crate) fn text_pointer_down_action(
+        &self,
+        position: text::buffer::Position,
+    ) -> Option<Action> {
         if self.role != Role::TextArea {
             return None;
         }
@@ -159,7 +158,11 @@ impl Node {
         ]))
     }
 
-    pub fn text_pointer_drag_action(&self, position: text::buffer::Position) -> Option<Action> {
+    #[cfg(test)]
+    pub(crate) fn text_pointer_drag_action(
+        &self,
+        position: text::buffer::Position,
+    ) -> Option<Action> {
         if self.role != Role::TextArea {
             return None;
         }
@@ -176,7 +179,7 @@ impl Node {
         ))
     }
 
-    pub fn menu_action(&self) -> Option<Action> {
+    pub(crate) fn menu_action(&self) -> Option<Action> {
         if self.role != Role::Menu {
             return None;
         }
@@ -187,6 +190,7 @@ impl Node {
         )))
     }
 
+    #[cfg(test)]
     fn pointer_activation_action(&self) -> Option<Action> {
         match self.role {
             Role::TextArea => return self.text_area_model().and_then(TextArea::focus_action),

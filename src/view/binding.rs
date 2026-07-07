@@ -93,7 +93,7 @@ impl Binding {
         self.source
     }
 
-    pub fn action(&self) -> Action {
+    pub(crate) fn action(&self) -> Action {
         Action::activate(self)
     }
 

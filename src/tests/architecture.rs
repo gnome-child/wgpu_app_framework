@@ -752,6 +752,10 @@ fn view_tree_inspection_helpers_stay_internal() {
         !view_mod.contains("Node, Role") && !view_mod.contains("pub use node::Role"),
         "view Role is node storage vocabulary, not public view API"
     );
+    assert!(
+        !view_mod.contains("pub use action::Action"),
+        "view Action is runtime routing vocabulary, not public view API"
+    );
     for pattern in [
         "pub fn drain(&mut self)",
         "pub fn drain_scenes(",

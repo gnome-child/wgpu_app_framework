@@ -56,7 +56,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         result
     }
 
-    pub fn handle_view(
+    pub(crate) fn handle_view(
         &mut self,
         window: window::Id,
         action: view::Action,
@@ -164,7 +164,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             view::Action::TextEdit(edit) => {
                 self.handle_input(window, input::Input::text_edit(edit))
             }
-            view::Action::TextDrop(drop) => self.handle_input(window, input::Input::TextDrop(drop)),
         }
     }
 }

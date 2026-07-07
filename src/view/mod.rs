@@ -16,8 +16,7 @@ mod node;
 mod presentation;
 mod style;
 
-pub use action::Action;
-pub(crate) use action::FocusDirection;
+pub(crate) use action::{Action, FocusDirection};
 pub use binding::Binding;
 pub(crate) use command_palette::{CommandPalette, Entry as CommandPaletteEntry};
 pub use context::Context;

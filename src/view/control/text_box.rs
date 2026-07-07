@@ -87,15 +87,15 @@ impl TextBox {
         self.caret_epoch
     }
 
-    pub fn focus_action(&self) -> Option<Action> {
+    pub(crate) fn focus_action(&self) -> Option<Action> {
         self.focus.map(Action::focus)
     }
 
-    pub fn pointer_focus_action(&self) -> Option<Action> {
+    pub(crate) fn pointer_focus_action(&self) -> Option<Action> {
         self.focus.map(|focus| Action::focus(focus.pointer()))
     }
 
-    pub fn click_action(&self, position: text::buffer::Position) -> Option<Action> {
+    pub(crate) fn click_action(&self, position: text::buffer::Position) -> Option<Action> {
         Some(Action::sequence([
             self.pointer_focus_action()?,
             Action::text_edit(text::edit::Edit::pointer(
@@ -105,7 +105,7 @@ impl TextBox {
         ]))
     }
 
-    pub fn drag_action(&self, position: text::buffer::Position) -> Action {
+    pub(crate) fn drag_action(&self, position: text::buffer::Position) -> Action {
         Action::text_edit(text::edit::Edit::pointer(
             text::edit::PointerEditKind::Drag,
             position,
