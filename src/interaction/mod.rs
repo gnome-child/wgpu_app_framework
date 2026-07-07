@@ -49,7 +49,7 @@ impl Interaction {
         &self.scroll
     }
 
-    pub fn text_input(&self) -> &draft::Input {
+    pub(crate) fn text_input(&self) -> &draft::Input {
         &self.text_input
     }
 

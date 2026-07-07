@@ -252,6 +252,12 @@ fn text_layout_system_module_stays_private() {
 
 #[test]
 fn draft_input_module_stays_private() {
+    let lib = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("lib.rs"),
+    )
+    .expect("crate root should read");
     let draft_mod = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src")
@@ -263,6 +269,10 @@ fn draft_input_module_stays_private() {
     assert!(
         !draft_mod.contains("pub(crate) mod input;") && !draft_mod.contains("pub mod input;"),
         "draft input file module must stay private; re-export Input and retention constants"
+    );
+    assert!(
+        !lib.contains("pub mod draft;"),
+        "draft is transient text-session state, not public root API"
     );
 }
 

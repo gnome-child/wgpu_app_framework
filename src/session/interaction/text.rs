@@ -44,7 +44,7 @@ impl Session {
         window.interaction.reset_text_caret_blink(target, now)
     }
 
-    pub fn edit_text_draft(
+    pub(crate) fn edit_text_draft(
         &mut self,
         id: app_window::Id,
         focus: Focus,
@@ -67,7 +67,11 @@ impl Session {
         )
     }
 
-    pub fn undo_text_draft(&mut self, id: app_window::Id, focus: Focus) -> Option<draft::Change> {
+    pub(crate) fn undo_text_draft(
+        &mut self,
+        id: app_window::Id,
+        focus: Focus,
+    ) -> Option<draft::Change> {
         let window = self.window_mut(id)?;
         if !window
             .focus
@@ -82,7 +86,11 @@ impl Session {
             .undo_text_draft(&interaction::Target::text_area(focus))
     }
 
-    pub fn redo_text_draft(&mut self, id: app_window::Id, focus: Focus) -> Option<draft::Change> {
+    pub(crate) fn redo_text_draft(
+        &mut self,
+        id: app_window::Id,
+        focus: Focus,
+    ) -> Option<draft::Change> {
         let window = self.window_mut(id)?;
         if !window
             .focus

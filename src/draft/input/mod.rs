@@ -12,7 +12,7 @@ use store::Store;
 pub(crate) use store::DEFAULT_DRAFT_LIMIT;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Input {
+pub(crate) struct Input {
     target: Option<Target>,
     drafts: Store,
     preedit: Option<text::edit::Preedit>,
@@ -24,16 +24,11 @@ impl Input {
         self.target.as_ref()
     }
 
-    pub fn draft(&self) -> Option<&State> {
-        self.target
-            .as_ref()
-            .and_then(|target| self.draft_for(target))
-    }
-
     pub fn draft_for(&self, target: &Target) -> Option<&State> {
         self.drafts.get(target)
     }
 
+    #[cfg(test)]
     pub fn preedit(&self) -> Option<&text::edit::Preedit> {
         self.preedit.as_ref()
     }
@@ -121,9 +116,7 @@ impl Input {
         let blink_changed = self.reset_caret_blink(target.clone(), Instant::now());
 
         Change::new(
-            text,
             text_changed,
-            cursor_changed,
             selection_changed,
             target_changed
                 || text_changed
@@ -181,9 +174,7 @@ impl Input {
         let blink_changed = self.reset_caret_blink(target.clone(), Instant::now());
 
         Some(Change::new(
-            text,
             text_changed,
-            cursor_changed,
             selection_changed,
             target_changed
                 || changed_by_operation

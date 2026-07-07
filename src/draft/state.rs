@@ -3,7 +3,7 @@ use std::ops::Range;
 use crate::text;
 
 #[derive(Debug, Clone)]
-pub struct State {
+pub(crate) struct State {
     buffer: text::Buffer,
     edit_state: text::edit::State,
     history: text::edit::History,

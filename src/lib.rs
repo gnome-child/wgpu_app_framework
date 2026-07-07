@@ -5,7 +5,6 @@ pub mod command;
 pub mod context;
 pub mod diagnostics;
 pub mod document;
-pub mod draft;
 pub mod error;
 mod fuzzy;
 pub mod geometry;
@@ -34,6 +33,7 @@ pub mod window;
 
 mod animation;
 mod composition;
+mod draft;
 mod layout;
 mod paint;
 mod paint_geometry;
