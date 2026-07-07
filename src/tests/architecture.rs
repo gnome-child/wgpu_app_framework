@@ -229,6 +229,27 @@ fn structural_layout_paths_stay_internal() {
 }
 
 #[test]
+fn layout_frame_and_hit_inspection_stays_internal() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let layout_mod = std::fs::read_to_string(src_dir.join("layout").join("mod.rs"))
+        .expect("layout module should read");
+
+    for pattern in [
+        "pub mod frame;",
+        "pub mod hit;",
+        "pub fn frames(&self)",
+        "pub fn hit_test(&self",
+        "pub fn scroll_target_at(",
+        "pub fn find_role(&self",
+    ] {
+        assert!(
+            !layout_mod.contains(pattern),
+            "layout inspection API must stay internal: {pattern}"
+        );
+    }
+}
+
+#[test]
 fn focus_traversal_goes_through_retained_composition() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let view_mod = std::fs::read_to_string(src_dir.join("view").join("mod.rs"))

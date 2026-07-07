@@ -13,8 +13,8 @@ pub(crate) mod chrome;
 pub(crate) mod control;
 pub mod engine;
 pub(crate) mod flow;
-pub mod frame;
-pub mod hit;
+pub(crate) mod frame;
+pub(crate) mod hit;
 mod measure;
 pub(crate) mod path;
 pub(crate) mod text;
@@ -108,7 +108,7 @@ impl Layout {
         self.size
     }
 
-    pub fn frames(&self) -> &[Frame] {
+    pub(crate) fn frames(&self) -> &[Frame] {
         &self.frames
     }
 
@@ -116,7 +116,7 @@ impl Layout {
         &self.chrome
     }
 
-    pub fn hit_test(&self, point: Point) -> Option<Hit> {
+    pub(crate) fn hit_test(&self, point: Point) -> Option<Hit> {
         if let Some((owner, chrome)) = self
             .chrome
             .iter()
@@ -169,7 +169,7 @@ impl Layout {
             })
     }
 
-    pub fn scroll_target_at(
+    pub(crate) fn scroll_target_at(
         &self,
         point: Point,
         delta: interaction::ScrollDelta,
@@ -217,7 +217,8 @@ impl Layout {
         Some(viewport.reveal_rect(descendant.rect(), margin))
     }
 
-    pub fn find_role(&self, role: view::node::Role) -> Vec<&Frame> {
+    #[cfg(test)]
+    pub(crate) fn find_role(&self, role: view::node::Role) -> Vec<&Frame> {
         self.frames
             .iter()
             .filter(|frame| frame.role() == role)
