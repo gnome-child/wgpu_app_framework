@@ -57,9 +57,27 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 
                 Ok(self.window_outcome(window, false, effect))
             }
-            input::Input::PointerDown { target, intent } => {
+            input::Input::PointerDown(target) => {
                 self.begin_pointer_gesture(&target);
-                let effect = if self.session.pointer_down(window, target, intent) {
+                let effect =
+                    if self
+                        .session
+                        .pointer_down(window, target, interaction::PressIntent::Activate)
+                    {
+                        response::Effect::Paint
+                    } else {
+                        response::Effect::None
+                    };
+
+                Ok(self.window_outcome(window, false, effect))
+            }
+            input::Input::PointerManipulate(target) => {
+                self.begin_pointer_gesture(&target);
+                let effect = if self.session.pointer_down(
+                    window,
+                    target,
+                    interaction::PressIntent::Manipulate,
+                ) {
                     response::Effect::Paint
                 } else {
                     response::Effect::None

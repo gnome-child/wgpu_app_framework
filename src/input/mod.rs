@@ -17,10 +17,8 @@ pub enum Input {
     Focus(session::Focus),
     FilePathSelected(Option<PathBuf>),
     PointerMove(Option<interaction::Target>),
-    PointerDown {
-        target: interaction::Target,
-        intent: interaction::PressIntent,
-    },
+    PointerDown(interaction::Target),
+    PointerManipulate(interaction::Target),
     PointerDrag(Option<interaction::Target>),
     PointerUp(Option<interaction::Target>),
     PointerLeft,
@@ -86,18 +84,11 @@ impl Input {
     }
 
     pub fn pointer_down(target: interaction::Target) -> Self {
-        Self::pointer_down_with_intent(target, interaction::PressIntent::Activate)
+        Self::PointerDown(target)
     }
 
     pub fn pointer_manipulate(target: interaction::Target) -> Self {
-        Self::pointer_down_with_intent(target, interaction::PressIntent::Manipulate)
-    }
-
-    pub fn pointer_down_with_intent(
-        target: interaction::Target,
-        intent: interaction::PressIntent,
-    ) -> Self {
-        Self::PointerDown { target, intent }
+        Self::PointerManipulate(target)
     }
 
     pub fn pointer_drag(hovered: Option<interaction::Target>) -> Self {

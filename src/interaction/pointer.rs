@@ -14,7 +14,7 @@ pub(crate) struct Capture {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PressIntent {
+pub(crate) enum PressIntent {
     Activate,
     Manipulate,
 }

@@ -571,6 +571,36 @@ fn composition_tree_owns_identity_not_behavior() {
 }
 
 #[test]
+fn press_intent_stays_runtime_interaction_detail() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let interaction_mod = std::fs::read_to_string(src_dir.join("interaction").join("mod.rs"))
+        .expect("interaction module should read");
+    let pointer = std::fs::read_to_string(src_dir.join("interaction").join("pointer.rs"))
+        .expect("interaction pointer should read");
+    let input_mod =
+        std::fs::read_to_string(src_dir.join("input").join("mod.rs")).expect("input module read");
+
+    assert!(
+        !interaction_mod.contains("pub use pointer::PressIntent"),
+        "press intent is runtime/session press classification, not public interaction API"
+    );
+    assert!(
+        !pointer.contains("pub enum PressIntent"),
+        "press intent should stay crate-internal"
+    );
+    for pattern in [
+        "pointer_down_with_intent",
+        "intent: interaction::PressIntent",
+        "PointerDown {",
+    ] {
+        assert!(
+            !input_mod.contains(pattern),
+            "public input should expose named pointer gestures, not internal press intent: {pattern}"
+        );
+    }
+}
+
+#[test]
 fn retained_node_identity_replaces_structural_command_fallbacks() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
 

@@ -27,7 +27,7 @@ impl Session {
         window.interaction.pointer_move(target) || open_menu
     }
 
-    pub fn pointer_down(
+    pub(crate) fn pointer_down(
         &mut self,
         id: app_window::Id,
         target: interaction::Target,
@@ -48,7 +48,7 @@ impl Session {
         window.interaction.pointer_up(target)
     }
 
-    pub fn set_pointer_press_intent(
+    pub(crate) fn set_pointer_press_intent(
         &mut self,
         id: app_window::Id,
         target: &interaction::Target,
