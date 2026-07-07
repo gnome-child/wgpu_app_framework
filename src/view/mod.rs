@@ -22,7 +22,8 @@ pub use binding::Binding;
 pub(crate) use command_palette::{CommandPalette, Entry as CommandPaletteEntry};
 pub use context::Context;
 pub use control::{Button, Checkbox, Radio, Slider, TextArea, TextBox, Wrap};
-pub use node::{Axis, FloatingPlacement, Node, Role};
+pub(crate) use node::Role;
+pub use node::{Axis, FloatingPlacement, Node};
 #[cfg(test)]
 pub(crate) use presentation::Presentation;
 pub use style::{Align, Dimension, Padding, Style};

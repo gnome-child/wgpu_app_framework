@@ -7,7 +7,7 @@ use super::{Axis, FloatingPlacement, Node, Role};
 use crate::{interaction, subject};
 
 impl Node {
-    pub fn role(&self) -> Role {
+    pub(crate) fn role(&self) -> Role {
         self.role
     }
 

@@ -10,7 +10,7 @@ mod role;
 mod traversal;
 
 pub use axis::Axis;
-pub use role::Role;
+pub(crate) use role::Role;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FloatingPlacement {

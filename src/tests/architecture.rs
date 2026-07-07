@@ -748,6 +748,10 @@ fn view_tree_inspection_helpers_stay_internal() {
             && !view_presentation.contains("pub struct Presentation"),
         "view Presentation is an internal runtime checkpoint, not public view API"
     );
+    assert!(
+        !view_mod.contains("Node, Role") && !view_mod.contains("pub use node::Role"),
+        "view Role is node storage vocabulary, not public view API"
+    );
     for pattern in [
         "pub fn drain(&mut self)",
         "pub fn drain_scenes(",
