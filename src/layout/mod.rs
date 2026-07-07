@@ -19,7 +19,7 @@ mod measure;
 pub(crate) mod path;
 pub(crate) mod text;
 pub(crate) mod typography;
-pub mod viewport;
+pub(crate) mod viewport;
 
 use frame::Frame;
 use hit::Hit;

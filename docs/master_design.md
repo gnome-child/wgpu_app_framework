@@ -197,6 +197,8 @@ chrome derived from viewport geometry and interaction state; they are not
 semantic view-tree widgets. Layout also owns clip propagation: floating
 overlays escape ancestor viewport clips by not inheriting those clips, while a
 viewport introduced inside a floating panel still clips its own content.
+Viewport is internal layout vocabulary; apps ask for scrollable content through
+public widget builders, not by constructing viewport geometry directly.
 Resolved rectangular clips govern paint, initial hit acquisition, and wheel
 targeting. Captured drags may continue outside those clips after capture.
 Chrome is projected above its owner's viewport content, but initial chrome

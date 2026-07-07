@@ -295,11 +295,11 @@ impl Frame {
         self.clip
     }
 
-    pub fn viewport(&self) -> Option<viewport::Viewport> {
+    pub(crate) fn viewport(&self) -> Option<viewport::Viewport> {
         self.viewport
     }
 
-    pub fn resolved_scroll(&self) -> Option<interaction::ScrollOffset> {
+    pub(crate) fn resolved_scroll(&self) -> Option<interaction::ScrollOffset> {
         self.viewport.map(viewport::Viewport::resolved_scroll)
     }
 

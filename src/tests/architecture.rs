@@ -237,7 +237,10 @@ fn layout_frame_and_hit_inspection_stays_internal() {
     for pattern in [
         "pub mod frame;",
         "pub mod hit;",
+        "pub mod viewport;",
         "pub fn frames(&self)",
+        "pub fn viewport(&self)",
+        "pub fn resolved_scroll(&self)",
         "pub fn hit_test(&self",
         "pub fn scroll_target_at(",
         "pub fn find_role(&self",
