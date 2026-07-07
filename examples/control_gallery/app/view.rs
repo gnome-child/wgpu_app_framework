@@ -7,10 +7,7 @@ use super::{
 };
 use wgpu_l3::{
     View, document, geometry, interaction, scene, timeline,
-    view::{
-        Context as ViewContext,
-        style::{Align, Dimension, Padding},
-    },
+    view::{Align, Context as ViewContext, Dimension, Padding},
     widget,
 };
 

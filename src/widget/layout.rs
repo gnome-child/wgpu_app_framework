@@ -4,9 +4,9 @@ use super::super::view;
 pub struct Layout {
     direction: Direction,
     gap: Option<i32>,
-    padding: view::style::Padding,
-    align_items: view::style::Align,
-    justify_content: view::style::Align,
+    padding: view::Padding,
+    align_items: view::Align,
+    justify_content: view::Align,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,17 +41,17 @@ impl Layout {
         self
     }
 
-    pub fn padding(mut self, padding: view::style::Padding) -> Self {
+    pub fn padding(mut self, padding: view::Padding) -> Self {
         self.padding = padding;
         self
     }
 
-    pub fn align_items(mut self, align: view::style::Align) -> Self {
+    pub fn align_items(mut self, align: view::Align) -> Self {
         self.align_items = align;
         self
     }
 
-    pub fn justify_content(mut self, align: view::style::Align) -> Self {
+    pub fn justify_content(mut self, align: view::Align) -> Self {
         self.justify_content = align;
         self
     }
@@ -68,15 +68,15 @@ impl Layout {
         self.gap
     }
 
-    pub fn padding_value(&self) -> view::style::Padding {
+    pub fn padding_value(&self) -> view::Padding {
         self.padding
     }
 
-    pub fn align_items_value(&self) -> view::style::Align {
+    pub fn align_items_value(&self) -> view::Align {
         self.align_items
     }
 
-    pub fn justify_content_value(&self) -> view::style::Align {
+    pub fn justify_content_value(&self) -> view::Align {
         self.justify_content
     }
 }
@@ -86,9 +86,9 @@ impl Default for Layout {
         Self {
             direction: Direction::Column,
             gap: None,
-            padding: view::style::Padding::zero(),
-            align_items: view::style::Align::Stretch,
-            justify_content: view::style::Align::Start,
+            padding: view::Padding::zero(),
+            align_items: view::Align::Stretch,
+            justify_content: view::Align::Start,
         }
     }
 }

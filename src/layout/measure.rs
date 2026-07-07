@@ -260,7 +260,7 @@ fn max_envelope_height_for_width(
     theme: &theme::Theme,
 ) -> i32 {
     if node.role() == view::node::Role::Scroll
-        && node.style().height() == Some(view::style::Dimension::Fit)
+        && node.style().height() == Some(view::Dimension::Fit)
         && let Some(max_height) = node.style().max_height()
     {
         return max_height;
@@ -355,7 +355,7 @@ fn stack_intrinsic_height_for_width(
 
 fn intrinsic_or_fixed_height(node: &view::Node, theme: &theme::Theme) -> i32 {
     match node.style().height() {
-        Some(view::style::Dimension::Fixed(height)) => capped_height(node, height),
+        Some(view::Dimension::Fixed(height)) => capped_height(node, height),
         _ => intrinsic_height(node, theme),
     }
 }
@@ -367,7 +367,7 @@ fn intrinsic_or_fixed_height_for_width(
     theme: &theme::Theme,
 ) -> i32 {
     match node.style().height() {
-        Some(view::style::Dimension::Fixed(height)) => capped_height(node, height),
+        Some(view::Dimension::Fixed(height)) => capped_height(node, height),
         _ => intrinsic_height_for_width(node, width, engine, theme),
     }
 }
@@ -415,7 +415,7 @@ fn scroll_intrinsic_height(node: &view::Node, theme: &theme::Theme) -> i32 {
     match node.axis() {
         Some(view::node::Axis::Horizontal) => stack_intrinsic_height(node, theme),
         Some(view::node::Axis::Vertical) | Some(view::node::Axis::Overlay) | None
-            if node.style().height() == Some(view::style::Dimension::Fit)
+            if node.style().height() == Some(view::Dimension::Fit)
                 && node.style().max_height().is_some() =>
         {
             capped_height(node, stack_intrinsic_height(node, theme))
@@ -437,7 +437,7 @@ fn scroll_intrinsic_height_for_width(
             stack_intrinsic_height_for_width(node, width, engine, theme)
         }
         Some(view::node::Axis::Vertical) | Some(view::node::Axis::Overlay) | None
-            if node.style().height() == Some(view::style::Dimension::Fit)
+            if node.style().height() == Some(view::Dimension::Fit)
                 && node.style().max_height().is_some() =>
         {
             capped_height(
@@ -616,12 +616,10 @@ pub(in crate::layout) fn layout_gap(node: &view::Node, theme: &theme::Theme) -> 
 
 pub(in crate::layout) fn grows_vertical_space(node: &view::Node) -> bool {
     match node.style().height() {
-        Some(view::style::Dimension::Grow) => true,
-        Some(
-            view::style::Dimension::Fit
-            | view::style::Dimension::Fixed(_)
-            | view::style::Dimension::Percent(_),
-        ) => false,
+        Some(view::Dimension::Grow) => true,
+        Some(view::Dimension::Fit | view::Dimension::Fixed(_) | view::Dimension::Percent(_)) => {
+            false
+        }
         None => matches!(
             node.role(),
             view::node::Role::TextArea
@@ -645,10 +643,10 @@ pub(in crate::layout) fn resolved_width(
     theme: &theme::Theme,
 ) -> i32 {
     match node.style().width() {
-        Some(view::style::Dimension::Fit) => intrinsic_width(node, engine, theme),
-        Some(view::style::Dimension::Grow) | None => parent_width,
-        Some(view::style::Dimension::Fixed(width)) => width,
-        Some(view::style::Dimension::Percent(percent)) => {
+        Some(view::Dimension::Fit) => intrinsic_width(node, engine, theme),
+        Some(view::Dimension::Grow) | None => parent_width,
+        Some(view::Dimension::Fixed(width)) => width,
+        Some(view::Dimension::Percent(percent)) => {
             ((parent_width.max(0) as f32) * percent).round() as i32
         }
     }
@@ -662,10 +660,10 @@ pub(in crate::layout) fn resolved_row_width(
     theme: &theme::Theme,
 ) -> i32 {
     match node.style().width() {
-        None | Some(view::style::Dimension::Fit) => intrinsic_width(node, engine, theme),
-        Some(view::style::Dimension::Grow) => parent_width,
-        Some(view::style::Dimension::Fixed(width)) => width,
-        Some(view::style::Dimension::Percent(percent)) => {
+        None | Some(view::Dimension::Fit) => intrinsic_width(node, engine, theme),
+        Some(view::Dimension::Grow) => parent_width,
+        Some(view::Dimension::Fixed(width)) => width,
+        Some(view::Dimension::Percent(percent)) => {
             ((parent_width.max(0) as f32) * percent).round() as i32
         }
     }
@@ -676,22 +674,20 @@ pub(in crate::layout) fn cross_axis_width(
     node: &view::Node,
     parent_width: i32,
     engine: &mut engine::Engine,
-    align: view::style::Align,
+    align: view::Align,
     theme: &theme::Theme,
 ) -> i32 {
     match align {
-        view::style::Align::Stretch => resolved_width(node, parent_width, engine, theme),
-        view::style::Align::Start | view::style::Align::Center | view::style::Align::End => {
-            match node.style().width() {
-                None | Some(view::style::Dimension::Fit) => intrinsic_width(node, engine, theme),
-                Some(view::style::Dimension::Grow) => parent_width,
-                Some(view::style::Dimension::Fixed(width)) => width,
-                Some(view::style::Dimension::Percent(percent)) => {
-                    ((parent_width.max(0) as f32) * percent).round() as i32
-                }
+        view::Align::Stretch => resolved_width(node, parent_width, engine, theme),
+        view::Align::Start | view::Align::Center | view::Align::End => match node.style().width() {
+            None | Some(view::Dimension::Fit) => intrinsic_width(node, engine, theme),
+            Some(view::Dimension::Grow) => parent_width,
+            Some(view::Dimension::Fixed(width)) => width,
+            Some(view::Dimension::Percent(percent)) => {
+                ((parent_width.max(0) as f32) * percent).round() as i32
             }
-            .clamp(0, parent_width.max(0))
         }
+        .clamp(0, parent_width.max(0)),
     }
 }
 
@@ -700,28 +696,26 @@ pub(in crate::layout) fn cross_axis_height_for_width(
     width: i32,
     parent_height: i32,
     engine: &mut engine::Engine,
-    align: view::style::Align,
+    align: view::Align,
     theme: &theme::Theme,
 ) -> i32 {
     let height = match align {
-        view::style::Align::Stretch => match node.style().height() {
-            None | Some(view::style::Dimension::Grow) => parent_height,
-            Some(view::style::Dimension::Fit) => {
-                intrinsic_height_for_width(node, width, engine, theme)
-            }
-            Some(view::style::Dimension::Fixed(height)) => height,
-            Some(view::style::Dimension::Percent(percent)) => {
+        view::Align::Stretch => match node.style().height() {
+            None | Some(view::Dimension::Grow) => parent_height,
+            Some(view::Dimension::Fit) => intrinsic_height_for_width(node, width, engine, theme),
+            Some(view::Dimension::Fixed(height)) => height,
+            Some(view::Dimension::Percent(percent)) => {
                 ((parent_height.max(0) as f32) * percent).round() as i32
             }
         },
-        view::style::Align::Start | view::style::Align::Center | view::style::Align::End => {
+        view::Align::Start | view::Align::Center | view::Align::End => {
             match node.style().height() {
-                None | Some(view::style::Dimension::Fit) => {
+                None | Some(view::Dimension::Fit) => {
                     intrinsic_height_for_width(node, width, engine, theme)
                 }
-                Some(view::style::Dimension::Grow) => parent_height,
-                Some(view::style::Dimension::Fixed(height)) => height,
-                Some(view::style::Dimension::Percent(percent)) => {
+                Some(view::Dimension::Grow) => parent_height,
+                Some(view::Dimension::Fixed(height)) => height,
+                Some(view::Dimension::Percent(percent)) => {
                     ((parent_height.max(0) as f32) * percent).round() as i32
                 }
             }
@@ -731,16 +725,12 @@ pub(in crate::layout) fn cross_axis_height_for_width(
     capped_height(node, height).clamp(0, parent_height.max(0))
 }
 
-pub(in crate::layout) fn main_axis_offset(
-    align: view::style::Align,
-    available: i32,
-    content: i32,
-) -> i32 {
+pub(in crate::layout) fn main_axis_offset(align: view::Align, available: i32, content: i32) -> i32 {
     let slack = available.saturating_sub(content);
     match align {
-        view::style::Align::Start | view::style::Align::Stretch => 0,
-        view::style::Align::Center => slack / 2,
-        view::style::Align::End => slack,
+        view::Align::Start | view::Align::Stretch => 0,
+        view::Align::Center => slack / 2,
+        view::Align::End => slack,
     }
 }
 
@@ -748,12 +738,12 @@ pub(in crate::layout) fn cross_axis_offset(
     origin: i32,
     available: i32,
     size: i32,
-    align: view::style::Align,
+    align: view::Align,
 ) -> i32 {
     origin.saturating_add(main_axis_offset(align, available, size))
 }
 
-pub(in crate::layout) fn inset_rect(rect: Rect, padding: view::style::Padding) -> Rect {
+pub(in crate::layout) fn inset_rect(rect: Rect, padding: view::Padding) -> Rect {
     let x = rect.x.saturating_add(padding.left());
     let y = rect.y.saturating_add(padding.top());
     let width = rect.width.saturating_sub(padding.horizontal());
@@ -767,16 +757,16 @@ pub(in crate::layout) fn resolved_height(
     theme: &theme::Theme,
 ) -> i32 {
     let height = match node.style().height() {
-        Some(view::style::Dimension::Fit) => intrinsic_height(node, theme),
-        Some(view::style::Dimension::Grow) | None => {
+        Some(view::Dimension::Fit) => intrinsic_height(node, theme),
+        Some(view::Dimension::Grow) | None => {
             if grows_vertical_space(node) {
                 parent_height
             } else {
                 intrinsic_height(node, theme)
             }
         }
-        Some(view::style::Dimension::Fixed(height)) => height,
-        Some(view::style::Dimension::Percent(percent)) => {
+        Some(view::Dimension::Fixed(height)) => height,
+        Some(view::Dimension::Percent(percent)) => {
             ((parent_height.max(0) as f32) * percent).round() as i32
         }
     };
@@ -792,16 +782,16 @@ pub(in crate::layout) fn resolved_height_for_width(
     theme: &theme::Theme,
 ) -> i32 {
     let height = match node.style().height() {
-        Some(view::style::Dimension::Fit) => intrinsic_height_for_width(node, width, engine, theme),
-        Some(view::style::Dimension::Grow) | None => {
+        Some(view::Dimension::Fit) => intrinsic_height_for_width(node, width, engine, theme),
+        Some(view::Dimension::Grow) | None => {
             if grows_vertical_space(node) {
                 parent_height
             } else {
                 intrinsic_height_for_width(node, width, engine, theme)
             }
         }
-        Some(view::style::Dimension::Fixed(height)) => height,
-        Some(view::style::Dimension::Percent(percent)) => {
+        Some(view::Dimension::Fixed(height)) => height,
+        Some(view::Dimension::Percent(percent)) => {
             ((parent_height.max(0) as f32) * percent).round() as i32
         }
     };

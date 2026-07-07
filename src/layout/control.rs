@@ -183,7 +183,7 @@ fn palette_row(label_width: i32, shortcut_width: i32, theme: &theme::Theme) -> R
 
     Row::new()
         .gap(theme.menu().padding)
-        .padding(view::style::Padding::symmetric(theme.menu().padding, 0))
+        .padding(view::Padding::symmetric(theme.menu().padding, 0))
         .item(Item::grow(SizeHint::new(
             Size::new(0, row_height),
             Size::new(label_width.max(0), row_height),
@@ -221,7 +221,7 @@ fn choice_row(label_width: i32, theme: &theme::Theme) -> Row {
 
     Row::new()
         .gap(choice.label_gap)
-        .padding(view::style::Padding::edges(
+        .padding(view::Padding::edges(
             0,
             theme.control().padding,
             0,
@@ -244,7 +244,7 @@ fn slider_row(measured_label_width: i32, theme: &theme::Theme) -> Row {
 
     Row::new()
         .gap(slider.gap)
-        .padding(view::style::Padding::symmetric(slider.inset, 0))
+        .padding(view::Padding::symmetric(slider.inset, 0))
         .item(Item::fixed(SizeHint::new(
             Size::new(0, row_height),
             Size::new(label_width, row_height),

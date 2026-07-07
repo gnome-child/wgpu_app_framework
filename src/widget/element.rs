@@ -5,8 +5,8 @@ use super::{Direction, Layout, Ui, Widget};
 pub struct Element {
     node: view::Node,
     layout: Layout,
-    width: Option<view::style::Dimension>,
-    height: Option<view::style::Dimension>,
+    width: Option<view::Dimension>,
+    height: Option<view::Dimension>,
     max_height: Option<i32>,
     background: Option<scene::Brush>,
 }
@@ -42,12 +42,12 @@ impl Element {
         self
     }
 
-    pub fn width(mut self, size: view::style::Dimension) -> Self {
+    pub fn width(mut self, size: view::Dimension) -> Self {
         self.width = Some(size);
         self
     }
 
-    pub fn height(mut self, size: view::style::Dimension) -> Self {
+    pub fn height(mut self, size: view::Dimension) -> Self {
         self.height = Some(size);
         self
     }
@@ -109,11 +109,11 @@ impl Element {
         &self.layout
     }
 
-    pub fn width_state(&self) -> Option<view::style::Dimension> {
+    pub fn width_state(&self) -> Option<view::Dimension> {
         self.width
     }
 
-    pub fn height_state(&self) -> Option<view::style::Dimension> {
+    pub fn height_state(&self) -> Option<view::Dimension> {
         self.height
     }
 

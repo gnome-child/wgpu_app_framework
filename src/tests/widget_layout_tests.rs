@@ -7,45 +7,33 @@ fn widget_closure_api_models_layout_controls_and_trigger_bindings() {
             layout
                 .row()
                 .gap(12)
-                .padding(view::style::Padding::symmetric(8, 4))
-                .align_items(view::style::Align::Center)
-                .justify_content(view::style::Align::End)
+                .padding(view::Padding::symmetric(8, 4))
+                .align_items(view::Align::Center)
+                .justify_content(view::Align::End)
         })
-        .width(view::style::Dimension::grow())
-        .height(view::style::Dimension::fixed(44));
+        .width(view::Dimension::grow())
+        .height(view::Dimension::fixed(44));
 
     assert_eq!(element.layout_state().direction(), widget::Direction::Row);
     assert_eq!(element.layout_state().gap_value(), 12);
     assert_eq!(
         element.layout_state().padding_value(),
-        view::style::Padding::symmetric(8, 4)
+        view::Padding::symmetric(8, 4)
     );
-    assert_eq!(element.width_state(), Some(view::style::Dimension::Grow));
-    assert_eq!(
-        element.height_state(),
-        Some(view::style::Dimension::Fixed(44))
-    );
+    assert_eq!(element.width_state(), Some(view::Dimension::Grow));
+    assert_eq!(element.height_state(), Some(view::Dimension::Fixed(44)));
 
     let styled_node = widget::Widget::into_node(element);
     assert_eq!(styled_node.style().gap(), 12);
     assert_eq!(styled_node.style().padding().left(), 8);
     assert_eq!(styled_node.style().padding().top(), 4);
-    assert_eq!(
-        styled_node.style().width(),
-        Some(view::style::Dimension::Grow)
-    );
+    assert_eq!(styled_node.style().width(), Some(view::Dimension::Grow));
     assert_eq!(
         styled_node.style().height(),
-        Some(view::style::Dimension::Fixed(44))
+        Some(view::Dimension::Fixed(44))
     );
-    assert_eq!(
-        styled_node.style().align_items(),
-        view::style::Align::Center
-    );
-    assert_eq!(
-        styled_node.style().justify_content(),
-        view::style::Align::End
-    );
+    assert_eq!(styled_node.style().align_items(), view::Align::Center);
+    assert_eq!(styled_node.style().justify_content(), view::Align::End);
 
     let view = widget::view(|ui| {
         ui.column(|ui| {
@@ -92,19 +80,19 @@ fn widget_element_style_affects_row_layout_frames() {
                 .layout(|layout| {
                     layout
                         .gap(10)
-                        .padding(view::style::Padding::symmetric(5, 2))
-                        .align_items(view::style::Align::Center)
+                        .padding(view::Padding::symmetric(5, 2))
+                        .align_items(view::Align::Center)
                 })
                 .children(|ui| {
                     ui.add(
                         widget::Element::new()
                             .label("Fixed")
-                            .width(view::style::Dimension::fixed(50)),
+                            .width(view::Dimension::fixed(50)),
                     );
                     ui.add(
                         widget::Element::new()
                             .label("Grow")
-                            .width(view::style::Dimension::grow()),
+                            .width(view::Dimension::grow()),
                     );
                     ui.button(widget::Button::new("Fit"));
                 }),
@@ -177,13 +165,13 @@ fn fit_height_text_uses_height_for_allocated_width() {
         ui.add(
             widget::Element::new()
                 .row()
-                .layout(|layout| layout.align_items(view::style::Align::Start))
+                .layout(|layout| layout.align_items(view::Align::Start))
                 .children(|ui| {
                     ui.add(
                         widget::Element::new()
                             .label(text)
-                            .width(view::style::Dimension::fixed(90))
-                            .height(view::style::Dimension::fit()),
+                            .width(view::Dimension::fixed(90))
+                            .height(view::Dimension::fit()),
                     );
                 }),
         );
@@ -300,21 +288,21 @@ fn widget_element_alignment_affects_layout_frames() {
                 .layout(|layout| {
                     layout
                         .gap(10)
-                        .align_items(view::style::Align::Center)
-                        .justify_content(view::style::Align::End)
+                        .align_items(view::Align::Center)
+                        .justify_content(view::Align::End)
                 })
                 .children(|ui| {
                     ui.add(
                         widget::Element::new()
                             .label("One")
-                            .width(view::style::Dimension::fixed(40))
-                            .height(view::style::Dimension::fixed(20)),
+                            .width(view::Dimension::fixed(40))
+                            .height(view::Dimension::fixed(20)),
                     );
                     ui.add(
                         widget::Element::new()
                             .label("Two")
-                            .width(view::style::Dimension::fixed(60))
-                            .height(view::style::Dimension::fixed(30)),
+                            .width(view::Dimension::fixed(60))
+                            .height(view::Dimension::fixed(30)),
                     );
                 }),
         );
@@ -335,17 +323,17 @@ fn widget_element_style_affects_column_layout_frames() {
         ui.add(
             widget::Element::new()
                 .column()
-                .layout(|layout| layout.gap(4).padding(view::style::Padding::all(6)))
+                .layout(|layout| layout.gap(4).padding(view::Padding::all(6)))
                 .children(|ui| {
                     ui.add(
                         widget::Element::new()
                             .label("Fixed")
-                            .height(view::style::Dimension::fixed(20)),
+                            .height(view::Dimension::fixed(20)),
                     );
                     ui.add(
                         widget::Element::new()
                             .label("Grow")
-                            .height(view::style::Dimension::grow()),
+                            .height(view::Dimension::grow()),
                     );
                     ui.label("Fit");
                 }),

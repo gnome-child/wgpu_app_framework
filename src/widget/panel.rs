@@ -27,12 +27,12 @@ impl Floating {
         self
     }
 
-    pub fn width(mut self, size: view::style::Dimension) -> Self {
+    pub fn width(mut self, size: view::Dimension) -> Self {
         self.panel = self.panel.width(size);
         self
     }
 
-    pub fn height(mut self, size: view::style::Dimension) -> Self {
+    pub fn height(mut self, size: view::Dimension) -> Self {
         self.panel = self.panel.height(size);
         self
     }
@@ -110,12 +110,12 @@ impl Panel {
         self
     }
 
-    pub fn width(mut self, size: view::style::Dimension) -> Self {
+    pub fn width(mut self, size: view::Dimension) -> Self {
         self.element = self.element.width(size);
         self
     }
 
-    pub fn height(mut self, size: view::style::Dimension) -> Self {
+    pub fn height(mut self, size: view::Dimension) -> Self {
         self.element = self.element.height(size);
         self
     }

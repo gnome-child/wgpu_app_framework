@@ -263,7 +263,7 @@ fn generic_scroll_measures_content_clips_children_and_paints_scrollbar() {
             ui.add(
                 widget::Scroll::new()
                     .id("scroll.generic")
-                    .height(view::style::Dimension::fixed(72))
+                    .height(view::Dimension::fixed(72))
                     .children(|ui| {
                         for index in 0..8 {
                             ui.label(format!("Row {index}"));
@@ -330,19 +330,19 @@ fn generic_scroll_measures_content_clips_children_and_paints_scrollbar() {
 
 #[test]
 fn viewport_content_extent_equals_placed_child_bounds() {
-    let padding = view::style::Padding::edges(5, 7, 3, 11);
+    let padding = view::Padding::edges(5, 7, 3, 11);
     let scroll = view::Node::scroll()
         .with_interaction_id("scroll.placed")
         .with_style(
             view::Style::new()
-                .with_height(view::style::Dimension::fixed(72))
+                .with_height(view::Dimension::fixed(72))
                 .with_padding(padding)
                 .with_gap(3),
         )
         .child(view::Node::section_header("Application"))
         .child(
             view::Node::label("Fixed row")
-                .with_style(view::Style::new().with_height(view::style::Dimension::fixed(31))),
+                .with_style(view::Style::new().with_height(view::Dimension::fixed(31))),
         )
         .child(view::Node::label("Body row"));
     let view = View::new(view::Node::root().child(scroll));
@@ -394,7 +394,7 @@ fn viewport_max_scroll_reaches_last_placed_descendant() {
                 ui.add(
                     widget::Scroll::new()
                         .id("scroll.last")
-                        .height(view::style::Dimension::fixed(72))
+                        .height(view::Dimension::fixed(72))
                         .children(|ui| {
                             for index in 0..12 {
                                 ui.label(format!("Row {index}"));
@@ -458,12 +458,12 @@ fn grow_children_collapse_to_intrinsic_inside_scroll_axis() {
     let view = widget::view(|ui| {
         ui.add(
             widget::Scroll::new()
-                .height(view::style::Dimension::fixed(80))
+                .height(view::Dimension::fixed(80))
                 .children(|ui| {
                     ui.add(
                         widget::Element::new()
                             .label("Grow")
-                            .height(view::style::Dimension::grow()),
+                            .height(view::Dimension::grow()),
                     );
                     ui.label("After");
                 }),
@@ -497,14 +497,14 @@ fn justify_content_is_start_when_scroll_content_exceeds_viewport() {
         ui.column(|ui| {
             ui.add(
                 widget::Scroll::new()
-                    .height(view::style::Dimension::fixed(40))
-                    .layout(|layout| layout.justify_content(view::style::Align::End))
+                    .height(view::Dimension::fixed(40))
+                    .layout(|layout| layout.justify_content(view::Align::End))
                     .children(|ui| {
                         for index in 0..4 {
                             ui.add(
                                 widget::Element::new()
                                     .label(format!("Row {index}"))
-                                    .height(view::style::Dimension::fixed(24)),
+                                    .height(view::Dimension::fixed(24)),
                             );
                         }
                     }),
@@ -545,7 +545,7 @@ fn generic_scroll_feedback_clamps_session_offset_after_present() {
                     ui.add(
                         widget::Scroll::new()
                             .id("scroll.feedback")
-                            .height(view::style::Dimension::fixed(72))
+                            .height(view::Dimension::fixed(72))
                             .children(|ui| {
                                 for index in 0..8 {
                                     ui.label(format!("Row {index}"));
@@ -607,7 +607,7 @@ fn gutter_scrollbar_metrics_reduce_viewport_width() {
             ui.add(
                 widget::Scroll::new()
                     .id("scroll.gutter")
-                    .height(view::style::Dimension::fixed(72))
+                    .height(view::Dimension::fixed(72))
                     .children(|ui| {
                         for index in 0..8 {
                             ui.label(format!("Row {index}"));
@@ -654,7 +654,7 @@ fn generic_scroll_pointer_drag_updates_viewport_offset() {
                     ui.add(
                         widget::Scroll::new()
                             .id("scroll.drag")
-                            .height(view::style::Dimension::fixed(72))
+                            .height(view::Dimension::fixed(72))
                             .children(|ui| {
                                 for index in 0..8 {
                                     ui.label(format!("Row {index}"));
@@ -726,7 +726,7 @@ fn viewport_intrinsics_ignore_content_extent() {
         ui.column(|ui| {
             ui.add(
                 widget::Scroll::new()
-                    .height(view::style::Dimension::fit())
+                    .height(view::Dimension::fit())
                     .children(|ui| {
                         for index in 0..12 {
                             ui.label(format!("Tall row {index}"));
@@ -759,7 +759,7 @@ fn scrollbar_thumb_wins_hit_test_over_content() {
         ui.add(
             widget::Scroll::new()
                 .id("scroll.hit")
-                .height(view::style::Dimension::fixed(72))
+                .height(view::Dimension::fixed(72))
                 .children(|ui| {
                     for index in 0..8 {
                         ui.button(widget::Button::new(format!("Row {index}")).trigger::<Ping>(()));
@@ -1010,13 +1010,13 @@ fn viewport_clip_applies_inside_floating_panel() {
     let view = widget::view(|ui| {
         ui.add(
             widget::panel::Floating::new("tests.floating.scroll")
-                .width(view::style::Dimension::fixed(180))
-                .height(view::style::Dimension::fixed(120))
+                .width(view::Dimension::fixed(180))
+                .height(view::Dimension::fixed(120))
                 .children(|ui| {
                     ui.add(
                         widget::Scroll::new()
                             .id("scroll.floating")
-                            .height(view::style::Dimension::fixed(48))
+                            .height(view::Dimension::fixed(48))
                             .children(|ui| {
                                 for index in 0..6 {
                                     ui.label(format!("Floating row {index}"));
@@ -1084,7 +1084,7 @@ fn scrolled_out_content_is_not_interactive() {
                     ui.add(
                         widget::Scroll::new()
                             .id("clip.results")
-                            .height(view::style::Dimension::fixed(72))
+                            .height(view::Dimension::fixed(72))
                             .children(|ui| {
                                 for index in 0..8 {
                                     ui.button(
@@ -1875,7 +1875,7 @@ fn typography_metrics_affect_label_measurement() {
     let view = View::new(
         view::Node::root().child(
             view::Node::panel()
-                .with_style(view::Style::new().with_align_items(view::style::Align::Start))
+                .with_style(view::Style::new().with_align_items(view::Align::Start))
                 .child(view::Node::label("Typography")),
         ),
     );
@@ -1935,7 +1935,7 @@ fn interface_metrics_affect_system_widgets_without_body_metrics() {
             ui.add(
                 widget::Element::new()
                     .row()
-                    .height(view::style::Dimension::fit())
+                    .height(view::Dimension::fit())
                     .children(|ui| {
                         ui.button(widget::Button::new("System Command"));
                     }),
@@ -1945,7 +1945,7 @@ fn interface_metrics_affect_system_widgets_without_body_metrics() {
             ui.add(
                 widget::Element::new()
                     .row()
-                    .height(view::style::Dimension::fit())
+                    .height(view::Dimension::fit())
                     .children(|ui| {
                         ui.label("Content Label");
                     }),
@@ -3822,13 +3822,13 @@ fn generic_floating_panel_uses_shared_chrome_before_content() {
         ui.add(
             widget::Element::new()
                 .overlay()
-                .width(view::style::Dimension::fixed(240))
-                .height(view::style::Dimension::fixed(160))
+                .width(view::Dimension::fixed(240))
+                .height(view::Dimension::fixed(160))
                 .children(|ui| {
                     ui.add(
                         widget::panel::Floating::new("tests.floating")
-                            .width(view::style::Dimension::fixed(180))
-                            .height(view::style::Dimension::fixed(80))
+                            .width(view::Dimension::fixed(180))
+                            .height(view::Dimension::fixed(80))
                             .children(|ui| {
                                 ui.label("Inside");
                             }),
@@ -3897,9 +3897,9 @@ fn generic_floating_panel_uses_stack_padding_and_gap_for_content() {
         ui.add(
             widget::panel::Floating::new("tests.floating.layout")
                 .column()
-                .width(view::style::Dimension::fixed(220))
-                .height(view::style::Dimension::fixed(140))
-                .layout(|layout| layout.gap(7).padding(view::style::Padding::all(11)))
+                .width(view::Dimension::fixed(220))
+                .height(view::Dimension::fixed(140))
+                .layout(|layout| layout.gap(7).padding(view::Padding::all(11)))
                 .children(|ui| {
                     ui.label("Alpha");
                     ui.label("Beta");
@@ -3942,7 +3942,7 @@ fn slider_labels_are_single_line_without_default_row_fill() {
         ui.add(
             widget::Element::new()
                 .column()
-                .height(view::style::Dimension::fixed(80))
+                .height(view::Dimension::fixed(80))
                 .children(|ui| {
                     ui.slider(widget::Slider::new("Feather", 24.0, 0.0..=64.0));
                 }),
@@ -3979,19 +3979,19 @@ fn overlay_layout_paints_styled_backgrounds_under_floating_panel() {
         ui.add(
             widget::Element::new()
                 .overlay()
-                .width(view::style::Dimension::fixed(200))
-                .height(view::style::Dimension::fixed(120))
+                .width(view::Dimension::fixed(200))
+                .height(view::Dimension::fixed(120))
                 .children(|ui| {
                     ui.add(
                         widget::Element::new()
                             .background(scene::Brush::solid(bar))
-                            .width(view::style::Dimension::grow())
-                            .height(view::style::Dimension::grow()),
+                            .width(view::Dimension::grow())
+                            .height(view::Dimension::grow()),
                     );
                     ui.add(
                         widget::panel::Floating::new("tests.overlay.panel")
-                            .width(view::style::Dimension::fixed(120))
-                            .height(view::style::Dimension::fixed(64))
+                            .width(view::Dimension::fixed(120))
+                            .height(view::Dimension::fixed(64))
                             .children(|ui| {
                                 ui.label("Panel");
                             }),
@@ -4244,7 +4244,7 @@ fn scroll_app() -> Runtime<SourceState, (), View> {
                     ui.add(
                         widget::Scroll::new()
                             .id("scroll.test")
-                            .height(view::style::Dimension::fixed(72))
+                            .height(view::Dimension::fixed(72))
                             .children(|ui| {
                                 for index in 0..8 {
                                     ui.label(format!("Row {index}"));
@@ -4309,7 +4309,7 @@ fn nested_clipped_scroll_app() -> Runtime<SourceState, (), View> {
                         widget::Scroll::new()
                             .id("scroll.outer")
                             .label("Outer Scroll")
-                            .height(view::style::Dimension::fixed(64))
+                            .height(view::Dimension::fixed(64))
                             .children(|ui| {
                                 ui.label("Outer row 0");
                                 ui.label("Outer row 1");
@@ -4317,7 +4317,7 @@ fn nested_clipped_scroll_app() -> Runtime<SourceState, (), View> {
                                     widget::Scroll::new()
                                         .id("scroll.inner")
                                         .label("Inner Scroll")
-                                        .height(view::style::Dimension::fixed(54))
+                                        .height(view::Dimension::fixed(54))
                                         .children(|ui| {
                                             for index in 0..8 {
                                                 ui.label(format!("Inner row {index}"));

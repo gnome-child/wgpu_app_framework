@@ -437,7 +437,7 @@ fn vertical_stack_placement(
         rect
     };
     let justify_content = if scroll_axis && preferred.height() > rect.height() {
-        view::style::Align::Start
+        view::Align::Start
     } else {
         node.style().justify_content()
     };
@@ -476,7 +476,7 @@ fn horizontal_stack_placement(
         .align_items(node.style().align_items());
 
     for child in children {
-        let grows = matches!(child.style().width(), Some(view::style::Dimension::Grow));
+        let grows = matches!(child.style().width(), Some(view::Dimension::Grow));
         let width = if scroll_axis {
             scroll_axis_child_width(child, content_width, engine, theme)
         } else if grows {
@@ -513,7 +513,7 @@ fn horizontal_stack_placement(
         rect
     };
     let justify_content = if scroll_axis && preferred.width() > rect.width() {
-        view::style::Align::Start
+        view::Align::Start
     } else {
         node.style().justify_content()
     };
@@ -595,7 +595,7 @@ fn scroll_axis_child_height(
     }
 
     match child.style().height() {
-        Some(view::style::Dimension::Percent(percent)) => {
+        Some(view::Dimension::Percent(percent)) => {
             ((viewport_content_height.max(0) as f32) * percent).round() as i32
         }
         _ => resolved_height_for_width(child, width, SCROLL_AXIS_LIMIT, engine, theme),
@@ -610,8 +610,8 @@ fn scroll_axis_child_width(
     theme: &theme::Theme,
 ) -> i32 {
     match child.style().width() {
-        Some(view::style::Dimension::Grow) => intrinsic_width(child, engine, theme),
-        Some(view::style::Dimension::Percent(percent)) => {
+        Some(view::Dimension::Grow) => intrinsic_width(child, engine, theme),
+        Some(view::Dimension::Percent(percent)) => {
             ((viewport_content_width.max(0) as f32) * percent).round() as i32
         }
         _ => resolved_row_width(child, SCROLL_AXIS_LIMIT, engine, theme),
@@ -619,7 +619,7 @@ fn scroll_axis_child_width(
     .max(0)
 }
 
-fn placed_content_size(rect: Rect, padding: view::style::Padding, children: &[Rect]) -> Size {
+fn placed_content_size(rect: Rect, padding: view::Padding, children: &[Rect]) -> Size {
     let mut width = rect.width();
     let mut height = rect.height();
 

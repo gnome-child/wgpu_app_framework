@@ -387,7 +387,7 @@ mod tests {
                 ui.add(
                     widget::Scroll::new()
                         .id("scroll.native")
-                        .height(view::style::Dimension::fixed(56))
+                        .height(view::Dimension::fixed(56))
                         .children(|ui| {
                             for index in 0..6 {
                                 ui.label(format!("Row {index}"));

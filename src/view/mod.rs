@@ -13,7 +13,7 @@ mod context;
 pub mod control;
 pub mod node;
 mod presentation;
-pub mod style;
+mod style;
 
 pub use action::Action;
 pub(crate) use action::FocusDirection;
@@ -22,7 +22,7 @@ pub(crate) use command_palette::{CommandPalette, Entry as CommandPaletteEntry};
 pub use context::Context;
 pub use node::Node;
 pub use presentation::Presentation;
-pub use style::Style;
+pub use style::{Align, Dimension, Padding, Style};
 
 use control::TextBox;
 #[cfg(test)]

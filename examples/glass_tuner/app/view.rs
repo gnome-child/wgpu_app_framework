@@ -5,10 +5,7 @@ use super::{
 };
 use wgpu_l3::{
     View, geometry, interaction, scene,
-    view::{
-        Context as ViewContext,
-        style::{Align, Dimension, Padding},
-    },
+    view::{Align, Context as ViewContext, Dimension, Padding},
     widget,
 };
 

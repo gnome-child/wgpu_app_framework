@@ -52,7 +52,7 @@ fn panel_node(palette: CommandPalette) -> Node {
         .with_subject(subject::Segment::from_label("Command Palette"))
         .with_floating_placement(view::node::FloatingPlacement::CenteredMaxEnvelope)
         .with_layout_axis(view::node::Axis::Vertical)
-        .with_style(view::Style::new().with_width(view::style::Dimension::fixed(520)))
+        .with_style(view::Style::new().with_width(view::Dimension::fixed(520)))
         .child(query_node(&palette.query));
 
     let mut results = Node::scroll()
@@ -60,8 +60,8 @@ fn panel_node(palette: CommandPalette) -> Node {
         .with_layout_axis(view::node::Axis::Vertical)
         .with_style(
             view::Style::new()
-                .with_width(view::style::Dimension::Grow)
-                .with_height(view::style::Dimension::fit())
+                .with_width(view::Dimension::Grow)
+                .with_height(view::Dimension::fit())
                 .with_max_height(palette.max_results_height)
                 .with_gap(0),
         );
@@ -88,7 +88,7 @@ fn query_node(query: &str) -> Node {
 
 fn section_node(label: &str) -> Node {
     Node::section_header(label.to_owned())
-        .with_style(view::Style::new().with_width(view::style::Dimension::Grow))
+        .with_style(view::Style::new().with_width(view::Dimension::Grow))
 }
 
 fn result_node(selected: bool, entry: Entry) -> Node {
@@ -97,7 +97,7 @@ fn result_node(selected: bool, entry: Entry) -> Node {
         .bind_trigger(entry.trigger, Source::Palette)
         .with_style(
             view::Style::new()
-                .with_height(view::style::Dimension::fixed(26))
-                .with_width(view::style::Dimension::Grow),
+                .with_height(view::Dimension::fixed(26))
+                .with_width(view::Dimension::Grow),
         )
 }

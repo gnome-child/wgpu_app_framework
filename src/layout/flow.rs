@@ -25,18 +25,18 @@ pub(crate) struct Item {
 pub(crate) struct Row {
     items: Vec<Item>,
     gap: i32,
-    padding: view::style::Padding,
-    align_items: view::style::Align,
-    justify_content: view::style::Align,
+    padding: view::Padding,
+    align_items: view::Align,
+    justify_content: view::Align,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Column {
     items: Vec<Item>,
     gap: i32,
-    padding: view::style::Padding,
-    align_items: view::style::Align,
-    justify_content: view::style::Align,
+    padding: view::Padding,
+    align_items: view::Align,
+    justify_content: view::Align,
 }
 
 impl Constraints {
@@ -105,9 +105,9 @@ impl Row {
         Self {
             items: Vec::new(),
             gap: 0,
-            padding: view::style::Padding::zero(),
-            align_items: view::style::Align::Stretch,
-            justify_content: view::style::Align::Start,
+            padding: view::Padding::zero(),
+            align_items: view::Align::Stretch,
+            justify_content: view::Align::Start,
         }
     }
 
@@ -116,17 +116,17 @@ impl Row {
         self
     }
 
-    pub(crate) fn padding(mut self, padding: view::style::Padding) -> Self {
+    pub(crate) fn padding(mut self, padding: view::Padding) -> Self {
         self.padding = padding;
         self
     }
 
-    pub(crate) fn align_items(mut self, align: view::style::Align) -> Self {
+    pub(crate) fn align_items(mut self, align: view::Align) -> Self {
         self.align_items = align;
         self
     }
 
-    pub(crate) fn justify_content(mut self, align: view::style::Align) -> Self {
+    pub(crate) fn justify_content(mut self, align: view::Align) -> Self {
         self.justify_content = align;
         self
     }
@@ -213,9 +213,9 @@ impl Column {
         Self {
             items: Vec::new(),
             gap: 0,
-            padding: view::style::Padding::zero(),
-            align_items: view::style::Align::Stretch,
-            justify_content: view::style::Align::Start,
+            padding: view::Padding::zero(),
+            align_items: view::Align::Stretch,
+            justify_content: view::Align::Start,
         }
     }
 
@@ -224,17 +224,17 @@ impl Column {
         self
     }
 
-    pub(crate) fn padding(mut self, padding: view::style::Padding) -> Self {
+    pub(crate) fn padding(mut self, padding: view::Padding) -> Self {
         self.padding = padding;
         self
     }
 
-    pub(crate) fn align_items(mut self, align: view::style::Align) -> Self {
+    pub(crate) fn align_items(mut self, align: view::Align) -> Self {
         self.align_items = align;
         self
     }
 
-    pub(crate) fn justify_content(mut self, align: view::style::Align) -> Self {
+    pub(crate) fn justify_content(mut self, align: view::Align) -> Self {
         self.justify_content = align;
         self
     }
@@ -412,25 +412,25 @@ fn axis_size(size: Size, axis: MainAxis) -> i32 {
     }
 }
 
-fn cross_axis_extent(align: view::style::Align, available: i32, preferred: i32) -> i32 {
+fn cross_axis_extent(align: view::Align, available: i32, preferred: i32) -> i32 {
     match align {
-        view::style::Align::Stretch => available.max(0),
-        view::style::Align::Start | view::style::Align::Center | view::style::Align::End => {
+        view::Align::Stretch => available.max(0),
+        view::Align::Start | view::Align::Center | view::Align::End => {
             preferred.clamp(0, available.max(0))
         }
     }
 }
 
-fn axis_offset(align: view::style::Align, available: i32, content: i32) -> i32 {
+fn axis_offset(align: view::Align, available: i32, content: i32) -> i32 {
     let slack = available.saturating_sub(content);
     match align {
-        view::style::Align::Start | view::style::Align::Stretch => 0,
-        view::style::Align::Center => slack / 2,
-        view::style::Align::End => slack,
+        view::Align::Start | view::Align::Stretch => 0,
+        view::Align::Center => slack / 2,
+        view::Align::End => slack,
     }
 }
 
-fn inset_rect(rect: Rect, padding: view::style::Padding) -> Rect {
+fn inset_rect(rect: Rect, padding: view::Padding) -> Rect {
     Rect::new(
         rect.x().saturating_add(padding.left()),
         rect.y().saturating_add(padding.top()),
@@ -452,7 +452,7 @@ mod tests {
     fn row_preferred_width_sums_children_gaps_and_padding() {
         let row = Row::new()
             .gap(4)
-            .padding(view::style::Padding::symmetric(3, 2))
+            .padding(view::Padding::symmetric(3, 2))
             .item(Item::fixed(SizeHint::fixed(Size::new(10, 5))))
             .item(Item::fixed(SizeHint::fixed(Size::new(20, 7))));
 
@@ -463,7 +463,7 @@ mod tests {
     fn column_preferred_height_sums_children_gaps_and_padding() {
         let column = Column::new()
             .gap(4)
-            .padding(view::style::Padding::symmetric(3, 2))
+            .padding(view::Padding::symmetric(3, 2))
             .item(Item::fixed(SizeHint::fixed(Size::new(10, 5))))
             .item(Item::fixed(SizeHint::fixed(Size::new(20, 7))));
 
