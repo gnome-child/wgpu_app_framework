@@ -1,6 +1,6 @@
 pub use wgpu_l3::*;
 
-#[path = "../../src/glass_tuner/mod.rs"]
+#[path = "app/mod.rs"]
 mod glass_tuner;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

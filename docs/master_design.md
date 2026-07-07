@@ -86,10 +86,10 @@ parallel `src/scratch` namespace and legacy compatibility surface have been
 retired; new framework concepts should live in the root module tree according
 to the ownership boundaries below.
 
-Example and smoke-test applications may exercise the framework from source, but
-they are not framework concepts and must not be exported as public crate
-modules. They should compile through the same public APIs a real external app
-would use.
+Example and smoke-test applications live under `examples/`. They may be
+included as test fixtures, but they are not framework concepts and must not be
+exported as public crate modules. They should compile through the same public
+APIs a real external app would use.
 
 The intended dependency direction is:
 

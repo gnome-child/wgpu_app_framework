@@ -145,6 +145,8 @@ struct ChoicePatch {
     background: Option<String>,
     mark: Option<String>,
     outline: Option<String>,
+    hover_tint: Option<String>,
+    pressed_tint: Option<String>,
     indicator: Option<String>,
     mark_size: Option<i32>,
     mark_inset: Option<i32>,
@@ -381,6 +383,8 @@ struct ChoiceExport {
     background: String,
     mark: String,
     outline: String,
+    hover_tint: String,
+    pressed_tint: String,
     indicator: String,
     mark_size: i32,
     mark_inset: i32,
@@ -721,6 +725,18 @@ fn apply_choice(
         patch.outline,
         palette,
         "choice.outline",
+    )?;
+    apply_color(
+        &mut choice.hover_tint,
+        patch.hover_tint,
+        palette,
+        "choice.hover-tint",
+    )?;
+    apply_color(
+        &mut choice.pressed_tint,
+        patch.pressed_tint,
+        palette,
+        "choice.pressed-tint",
     )?;
     apply_color(
         &mut choice.indicator,
@@ -1287,6 +1303,8 @@ impl ThemeExport {
                 background: color_string(theme.choice.background, theme.palette),
                 mark: color_string(theme.choice.mark, theme.palette),
                 outline: color_string(theme.choice.outline, theme.palette),
+                hover_tint: color_string(theme.choice.hover_tint, theme.palette),
+                pressed_tint: color_string(theme.choice.pressed_tint, theme.palette),
                 indicator: color_string(theme.choice.indicator, theme.palette),
                 mark_size: theme.choice.mark_size,
                 mark_inset: theme.choice.mark_inset,
@@ -1466,6 +1484,8 @@ impl ThemeExport {
         push_string_field(&mut out, "background", &self.choice.background);
         push_string_field(&mut out, "mark", &self.choice.mark);
         push_string_field(&mut out, "outline", &self.choice.outline);
+        push_string_field(&mut out, "hover-tint", &self.choice.hover_tint);
+        push_string_field(&mut out, "pressed-tint", &self.choice.pressed_tint);
         push_string_field(&mut out, "indicator", &self.choice.indicator);
         push_i32_field(&mut out, "mark-size", self.choice.mark_size);
         push_i32_field(&mut out, "mark-inset", self.choice.mark_inset);
@@ -2022,6 +2042,34 @@ mod tests {
         assert!(serialized.contains("foreground = \"#f5f5f7\"\n"));
         assert!(serialized.contains("placeholder = \"#8e8e93\"\n"));
         assert!(serialized.contains("caret = \"accent\"\n"));
+        let parsed = Theme::from_toml_str(&serialized).expect("theme should parse again");
+
+        assert_eq!(parsed, theme);
+    }
+
+    #[test]
+    fn choice_state_tints_parse_and_round_trip() {
+        let theme = Theme::from_toml_str(
+            r##"
+            [palette]
+            choice-hover = "#00000022"
+            choice-pressed = "#00000044"
+
+            [choice]
+            hover-tint = "choice-hover"
+            pressed-tint = "choice-pressed"
+            "##,
+        )
+        .expect("choice state tints should parse");
+
+        assert_eq!(theme.choice().hover_tint, scene::Color::rgba(0, 0, 0, 34));
+        assert_eq!(theme.choice().pressed_tint, scene::Color::rgba(0, 0, 0, 68));
+
+        let serialized = theme
+            .to_toml_string()
+            .expect("theme should serialize to TOML");
+        assert!(serialized.contains("hover-tint = \"#00000022\"\n"));
+        assert!(serialized.contains("pressed-tint = \"#00000044\"\n"));
         let parsed = Theme::from_toml_str(&serialized).expect("theme should parse again");
 
         assert_eq!(parsed, theme);

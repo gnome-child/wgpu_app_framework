@@ -1,7 +1,6 @@
 use super::super::Document as TextDocument;
 
-pub const STRESS_TEXT: &str =
-    include_str!("../../examples/text_editor/fixtures/unicode_stress_dump.txt");
+pub const STRESS_TEXT: &str = include_str!("../fixtures/unicode_stress_dump.txt");
 
 #[derive(Clone)]
 pub struct State {

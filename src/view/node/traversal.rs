@@ -241,15 +241,12 @@ impl Node {
         self.pressed = pointer_target
             .as_ref()
             .is_some_and(|target| interaction.pointer().pressed() == Some(target));
-        let pointer_active = pointer_target
-            .as_ref()
-            .is_some_and(|target| interaction.pointer().activation_target() == Some(target));
         self.active = match self.role {
             Role::MenuBar => interaction.open_menu().is_some(),
             Role::Menu => interaction
                 .open_menu()
                 .is_some_and(|menu| self.id == Some(menu.id())),
-            _ => pointer_active,
+            _ => false,
         };
         self.scroll_offset = if self.role == Role::Scroll {
             pointer_target

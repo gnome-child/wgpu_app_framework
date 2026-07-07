@@ -77,15 +77,15 @@ fn renderer_paint_vocabulary_stays_private() {
 }
 
 #[test]
-fn demo_apps_do_not_leak_into_public_framework_api() {
-    let lib = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("lib.rs"),
-    )
-    .expect("crate root should read");
+fn demo_apps_do_not_leak_into_framework_source_or_public_api() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let lib = std::fs::read_to_string(src_dir.join("lib.rs")).expect("crate root should read");
 
     for module in ["control_gallery", "glass_tuner", "text_editor"] {
+        assert!(
+            !src_dir.join(module).exists(),
+            "demo app module {module} should live under examples, not src"
+        );
         assert!(
             !lib.contains(&format!("pub mod {module};")),
             "demo app module {module} should not be public framework API"

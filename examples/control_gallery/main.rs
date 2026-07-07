@@ -1,6 +1,6 @@
 pub use wgpu_l3::*;
 
-#[path = "../../src/control_gallery/mod.rs"]
+#[path = "app/mod.rs"]
 mod control_gallery;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;

@@ -1,6 +1,6 @@
 pub use wgpu_l3::*;
 
-#[path = "../../src/text_editor/mod.rs"]
+#[path = "app/mod.rs"]
 mod text_editor;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;

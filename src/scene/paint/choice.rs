@@ -69,9 +69,9 @@ fn choice_tint_for(
         .unwrap_or_default();
 
     if target_visual.active() || target_visual.pressed() {
-        Some(theme.control().pressed_tint)
+        Some(theme.choice().pressed_tint)
     } else if target_visual.hovered() {
-        Some(theme.control().hover_tint)
+        Some(theme.choice().hover_tint)
     } else {
         None
     }

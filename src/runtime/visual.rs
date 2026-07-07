@@ -266,7 +266,7 @@ impl Animations {
                 view::node::Role::Menu => target
                     .as_menu()
                     .is_some_and(|menu| open_menu == Some(&menu)),
-                _ => activation == Some(&target) || frame.is_active(),
+                _ => activation == Some(&target),
             };
 
             visuals.set_target(

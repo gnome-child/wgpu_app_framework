@@ -4149,7 +4149,7 @@ fn assert_no_tint_quad(scene: &Scene, rect: geometry::Rect, color: scene::Color)
 fn assert_choice_pressed_tint_above_mark(presentation: &scene::Presentation, mark: geometry::Rect) {
     let primitives = presentation.scene().primitives();
     let mark_color = Theme::default().choice().mark;
-    let pressed_tint = Theme::default().control().pressed_tint;
+    let pressed_tint = Theme::default().choice().pressed_tint;
     let mark_index = primitives
         .iter()
         .position(|primitive| {
@@ -4176,7 +4176,7 @@ fn assert_choice_pressed_tint_above_mark(presentation: &scene::Presentation, mar
 }
 
 fn assert_no_choice_label_overlay(presentation: &scene::Presentation, rect: geometry::Rect) {
-    let pressed_tint = Theme::default().control().pressed_tint;
+    let pressed_tint = Theme::default().choice().pressed_tint;
 
     assert!(
         !presentation

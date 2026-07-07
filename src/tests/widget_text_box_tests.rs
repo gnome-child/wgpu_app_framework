@@ -1291,6 +1291,53 @@ fn text_box_pointer_down_to_focus_paints_activation_tint() {
 }
 
 #[test]
+fn text_box_pointer_up_after_focus_activation_clears_activation_tint() {
+    let focus = session::Focus::text("find");
+    let mut app = Runtime::new(TextBoxSubmitState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Text Box Pointer Activation Release"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.text_box(widget::TextBox::new("abcd").focus(focus));
+            })
+        });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 80);
+    let presentation = app
+        .render_scene(window, size)
+        .expect("text box view should render");
+    let text_box = presentation
+        .layout()
+        .find_role(view::node::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("text box should be laid out");
+    let rect = text_box.rect();
+    let left_edge = geometry::Point::new(rect.x() + 1, rect.y() + rect.height() / 2);
+
+    app.pointer_down_at(window, size, left_edge)
+        .expect("text box pointer down should be handled");
+    let pressed = app
+        .render_scene(window, size)
+        .expect("text box pointer down should render");
+    assert_text_box_control_pressed_tint(&pressed);
+
+    let released = app
+        .pointer_up_at(window, size, left_edge)
+        .expect("text box pointer up should be handled");
+    assert!(released.effect().contains(&response::Effect::Paint));
+    let released = app
+        .render_scene(window, size)
+        .expect("text box pointer up should render");
+
+    assert_no_text_box_control_pressed_tint(&released);
+}
+
+#[test]
 fn focused_text_box_pointer_down_positions_caret_without_control_pressed_tint() {
     let focus = session::Focus::text("find");
     let mut app = Runtime::new(TextBoxSubmitState::default())

@@ -38,10 +38,13 @@ mod paint_geometry;
 mod render;
 
 #[cfg(test)]
+#[path = "../examples/control_gallery/app/mod.rs"]
 mod control_gallery;
 #[cfg(test)]
+#[path = "../examples/glass_tuner/app/mod.rs"]
 mod glass_tuner;
 #[cfg(test)]
+#[path = "../examples/text_editor/app/mod.rs"]
 mod text_editor;
 
 pub use clipboard::Clipboard;
