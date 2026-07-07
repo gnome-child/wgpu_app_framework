@@ -13,7 +13,7 @@ pub(crate) mod control;
 mod engine;
 pub(crate) mod flow;
 mod frame;
-pub(crate) mod hit;
+mod hit;
 mod measure;
 mod path;
 pub(crate) mod text;
@@ -22,8 +22,7 @@ pub(crate) mod viewport;
 
 pub(crate) use engine::Engine;
 pub(crate) use frame::Frame;
-
-use hit::Hit;
+pub(crate) use hit::Hit;
 
 #[derive(Clone)]
 pub(crate) struct Layout {

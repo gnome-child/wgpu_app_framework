@@ -512,7 +512,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         window: window::Id,
         size: geometry::Size,
         point: geometry::Point,
-    ) -> Option<layout::hit::Hit> {
+    ) -> Option<layout::Hit> {
         let theme = self.active_theme();
         let frame = animation::Frame::new(Instant::now());
         if let Some(layout) = self.cached_layout(window, size, &theme) {

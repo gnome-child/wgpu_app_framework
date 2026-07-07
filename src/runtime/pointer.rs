@@ -205,11 +205,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         self.handle_view(window, view::Action::scroll(target, delta))
     }
 
-    fn dismiss_overlays_for_hit(
-        &mut self,
-        window: window::Id,
-        hit: Option<&layout::hit::Hit>,
-    ) -> bool {
+    fn dismiss_overlays_for_hit(&mut self, window: window::Id, hit: Option<&layout::Hit>) -> bool {
         let inside_palette =
             hit.is_some_and(|hit| self.hit_is_command_palette_surface(window, hit));
         let inside_menu = hit.is_some_and(|hit| self.hit_is_menu_surface(window, hit));
@@ -221,7 +217,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         dismissed_palette || dismissed_menu
     }
 
-    fn hit_is_command_palette_surface(&self, window: window::Id, hit: &layout::hit::Hit) -> bool {
+    fn hit_is_command_palette_surface(&self, window: window::Id, hit: &layout::Hit) -> bool {
         hit.target()
             .is_some_and(interaction::Target::is_command_palette_surface)
             || self.hit_owner_is_descendant_of_element(
@@ -231,7 +227,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             )
     }
 
-    fn hit_is_menu_surface(&self, window: window::Id, hit: &layout::hit::Hit) -> bool {
+    fn hit_is_menu_surface(&self, window: window::Id, hit: &layout::Hit) -> bool {
         if hit
             .target()
             .is_some_and(interaction::Target::is_menu_surface)
@@ -254,7 +250,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     fn hit_owner_is_descendant_of_element(
         &self,
         window: window::Id,
-        hit: &layout::hit::Hit,
+        hit: &layout::Hit,
         element_id: interaction::Id,
     ) -> bool {
         self.composition.get(window).is_some_and(|composition| {
