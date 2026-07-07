@@ -654,6 +654,20 @@ fn structural_layout_paths_stay_internal() {
 }
 
 #[test]
+fn layout_reveal_stays_palette_agnostic() {
+    let layout_mod = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("layout")
+        .join("mod.rs");
+    let source = std::fs::read_to_string(layout_mod).expect("layout module should read");
+
+    assert!(
+        !source.contains("Source::Palette"),
+        "generic viewport reveal must not hardcode command-palette descendants"
+    );
+}
+
+#[test]
 fn layout_frame_and_hit_inspection_stays_internal() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let lib = std::fs::read_to_string(src_dir.join("lib.rs")).expect("crate root should read");

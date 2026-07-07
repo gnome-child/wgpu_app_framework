@@ -101,12 +101,10 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 .interaction(window)
                 .map(|interaction| interaction.scroll().offset(&target))
                 .unwrap_or_default();
-            let selected = (target == interaction::CommandPalette::results_target())
-                .then(|| self.session.command_palette_selected(window))
-                .flatten();
-            let Some(offset) = layout.active_descendant_reveal_offset(
+            let Some(offset) = active_descendant_reveal_offset(
+                layout,
                 &target,
-                selected,
+                self.session.command_palette_selected(window),
                 theme.viewport().reveal_margin,
             ) else {
                 self.session.clear_scroll_reveal(window, &target);
@@ -523,6 +521,30 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         self.cache_layout(window, size, &theme, &layout);
         layout.hit_test(point)
     }
+}
+
+fn active_descendant_reveal_offset(
+    layout: &layout::Layout,
+    target: &interaction::Target,
+    selected_palette_index: Option<usize>,
+    margin: i32,
+) -> Option<interaction::ScrollOffset> {
+    let palette_results_target = interaction::CommandPalette::results_target();
+    let mut palette_row = 0_usize;
+
+    layout.reveal_offset_for_descendant(target, margin, |frame| {
+        if target == &palette_results_target {
+            if frame.binding_source() != Some(command_context::Source::Palette) {
+                return false;
+            }
+
+            let selected = selected_palette_index == Some(palette_row);
+            palette_row = palette_row.saturating_add(1);
+            return selected;
+        }
+
+        frame.is_selected()
+    })
 }
 
 fn caret_animation_schedule(layout: &layout::Layout, now: Instant) -> animation::Schedule {

@@ -202,30 +202,21 @@ impl Layout {
             .cloned()
     }
 
-    pub(crate) fn active_descendant_reveal_offset(
+    pub(crate) fn reveal_offset_for_descendant(
         &self,
         viewport_target: &interaction::Target,
-        selected_index: Option<usize>,
         margin: i32,
+        mut accepts_descendant: impl FnMut(&Frame) -> bool,
     ) -> Option<interaction::ScrollOffset> {
         let viewport_frame = self
             .frames
             .iter()
             .find(|frame| frame.target() == Some(viewport_target))?;
         let viewport = viewport_frame.viewport()?;
-        let descendant = if let Some(selected_index) = selected_index {
-            self.frames
-                .iter()
-                .filter(|frame| {
-                    frame.binding_source() == Some(crate::context::Source::Palette)
-                        && frame.is_descendant_of(viewport_frame)
-                })
-                .nth(selected_index)?
-        } else {
-            self.frames
-                .iter()
-                .find(|frame| frame.is_selected() && frame.is_descendant_of(viewport_frame))?
-        };
+        let descendant = self
+            .frames
+            .iter()
+            .find(|frame| frame.is_descendant_of(viewport_frame) && accepts_descendant(frame))?;
 
         Some(viewport.reveal_rect(descendant.rect(), margin))
     }
