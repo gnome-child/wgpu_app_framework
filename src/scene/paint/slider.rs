@@ -39,7 +39,7 @@ pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme, vis
     scene.push_quad(thumb_quad);
 }
 
-fn slider_fraction(slider: &view::control::Slider) -> f64 {
+fn slider_fraction(slider: &view::Slider) -> f64 {
     let span = slider.end() - slider.start();
     if span.abs() <= f64::EPSILON {
         return 0.0;

@@ -360,13 +360,13 @@ fn subject_for(view: &view::Node) -> Option<subject::Segment> {
             .id()
             .or_else(|| {
                 view.text_area_model()
-                    .and_then(view::control::TextArea::focus)
+                    .and_then(view::TextArea::focus)
                     .and_then(|focus| focus.target_id())
             })
             .map(segment_from_id),
         view::Role::TextBox => view
             .text_box_model()
-            .and_then(view::control::TextBox::focus)
+            .and_then(view::TextBox::focus)
             .and_then(|focus| focus.target_id())
             .map(segment_from_id),
         view::Role::Menu | view::Role::FloatingPanel | view::Role::Panel => {

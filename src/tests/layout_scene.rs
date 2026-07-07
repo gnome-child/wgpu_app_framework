@@ -2802,7 +2802,7 @@ fn text_editor_wrap_command_changes_text_area_paint_wrap() {
             .find_role(view::Role::TextArea)
             .first()
             .and_then(|frame| frame.text_wrap()),
-        Some(view::control::Wrap::Word)
+        Some(view::Wrap::Word)
     );
     assert!(!wrapped.scene().text_viewports().is_empty());
 
@@ -2820,7 +2820,7 @@ fn text_editor_wrap_command_changes_text_area_paint_wrap() {
             .find_role(view::Role::TextArea)
             .first()
             .and_then(|frame| frame.text_wrap()),
-        Some(view::control::Wrap::None)
+        Some(view::Wrap::None)
     );
     assert!(!unwrapped.scene().text_viewports().is_empty());
 }

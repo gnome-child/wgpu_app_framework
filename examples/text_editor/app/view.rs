@@ -6,7 +6,7 @@ use super::{
 };
 use wgpu_l3::{
     View, document, geometry, interaction, scene, session, timeline,
-    view::{Context as ViewContext, control::Wrap},
+    view::{Context as ViewContext, Wrap},
     widget,
 };
 

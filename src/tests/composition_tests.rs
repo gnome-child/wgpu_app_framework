@@ -144,7 +144,7 @@ fn focused_subject_path_comes_from_composition_ancestry() {
     let composition = store.install(
         window,
         View::new(view::Node::root().child(view::Node::text_area_state(
-            view::control::TextArea::new("").with_focus(session::Focus::text("document")),
+            view::TextArea::new("").with_focus(session::Focus::text("document")),
         ))),
     );
     let path = composition.subject_path_for_focus(Some(session::Focus::text("document")));

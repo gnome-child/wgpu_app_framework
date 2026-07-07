@@ -72,13 +72,13 @@ impl Service {
 
     pub(super) fn text_area_size_for_width(
         &self,
-        text_area: &view::control::TextArea,
+        text_area: &view::TextArea,
         width: i32,
         theme: &Theme,
     ) -> Size {
         let measure = match text_area.wrap() {
-            view::control::Wrap::None => text_engine::layout::Measure::unbounded(),
-            view::control::Wrap::Word => measure_for_width(width),
+            view::Wrap::None => text_engine::layout::Measure::unbounded(),
+            view::Wrap::Word => measure_for_width(width),
         };
         let metrics = self.inner.borrow_mut().measure(
             &document(text_area.buffer().text(), theme.typography().body()),
@@ -101,7 +101,7 @@ impl Service {
 
     pub(super) fn text_area_layout(
         &self,
-        text_area: &view::control::TextArea,
+        text_area: &view::TextArea,
         rect: Rect,
         theme: &Theme,
         now: Instant,
@@ -160,7 +160,7 @@ impl Service {
 
     pub(super) fn text_area_position_at(
         &self,
-        text_area: &view::control::TextArea,
+        text_area: &view::TextArea,
         layout: &Area,
         rect: Rect,
         position: Point,
@@ -184,7 +184,7 @@ impl Service {
 
     pub(super) fn text_field_layout(
         &self,
-        text_box: &view::control::TextBox,
+        text_box: &view::TextBox,
         rect: Rect,
         theme: &Theme,
         now: Instant,
@@ -220,7 +220,7 @@ impl Service {
 
     pub(super) fn text_field_position_at(
         &self,
-        text_box: &view::control::TextBox,
+        text_box: &view::TextBox,
         layout: &Field,
         rect: Rect,
         position: Point,
@@ -306,7 +306,7 @@ impl Field {
     }
 }
 
-fn field_model(text_box: &view::control::TextBox) -> text_engine::edit::Field {
+fn field_model(text_box: &view::TextBox) -> text_engine::edit::Field {
     let buffer = text_engine::Buffer::from_text(text_box.text());
     let cursor = text_box.cursor().unwrap_or_else(|| text_box.text().len());
     let cursor = buffer

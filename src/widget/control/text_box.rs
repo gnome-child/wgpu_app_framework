@@ -51,7 +51,7 @@ impl TextBox {
 impl Widget for TextBox {
     fn into_node(self) -> view::Node {
         let text = self.text;
-        let mut text_box = view::control::TextBox::new(text.clone());
+        let mut text_box = view::TextBox::new(text.clone());
         if let Some(placeholder) = self.placeholder {
             text_box = text_box.with_placeholder(placeholder);
         }

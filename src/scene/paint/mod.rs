@@ -697,8 +697,8 @@ fn text_wrap_for(frame: &layout::Frame) -> TextWrap {
     }
 
     match frame.text_wrap() {
-        Some(view::control::Wrap::None) => TextWrap::None,
-        Some(view::control::Wrap::Word) | None => TextWrap::WordOrGlyph,
+        Some(view::Wrap::None) => TextWrap::None,
+        Some(view::Wrap::Word) | None => TextWrap::WordOrGlyph,
     }
 }
 

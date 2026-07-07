@@ -51,7 +51,7 @@ pub(crate) struct Frame {
     label: Option<String>,
     label_width: i32,
     text: Option<String>,
-    text_wrap: Option<view::control::Wrap>,
+    text_wrap: Option<view::Wrap>,
     focused: bool,
     focus_visible: bool,
     #[cfg(test)]
@@ -67,11 +67,11 @@ pub(crate) struct Frame {
     text_box_layout: Option<text::Field>,
     text_box_text_rect: Rect,
     slider_track_rect: Option<Rect>,
-    checkbox: Option<view::control::Checkbox>,
-    radio: Option<view::control::Radio>,
-    text_area: Option<view::control::TextArea>,
-    text_box: Option<view::control::TextBox>,
-    slider: Option<view::control::Slider>,
+    checkbox: Option<view::Checkbox>,
+    radio: Option<view::Radio>,
+    text_area: Option<view::TextArea>,
+    text_box: Option<view::TextBox>,
+    slider: Option<view::Slider>,
     target: Option<interaction::Target>,
     binding: Option<view::Binding>,
     action: Option<view::Action>,
@@ -178,14 +178,14 @@ impl Frame {
                 .then(|| {
                     text_box
                         .as_ref()
-                        .map(view::control::TextBox::display_text)
+                        .map(view::TextBox::display_text)
                         .map(str::to_owned)
                 })
                 .flatten(),
             text_wrap: node
                 .text_area_model()
-                .map(view::control::TextArea::wrap)
-                .or_else(|| text_box.as_ref().map(|_| view::control::Wrap::None)),
+                .map(view::TextArea::wrap)
+                .or_else(|| text_box.as_ref().map(|_| view::Wrap::None)),
             focused: node.is_focused(),
             focus_visible: node.focus_visible(),
             #[cfg(test)]
@@ -262,7 +262,7 @@ impl Frame {
         self.text.as_deref()
     }
 
-    pub(crate) fn text_wrap(&self) -> Option<view::control::Wrap> {
+    pub(crate) fn text_wrap(&self) -> Option<view::Wrap> {
         self.text_wrap
     }
 
@@ -328,15 +328,15 @@ impl Frame {
         self.shortcut_content_width
     }
 
-    pub(crate) fn checkbox(&self) -> Option<&view::control::Checkbox> {
+    pub(crate) fn checkbox(&self) -> Option<&view::Checkbox> {
         self.checkbox.as_ref()
     }
 
-    pub(crate) fn radio(&self) -> Option<&view::control::Radio> {
+    pub(crate) fn radio(&self) -> Option<&view::Radio> {
         self.radio.as_ref()
     }
 
-    pub(crate) fn slider(&self) -> Option<&view::control::Slider> {
+    pub(crate) fn slider(&self) -> Option<&view::Slider> {
         self.slider.as_ref()
     }
 
@@ -344,11 +344,11 @@ impl Frame {
         self.slider_track_rect
     }
 
-    pub(crate) fn text_box(&self) -> Option<&view::control::TextBox> {
+    pub(crate) fn text_box(&self) -> Option<&view::TextBox> {
         self.text_box.as_ref()
     }
 
-    pub(crate) fn text_area(&self) -> Option<&view::control::TextArea> {
+    pub(crate) fn text_area(&self) -> Option<&view::TextArea> {
         self.text_area.as_ref()
     }
 
@@ -499,7 +499,7 @@ fn text_box_text_rect_for(rect: Rect, theme: &Theme) -> Rect {
 fn active_rect_for(
     node: &view::Node,
     rect: Rect,
-    slider: Option<&view::control::Slider>,
+    slider: Option<&view::Slider>,
     label_width: i32,
     theme: &Theme,
 ) -> Rect {
@@ -529,10 +529,8 @@ fn action_for(node: &view::Node) -> Option<view::Action> {
         view::Role::Menu => node.menu_action(),
         view::Role::TextArea => node
             .text_area_model()
-            .and_then(view::control::TextArea::focus_action),
-        view::Role::TextBox => node
-            .text_box_model()
-            .and_then(view::control::TextBox::focus_action),
+            .and_then(view::TextArea::focus_action),
+        view::Role::TextBox => node.text_box_model().and_then(view::TextBox::focus_action),
         view::Role::Root
         | view::Role::Stack
         | view::Role::MenuBar

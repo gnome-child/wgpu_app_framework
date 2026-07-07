@@ -844,7 +844,7 @@ fn text_editor_view_resolves_command_bindings_from_runtime() {
     assert_eq!(wrap.state().checked, Some(true));
     assert_eq!(debug.state().checked, Some(false));
     assert_eq!(projected.text_areas()[0].buffer().text(), "");
-    assert_eq!(projected.text_areas()[0].wrap(), view::control::Wrap::Word);
+    assert_eq!(projected.text_areas()[0].wrap(), view::Wrap::Word);
     assert_eq!(
         projected.text_areas()[0].focus(),
         Some(session::Focus::text("document"))
@@ -873,7 +873,7 @@ fn text_editor_view_resolves_command_bindings_from_runtime() {
 
     assert!(projected.labels().contains(&"Debug"));
     assert_eq!(projected.text_areas()[0].buffer().text(), "alpha");
-    assert_eq!(projected.text_areas()[0].wrap(), view::control::Wrap::None);
+    assert_eq!(projected.text_areas()[0].wrap(), view::Wrap::None);
     assert_eq!(
         projected
             .binding::<text_editor::ToggleWrapText>()

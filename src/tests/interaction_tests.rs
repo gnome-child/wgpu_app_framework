@@ -469,7 +469,7 @@ fn text_area_interaction_id_scrolls_without_focus() {
         .view(move |_, _| {
             View::new(
                 view::Node::root().child(
-                    view::Node::text_area_state(view::control::TextArea::from_buffer(
+                    view::Node::text_area_state(view::TextArea::from_buffer(
                         buffer.clone(),
                         edit_state,
                     ))
@@ -548,7 +548,7 @@ fn text_input_preedit_is_framework_owned_and_projected_into_text_area() {
     let text_area = text_area_node(projected.root()).expect("text area should be in the view");
     let focus = text_area
         .text_area_model()
-        .and_then(view::control::TextArea::focus)
+        .and_then(view::TextArea::focus)
         .expect("text area should declare a focus target");
     let target = text_area
         .pointer_target()
@@ -598,7 +598,7 @@ fn text_input_commit_routes_to_focused_document_and_clears_preedit() {
     let text_area = text_area_node(projected.root()).expect("text area should be in the view");
     let focus = text_area
         .text_area_model()
-        .and_then(view::control::TextArea::focus)
+        .and_then(view::TextArea::focus)
         .expect("text area should declare a focus target");
 
     app.handle_input(window, Input::focus(focus))
@@ -651,7 +651,7 @@ fn cancel_input_clears_text_preedit_before_clearing_focus() {
     let text_area = text_area_node(projected.root()).expect("text area should be in the view");
     let focus = text_area
         .text_area_model()
-        .and_then(view::control::TextArea::focus)
+        .and_then(view::TextArea::focus)
         .expect("text area should declare a focus target");
 
     app.handle_input(window, Input::focus(focus))
@@ -698,7 +698,7 @@ fn text_input_preedit_is_transient_and_clears_on_restore() {
     let text_area = text_area_node(projected.root()).expect("text area should be in the view");
     let focus = text_area
         .text_area_model()
-        .and_then(view::control::TextArea::focus)
+        .and_then(view::TextArea::focus)
         .expect("text area should declare a focus target");
 
     app.handle_input(window, Input::focus(focus))
@@ -755,7 +755,7 @@ fn text_area_pointer_click_focuses_and_routes_cursor_edit() {
     let text_area = text_area_node(projected.root()).expect("text area should be in the view");
     let focus = text_area
         .text_area_model()
-        .and_then(view::control::TextArea::focus)
+        .and_then(view::TextArea::focus)
         .expect("text area should declare a focus target");
     let target = text_area
         .pointer_target()
@@ -877,7 +877,7 @@ fn cancel_input_clears_pointer_capture_before_clearing_focus() {
     let text_area = text_area_node(projected.root()).expect("text area should be in the view");
     let focus = text_area
         .text_area_model()
-        .and_then(view::control::TextArea::focus)
+        .and_then(view::TextArea::focus)
         .expect("text area should declare a focus target");
     app.handle_input(window, Input::focus(focus))
         .expect("focus input should be handled");
@@ -1111,7 +1111,7 @@ fn text_editor_host_presents_pending_redraws() {
     assert_eq!(presentations[0].window(), window);
     assert_eq!(
         presentations[0].view().text_areas()[0].wrap(),
-        view::control::Wrap::Word
+        view::Wrap::Word
     );
     assert!(!app.session().windows()[0].redraw_requested());
     assert!(app.present_pending().is_empty());
@@ -1133,7 +1133,7 @@ fn text_editor_host_presents_pending_redraws() {
     assert_eq!(presentations[0].window(), window);
     assert_eq!(
         presentations[0].view().text_areas()[0].wrap(),
-        view::control::Wrap::None
+        view::Wrap::None
     );
     assert!(!app.session().windows()[0].redraw_requested());
 }

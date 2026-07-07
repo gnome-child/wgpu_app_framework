@@ -41,7 +41,7 @@ impl Button {
 impl Widget for Button {
     fn into_node(self) -> view::Node {
         let mut node = view::Node::button_state(
-            view::control::Button::new(self.label).reserve_labels(self.reserved_labels),
+            view::Button::new(self.label).reserve_labels(self.reserved_labels),
         );
         if let Some(binding) = self.binding {
             node = node.bind_trigger(binding.trigger, binding.source);

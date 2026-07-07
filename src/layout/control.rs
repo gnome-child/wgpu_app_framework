@@ -139,7 +139,7 @@ pub(crate) fn slider_row_width(label_width: i32, theme: &theme::Theme) -> i32 {
 
 pub(crate) fn slider_thumb_rect(
     rect: Rect,
-    slider: &view::control::Slider,
+    slider: &view::Slider,
     measured_label_width: i32,
     theme: &theme::Theme,
 ) -> Rect {
@@ -159,7 +159,7 @@ pub(crate) fn slider_thumb_rect(
 
 pub(crate) fn slider_active_rect(
     rect: Rect,
-    slider: &view::control::Slider,
+    slider: &view::Slider,
     measured_label_width: i32,
     theme: &theme::Theme,
 ) -> Rect {
@@ -169,7 +169,7 @@ pub(crate) fn slider_active_rect(
     )
 }
 
-fn slider_fraction(slider: &view::control::Slider) -> f64 {
+fn slider_fraction(slider: &view::Slider) -> f64 {
     let span = slider.end() - slider.start();
     if span.abs() <= f64::EPSILON {
         return 0.0;

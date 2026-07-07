@@ -567,7 +567,7 @@ fn focused_text_caret_deadline(frame: &layout::Frame, now: Instant) -> Option<In
     None
 }
 
-fn has_non_empty_text_box_selection(text_box: &view::control::TextBox) -> bool {
+fn has_non_empty_text_box_selection(text_box: &view::TextBox) -> bool {
     text_box
         .selection()
         .is_some_and(|selection| selection.start != selection.end)

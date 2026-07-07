@@ -10,7 +10,7 @@ mod action;
 mod binding;
 mod command_palette;
 mod context;
-pub mod control;
+mod control;
 mod node;
 mod presentation;
 mod style;
@@ -20,13 +20,10 @@ pub(crate) use action::FocusDirection;
 pub use binding::Binding;
 pub(crate) use command_palette::{CommandPalette, Entry as CommandPaletteEntry};
 pub use context::Context;
+pub use control::{Button, Checkbox, Control, Radio, Slider, TextArea, TextBox, Wrap};
 pub use node::{Axis, FloatingPlacement, Node, Role};
 pub use presentation::Presentation;
 pub use style::{Align, Dimension, Padding, Style};
-
-use control::TextBox;
-#[cfg(test)]
-use control::{Button, Checkbox, Radio, Slider, TextArea};
 
 #[derive(Clone)]
 pub struct View {

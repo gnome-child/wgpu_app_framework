@@ -224,7 +224,7 @@ fn command_palette_invokes_against_captured_focus_not_query_focus() {
     })
     .view(|_, _| {
         View::new(view::Node::root().child(view::Node::text_area_state(
-            view::control::TextArea::new("").with_focus(session::Focus::text("document")),
+            view::TextArea::new("").with_focus(session::Focus::text("document")),
         )))
     });
 
@@ -289,7 +289,7 @@ fn command_palette_navigation_and_escape_restore_captured_focus() {
     })
     .view(|_, _| {
         View::new(view::Node::root().child(view::Node::text_area_state(
-            view::control::TextArea::new("").with_focus(session::Focus::text("document")),
+            view::TextArea::new("").with_focus(session::Focus::text("document")),
         )))
     });
 
@@ -901,7 +901,7 @@ fn presentation_clears_stale_focus_before_resolving_command_state() {
 
         if state.wrap_text {
             root = root.child(view::Node::text_area_state(
-                view::control::TextArea::new("").with_focus(session::Focus::text("document")),
+                view::TextArea::new("").with_focus(session::Focus::text("document")),
             ));
         }
 

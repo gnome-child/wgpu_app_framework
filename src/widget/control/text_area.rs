@@ -5,7 +5,7 @@ use super::super::Widget;
 pub struct TextArea {
     buffer: text::Buffer,
     state: text::edit::State,
-    wrap: view::control::Wrap,
+    wrap: view::Wrap,
     id: Option<interaction::Id>,
     focus: Option<session::Focus>,
 }
@@ -21,7 +21,7 @@ impl TextArea {
         Self {
             buffer,
             state,
-            wrap: view::control::Wrap::Word,
+            wrap: view::Wrap::Word,
             id: None,
             focus: None,
         }
@@ -32,7 +32,7 @@ impl TextArea {
         self
     }
 
-    pub fn wrap(mut self, wrap: view::control::Wrap) -> Self {
+    pub fn wrap(mut self, wrap: view::Wrap) -> Self {
         self.wrap = wrap;
         self
     }
@@ -47,7 +47,7 @@ impl Widget for TextArea {
     fn into_node(self) -> view::Node {
         let id = self.id.or_else(|| self.focus.map(session::Focus::target));
         let mut text_area =
-            view::control::TextArea::from_buffer(self.buffer, self.state).with_wrap(self.wrap);
+            view::TextArea::from_buffer(self.buffer, self.state).with_wrap(self.wrap);
         if let Some(focus) = self.focus {
             text_area = text_area.with_focus(focus);
         }

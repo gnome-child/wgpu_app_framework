@@ -40,7 +40,7 @@ impl Engine {
 
     pub(super) fn text_area_size_for_width(
         &self,
-        text_area: &view::control::TextArea,
+        text_area: &view::TextArea,
         width: i32,
         theme: &theme::Theme,
     ) -> geometry::Size {
@@ -49,7 +49,7 @@ impl Engine {
 
     pub(super) fn text_area_layout(
         &self,
-        text_area: &view::control::TextArea,
+        text_area: &view::TextArea,
         rect: geometry::Rect,
         theme: &theme::Theme,
         now: Instant,
@@ -59,7 +59,7 @@ impl Engine {
 
     pub(super) fn text_area_position_at(
         &self,
-        text_area: &view::control::TextArea,
+        text_area: &view::TextArea,
         layout: &text::Area,
         rect: geometry::Rect,
         position: geometry::Point,
@@ -70,7 +70,7 @@ impl Engine {
 
     pub(super) fn text_field_layout(
         &self,
-        text_box: &view::control::TextBox,
+        text_box: &view::TextBox,
         rect: geometry::Rect,
         theme: &theme::Theme,
         now: Instant,
@@ -80,7 +80,7 @@ impl Engine {
 
     pub(super) fn text_field_position_at(
         &self,
-        text_box: &view::control::TextBox,
+        text_box: &view::TextBox,
         layout: &text::Field,
         rect: geometry::Rect,
         position: geometry::Point,
