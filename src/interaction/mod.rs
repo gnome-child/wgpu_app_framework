@@ -3,14 +3,14 @@ mod id;
 mod menu;
 mod pointer;
 mod scroll;
-pub mod target;
+mod target;
 
 pub use command_palette::CommandPalette;
 pub use id::Id;
 pub use menu::Menu;
 pub use pointer::{Capture, Pointer, PressIntent};
 pub use scroll::{Scroll, ScrollDelta, ScrollOffset};
-pub use target::Target;
+pub use target::{Kind, Target};
 
 use crate::text;
 use std::time::Instant;

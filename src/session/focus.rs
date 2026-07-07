@@ -115,7 +115,7 @@ impl Focus {
     }
 
     pub(crate) fn from_text_target(target: &interaction::Target) -> Option<Self> {
-        if target.kind() == interaction::target::Kind::TextArea {
+        if target.kind() == interaction::Kind::TextArea {
             return target.element_id().map(Self::text);
         }
 
@@ -125,8 +125,7 @@ impl Focus {
     pub fn matches_target(self, target: &interaction::Target) -> bool {
         match self.kind {
             Kind::Text(id) => {
-                target.kind() == interaction::target::Kind::TextArea
-                    && target.element_id() == Some(id)
+                target.kind() == interaction::Kind::TextArea && target.element_id() == Some(id)
             }
             Kind::Control(key) => target.focus_key() == key,
         }

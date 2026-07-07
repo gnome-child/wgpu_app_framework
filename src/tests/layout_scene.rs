@@ -780,7 +780,7 @@ fn scrollbar_thumb_wins_hit_test_over_content() {
     assert!(hit.is_chrome());
     assert_eq!(
         hit.target().expect("chrome should expose target").kind(),
-        interaction::target::Kind::Scrollbar
+        interaction::Kind::Scrollbar
     );
 }
 
@@ -986,7 +986,7 @@ fn text_area_scrollbar_hit_does_not_route_to_text_editing() {
     assert!(hit.is_chrome());
     assert_eq!(
         hit.target().expect("scrollbar should expose target").kind(),
-        interaction::target::Kind::Scrollbar
+        interaction::Kind::Scrollbar
     );
 
     app.pointer_down_at(window, size, point)
@@ -2245,7 +2245,7 @@ fn layout_hit_testing_uses_stable_identity_and_topmost_popup_order() {
             .target()
             .expect("popup command should expose a target")
             .kind(),
-        interaction::target::Kind::Command
+        interaction::Kind::Command
     );
 }
 

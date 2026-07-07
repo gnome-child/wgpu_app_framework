@@ -43,6 +43,6 @@ fn command_control_pointer_identity_is_shared_by_node_and_layout_paths() {
             .target()
             .expect("layout path should derive a command target")
             .kind(),
-        interaction::target::Kind::Command
+        interaction::Kind::Command
     );
 }

@@ -40,5 +40,5 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 }
 
 fn coalesces_pointer_gesture(target: &interaction::Target) -> bool {
-    target.captures() && target.kind() == interaction::target::Kind::Command
+    target.captures() && target.kind() == interaction::Kind::Command
 }

@@ -46,7 +46,7 @@ fn widget_trigger_binding_activates_from_non_command_element() {
         hit.target()
             .expect("trigger-bound element should expose a command target")
             .kind(),
-        interaction::target::Kind::Command
+        interaction::Kind::Command
     );
 
     app.handle_view(
@@ -97,7 +97,7 @@ fn widget_button_trigger_hit_tests_as_button_and_invokes_command() {
         hit.target()
             .expect("button should expose a command target")
             .kind(),
-        interaction::target::Kind::Command
+        interaction::Kind::Command
     );
 
     app.handle_view(
@@ -204,7 +204,7 @@ fn disabled_command_bound_widgets_are_visible_but_not_activating() {
         hit.target()
             .expect("disabled button should keep a stable command target")
             .kind(),
-        interaction::target::Kind::Command
+        interaction::Kind::Command
     );
     assert!(hit.action().is_none());
 
