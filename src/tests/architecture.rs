@@ -213,6 +213,24 @@ fn text_edit_implementation_modules_stay_private() {
 }
 
 #[test]
+fn text_unicode_helpers_stay_private_to_text_engine() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let text_mod =
+        std::fs::read_to_string(src_dir.join("text").join("mod.rs")).expect("text module read");
+    let unicode =
+        std::fs::read_to_string(src_dir.join("text").join("unicode.rs")).expect("unicode read");
+
+    assert!(
+        !text_mod.contains("pub mod unicode;"),
+        "text unicode helpers should stay private to the text engine"
+    );
+    assert!(
+        !unicode.contains("pub(crate) fn"),
+        "unicode helpers should not expose crate-wide helper functions"
+    );
+}
+
+#[test]
 fn draft_input_module_stays_private() {
     let draft_mod = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

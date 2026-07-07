@@ -3,7 +3,7 @@ mod color;
 pub mod document;
 pub mod edit;
 pub mod layout;
-pub mod unicode;
+mod unicode;
 
 pub use buffer::Buffer;
 pub use color::Color;
