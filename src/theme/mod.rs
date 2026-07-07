@@ -586,7 +586,7 @@ impl Typography {
         self.caption
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn hint(self) -> TypeStyle {
         self.hint
     }
