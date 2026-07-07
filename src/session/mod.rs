@@ -27,7 +27,7 @@ impl Default for Session {
         Self {
             windows: Vec::new(),
             next_window_id: 0,
-            draft_limit: draft::input::DEFAULT_DRAFT_LIMIT,
+            draft_limit: draft::DEFAULT_DRAFT_LIMIT,
         }
     }
 }

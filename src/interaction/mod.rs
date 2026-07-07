@@ -23,7 +23,7 @@ pub struct Interaction {
     command_palette: Option<CommandPalette>,
     pointer: Pointer,
     scroll: Scroll,
-    text_input: draft::input::Input,
+    text_input: draft::Input,
 }
 
 impl Interaction {
@@ -49,7 +49,7 @@ impl Interaction {
         &self.scroll
     }
 
-    pub fn text_input(&self) -> &draft::input::Input {
+    pub fn text_input(&self) -> &draft::Input {
         &self.text_input
     }
 

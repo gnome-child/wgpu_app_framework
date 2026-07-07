@@ -12,7 +12,7 @@ impl Default for Retention {
         Self {
             changes: state::DEFAULT_CHANGE_LIMIT,
             snapshots: timeline::DEFAULT_SNAPSHOT_LIMIT,
-            drafts: draft::input::DEFAULT_DRAFT_LIMIT,
+            drafts: draft::DEFAULT_DRAFT_LIMIT,
         }
     }
 }
