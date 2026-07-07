@@ -179,6 +179,36 @@ fn retained_node_identity_replaces_structural_command_fallbacks() {
     );
 }
 
+#[test]
+fn focus_traversal_goes_through_retained_composition() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let view_mod = std::fs::read_to_string(src_dir.join("view").join("mod.rs"))
+        .expect("view module should read");
+    let traversal = std::fs::read_to_string(src_dir.join("view").join("node").join("traversal.rs"))
+        .expect("view node traversal module should read");
+
+    for pattern in [
+        "pub fn contains_enabled_focus(",
+        "pub fn focus_order(",
+        "pub fn next_focus(",
+    ] {
+        assert!(
+            !view_mod.contains(pattern),
+            "public view focus traversal must not bypass retained composition: {pattern}"
+        );
+    }
+
+    for pattern in [
+        "fn collect_focus_order(&self",
+        "fn collect_floating_panel_focus_order(&self",
+    ] {
+        assert!(
+            !traversal.contains(pattern),
+            "view node traversal must not keep structural focus-order fallback: {pattern}"
+        );
+    }
+}
+
 fn assert_source_patterns_absent(path: &std::path::Path, patterns: &[String]) {
     for entry in std::fs::read_dir(path).expect("framework source directory should be readable") {
         let path = entry

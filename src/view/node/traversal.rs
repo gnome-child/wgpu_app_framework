@@ -84,10 +84,6 @@ impl Node {
         self.contains_focus_at(&focus, &[], false)
     }
 
-    pub(in crate::view) fn contains_enabled_focus(&self, focus: session::Focus) -> bool {
-        self.contains_focus_at(&focus, &[], true)
-    }
-
     pub(in crate::view) fn contains_enabled_focus_retained(
         &self,
         focus: session::Focus,
@@ -96,23 +92,12 @@ impl Node {
         self.contains_focus_retained_at(&focus, retained, true)
     }
 
-    pub(in crate::view) fn collect_focus_order(&self, order: &mut Vec<session::Focus>) {
-        self.collect_focus_order_at(order, &[]);
-    }
-
     pub(in crate::view) fn collect_focus_order_retained(
         &self,
         retained: &composition::Node,
         order: &mut Vec<session::Focus>,
     ) {
         self.collect_focus_order_retained_at(retained, order);
-    }
-
-    pub(in crate::view) fn collect_floating_panel_focus_order(
-        &self,
-        order: &mut Vec<session::Focus>,
-    ) -> bool {
-        self.collect_floating_panel_focus_order_at(order, &[])
     }
 
     pub(in crate::view) fn collect_floating_panel_focus_order_retained(
@@ -393,22 +378,6 @@ impl Node {
             })
     }
 
-    fn collect_focus_order_at(&self, order: &mut Vec<session::Focus>, path: &[usize]) {
-        if let Some(focus) = self.focus_at(path, true) {
-            push_focus(order, focus.keyboard());
-        }
-
-        if self.role == Role::Menu {
-            return;
-        }
-
-        for (index, child) in self.children.iter().enumerate() {
-            let mut child_path = path.to_vec();
-            child_path.push(index);
-            child.collect_focus_order_at(order, &child_path);
-        }
-    }
-
     fn collect_focus_order_retained_at(
         &self,
         retained: &composition::Node,
@@ -425,26 +394,6 @@ impl Node {
         for (index, child) in self.children.iter().enumerate() {
             child.collect_focus_order_retained_at(retained_child(retained, index), order);
         }
-    }
-
-    fn collect_floating_panel_focus_order_at(
-        &self,
-        order: &mut Vec<session::Focus>,
-        path: &[usize],
-    ) -> bool {
-        if self.role == Role::FloatingPanel {
-            self.collect_focus_order_at(order, path);
-            return true;
-        }
-
-        let mut found = false;
-        for (index, child) in self.children.iter().enumerate() {
-            let mut child_path = path.to_vec();
-            child_path.push(index);
-            found |= child.collect_floating_panel_focus_order_at(order, &child_path);
-        }
-
-        found
     }
 
     fn collect_floating_panel_focus_order_retained_at(

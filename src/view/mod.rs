@@ -92,10 +92,6 @@ impl View {
         self.root.contains_focus(focus)
     }
 
-    pub fn contains_enabled_focus(&self, focus: session::Focus) -> bool {
-        self.root.contains_enabled_focus(focus)
-    }
-
     pub(crate) fn contains_enabled_focus_retained(
         &self,
         tree: &composition::Tree,
@@ -103,14 +99,6 @@ impl View {
     ) -> bool {
         self.root
             .contains_enabled_focus_retained(focus, tree.root())
-    }
-
-    pub fn focus_order(&self) -> Vec<session::Focus> {
-        let mut order = Vec::new();
-        if !self.root.collect_floating_panel_focus_order(&mut order) {
-            self.root.collect_focus_order(&mut order);
-        }
-        order
     }
 
     pub(crate) fn focus_order_retained(&self, tree: &composition::Tree) -> Vec<session::Focus> {
@@ -123,14 +111,6 @@ impl View {
                 .collect_focus_order_retained(tree.root(), &mut order);
         }
         order
-    }
-
-    pub fn next_focus(
-        &self,
-        current: Option<session::Focus>,
-        direction: FocusDirection,
-    ) -> Option<session::Focus> {
-        next_focus_in_order(self.focus_order(), current, direction)
     }
 
     pub(crate) fn next_focus_retained(
