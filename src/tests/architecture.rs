@@ -229,6 +229,22 @@ fn draft_input_module_stays_private() {
 }
 
 #[test]
+fn view_action_module_stays_private() {
+    let view_mod = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("view")
+            .join("mod.rs"),
+    )
+    .expect("view module should read");
+
+    assert!(
+        !view_mod.contains("pub mod action;"),
+        "view action file module must stay private; expose the Action concept through view::Action"
+    );
+}
+
+#[test]
 fn demo_apps_do_not_leak_into_framework_source_or_public_api() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let examples_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");

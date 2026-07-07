@@ -87,9 +87,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         reverse: bool,
     ) -> std::result::Result<input::Outcome, Error> {
         let direction = if reverse {
-            view::action::FocusDirection::Backward
+            view::FocusDirection::Backward
         } else {
-            view::action::FocusDirection::Forward
+            view::FocusDirection::Forward
         };
         let Some(next) = self.composition.get(window).and_then(|composition| {
             composition.next_focus(self.session.focused(window), direction)

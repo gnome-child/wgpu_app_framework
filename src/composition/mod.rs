@@ -67,7 +67,7 @@ impl Composition {
     pub(crate) fn next_focus(
         &self,
         current: Option<session::Focus>,
-        direction: view::action::FocusDirection,
+        direction: view::FocusDirection,
     ) -> Option<session::Focus> {
         self.view
             .next_focus_retained(&self.tree, current, direction)

@@ -6,7 +6,7 @@ use super::{
     subject,
 };
 
-pub mod action;
+mod action;
 mod binding;
 mod command_palette;
 mod context;
@@ -16,6 +16,7 @@ mod presentation;
 pub mod style;
 
 pub use action::Action;
+pub(crate) use action::FocusDirection;
 pub use binding::Binding;
 pub(crate) use command_palette::{CommandPalette, Entry as CommandPaletteEntry};
 pub use context::Context;
@@ -23,7 +24,6 @@ pub use node::Node;
 pub use presentation::Presentation;
 pub use style::Style;
 
-use action::FocusDirection;
 use control::TextBox;
 #[cfg(test)]
 use control::{Button, Checkbox, Radio, Slider, TextArea};
