@@ -33,15 +33,16 @@ impl State {
     pub fn theme(&self) -> Theme {
         let mut theme = Theme::dark();
         let tint = self.tint.color();
-        let floating = theme.floating_panel_mut();
-        floating.material = scene::Material::glass(
-            scene::Glass::panel_dark()
-                .with_blur_sigma(self.blur_sigma as f32)
-                .with_refraction(None)
-                .with_luminosity(scene::Luminosity::new(tint, self.luminosity_opacity as f32))
-                .with_tint(scene::Brush::solid(tint), self.tint_opacity as f32)
-                .with_noise_opacity(self.noise_opacity as f32),
-        );
+        theme
+            .floating_panel_mut()
+            .set_material(scene::Material::glass(
+                scene::Glass::panel_dark()
+                    .with_blur_sigma(self.blur_sigma as f32)
+                    .with_refraction(None)
+                    .with_luminosity(scene::Luminosity::new(tint, self.luminosity_opacity as f32))
+                    .with_tint(scene::Brush::solid(tint), self.tint_opacity as f32)
+                    .with_noise_opacity(self.noise_opacity as f32),
+            ));
         theme
     }
 

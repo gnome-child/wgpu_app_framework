@@ -2,14 +2,12 @@ pub mod clipboard;
 pub mod command;
 pub mod composition;
 pub mod context;
-pub mod control_gallery;
 pub mod diagnostics;
 pub mod document;
 pub mod draft;
 pub mod error;
 mod fuzzy;
 pub mod geometry;
-pub mod glass_tuner;
 pub mod host;
 pub mod icon;
 pub mod input;
@@ -28,7 +26,6 @@ pub mod subject;
 pub mod target;
 pub mod task;
 pub mod text;
-pub mod text_editor;
 pub mod theme;
 pub mod timeline;
 pub mod view;
@@ -39,6 +36,13 @@ mod animation;
 mod paint;
 mod paint_geometry;
 mod render;
+
+#[cfg(test)]
+mod control_gallery;
+#[cfg(test)]
+mod glass_tuner;
+#[cfg(test)]
+mod text_editor;
 
 pub use clipboard::Clipboard;
 pub use command::Command;

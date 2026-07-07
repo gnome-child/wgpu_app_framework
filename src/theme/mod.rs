@@ -154,6 +154,16 @@ pub struct FloatingPanel {
     pub(crate) content_gap: i32,
 }
 
+impl FloatingPanel {
+    pub fn material(&self) -> &scene::Material {
+        &self.material
+    }
+
+    pub fn set_material(&mut self, material: scene::Material) {
+        self.material = material;
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Viewport {
     pub(crate) min_viewport_extent: i32,
@@ -522,11 +532,11 @@ impl Theme {
         &self.text_input
     }
 
-    pub(crate) fn floating_panel(&self) -> &FloatingPanel {
+    pub fn floating_panel(&self) -> &FloatingPanel {
         &self.floating_panel
     }
 
-    pub(crate) fn floating_panel_mut(&mut self) -> &mut FloatingPanel {
+    pub fn floating_panel_mut(&mut self) -> &mut FloatingPanel {
         &mut self.floating_panel
     }
 

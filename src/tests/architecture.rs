@@ -77,6 +77,23 @@ fn renderer_paint_vocabulary_stays_private() {
 }
 
 #[test]
+fn demo_apps_do_not_leak_into_public_framework_api() {
+    let lib = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("lib.rs"),
+    )
+    .expect("crate root should read");
+
+    for module in ["control_gallery", "glass_tuner", "text_editor"] {
+        assert!(
+            !lib.contains(&format!("pub mod {module};")),
+            "demo app module {module} should not be public framework API"
+        );
+    }
+}
+
+#[test]
 fn responder_chain_uses_service_responders_not_framework_fallbacks() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let forbidden = [
