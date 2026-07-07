@@ -1,7 +1,7 @@
-pub mod area;
-pub mod point;
-pub mod rect;
-pub mod size;
+mod area;
+mod point;
+mod rect;
+mod size;
 
 pub use area::LogicalArea;
 pub use point::Point;

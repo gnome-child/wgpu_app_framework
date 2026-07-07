@@ -156,6 +156,24 @@ fn paint_geometry_file_modules_stay_crate_private() {
 }
 
 #[test]
+fn geometry_file_modules_stay_private() {
+    let geometry_mod = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("geometry")
+            .join("mod.rs"),
+    )
+    .expect("geometry module should read");
+
+    for module in ["area", "point", "rect", "size"] {
+        assert!(
+            !geometry_mod.contains(&format!("pub mod {module};")),
+            "public geometry API should expose concepts through the facade, not file modules: {module}"
+        );
+    }
+}
+
+#[test]
 fn text_buffer_mark_module_stays_private() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let buffer_mod = std::fs::read_to_string(src_dir.join("text").join("buffer").join("mod.rs"))
