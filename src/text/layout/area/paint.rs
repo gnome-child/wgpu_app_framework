@@ -18,6 +18,26 @@ use super::super::{
 };
 use crate::paint_geometry::area;
 
+struct AreaPaintRequest<'a> {
+    area_model: &'a Area,
+    style: Style,
+    viewport: area::Logical,
+    state: ViewState,
+    now: Instant,
+    content_area: Option<area::Logical>,
+}
+
+struct SegmentLayoutRequest<'a> {
+    area_model: &'a Area,
+    style: Style,
+    viewport: area::Logical,
+    state: &'a ViewState,
+    now: Instant,
+    projection: &'a PreeditProjection,
+    segments: &'a [TextAreaDisplaySegment],
+    content_area: Option<area::Logical>,
+}
+
 impl Engine {
     pub fn text_area_metrics_layout_for_area_at(
         &mut self,
@@ -72,13 +92,15 @@ impl Engine {
         now: Instant,
     ) -> TextAreaPaintLayout {
         self.text_area_layout_for_area_at_with_observation(
-            area_model,
-            style,
-            viewport,
-            state,
-            now,
+            AreaPaintRequest {
+                area_model,
+                style,
+                viewport,
+                state,
+                now,
+                content_area: None,
+            },
             TextAreaObservation::Observe,
-            None,
         )
     }
 
@@ -92,13 +114,15 @@ impl Engine {
         content_area: area::Logical,
     ) -> TextAreaPaintLayout {
         self.text_area_layout_for_area_at_with_observation(
-            area_model,
-            style,
-            viewport,
-            state,
-            now,
+            AreaPaintRequest {
+                area_model,
+                style,
+                viewport,
+                state,
+                now,
+                content_area: Some(content_area),
+            },
             TextAreaObservation::RenderOnly,
-            Some(content_area),
         )
     }
 
@@ -121,16 +145,16 @@ impl Engine {
             viewport,
             &state,
         );
-        let layout = self.text_area_layout_from_segments(
+        let layout = self.text_area_layout_from_segments(SegmentLayoutRequest {
             area_model,
             style,
             viewport,
-            &state,
+            state: &state,
             now,
-            &projection,
-            &segments,
-            Some(content_area),
-        );
+            projection: &projection,
+            segments: &segments,
+            content_area: Some(content_area),
+        });
         self.diagnostics.text_area_interaction_surfaces += segments.len();
         layout
     }
@@ -222,62 +246,68 @@ impl Engine {
 
     fn text_area_layout_for_area_at_with_observation(
         &mut self,
-        area_model: &Area,
-        style: Style,
-        viewport: area::Logical,
-        state: ViewState,
-        now: Instant,
+        request: AreaPaintRequest<'_>,
         observation: TextAreaObservation,
-        content_area: Option<area::Logical>,
     ) -> TextAreaPaintLayout {
         self.diagnostics.text_area_paint_layout_calls += 1;
-        let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), &state);
+        let projection = PreeditProjection::new(
+            request.area_model.buffer(),
+            request.area_model.state(),
+            &request.state,
+        );
         let committed = !projection.has_preedit();
 
         let observe = observation == TextAreaObservation::Observe;
 
         let segments = if observe {
             self.text_area_display_segments(
-                area_model,
+                request.area_model,
                 &projection.buffer,
                 committed,
-                style,
-                viewport,
-                &state,
+                request.style,
+                request.viewport,
+                &request.state,
             )
         } else {
             self.record_text_area_render_window(
-                area_model,
+                request.area_model,
                 &projection.buffer,
                 committed,
-                style,
-                viewport,
-                &state,
+                request.style,
+                request.viewport,
+                &request.state,
             );
             Vec::new()
         };
-        let layout = self.text_area_layout_from_segments(
-            area_model,
-            style,
-            viewport,
-            &state,
-            now,
-            &projection,
-            &segments,
-            content_area,
-        );
+        let layout = self.text_area_layout_from_segments(SegmentLayoutRequest {
+            area_model: request.area_model,
+            style: request.style,
+            viewport: request.viewport,
+            state: &request.state,
+            now: request.now,
+            projection: &projection,
+            segments: &segments,
+            content_area: request.content_area,
+        });
         self.diagnostics.text_area_interaction_surfaces += segments.len();
         let surfaces = segments
             .iter()
-            .map(|segment| text_area::surface_for_segment(segment, style, viewport, &state))
+            .map(|segment| {
+                text_area::surface_for_segment(
+                    segment,
+                    request.style,
+                    request.viewport,
+                    &request.state,
+                )
+            })
             .collect();
         let render_surfaces = self.text_area_render_surfaces(
-            area_model,
+            request.area_model,
             &projection.buffer,
             committed,
-            style,
-            viewport,
-            &state,
+            request.style,
+            request.viewport,
+            &request.state,
         );
         TextAreaPaintLayout {
             layout,
@@ -288,26 +318,19 @@ impl Engine {
 
     fn text_area_layout_from_segments(
         &mut self,
-        area_model: &Area,
-        style: Style,
-        viewport: area::Logical,
-        state: &ViewState,
-        now: Instant,
-        projection: &PreeditProjection,
-        segments: &[TextAreaDisplaySegment],
-        content_area: Option<area::Logical>,
+        request: SegmentLayoutRequest<'_>,
     ) -> TextFieldLayout {
         let mut spans = HighlightSpans::default();
         #[cfg(test)]
         let mut combined_stats = HighlightStats::default();
         #[cfg(not(test))]
         let combined_stats = HighlightStats::default();
-        let selection = projection.selection_bounds();
-        let (preedit_underline, preedit_selection) = projection.highlight_ranges();
+        let selection = request.projection.selection_bounds();
+        let (preedit_underline, preedit_selection) = request.projection.highlight_ranges();
         let mut caret = None;
         let mut observed_width: f32 = 0.0;
 
-        for segment in segments {
+        for segment in request.segments {
             observed_width = observed_width.max(segment.display.width);
             let buffer = segment.display.buffer.borrow();
             let selection = selection.and_then(|range| {
@@ -337,7 +360,7 @@ impl Engine {
                 preedit_underline,
                 preedit_selection,
                 segment.y,
-                state.scroll_x(),
+                request.state.scroll_x(),
                 0.0,
             );
             spans.selection.extend(line_spans.selection);
@@ -349,14 +372,14 @@ impl Engine {
             let _ = stats;
 
             if caret.is_none()
-                && !projection.has_non_empty_selection()
-                && area_model.paints_caret()
-                && state.caret_visible(now)
-                && projection.cursor().line == segment.display.source_line
+                && !request.projection.has_non_empty_selection()
+                && request.area_model.paints_caret()
+                && request.state.caret_visible(request.now)
+                && request.projection.cursor().line == segment.display.source_line
             {
-                let cursor = Cursor::new(0, projection.cursor().index);
+                let cursor = Cursor::new(0, request.projection.cursor().index);
                 caret = cursor_position(&buffer, cursor).map(|(x, y)| Caret {
-                    x: x as f32 - state.scroll_x(),
+                    x: x as f32 - request.state.scroll_x(),
                     y: segment.y + y as f32,
                     height: buffer.metrics().line_height,
                 });
@@ -364,15 +387,19 @@ impl Engine {
         }
 
         self.add_highlight_stats(combined_stats);
-        let content_area = content_area.unwrap_or_else(|| {
+        let content_area = request.content_area.unwrap_or_else(|| {
             area::logical(
-                text_area_content_width(area_model.wrap(), viewport, observed_width),
+                text_area_content_width(
+                    request.area_model.wrap(),
+                    request.viewport,
+                    observed_width,
+                ),
                 self.text_area_content_height(
-                    area_model,
-                    &projection.buffer,
-                    !projection.has_preedit(),
-                    style,
-                    viewport,
+                    request.area_model,
+                    &request.projection.buffer,
+                    !request.projection.has_preedit(),
+                    request.style,
+                    request.viewport,
                 ),
             )
         });
@@ -381,8 +408,8 @@ impl Engine {
             preedit_underline_spans: spans.preedit_underline,
             preedit_selection_spans: spans.preedit_selection,
             caret,
-            scroll_x: state.scroll_x(),
-            scroll_y: state.scroll_y(),
+            scroll_x: request.state.scroll_x(),
+            scroll_y: request.state.scroll_y(),
             content_area,
         }
     }
