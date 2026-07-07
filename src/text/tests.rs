@@ -1,5 +1,3 @@
-#![allow(unused_imports)]
-
 use std::cell::RefCell;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
@@ -9,23 +7,17 @@ use crate::paint_geometry::{area, point};
 
 use super::buffer::{
     Affinity, Cursor, CursorSelection, Mark, Position, Range, TEXT_DOCUMENT_BLOCK_TARGET_LINES,
-    TextDocumentStatsSnapshot,
 };
-use super::document::{
-    Align, Block, ResolvedTextDirection, Role, Run, Style, TextDirection, Weight,
-};
+use super::document::{Align, Block, ResolvedTextDirection, Run, Style, Weight};
 use super::edit::{
     Action, ActionResult, Area, Clipboard, ClipboardError, ClipboardResult, Edit, Editor, Field,
     Motion, PointerEditKind, Preedit, State, ViewState, Viewport, Visibility,
 };
 use super::layout::{
-    Caret, CaretLayout, Diagnostics, Engine, HighlightStats, Measure, Metrics, SelectionSpan,
-    TEXT_AREA_FRAME_MAX_LOGICAL_LINES, TEXT_AREA_FRAME_MIN_OVERSCAN_LINES,
-    TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY, TEXT_AREA_RENDER_GUARD_LINES, TEXT_FIELD_CARET_MARGIN,
-    TEXT_LAYOUT_VISUAL_LINE_EPSILON, TextAreaPaintLayout, TextAreaSurface, TextFieldLayout,
-    TextLayoutMap, VisualLineGroup, buffer_text_len, clamp_cursor_in_buffer,
-    cosmic_buffer_from_text, cursor_position, line_start_offsets_for_buffer,
-    text_area_estimated_line_height, text_index_for_cursor_in_buffer,
+    Engine, HighlightStats, Measure, TEXT_AREA_FRAME_MAX_LOGICAL_LINES,
+    TEXT_AREA_FRAME_MIN_OVERSCAN_LINES, TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY,
+    TEXT_AREA_RENDER_GUARD_LINES, TEXT_FIELD_CARET_MARGIN, TEXT_LAYOUT_VISUAL_LINE_EPSILON,
+    TextAreaSurface, TextLayoutMap, VisualLineGroup, text_area_estimated_line_height,
 };
 use super::{Buffer, Color, Document, edit, layout};
 
