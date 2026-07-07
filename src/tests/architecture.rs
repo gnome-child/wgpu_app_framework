@@ -728,6 +728,8 @@ fn view_tree_inspection_helpers_stay_internal() {
         .expect("view module should read");
     let view_presentation = std::fs::read_to_string(src_dir.join("view").join("presentation.rs"))
         .expect("view presentation should read");
+    let view_access = std::fs::read_to_string(src_dir.join("view").join("node").join("access.rs"))
+        .expect("view node access should read");
     let runtime_presentation =
         std::fs::read_to_string(src_dir.join("runtime").join("presentation.rs"))
             .expect("runtime presentation should read");
@@ -763,6 +765,16 @@ fn view_tree_inspection_helpers_stay_internal() {
         !view_mod.contains("pub use action::Action"),
         "view Action is runtime routing vocabulary, not public view API"
     );
+    for pattern in [
+        "pub fn is_hovered(&self)",
+        "pub fn is_pressed(&self)",
+        "pub fn is_active(&self)",
+    ] {
+        assert!(
+            !view_access.contains(pattern),
+            "paint-only interaction state must not be public view-node inspection API: {pattern}"
+        );
+    }
     for pattern in [
         "pub fn drain(&mut self)",
         "pub fn drain_scenes(",
