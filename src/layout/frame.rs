@@ -223,7 +223,7 @@ impl Frame {
         self
     }
 
-    pub fn path(&self) -> &path::Path {
+    pub(crate) fn path(&self) -> &path::Path {
         &self.path
     }
 

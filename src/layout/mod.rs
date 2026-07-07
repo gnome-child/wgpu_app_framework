@@ -16,7 +16,7 @@ pub(crate) mod flow;
 pub mod frame;
 pub mod hit;
 mod measure;
-pub mod path;
+pub(crate) mod path;
 pub(crate) mod text;
 pub(crate) mod typography;
 pub mod viewport;

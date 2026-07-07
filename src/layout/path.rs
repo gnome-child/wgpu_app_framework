@@ -1,5 +1,5 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Path(Vec<usize>);
+pub(crate) struct Path(Vec<usize>);
 
 impl Path {
     pub(super) fn root() -> Self {
@@ -12,7 +12,8 @@ impl Path {
         Self(path)
     }
 
-    pub fn indexes(&self) -> &[usize] {
+    #[cfg(test)]
+    pub(crate) fn indexes(&self) -> &[usize] {
         &self.0
     }
 

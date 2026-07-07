@@ -211,6 +211,24 @@ fn retained_node_identity_replaces_structural_command_fallbacks() {
 }
 
 #[test]
+fn structural_layout_paths_stay_internal() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let layout_mod = std::fs::read_to_string(src_dir.join("layout").join("mod.rs"))
+        .expect("layout module should read");
+    let frame = std::fs::read_to_string(src_dir.join("layout").join("frame.rs"))
+        .expect("layout frame module should read");
+
+    assert!(
+        !layout_mod.contains("pub mod path;"),
+        "layout structural paths must stay internal to layout/composition ancestry"
+    );
+    assert!(
+        !frame.contains("pub fn path(&self)"),
+        "layout frames must not expose structural paths as public identity"
+    );
+}
+
+#[test]
 fn focus_traversal_goes_through_retained_composition() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let view_mod = std::fs::read_to_string(src_dir.join("view").join("mod.rs"))
