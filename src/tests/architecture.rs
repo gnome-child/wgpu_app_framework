@@ -522,6 +522,10 @@ fn composition_tree_owns_identity_not_behavior() {
         !interaction_mod.contains("pub mod target;"),
         "interaction target file module must stay private; re-export named target concepts instead"
     );
+    assert!(
+        !interaction_mod.contains("pub use command_palette::CommandPalette;"),
+        "command palette state is internal interaction/session state, not public interaction API"
+    );
 
     let session_mod =
         std::fs::read_to_string(src_dir.join("session").join("mod.rs")).expect("session mod read");

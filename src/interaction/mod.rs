@@ -5,7 +5,7 @@ mod pointer;
 mod scroll;
 mod target;
 
-pub use command_palette::CommandPalette;
+pub(crate) use command_palette::CommandPalette;
 pub use id::Id;
 pub use menu::Menu;
 pub use pointer::{Capture, Pointer, PressIntent};
@@ -37,7 +37,7 @@ impl Interaction {
         self.open_menu.as_ref()
     }
 
-    pub fn command_palette(&self) -> Option<&CommandPalette> {
+    pub(crate) fn command_palette(&self) -> Option<&CommandPalette> {
         self.command_palette.as_ref()
     }
 

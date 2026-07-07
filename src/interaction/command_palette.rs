@@ -6,7 +6,7 @@ const QUERY_ID: &str = "command_palette.query";
 const RESULTS_ID: &str = "command_palette.results";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CommandPalette {
+pub(crate) struct CommandPalette {
     captured_focus: Option<session::Focus>,
     selected: usize,
 }
