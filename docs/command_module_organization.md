@@ -63,6 +63,8 @@ history policy, and optional history grouping.
 Registration-time presentation metadata: display label and semantic shortcut.
 Shortcut declarations stay semantic (`Primary+S`, `Standard::Save`) and are
 resolved through the active keymap profile at match and presentation time.
+`Spec::new`, `.shortcut(...)`, and `.key_chord(...)` are public because apps
+register commands through `Runtime::commands(...)`.
 
 `command::Registry`
 
@@ -76,6 +78,8 @@ not choose focus or mutate app state by itself.
 Resolved affordance for a command in a concrete context: enabled, disabled, or
 hidden, with optional checked state, label override, shortcut override, and
 tooltip. Availability is runtime state, not a property of registration.
+State constructors and modifiers are public because app targets must be able to
+report availability without reaching into framework internals.
 
 `command::Trigger`
 
@@ -106,6 +110,8 @@ data; user-facing palette labels come from subject ancestry.
 Response owns command output, changed-state reporting, and follow-up effects.
 Runtime consumes responses to update history, invalidation depth, tasks,
 requests, and observations.
+Response constructors and result accessors are public because `target::Target`
+implementations return responses directly.
 
 ## Execution Flow
 
@@ -132,6 +138,9 @@ available. Runtime coordinates the transaction.
   know focus or composition ancestry by itself.
 - State describes current affordance and can hide a command from continued
   resolution.
+- A public trait must not require crate-private values in its implementation.
+  `Target<C>` therefore depends on public `command::State` and
+  `response::Response` constructors.
 - Shortcut resolution is platform-truthful data. Shortcut display is themed
   presentation.
 - Erased command storage is private to the command/runtime boundary.

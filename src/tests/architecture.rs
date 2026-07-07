@@ -211,6 +211,52 @@ fn focus_traversal_goes_through_retained_composition() {
     }
 }
 
+#[test]
+fn public_target_contract_uses_public_command_values() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let spec = std::fs::read_to_string(src_dir.join("command").join("spec.rs"))
+        .expect("command spec module should read");
+    let state = std::fs::read_to_string(src_dir.join("command").join("state.rs"))
+        .expect("command state module should read");
+    let response = std::fs::read_to_string(src_dir.join("response").join("mod.rs"))
+        .expect("response module should read");
+
+    for pattern in [
+        "pub fn new(display_name: &'static str)",
+        "pub fn shortcut(mut self",
+        "pub fn key_chord(mut self",
+    ] {
+        assert!(
+            spec.contains(pattern),
+            "command registration Spec must remain constructible by app code: {pattern}"
+        );
+    }
+
+    for pattern in [
+        "pub fn enabled()",
+        "pub fn disabled()",
+        "pub fn hidden()",
+        "pub fn checked(mut self",
+    ] {
+        assert!(
+            state.contains(pattern),
+            "command State must remain constructible by external Target implementations: {pattern}"
+        );
+    }
+
+    for pattern in [
+        "pub fn output(output: O)",
+        "pub fn changed(output: O)",
+        "pub fn failed(error: Error)",
+        "pub fn into_result(self)",
+    ] {
+        assert!(
+            response.contains(pattern),
+            "Response must remain constructible/readable by external Target implementations: {pattern}"
+        );
+    }
+}
+
 fn assert_source_patterns_absent(path: &std::path::Path, patterns: &[String]) {
     for entry in std::fs::read_dir(path).expect("framework source directory should be readable") {
         let path = entry

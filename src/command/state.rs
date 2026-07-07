@@ -16,7 +16,7 @@ pub struct State {
 }
 
 impl State {
-    pub(crate) fn enabled() -> Self {
+    pub fn enabled() -> Self {
         Self {
             availability: Availability::Enabled,
             checked: None,
@@ -26,7 +26,7 @@ impl State {
         }
     }
 
-    pub(crate) fn disabled() -> Self {
+    pub fn disabled() -> Self {
         Self {
             availability: Availability::Disabled,
             checked: None,
@@ -37,7 +37,7 @@ impl State {
     }
 
     /// Means "this target does not claim the command in this state; keep resolving".
-    pub(crate) fn hidden() -> Self {
+    pub fn hidden() -> Self {
         Self {
             availability: Availability::Hidden,
             checked: None,
@@ -47,30 +47,46 @@ impl State {
         }
     }
 
-    pub(crate) fn is_enabled(&self) -> bool {
+    pub fn is_enabled(&self) -> bool {
         self.availability == Availability::Enabled
     }
 
-    pub(crate) fn is_hidden(&self) -> bool {
+    pub fn is_hidden(&self) -> bool {
         self.availability == Availability::Hidden
     }
 
-    pub(crate) fn with_label(mut self, label: impl Into<String>) -> Self {
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+
+    pub fn shortcut(&self) -> Option<KeyChord> {
+        self.shortcut
+    }
+
+    pub fn tooltip(&self) -> Option<&str> {
+        self.tooltip.as_deref()
+    }
+
+    pub fn checked_state(&self) -> Option<bool> {
+        self.checked
+    }
+
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
         self
     }
 
-    pub(crate) fn with_shortcut(mut self, shortcut: KeyChord) -> Self {
+    pub fn with_shortcut(mut self, shortcut: KeyChord) -> Self {
         self.shortcut = Some(shortcut);
         self
     }
 
-    pub(crate) fn with_tooltip(mut self, tooltip: impl Into<String>) -> Self {
+    pub fn with_tooltip(mut self, tooltip: impl Into<String>) -> Self {
         self.tooltip = Some(tooltip.into());
         self
     }
 
-    pub(crate) fn checked(mut self, checked: bool) -> Self {
+    pub fn checked(mut self, checked: bool) -> Self {
         self.checked = Some(checked);
         self
     }

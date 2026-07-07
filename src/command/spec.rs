@@ -125,19 +125,19 @@ pub struct Spec {
 }
 
 impl Spec {
-    pub(crate) fn new(display_name: &'static str) -> Self {
+    pub fn new(display_name: &'static str) -> Self {
         Self {
             display_name,
             shortcut: None,
         }
     }
 
-    pub(crate) fn shortcut(mut self, shortcut: &'static str) -> Self {
+    pub fn shortcut(mut self, shortcut: &'static str) -> Self {
         self.shortcut = Some(KeyChord::new(shortcut));
         self
     }
 
-    pub(crate) fn key_chord(mut self, shortcut: KeyChord) -> Self {
+    pub fn key_chord(mut self, shortcut: KeyChord) -> Self {
         self.shortcut = Some(shortcut);
         self
     }
