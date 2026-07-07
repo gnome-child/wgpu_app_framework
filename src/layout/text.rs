@@ -257,7 +257,7 @@ fn document(
 
 impl fmt::Debug for Service {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("layout::text::Service")
+        f.debug_struct("layout::TextService")
             .finish_non_exhaustive()
     }
 }

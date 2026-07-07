@@ -4226,7 +4226,7 @@ fn visible_text_area_surfaces(presentation: &scene::Presentation) -> Vec<(usize,
             frame
                 .text_area_layout()
                 .into_iter()
-                .flat_map(layout::text::Area::render_surfaces)
+                .flat_map(layout::TextArea::render_surfaces)
                 .filter(move |surface| surface.y() < height && surface.y() + surface.height() > 0.0)
         })
         .map(|surface| (surface.source_line(), surface.y(), surface.height()))

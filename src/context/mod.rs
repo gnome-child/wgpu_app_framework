@@ -8,7 +8,7 @@ use super::{clipboard::Clipboard, layout, task};
 pub struct Context {
     source: Source,
     clipboard: Option<Clipboard>,
-    text: Option<layout::text::Service>,
+    text: Option<layout::TextService>,
     tasks: Option<task::Sink>,
 }
 
@@ -50,7 +50,7 @@ impl Context {
         }
     }
 
-    pub(super) fn with_text_service(mut self, text: layout::text::Service) -> Self {
+    pub(super) fn with_text_service(mut self, text: layout::TextService) -> Self {
         self.text = Some(text);
         self
     }
@@ -82,7 +82,7 @@ impl Context {
         self.clipboard.clone()
     }
 
-    pub(super) fn text_service(&self) -> Option<layout::text::Service> {
+    pub(super) fn text_service(&self) -> Option<layout::TextService> {
         self.text.clone()
     }
 }

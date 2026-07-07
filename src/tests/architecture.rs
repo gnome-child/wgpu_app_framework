@@ -536,6 +536,8 @@ fn layout_frame_and_hit_inspection_stays_internal() {
         "pub(crate) mod frame;",
         "pub mod hit;",
         "pub(crate) mod hit;",
+        "pub mod text;",
+        "pub(crate) mod text;",
         "pub mod typography;",
         "pub(crate) mod typography;",
         "pub mod viewport;",

@@ -5,7 +5,7 @@ use super::text_surface;
 
 pub(super) fn paint(
     frame: &layout::Frame,
-    text_area: &layout::text::Area,
+    text_area: &layout::TextArea,
     scene: &mut Scene,
     theme: &Theme,
     visuals: &Visuals,
