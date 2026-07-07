@@ -3,7 +3,6 @@ mod chain;
 mod kind;
 
 pub use builder::Builder;
-#[allow(unused_imports)]
 pub use builder::Object;
 pub use chain::Chain;
 pub(crate) use chain::Service;

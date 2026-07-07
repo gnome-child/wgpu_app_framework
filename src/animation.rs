@@ -15,14 +15,11 @@ pub(crate) enum Schedule {
     NextFrame,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Easing {
-    Linear,
     EaseOutCubic,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Transition<T> {
     from: T,
@@ -68,19 +65,16 @@ impl Schedule {
     }
 }
 
-#[allow(dead_code)]
 impl Easing {
     pub(crate) fn sample(self, t: f32) -> f32 {
         let t = t.clamp(0.0, 1.0);
 
         match self {
-            Self::Linear => t,
             Self::EaseOutCubic => 1.0 - (1.0 - t).powi(3),
         }
     }
 }
 
-#[allow(dead_code)]
 impl Transition<f32> {
     pub(crate) fn new(
         from: f32,
@@ -190,7 +184,7 @@ mod tests {
     fn transition_interpolates_and_retargets_from_current_value() {
         let now = Instant::now();
         let duration = Duration::from_millis(100);
-        let mut transition = Transition::new(1.0, 2.0, now, duration, Easing::Linear);
+        let mut transition = Transition::new(1.0, 2.0, now, duration, Easing::EaseOutCubic);
 
         assert_eq!(transition.value_at(now), 1.0);
         assert_eq!(transition.value_at(now + duration), 2.0);
@@ -198,7 +192,7 @@ mod tests {
         transition.retarget(1.0, now + Duration::from_millis(50));
 
         assert_eq!(transition.target(), 1.0);
-        assert_eq!(transition.value_at(now + Duration::from_millis(50)), 1.5);
+        assert_eq!(transition.value_at(now + Duration::from_millis(50)), 1.875);
         assert!(transition.is_animating_at(now + Duration::from_millis(75)));
         assert!(!transition.is_animating_at(now + Duration::from_millis(200)));
     }

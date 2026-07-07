@@ -23,6 +23,27 @@ fn promoted_framework_has_no_scratch_or_legacy_root_surface() {
 }
 
 #[test]
+fn root_source_tree_has_no_empty_concept_buckets() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+
+    for entry in std::fs::read_dir(&src_dir).expect("source directory should be readable") {
+        let path = entry.expect("source entry should be readable").path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let mut entries = std::fs::read_dir(&path).unwrap_or_else(|error| {
+            panic!("{} should be readable: {error}", path.display());
+        });
+        assert!(
+            entries.next().is_some(),
+            "{} is an empty root-level concept bucket",
+            path.display()
+        );
+    }
+}
+
+#[test]
 fn renderer_dependencies_stay_in_native_platform() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let allowed_roots = [

@@ -52,7 +52,6 @@ pub use input::Input;
 pub use interaction::Interaction;
 pub use layout::Layout;
 pub use platform::Platform;
-#[allow(unused_imports)]
 pub use responder::Responder;
 pub use response::Response;
 pub use runtime::Runtime;

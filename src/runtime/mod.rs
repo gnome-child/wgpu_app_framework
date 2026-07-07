@@ -29,7 +29,6 @@ pub(super) mod work;
 
 pub use context::Context;
 pub use retention::Retention;
-#[allow(unused_imports)]
 pub use snapshot::{Persistence, Snapshot};
 
 type Started<M> = Box<dyn for<'a> FnMut(&mut Context<'a, M>)>;
