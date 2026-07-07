@@ -324,6 +324,25 @@ fn layout_frame_and_hit_inspection_stays_internal() {
 }
 
 #[test]
+fn scene_layout_painting_stays_internal() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let scene_mod = std::fs::read_to_string(src_dir.join("scene").join("mod.rs"))
+        .expect("scene module should read");
+
+    for pattern in [
+        "pub fn paint(",
+        "pub fn paint_with_theme(",
+        "pub fn paint_with_clear(",
+        "pub fn paint_with_clear_and_theme(",
+    ] {
+        assert!(
+            !scene_mod.contains(pattern),
+            "layout-to-scene painting must stay runtime/internal: {pattern}"
+        );
+    }
+}
+
+#[test]
 fn focus_traversal_goes_through_retained_composition() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let view_mod = std::fs::read_to_string(src_dir.join("view").join("mod.rs"))

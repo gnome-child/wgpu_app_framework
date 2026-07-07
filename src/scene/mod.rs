@@ -31,20 +31,24 @@ pub struct Scene {
 }
 
 impl Scene {
-    pub fn paint(layout: &layout::Layout) -> Self {
+    #[cfg(test)]
+    pub(crate) fn paint(layout: &layout::Layout) -> Self {
         Self::paint_with_clear(layout, DEFAULT_CLEAR)
     }
 
-    pub fn paint_with_theme(layout: &layout::Layout, theme: &Theme) -> Self {
+    #[cfg(test)]
+    pub(crate) fn paint_with_theme(layout: &layout::Layout, theme: &Theme) -> Self {
         Self::paint_with_clear_and_theme(layout, theme.surfaces().canvas, theme)
     }
 
-    pub fn paint_with_clear(layout: &layout::Layout, clear: Color) -> Self {
+    #[cfg(test)]
+    pub(crate) fn paint_with_clear(layout: &layout::Layout, clear: Color) -> Self {
         let theme = Theme::default();
         Self::paint_with_clear_and_theme(layout, clear, &theme)
     }
 
-    pub fn paint_with_clear_and_theme(
+    #[cfg(test)]
+    pub(crate) fn paint_with_clear_and_theme(
         layout: &layout::Layout,
         clear: Color,
         theme: &Theme,
