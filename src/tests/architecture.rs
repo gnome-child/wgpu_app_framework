@@ -320,13 +320,13 @@ fn view_node_module_stays_private() {
 
 #[test]
 fn view_control_module_stays_private() {
-    let view_mod = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("view")
-            .join("mod.rs"),
-    )
-    .expect("view module should read");
+    let view_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("view");
+    let view_mod =
+        std::fs::read_to_string(view_dir.join("mod.rs")).expect("view module should read");
+    let control_mod = std::fs::read_to_string(view_dir.join("control").join("mod.rs"))
+        .expect("view control module should read");
 
     for pattern in ["pub mod control;", "pub(crate) mod control;"] {
         assert!(
@@ -334,6 +334,15 @@ fn view_control_module_stays_private() {
             "view control file module should stay behind the facade: {pattern}"
         );
     }
+
+    assert!(
+        !view_mod.contains("Control,"),
+        "view Control enum is node storage; expose concrete control concepts instead"
+    );
+    assert!(
+        !control_mod.contains("pub enum Control"),
+        "view Control enum should not be public API"
+    );
 }
 
 #[test]

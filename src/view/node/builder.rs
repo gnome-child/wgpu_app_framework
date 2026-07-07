@@ -213,7 +213,7 @@ impl Node {
         self
     }
 
-    pub(crate) fn with_control(mut self, control: Control) -> Self {
+    fn with_control(mut self, control: Control) -> Self {
         self.control = Some(control);
         self
     }

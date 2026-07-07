@@ -20,7 +20,7 @@ pub(crate) use action::FocusDirection;
 pub use binding::Binding;
 pub(crate) use command_palette::{CommandPalette, Entry as CommandPaletteEntry};
 pub use context::Context;
-pub use control::{Button, Checkbox, Control, Radio, Slider, TextArea, TextBox, Wrap};
+pub use control::{Button, Checkbox, Radio, Slider, TextArea, TextBox, Wrap};
 pub use node::{Axis, FloatingPlacement, Node, Role};
 pub use presentation::Presentation;
 pub use style::{Align, Dimension, Padding, Style};

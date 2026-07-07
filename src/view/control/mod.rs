@@ -15,7 +15,7 @@ pub use text_box::TextBox;
 pub use wrap::Wrap;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Control {
+pub(super) enum Control {
     Button(Button),
     Checkbox(Checkbox),
     Radio(Radio),
