@@ -3362,6 +3362,119 @@ fn menu_popup_rows_use_row_layout_for_labels_shortcuts_and_separators() {
 }
 
 #[test]
+fn menu_popup_width_uses_active_keymap_profile_for_shortcut_measurement() {
+    let text_theme = Theme::from_toml_str(
+        r##"
+        [shortcuts]
+        display = "text"
+
+        [menu]
+        panel-min-width = 1
+        "##,
+    )
+    .expect("text shortcut display theme should parse");
+    let expected_theme = text_theme.clone();
+    let menu_app = || {
+        Runtime::new(SourceState::default())
+            .commands(|commands| {
+                commands.register::<PaletteOne>(command::Spec::new("X").shortcut("Primary+R"));
+            })
+            .responders(|responders| {
+                responders.app().target::<PaletteOne>();
+            })
+            .started(|cx| {
+                cx.open_window(window::Options::new("Shortcut Menu"));
+            })
+            .view(|_, _| {
+                widget::view(|ui| {
+                    ui.menu_bar(|ui| {
+                        ui.menu("menu.test", "M", |ui| {
+                            ui.add(widget::Binding::<PaletteOne>::menu());
+                        });
+                    });
+                })
+            })
+    };
+    let mut windows_app = menu_app().keymap(keymap::Profile::windows()).theme({
+        let text_theme = text_theme.clone();
+        move |_| text_theme.clone()
+    });
+    let mut mac_app = menu_app()
+        .keymap(keymap::Profile::mac())
+        .theme(move |_| text_theme.clone());
+    windows_app.start();
+    mac_app.start();
+
+    let size = geometry::Size::new(800, 600);
+    let windows_window = windows_app.session().windows()[0].id();
+    let mac_window = mac_app.session().windows()[0].id();
+    let windows_menu = windows_app
+        .present(windows_window)
+        .expect("windows menu app should present")
+        .menus()
+        .into_iter()
+        .find(|menu| menu.label_text() == Some("M"))
+        .expect("windows menu should exist")
+        .menu_action()
+        .expect("windows menu should have an action");
+    let mac_menu = mac_app
+        .present(mac_window)
+        .expect("mac menu app should present")
+        .menus()
+        .into_iter()
+        .find(|menu| menu.label_text() == Some("M"))
+        .expect("mac menu should exist")
+        .menu_action()
+        .expect("mac menu should have an action");
+
+    windows_app
+        .handle_view(windows_window, windows_menu)
+        .expect("windows menu action should open");
+    mac_app
+        .handle_view(mac_window, mac_menu)
+        .expect("mac menu action should open");
+    let windows = windows_app
+        .render_scene(windows_window, size)
+        .expect("windows menu should render");
+    let mac = mac_app
+        .render_scene(mac_window, size)
+        .expect("mac menu should render");
+    let windows_popup = windows
+        .layout()
+        .find_role(view::Role::FloatingPanel)
+        .into_iter()
+        .next()
+        .expect("windows shortcut menu popup should be laid out");
+    let mac_popup = mac
+        .layout()
+        .find_role(view::Role::FloatingPanel)
+        .into_iter()
+        .next()
+        .expect("mac shortcut menu popup should be laid out");
+    let mac_row = mac
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.role() == view::Role::Binding && frame.label_text() == Some("X"))
+        .expect("mac menu row should be laid out");
+    let mac_parts =
+        layout::menu_row_parts(mac_row.rect(), mac_row.shortcut_width(), &expected_theme);
+
+    assert!(
+        mac_popup.rect().width() > windows_popup.rect().width(),
+        "menu panel width should come from the active profile's formatted shortcuts: windows={} mac={} mac_row_shortcut={}",
+        windows_popup.rect().width(),
+        mac_popup.rect().width(),
+        mac_row.shortcut_width()
+    );
+    assert!(
+        mac_parts.shortcut.right()
+            <= mac_popup.rect().right() - expected_theme.floating_panel().padding,
+        "active-profile shortcut slot should fit inside the measured menu popup"
+    );
+}
+
+#[test]
 fn menu_popup_opens_under_its_menu_title() {
     let mut app = control_gallery::app(control_gallery::State::default());
 

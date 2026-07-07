@@ -10,10 +10,11 @@ pub(in crate::layout) fn size_hint(
     constraints: flow::Constraints,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> flow::SizeHint {
     let max = constraints.max();
-    let width = resolved_width(node, max.width(), engine, theme);
-    let height = resolved_height_for_width(node, width, max.height(), engine, theme);
+    let width = resolved_width(node, max.width(), engine, theme, profile);
+    let height = resolved_height_for_width(node, width, max.height(), engine, theme, profile);
 
     flow::SizeHint::fixed(Size::new(width, height)).constrained(constraints)
 }
@@ -22,6 +23,7 @@ pub(in crate::layout) fn intrinsic_width(
     node: &view::Node,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     let label_width = node
         .label_text()
@@ -33,14 +35,14 @@ pub(in crate::layout) fn intrinsic_width(
             menu_title_width(node, engine, theme).saturating_mul(node.children().len() as i32)
         }
         view::Role::Menu => menu_intrinsic_width(node, engine, theme),
-        view::Role::FloatingPanel => floating_panel_width(node, engine, theme),
-        view::Role::Scroll => scroll_intrinsic_width(node, engine, theme),
+        view::Role::FloatingPanel => floating_panel_width(node, engine, theme, profile),
+        view::Role::Scroll => scroll_intrinsic_width(node, engine, theme, profile),
         view::Role::Binding
             if node
                 .binding()
                 .is_some_and(|binding| binding.source() == Source::Menu) =>
         {
-            menu_row_width(node, engine, theme).max(theme.menu().panel_min_width)
+            menu_row_width(node, engine, theme, profile).max(theme.menu().panel_min_width)
         }
         view::Role::Binding => label_width.max(theme.menu().panel_min_width),
         view::Role::Label
@@ -48,7 +50,7 @@ pub(in crate::layout) fn intrinsic_width(
                 .binding()
                 .is_some_and(|binding| binding.source() == Source::Palette) =>
         {
-            let shortcut_width = palette_shortcut_width(node, engine, theme);
+            let shortcut_width = palette_shortcut_width(node, engine, theme, profile);
             control::palette_row_width(label_width, shortcut_width, theme)
         }
         view::Role::Button => button_intrinsic_width(node, engine, theme),
@@ -93,10 +95,13 @@ pub(in crate::layout) fn intrinsic_height_for_width(
     width: i32,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     let control_height = theme.control().height;
     match node.role() {
-        view::Role::FloatingPanel => floating_panel_height_for_width(node, width, engine, theme),
+        view::Role::FloatingPanel => {
+            floating_panel_height_for_width(node, width, engine, theme, profile)
+        }
         view::Role::Label | view::Role::Panel
             if node.label_text().is_some() && node.children().is_empty() =>
         {
@@ -130,9 +135,11 @@ pub(in crate::layout) fn intrinsic_height_for_width(
             })
             .unwrap_or(control_height)
             .max(control_height),
-        view::Role::Scroll => scroll_intrinsic_height_for_width(node, width, engine, theme),
+        view::Role::Scroll => {
+            scroll_intrinsic_height_for_width(node, width, engine, theme, profile)
+        }
         view::Role::Panel | view::Role::Root | view::Role::Stack => {
-            stack_intrinsic_height_for_width(node, width, engine, theme)
+            stack_intrinsic_height_for_width(node, width, engine, theme, profile)
         }
         _ => intrinsic_height(node, theme),
     }
@@ -157,17 +164,18 @@ pub(in crate::layout) fn floating_panel_height_for_width(
     width: i32,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     let padding = theme.floating_panel().padding.max(0);
     let content_width = width.max(0).saturating_sub(padding.saturating_mul(2));
     let content_height = if is_menu_panel(node) {
         node.children()
             .iter()
-            .map(|child| intrinsic_height_for_width(child, content_width, engine, theme))
+            .map(|child| intrinsic_height_for_width(child, content_width, engine, theme, profile))
             .sum::<i32>()
             .max(theme.menu().row_height)
     } else {
-        stack_intrinsic_height_for_width(node, content_width, engine, theme)
+        stack_intrinsic_height_for_width(node, content_width, engine, theme, profile)
     };
 
     content_height.saturating_add(padding.saturating_mul(2))
@@ -178,17 +186,18 @@ pub(in crate::layout) fn floating_panel_max_envelope_height_for_width(
     width: i32,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     let padding = theme.floating_panel().padding.max(0);
     let content_width = width.max(0).saturating_sub(padding.saturating_mul(2));
     let content_height = if is_menu_panel(node) {
         node.children()
             .iter()
-            .map(|child| intrinsic_height_for_width(child, content_width, engine, theme))
+            .map(|child| intrinsic_height_for_width(child, content_width, engine, theme, profile))
             .sum::<i32>()
             .max(theme.menu().row_height)
     } else {
-        stack_max_envelope_height_for_width(node, content_width, engine, theme)
+        stack_max_envelope_height_for_width(node, content_width, engine, theme, profile)
     };
 
     content_height.saturating_add(padding.saturating_mul(2))
@@ -198,18 +207,20 @@ pub(in crate::layout) fn floating_panel_width(
     node: &view::Node,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     let content_width = if is_menu_panel(node) {
         node.children()
             .iter()
             .map(|child| {
-                menu_row_width(child, engine, theme).max(intrinsic_width(child, engine, theme))
+                menu_row_width(child, engine, theme, profile)
+                    .max(intrinsic_width(child, engine, theme, profile))
             })
             .max()
             .unwrap_or_default()
             .max(theme.menu().panel_min_width)
     } else {
-        stack_intrinsic_width(node, engine, theme)
+        stack_intrinsic_width(node, engine, theme, profile)
     };
 
     content_width.saturating_add(theme.floating_panel().padding.max(0).saturating_mul(2))
@@ -220,10 +231,11 @@ fn stack_max_envelope_height_for_width(
     width: i32,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     let children = node.children();
     if children.is_empty() {
-        return stack_intrinsic_height_for_width(node, width, engine, theme);
+        return stack_intrinsic_height_for_width(node, width, engine, theme, profile);
     }
 
     let padding = node.style().padding();
@@ -232,15 +244,17 @@ fn stack_max_envelope_height_for_width(
         Some(view::Axis::Horizontal) | Some(view::Axis::Overlay) => children
             .iter()
             .map(|child| {
-                let child_width =
-                    resolved_row_width(child, content_width, engine, theme).min(content_width);
-                max_envelope_height_for_width(child, child_width, engine, theme)
+                let child_width = resolved_row_width(child, content_width, engine, theme, profile)
+                    .min(content_width);
+                max_envelope_height_for_width(child, child_width, engine, theme, profile)
             })
             .max()
             .unwrap_or_default(),
         Some(view::Axis::Vertical) | None => children
             .iter()
-            .map(|child| max_envelope_height_for_width(child, content_width, engine, theme))
+            .map(|child| {
+                max_envelope_height_for_width(child, content_width, engine, theme, profile)
+            })
             .sum::<i32>()
             .saturating_add(gap_total(layout_gap(node, theme), children.len())),
     };
@@ -253,6 +267,7 @@ fn max_envelope_height_for_width(
     width: i32,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     if node.role() == view::Role::Scroll
         && node.style().height() == Some(view::Dimension::Fit)
@@ -261,7 +276,7 @@ fn max_envelope_height_for_width(
         return max_height;
     }
 
-    intrinsic_height_for_width(node, width, engine, theme)
+    intrinsic_height_for_width(node, width, engine, theme, profile)
 }
 
 fn stack_intrinsic_height(node: &view::Node, theme: &theme::Theme) -> i32 {
@@ -294,6 +309,7 @@ fn stack_intrinsic_height_for_width(
     width: i32,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     let children = node.children();
     if children.is_empty() {
@@ -313,9 +329,9 @@ fn stack_intrinsic_height_for_width(
         Some(view::Axis::Horizontal) | Some(view::Axis::Overlay) => children
             .iter()
             .map(|child| {
-                let child_width =
-                    resolved_row_width(child, content_width, engine, theme).min(content_width);
-                intrinsic_height_for_width(child, child_width, engine, theme)
+                let child_width = resolved_row_width(child, content_width, engine, theme, profile)
+                    .min(content_width);
+                intrinsic_height_for_width(child, child_width, engine, theme, profile)
             })
             .max()
             .unwrap_or_default()
@@ -334,9 +350,10 @@ fn stack_intrinsic_height_for_width(
                     engine,
                     node.style().align_items(),
                     theme,
+                    profile,
                 );
                 let child_height =
-                    intrinsic_or_fixed_height_for_width(child, child_width, engine, theme);
+                    intrinsic_or_fixed_height_for_width(child, child_width, engine, theme, profile);
                 column = column.item(flow::Item::fixed(flow::SizeHint::fixed(Size::new(
                     child_width,
                     child_height,
@@ -360,10 +377,11 @@ fn intrinsic_or_fixed_height_for_width(
     width: i32,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     match node.style().height() {
         Some(view::Dimension::Fixed(height)) => capped_height(node, height),
-        _ => intrinsic_height_for_width(node, width, engine, theme),
+        _ => intrinsic_height_for_width(node, width, engine, theme, profile),
     }
 }
 
@@ -371,6 +389,7 @@ fn stack_intrinsic_width(
     node: &view::Node,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     let children = node.children();
     if children.is_empty() {
@@ -380,12 +399,12 @@ fn stack_intrinsic_width(
     let child_width = match node.axis() {
         Some(view::Axis::Horizontal) => children
             .iter()
-            .map(|child| intrinsic_width(child, engine, theme))
+            .map(|child| intrinsic_width(child, engine, theme, profile))
             .sum::<i32>()
             .saturating_add(gap_total(layout_gap(node, theme), children.len())),
         Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None => children
             .iter()
-            .map(|child| intrinsic_width(child, engine, theme))
+            .map(|child| intrinsic_width(child, engine, theme, profile))
             .max()
             .unwrap_or_default(),
     };
@@ -397,11 +416,12 @@ fn scroll_intrinsic_width(
     node: &view::Node,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     match node.axis() {
         Some(view::Axis::Horizontal) => theme.viewport().min_viewport_extent,
         Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None => {
-            stack_intrinsic_width(node, engine, theme)
+            stack_intrinsic_width(node, engine, theme, profile)
         }
     }
 }
@@ -426,10 +446,11 @@ fn scroll_intrinsic_height_for_width(
     width: i32,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     match node.axis() {
         Some(view::Axis::Horizontal) => {
-            stack_intrinsic_height_for_width(node, width, engine, theme)
+            stack_intrinsic_height_for_width(node, width, engine, theme, profile)
         }
         Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None
             if node.style().height() == Some(view::Dimension::Fit)
@@ -437,7 +458,7 @@ fn scroll_intrinsic_height_for_width(
         {
             capped_height(
                 node,
-                stack_intrinsic_height_for_width(node, width, engine, theme),
+                stack_intrinsic_height_for_width(node, width, engine, theme, profile),
             )
         }
         Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None => {
@@ -485,12 +506,13 @@ fn palette_shortcut_width(
     node: &view::Node,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     node.binding()
         .and_then(view::Binding::shortcut)
         .map(|shortcut| {
             shortcut_display_width(
-                &shortcut.display_parts(keymap::Profile::default(), theme.shortcuts().display()),
+                &shortcut.display_parts(profile, theme.shortcuts().display()),
                 engine,
                 theme,
             )
@@ -569,7 +591,12 @@ fn menu_intrinsic_width(
     control::padded_control_extent(content_width, theme)
 }
 
-fn menu_row_width(node: &view::Node, engine: &mut engine::Engine, theme: &theme::Theme) -> i32 {
+fn menu_row_width(
+    node: &view::Node,
+    engine: &mut engine::Engine,
+    theme: &theme::Theme,
+    profile: keymap::Profile,
+) -> i32 {
     if node.role() == view::Role::Separator {
         return 0;
     }
@@ -583,7 +610,7 @@ fn menu_row_width(node: &view::Node, engine: &mut engine::Engine, theme: &theme:
         .and_then(view::Binding::shortcut)
         .map(|shortcut| {
             shortcut_display_width(
-                &shortcut.display_parts(keymap::Profile::default(), theme.shortcuts().display()),
+                &shortcut.display_parts(profile, theme.shortcuts().display()),
                 engine,
                 theme,
             )
@@ -633,9 +660,10 @@ pub(in crate::layout) fn resolved_width(
     parent_width: i32,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     match node.style().width() {
-        Some(view::Dimension::Fit) => intrinsic_width(node, engine, theme),
+        Some(view::Dimension::Fit) => intrinsic_width(node, engine, theme, profile),
         Some(view::Dimension::Grow) | None => parent_width,
         Some(view::Dimension::Fixed(width)) => width,
         Some(view::Dimension::Percent(percent)) => {
@@ -650,9 +678,10 @@ pub(in crate::layout) fn resolved_row_width(
     parent_width: i32,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     match node.style().width() {
-        None | Some(view::Dimension::Fit) => intrinsic_width(node, engine, theme),
+        None | Some(view::Dimension::Fit) => intrinsic_width(node, engine, theme, profile),
         Some(view::Dimension::Grow) => parent_width,
         Some(view::Dimension::Fixed(width)) => width,
         Some(view::Dimension::Percent(percent)) => {
@@ -668,11 +697,12 @@ pub(in crate::layout) fn cross_axis_width(
     engine: &mut engine::Engine,
     align: view::Align,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     match align {
-        view::Align::Stretch => resolved_width(node, parent_width, engine, theme),
+        view::Align::Stretch => resolved_width(node, parent_width, engine, theme, profile),
         view::Align::Start | view::Align::Center | view::Align::End => match node.style().width() {
-            None | Some(view::Dimension::Fit) => intrinsic_width(node, engine, theme),
+            None | Some(view::Dimension::Fit) => intrinsic_width(node, engine, theme, profile),
             Some(view::Dimension::Grow) => parent_width,
             Some(view::Dimension::Fixed(width)) => width,
             Some(view::Dimension::Percent(percent)) => {
@@ -690,11 +720,14 @@ pub(in crate::layout) fn cross_axis_height_for_width(
     engine: &mut engine::Engine,
     align: view::Align,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     let height = match align {
         view::Align::Stretch => match node.style().height() {
             None | Some(view::Dimension::Grow) => parent_height,
-            Some(view::Dimension::Fit) => intrinsic_height_for_width(node, width, engine, theme),
+            Some(view::Dimension::Fit) => {
+                intrinsic_height_for_width(node, width, engine, theme, profile)
+            }
             Some(view::Dimension::Fixed(height)) => height,
             Some(view::Dimension::Percent(percent)) => {
                 ((parent_height.max(0) as f32) * percent).round() as i32
@@ -703,7 +736,7 @@ pub(in crate::layout) fn cross_axis_height_for_width(
         view::Align::Start | view::Align::Center | view::Align::End => {
             match node.style().height() {
                 None | Some(view::Dimension::Fit) => {
-                    intrinsic_height_for_width(node, width, engine, theme)
+                    intrinsic_height_for_width(node, width, engine, theme, profile)
                 }
                 Some(view::Dimension::Grow) => parent_height,
                 Some(view::Dimension::Fixed(height)) => height,
@@ -772,14 +805,17 @@ pub(in crate::layout) fn resolved_height_for_width(
     parent_height: i32,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     let height = match node.style().height() {
-        Some(view::Dimension::Fit) => intrinsic_height_for_width(node, width, engine, theme),
+        Some(view::Dimension::Fit) => {
+            intrinsic_height_for_width(node, width, engine, theme, profile)
+        }
         Some(view::Dimension::Grow) | None => {
             if grows_vertical_space(node) {
                 parent_height
             } else {
-                intrinsic_height_for_width(node, width, engine, theme)
+                intrinsic_height_for_width(node, width, engine, theme, profile)
             }
         }
         Some(view::Dimension::Fixed(height)) => height,

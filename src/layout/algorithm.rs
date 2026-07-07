@@ -169,7 +169,7 @@ fn layout_scroll(
     ctx: &mut LayoutContext<'_>,
 ) {
     let viewport_rect = scroll_viewport_rect(node, rect, ctx.theme);
-    let placement = scroll_stack_placement(node, viewport_rect, ctx.engine, ctx.theme);
+    let placement = scroll_stack_placement(node, viewport_rect, ctx.engine, ctx.theme, ctx.keymap);
     let viewport = Viewport::new(viewport_rect, placement.content, node.scroll_offset());
     debug_assert_scroll_content_contains(&placement, viewport_rect);
     let child_clip_rect =
@@ -270,8 +270,14 @@ fn layout_root(
         let retained_child = retained_child(retained, index);
         let child_path = path.child(index);
         if child.role() == view::Role::FloatingPanel {
-            let popup_rect =
-                root_floating_panel_rect(child, &ctx.frames, rect, ctx.engine, ctx.theme);
+            let popup_rect = root_floating_panel_rect(
+                child,
+                &ctx.frames,
+                rect,
+                ctx.engine,
+                ctx.theme,
+                ctx.keymap,
+            );
             layout_node(
                 child,
                 retained_child,
@@ -301,14 +307,16 @@ fn root_floating_panel_rect(
     root: Rect,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> Rect {
     let width = match node.style().width() {
-        Some(_) => resolved_width(node, root.width, engine, theme),
-        None => floating_panel_width(node, engine, theme).min(root.width.max(0)),
+        Some(_) => resolved_width(node, root.width, engine, theme, profile),
+        None => floating_panel_width(node, engine, theme, profile).min(root.width.max(0)),
     };
     let height = match node.style().height() {
         Some(_) => resolved_height(node, root.height, theme),
-        None => floating_panel_height_for_width(node, width, engine, theme).min(root.height.max(0)),
+        None => floating_panel_height_for_width(node, width, engine, theme, profile)
+            .min(root.height.max(0)),
     };
 
     if let Some(anchor) = floating_panel_anchor(node, frames) {
@@ -319,7 +327,7 @@ fn root_floating_panel_rect(
         view::FloatingPlacement::Default => Rect::new(root.x(), root.y(), width, height),
         view::FloatingPlacement::CenteredMaxEnvelope => {
             let envelope_height =
-                floating_panel_max_envelope_height_for_width(node, width, engine, theme)
+                floating_panel_max_envelope_height_for_width(node, width, engine, theme, profile)
                     .min(root.height().max(0));
             let x = root
                 .x()
@@ -354,12 +362,15 @@ fn scroll_stack_placement(
     rect: Rect,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> StackPlacement {
     match node.axis() {
-        Some(view::Axis::Horizontal) => horizontal_stack_placement(node, rect, engine, theme, true),
-        Some(view::Axis::Overlay) => overlay_stack_placement(node, rect, engine, theme),
+        Some(view::Axis::Horizontal) => {
+            horizontal_stack_placement(node, rect, engine, theme, profile, true)
+        }
+        Some(view::Axis::Overlay) => overlay_stack_placement(node, rect, engine, theme, profile),
         Some(view::Axis::Vertical) | None => {
-            vertical_stack_placement(node, rect, engine, theme, true)
+            vertical_stack_placement(node, rect, engine, theme, profile, true)
         }
     }
 }
@@ -369,6 +380,7 @@ fn vertical_stack_placement(
     rect: Rect,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
     scroll_axis: bool,
 ) -> StackPlacement {
     let children = node.children();
@@ -394,9 +406,10 @@ fn vertical_stack_placement(
             engine,
             node.style().align_items(),
             theme,
+            profile,
         );
         let height = if scroll_axis {
-            scroll_axis_child_height(child, width, content_height, engine, theme)
+            scroll_axis_child_height(child, width, content_height, engine, theme, profile)
         } else {
             let grows = grows_vertical_space(child);
             let measured = size_hint(
@@ -404,6 +417,7 @@ fn vertical_stack_placement(
                 flow::Constraints::new(Size::new(width, 0), Size::new(width, content_height)),
                 engine,
                 theme,
+                profile,
             );
             if grows {
                 0
@@ -451,6 +465,7 @@ fn horizontal_stack_placement(
     rect: Rect,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
     scroll_axis: bool,
 ) -> StackPlacement {
     let children = node.children();
@@ -473,11 +488,11 @@ fn horizontal_stack_placement(
     for child in children {
         let grows = matches!(child.style().width(), Some(view::Dimension::Grow));
         let width = if scroll_axis {
-            scroll_axis_child_width(child, content_width, engine, theme)
+            scroll_axis_child_width(child, content_width, engine, theme, profile)
         } else if grows {
             0
         } else {
-            resolved_row_width(child, content_width, engine, theme)
+            resolved_row_width(child, content_width, engine, theme, profile)
         };
         let height = cross_axis_height_for_width(
             child,
@@ -486,6 +501,7 @@ fn horizontal_stack_placement(
             engine,
             node.style().align_items(),
             theme,
+            profile,
         );
         let hint = flow::SizeHint::new(Size::new(0, height), Size::new(width, height));
         let item = if !scroll_axis && grows {
@@ -525,6 +541,7 @@ fn horizontal_stack_placement(
                 engine,
                 node.style().align_items(),
                 theme,
+                profile,
             );
             let y = cross_axis_offset(
                 content_y,
@@ -548,14 +565,16 @@ fn overlay_stack_placement(
     rect: Rect,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> StackPlacement {
     let content = inset_rect(rect, node.style().padding());
     let child_rects = node
         .children()
         .iter()
         .map(|child| {
-            let width = resolved_width(child, content.width(), engine, theme);
-            let height = resolved_height_for_width(child, width, content.height(), engine, theme);
+            let width = resolved_width(child, content.width(), engine, theme, profile);
+            let height =
+                resolved_height_for_width(child, width, content.height(), engine, theme, profile);
             let x = cross_axis_offset(
                 content.x(),
                 content.width(),
@@ -584,16 +603,17 @@ fn scroll_axis_child_height(
     viewport_content_height: i32,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     if grows_vertical_space(child) {
-        return intrinsic_height_for_width(child, width, engine, theme);
+        return intrinsic_height_for_width(child, width, engine, theme, profile);
     }
 
     match child.style().height() {
         Some(view::Dimension::Percent(percent)) => {
             ((viewport_content_height.max(0) as f32) * percent).round() as i32
         }
-        _ => resolved_height_for_width(child, width, SCROLL_AXIS_LIMIT, engine, theme),
+        _ => resolved_height_for_width(child, width, SCROLL_AXIS_LIMIT, engine, theme, profile),
     }
     .max(0)
 }
@@ -603,13 +623,14 @@ fn scroll_axis_child_width(
     viewport_content_width: i32,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
+    profile: keymap::Profile,
 ) -> i32 {
     match child.style().width() {
-        Some(view::Dimension::Grow) => intrinsic_width(child, engine, theme),
+        Some(view::Dimension::Grow) => intrinsic_width(child, engine, theme, profile),
         Some(view::Dimension::Percent(percent)) => {
             ((viewport_content_width.max(0) as f32) * percent).round() as i32
         }
-        _ => resolved_row_width(child, SCROLL_AXIS_LIMIT, engine, theme),
+        _ => resolved_row_width(child, SCROLL_AXIS_LIMIT, engine, theme, profile),
     }
     .max(0)
 }
@@ -689,7 +710,7 @@ fn layout_vertical_stack(
     clip: Option<Clip>,
     ctx: &mut LayoutContext<'_>,
 ) {
-    let placement = vertical_stack_placement(node, rect, ctx.engine, ctx.theme, false);
+    let placement = vertical_stack_placement(node, rect, ctx.engine, ctx.theme, ctx.keymap, false);
     emit_stack_children(
         node,
         retained,
@@ -710,7 +731,8 @@ fn layout_horizontal_stack(
     clip: Option<Clip>,
     ctx: &mut LayoutContext<'_>,
 ) {
-    let placement = horizontal_stack_placement(node, rect, ctx.engine, ctx.theme, false);
+    let placement =
+        horizontal_stack_placement(node, rect, ctx.engine, ctx.theme, ctx.keymap, false);
     emit_stack_children(
         node,
         retained,
@@ -731,7 +753,7 @@ fn layout_overlay_stack(
     clip: Option<Clip>,
     ctx: &mut LayoutContext<'_>,
 ) {
-    let placement = overlay_stack_placement(node, rect, ctx.engine, ctx.theme);
+    let placement = overlay_stack_placement(node, rect, ctx.engine, ctx.theme, ctx.keymap);
     emit_stack_children(
         node,
         retained,
