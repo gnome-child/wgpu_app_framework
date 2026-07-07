@@ -147,8 +147,10 @@ impl Engine {
         let selection = projection.selection_bounds();
         let (preedit_underline, preedit_selection) = projection.highlight_ranges();
         let mut spans = HighlightSpans::default();
-        #[allow(unused_mut)]
+        #[cfg(test)]
         let mut combined_stats = HighlightStats::default();
+        #[cfg(not(test))]
+        let combined_stats = HighlightStats::default();
         let mut caret = None;
 
         for surface in surfaces {
@@ -296,8 +298,10 @@ impl Engine {
         content_area: Option<area::Logical>,
     ) -> TextFieldLayout {
         let mut spans = HighlightSpans::default();
-        #[allow(unused_mut)]
+        #[cfg(test)]
         let mut combined_stats = HighlightStats::default();
+        #[cfg(not(test))]
+        let combined_stats = HighlightStats::default();
         let selection = projection.selection_bounds();
         let (preedit_underline, preedit_selection) = projection.highlight_ranges();
         let mut caret = None;
