@@ -29,21 +29,69 @@ pub(super) fn compose_frames(
     animation_frame: animation::Frame,
     keymap: keymap::Profile,
 ) -> Vec<Frame> {
-    let mut frames = Vec::new();
+    let mut ctx = LayoutContext::new(engine, theme, animation_frame, keymap);
     layout_node(
         root,
         retained_root,
         path::Path::root(),
         Rect::from_size(size),
-        engine,
-        theme,
         false,
         None,
-        animation_frame,
-        keymap,
-        &mut frames,
+        &mut ctx,
     );
-    frames
+    ctx.finish()
+}
+
+struct LayoutContext<'a> {
+    engine: &'a mut engine::Engine,
+    theme: &'a theme::Theme,
+    animation_frame: animation::Frame,
+    keymap: keymap::Profile,
+    frames: Vec<Frame>,
+}
+
+impl<'a> LayoutContext<'a> {
+    fn new(
+        engine: &'a mut engine::Engine,
+        theme: &'a theme::Theme,
+        animation_frame: animation::Frame,
+        keymap: keymap::Profile,
+    ) -> Self {
+        Self {
+            engine,
+            theme,
+            animation_frame,
+            keymap,
+            frames: Vec::new(),
+        }
+    }
+
+    fn finish(self) -> Vec<Frame> {
+        self.frames
+    }
+
+    fn frame(
+        &mut self,
+        node: &view::Node,
+        node_id: composition::NodeId,
+        path: path::Path,
+        rect: Rect,
+        floating_layer: bool,
+        clip: Option<Clip>,
+    ) -> Frame {
+        Frame::new(
+            node,
+            node_id,
+            path,
+            rect,
+            self.engine,
+            self.theme,
+            floating_layer,
+            clip,
+            self.animation_frame,
+            self.keymap,
+        )
+    }
 }
 
 fn layout_node(
@@ -51,137 +99,48 @@ fn layout_node(
     retained: &composition::Node,
     path: path::Path,
     rect: Rect,
-    engine: &mut engine::Engine,
-    theme: &theme::Theme,
     floating_layer: bool,
     clip: Option<Clip>,
-    animation_frame: animation::Frame,
-    keymap: keymap::Profile,
-    frames: &mut Vec<Frame>,
+    ctx: &mut LayoutContext<'_>,
 ) {
     let floating_layer = floating_layer || is_floating_panel_role(node.role());
     if node.role() == view::node::Role::Scroll {
-        layout_scroll(
-            node,
-            retained,
-            path,
-            rect,
-            engine,
-            theme,
-            floating_layer,
-            clip,
-            animation_frame,
-            keymap,
-            frames,
-        );
+        layout_scroll(node, retained, path, rect, floating_layer, clip, ctx);
         return;
     }
 
-    frames.push(Frame::new(
+    let frame = ctx.frame(
         node,
         retained.node_id(),
         path.clone(),
         rect,
-        engine,
-        theme,
         floating_layer,
         clip,
-        animation_frame,
-        keymap,
-    ));
+    );
+    ctx.frames.push(frame);
 
     match node.role() {
-        view::node::Role::Root => layout_root(
-            node,
-            retained,
-            &path,
-            rect,
-            engine,
-            theme,
-            clip,
-            animation_frame,
-            keymap,
-            frames,
-        ),
+        view::node::Role::Root => layout_root(node, retained, &path, rect, clip, ctx),
         view::node::Role::Stack => match node.axis() {
-            Some(view::node::Axis::Horizontal) => layout_horizontal_stack(
-                node,
-                retained,
-                &path,
-                rect,
-                engine,
-                theme,
-                floating_layer,
-                clip,
-                animation_frame,
-                keymap,
-                frames,
-            ),
-            Some(view::node::Axis::Vertical) | None => layout_vertical_stack(
-                node,
-                retained,
-                &path,
-                rect,
-                engine,
-                theme,
-                floating_layer,
-                clip,
-                animation_frame,
-                keymap,
-                frames,
-            ),
-            Some(view::node::Axis::Overlay) => layout_overlay_stack(
-                node,
-                retained,
-                &path,
-                rect,
-                engine,
-                theme,
-                floating_layer,
-                clip,
-                animation_frame,
-                keymap,
-                frames,
-            ),
+            Some(view::node::Axis::Horizontal) => {
+                layout_horizontal_stack(node, retained, &path, rect, floating_layer, clip, ctx)
+            }
+            Some(view::node::Axis::Vertical) | None => {
+                layout_vertical_stack(node, retained, &path, rect, floating_layer, clip, ctx)
+            }
+            Some(view::node::Axis::Overlay) => {
+                layout_overlay_stack(node, retained, &path, rect, floating_layer, clip, ctx)
+            }
         },
-        view::node::Role::MenuBar => layout_menu_bar(
-            node,
-            retained,
-            &path,
-            rect,
-            engine,
-            theme,
-            floating_layer,
-            clip,
-            animation_frame,
-            keymap,
-            frames,
-        ),
-        view::node::Role::FloatingPanel => layout_floating_panel(
-            node,
-            retained,
-            &path,
-            rect,
-            engine,
-            theme,
-            None,
-            animation_frame,
-            keymap,
-            frames,
-        ),
-        view::node::Role::Panel => layout_vertical_stack(
-            node,
-            retained,
-            &path,
-            rect,
-            engine,
-            theme,
-            floating_layer,
-            clip,
-            animation_frame,
-            keymap,
-            frames,
-        ),
+        view::node::Role::MenuBar => {
+            layout_menu_bar(node, retained, &path, rect, floating_layer, clip, ctx)
+        }
+        view::node::Role::FloatingPanel => {
+            layout_floating_panel(node, retained, &path, rect, None, ctx)
+        }
+        view::node::Role::Panel => {
+            layout_vertical_stack(node, retained, &path, rect, floating_layer, clip, ctx)
+        }
         view::node::Role::Menu
         | view::node::Role::Binding
         | view::node::Role::Separator
@@ -206,36 +165,28 @@ fn layout_scroll(
     retained: &composition::Node,
     path: path::Path,
     rect: Rect,
-    engine: &mut engine::Engine,
-    theme: &theme::Theme,
     floating_layer: bool,
     clip: Option<Clip>,
-    animation_frame: animation::Frame,
-    keymap: keymap::Profile,
-    frames: &mut Vec<Frame>,
+    ctx: &mut LayoutContext<'_>,
 ) {
-    let viewport_rect = scroll_viewport_rect(node, rect, theme);
-    let placement = scroll_stack_placement(node, viewport_rect, engine, theme);
+    let viewport_rect = scroll_viewport_rect(node, rect, ctx.theme);
+    let placement = scroll_stack_placement(node, viewport_rect, ctx.engine, ctx.theme);
     let viewport = Viewport::new(viewport_rect, placement.content, node.scroll_offset());
     debug_assert_scroll_content_contains(&placement, viewport_rect);
     let child_clip_rect =
         intersect_clip(clip, viewport_rect).unwrap_or_else(|| Clip::new(viewport_rect));
 
-    frames.push(
-        Frame::new(
+    let frame = ctx
+        .frame(
             node,
             retained.node_id(),
             path.clone(),
             rect,
-            engine,
-            theme,
             floating_layer,
             clip,
-            animation_frame,
-            keymap,
         )
-        .with_viewport(viewport),
-    );
+        .with_viewport(viewport);
+    ctx.frames.push(frame);
 
     let offset = viewport.resolved_scroll();
     let child_clip = Some(child_clip_rect);
@@ -252,13 +203,9 @@ fn layout_scroll(
         retained,
         &path,
         child_rects,
-        engine,
-        theme,
         floating_layer,
         child_clip,
-        animation_frame,
-        keymap,
-        frames,
+        ctx,
     );
 }
 
@@ -317,30 +264,23 @@ fn layout_root(
     retained: &composition::Node,
     path: &path::Path,
     rect: Rect,
-    engine: &mut engine::Engine,
-    theme: &theme::Theme,
     clip: Option<Clip>,
-    animation_frame: animation::Frame,
-    keymap: keymap::Profile,
-    frames: &mut Vec<Frame>,
+    ctx: &mut LayoutContext<'_>,
 ) {
     for (index, child) in node.children().iter().enumerate() {
         let retained_child = retained_child(retained, index);
         let child_path = path.child(index);
         if child.role() == view::node::Role::FloatingPanel {
-            let popup_rect = root_floating_panel_rect(child, frames, rect, engine, theme);
+            let popup_rect =
+                root_floating_panel_rect(child, &ctx.frames, rect, ctx.engine, ctx.theme);
             layout_node(
                 child,
                 retained_child,
                 child_path,
                 popup_rect,
-                engine,
-                theme,
                 true,
                 None,
-                animation_frame,
-                keymap,
-                frames,
+                ctx,
             );
         } else {
             layout_node(
@@ -348,13 +288,9 @@ fn layout_root(
                 retained_child,
                 child_path,
                 rect,
-                engine,
-                theme,
                 is_floating_panel_role(child.role()),
                 clip,
-                animation_frame,
-                keymap,
-                frames,
+                ctx,
             );
         }
     }
@@ -709,13 +645,9 @@ fn emit_stack_children(
     retained: &composition::Node,
     path: &path::Path,
     child_rects: Vec<Rect>,
-    engine: &mut engine::Engine,
-    theme: &theme::Theme,
     floating_layer: bool,
     clip: Option<Clip>,
-    animation_frame: animation::Frame,
-    keymap: keymap::Profile,
-    frames: &mut Vec<Frame>,
+    ctx: &mut LayoutContext<'_>,
 ) {
     for (index, (child, child_rect)) in node.children().iter().zip(child_rects).enumerate() {
         layout_node(
@@ -723,13 +655,9 @@ fn emit_stack_children(
             retained_child(retained, index),
             path.child(index),
             child_rect,
-            engine,
-            theme,
             floating_layer,
             child_clip(child, clip),
-            animation_frame,
-            keymap,
-            frames,
+            ctx,
         );
     }
 }
@@ -761,27 +689,19 @@ fn layout_vertical_stack(
     retained: &composition::Node,
     path: &path::Path,
     rect: Rect,
-    engine: &mut engine::Engine,
-    theme: &theme::Theme,
     floating_layer: bool,
     clip: Option<Clip>,
-    animation_frame: animation::Frame,
-    keymap: keymap::Profile,
-    frames: &mut Vec<Frame>,
+    ctx: &mut LayoutContext<'_>,
 ) {
-    let placement = vertical_stack_placement(node, rect, engine, theme, false);
+    let placement = vertical_stack_placement(node, rect, ctx.engine, ctx.theme, false);
     emit_stack_children(
         node,
         retained,
         path,
         placement.child_rects,
-        engine,
-        theme,
         floating_layer,
         clip,
-        animation_frame,
-        keymap,
-        frames,
+        ctx,
     );
 }
 
@@ -790,27 +710,19 @@ fn layout_horizontal_stack(
     retained: &composition::Node,
     path: &path::Path,
     rect: Rect,
-    engine: &mut engine::Engine,
-    theme: &theme::Theme,
     floating_layer: bool,
     clip: Option<Clip>,
-    animation_frame: animation::Frame,
-    keymap: keymap::Profile,
-    frames: &mut Vec<Frame>,
+    ctx: &mut LayoutContext<'_>,
 ) {
-    let placement = horizontal_stack_placement(node, rect, engine, theme, false);
+    let placement = horizontal_stack_placement(node, rect, ctx.engine, ctx.theme, false);
     emit_stack_children(
         node,
         retained,
         path,
         placement.child_rects,
-        engine,
-        theme,
         floating_layer,
         clip,
-        animation_frame,
-        keymap,
-        frames,
+        ctx,
     );
 }
 
@@ -819,27 +731,19 @@ fn layout_overlay_stack(
     retained: &composition::Node,
     path: &path::Path,
     rect: Rect,
-    engine: &mut engine::Engine,
-    theme: &theme::Theme,
     floating_layer: bool,
     clip: Option<Clip>,
-    animation_frame: animation::Frame,
-    keymap: keymap::Profile,
-    frames: &mut Vec<Frame>,
+    ctx: &mut LayoutContext<'_>,
 ) {
-    let placement = overlay_stack_placement(node, rect, engine, theme);
+    let placement = overlay_stack_placement(node, rect, ctx.engine, ctx.theme);
     emit_stack_children(
         node,
         retained,
         path,
         placement.child_rects,
-        engine,
-        theme,
         floating_layer,
         clip,
-        animation_frame,
-        keymap,
-        frames,
+        ctx,
     );
 }
 
@@ -848,32 +752,25 @@ fn layout_menu_bar(
     retained: &composition::Node,
     path: &path::Path,
     rect: Rect,
-    engine: &mut engine::Engine,
-    theme: &theme::Theme,
     floating_layer: bool,
     clip: Option<Clip>,
-    animation_frame: animation::Frame,
-    keymap: keymap::Profile,
-    frames: &mut Vec<Frame>,
+    ctx: &mut LayoutContext<'_>,
 ) {
     let mut x = rect.x;
-    let width = menu_title_width(node, engine, theme);
-    let height = rect.height.min(theme.menu().bar_height);
+    let width = menu_title_width(node, ctx.engine, ctx.theme);
+    let height = rect.height.min(ctx.theme.menu().bar_height);
 
     for (index, child) in node.children().iter().enumerate() {
         let child_rect = Rect::new(x, rect.y, width, height);
-        frames.push(Frame::new(
+        let frame = ctx.frame(
             child,
             retained_child(retained, index).node_id(),
             path.child(index),
             child_rect,
-            engine,
-            theme,
             floating_layer,
             clip,
-            animation_frame,
-            keymap,
-        ));
+        );
+        ctx.frames.push(frame);
         x = x.saturating_add(width);
     }
 }
@@ -883,15 +780,11 @@ fn layout_floating_panel(
     retained: &composition::Node,
     path: &path::Path,
     rect: Rect,
-    engine: &mut engine::Engine,
-    theme: &theme::Theme,
     _clip: Option<Clip>,
-    animation_frame: animation::Frame,
-    keymap: keymap::Profile,
-    frames: &mut Vec<Frame>,
+    ctx: &mut LayoutContext<'_>,
 ) {
     if !is_menu_panel(node) {
-        let padding = theme.floating_panel().padding.max(0);
+        let padding = ctx.theme.floating_panel().padding.max(0);
         let content = Rect::new(
             rect.x().saturating_add(padding),
             rect.y().saturating_add(padding),
@@ -900,60 +793,30 @@ fn layout_floating_panel(
         );
 
         match node.axis() {
-            Some(view::node::Axis::Horizontal) => layout_horizontal_stack(
-                node,
-                retained,
-                path,
-                content,
-                engine,
-                theme,
-                true,
-                None,
-                animation_frame,
-                keymap,
-                frames,
-            ),
-            Some(view::node::Axis::Overlay) => layout_overlay_stack(
-                node,
-                retained,
-                path,
-                content,
-                engine,
-                theme,
-                true,
-                None,
-                animation_frame,
-                keymap,
-                frames,
-            ),
-            Some(view::node::Axis::Vertical) | None => layout_vertical_stack(
-                node,
-                retained,
-                path,
-                content,
-                engine,
-                theme,
-                true,
-                None,
-                animation_frame,
-                keymap,
-                frames,
-            ),
+            Some(view::node::Axis::Horizontal) => {
+                layout_horizontal_stack(node, retained, path, content, true, None, ctx)
+            }
+            Some(view::node::Axis::Overlay) => {
+                layout_overlay_stack(node, retained, path, content, true, None, ctx)
+            }
+            Some(view::node::Axis::Vertical) | None => {
+                layout_vertical_stack(node, retained, path, content, true, None, ctx)
+            }
         }
 
         return;
     }
 
-    let padding = theme.floating_panel().padding;
-    let panel_clip = Some(Clip::rounded(rect, theme.floating_panel().rounding));
+    let padding = ctx.theme.floating_panel().padding;
+    let panel_clip = Some(Clip::rounded(rect, ctx.theme.floating_panel().rounding));
     let mut y = rect.y.saturating_add(padding);
     let row_x = rect.x.saturating_add(padding);
     let row_width = rect.width.saturating_sub(padding.saturating_mul(2));
-    let shortcut_width = menu_shortcut_width(node, engine, theme, keymap);
+    let shortcut_width = menu_shortcut_width(node, ctx.engine, ctx.theme, ctx.keymap);
 
     for (index, child) in node.children().iter().enumerate() {
         let retained_child = retained_child(retained, index);
-        let height = intrinsic_height(child, theme);
+        let height = intrinsic_height(child, ctx.theme);
         let child_rect = Rect::new(row_x, y, row_width, height);
         if is_menu_panel_row(child) {
             layout_menu_row(
@@ -962,12 +825,8 @@ fn layout_floating_panel(
                 path.child(index),
                 child_rect,
                 shortcut_width,
-                engine,
-                theme,
                 panel_clip,
-                animation_frame,
-                keymap,
-                frames,
+                ctx,
             );
         } else {
             layout_node(
@@ -975,13 +834,9 @@ fn layout_floating_panel(
                 retained_child,
                 path.child(index),
                 child_rect,
-                engine,
-                theme,
                 true,
                 None,
-                animation_frame,
-                keymap,
-                frames,
+                ctx,
             );
         }
         y = y.saturating_add(height);
@@ -1005,28 +860,13 @@ fn layout_menu_row(
     path: path::Path,
     rect: Rect,
     shortcut_width: i32,
-    engine: &mut engine::Engine,
-    theme: &theme::Theme,
     clip: Option<Clip>,
-    animation_frame: animation::Frame,
-    keymap: keymap::Profile,
-    frames: &mut Vec<Frame>,
+    ctx: &mut LayoutContext<'_>,
 ) {
-    frames.push(
-        Frame::new(
-            node,
-            retained.node_id(),
-            path,
-            rect,
-            engine,
-            theme,
-            true,
-            clip,
-            animation_frame,
-            keymap,
-        )
-        .with_shortcut_width(shortcut_width),
-    );
+    let frame = ctx
+        .frame(node, retained.node_id(), path, rect, true, clip)
+        .with_shortcut_width(shortcut_width);
+    ctx.frames.push(frame);
 }
 
 fn retained_child(parent: &composition::Node, index: usize) -> &composition::Node {
