@@ -46,7 +46,7 @@ impl Layout {
             size,
             engine,
             theme,
-            animation::Frame::new(Instant::now(), None),
+            animation::Frame::new(Instant::now()),
             keymap::Profile::default(),
         )
     }

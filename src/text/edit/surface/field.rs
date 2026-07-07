@@ -41,10 +41,6 @@ impl Field {
         self.state
     }
 
-    pub(super) fn set_state(&mut self, state: State) {
-        self.state = state;
-    }
-
     pub fn mode(&self) -> FieldMode {
         self.mode
     }

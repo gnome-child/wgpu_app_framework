@@ -23,18 +23,6 @@ impl Surface {
         }
     }
 
-    pub(crate) fn set_state(&mut self, state: State) -> bool {
-        if self.state() == state {
-            return false;
-        }
-
-        match self {
-            Self::Field(field) => field.set_state(state),
-            Self::Area(area) => area.set_state(state),
-        }
-        true
-    }
-
     pub fn is_field(&self) -> bool {
         matches!(self, Self::Field(_))
     }

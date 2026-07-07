@@ -110,19 +110,4 @@ impl Edit {
             position: position.into(),
         }
     }
-
-    pub(crate) fn mutates_text(&self) -> bool {
-        matches!(
-            self,
-            Self::Insert(_)
-                | Self::ImeCommit(_)
-                | Self::ReplaceRange { .. }
-                | Self::MoveRange { .. }
-                | Self::Backspace
-                | Self::Delete
-                | Self::InsertLineBreak
-                | Self::DeleteWordBackward
-                | Self::DeleteWordForward
-        )
-    }
 }

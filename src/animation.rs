@@ -5,7 +5,6 @@ use winit::event_loop::ControlFlow;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Frame {
     now: Instant,
-    delta: Duration,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -34,21 +33,12 @@ pub(crate) struct Transition<T> {
 }
 
 impl Frame {
-    pub(crate) fn new(now: Instant, previous: Option<Instant>) -> Self {
-        Self {
-            now,
-            delta: previous.map_or(Duration::ZERO, |previous| {
-                now.saturating_duration_since(previous)
-            }),
-        }
+    pub(crate) fn new(now: Instant) -> Self {
+        Self { now }
     }
 
     pub(crate) fn now(self) -> Instant {
         self.now
-    }
-
-    pub(crate) fn delta(self) -> Duration {
-        self.delta
     }
 }
 

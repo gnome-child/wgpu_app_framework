@@ -98,33 +98,6 @@ impl Scene {
     pub fn is_empty(&self) -> bool {
         self.clear_color.is_none() && self.items.is_empty()
     }
-
-    pub(crate) fn replace_items(
-        &mut self,
-        range: std::ops::Range<usize>,
-        items: impl IntoIterator<Item = Item>,
-    ) {
-        self.items.splice(range, items);
-    }
-
-    pub(crate) fn translate_items(
-        &mut self,
-        range: std::ops::Range<usize>,
-        delta: point::Logical,
-    ) -> usize {
-        let mut translated = 0;
-        for item in self.items[range].iter_mut() {
-            if item.translate(delta) {
-                translated += 1;
-            }
-        }
-        translated
-    }
-
-    pub(crate) fn translated(mut self, delta: point::Logical) -> Self {
-        self.translate_items(0..self.items.len(), delta);
-        self
-    }
 }
 
 impl Default for Scene {
@@ -147,70 +120,6 @@ pub enum Item {
     Layer(Layer),
     Clip(Clip),
     PopClip,
-}
-
-impl Item {
-    pub(crate) fn translate(&mut self, delta: point::Logical) -> bool {
-        match self {
-            Self::Quad(quad) => {
-                quad.rect = translate_rect(quad.rect, delta);
-                quad.transform = quad.transform.translated(delta);
-                true
-            }
-            Self::Text(text) => {
-                text.rect = translate_rect(text.rect, delta);
-                true
-            }
-            Self::TextSurface(text) => {
-                text.rect = translate_rect(text.rect, delta);
-                true
-            }
-            Self::TextViewport(text) => {
-                text.rect = translate_rect(text.rect, delta);
-                for surface in &mut text.surfaces {
-                    surface.rect = translate_rect(surface.rect, delta);
-                }
-                true
-            }
-            Self::Icon(icon) => {
-                icon.rect = translate_rect(icon.rect, delta);
-                true
-            }
-            Self::Shadow(shadow) => {
-                shadow.rect = translate_rect(shadow.rect, delta);
-                true
-            }
-            Self::Tint(tint) => {
-                tint.rect = translate_rect(tint.rect, delta);
-                true
-            }
-            Self::Outline(outline) => {
-                outline.rect = translate_rect(outline.rect, delta);
-                true
-            }
-            Self::Filter(filter) => {
-                filter.rect = translate_rect(filter.rect, delta);
-                true
-            }
-            Self::Layer(layer) => {
-                layer.rect = translate_rect(layer.rect, delta);
-                true
-            }
-            Self::Clip(clip) => {
-                clip.rect = translate_rect(clip.rect, delta);
-                true
-            }
-            Self::PopClip => false,
-        }
-    }
-}
-
-fn translate_rect(rect: Rect, delta: point::Logical) -> Rect {
-    Rect::rounded(
-        point::logical(rect.origin.x() + delta.x(), rect.origin.y() + delta.y()),
-        rect.area,
-        rect.rounding,
-    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -866,9 +775,6 @@ impl Color {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-    use std::rc::Rc;
-
     use crate::icon;
     use crate::paint_geometry::{area, point, rect};
 
@@ -884,23 +790,6 @@ mod tests {
                 stroke: None,
                 tint: None,
             },
-        }
-    }
-
-    fn item_origin(item: &Item) -> Option<point::Logical> {
-        match item {
-            Item::Quad(item) => Some(item.rect.origin),
-            Item::Text(item) => Some(item.rect.origin),
-            Item::TextSurface(item) => Some(item.rect.origin),
-            Item::TextViewport(item) => Some(item.rect.origin),
-            Item::Icon(item) => Some(item.rect.origin),
-            Item::Shadow(item) => Some(item.rect.origin),
-            Item::Tint(item) => Some(item.rect.origin),
-            Item::Outline(item) => Some(item.rect.origin),
-            Item::Filter(item) => Some(item.rect.origin),
-            Item::Layer(item) => Some(item.rect.origin),
-            Item::Clip(item) => Some(item.rect.origin),
-            Item::PopClip => None,
         }
     }
 
@@ -998,69 +887,6 @@ mod tests {
                 Item::Quad(second)
             ]
         );
-    }
-
-    #[test]
-    fn translate_items_moves_geometry_and_preserves_pop_clip() {
-        let mut scene = Scene::new();
-        let rect = Rect::new(point::logical(1.0, 2.0), area::logical(10.0, 10.0));
-        scene.push_quad(Quad {
-            rect,
-            rasterization: Rasterization::default(),
-            transform: Transform::identity(),
-            style: Style {
-                fill: None,
-                stroke: None,
-                tint: None,
-            },
-        });
-        scene.push_text(Text {
-            rect,
-            document: text::document::Document::plain("Label"),
-            wrap: TextWrap::WordOrGlyph,
-            vertical_align: TextVerticalAlign::Start,
-        });
-        scene.push_text_surface(TextSurface {
-            rect,
-            buffer: Rc::new(RefCell::new(glyphon::Buffer::new_empty(
-                glyphon::Metrics::relative(12.0, 1.25),
-            ))),
-            default_color: Color::BLACK,
-        });
-        scene.push_icon(Icon {
-            rect,
-            icon: icon::Icon::phosphor(icon::Id::new("check")),
-            color: Color::BLACK,
-            size: 16.0,
-        });
-        scene.push_shadow(Shadow {
-            rect,
-            brush: Brush::solid(Color::BLACK),
-            blur: 4.0,
-            spread: 1.0,
-            offset: point::logical(0.0, 1.0),
-        });
-        scene.push_tint(Tint {
-            rect,
-            brush: Brush::solid(Color::BLACK),
-        });
-        scene.push_outline(Outline {
-            rect,
-            brush: Brush::solid(Color::BLACK),
-            width: 1.0,
-            offset: 0.0,
-        });
-        scene.push_filter(Filter::blur(rect, 1.0));
-        scene.push_clip(Clip { rect });
-        scene.pop_clip();
-
-        let translated = scene.translate_items(0..scene.items().len(), point::logical(3.0, -1.0));
-
-        assert_eq!(translated, 9);
-        for item in &scene.items()[..9] {
-            assert_eq!(item_origin(item), Some(point::logical(4.0, 1.0)));
-        }
-        assert_eq!(scene.items()[9], Item::PopClip);
     }
 
     #[test]
@@ -1166,22 +992,6 @@ mod tests {
     }
 
     #[test]
-    fn translated_items_move_quad_transform_origin() {
-        let mut scene = Scene::new();
-        let mut quad = solid_quad(10.0);
-        quad.transform = Transform::scale_y_about(point::logical(15.0, 5.0), 1.5);
-
-        scene.push_quad(quad);
-        scene.translate_items(0..scene.items().len(), point::logical(3.0, 4.0));
-
-        let Item::Quad(translated) = scene.items()[0] else {
-            panic!("expected translated quad");
-        };
-        assert_eq!(translated.rect.origin, point::logical(13.0, 4.0));
-        assert_eq!(translated.transform.origin, point::logical(18.0, 9.0));
-    }
-
-    #[test]
     fn clip_commands_preserve_order_and_shape() {
         let mut scene = Scene::new();
         let clip = Clip {
@@ -1200,30 +1010,6 @@ mod tests {
         assert_eq!(
             scene.items(),
             &[Item::Clip(clip), Item::Quad(quad), Item::PopClip]
-        );
-    }
-
-    #[test]
-    fn replace_items_splices_scene_items_in_place() {
-        let mut scene = Scene::new();
-        let first = solid_quad(1.0);
-        let second = solid_quad(2.0);
-        let third = solid_quad(3.0);
-        let replacement = solid_quad(4.0);
-
-        scene.push_quad(first);
-        scene.push_quad(second);
-        scene.push_quad(third);
-
-        scene.replace_items(1..2, [Item::Quad(replacement)]);
-
-        assert_eq!(
-            scene.items(),
-            &[
-                Item::Quad(first),
-                Item::Quad(replacement),
-                Item::Quad(third)
-            ]
         );
     }
 

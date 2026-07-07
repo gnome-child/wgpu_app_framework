@@ -112,7 +112,7 @@ fn idless_binding_hit_targets_use_retained_identity() {
         geometry::Size::new(120, 40),
         &mut layout_engine,
         &Theme::default(),
-        crate::animation::Frame::new(std::time::Instant::now(), None),
+        crate::animation::Frame::new(std::time::Instant::now()),
         crate::keymap::Profile::default(),
     );
     let hit = layout

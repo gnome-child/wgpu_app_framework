@@ -6,7 +6,7 @@ use super::super::Color;
 use super::super::buffer::LineId;
 use super::caret::{Caret, CaretLayout};
 use super::highlight::SelectionSpan;
-use crate::paint_geometry::{area, point};
+use crate::paint_geometry::area;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Measure {
@@ -157,34 +157,6 @@ impl TextFieldLayout {
     pub fn content_area(&self) -> area::Logical {
         self.content_area
     }
-
-    pub(crate) fn translated_for_scroll(&self, scroll_x: f32, scroll_y: f32) -> Self {
-        let dx = self.scroll_x - scroll_x;
-        let dy = self.scroll_y - scroll_y;
-        let translate_span = |span: &SelectionSpan| {
-            SelectionSpan::new(span.x + dx, span.y + dy, span.width, span.height)
-        };
-
-        Self {
-            selection_spans: self.selection_spans.iter().map(translate_span).collect(),
-            preedit_underline_spans: self
-                .preedit_underline_spans
-                .iter()
-                .map(translate_span)
-                .collect(),
-            preedit_selection_spans: self
-                .preedit_selection_spans
-                .iter()
-                .map(translate_span)
-                .collect(),
-            caret: self
-                .caret
-                .map(|caret| Caret::new(caret.x + dx, caret.y + dy, caret.height)),
-            scroll_x,
-            scroll_y,
-            content_area: self.content_area,
-        }
-    }
 }
 
 impl TextAreaPaintLayout {
@@ -264,31 +236,5 @@ impl TextAreaSurface {
 
     pub fn default_color(&self) -> Color {
         self.default_color
-    }
-
-    pub(crate) fn translated_for_scroll(
-        &self,
-        old_scroll: point::Logical,
-        new_scroll: point::Logical,
-        _new_viewport: area::Logical,
-    ) -> Self {
-        let dx = old_scroll.x() - new_scroll.x();
-        let dy = old_scroll.y() - new_scroll.y();
-        self.translated_by(dx, dy)
-    }
-
-    pub(crate) fn translated_by(&self, dx: f32, dy: f32) -> Self {
-        Self {
-            x: self.x + dx,
-            y: self.y + dy,
-            width: self.width,
-            height: self.height,
-            source_line: self.source_line,
-            source_line_id: self.source_line_id,
-            source_start: self.source_start,
-            source_text_len: self.source_text_len,
-            buffer: self.buffer.clone(),
-            default_color: self.default_color,
-        }
     }
 }

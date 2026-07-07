@@ -3,20 +3,6 @@ use crate::paint_geometry::Rect;
 use crate::render;
 use crate::render::batch::{ItemBatch, item_batches};
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DrawTimings {
-    pub surface_acquire: Duration,
-    pub scene_batching: Duration,
-    pub quad_prepare: Duration,
-    pub text_prepare: Duration,
-    pub scene_text_prepare: Duration,
-    pub layer_update_text_prepare: Duration,
-    pub filter_prepare: Duration,
-    pub encode_submit: Duration,
-    pub total: Duration,
-}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DrawStats {
@@ -35,13 +21,6 @@ pub struct DrawStats {
     pub filters: usize,
     pub layer_items: usize,
     pub layer_updates: usize,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct DrawReport {
-    pub status: render::frame::Status,
-    pub timings: DrawTimings,
-    pub stats: DrawStats,
 }
 
 pub struct Renderer {
@@ -90,31 +69,29 @@ impl Renderer {
         &mut self,
         render_context: &render::Context,
         canvas: &mut render::Canvas,
-    ) -> render::Result<render::frame::Status> {
+    ) -> render::Result<()> {
         let clear_color = canvas.color();
 
-        Ok(canvas
-            .draw(render_context, |encoder, frame| {
-                let view = frame.create_view();
+        canvas.draw(render_context, |encoder, frame| {
+            let view = frame.create_view();
 
-                let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Main Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(clear_color),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                    multiview_mask: None,
-                });
-            })?
-            .status)
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Main Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+        })
     }
 
     pub fn draw(
@@ -123,20 +100,17 @@ impl Renderer {
         canvas: &mut render::Canvas,
         scene: &paint::Scene,
         layer_updates: &[paint::LayerUpdate],
-    ) -> render::Result<DrawReport> {
-        let total_start = Instant::now();
+    ) -> render::Result<DrawStats> {
         let clear_color = scene
             .clear_color()
             .map(render::color_to_wgpu)
             .unwrap_or_else(|| canvas.color());
         let main_viewport = render::Viewport::from_canvas(canvas);
-        let batching_start = Instant::now();
         let update_batches = layer_updates
             .iter()
             .map(|update| item_batches(update.scene.items()))
             .collect::<Vec<_>>();
         let item_batches = item_batches(scene.items());
-        let scene_batching = batching_start.elapsed();
         let update_text_batches = update_batches
             .iter()
             .flatten()
@@ -148,18 +122,12 @@ impl Renderer {
             .count();
         let text_batch_count = update_text_batches + scene_text_batches;
 
-        let mut text_prepare = Duration::default();
-        let mut scene_text_prepare = Duration::default();
-        let mut layer_update_text_prepare = Duration::default();
         if text_batch_count > 0 {
-            let text_start = Instant::now();
             self.text_renderer
                 .prepare_frame(render_context, text_batch_count);
-            text_prepare += text_start.elapsed();
         }
 
         let mut text_renderer_index = 0;
-        let mut quad_prepare = Duration::default();
         let mut prepared_updates = Vec::with_capacity(layer_updates.len());
         let mut stats = DrawStats::default();
         for (update, batches) in layer_updates.iter().zip(update_batches) {
@@ -170,8 +138,6 @@ impl Renderer {
                 viewport,
                 &batches,
                 &mut text_renderer_index,
-                &mut layer_update_text_prepare,
-                &mut quad_prepare,
             )?;
             prepared.stats.layer_updates = 1;
             stats.add(prepared.stats);
@@ -182,17 +148,12 @@ impl Renderer {
             main_viewport,
             &item_batches,
             &mut text_renderer_index,
-            &mut scene_text_prepare,
-            &mut quad_prepare,
         )?;
-        text_prepare += scene_text_prepare + layer_update_text_prepare;
         stats.add(prepared_scene.stats);
         stats.scene_items = scene.items().len();
         stats.layer_updates = layer_updates.len();
 
-        let filter_start = Instant::now();
         let filter_target = self.filter_renderer.prepare(render_context, canvas);
-        let filter_prepare = filter_start.elapsed();
         for update in layer_updates {
             self.ensure_retained_layer(
                 render_context,
@@ -208,7 +169,7 @@ impl Renderer {
         let mut text_render_error = None;
         let scale_factor = canvas.scale_factor();
 
-        let surface_report = canvas.draw(render_context, |encoder, frame| {
+        canvas.draw(render_context, |encoder, frame| {
             let view = frame.create_view();
             for (id, prepared) in &prepared_updates {
                 let Some(layer) = retained_layers.get(id) else {
@@ -267,21 +228,7 @@ impl Renderer {
 
         self.text_renderer.trim();
 
-        Ok(DrawReport {
-            status: surface_report.status,
-            timings: DrawTimings {
-                surface_acquire: surface_report.timings.acquire,
-                scene_batching,
-                quad_prepare,
-                text_prepare,
-                scene_text_prepare,
-                layer_update_text_prepare,
-                filter_prepare,
-                encode_submit: surface_report.timings.encode_submit,
-                total: total_start.elapsed().max(surface_report.timings.total),
-            },
-            stats,
-        })
+        Ok(stats)
     }
 
     fn ensure_retained_layer(
@@ -313,8 +260,6 @@ impl Renderer {
         viewport: render::Viewport,
         item_batches: &[ItemBatch<'_>],
         text_renderer_index: &mut usize,
-        text_prepare: &mut Duration,
-        quad_prepare: &mut Duration,
     ) -> render::Result<PreparedScene> {
         let mut render_batches = Vec::with_capacity(item_batches.len());
         let mut stats = DrawStats {
@@ -359,14 +304,12 @@ impl Renderer {
         for batch in item_batches {
             match batch {
                 ItemBatch::Shapes(shapes) => {
-                    let quad_start = Instant::now();
                     if let Some(batch) =
                         render::quad::prepare_batch(render_context, viewport, shapes)
                     {
                         stats.quad_vertices += batch.vertex_count() as usize;
                         render_batches.push(RenderBatch::Shapes(batch));
                     }
-                    *quad_prepare += quad_start.elapsed();
                 }
                 ItemBatch::Filter(filter) => {
                     render_batches.push(RenderBatch::Filter((*filter).clone()));
@@ -381,7 +324,6 @@ impl Renderer {
                     render_batches.push(RenderBatch::PopClip);
                 }
                 ItemBatch::Glyphs(glyphs) => {
-                    let text_start = Instant::now();
                     let report = self.text_renderer.prepare_batch(
                         render_context,
                         viewport,
@@ -401,7 +343,6 @@ impl Renderer {
                         });
                     }
 
-                    *text_prepare += text_start.elapsed();
                     *text_renderer_index += 1;
                 }
             }

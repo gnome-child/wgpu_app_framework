@@ -390,15 +390,10 @@ impl Editor {
         let before = buffer.marker_for_state(*state);
         let mut result = ActionResult::default();
         let mut change = None;
-        let mut impacts = Vec::new();
         match action {
             Action::Copy => {
                 let Some(selection) = buffer.selected_text_for_state(*state) else {
-                    return outcome::ActionOutcome {
-                        result,
-                        change,
-                        impacts,
-                    };
+                    return outcome::ActionOutcome { result, change };
                 };
                 match clipboard.write_text(&selection) {
                     Ok(()) => result.clipboard_changed = true,
@@ -407,18 +402,13 @@ impl Editor {
             }
             Action::Cut => {
                 let Some(selection) = buffer.selected_text_for_state(*state) else {
-                    return outcome::ActionOutcome {
-                        result,
-                        change,
-                        impacts,
-                    };
+                    return outcome::ActionOutcome { result, change };
                 };
                 match clipboard.write_text(&selection) {
                     Ok(()) => {
                         result.clipboard_changed = true;
                         let edit_result = self.apply_edit(buffer, state, Edit::insert(""));
                         change = edit_result.change;
-                        impacts = edit_result.impacts;
                     }
                     Err(_) => result.unavailable = true,
                 }
@@ -426,13 +416,11 @@ impl Editor {
             Action::Delete => {
                 let edit_result = self.apply_edit(buffer, state, Edit::delete());
                 change = edit_result.change;
-                impacts = edit_result.impacts;
             }
             Action::Paste => match clipboard.read_text() {
                 Ok(Some(text)) if !normalize_for_buffer(buffer, &text).is_empty() => {
                     let edit_result = self.apply_edit(buffer, state, Edit::insert(text));
                     change = edit_result.change;
-                    impacts = edit_result.impacts;
                 }
                 Ok(_) => {}
                 Err(_) => result.unavailable = true,
@@ -440,7 +428,6 @@ impl Editor {
             Action::SelectAll => {
                 let edit_result = self.apply_edit(buffer, state, Edit::SelectAll);
                 change = edit_result.change;
-                impacts = edit_result.impacts;
             }
             Action::Undo | Action::Redo => result.unavailable = true,
         }
@@ -448,11 +435,7 @@ impl Editor {
         result.text_changed = before.revision != after.revision;
         result.selection_changed =
             before.cursor != after.cursor || before.selection != after.selection;
-        outcome::ActionOutcome {
-            result,
-            change,
-            impacts,
-        }
+        outcome::ActionOutcome { result, change }
     }
 
     pub fn diagnostics(&self) -> Diagnostics {

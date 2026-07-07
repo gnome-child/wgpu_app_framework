@@ -14,7 +14,6 @@ pub struct Outcome {
 pub(crate) struct ActionOutcome {
     pub result: ActionResult,
     pub change: Option<Change>,
-    pub impacts: Vec<Impact>,
 }
 
 impl Outcome {

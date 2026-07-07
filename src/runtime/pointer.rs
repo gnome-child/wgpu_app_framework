@@ -130,7 +130,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         };
 
         let theme = self.active_theme();
-        let frame = crate::animation::Frame::new(std::time::Instant::now(), None);
+        let frame = crate::animation::Frame::new(std::time::Instant::now());
         let layout = layout::Layout::compose_composition_with_theme_at(
             composition,
             size,
@@ -183,7 +183,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     ) -> std::result::Result<input::Outcome, Error> {
         let theme = self.active_theme();
         let composition = self.composition.get(window);
-        let frame = crate::animation::Frame::new(std::time::Instant::now(), None);
+        let frame = crate::animation::Frame::new(std::time::Instant::now());
         let viewport_target = composition.and_then(|composition| {
             layout::Layout::compose_composition_with_theme_at(
                 composition,

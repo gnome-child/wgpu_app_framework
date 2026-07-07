@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Instant};
+use std::collections::HashMap;
 
 use super::{
     clipboard::Clipboard,
@@ -64,7 +64,6 @@ pub struct Runtime<M: state::State, E: Send + 'static = (), V = ()> {
     theme: Option<ThemeCallback<M>>,
     view: Option<ViewCallback<M, V>>,
     started_ran: bool,
-    frame_times: HashMap<window::Id, Instant>,
     animation_schedules: HashMap<window::Id, animation::Schedule>,
     visual_animations: visual::Animations,
     layout_cache: HashMap<window::Id, CachedLayout>,
@@ -97,7 +96,6 @@ impl<M: state::State> Runtime<M> {
             theme: None,
             view: None,
             started_ran: false,
-            frame_times: HashMap::new(),
             animation_schedules: HashMap::new(),
             visual_animations: visual::Animations::default(),
             layout_cache: HashMap::new(),

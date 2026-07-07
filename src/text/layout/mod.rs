@@ -105,6 +105,7 @@ impl Engine {
         self.cache.insert(document, measure, metrics);
         metrics
     }
+    #[cfg(test)]
     fn invalidate_text_area_height_indices_for_impacts(
         &mut self,
         _buffer: &Buffer,
@@ -116,6 +117,7 @@ impl Engine {
         // buffer-id scoped invalidation pass.
     }
 
+    #[cfg(test)]
     pub(crate) fn invalidate_text_area_for_edit(
         &mut self,
         buffer: &Buffer,
@@ -125,6 +127,7 @@ impl Engine {
         self.invalidate_text_area_surfaces_for(buffer);
     }
 
+    #[cfg(test)]
     pub(crate) fn invalidate_text_area_surfaces_for(&mut self, _buffer: &Buffer) {
         // Display cache keys use per-line layout identity. Retaining entries keeps
         // unrelated lines warm after edits while stale line revisions age out via LRU.

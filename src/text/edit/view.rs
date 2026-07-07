@@ -383,22 +383,6 @@ impl ViewState {
         self.with_scroll(scroll_x, scroll_y)
     }
 
-    pub(crate) fn without_scroll(mut self) -> Self {
-        self.scroll_x = 0.0;
-        self.scroll_y = 0.0;
-        self
-    }
-
-    pub(crate) fn same_except_scroll(&self, other: &Self) -> bool {
-        let mut left = self.clone();
-        let mut right = other.clone();
-        left.scroll_x = 0.0;
-        left.scroll_y = 0.0;
-        right.scroll_x = 0.0;
-        right.scroll_y = 0.0;
-        left == right
-    }
-
     pub fn reset_caret_blink(mut self, now: Instant) -> Self {
         self.caret_epoch = now;
         self.reveal_intent = RevealIntent::CaretForce;
@@ -423,11 +407,6 @@ impl ViewState {
 
     pub(crate) fn caret_visibility_pending(&self) -> bool {
         self.reveal_intent.should_reveal()
-    }
-
-    pub(crate) fn clear_caret_visibility_pending(mut self) -> Self {
-        self.reveal_intent = RevealIntent::None;
-        self
     }
 
     pub fn with_preedit(mut self, preedit: Option<Preedit>) -> Self {

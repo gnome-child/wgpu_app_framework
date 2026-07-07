@@ -162,9 +162,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
     }
 
-    fn frame_for_window_at(&mut self, window: window::Id, now: Instant) -> animation::Frame {
-        let previous = self.frame_times.insert(window, now);
-        animation::Frame::new(now, previous)
+    fn frame_at(&self, now: Instant) -> animation::Frame {
+        animation::Frame::new(now)
     }
 
     fn update_animation_schedule(
@@ -428,7 +427,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         }
         self.session.clear_redraw_request(window);
         let theme = self.active_theme();
-        let frame = self.frame_for_window_at(window, now);
+        let frame = self.frame_at(now);
         let layout = self.layout_for_scene(window, size, &theme, frame, invalidation)?;
         self.apply_layout_feedback(window, &layout);
         let interaction = self.session.interaction(window).cloned();
@@ -480,7 +479,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 continue;
             }
             self.session.clear_redraw_request(window);
-            let frame = self.frame_for_window_at(window, now);
+            let frame = self.frame_at(now);
             let Some(layout) =
                 self.layout_for_scene(window, size_for(window), &theme, frame, invalidation)
             else {
@@ -515,7 +514,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         point: geometry::Point,
     ) -> Option<layout::hit::Hit> {
         let theme = self.active_theme();
-        let frame = animation::Frame::new(Instant::now(), None);
+        let frame = animation::Frame::new(Instant::now());
         if let Some(layout) = self.cached_layout(window, size, &theme) {
             self.record_layout_reuse(window);
             return layout.hit_test(point);

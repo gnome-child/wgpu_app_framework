@@ -2,7 +2,6 @@ use wgpu::SurfaceTarget;
 
 use crate::paint_geometry::area;
 use crate::render;
-use std::time::Instant;
 
 use thiserror::Error;
 
@@ -94,19 +93,9 @@ impl Surface {
             }
             Outdated => {
                 self.reconfigure(render_context);
-                Ok(render::frame::Outcome::Skipped(
-                    render::frame::Reason::Outdated,
-                ))
+                Ok(render::frame::Outcome::Skipped)
             }
-            Timeout => Ok(render::frame::Outcome::Skipped(
-                render::frame::Reason::Timeout,
-            )),
-            Occluded => Ok(render::frame::Outcome::Skipped(
-                render::frame::Reason::Occluded,
-            )),
-            Validation => Ok(render::frame::Outcome::Skipped(
-                render::frame::Reason::Validation,
-            )),
+            Timeout | Occluded | Validation => Ok(render::frame::Outcome::Skipped),
             Lost => Err(Error::Lost),
         }
     }
@@ -115,28 +104,15 @@ impl Surface {
         &mut self,
         render_context: &render::Context,
         encode: impl FnOnce(&mut wgpu::CommandEncoder, &render::Frame),
-    ) -> Result<render::frame::SurfaceReport> {
-        let total_start = Instant::now();
-        let acquire_start = Instant::now();
+    ) -> Result<()> {
         let outcome = self.acquire_frame(render_context)?;
-        let acquire = acquire_start.elapsed();
 
         use render::frame::Outcome::*;
         let frame = match outcome {
             Acquired(frame) => frame,
-            Skipped(reason) => {
-                return Ok(render::frame::SurfaceReport {
-                    status: render::frame::Status::Skipped(reason),
-                    timings: render::frame::SurfaceTimings {
-                        acquire,
-                        total: total_start.elapsed(),
-                        ..render::frame::SurfaceTimings::default()
-                    },
-                });
-            }
+            Skipped => return Ok(()),
         };
 
-        let encode_start = Instant::now();
         let mut encoder =
             render_context
                 .device()
@@ -149,14 +125,7 @@ impl Surface {
         frame.present();
         self.ready = true;
 
-        Ok(render::frame::SurfaceReport {
-            status: render::frame::Status::Presented,
-            timings: render::frame::SurfaceTimings {
-                acquire,
-                encode_submit: encode_start.elapsed(),
-                total: total_start.elapsed(),
-            },
-        })
+        Ok(())
     }
 
     pub fn reconfigure(&self, render_context: &render::Context) {

@@ -72,7 +72,7 @@ impl Canvas {
         &mut self,
         render_context: &render::Context,
         encode: impl FnOnce(&mut wgpu::CommandEncoder, &render::Frame),
-    ) -> render::Result<render::frame::SurfaceReport> {
+    ) -> render::Result<()> {
         Ok(self.surface.render(render_context, encode)?)
     }
 }
