@@ -98,30 +98,30 @@ fn paint_frame(
     }
 
     match frame.role() {
-        view::node::Role::Binding if frame.binding_source() == Some(context::Source::Menu) => {
+        view::Role::Binding if frame.binding_source() == Some(context::Source::Menu) => {
             paint_menu_row(frame, scene, theme);
         }
         _ if frame.binding_source() == Some(context::Source::Palette) => {
             paint_palette_row(frame, scene, theme);
         }
-        view::node::Role::Separator => {
+        view::Role::Separator => {
             paint_menu_separator(frame, scene, theme);
         }
-        view::node::Role::SectionHeader => {
+        view::Role::SectionHeader => {
             paint_section_header(frame, scene, theme);
         }
-        view::node::Role::Checkbox | view::node::Role::Radio => {
+        view::Role::Checkbox | view::Role::Radio => {
             choice::paint(frame, scene, theme, visuals);
         }
-        view::node::Role::Slider => {
+        view::Role::Slider => {
             slider::paint(frame, scene, theme, visuals);
         }
-        view::node::Role::TextArea => {
+        view::Role::TextArea => {
             if let Some(text_area) = frame.text_area_layout() {
                 text_area::paint(frame, text_area, scene, theme, visuals);
             }
         }
-        view::node::Role::TextBox => {
+        view::Role::TextBox => {
             text_box::paint_selection(frame, scene, theme);
         }
         _ => {}
@@ -129,12 +129,12 @@ fn paint_frame(
 
     if frame.binding_source() == Some(context::Source::Menu)
         || frame.binding_source() == Some(context::Source::Palette)
-        || frame.role() == view::node::Role::Separator
-        || frame.role() == view::node::Role::SectionHeader
+        || frame.role() == view::Role::Separator
+        || frame.role() == view::Role::SectionHeader
         || is_floating_panel_role(frame.role())
     {
         // Floating panes and menu rows paint their own content.
-    } else if frame.role() == view::node::Role::TextBox && text_box::paint_text(frame, scene) {
+    } else if frame.role() == view::Role::TextBox && text_box::paint_text(frame, scene) {
         // TextBox contents use the shaped field viewport so glyphs, selection,
         // caret, and horizontal scroll share one coordinate system.
     } else if let Some(value) = text_for(frame) {
@@ -150,7 +150,7 @@ fn paint_frame(
         );
     }
 
-    if frame.role() == view::node::Role::TextBox {
+    if frame.role() == view::Role::TextBox {
         text_box::paint_caret(frame, scene, theme, visuals);
     }
 
@@ -176,9 +176,9 @@ fn layer_for(frame: &layout::Frame) -> Layer {
     }
 
     match frame.role() {
-        view::node::Role::MenuBar | view::node::Role::Menu => Layer::Chrome,
-        view::node::Role::FloatingPanel | view::node::Role::Separator => Layer::Floating,
-        view::node::Role::Binding if frame.binding_source() == Some(context::Source::Menu) => {
+        view::Role::MenuBar | view::Role::Menu => Layer::Chrome,
+        view::Role::FloatingPanel | view::Role::Separator => Layer::Floating,
+        view::Role::Binding if frame.binding_source() == Some(context::Source::Menu) => {
             Layer::Floating
         }
         _ if frame.binding_source() == Some(context::Source::Palette) => Layer::Floating,
@@ -188,32 +188,30 @@ fn layer_for(frame: &layout::Frame) -> Layer {
 
 fn role_fill(frame: &layout::Frame, theme: &Theme) -> Option<super::Color> {
     match frame.role() {
-        view::node::Role::Root => Some(theme.surfaces().root),
-        view::node::Role::MenuBar => Some(theme.menu().bar_background),
-        view::node::Role::Menu => visible_fill(theme.menu().title_background),
-        view::node::Role::FloatingPanel => None,
-        view::node::Role::Binding if frame.binding_source() == Some(context::Source::Menu) => {
+        view::Role::Root => Some(theme.surfaces().root),
+        view::Role::MenuBar => Some(theme.menu().bar_background),
+        view::Role::Menu => visible_fill(theme.menu().title_background),
+        view::Role::FloatingPanel => None,
+        view::Role::Binding if frame.binding_source() == Some(context::Source::Menu) => {
             visible_fill(theme.menu().row_background)
         }
-        view::node::Role::Label if frame.binding_source() == Some(context::Source::Palette) => {
+        view::Role::Label if frame.binding_source() == Some(context::Source::Palette) => {
             visible_fill(theme.menu().row_background)
         }
-        view::node::Role::Binding => visible_fill(if frame.is_enabled() {
+        view::Role::Binding => visible_fill(if frame.is_enabled() {
             theme.control().background
         } else {
             theme.control().disabled_background
         }),
-        view::node::Role::Separator => None,
-        view::node::Role::TextArea => Some(theme.text_input().area_background),
-        view::node::Role::Button => visible_fill(theme.control().button_background),
-        view::node::Role::Checkbox | view::node::Role::Radio => {
-            visible_fill(theme.choice().background)
-        }
-        view::node::Role::Slider => visible_fill(theme.slider().background),
-        view::node::Role::TextBox => Some(theme.text_input().field_background),
-        view::node::Role::Scroll => None,
-        view::node::Role::Panel => visible_fill(theme.surfaces().panel),
-        view::node::Role::SectionHeader | view::node::Role::Label | view::node::Role::Stack => None,
+        view::Role::Separator => None,
+        view::Role::TextArea => Some(theme.text_input().area_background),
+        view::Role::Button => visible_fill(theme.control().button_background),
+        view::Role::Checkbox | view::Role::Radio => visible_fill(theme.choice().background),
+        view::Role::Slider => visible_fill(theme.slider().background),
+        view::Role::TextBox => Some(theme.text_input().field_background),
+        view::Role::Scroll => None,
+        view::Role::Panel => visible_fill(theme.surfaces().panel),
+        view::Role::SectionHeader | view::Role::Label | view::Role::Stack => None,
     }
 }
 
@@ -306,24 +304,24 @@ fn color_with_opacity(color: super::Color, opacity: f32) -> super::Color {
 
 fn role_rounding(frame: &layout::Frame, theme: &Theme) -> super::Rounding {
     match frame.role() {
-        view::node::Role::FloatingPanel => theme.floating_panel().rounding,
-        view::node::Role::Menu => theme.control().rounding,
-        view::node::Role::Binding if frame.binding_source() == Some(context::Source::Menu) => {
+        view::Role::FloatingPanel => theme.floating_panel().rounding,
+        view::Role::Menu => theme.control().rounding,
+        view::Role::Binding if frame.binding_source() == Some(context::Source::Menu) => {
             theme.control().rounding
         }
         _ if frame.binding_source() == Some(context::Source::Palette) => theme.control().rounding,
-        view::node::Role::Button
-        | view::node::Role::Checkbox
-        | view::node::Role::Radio
-        | view::node::Role::Slider
-        | view::node::Role::TextBox
-        | view::node::Role::Panel => theme.control().rounding,
+        view::Role::Button
+        | view::Role::Checkbox
+        | view::Role::Radio
+        | view::Role::Slider
+        | view::Role::TextBox
+        | view::Role::Panel => theme.control().rounding,
         _ => super::Rounding::none(),
     }
 }
 
-fn is_floating_panel_role(role: view::node::Role) -> bool {
-    role == view::node::Role::FloatingPanel
+fn is_floating_panel_role(role: view::Role) -> bool {
+    role == view::Role::FloatingPanel
 }
 
 fn paint_brush_quad(
@@ -553,7 +551,7 @@ fn visual_tint_for(
         .map(|target| visuals.target(target))
         .unwrap_or_default();
 
-    if frame.role() == view::node::Role::Menu {
+    if frame.role() == view::Role::Menu {
         if target_visual.pressed() {
             return Some(theme.menu().title_pressed_tint);
         }
@@ -576,7 +574,7 @@ fn visual_tint_for(
         return row_highlight_tint_for(frame, theme, visuals);
     }
 
-    if frame.role() == view::node::Role::TextBox {
+    if frame.role() == view::Role::TextBox {
         return target_visual
             .active()
             .then_some(theme.control().pressed_tint);
@@ -632,8 +630,8 @@ fn visual_tint_rounding_for(
     default
 }
 
-fn is_control_visual_role(role: view::node::Role) -> bool {
-    matches!(role, view::node::Role::Binding | view::node::Role::Button)
+fn is_control_visual_role(role: view::Role) -> bool {
+    matches!(role, view::Role::Binding | view::Role::Button)
 }
 
 fn text_for(frame: &layout::Frame) -> Option<&str> {
@@ -642,13 +640,9 @@ fn text_for(frame: &layout::Frame) -> Option<&str> {
 
 fn text_rect_for(frame: &layout::Frame, theme: &Theme) -> geometry::Rect {
     match frame.role() {
-        view::node::Role::Checkbox | view::node::Role::Radio => {
-            layout::choice_label_rect(frame.rect(), theme)
-        }
-        view::node::Role::Slider => {
-            layout::slider_label_rect(frame.rect(), frame.label_width(), theme)
-        }
-        view::node::Role::TextBox => frame.text_box_text_rect(),
+        view::Role::Checkbox | view::Role::Radio => layout::choice_label_rect(frame.rect(), theme),
+        view::Role::Slider => layout::slider_label_rect(frame.rect(), frame.label_width(), theme),
+        view::Role::TextBox => frame.text_box_text_rect(),
         _ => frame.rect(),
     }
 }
@@ -659,31 +653,31 @@ fn text_color_for(frame: &layout::Frame, theme: &Theme) -> super::Color {
     }
 
     match frame.role() {
-        view::node::Role::TextBox
+        view::Role::TextBox
             if frame
                 .text_box()
                 .is_some_and(|text_box| text_box.text().is_empty()) =>
         {
             theme.text_input().placeholder
         }
-        view::node::Role::SectionHeader => theme.text().muted,
-        view::node::Role::TextArea | view::node::Role::TextBox => theme.text_input().foreground,
-        view::node::Role::Separator => theme.menu().separator,
+        view::Role::SectionHeader => theme.text().muted,
+        view::Role::TextArea | view::Role::TextBox => theme.text_input().foreground,
+        view::Role::Separator => theme.menu().separator,
         _ => theme.text().primary,
     }
 }
 
 fn text_style_for(frame: &layout::Frame, theme: &Theme) -> TextStyle {
     match frame.role() {
-        view::node::Role::SectionHeader => scene_text_style(layout::section_header_style(theme)),
-        view::node::Role::Menu
-        | view::node::Role::Binding
-        | view::node::Role::Button
-        | view::node::Role::Checkbox
-        | view::node::Role::Radio
-        | view::node::Role::Slider
-        | view::node::Role::TextBox => scene_text_style(layout::interface_text_style(theme)),
-        view::node::Role::Label if frame.binding_source() == Some(context::Source::Palette) => {
+        view::Role::SectionHeader => scene_text_style(layout::section_header_style(theme)),
+        view::Role::Menu
+        | view::Role::Binding
+        | view::Role::Button
+        | view::Role::Checkbox
+        | view::Role::Radio
+        | view::Role::Slider
+        | view::Role::TextBox => scene_text_style(layout::interface_text_style(theme)),
+        view::Role::Label if frame.binding_source() == Some(context::Source::Palette) => {
             scene_text_style(layout::interface_text_style(theme))
         }
         _ => scene_text_style(theme.typography().body()),
@@ -697,7 +691,7 @@ fn scene_text_style(style: crate::theme::TypeStyle) -> TextStyle {
 fn text_wrap_for(frame: &layout::Frame) -> TextWrap {
     if matches!(
         frame.role(),
-        view::node::Role::Checkbox | view::node::Role::Radio | view::node::Role::Slider
+        view::Role::Checkbox | view::Role::Radio | view::Role::Slider
     ) {
         return TextWrap::None;
     }
@@ -710,7 +704,7 @@ fn text_wrap_for(frame: &layout::Frame) -> TextWrap {
 
 fn text_align_for(frame: &layout::Frame) -> TextAlign {
     match frame.role() {
-        view::node::Role::Button | view::node::Role::Menu => TextAlign::Center,
+        view::Role::Button | view::Role::Menu => TextAlign::Center,
         _ => TextAlign::Start,
     }
 }
@@ -718,11 +712,11 @@ fn text_align_for(frame: &layout::Frame) -> TextAlign {
 fn outline_color_for(frame: &layout::Frame, theme: &Theme) -> Option<super::Color> {
     matches!(
         frame.role(),
-        view::node::Role::TextArea
-            | view::node::Role::Button
-            | view::node::Role::Slider
-            | view::node::Role::TextBox
-            | view::node::Role::Panel
+        view::Role::TextArea
+            | view::Role::Button
+            | view::Role::Slider
+            | view::Role::TextBox
+            | view::Role::Panel
     )
     .then_some(theme.focus().outline)
     .and_then(visible_fill)
@@ -734,9 +728,7 @@ fn focus_outline_color_for(frame: &layout::Frame, theme: &Theme) -> Option<super
 
 fn focus_outline_rect_for(frame: &layout::Frame) -> geometry::Rect {
     match frame.role() {
-        view::node::Role::Checkbox | view::node::Role::Radio | view::node::Role::Slider => {
-            frame.active_rect()
-        }
+        view::Role::Checkbox | view::Role::Radio | view::Role::Slider => frame.active_rect(),
         _ => frame.rect(),
     }
 }
@@ -747,22 +739,22 @@ fn focus_outline_rounding_for(
     theme: &Theme,
 ) -> super::Rounding {
     match frame.role() {
-        view::node::Role::Radio | view::node::Role::Slider => super::Rounding::relative(1.0),
-        view::node::Role::Checkbox => theme.control().rounding,
+        view::Role::Radio | view::Role::Slider => super::Rounding::relative(1.0),
+        view::Role::Checkbox => theme.control().rounding,
         _ => default,
     }
 }
 
-fn is_focus_outline_role(role: view::node::Role) -> bool {
+fn is_focus_outline_role(role: view::Role) -> bool {
     matches!(
         role,
-        view::node::Role::Menu
-            | view::node::Role::Binding
-            | view::node::Role::TextArea
-            | view::node::Role::Button
-            | view::node::Role::Checkbox
-            | view::node::Role::Radio
-            | view::node::Role::Slider
-            | view::node::Role::TextBox
+        view::Role::Menu
+            | view::Role::Binding
+            | view::Role::TextArea
+            | view::Role::Button
+            | view::Role::Checkbox
+            | view::Role::Radio
+            | view::Role::Slider
+            | view::Role::TextBox
     )
 }

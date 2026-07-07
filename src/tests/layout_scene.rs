@@ -62,13 +62,13 @@ fn text_editor_view_composes_to_layout_without_runtime_mutation() {
     assert_eq!(app.revision(), revision);
     assert_eq!(app.session().file_dialog(window), None);
 
-    let menus = layout.find_role(view::node::Role::Menu);
+    let menus = layout.find_role(view::Role::Menu);
     assert_eq!(menus.len(), 3);
     assert_eq!(menus[0].label_text(), Some("File"));
     assert_eq!(menus[1].label_text(), Some("Edit"));
     assert_eq!(menus[2].label_text(), Some("View"));
 
-    let text_areas = layout.find_role(view::node::Role::TextArea);
+    let text_areas = layout.find_role(view::Role::TextArea);
     assert_eq!(text_areas.len(), 1);
     assert_eq!(text_areas[0].rect().y(), Theme::default().menu().bar_height);
     assert!(text_areas[0].rect().height() > 0);
@@ -82,7 +82,7 @@ fn text_editor_view_composes_to_layout_without_runtime_mutation() {
     let menu_hit = layout
         .hit_test(geometry::Point::new(10, 10))
         .expect("file menu should be hit");
-    assert_eq!(menu_hit.frame().role(), view::node::Role::Menu);
+    assert_eq!(menu_hit.frame().role(), view::Role::Menu);
     assert_eq!(menu_hit.frame().label_text(), Some("File"));
     assert!(matches!(
         menu_hit.action(),
@@ -92,7 +92,7 @@ fn text_editor_view_composes_to_layout_without_runtime_mutation() {
     let text_hit = layout
         .hit_test(geometry::Point::new(10, 80))
         .expect("text area should be hit");
-    assert_eq!(text_hit.frame().role(), view::node::Role::TextArea);
+    assert_eq!(text_hit.frame().role(), view::Role::TextArea);
     assert!(matches!(text_hit.action(), Some(view::Action::Focus(_))));
 }
 
@@ -108,7 +108,7 @@ fn menu_bar_buttons_share_largest_label_width() {
     );
     let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(400, 120), &mut layout_engine);
-    let menus = layout.find_role(view::node::Role::Menu);
+    let menus = layout.find_role(view::Role::Menu);
 
     assert_eq!(menus.len(), 3);
     assert_eq!(menus[0].rect().width(), menus[1].rect().width());
@@ -127,7 +127,7 @@ fn single_character_menu_titles_are_square_from_control_padding() {
     );
     let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(160, 80), &mut layout_engine);
-    let menus = layout.find_role(view::node::Role::Menu);
+    let menus = layout.find_role(view::Role::Menu);
 
     assert_eq!(menus.len(), 2);
     for menu in menus {
@@ -155,7 +155,7 @@ fn menu_bar_intrinsic_height_matches_bar_content_height() {
     let theme = Theme::default();
     let view = View::new(
         view::Node::root().child(
-            view::Node::stack(view::node::Axis::Vertical)
+            view::Node::stack(view::Axis::Vertical)
                 .child(view::Node::menu_bar().child(view::Node::menu("menu.file", "File")))
                 .child(view::Node::label("Below")),
         ),
@@ -168,12 +168,12 @@ fn menu_bar_intrinsic_height_matches_bar_content_height() {
         &theme,
     );
     let menu = layout
-        .find_role(view::node::Role::Menu)
+        .find_role(view::Role::Menu)
         .into_iter()
         .find(|frame| frame.label_text() == Some("File"))
         .expect("menu title should be laid out");
     let below = layout
-        .find_role(view::node::Role::Label)
+        .find_role(view::Role::Label)
         .into_iter()
         .find(|frame| frame.label_text() == Some("Below"))
         .expect("following label should be laid out");
@@ -227,19 +227,19 @@ fn menu_bar_title_typography_uses_interface_domain() {
         &interface_large,
     );
     let default_selection = default_layout
-        .find_role(view::node::Role::Menu)
+        .find_role(view::Role::Menu)
         .into_iter()
         .find(|frame| frame.label_text() == Some("Selection"))
         .expect("default selection menu should be laid out")
         .rect();
     let body_large_selection = body_large_layout
-        .find_role(view::node::Role::Menu)
+        .find_role(view::Role::Menu)
         .into_iter()
         .find(|frame| frame.label_text() == Some("Selection"))
         .expect("body-large selection menu should be laid out")
         .rect();
     let interface_large_selection = interface_large_layout
-        .find_role(view::node::Role::Menu)
+        .find_role(view::Role::Menu)
         .into_iter()
         .find(|frame| frame.label_text() == Some("Selection"))
         .expect("interface-large selection menu should be laid out")
@@ -275,7 +275,7 @@ fn generic_scroll_measures_content_clips_children_and_paints_scrollbar() {
     let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(220, 120), &mut layout_engine);
     let scroll = layout
-        .find_role(view::node::Role::Scroll)
+        .find_role(view::Role::Scroll)
         .into_iter()
         .next()
         .expect("scroll should be laid out");
@@ -303,7 +303,7 @@ fn generic_scroll_measures_content_clips_children_and_paints_scrollbar() {
         &theme,
     );
     let scroll = layout
-        .find_role(view::node::Role::Scroll)
+        .find_role(view::Role::Scroll)
         .into_iter()
         .next()
         .expect("scroll should be laid out with gutter theme");
@@ -349,7 +349,7 @@ fn viewport_content_extent_equals_placed_child_bounds() {
     let mut engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(240, 120), &mut engine);
     let scroll = layout
-        .find_role(view::node::Role::Scroll)
+        .find_role(view::Role::Scroll)
         .into_iter()
         .next()
         .expect("scroll should be laid out");
@@ -413,7 +413,7 @@ fn viewport_max_scroll_reaches_last_placed_descendant() {
         .expect("scroll scene should render");
     let scroll = initial
         .layout()
-        .find_role(view::node::Role::Scroll)
+        .find_role(view::Role::Scroll)
         .into_iter()
         .next()
         .expect("scroll should be laid out");
@@ -435,7 +435,7 @@ fn viewport_max_scroll_reaches_last_placed_descendant() {
         .expect("scroll scene should render after scroll");
     let scroll = rendered
         .layout()
-        .find_role(view::node::Role::Scroll)
+        .find_role(view::Role::Scroll)
         .into_iter()
         .next()
         .expect("scroll should be laid out");
@@ -472,17 +472,17 @@ fn grow_children_collapse_to_intrinsic_inside_scroll_axis() {
     let mut engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(220, 120), &mut engine);
     let scroll = layout
-        .find_role(view::node::Role::Scroll)
+        .find_role(view::Role::Scroll)
         .into_iter()
         .next()
         .expect("scroll should be laid out");
     let grow = layout
-        .find_role(view::node::Role::Panel)
+        .find_role(view::Role::Panel)
         .into_iter()
         .find(|frame| frame.label_text() == Some("Grow"))
         .expect("grow child should be laid out");
     let after = layout
-        .find_role(view::node::Role::Label)
+        .find_role(view::Role::Label)
         .into_iter()
         .find(|frame| frame.label_text() == Some("After"))
         .expect("following label should be laid out");
@@ -514,12 +514,12 @@ fn justify_content_is_start_when_scroll_content_exceeds_viewport() {
     let mut engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(220, 100), &mut engine);
     let scroll = layout
-        .find_role(view::node::Role::Scroll)
+        .find_role(view::Role::Scroll)
         .into_iter()
         .next()
         .expect("scroll should be laid out");
     let first = layout
-        .find_role(view::node::Role::Panel)
+        .find_role(view::Role::Panel)
         .into_iter()
         .find(|frame| frame.label_text() == Some("Row 0"))
         .expect("first row should be laid out");
@@ -565,7 +565,7 @@ fn generic_scroll_feedback_clamps_session_offset_after_present() {
         .expect("scroll view should render");
     let scroll = initial
         .layout()
-        .find_role(view::node::Role::Scroll)
+        .find_role(view::Role::Scroll)
         .into_iter()
         .next()
         .expect("scroll should be laid out");
@@ -624,7 +624,7 @@ fn gutter_scrollbar_metrics_reduce_viewport_width() {
         &theme,
     );
     let scroll = layout
-        .find_role(view::node::Role::Scroll)
+        .find_role(view::Role::Scroll)
         .into_iter()
         .next()
         .expect("scroll should be laid out");
@@ -674,7 +674,7 @@ fn generic_scroll_pointer_drag_updates_viewport_offset() {
         .expect("scroll view should render");
     let scroll = initial
         .layout()
-        .find_role(view::node::Role::Scroll)
+        .find_role(view::Role::Scroll)
         .into_iter()
         .next()
         .expect("scroll should be laid out");
@@ -743,7 +743,7 @@ fn viewport_intrinsics_ignore_content_extent() {
         &theme,
     );
     let scroll = layout
-        .find_role(view::node::Role::Scroll)
+        .find_role(view::Role::Scroll)
         .into_iter()
         .next()
         .expect("fit scroll should be laid out");
@@ -933,7 +933,7 @@ fn text_area_projects_scrollbars_like_generic_viewports() {
         .expect("text editor should render");
     let text_area = rendered
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");
@@ -1029,7 +1029,7 @@ fn viewport_clip_applies_inside_floating_panel() {
     let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(240, 180), &mut layout_engine);
     let scroll = layout
-        .find_role(view::node::Role::Scroll)
+        .find_role(view::Role::Scroll)
         .into_iter()
         .next()
         .expect("floating scroll should be laid out");
@@ -1122,7 +1122,7 @@ fn scrolled_out_content_is_not_interactive() {
         .expect("scrolled view should render");
     let search = rendered
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .expect("search box should be laid out");
@@ -1140,7 +1140,7 @@ fn scrolled_out_content_is_not_interactive() {
         .hit_test(point)
         .expect("visible search box should be hit");
 
-    assert_eq!(hit.frame().role(), view::node::Role::TextBox);
+    assert_eq!(hit.frame().role(), view::Role::TextBox);
 }
 
 #[test]
@@ -1286,7 +1286,7 @@ fn command_palette_search_box_wins_over_clipped_results() {
         .expect("scrolled palette should render");
     let query = rendered
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .expect("palette query should be laid out");
@@ -1304,7 +1304,7 @@ fn command_palette_search_box_wins_over_clipped_results() {
         .hit_test(point)
         .expect("palette query should be hit");
 
-    assert_eq!(hit.frame().role(), view::node::Role::TextBox);
+    assert_eq!(hit.frame().role(), view::Role::TextBox);
 
     app.pointer_down_at(window, size, point)
         .expect("query pointer down should be handled");
@@ -1539,7 +1539,7 @@ fn command_palette_uses_panel_padding_and_content_gap() {
     let panel = command_palette_panel_frame(&rendered);
     let query = rendered
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .expect("palette query should be laid out");
@@ -1576,7 +1576,7 @@ fn explicit_zero_floating_panel_gap_disables_default_content_gap() {
         &mut engine,
         &theme,
     );
-    let labels = layout.find_role(view::node::Role::Label);
+    let labels = layout.find_role(view::Role::Label);
 
     assert_eq!(labels.len(), 2);
     assert_eq!(labels[1].rect().y(), labels[0].rect().bottom());
@@ -1893,13 +1893,13 @@ fn typography_metrics_affect_label_measurement() {
         &large,
     );
     let default_label = default_layout
-        .find_role(view::node::Role::Label)
+        .find_role(view::Role::Label)
         .into_iter()
         .next()
         .expect("default label should be laid out")
         .rect();
     let large_label = large_layout
-        .find_role(view::node::Role::Label)
+        .find_role(view::Role::Label)
         .into_iter()
         .next()
         .expect("large label should be laid out")
@@ -1975,37 +1975,37 @@ fn interface_metrics_affect_system_widgets_without_body_metrics() {
     let body_scene = scene::Scene::paint_with_theme(&body_layout, &body_large);
     let interface_scene = scene::Scene::paint_with_theme(&interface_layout, &interface_large);
     let default_button = default_layout
-        .find_role(view::node::Role::Button)
+        .find_role(view::Role::Button)
         .into_iter()
         .next()
         .expect("default button should be laid out")
         .rect();
     let body_button = body_layout
-        .find_role(view::node::Role::Button)
+        .find_role(view::Role::Button)
         .into_iter()
         .next()
         .expect("body-large button should be laid out")
         .rect();
     let interface_button = interface_layout
-        .find_role(view::node::Role::Button)
+        .find_role(view::Role::Button)
         .into_iter()
         .next()
         .expect("interface-large button should be laid out")
         .rect();
     let default_label = default_layout
-        .find_role(view::node::Role::Label)
+        .find_role(view::Role::Label)
         .into_iter()
         .find(|frame| frame.label_text() == Some("Content Label"))
         .expect("default content label should be laid out")
         .rect();
     let body_label = body_layout
-        .find_role(view::node::Role::Label)
+        .find_role(view::Role::Label)
         .into_iter()
         .find(|frame| frame.label_text() == Some("Content Label"))
         .expect("body-large content label should be laid out")
         .rect();
     let interface_label = interface_layout
-        .find_role(view::node::Role::Label)
+        .find_role(view::Role::Label)
         .into_iter()
         .find(|frame| frame.label_text() == Some("Content Label"))
         .expect("interface-large content label should be laid out")
@@ -2200,7 +2200,7 @@ fn layout_hit_testing_uses_stable_identity_and_topmost_popup_order() {
         geometry::Size::new(320, 120),
         &mut layout_engine,
     );
-    let duplicate_menus = duplicate_layout.find_role(view::node::Role::Menu);
+    let duplicate_menus = duplicate_layout.find_role(view::Role::Menu);
 
     assert_eq!(duplicate_menus.len(), 2);
     assert_eq!(duplicate_menus[0].label_text(), Some("Same"));
@@ -2237,7 +2237,7 @@ fn layout_hit_testing_uses_stable_identity_and_topmost_popup_order() {
         .hit_test(geometry::Point::new(10, 34))
         .expect("popup should be hit above the text area");
 
-    assert_eq!(popup_hit.frame().role(), view::node::Role::Binding);
+    assert_eq!(popup_hit.frame().role(), view::Role::Binding);
     assert_eq!(popup_hit.frame().label_text(), Some("New"));
     assert_eq!(
         popup_hit
@@ -2262,7 +2262,7 @@ fn runtime_host_pointer_coordinates_route_to_view_actions() {
     let hit = app
         .hit_test(window, size, geometry::Point::new(10, 10))
         .expect("file menu should be hit");
-    assert_eq!(hit.frame().role(), view::node::Role::Menu);
+    assert_eq!(hit.frame().role(), view::Role::Menu);
     assert_eq!(hit.frame().label_text(), Some("File"));
 
     let moved = app
@@ -2308,7 +2308,7 @@ fn runtime_host_scroll_coordinates_route_to_scroll_target() {
         .expect("initial scene should install a composition");
     let text_area = presentation
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");
@@ -2338,7 +2338,7 @@ fn runtime_host_scroll_coordinates_route_to_scroll_target() {
         .expect("scrolled scene should render");
     let text_area = scrolled
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out after scrolling");
@@ -2375,7 +2375,7 @@ fn platform_wheel_down_scroll_moves_text_area_content_up() {
     let initial_y = first_visible_text_area_surface_y(&initial);
     let text_area = initial
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");
@@ -2405,7 +2405,7 @@ fn platform_wheel_down_scroll_moves_text_area_content_up() {
     let scrolled_y = first_visible_text_area_surface_y(&scrolled);
     let scroll_y = scrolled
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .first()
         .and_then(|frame| frame.text_area_layout())
         .map(|text_area| text_area.layout().scroll_y())
@@ -2431,7 +2431,7 @@ fn text_area_render_writes_back_clamped_scroll_offset() {
         .expect("initial scene should install a composition");
     let text_area = presentation
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");
@@ -2478,7 +2478,7 @@ fn text_area_render_writes_back_clamped_scroll_offset() {
     );
     let text_area = clamped
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out after clamping");
@@ -2518,7 +2518,7 @@ fn text_area_caret_reveal_resolves_framework_owned_scroll_after_edit() {
         .expect("initial scene should install a composition");
     let text_area = presentation
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");
@@ -2568,7 +2568,7 @@ fn text_area_caret_reveal_resolves_framework_owned_scroll_after_edit() {
     );
     let text_area = revealed
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out after reveal");
@@ -2628,7 +2628,7 @@ fn text_editor_layout_paints_to_renderer_neutral_scene() {
     assert!(scene.quads().iter().any(|quad| {
         quad.fill().channels() == (28, 28, 30, 255)
             && layout
-                .find_role(view::node::Role::TextArea)
+                .find_role(view::Role::TextArea)
                 .iter()
                 .any(|frame| frame.rect() == quad.rect())
     }));
@@ -2662,7 +2662,7 @@ fn text_area_selection_highlight_is_clipped_to_text_area_viewport() {
         .expect("initial scene should render");
     let text_area = initial
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");
@@ -2680,7 +2680,7 @@ fn text_area_selection_highlight_is_clipped_to_text_area_viewport() {
         .expect("scrolled scene should render");
     let text_area_rect = scrolled
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out after scrolling")
@@ -2736,7 +2736,7 @@ fn text_area_selection_highlight_paints_below_menu_bar_chrome() {
     let primitives = rendered.scene().primitives();
     let menu_bar_rect = rendered
         .layout()
-        .find_role(view::node::Role::MenuBar)
+        .find_role(view::Role::MenuBar)
         .into_iter()
         .next()
         .expect("menu bar should be laid out")
@@ -2799,7 +2799,7 @@ fn text_editor_wrap_command_changes_text_area_paint_wrap() {
     assert_eq!(
         wrapped
             .layout()
-            .find_role(view::node::Role::TextArea)
+            .find_role(view::Role::TextArea)
             .first()
             .and_then(|frame| frame.text_wrap()),
         Some(view::control::Wrap::Word)
@@ -2817,7 +2817,7 @@ fn text_editor_wrap_command_changes_text_area_paint_wrap() {
     assert_eq!(
         unwrapped
             .layout()
-            .find_role(view::node::Role::TextArea)
+            .find_role(view::Role::TextArea)
             .first()
             .and_then(|frame| frame.text_wrap()),
         Some(view::control::Wrap::None)
@@ -2838,17 +2838,17 @@ fn scene_paints_controls_from_semantic_state() {
     let layout = layout::Layout::compose(&view, geometry::Size::new(320, 120), &mut layout_engine);
     let scene = scene::Scene::paint(&layout);
     let checkbox = layout
-        .find_role(view::node::Role::Checkbox)
+        .find_role(view::Role::Checkbox)
         .into_iter()
         .next()
         .expect("checkbox should be laid out");
     let radio = layout
-        .find_role(view::node::Role::Radio)
+        .find_role(view::Role::Radio)
         .into_iter()
         .next()
         .expect("radio should be laid out");
     let slider = layout
-        .find_role(view::node::Role::Slider)
+        .find_role(view::Role::Slider)
         .into_iter()
         .next()
         .expect("slider should be laid out");
@@ -2935,7 +2935,7 @@ fn choice_marks_paint_pressed_tint_above_mark_without_label_overlay() {
         .expect("choice view should render");
     let checkbox = initial
         .layout()
-        .find_role(view::node::Role::Checkbox)
+        .find_role(view::Role::Checkbox)
         .into_iter()
         .next()
         .expect("checkbox should be laid out");
@@ -2950,7 +2950,7 @@ fn choice_marks_paint_pressed_tint_above_mark_without_label_overlay() {
         .expect("checkbox pressed state should render");
     let pressed_checkbox = checkbox_pressed
         .layout()
-        .find_role(view::node::Role::Checkbox)
+        .find_role(view::Role::Checkbox)
         .into_iter()
         .next()
         .expect("pressed checkbox should be laid out");
@@ -2969,7 +2969,7 @@ fn choice_marks_paint_pressed_tint_above_mark_without_label_overlay() {
         .expect("choice view should render after checkbox release");
     let radio = released
         .layout()
-        .find_role(view::node::Role::Radio)
+        .find_role(view::Role::Radio)
         .into_iter()
         .next()
         .expect("radio should be laid out");
@@ -2984,7 +2984,7 @@ fn choice_marks_paint_pressed_tint_above_mark_without_label_overlay() {
         .expect("radio pressed state should render");
     let pressed_radio = radio_pressed
         .layout()
-        .find_role(view::node::Role::Radio)
+        .find_role(view::Role::Radio)
         .into_iter()
         .next()
         .expect("pressed radio should be laid out");
@@ -3061,7 +3061,7 @@ fn theme_toml_tokens_drive_layout_and_scene_primitives() {
     let view = View::new(
         view::Node::root()
             .child(
-                view::Node::stack(view::node::Axis::Vertical)
+                view::Node::stack(view::Axis::Vertical)
                     .child(view::Node::menu_bar().child(view::Node::menu("menu.file", "File")))
                     .child(view::Node::button("Run")),
             )
@@ -3076,22 +3076,22 @@ fn theme_toml_tokens_drive_layout_and_scene_primitives() {
     );
     let scene = scene::Scene::paint_with_theme(&layout, &theme);
     let menu_bar = layout
-        .find_role(view::node::Role::MenuBar)
+        .find_role(view::Role::MenuBar)
         .into_iter()
         .next()
         .expect("menu bar should be laid out");
     let button = layout
-        .find_role(view::node::Role::Button)
+        .find_role(view::Role::Button)
         .into_iter()
         .next()
         .expect("button should be laid out");
     let popup = layout
-        .find_role(view::node::Role::FloatingPanel)
+        .find_role(view::Role::FloatingPanel)
         .into_iter()
         .next()
         .expect("popup should be laid out");
     let item = layout
-        .find_role(view::node::Role::Label)
+        .find_role(view::Role::Label)
         .into_iter()
         .find(|frame| frame.label_text() == Some("Item"))
         .expect("popup item should be laid out");
@@ -3195,19 +3195,19 @@ fn open_menu_projects_menu_bar_state_without_popup_title_text() {
         .expect("open file menu should render");
     let menu_bar = rendered
         .layout()
-        .find_role(view::node::Role::MenuBar)
+        .find_role(view::Role::MenuBar)
         .into_iter()
         .next()
         .expect("menu bar should be laid out");
     let file = rendered
         .layout()
-        .find_role(view::node::Role::Menu)
+        .find_role(view::Role::Menu)
         .into_iter()
         .find(|frame| frame.label_text() == Some("File"))
         .expect("file menu should be laid out");
     let edit = rendered
         .layout()
-        .find_role(view::node::Role::Menu)
+        .find_role(view::Role::Menu)
         .into_iter()
         .find(|frame| frame.label_text() == Some("Edit"))
         .expect("edit menu should be laid out");
@@ -3271,12 +3271,12 @@ fn control_gallery_choice_labels_are_single_line_row_content() {
         .expect("control gallery should render");
 
     for (role, label) in [
-        (view::node::Role::Checkbox, "Wrap text"),
-        (view::node::Role::Checkbox, "Show grid"),
-        (view::node::Role::Checkbox, "Advanced"),
-        (view::node::Role::Radio, "Design"),
-        (view::node::Role::Radio, "Inspect"),
-        (view::node::Role::Radio, "Preview"),
+        (view::Role::Checkbox, "Wrap text"),
+        (view::Role::Checkbox, "Show grid"),
+        (view::Role::Checkbox, "Advanced"),
+        (view::Role::Radio, "Design"),
+        (view::Role::Radio, "Inspect"),
+        (view::Role::Radio, "Preview"),
     ] {
         let frame = rendered
             .layout()
@@ -3325,9 +3325,7 @@ fn menu_popup_rows_use_row_layout_for_labels_shortcuts_and_separators() {
         .layout()
         .frames()
         .iter()
-        .find(|frame| {
-            frame.role() == view::node::Role::Binding && frame.label_text() == Some("Exit")
-        })
+        .find(|frame| frame.role() == view::Role::Binding && frame.label_text() == Some("Exit"))
         .expect("exit row should be laid out");
     let theme = Theme::default();
     let slots = layout::menu_row_slots(exit.rect(), exit.shortcut_width(), &theme);
@@ -3364,13 +3362,13 @@ fn menu_popup_rows_use_row_layout_for_labels_shortcuts_and_separators() {
 
     let separator = rendered
         .layout()
-        .find_role(view::node::Role::Separator)
+        .find_role(view::Role::Separator)
         .into_iter()
         .next()
         .expect("file menu separator should be laid out");
     let popup = rendered
         .layout()
-        .find_role(view::node::Role::FloatingPanel)
+        .find_role(view::Role::FloatingPanel)
         .into_iter()
         .next()
         .expect("file menu popup should be laid out");
@@ -3419,13 +3417,13 @@ fn menu_popup_opens_under_its_menu_title() {
         .expect("open view menu should render");
     let view_menu = rendered
         .layout()
-        .find_role(view::node::Role::Menu)
+        .find_role(view::Role::Menu)
         .into_iter()
         .find(|frame| frame.label_text() == Some("View"))
         .expect("view menu should be laid out");
     let popup = rendered
         .layout()
-        .find_role(view::node::Role::FloatingPanel)
+        .find_role(view::Role::FloatingPanel)
         .into_iter()
         .next()
         .expect("view menu popup should be laid out");
@@ -3448,7 +3446,7 @@ fn menu_titles_paint_hover_pressed_and_active_tints() {
         .expect("control gallery should render");
     let menu = initial
         .layout()
-        .find_role(view::node::Role::Menu)
+        .find_role(view::Role::Menu)
         .into_iter()
         .find(|frame| frame.label_text() == Some("Controls"))
         .expect("controls menu should be laid out");
@@ -3507,7 +3505,7 @@ fn menu_popup_rows_paint_hover_tint_from_pointer_projection() {
         .expect("text editor should render");
     let file = initial
         .layout()
-        .find_role(view::node::Role::Menu)
+        .find_role(view::Role::Menu)
         .into_iter()
         .find(|frame| frame.label_text() == Some("File"))
         .expect("file menu should be laid out");
@@ -3524,9 +3522,7 @@ fn menu_popup_rows_paint_hover_tint_from_pointer_projection() {
         .layout()
         .frames()
         .iter()
-        .find(|frame| {
-            frame.role() == view::node::Role::Binding && frame.label_text() == Some("New")
-        })
+        .find(|frame| frame.role() == view::Role::Binding && frame.label_text() == Some("New"))
         .expect("new command row should be laid out");
     let before_hover = app
         .diagnostics(window)
@@ -3557,9 +3553,7 @@ fn menu_popup_rows_paint_hover_tint_from_pointer_projection() {
         .layout()
         .frames()
         .iter()
-        .find(|frame| {
-            frame.role() == view::node::Role::Binding && frame.label_text() == Some("New")
-        })
+        .find(|frame| frame.role() == view::Role::Binding && frame.label_text() == Some("New"))
         .expect("new command row should still be laid out");
 
     assert_tint_quad(
@@ -3604,7 +3598,7 @@ fn checked_menu_popup_rows_do_not_paint_active_tint() {
         .frames()
         .iter()
         .find(|frame| {
-            frame.role() == view::node::Role::Binding && frame.label_text() == Some("Wrap text")
+            frame.role() == view::Role::Binding && frame.label_text() == Some("Wrap text")
         })
         .expect("checked wrap row should be laid out");
     let theme = Theme::default();
@@ -3687,7 +3681,7 @@ fn scene_preserves_popup_paint_order_after_base_content() {
     );
     let scene = scene::Scene::paint(&layout);
     let popup = layout
-        .find_role(view::node::Role::FloatingPanel)
+        .find_role(view::Role::FloatingPanel)
         .into_iter()
         .next()
         .expect("file menu popup should be laid out");
@@ -3840,7 +3834,7 @@ fn generic_floating_panel_uses_shared_chrome_before_content() {
     let layout = layout::Layout::compose(&view, geometry::Size::new(240, 160), &mut layout_engine);
     let scene = scene::Scene::paint(&layout);
     let panel = layout
-        .find_role(view::node::Role::FloatingPanel)
+        .find_role(view::Role::FloatingPanel)
         .into_iter()
         .next()
         .expect("floating panel should be laid out");
@@ -3910,17 +3904,17 @@ fn generic_floating_panel_uses_stack_padding_and_gap_for_content() {
     let layout = layout::Layout::compose(&view, geometry::Size::new(260, 180), &mut layout_engine);
     let theme = Theme::default();
     let panel = layout
-        .find_role(view::node::Role::FloatingPanel)
+        .find_role(view::Role::FloatingPanel)
         .into_iter()
         .next()
         .expect("floating panel should be laid out");
     let alpha = layout
-        .find_role(view::node::Role::Label)
+        .find_role(view::Role::Label)
         .into_iter()
         .find(|frame| frame.label_text() == Some("Alpha"))
         .expect("alpha label should be laid out");
     let beta = layout
-        .find_role(view::node::Role::Label)
+        .find_role(view::Role::Label)
         .into_iter()
         .find(|frame| frame.label_text() == Some("Beta"))
         .expect("beta label should be laid out");
@@ -3952,7 +3946,7 @@ fn slider_labels_are_single_line_without_default_row_fill() {
     let layout = layout::Layout::compose(&view, geometry::Size::new(360, 80), &mut layout_engine);
     let scene = scene::Scene::paint(&layout);
     let slider = layout
-        .find_role(view::node::Role::Slider)
+        .find_role(view::Role::Slider)
         .into_iter()
         .next()
         .expect("slider should be laid out");
@@ -4003,7 +3997,7 @@ fn overlay_layout_paints_styled_backgrounds_under_floating_panel() {
     let layout = layout::Layout::compose(&view, geometry::Size::new(200, 120), &mut layout_engine);
     let scene = scene::Scene::paint(&layout);
     let panel = layout
-        .find_role(view::node::Role::FloatingPanel)
+        .find_role(view::Role::FloatingPanel)
         .into_iter()
         .next()
         .expect("floating panel should be laid out");
@@ -4034,7 +4028,7 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
         .expect("glass tuner should render");
     let panel = initial
         .layout()
-        .find_role(view::node::Role::FloatingPanel)
+        .find_role(view::Role::FloatingPanel)
         .into_iter()
         .next()
         .expect("glass tuner floating panel should be laid out");
@@ -4096,7 +4090,7 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
 
     let slider = rendered
         .layout()
-        .find_role(view::node::Role::Slider)
+        .find_role(view::Role::Slider)
         .into_iter()
         .next()
         .expect("glass tuner should lay out sliders");
@@ -4111,7 +4105,7 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
             ),
         )
         .expect("slider should be hit testable");
-    assert_eq!(hit.frame().role(), view::node::Role::Slider);
+    assert_eq!(hit.frame().role(), view::Role::Slider);
 
     app.invoke(app.trigger::<glass_tuner::TogglePanel>(()))
         .output
@@ -4219,7 +4213,7 @@ fn first_visible_text_area_surface_y(presentation: &scene::Presentation) -> f32 
 fn visible_text_area_surfaces(presentation: &scene::Presentation) -> Vec<(usize, f32, f32)> {
     presentation
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .flat_map(|frame| {
             let height = frame.rect().height() as f32;
@@ -4360,7 +4354,7 @@ fn scroll_outer_until_inner_overlaps_search(
 fn first_scroll_frame(presentation: &scene::Presentation) -> &layout::Frame {
     presentation
         .layout()
-        .find_role(view::node::Role::Scroll)
+        .find_role(view::Role::Scroll)
         .into_iter()
         .next()
         .expect("scroll should be laid out")
@@ -4372,7 +4366,7 @@ fn scroll_frame_with_label<'a>(
 ) -> &'a layout::Frame {
     presentation
         .layout()
-        .find_role(view::node::Role::Scroll)
+        .find_role(view::Role::Scroll)
         .into_iter()
         .find(|frame| frame.label_text() == Some(label))
         .expect("named scroll should be laid out")
@@ -4381,7 +4375,7 @@ fn scroll_frame_with_label<'a>(
 fn command_palette_results_frame(presentation: &scene::Presentation) -> &layout::Frame {
     presentation
         .layout()
-        .find_role(view::node::Role::Scroll)
+        .find_role(view::Role::Scroll)
         .into_iter()
         .find(|frame| {
             frame.target().and_then(interaction::Target::element_id)
@@ -4393,7 +4387,7 @@ fn command_palette_results_frame(presentation: &scene::Presentation) -> &layout:
 fn command_palette_panel_frame(presentation: &scene::Presentation) -> &layout::Frame {
     presentation
         .layout()
-        .find_role(view::node::Role::FloatingPanel)
+        .find_role(view::Role::FloatingPanel)
         .into_iter()
         .find(|frame| {
             frame.target().and_then(interaction::Target::element_id)

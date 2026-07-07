@@ -29,21 +29,21 @@ pub(in crate::layout) fn intrinsic_width(
         .unwrap_or_default();
 
     match node.role() {
-        view::node::Role::MenuBar => {
+        view::Role::MenuBar => {
             menu_title_width(node, engine, theme).saturating_mul(node.children().len() as i32)
         }
-        view::node::Role::Menu => menu_intrinsic_width(node, engine, theme),
-        view::node::Role::FloatingPanel => floating_panel_width(node, engine, theme),
-        view::node::Role::Scroll => scroll_intrinsic_width(node, engine, theme),
-        view::node::Role::Binding
+        view::Role::Menu => menu_intrinsic_width(node, engine, theme),
+        view::Role::FloatingPanel => floating_panel_width(node, engine, theme),
+        view::Role::Scroll => scroll_intrinsic_width(node, engine, theme),
+        view::Role::Binding
             if node
                 .binding()
                 .is_some_and(|binding| binding.source() == Source::Menu) =>
         {
             menu_row_width(node, engine, theme).max(theme.menu().panel_min_width)
         }
-        view::node::Role::Binding => label_width.max(theme.menu().panel_min_width),
-        view::node::Role::Label
+        view::Role::Binding => label_width.max(theme.menu().panel_min_width),
+        view::Role::Label
             if node
                 .binding()
                 .is_some_and(|binding| binding.source() == Source::Palette) =>
@@ -51,13 +51,11 @@ pub(in crate::layout) fn intrinsic_width(
             let shortcut_width = palette_shortcut_width(node, engine, theme);
             control::palette_row_width(label_width, shortcut_width, theme)
         }
-        view::node::Role::Button => button_intrinsic_width(node, engine, theme),
-        view::node::Role::Slider => control::slider_row_width(label_width, theme),
-        view::node::Role::TextBox => label_width.max(120),
-        view::node::Role::Checkbox | view::node::Role::Radio => {
-            control::choice_row_width(label_width, theme)
-        }
-        view::node::Role::SectionHeader => section_header_width(node, engine, theme),
+        view::Role::Button => button_intrinsic_width(node, engine, theme),
+        view::Role::Slider => control::slider_row_width(label_width, theme),
+        view::Role::TextBox => label_width.max(120),
+        view::Role::Checkbox | view::Role::Radio => control::choice_row_width(label_width, theme),
+        view::Role::SectionHeader => section_header_width(node, engine, theme),
         _ => control_intrinsic_width(node, label_width, theme),
     }
 }
@@ -65,29 +63,28 @@ pub(in crate::layout) fn intrinsic_width(
 pub(in crate::layout) fn intrinsic_height(node: &view::Node, theme: &theme::Theme) -> i32 {
     let control_height = theme.control().height;
     match node.role() {
-        view::node::Role::FloatingPanel => floating_panel_height(node, theme),
-        view::node::Role::MenuBar | view::node::Role::Menu => theme.menu().bar_height,
-        view::node::Role::Binding
+        view::Role::FloatingPanel => floating_panel_height(node, theme),
+        view::Role::MenuBar | view::Role::Menu => theme.menu().bar_height,
+        view::Role::Binding
             if node
                 .binding()
                 .is_some_and(|binding| binding.source() == Source::Menu) =>
         {
             theme.menu().row_height
         }
-        view::node::Role::Binding
-        | view::node::Role::Button
-        | view::node::Role::Checkbox
-        | view::node::Role::Radio
-        | view::node::Role::Slider
-        | view::node::Role::TextBox => control_height,
-        view::node::Role::Scroll => scroll_intrinsic_height(node, theme),
-        view::node::Role::Separator => theme.menu().row_height,
-        view::node::Role::SectionHeader => section_header_height(theme),
-        view::node::Role::Label => body_line_height(theme),
-        view::node::Role::TextArea
-        | view::node::Role::Panel
-        | view::node::Role::Root
-        | view::node::Role::Stack => control_height,
+        view::Role::Binding
+        | view::Role::Button
+        | view::Role::Checkbox
+        | view::Role::Radio
+        | view::Role::Slider
+        | view::Role::TextBox => control_height,
+        view::Role::Scroll => scroll_intrinsic_height(node, theme),
+        view::Role::Separator => theme.menu().row_height,
+        view::Role::SectionHeader => section_header_height(theme),
+        view::Role::Label => body_line_height(theme),
+        view::Role::TextArea | view::Role::Panel | view::Role::Root | view::Role::Stack => {
+            control_height
+        }
     }
 }
 
@@ -99,10 +96,8 @@ pub(in crate::layout) fn intrinsic_height_for_width(
 ) -> i32 {
     let control_height = theme.control().height;
     match node.role() {
-        view::node::Role::FloatingPanel => {
-            floating_panel_height_for_width(node, width, engine, theme)
-        }
-        view::node::Role::Label | view::node::Role::Panel
+        view::Role::FloatingPanel => floating_panel_height_for_width(node, width, engine, theme),
+        view::Role::Label | view::Role::Panel
             if node.label_text().is_some() && node.children().is_empty() =>
         {
             node.label_text()
@@ -113,7 +108,7 @@ pub(in crate::layout) fn intrinsic_height_for_width(
                 })
                 .unwrap_or_else(|| body_line_height(theme))
         }
-        view::node::Role::SectionHeader => node
+        view::Role::SectionHeader => node
             .label_text()
             .map(|label| {
                 engine
@@ -126,7 +121,7 @@ pub(in crate::layout) fn intrinsic_height_for_width(
             })
             .unwrap_or_else(|| section_header_height(theme))
             .max(section_header_height(theme)),
-        view::node::Role::TextArea => node
+        view::Role::TextArea => node
             .text_area_model()
             .map(|text_area| {
                 engine
@@ -135,8 +130,8 @@ pub(in crate::layout) fn intrinsic_height_for_width(
             })
             .unwrap_or(control_height)
             .max(control_height),
-        view::node::Role::Scroll => scroll_intrinsic_height_for_width(node, width, engine, theme),
-        view::node::Role::Panel | view::node::Role::Root | view::node::Role::Stack => {
+        view::Role::Scroll => scroll_intrinsic_height_for_width(node, width, engine, theme),
+        view::Role::Panel | view::Role::Root | view::Role::Stack => {
             stack_intrinsic_height_for_width(node, width, engine, theme)
         }
         _ => intrinsic_height(node, theme),
@@ -234,7 +229,7 @@ fn stack_max_envelope_height_for_width(
     let padding = node.style().padding();
     let content_width = width.max(0).saturating_sub(padding.horizontal());
     let child_height = match node.axis() {
-        Some(view::node::Axis::Horizontal) | Some(view::node::Axis::Overlay) => children
+        Some(view::Axis::Horizontal) | Some(view::Axis::Overlay) => children
             .iter()
             .map(|child| {
                 let child_width =
@@ -243,7 +238,7 @@ fn stack_max_envelope_height_for_width(
             })
             .max()
             .unwrap_or_default(),
-        Some(view::node::Axis::Vertical) | None => children
+        Some(view::Axis::Vertical) | None => children
             .iter()
             .map(|child| max_envelope_height_for_width(child, content_width, engine, theme))
             .sum::<i32>()
@@ -259,7 +254,7 @@ fn max_envelope_height_for_width(
     engine: &mut engine::Engine,
     theme: &theme::Theme,
 ) -> i32 {
-    if node.role() == view::node::Role::Scroll
+    if node.role() == view::Role::Scroll
         && node.style().height() == Some(view::Dimension::Fit)
         && let Some(max_height) = node.style().max_height()
     {
@@ -276,12 +271,12 @@ fn stack_intrinsic_height(node: &view::Node, theme: &theme::Theme) -> i32 {
     }
 
     let child_height = match node.axis() {
-        Some(view::node::Axis::Horizontal) | Some(view::node::Axis::Overlay) => children
+        Some(view::Axis::Horizontal) | Some(view::Axis::Overlay) => children
             .iter()
             .map(|child| intrinsic_height(child, theme))
             .max()
             .unwrap_or_default(),
-        Some(view::node::Axis::Vertical) | None => children
+        Some(view::Axis::Vertical) | None => children
             .iter()
             .map(|child| intrinsic_or_fixed_height(child, theme))
             .sum::<i32>()
@@ -315,7 +310,7 @@ fn stack_intrinsic_height_for_width(
     let padding = node.style().padding();
     let content_width = width.max(0).saturating_sub(padding.horizontal());
     match node.axis() {
-        Some(view::node::Axis::Horizontal) | Some(view::node::Axis::Overlay) => children
+        Some(view::Axis::Horizontal) | Some(view::Axis::Overlay) => children
             .iter()
             .map(|child| {
                 let child_width =
@@ -325,7 +320,7 @@ fn stack_intrinsic_height_for_width(
             .max()
             .unwrap_or_default()
             .saturating_add(padding.vertical()),
-        Some(view::node::Axis::Vertical) | None => {
+        Some(view::Axis::Vertical) | None => {
             let mut column = flow::Column::new()
                 .gap(layout_gap(node, theme))
                 .padding(padding)
@@ -383,12 +378,12 @@ fn stack_intrinsic_width(
     }
 
     let child_width = match node.axis() {
-        Some(view::node::Axis::Horizontal) => children
+        Some(view::Axis::Horizontal) => children
             .iter()
             .map(|child| intrinsic_width(child, engine, theme))
             .sum::<i32>()
             .saturating_add(gap_total(layout_gap(node, theme), children.len())),
-        Some(view::node::Axis::Vertical) | Some(view::node::Axis::Overlay) | None => children
+        Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None => children
             .iter()
             .map(|child| intrinsic_width(child, engine, theme))
             .max()
@@ -404,8 +399,8 @@ fn scroll_intrinsic_width(
     theme: &theme::Theme,
 ) -> i32 {
     match node.axis() {
-        Some(view::node::Axis::Horizontal) => theme.viewport().min_viewport_extent,
-        Some(view::node::Axis::Vertical) | Some(view::node::Axis::Overlay) | None => {
+        Some(view::Axis::Horizontal) => theme.viewport().min_viewport_extent,
+        Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None => {
             stack_intrinsic_width(node, engine, theme)
         }
     }
@@ -413,14 +408,14 @@ fn scroll_intrinsic_width(
 
 fn scroll_intrinsic_height(node: &view::Node, theme: &theme::Theme) -> i32 {
     match node.axis() {
-        Some(view::node::Axis::Horizontal) => stack_intrinsic_height(node, theme),
-        Some(view::node::Axis::Vertical) | Some(view::node::Axis::Overlay) | None
+        Some(view::Axis::Horizontal) => stack_intrinsic_height(node, theme),
+        Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None
             if node.style().height() == Some(view::Dimension::Fit)
                 && node.style().max_height().is_some() =>
         {
             capped_height(node, stack_intrinsic_height(node, theme))
         }
-        Some(view::node::Axis::Vertical) | Some(view::node::Axis::Overlay) | None => {
+        Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None => {
             capped_height(node, theme.viewport().min_viewport_extent)
         }
     }
@@ -433,10 +428,10 @@ fn scroll_intrinsic_height_for_width(
     theme: &theme::Theme,
 ) -> i32 {
     match node.axis() {
-        Some(view::node::Axis::Horizontal) => {
+        Some(view::Axis::Horizontal) => {
             stack_intrinsic_height_for_width(node, width, engine, theme)
         }
-        Some(view::node::Axis::Vertical) | Some(view::node::Axis::Overlay) | None
+        Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None
             if node.style().height() == Some(view::Dimension::Fit)
                 && node.style().max_height().is_some() =>
         {
@@ -445,7 +440,7 @@ fn scroll_intrinsic_height_for_width(
                 stack_intrinsic_height_for_width(node, width, engine, theme),
             )
         }
-        Some(view::node::Axis::Vertical) | Some(view::node::Axis::Overlay) | None => {
+        Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None => {
             capped_height(node, theme.viewport().min_viewport_extent)
         }
     }
@@ -456,7 +451,7 @@ fn is_menu_panel(node: &view::Node) -> bool {
 }
 
 fn is_menu_panel_row(node: &view::Node) -> bool {
-    node.role() == view::node::Role::Separator
+    node.role() == view::Role::Separator
         || node
             .binding()
             .is_some_and(|binding| binding.source() == Source::Menu)
@@ -547,7 +542,7 @@ pub(in crate::layout) fn menu_title_width(
 ) -> i32 {
     node.children()
         .iter()
-        .filter(|child| child.role() == view::node::Role::Menu)
+        .filter(|child| child.role() == view::Role::Menu)
         .map(|child| menu_intrinsic_width(child, engine, theme))
         .max()
         .unwrap_or_default()
@@ -575,7 +570,7 @@ fn menu_intrinsic_width(
 }
 
 fn menu_row_width(node: &view::Node, engine: &mut engine::Engine, theme: &theme::Theme) -> i32 {
-    if node.role() == view::node::Role::Separator {
+    if node.role() == view::Role::Separator {
         return 0;
     }
 
@@ -603,7 +598,7 @@ pub(in crate::layout) fn gap_total(gap: i32, child_count: usize) -> i32 {
 }
 
 pub(in crate::layout) fn layout_gap(node: &view::Node, theme: &theme::Theme) -> i32 {
-    if node.role() == view::node::Role::FloatingPanel && !is_menu_panel(node) {
+    if node.role() == view::Role::FloatingPanel && !is_menu_panel(node) {
         return node
             .style()
             .gap_override()
@@ -622,10 +617,7 @@ pub(in crate::layout) fn grows_vertical_space(node: &view::Node) -> bool {
         }
         None => matches!(
             node.role(),
-            view::node::Role::TextArea
-                | view::node::Role::Panel
-                | view::node::Role::Scroll
-                | view::node::Role::Stack
+            view::Role::TextArea | view::Role::Panel | view::Role::Scroll | view::Role::Stack
         ),
     }
 }
@@ -875,21 +867,21 @@ fn body_line_height(theme: &theme::Theme) -> i32 {
 
 fn intrinsic_label_style(node: &view::Node, theme: &theme::Theme) -> theme::TypeStyle {
     match node.role() {
-        view::node::Role::Menu
-        | view::node::Role::Binding
-        | view::node::Role::Button
-        | view::node::Role::Checkbox
-        | view::node::Role::Radio
-        | view::node::Role::Slider
-        | view::node::Role::TextBox => typography::interface_text_style(theme),
-        view::node::Role::Label
+        view::Role::Menu
+        | view::Role::Binding
+        | view::Role::Button
+        | view::Role::Checkbox
+        | view::Role::Radio
+        | view::Role::Slider
+        | view::Role::TextBox => typography::interface_text_style(theme),
+        view::Role::Label
             if node
                 .binding()
                 .is_some_and(|binding| binding.source() == Source::Palette) =>
         {
             typography::interface_text_style(theme)
         }
-        view::node::Role::SectionHeader => typography::section_header_style(theme),
+        view::Role::SectionHeader => typography::section_header_style(theme),
         _ => theme.typography().body(),
     }
 }

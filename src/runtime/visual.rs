@@ -81,7 +81,7 @@ impl Animations {
         self.update_target_visuals(layout, interaction, now, &mut visuals);
 
         for frame in layout.frames() {
-            if frame.role() != view::node::Role::Slider {
+            if frame.role() != view::Role::Slider {
                 continue;
             }
 
@@ -275,8 +275,8 @@ impl Animations {
                 frame.is_selected()
             };
             let active = match frame.role() {
-                view::node::Role::MenuBar => open_menu.is_some(),
-                view::node::Role::Menu => target
+                view::Role::MenuBar => open_menu.is_some(),
+                view::Role::Menu => target
                     .as_menu()
                     .is_some_and(|menu| open_menu == Some(&menu)),
                 _ => activation == Some(&target),

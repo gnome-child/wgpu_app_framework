@@ -101,8 +101,8 @@ fn widget_element_style_affects_row_layout_frames() {
 
     let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(300, 80), &mut layout_engine);
-    let panels = layout.find_role(view::node::Role::Panel);
-    let buttons = layout.find_role(view::node::Role::Button);
+    let panels = layout.find_role(view::Role::Panel);
+    let buttons = layout.find_role(view::Role::Button);
 
     assert_eq!(panels.len(), 2);
     assert_eq!(buttons.len(), 1);
@@ -150,7 +150,7 @@ fn row_layout_fits_children_unless_width_grows() {
 
     let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(300, 80), &mut layout_engine);
-    let buttons = layout.find_role(view::node::Role::Button);
+    let buttons = layout.find_role(view::Role::Button);
 
     assert_eq!(buttons.len(), 2);
     assert!(buttons[0].rect().width() < buttons[1].rect().width());
@@ -180,7 +180,7 @@ fn fit_height_text_uses_height_for_allocated_width() {
     let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(300, 160), &mut layout_engine);
     let label = layout
-        .find_role(view::node::Role::Panel)
+        .find_role(view::Role::Panel)
         .into_iter()
         .find(|frame| frame.label_text() == Some(text))
         .expect("fit label should be laid out");
@@ -234,12 +234,12 @@ fn choice_and_slider_labels_are_passive_hit_regions() {
     let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(260, 90), &mut layout_engine);
     let checkbox = layout
-        .find_role(view::node::Role::Checkbox)
+        .find_role(view::Role::Checkbox)
         .into_iter()
         .next()
         .expect("checkbox should be laid out");
     let slider = layout
-        .find_role(view::node::Role::Slider)
+        .find_role(view::Role::Slider)
         .into_iter()
         .next()
         .expect("slider should be laid out");
@@ -248,13 +248,13 @@ fn choice_and_slider_labels_are_passive_hit_regions() {
         layout
             .hit_test(center(checkbox.active_rect()))
             .map(|hit| hit.frame().role()),
-        Some(view::node::Role::Checkbox)
+        Some(view::Role::Checkbox)
     );
     assert_eq!(
         layout
             .hit_test(center(slider.active_rect()))
             .map(|hit| hit.frame().role()),
-        Some(view::node::Role::Slider)
+        Some(view::Role::Slider)
     );
     assert!(
         layout
@@ -310,7 +310,7 @@ fn widget_element_alignment_affects_layout_frames() {
 
     let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(200, 100), &mut layout_engine);
-    let panels = layout.find_role(view::node::Role::Panel);
+    let panels = layout.find_role(view::Role::Panel);
 
     assert_eq!(panels.len(), 2);
     assert_eq!(panels[0].rect(), geometry::Rect::new(90, 40, 40, 20));
@@ -342,8 +342,8 @@ fn widget_element_style_affects_column_layout_frames() {
 
     let mut layout_engine = layout::Engine::new();
     let layout = layout::Layout::compose(&view, geometry::Size::new(100, 100), &mut layout_engine);
-    let panels = layout.find_role(view::node::Role::Panel);
-    let labels = layout.find_role(view::node::Role::Label);
+    let panels = layout.find_role(view::Role::Panel);
+    let labels = layout.find_role(view::Role::Label);
 
     assert_eq!(panels.len(), 2);
     assert_eq!(labels.len(), 1);
@@ -365,7 +365,7 @@ fn reserved_toggle_button_width(label: &str) -> i32 {
     let layout = layout::Layout::compose(&view, geometry::Size::new(240, 80), &mut layout_engine);
 
     layout
-        .find_role(view::node::Role::Button)
+        .find_role(view::Role::Button)
         .into_iter()
         .next()
         .expect("button should be laid out")

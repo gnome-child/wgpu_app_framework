@@ -286,7 +286,7 @@ fn focused_text_area_renders_focus_outline_and_controls_caret_visibility() {
         .expect("unfocused scene should render");
     let text_area = unfocused
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");
@@ -308,7 +308,7 @@ fn focused_text_area_renders_focus_outline_and_controls_caret_visibility() {
         .expect("focused scene should render");
     let focused_text_area = focused
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("focused text area should be laid out");
@@ -1123,7 +1123,7 @@ fn text_editor_file_menu_load_stress_text_updates_document_and_status() {
 fn text_area_caret_visible(presentation: &scene::Presentation) -> bool {
     let Some(text_area) = presentation
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
     else {
@@ -1156,7 +1156,7 @@ fn text_area_caret_visible(presentation: &scene::Presentation) -> bool {
 fn assert_text_area_caret_rasterization(presentation: &scene::Presentation) {
     let text_area = presentation
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");

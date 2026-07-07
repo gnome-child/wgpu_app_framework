@@ -26,7 +26,7 @@ fn host_window_event_mapper_routes_common_window_events() {
             .presentation(window)
             .expect("host should retain latest presentation")
             .layout()
-            .find_role(view::node::Role::TextArea)
+            .find_role(view::Role::TextArea)
             .into_iter()
             .next()
             .expect("text area should be laid out");

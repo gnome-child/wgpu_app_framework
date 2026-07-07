@@ -55,8 +55,8 @@ enum Identity {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct Key {
-    role: view::node::Role,
-    axis: Option<view::node::Axis>,
+    role: view::Role,
+    axis: Option<view::Axis>,
 }
 
 impl NodeId {
@@ -355,8 +355,8 @@ fn subject_for(view: &view::Node) -> Option<subject::Segment> {
     }
 
     match view.role() {
-        view::node::Role::Root => Some(subject::Segment::application()),
-        view::node::Role::TextArea => view
+        view::Role::Root => Some(subject::Segment::application()),
+        view::Role::TextArea => view
             .id()
             .or_else(|| {
                 view.text_area_model()
@@ -364,25 +364,25 @@ fn subject_for(view: &view::Node) -> Option<subject::Segment> {
                     .and_then(|focus| focus.target_id())
             })
             .map(segment_from_id),
-        view::node::Role::TextBox => view
+        view::Role::TextBox => view
             .text_box_model()
             .and_then(view::control::TextBox::focus)
             .and_then(|focus| focus.target_id())
             .map(segment_from_id),
-        view::node::Role::Menu | view::node::Role::FloatingPanel | view::node::Role::Panel => {
+        view::Role::Menu | view::Role::FloatingPanel | view::Role::Panel => {
             view.label_text().map(subject::Segment::from_label)
         }
-        view::node::Role::Scroll => None,
-        view::node::Role::Stack
-        | view::node::Role::MenuBar
-        | view::node::Role::Binding
-        | view::node::Role::Separator
-        | view::node::Role::Button
-        | view::node::Role::Checkbox
-        | view::node::Role::Radio
-        | view::node::Role::Slider
-        | view::node::Role::SectionHeader
-        | view::node::Role::Label => None,
+        view::Role::Scroll => None,
+        view::Role::Stack
+        | view::Role::MenuBar
+        | view::Role::Binding
+        | view::Role::Separator
+        | view::Role::Button
+        | view::Role::Checkbox
+        | view::Role::Radio
+        | view::Role::Slider
+        | view::Role::SectionHeader
+        | view::Role::Label => None,
     }
 }
 

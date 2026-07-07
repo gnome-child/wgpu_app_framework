@@ -396,7 +396,7 @@ fn text_editor_shell_event_surface_drives_save_flow() {
         .expect("resized window should present");
     let text_area = presentation
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");
@@ -542,7 +542,7 @@ fn text_editor_host_adapter_consumes_shell_work_end_to_end() {
         .presentation(window)
         .expect("host should retain latest presentation")
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");

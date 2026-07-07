@@ -105,7 +105,7 @@ fn layout_node(
     ctx: &mut LayoutContext<'_>,
 ) {
     let floating_layer = floating_layer || is_floating_panel_role(node.role());
-    if node.role() == view::node::Role::Scroll {
+    if node.role() == view::Role::Scroll {
         layout_scroll(node, retained, path, rect, floating_layer, clip, ctx);
         return;
     }
@@ -121,44 +121,42 @@ fn layout_node(
     ctx.frames.push(frame);
 
     match node.role() {
-        view::node::Role::Root => layout_root(node, retained, &path, rect, clip, ctx),
-        view::node::Role::Stack => match node.axis() {
-            Some(view::node::Axis::Horizontal) => {
+        view::Role::Root => layout_root(node, retained, &path, rect, clip, ctx),
+        view::Role::Stack => match node.axis() {
+            Some(view::Axis::Horizontal) => {
                 layout_horizontal_stack(node, retained, &path, rect, floating_layer, clip, ctx)
             }
-            Some(view::node::Axis::Vertical) | None => {
+            Some(view::Axis::Vertical) | None => {
                 layout_vertical_stack(node, retained, &path, rect, floating_layer, clip, ctx)
             }
-            Some(view::node::Axis::Overlay) => {
+            Some(view::Axis::Overlay) => {
                 layout_overlay_stack(node, retained, &path, rect, floating_layer, clip, ctx)
             }
         },
-        view::node::Role::MenuBar => {
+        view::Role::MenuBar => {
             layout_menu_bar(node, retained, &path, rect, floating_layer, clip, ctx)
         }
-        view::node::Role::FloatingPanel => {
-            layout_floating_panel(node, retained, &path, rect, None, ctx)
-        }
-        view::node::Role::Panel => {
+        view::Role::FloatingPanel => layout_floating_panel(node, retained, &path, rect, None, ctx),
+        view::Role::Panel => {
             layout_vertical_stack(node, retained, &path, rect, floating_layer, clip, ctx)
         }
-        view::node::Role::Menu
-        | view::node::Role::Binding
-        | view::node::Role::Separator
-        | view::node::Role::TextArea
-        | view::node::Role::Button
-        | view::node::Role::Checkbox
-        | view::node::Role::Radio
-        | view::node::Role::Slider
-        | view::node::Role::TextBox
-        | view::node::Role::Scroll
-        | view::node::Role::SectionHeader
-        | view::node::Role::Label => {}
+        view::Role::Menu
+        | view::Role::Binding
+        | view::Role::Separator
+        | view::Role::TextArea
+        | view::Role::Button
+        | view::Role::Checkbox
+        | view::Role::Radio
+        | view::Role::Slider
+        | view::Role::TextBox
+        | view::Role::Scroll
+        | view::Role::SectionHeader
+        | view::Role::Label => {}
     }
 }
 
-fn is_floating_panel_role(role: view::node::Role) -> bool {
-    role == view::node::Role::FloatingPanel
+fn is_floating_panel_role(role: view::Role) -> bool {
+    role == view::Role::FloatingPanel
 }
 
 fn layout_scroll(
@@ -218,14 +216,14 @@ fn scroll_viewport_rect(node: &view::Node, rect: Rect, theme: &theme::Theme) -> 
 
     let gutter = metrics.thickness.max(1);
     match node.axis() {
-        Some(view::node::Axis::Horizontal) => Rect::new(
+        Some(view::Axis::Horizontal) => Rect::new(
             rect.x(),
             rect.y(),
             rect.width(),
             rect.height().saturating_sub(gutter),
         ),
-        Some(view::node::Axis::Overlay) => rect,
-        Some(view::node::Axis::Vertical) | None => Rect::new(
+        Some(view::Axis::Overlay) => rect,
+        Some(view::Axis::Vertical) | None => Rect::new(
             rect.x(),
             rect.y(),
             rect.width().saturating_sub(gutter),
@@ -271,7 +269,7 @@ fn layout_root(
     for (index, child) in node.children().iter().enumerate() {
         let retained_child = retained_child(retained, index);
         let child_path = path.child(index);
-        if child.role() == view::node::Role::FloatingPanel {
+        if child.role() == view::Role::FloatingPanel {
             let popup_rect =
                 root_floating_panel_rect(child, &ctx.frames, rect, ctx.engine, ctx.theme);
             layout_node(
@@ -318,8 +316,8 @@ fn root_floating_panel_rect(
     }
 
     match node.floating_placement() {
-        view::node::FloatingPlacement::Default => Rect::new(root.x(), root.y(), width, height),
-        view::node::FloatingPlacement::CenteredMaxEnvelope => {
+        view::FloatingPlacement::Default => Rect::new(root.x(), root.y(), width, height),
+        view::FloatingPlacement::CenteredMaxEnvelope => {
             let envelope_height =
                 floating_panel_max_envelope_height_for_width(node, width, engine, theme)
                     .min(root.height().max(0));
@@ -341,8 +339,7 @@ fn floating_panel_anchor(node: &view::Node, frames: &[Frame]) -> Option<Rect> {
 
     frames.iter().find_map(|frame| {
         let target_id = frame.target().and_then(|target| target.element_id());
-        (frame.role() == view::node::Role::Menu && target_id == Some(anchor_id))
-            .then(|| frame.rect())
+        (frame.role() == view::Role::Menu && target_id == Some(anchor_id)).then(|| frame.rect())
     })
 }
 
@@ -359,11 +356,9 @@ fn scroll_stack_placement(
     theme: &theme::Theme,
 ) -> StackPlacement {
     match node.axis() {
-        Some(view::node::Axis::Horizontal) => {
-            horizontal_stack_placement(node, rect, engine, theme, true)
-        }
-        Some(view::node::Axis::Overlay) => overlay_stack_placement(node, rect, engine, theme),
-        Some(view::node::Axis::Vertical) | None => {
+        Some(view::Axis::Horizontal) => horizontal_stack_placement(node, rect, engine, theme, true),
+        Some(view::Axis::Overlay) => overlay_stack_placement(node, rect, engine, theme),
+        Some(view::Axis::Vertical) | None => {
             vertical_stack_placement(node, rect, engine, theme, true)
         }
     }
@@ -794,13 +789,13 @@ fn layout_floating_panel(
         );
 
         match node.axis() {
-            Some(view::node::Axis::Horizontal) => {
+            Some(view::Axis::Horizontal) => {
                 layout_horizontal_stack(node, retained, path, content, true, None, ctx)
             }
-            Some(view::node::Axis::Overlay) => {
+            Some(view::Axis::Overlay) => {
                 layout_overlay_stack(node, retained, path, content, true, None, ctx)
             }
-            Some(view::node::Axis::Vertical) | None => {
+            Some(view::Axis::Vertical) | None => {
                 layout_vertical_stack(node, retained, path, content, true, None, ctx)
             }
         }
@@ -849,7 +844,7 @@ fn is_menu_panel(node: &view::Node) -> bool {
 }
 
 fn is_menu_panel_row(node: &view::Node) -> bool {
-    node.role() == view::node::Role::Separator
+    node.role() == view::Role::Separator
         || node
             .binding()
             .is_some_and(|binding| binding.source() == super::super::context::Source::Menu)

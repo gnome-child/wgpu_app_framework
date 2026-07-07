@@ -71,8 +71,8 @@ fn hovering_another_menu_title_switches_open_menu() {
     let initial = app
         .render_scene(window, size)
         .expect("text editor should render");
-    let file = labeled_frame(initial.layout(), view::node::Role::Menu, "File");
-    let edit = labeled_frame(initial.layout(), view::node::Role::Menu, "Edit");
+    let file = labeled_frame(initial.layout(), view::Role::Menu, "File");
+    let edit = labeled_frame(initial.layout(), view::Role::Menu, "Edit");
 
     app.pointer_down_at(window, size, frame_point(file))
         .expect("file menu pointer down should be handled");
@@ -106,7 +106,7 @@ fn pointer_down_outside_menu_surface_closes_open_menu() {
     let initial = app
         .render_scene(window, size)
         .expect("text editor should render");
-    let file = labeled_frame(initial.layout(), view::node::Role::Menu, "File");
+    let file = labeled_frame(initial.layout(), view::Role::Menu, "File");
 
     app.pointer_down_at(window, size, frame_point(file))
         .expect("file menu pointer down should be handled");
@@ -117,7 +117,7 @@ fn pointer_down_outside_menu_surface_closes_open_menu() {
         .expect("open file menu should render");
     let text_area = opened
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");
@@ -487,7 +487,7 @@ fn text_area_interaction_id_scrolls_without_focus() {
         .expect("initial preview scene should render");
     let text_area = presentation
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("preview text area should be laid out");
@@ -523,7 +523,7 @@ fn text_area_interaction_id_scrolls_without_focus() {
     );
     let text_area = presentation
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("preview text area should be laid out after scrolling");
@@ -785,7 +785,7 @@ fn text_area_pointer_click_focuses_and_routes_cursor_edit() {
         .expect("pointer-focused text area should render");
     let focused_text_area = focused
         .layout()
-        .find_role(view::node::Role::TextArea)
+        .find_role(view::Role::TextArea)
         .into_iter()
         .next()
         .expect("text area should be laid out");
@@ -1140,7 +1140,7 @@ fn text_editor_host_presents_pending_redraws() {
 
 fn labeled_frame<'a>(
     layout: &'a layout::Layout,
-    role: view::node::Role,
+    role: view::Role,
     label: &str,
 ) -> &'a layout::Frame {
     layout

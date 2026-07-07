@@ -123,9 +123,9 @@ impl Element {
 
     fn apply_layout_direction(mut self) -> Self {
         self.node = match self.layout.direction() {
-            Direction::Row => self.node.with_layout_axis(view::node::Axis::Horizontal),
-            Direction::Column => self.node.with_layout_axis(view::node::Axis::Vertical),
-            Direction::Overlay => self.node.with_layout_axis(view::node::Axis::Overlay),
+            Direction::Row => self.node.with_layout_axis(view::Axis::Horizontal),
+            Direction::Column => self.node.with_layout_axis(view::Axis::Vertical),
+            Direction::Overlay => self.node.with_layout_axis(view::Axis::Overlay),
         };
         self
     }

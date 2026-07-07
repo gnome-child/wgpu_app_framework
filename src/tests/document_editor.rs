@@ -817,7 +817,7 @@ fn text_editor_view_resolves_command_bindings_from_runtime() {
     let window = app.session().windows()[0].id();
     let projected = app.present(window).expect("window should have a view");
 
-    assert_eq!(projected.root().role(), view::node::Role::Root);
+    assert_eq!(projected.root().role(), view::Role::Root);
     assert!(projected.labels().contains(&"File"));
     assert!(projected.labels().contains(&"View"));
     assert!(!projected.labels().contains(&"Debug"));

@@ -76,7 +76,7 @@ fn mismatched_old_node_reports_removed_subtree_before_rebuild() {
     let old_child = retained_id(&first.root().children()[0]);
 
     let (second, changes) = first.reconcile(
-        &View::new(view::Node::stack(view::node::Axis::Vertical)),
+        &View::new(view::Node::stack(view::Axis::Vertical)),
         &mut next_node_id,
     );
 

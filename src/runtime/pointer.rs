@@ -43,13 +43,13 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             view::Action::pointer_manipulate(target)
         } else if matches!(
             hit.frame().role(),
-            view::node::Role::TextArea | view::node::Role::TextBox
+            view::Role::TextArea | view::Role::TextBox
         ) {
             let pointer_down = text_pointer_down_action(hit.frame(), target.clone());
             hit.action_at_with_engine(point, &mut self.layout)
                 .map(|action| view::Action::sequence([pointer_down.clone(), action]))
                 .unwrap_or(pointer_down)
-        } else if hit.frame().role() == view::node::Role::Slider {
+        } else if hit.frame().role() == view::Role::Slider {
             hit.action_at_with_engine(point, &mut self.layout)
                 .map(|action| {
                     view::Action::sequence([
@@ -108,9 +108,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             (!hit.is_chrome()
                 && !matches!(
                     hit.frame().role(),
-                    view::node::Role::Slider
-                        | view::node::Role::TextArea
-                        | view::node::Role::TextBox
+                    view::Role::Slider | view::Role::TextArea | view::Role::TextBox
                 ))
             .then(|| hit.action_at(point))
             .flatten()
@@ -156,7 +154,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let dragged = layout.drag_action_for_target(&target, point, &mut self.layout);
         let demoted_text_box_activation = dragged
             .as_ref()
-            .is_some_and(|(role, _)| *role == view::node::Role::TextBox)
+            .is_some_and(|(role, _)| *role == view::Role::TextBox)
             && self.session.set_pointer_press_intent(
                 window,
                 &target,
@@ -293,9 +291,6 @@ fn is_pointer_focusable(frame: &layout::Frame) -> bool {
     frame.is_enabled()
         && matches!(
             frame.role(),
-            view::node::Role::Binding
-                | view::node::Role::Button
-                | view::node::Role::Checkbox
-                | view::node::Role::Radio
+            view::Role::Binding | view::Role::Button | view::Role::Checkbox | view::Role::Radio
         )
 }

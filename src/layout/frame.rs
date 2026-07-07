@@ -45,7 +45,7 @@ pub(super) struct Input<'a> {
 pub(crate) struct Frame {
     node_id: composition::NodeId,
     path: path::Path,
-    role: view::node::Role,
+    role: view::Role,
     rect: Rect,
     active_rect: Rect,
     label: Option<String>,
@@ -110,22 +110,22 @@ impl Frame {
         let label_width = label
             .as_deref()
             .map(|label| match node.role() {
-                view::node::Role::Menu => {
+                view::Role::Menu => {
                     engine.label_width_with_style(label, typography::interface_text_style(theme))
                 }
-                view::node::Role::SectionHeader => engine.label_width_with_style(
+                view::Role::SectionHeader => engine.label_width_with_style(
                     &typography::section_header_text(label),
                     typography::section_header_style(theme),
                 ),
-                view::node::Role::Binding
-                | view::node::Role::Button
-                | view::node::Role::Checkbox
-                | view::node::Role::Radio
-                | view::node::Role::Slider
-                | view::node::Role::TextBox => {
+                view::Role::Binding
+                | view::Role::Button
+                | view::Role::Checkbox
+                | view::Role::Radio
+                | view::Role::Slider
+                | view::Role::TextBox => {
                     engine.label_width_with_style(label, typography::interface_text_style(theme))
                 }
-                view::node::Role::Label
+                view::Role::Label
                     if node
                         .binding()
                         .is_some_and(|binding| binding.source() == context::Source::Palette) =>
@@ -238,7 +238,7 @@ impl Frame {
         self.node_id
     }
 
-    pub(crate) fn role(&self) -> view::node::Role {
+    pub(crate) fn role(&self) -> view::Role {
         self.role
     }
 
@@ -386,7 +386,7 @@ impl Frame {
     }
 
     pub(crate) fn action_at(&self, point: Point) -> Option<view::Action> {
-        if self.role == view::node::Role::Slider {
+        if self.role == view::Role::Slider {
             let value = self.slider_value_at(point)?;
             if let Some(action) = self
                 .binding
@@ -405,7 +405,7 @@ impl Frame {
         point: Point,
         engine: &mut engine::Engine,
     ) -> Option<view::Action> {
-        if self.role == view::node::Role::TextArea {
+        if self.role == view::Role::TextArea {
             let text_area = self.text_area.as_ref()?;
             let layout = self.text_area_layout.as_ref()?;
             let position = engine.text_area_position_at(text_area, layout, self.rect, point)?;
@@ -413,7 +413,7 @@ impl Frame {
             return text_area.click_action(position);
         }
 
-        if self.role == view::node::Role::TextBox {
+        if self.role == view::Role::TextBox {
             let text_box = self.text_box.as_ref()?;
             let layout = self.text_box_layout.as_ref()?;
             let text_rect = self.text_box_text_rect();
@@ -430,7 +430,7 @@ impl Frame {
         point: Point,
         engine: &mut engine::Engine,
     ) -> Option<view::Action> {
-        if self.role == view::node::Role::TextArea {
+        if self.role == view::Role::TextArea {
             let text_area = self.text_area.as_ref()?;
             let layout = self.text_area_layout.as_ref()?;
             let position = engine.text_area_position_at(text_area, layout, self.rect, point)?;
@@ -438,7 +438,7 @@ impl Frame {
             return Some(text_area.drag_action(position));
         }
 
-        if self.role == view::node::Role::TextBox {
+        if self.role == view::Role::TextBox {
             let text_box = self.text_box.as_ref()?;
             let layout = self.text_box_layout.as_ref()?;
             let text_rect = self.text_box_text_rect();
@@ -504,10 +504,8 @@ fn active_rect_for(
     theme: &Theme,
 ) -> Rect {
     match node.role() {
-        view::node::Role::Checkbox | view::node::Role::Radio => {
-            control::choice_mark_rect(rect, theme)
-        }
-        view::node::Role::Slider => slider
+        view::Role::Checkbox | view::Role::Radio => control::choice_mark_rect(rect, theme),
+        view::Role::Slider => slider
             .map(|slider| control::slider_active_rect(rect, slider, label_width, theme))
             .unwrap_or(rect),
         _ => rect,
@@ -516,7 +514,7 @@ fn active_rect_for(
 
 fn label_for(node: &view::Node) -> Option<&str> {
     node.label_text().or_else(|| {
-        (node.role() == view::node::Role::Binding)
+        (node.role() == view::Role::Binding)
             .then(|| node.binding().and_then(view::Binding::label))
             .flatten()
     })
@@ -528,27 +526,27 @@ fn action_for(node: &view::Node) -> Option<view::Action> {
     }
 
     match node.role() {
-        view::node::Role::Menu => node.menu_action(),
-        view::node::Role::TextArea => node
+        view::Role::Menu => node.menu_action(),
+        view::Role::TextArea => node
             .text_area_model()
             .and_then(view::control::TextArea::focus_action),
-        view::node::Role::TextBox => node
+        view::Role::TextBox => node
             .text_box_model()
             .and_then(view::control::TextBox::focus_action),
-        view::node::Role::Root
-        | view::node::Role::Stack
-        | view::node::Role::MenuBar
-        | view::node::Role::Binding
-        | view::node::Role::Separator
-        | view::node::Role::Button
-        | view::node::Role::Checkbox
-        | view::node::Role::Radio
-        | view::node::Role::Slider
-        | view::node::Role::Scroll
-        | view::node::Role::Panel
-        | view::node::Role::FloatingPanel
-        | view::node::Role::SectionHeader
-        | view::node::Role::Label => None,
+        view::Role::Root
+        | view::Role::Stack
+        | view::Role::MenuBar
+        | view::Role::Binding
+        | view::Role::Separator
+        | view::Role::Button
+        | view::Role::Checkbox
+        | view::Role::Radio
+        | view::Role::Slider
+        | view::Role::Scroll
+        | view::Role::Panel
+        | view::Role::FloatingPanel
+        | view::Role::SectionHeader
+        | view::Role::Label => None,
     }
 }
 

@@ -136,7 +136,7 @@ fn bound_text_box_pointer_target_stays_text_input_target() {
         .expect("text box view should render");
     let text_box = rendered
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .expect("text box should be laid out");
@@ -309,7 +309,7 @@ fn character_key_updates_focused_text_box_draft_and_focus_outline() {
         .expect("focused text box should render");
     let text_box = rendered
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .expect("text box should be laid out");
@@ -1053,7 +1053,7 @@ fn text_box_selection_and_caret_are_painted_as_widget_chrome() {
         .expect("focused text box should render a caret");
     let text_box = caret_scene
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .expect("text box should be laid out");
@@ -1176,7 +1176,7 @@ fn text_box_pointer_click_positions_framework_owned_draft_caret() {
         .expect("text box view should render");
     let text_box = presentation
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .expect("text box should be laid out");
@@ -1255,7 +1255,7 @@ fn text_box_pointer_down_to_focus_paints_activation_tint() {
         .expect("text box view should render");
     let text_box = presentation
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .expect("text box should be laid out");
@@ -1312,7 +1312,7 @@ fn text_box_pointer_up_after_focus_activation_clears_activation_tint() {
         .expect("text box view should render");
     let text_box = presentation
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .expect("text box should be laid out");
@@ -1363,7 +1363,7 @@ fn focused_text_box_pointer_down_positions_caret_without_control_pressed_tint() 
         .expect("focused text box should render");
     let text_box = presentation
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .expect("text box should be laid out");
@@ -1412,7 +1412,7 @@ fn text_box_pointer_drag_extends_selection_from_click_anchor() {
         .expect("text box view should render");
     let text_box = presentation
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .expect("text box should be laid out");
@@ -1450,7 +1450,7 @@ fn text_box_pointer_drag_extends_selection_from_click_anchor() {
         .expect("selected text box should render");
     let selected_text_box = selected
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .expect("selected text box should be laid out");
@@ -1498,7 +1498,7 @@ fn scene_contains_text_surface(scene: &Scene, value: &str) -> bool {
 fn text_box_caret_visible(presentation: &scene::Presentation) -> bool {
     let Some(text_box) = presentation
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
     else {
@@ -1531,7 +1531,7 @@ fn text_box_caret_visible(presentation: &scene::Presentation) -> bool {
 fn assert_no_text_box_control_pressed_tint(presentation: &scene::Presentation) {
     let text_box = presentation
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .expect("text box should be laid out");
@@ -1550,7 +1550,7 @@ fn assert_no_text_box_control_pressed_tint(presentation: &scene::Presentation) {
 fn assert_text_box_control_pressed_tint(presentation: &scene::Presentation) {
     let text_box = presentation
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .expect("text box should be laid out");
@@ -1569,7 +1569,7 @@ fn assert_text_box_control_pressed_tint(presentation: &scene::Presentation) {
 fn assert_text_box_focus_outline(presentation: &scene::Presentation) {
     let text_box = presentation
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .expect("text box should be laid out");

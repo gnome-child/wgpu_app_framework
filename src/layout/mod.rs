@@ -161,10 +161,10 @@ impl Layout {
         target: &interaction::Target,
         point: Point,
         engine: &mut Engine,
-    ) -> Option<(view::node::Role, Option<view::Action>)> {
+    ) -> Option<(view::Role, Option<view::Action>)> {
         if let Some(chrome) = self.chrome.iter().find(|chrome| chrome.target() == target) {
             return Some((
-                view::node::Role::Scroll,
+                view::Role::Scroll,
                 Some(view::Action::scroll_to(
                     chrome.scroll_target().clone(),
                     chrome.scroll_offset_at(point),
@@ -231,7 +231,7 @@ impl Layout {
     }
 
     #[cfg(test)]
-    pub(crate) fn find_role(&self, role: view::node::Role) -> Vec<&Frame> {
+    pub(crate) fn find_role(&self, role: view::Role) -> Vec<&Frame> {
         self.frames
             .iter()
             .filter(|frame| frame.role() == role)

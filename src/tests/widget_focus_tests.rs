@@ -11,19 +11,19 @@ fn tab_key_moves_focus_through_control_gallery_widgets() {
         .expect("control gallery should render before tab navigation");
 
     let expected = [
-        (view::node::Role::Menu, Some("Controls")),
-        (view::node::Role::Menu, Some("Edit")),
-        (view::node::Role::Menu, Some("View")),
-        (view::node::Role::Button, Some("Click")),
-        (view::node::Role::Button, Some("Reset")),
-        (view::node::Role::Checkbox, Some("Wrap text")),
-        (view::node::Role::Checkbox, Some("Show grid")),
-        (view::node::Role::Checkbox, Some("Advanced")),
-        (view::node::Role::Radio, Some("Design")),
-        (view::node::Role::Radio, Some("Inspect")),
-        (view::node::Role::Radio, Some("Preview")),
-        (view::node::Role::TextBox, None),
-        (view::node::Role::Slider, Some("Level: 42.00")),
+        (view::Role::Menu, Some("Controls")),
+        (view::Role::Menu, Some("Edit")),
+        (view::Role::Menu, Some("View")),
+        (view::Role::Button, Some("Click")),
+        (view::Role::Button, Some("Reset")),
+        (view::Role::Checkbox, Some("Wrap text")),
+        (view::Role::Checkbox, Some("Show grid")),
+        (view::Role::Checkbox, Some("Advanced")),
+        (view::Role::Radio, Some("Design")),
+        (view::Role::Radio, Some("Inspect")),
+        (view::Role::Radio, Some("Preview")),
+        (view::Role::TextBox, None),
+        (view::Role::Slider, Some("Level: 42.00")),
     ];
 
     for (role, label) in expected {
@@ -98,7 +98,7 @@ fn focused_menu_opens_with_enter_and_tabs_within_popup() {
         .render_scene(window, size)
         .expect("focused popup item should render");
     let focused = focused_frame(popup_focus.layout());
-    assert_eq!(focused.role(), view::node::Role::Binding);
+    assert_eq!(focused.role(), view::Role::Binding);
     assert_eq!(focused.label_text(), Some("Click"));
     assert_focus_outline(popup_focus.scene(), focused);
     assert_focus_outline_after_text(popup_focus.scene(), focused, "Click");
@@ -151,11 +151,7 @@ fn focused_menu_title_outline_paints_below_open_floating_menu() {
     let presentation = app
         .render_scene(window, size)
         .expect("open menu should render");
-    let menu = find_frame(
-        presentation.layout(),
-        view::node::Role::Menu,
-        Some("Controls"),
-    );
+    let menu = find_frame(presentation.layout(), view::Role::Menu, Some("Controls"));
 
     assert_focus_outline(presentation.scene(), menu);
     assert_focus_outline_before_text(presentation.scene(), menu, "Click");
@@ -197,11 +193,7 @@ fn pointer_focus_is_hidden_and_tab_continues_from_pointer_target() {
     let initial = app
         .render_scene(window, size)
         .expect("control gallery should render before pointer focus");
-    let wrap_text = find_frame(
-        initial.layout(),
-        view::node::Role::Checkbox,
-        Some("Wrap text"),
-    );
+    let wrap_text = find_frame(initial.layout(), view::Role::Checkbox, Some("Wrap text"));
     let point = center(wrap_text.active_rect());
 
     let pointed = app
@@ -220,7 +212,7 @@ fn pointer_focus_is_hidden_and_tab_continues_from_pointer_target() {
         .render_scene(window, size)
         .expect("pointer-focused checkbox should render");
     let focused = focused_frame(hidden_focus.layout());
-    assert_eq!(focused.role(), view::node::Role::Checkbox);
+    assert_eq!(focused.role(), view::Role::Checkbox);
     assert_eq!(focused.label_text(), Some("Wrap text"));
     assert_no_focus_outline(hidden_focus.scene(), focused);
 
@@ -234,7 +226,7 @@ fn pointer_focus_is_hidden_and_tab_continues_from_pointer_target() {
         .render_scene(window, size)
         .expect("keyboard-focused checkbox should render");
     let focused = focused_frame(keyboard_focus.layout());
-    assert_eq!(focused.role(), view::node::Role::Checkbox);
+    assert_eq!(focused.role(), view::Role::Checkbox);
     assert_eq!(focused.label_text(), Some("Show grid"));
     assert_focus_outline(keyboard_focus.scene(), focused);
 }
@@ -269,7 +261,7 @@ fn pointer_opened_menu_resolves_items_against_preserved_document_focus() {
     let before_menu = app
         .render_scene(window, size)
         .expect("text editor should render before opening menu");
-    let edit_menu = find_frame(before_menu.layout(), view::node::Role::Menu, Some("Edit"));
+    let edit_menu = find_frame(before_menu.layout(), view::Role::Menu, Some("Edit"));
     let point = center(edit_menu.rect());
     app.pointer_down_at(window, size, point)
         .expect("menu pointer down should be handled");
@@ -279,12 +271,12 @@ fn pointer_opened_menu_resolves_items_against_preserved_document_focus() {
     let opened = app
         .render_scene(window, size)
         .expect("open edit menu should render");
-    let copy = find_frame(opened.layout(), view::node::Role::Binding, Some("Copy"));
+    let copy = find_frame(opened.layout(), view::Role::Binding, Some("Copy"));
     assert!(
         copy.is_enabled(),
         "menu copy command should resolve against preserved document focus"
     );
-    let document = find_frame(opened.layout(), view::node::Role::TextArea, None);
+    let document = find_frame(opened.layout(), view::Role::TextArea, None);
     assert_focus_outline(opened.scene(), document);
     assert_focus_outline_before_text(opened.scene(), document, "Copy");
 
@@ -337,7 +329,7 @@ fn control_gallery_edit_menu_operates_on_focused_text_box() {
         .expect("open edit menu should render undo state");
     let undo = find_frame(
         undo_presentation.layout(),
-        view::node::Role::Binding,
+        view::Role::Binding,
         Some("Undo"),
     );
     assert!(undo.is_enabled(), "text box undo should be menu-enabled");
@@ -353,7 +345,7 @@ fn control_gallery_edit_menu_operates_on_focused_text_box() {
         .expect("open edit menu should render redo state");
     let redo = find_frame(
         redo_presentation.layout(),
-        view::node::Role::Binding,
+        view::Role::Binding,
         Some("Redo"),
     );
     assert!(redo.is_enabled(), "text box redo should be menu-enabled");
@@ -398,7 +390,7 @@ fn text_box_undo_history_survives_blur_while_controls_use_app_undo() {
         .expect("control gallery should render before checkbox click");
     let wrap_text = find_frame(
         presentation.layout(),
-        view::node::Role::Checkbox,
+        view::Role::Checkbox,
         Some("Wrap text"),
     );
     let point = center(wrap_text.active_rect());
@@ -454,18 +446,12 @@ fn control_gallery_undo_steps_through_mixed_controls_and_text_edits() {
         &mut app,
         window,
         size,
-        view::node::Role::Checkbox,
+        view::Role::Checkbox,
         Some("Wrap text"),
     );
     assert!(!app.state().wrap);
 
-    click_gallery_frame(
-        &mut app,
-        window,
-        size,
-        view::node::Role::Radio,
-        Some("Inspect"),
-    );
+    click_gallery_frame(&mut app, window, size, view::Role::Radio, Some("Inspect"));
     assert_eq!(app.state().mode, control_gallery::Mode::Inspect);
 
     app.handle_input(
@@ -499,7 +485,7 @@ fn control_gallery_undo_steps_through_mixed_controls_and_text_edits() {
         &mut app,
         window,
         size,
-        view::node::Role::Checkbox,
+        view::Role::Checkbox,
         Some("Show grid"),
     );
     assert!(app.state().grid);
@@ -576,7 +562,7 @@ fn edit_menu_undo_uses_committed_text_box_history_after_focus_is_cleared() {
         .expect("open edit menu should render undo state");
     let undo = find_frame(
         undo_presentation.layout(),
-        view::node::Role::Binding,
+        view::Role::Binding,
         Some("Undo"),
     );
     assert!(
@@ -619,7 +605,7 @@ fn app_shortcut_commits_and_deactivates_focused_text_box_before_dispatch() {
         .expect("control gallery should render reset state");
     let text_box = rendered
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .and_then(layout::Frame::text_box)
@@ -662,7 +648,7 @@ fn app_menu_command_commits_and_deactivates_focused_text_box_before_dispatch() {
         .expect("control gallery should render reset state");
     let text_box = rendered
         .layout()
-        .find_role(view::node::Role::TextBox)
+        .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .and_then(layout::Frame::text_box)
@@ -687,7 +673,7 @@ fn open_gallery_menu(
     let presentation = app
         .render_scene(window, size)
         .expect("control gallery should render before opening menu");
-    let menu = find_frame(presentation.layout(), view::node::Role::Menu, Some(label));
+    let menu = find_frame(presentation.layout(), view::Role::Menu, Some(label));
     let point = center(menu.rect());
 
     pointer_down_then_present(app, window, size, point);
@@ -703,11 +689,7 @@ fn activate_gallery_edit_binding(
     let presentation = app
         .render_scene(window, size)
         .expect("open edit menu should render binding");
-    let binding = find_frame(
-        presentation.layout(),
-        view::node::Role::Binding,
-        Some(label),
-    );
+    let binding = find_frame(presentation.layout(), view::Role::Binding, Some(label));
     assert!(binding.is_enabled(), "{label} should be enabled");
     let point = center(binding.rect());
 
@@ -719,7 +701,7 @@ fn click_gallery_frame(
     app: &mut Runtime<control_gallery::State, (), View>,
     window: window::Id,
     size: geometry::Size,
-    role: view::node::Role,
+    role: view::Role,
     label: Option<&str>,
 ) -> input::Outcome {
     let presentation = app
@@ -741,7 +723,7 @@ fn drag_gallery_slider_to_fraction(
     let presentation = app
         .render_scene(window, size)
         .expect("control gallery should render before slider drag");
-    let slider = first_frame(presentation.layout(), view::node::Role::Slider);
+    let slider = first_frame(presentation.layout(), view::Role::Slider);
     let track = slider_track_rect(slider);
     let x = track
         .x()
@@ -760,7 +742,7 @@ fn focused_frame(layout: &layout::Layout) -> &layout::Frame {
         .expect("one frame should be focused")
 }
 
-fn first_frame(layout: &layout::Layout, role: view::node::Role) -> &layout::Frame {
+fn first_frame(layout: &layout::Layout, role: view::Role) -> &layout::Frame {
     layout
         .frames()
         .iter()
@@ -770,7 +752,7 @@ fn first_frame(layout: &layout::Layout, role: view::node::Role) -> &layout::Fram
 
 fn find_frame<'a>(
     layout: &'a layout::Layout,
-    role: view::node::Role,
+    role: view::Role,
     label: Option<&str>,
 ) -> &'a layout::Frame {
     layout

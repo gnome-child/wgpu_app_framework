@@ -50,14 +50,14 @@ impl View {
 fn panel_node(palette: CommandPalette) -> Node {
     let panel = Node::floating_panel(interaction::CommandPalette::panel_id())
         .with_subject(subject::Segment::from_label("Command Palette"))
-        .with_floating_placement(view::node::FloatingPlacement::CenteredMaxEnvelope)
-        .with_layout_axis(view::node::Axis::Vertical)
+        .with_floating_placement(view::FloatingPlacement::CenteredMaxEnvelope)
+        .with_layout_axis(view::Axis::Vertical)
         .with_style(view::Style::new().with_width(view::Dimension::fixed(520)))
         .child(query_node(&palette.query));
 
     let mut results = Node::scroll()
         .with_interaction_id(interaction::CommandPalette::results_id())
-        .with_layout_axis(view::node::Axis::Vertical)
+        .with_layout_axis(view::Axis::Vertical)
         .with_style(
             view::Style::new()
                 .with_width(view::Dimension::Grow)

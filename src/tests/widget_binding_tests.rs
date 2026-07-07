@@ -41,7 +41,7 @@ fn widget_trigger_binding_activates_from_non_command_element() {
         .hit_test(geometry::Point::new(10, 10))
         .expect("trigger-bound element should be hit");
 
-    assert_eq!(hit.frame().role(), view::node::Role::Panel);
+    assert_eq!(hit.frame().role(), view::Role::Panel);
     assert_eq!(
         hit.target()
             .expect("trigger-bound element should expose a command target")
@@ -92,7 +92,7 @@ fn widget_button_trigger_hit_tests_as_button_and_invokes_command() {
         .hit_test(geometry::Point::new(10, 10))
         .expect("button should be hit");
 
-    assert_eq!(hit.frame().role(), view::node::Role::Button);
+    assert_eq!(hit.frame().role(), view::Role::Button);
     assert_eq!(
         hit.target()
             .expect("button should expose a command target")
@@ -144,8 +144,8 @@ fn hidden_command_bound_widgets_are_pruned_after_resolution() {
         &mut layout_engine,
     );
 
-    assert!(layout.find_role(view::node::Role::Button).is_empty());
-    assert!(layout.find_role(view::node::Role::Binding).is_empty());
+    assert!(layout.find_role(view::Role::Button).is_empty());
+    assert!(layout.find_role(view::Role::Binding).is_empty());
 
     let menu = projected.menus()[0]
         .menu_action()
@@ -199,7 +199,7 @@ fn disabled_command_bound_widgets_are_visible_but_not_activating() {
         .hit_test(geometry::Point::new(10, 10))
         .expect("disabled button should still be hit-testable");
 
-    assert_eq!(hit.frame().role(), view::node::Role::Button);
+    assert_eq!(hit.frame().role(), view::Role::Button);
     assert_eq!(
         hit.target()
             .expect("disabled button should keep a stable command target")

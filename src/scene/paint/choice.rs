@@ -11,7 +11,7 @@ pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme, vis
     let choice = theme.choice();
     let mark = layout::choice_mark_rect(frame.rect(), theme);
     let mark_rounding = match frame.role() {
-        view::node::Role::Radio => Rounding::relative(1.0),
+        view::Role::Radio => Rounding::relative(1.0),
         _ => theme.control().rounding,
     };
     let mut mark_quad = Quad::new(mark, choice.mark).with_rounding(mark_rounding);
@@ -32,7 +32,7 @@ pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme, vis
     }
 
     match frame.role() {
-        view::node::Role::Checkbox => {
+        view::Role::Checkbox => {
             scene.push_icon(Icon::new(
                 mark,
                 icons::Icon::phosphor(icons::Id::new("check")).with_style(icons::Style::Bold),
@@ -40,7 +40,7 @@ pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme, vis
                 choice.icon_size,
             ));
         }
-        view::node::Role::Radio => {
+        view::Role::Radio => {
             scene.push_quad(
                 Quad::styled(inset(mark, 4), Style::filled(choice.indicator))
                     .with_rounding(Rounding::relative(1.0)),
@@ -70,8 +70,8 @@ fn choice_tint_for(frame: &layout::Frame, theme: &Theme, visuals: &Visuals) -> O
 
 fn selected(frame: &layout::Frame) -> Option<bool> {
     match frame.role() {
-        view::node::Role::Checkbox => Some(frame.checkbox()?.checked()),
-        view::node::Role::Radio => Some(frame.radio()?.selected()),
+        view::Role::Checkbox => Some(frame.checkbox()?.checked()),
+        view::Role::Radio => Some(frame.radio()?.selected()),
         _ => None,
     }
 }

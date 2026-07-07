@@ -11,7 +11,7 @@ mod binding;
 mod command_palette;
 mod context;
 pub mod control;
-pub mod node;
+mod node;
 mod presentation;
 mod style;
 
@@ -20,7 +20,7 @@ pub(crate) use action::FocusDirection;
 pub use binding::Binding;
 pub(crate) use command_palette::{CommandPalette, Entry as CommandPaletteEntry};
 pub use context::Context;
-pub use node::Node;
+pub use node::{Axis, FloatingPlacement, Node, Role};
 pub use presentation::Presentation;
 pub use style::{Align, Dimension, Padding, Style};
 

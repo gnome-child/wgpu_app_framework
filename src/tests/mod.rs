@@ -677,7 +677,7 @@ fn open_view_menu_and_wrap_command_point(
             .expect("initial scene should install a composition");
         let view_menu = presentation
             .layout()
-            .find_role(view::node::Role::Menu)
+            .find_role(view::Role::Menu)
             .into_iter()
             .find(|frame| frame.label_text() == Some("View"))
             .expect("view menu should be laid out");
@@ -695,7 +695,7 @@ fn open_view_menu_and_wrap_command_point(
         .expect("open view menu should install a composition");
     let wrap_command = presentation
         .layout()
-        .find_role(view::node::Role::Binding)
+        .find_role(view::Role::Binding)
         .into_iter()
         .find(|frame| frame.label_text() == Some("Wrap text"))
         .expect("wrap text command should be laid out");
