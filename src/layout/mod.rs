@@ -17,13 +17,17 @@ mod hit;
 mod measure;
 mod path;
 pub(crate) mod text;
-pub(crate) mod typography;
+mod typography;
 mod viewport;
 
 pub(crate) use chrome::{Chrome, Kind as ChromeKind, Scrollbar};
 pub(crate) use engine::Engine;
 pub(crate) use frame::Frame;
 pub(crate) use hit::Hit;
+pub(crate) use typography::{
+    interface_text_style, section_header_style, section_header_text, shortcut_run_gap,
+    shortcut_text_style,
+};
 pub(crate) use viewport::Viewport;
 
 #[derive(Clone)]

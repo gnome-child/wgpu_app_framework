@@ -428,9 +428,7 @@ fn paint_menu_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     if let Some(label) = frame.label_text() {
         scene.push_text(
             Text::new(slots.label, label, color, TextWrap::None)
-                .with_style(scene_text_style(layout::typography::interface_text_style(
-                    theme,
-                )))
+                .with_style(scene_text_style(layout::interface_text_style(theme)))
                 .with_align(TextAlign::Start),
         );
     }
@@ -452,9 +450,7 @@ fn paint_palette_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     if let Some(label) = frame.label_text() {
         scene.push_text(
             Text::new(slots.label, label, color, TextWrap::None)
-                .with_style(scene_text_style(layout::typography::interface_text_style(
-                    theme,
-                )))
+                .with_style(scene_text_style(layout::interface_text_style(theme)))
                 .with_align(TextAlign::Start),
         );
     }
@@ -476,8 +472,8 @@ fn paint_shortcut(frame: &layout::Frame, slot: geometry::Rect, scene: &mut Scene
 
     let mut x = slot.right().saturating_sub(frame.shortcut_content_width());
     let color = shortcut_text_color(theme);
-    let style = scene_text_style(layout::typography::shortcut_text_style(theme));
-    let gap = layout::typography::shortcut_run_gap(theme);
+    let style = scene_text_style(layout::shortcut_text_style(theme));
+    let gap = layout::shortcut_run_gap(theme);
 
     for (index, part) in parts.iter().enumerate() {
         if index > 0 {
@@ -535,13 +531,11 @@ fn paint_section_header(frame: &layout::Frame, scene: &mut Scene, theme: &Theme)
     scene.push_text(
         Text::new(
             frame.rect(),
-            layout::typography::section_header_text(label),
+            layout::section_header_text(label),
             theme.text().muted,
             TextWrap::None,
         )
-        .with_style(scene_text_style(layout::typography::section_header_style(
-            theme,
-        )))
+        .with_style(scene_text_style(layout::section_header_style(theme)))
         .with_align(theme.command_palette().section_alignment()),
     );
 }
@@ -681,20 +675,16 @@ fn text_color_for(frame: &layout::Frame, theme: &Theme) -> super::Color {
 
 fn text_style_for(frame: &layout::Frame, theme: &Theme) -> TextStyle {
     match frame.role() {
-        view::node::Role::SectionHeader => {
-            scene_text_style(layout::typography::section_header_style(theme))
-        }
+        view::node::Role::SectionHeader => scene_text_style(layout::section_header_style(theme)),
         view::node::Role::Menu
         | view::node::Role::Binding
         | view::node::Role::Button
         | view::node::Role::Checkbox
         | view::node::Role::Radio
         | view::node::Role::Slider
-        | view::node::Role::TextBox => {
-            scene_text_style(layout::typography::interface_text_style(theme))
-        }
+        | view::node::Role::TextBox => scene_text_style(layout::interface_text_style(theme)),
         view::node::Role::Label if frame.binding_source() == Some(context::Source::Palette) => {
-            scene_text_style(layout::typography::interface_text_style(theme))
+            scene_text_style(layout::interface_text_style(theme))
         }
         _ => scene_text_style(theme.typography().body()),
     }
