@@ -284,37 +284,6 @@ impl Engine {
         }
     }
 
-    #[allow(dead_code)]
-    fn text_area_layout_for_area_at(
-        &mut self,
-        area_model: &Area,
-        style: Style,
-        viewport: area::Logical,
-        state: ViewState,
-        now: Instant,
-    ) -> TextFieldLayout {
-        let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), &state);
-        let committed = !projection.has_preedit();
-        let segments = self.text_area_display_segments(
-            area_model,
-            &projection.buffer,
-            committed,
-            style,
-            viewport,
-            &state,
-        );
-        self.text_area_layout_from_segments(
-            area_model,
-            style,
-            viewport,
-            &state,
-            now,
-            &projection,
-            &segments,
-            None,
-        )
-    }
-
     fn text_area_layout_from_segments(
         &mut self,
         area_model: &Area,

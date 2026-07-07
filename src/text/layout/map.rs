@@ -110,23 +110,6 @@ impl TextLayoutMap {
         groups
     }
 
-    #[allow(dead_code)]
-    fn line_vertical_bounds(runs: &[glyphon::cosmic_text::LayoutRun<'_>]) -> (f32, f32) {
-        let mut top = f32::INFINITY;
-        let mut bottom = f32::NEG_INFINITY;
-
-        for run in runs {
-            top = top.min(run.line_top);
-            bottom = bottom.max(run.line_top + run.line_height);
-        }
-
-        if top.is_finite() && bottom.is_finite() {
-            (top, bottom)
-        } else {
-            (0.0, 0.0)
-        }
-    }
-
     fn hit_line(&self, runs: &[glyphon::cosmic_text::LayoutRun<'_>], x: f32) -> Option<Position> {
         let mut nearest = None::<(f32, Position)>;
         let fallback_line = runs

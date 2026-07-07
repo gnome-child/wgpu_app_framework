@@ -24,12 +24,8 @@ use super::layout::{
     TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY, TEXT_AREA_RENDER_GUARD_LINES, TEXT_FIELD_CARET_MARGIN,
     TEXT_LAYOUT_VISUAL_LINE_EPSILON, TextAreaPaintLayout, TextAreaSurface, TextFieldLayout,
     TextLayoutMap, VisualLineGroup, buffer_text_len, clamp_cursor_in_buffer,
-    clamp_selection_in_buffer, cosmic_buffer_from_text, cursor_for_text_index,
-    cursor_for_text_index_in_buffer, cursor_position, fast_selection_bounds_in_buffer,
-    floor_text_index_in_buffer, has_non_empty_selection_in_buffer, line_start_offsets_for_buffer,
-    normalized_range_in_buffer, selection_anchor, text_area_estimated_line_height,
-    text_index_for_cursor_in_buffer, text_position_for_motion_in_buffer, text_range_for_cursors,
-    word_selection_cursors,
+    cosmic_buffer_from_text, cursor_position, line_start_offsets_for_buffer,
+    text_area_estimated_line_height, text_index_for_cursor_in_buffer,
 };
 use super::{Buffer, Color, Document, edit, layout};
 
