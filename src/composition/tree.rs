@@ -19,7 +19,7 @@ enum Space {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Changes {
+pub(crate) struct Changes {
     added: Vec<NodeId>,
     removed: Vec<NodeId>,
     removed_elements: Vec<interaction::Id>,
@@ -31,12 +31,12 @@ pub struct Changes {
 /// reordering under the same parent, id-less nodes are positional, and moving a
 /// node to a different parent is reported as remove plus add.
 #[derive(Debug, Clone)]
-pub struct Tree {
+pub(crate) struct Tree {
     root: Node,
 }
 
 #[derive(Debug, Clone)]
-pub struct Node {
+pub(crate) struct Node {
     id: Identity,
     key: Key,
     element_id: Option<interaction::Id>,
@@ -76,7 +76,8 @@ impl NodeId {
         id
     }
 
-    pub fn is_retained(self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn is_retained(self) -> bool {
         self.space == Space::Retained
     }
 }
@@ -105,19 +106,20 @@ impl Changes {
         }
     }
 
-    pub fn added(&self) -> &[NodeId] {
+    #[cfg(test)]
+    pub(crate) fn added(&self) -> &[NodeId] {
         &self.added
     }
 
-    pub fn removed(&self) -> &[NodeId] {
+    pub(crate) fn removed(&self) -> &[NodeId] {
         &self.removed
     }
 
-    pub fn removed_elements(&self) -> &[interaction::Id] {
+    pub(crate) fn removed_elements(&self) -> &[interaction::Id] {
         &self.removed_elements
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.added.is_empty() && self.removed.is_empty()
     }
 
@@ -169,7 +171,7 @@ impl Tree {
         (Self { root }, changes)
     }
 
-    pub fn root(&self) -> &Node {
+    pub(crate) fn root(&self) -> &Node {
         &self.root
     }
 
@@ -297,7 +299,7 @@ impl Node {
             .filter(|child| child.matches(view))
     }
 
-    pub fn retained_id(&self) -> Option<NodeId> {
+    pub(crate) fn retained_id(&self) -> Option<NodeId> {
         self.id.retained_id()
     }
 
@@ -305,19 +307,19 @@ impl Node {
         self.id.node_id()
     }
 
-    pub fn element_id(&self) -> Option<interaction::Id> {
+    pub(crate) fn element_id(&self) -> Option<interaction::Id> {
         self.element_id
     }
 
-    pub fn parent(&self) -> Option<NodeId> {
+    pub(crate) fn parent(&self) -> Option<NodeId> {
         self.parent.and_then(Identity::retained_id)
     }
 
-    pub fn subject(&self) -> Option<&subject::Segment> {
+    pub(crate) fn subject(&self) -> Option<&subject::Segment> {
         self.subject.as_ref()
     }
 
-    pub fn children(&self) -> &[Node] {
+    pub(crate) fn children(&self) -> &[Node] {
         &self.children
     }
 

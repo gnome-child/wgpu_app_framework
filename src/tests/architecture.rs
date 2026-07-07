@@ -172,6 +172,10 @@ fn composition_tree_owns_identity_not_behavior() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let composition_dir = src_dir.join("composition");
     let widget_dir = src_dir.join("widget");
+    let composition_mod = std::fs::read_to_string(composition_dir.join("mod.rs"))
+        .expect("composition mod should read");
+    let composition_tree = std::fs::read_to_string(composition_dir.join("tree.rs"))
+        .expect("composition tree should read");
 
     assert_source_patterns_absent(
         &composition_dir,
@@ -183,6 +187,20 @@ fn composition_tree_owns_identity_not_behavior() {
             "fn unmount".to_owned(),
         ],
     );
+    for pattern in [
+        "pub use tree::{Changes",
+        "pub use tree::{Node",
+        "pub use tree::{Tree",
+        "pub struct Changes {",
+        "pub struct Tree {",
+        "pub struct Node {",
+        "pub fn tree(&self)",
+    ] {
+        assert!(
+            !composition_mod.contains(pattern) && !composition_tree.contains(pattern),
+            "retained composition tree internals must not be public API: {pattern}"
+        );
+    }
     assert_source_patterns_absent(
         &widget_dir,
         &[

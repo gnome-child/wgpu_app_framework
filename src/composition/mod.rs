@@ -2,7 +2,8 @@ mod store;
 mod tree;
 
 pub(crate) use store::Store;
-pub use tree::{Changes, Node, NodeId, Tree};
+pub use tree::NodeId;
+pub(crate) use tree::{Changes, Node, Tree};
 
 use super::{interaction, session, subject, view, window};
 
@@ -54,7 +55,7 @@ impl Composition {
         self.view.project_focus_retained(focus, &tree);
     }
 
-    pub fn tree(&self) -> &Tree {
+    pub(crate) fn tree(&self) -> &Tree {
         &self.tree
     }
 
