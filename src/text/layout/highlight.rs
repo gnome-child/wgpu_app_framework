@@ -54,6 +54,11 @@ pub(super) fn spans_for_ranges(
 ) -> (HighlightSpans, HighlightStats) {
     let mut spans = HighlightSpans::default();
     let mut stats = HighlightStats::default();
+    let offset = SpanOffset {
+        vertical: vertical_offset,
+        scroll_x,
+        scroll_y,
+    };
 
     for run in buffer.layout_runs() {
         stats.record_run_scan();
@@ -85,32 +90,32 @@ pub(super) fn spans_for_ranges(
         push_highlight_span_from_bounds(
             &mut spans.selection,
             &mut stats,
-            ranges[0],
-            bounds[0],
-            &run,
-            vertical_offset,
-            scroll_x,
-            scroll_y,
+            SpanInput {
+                range: ranges[0],
+                bounds: bounds[0],
+                run: &run,
+                offset,
+            },
         );
         push_highlight_span_from_bounds(
             &mut spans.preedit_underline,
             &mut stats,
-            ranges[1],
-            bounds[1],
-            &run,
-            vertical_offset,
-            scroll_x,
-            scroll_y,
+            SpanInput {
+                range: ranges[1],
+                bounds: bounds[1],
+                run: &run,
+                offset,
+            },
         );
         push_highlight_span_from_bounds(
             &mut spans.preedit_selection,
             &mut stats,
-            ranges[2],
-            bounds[2],
-            &run,
-            vertical_offset,
-            scroll_x,
-            scroll_y,
+            SpanInput {
+                range: ranges[2],
+                bounds: bounds[2],
+                run: &run,
+                offset,
+            },
         );
     }
 
@@ -143,30 +148,39 @@ fn line_highlight_range_for_run(
     (line_start < line_end).then_some((line_start, line_end))
 }
 
+#[derive(Clone, Copy)]
+struct SpanOffset {
+    vertical: f32,
+    scroll_x: f32,
+    scroll_y: f32,
+}
+
+struct SpanInput<'run, 'font> {
+    range: Option<(usize, usize)>,
+    bounds: (f32, f32),
+    run: &'run glyphon::cosmic_text::LayoutRun<'font>,
+    offset: SpanOffset,
+}
+
 fn push_highlight_span_from_bounds(
     spans: &mut Vec<SelectionSpan>,
     stats: &mut HighlightStats,
-    range: Option<(usize, usize)>,
-    bounds: (f32, f32),
-    run: &glyphon::cosmic_text::LayoutRun<'_>,
-    vertical_offset: f32,
-    scroll_x: f32,
-    scroll_y: f32,
+    input: SpanInput<'_, '_>,
 ) {
-    if range.is_none() {
+    if input.range.is_none() {
         return;
     }
-    let (left, right) = bounds;
+    let (left, right) = input.bounds;
     if !left.is_finite() || !right.is_finite() || right <= left {
         stats.record_skip();
         return;
     }
 
     spans.push(SelectionSpan {
-        x: left - scroll_x,
-        y: vertical_offset + run.line_top - scroll_y,
+        x: left - input.offset.scroll_x,
+        y: input.offset.vertical + input.run.line_top - input.offset.scroll_y,
         width: right - left,
-        height: run.line_height,
+        height: input.run.line_height,
     });
     stats.record_span();
 }
