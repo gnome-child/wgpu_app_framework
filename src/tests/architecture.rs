@@ -138,6 +138,24 @@ fn paint_geometry_stays_below_text_and_native_rendering() {
 }
 
 #[test]
+fn paint_geometry_file_modules_stay_crate_private() {
+    let paint_geometry_mod = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("paint_geometry")
+            .join("mod.rs"),
+    )
+    .expect("paint geometry module should read");
+
+    for module in ["area", "point", "rect"] {
+        assert!(
+            !paint_geometry_mod.contains(&format!("pub mod {module};")),
+            "paint geometry file module should stay crate-private: {module}"
+        );
+    }
+}
+
+#[test]
 fn text_buffer_mark_module_stays_private() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let buffer_mod = std::fs::read_to_string(src_dir.join("text").join("buffer").join("mod.rs"))

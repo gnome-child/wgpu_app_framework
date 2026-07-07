@@ -1,5 +1,5 @@
-pub use rect::Rect;
+pub(crate) use rect::Rect;
 
-pub mod area;
-pub mod point;
-pub mod rect;
+pub(crate) mod area;
+pub(crate) mod point;
+pub(crate) mod rect;
