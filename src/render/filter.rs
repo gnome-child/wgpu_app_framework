@@ -50,6 +50,101 @@ struct Texture {
     view: wgpu::TextureView,
 }
 
+pub(crate) struct LayerComposite<'a> {
+    pub(crate) render_context: &'a render::Context,
+    pub(crate) encoder: &'a mut wgpu::CommandEncoder,
+    pub(crate) source: &'a Layer,
+    pub(crate) output: &'a wgpu::TextureView,
+    pub(crate) target: Target,
+    pub(crate) clip: paint::Clip,
+    pub(crate) scissor: Option<render::Scissor>,
+}
+
+struct TextureSource<'a> {
+    view: &'a wgpu::TextureView,
+    area: area::Physical,
+    logical_area: area::Logical,
+    sampling: paint::LayerSampling,
+}
+
+struct BlurPass<'a> {
+    render_context: &'a render::Context,
+    encoder: &'a mut wgpu::CommandEncoder,
+    source: &'a wgpu::TextureView,
+    output: &'a wgpu::TextureView,
+    target: Target,
+    prepared: PreparedFilter,
+    direction: [f32; 2],
+}
+
+struct LiquidPass<'a> {
+    render_context: &'a render::Context,
+    encoder: &'a mut wgpu::CommandEncoder,
+    source: &'a wgpu::TextureView,
+    output: &'a wgpu::TextureView,
+    target: Target,
+    prepared: PreparedFilter,
+    effect: [f32; 4],
+    scissor: Option<render::Scissor>,
+}
+
+struct EffectPass<'a> {
+    render_context: &'a render::Context,
+    encoder: &'a mut wgpu::CommandEncoder,
+    source: &'a wgpu::TextureView,
+    output: &'a wgpu::TextureView,
+    target: Target,
+    prepared: PreparedFilter,
+    effect: [f32; 4],
+    pipeline: &'a wgpu::RenderPipeline,
+    scissor: Option<render::Scissor>,
+    labels: PassLabels,
+}
+
+struct CompositePass<'a> {
+    render_context: &'a render::Context,
+    encoder: &'a mut wgpu::CommandEncoder,
+    source: TextureSource<'a>,
+    output: &'a wgpu::TextureView,
+    target: Target,
+    prepared: PreparedFilter,
+    source_rect: Rect,
+    scissor: Option<render::Scissor>,
+    labels: PassLabels,
+}
+
+#[derive(Clone, Copy)]
+struct PassLabels {
+    bind_group: &'static str,
+    vertex_buffer: &'static str,
+    pass: &'static str,
+}
+
+impl PassLabels {
+    const fn new(
+        bind_group: &'static str,
+        vertex_buffer: &'static str,
+        pass: &'static str,
+    ) -> Self {
+        Self {
+            bind_group,
+            vertex_buffer,
+            pass,
+        }
+    }
+}
+
+struct ParamInput {
+    target_scale_factor: f32,
+    texture_area: area::Physical,
+    texture_logical_area: area::Logical,
+    prepared: PreparedFilter,
+    source_rect: Rect,
+    direction: [f32; 2],
+    effect: [f32; 4],
+    sampling: paint::LayerSampling,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Params {
@@ -465,40 +560,44 @@ impl Renderer {
                     }
 
                     let prepared = prepared.with_blur(amount, target.scale_factor);
-                    self.blur_pass(
+                    self.blur_pass(BlurPass {
                         render_context,
                         encoder,
-                        &textures.composition.view,
-                        &textures.ping.view,
+                        source: &textures.composition.view,
+                        output: &textures.ping.view,
                         target,
                         prepared,
-                        [1.0, 0.0],
-                    );
-                    self.blur_pass(
+                        direction: [1.0, 0.0],
+                    });
+                    self.blur_pass(BlurPass {
                         render_context,
                         encoder,
-                        &textures.ping.view,
-                        &textures.pong.view,
+                        source: &textures.ping.view,
+                        output: &textures.pong.view,
                         target,
                         prepared,
-                        [0.0, 1.0],
-                    );
-                    self.composite_pass(
+                        direction: [0.0, 1.0],
+                    });
+                    self.composite_pass(CompositePass {
                         render_context,
                         encoder,
-                        &textures.pong.view,
-                        &textures.composition.view,
+                        source: TextureSource {
+                            view: &textures.pong.view,
+                            area: target.physical_area.clamp_min(1),
+                            logical_area: target.logical_area,
+                            sampling: paint::LayerSampling::Filtered,
+                        },
+                        output: &textures.composition.view,
                         target,
-                        target.physical_area.clamp_min(1),
-                        target.logical_area,
                         prepared,
-                        prepared.shape_rect,
-                        paint::LayerSampling::Filtered,
+                        source_rect: prepared.shape_rect,
                         scissor,
-                        "Filter Blur Composite Bind Group",
-                        "Filter Blur Composite Vertex Buffer",
-                        "Filter Blur Composite Pass",
-                    );
+                        labels: PassLabels::new(
+                            "Filter Blur Composite Bind Group",
+                            "Filter Blur Composite Vertex Buffer",
+                            "Filter Blur Composite Pass",
+                        ),
+                    });
                 }
                 paint::FilterOp::BackdropBlur(blur) => {
                     if blur.sigma <= 0.0 {
@@ -506,40 +605,44 @@ impl Renderer {
                     }
 
                     let prepared = prepared.with_blur_sigma(blur.sigma, target.scale_factor);
-                    self.blur_pass(
+                    self.blur_pass(BlurPass {
                         render_context,
                         encoder,
-                        &textures.composition.view,
-                        &textures.ping.view,
+                        source: &textures.composition.view,
+                        output: &textures.ping.view,
                         target,
                         prepared,
-                        [1.0, 0.0],
-                    );
-                    self.blur_pass(
+                        direction: [1.0, 0.0],
+                    });
+                    self.blur_pass(BlurPass {
                         render_context,
                         encoder,
-                        &textures.ping.view,
-                        &textures.pong.view,
+                        source: &textures.ping.view,
+                        output: &textures.pong.view,
                         target,
                         prepared,
-                        [0.0, 1.0],
-                    );
-                    self.composite_pass(
+                        direction: [0.0, 1.0],
+                    });
+                    self.composite_pass(CompositePass {
                         render_context,
                         encoder,
-                        &textures.pong.view,
-                        &textures.composition.view,
+                        source: TextureSource {
+                            view: &textures.pong.view,
+                            area: target.physical_area.clamp_min(1),
+                            logical_area: target.logical_area,
+                            sampling: paint::LayerSampling::Filtered,
+                        },
+                        output: &textures.composition.view,
                         target,
-                        target.physical_area.clamp_min(1),
-                        target.logical_area,
                         prepared,
-                        prepared.shape_rect,
-                        paint::LayerSampling::Filtered,
+                        source_rect: prepared.shape_rect,
                         scissor,
-                        "Filter Backdrop Blur Composite Bind Group",
-                        "Filter Backdrop Blur Composite Vertex Buffer",
-                        "Filter Backdrop Blur Composite Pass",
-                    );
+                        labels: PassLabels::new(
+                            "Filter Backdrop Blur Composite Bind Group",
+                            "Filter Backdrop Blur Composite Vertex Buffer",
+                            "Filter Backdrop Blur Composite Pass",
+                        ),
+                    });
                 }
                 paint::FilterOp::Liquid {
                     depth,
@@ -551,177 +654,193 @@ impl Renderer {
                         continue;
                     }
 
-                    self.liquid_pass(
+                    self.liquid_pass(LiquidPass {
                         render_context,
                         encoder,
-                        &textures.composition.view,
-                        &textures.ping.view,
+                        source: &textures.composition.view,
+                        output: &textures.ping.view,
                         target,
                         prepared,
-                        liquid_effect(depth, splay, feather, curve),
+                        effect: liquid_effect(depth, splay, feather, curve),
                         scissor,
-                    );
-                    self.composite_pass(
+                    });
+                    self.composite_pass(CompositePass {
                         render_context,
                         encoder,
-                        &textures.ping.view,
-                        &textures.composition.view,
+                        source: TextureSource {
+                            view: &textures.ping.view,
+                            area: target.physical_area.clamp_min(1),
+                            logical_area: target.logical_area,
+                            sampling: paint::LayerSampling::Filtered,
+                        },
+                        output: &textures.composition.view,
                         target,
-                        target.physical_area.clamp_min(1),
-                        target.logical_area,
                         prepared,
-                        prepared.shape_rect,
-                        paint::LayerSampling::Filtered,
+                        source_rect: prepared.shape_rect,
                         scissor,
-                        "Filter Liquid Composite Bind Group",
-                        "Filter Liquid Composite Vertex Buffer",
-                        "Filter Liquid Composite Pass",
-                    );
+                        labels: PassLabels::new(
+                            "Filter Liquid Composite Bind Group",
+                            "Filter Liquid Composite Vertex Buffer",
+                            "Filter Liquid Composite Pass",
+                        ),
+                    });
                 }
                 paint::FilterOp::Refraction(refraction) => {
                     if refraction.displacement <= 0.0 {
                         continue;
                     }
 
-                    self.liquid_pass(
+                    self.liquid_pass(LiquidPass {
                         render_context,
                         encoder,
-                        &textures.composition.view,
-                        &textures.ping.view,
+                        source: &textures.composition.view,
+                        output: &textures.ping.view,
                         target,
                         prepared,
-                        refraction_effect(refraction),
+                        effect: refraction_effect(refraction),
                         scissor,
-                    );
-                    self.composite_pass(
+                    });
+                    self.composite_pass(CompositePass {
                         render_context,
                         encoder,
-                        &textures.ping.view,
-                        &textures.composition.view,
+                        source: TextureSource {
+                            view: &textures.ping.view,
+                            area: target.physical_area.clamp_min(1),
+                            logical_area: target.logical_area,
+                            sampling: paint::LayerSampling::Filtered,
+                        },
+                        output: &textures.composition.view,
                         target,
-                        target.physical_area.clamp_min(1),
-                        target.logical_area,
                         prepared,
-                        prepared.shape_rect,
-                        paint::LayerSampling::Filtered,
+                        source_rect: prepared.shape_rect,
                         scissor,
-                        "Filter Refraction Composite Bind Group",
-                        "Filter Refraction Composite Vertex Buffer",
-                        "Filter Refraction Composite Pass",
-                    );
+                        labels: PassLabels::new(
+                            "Filter Refraction Composite Bind Group",
+                            "Filter Refraction Composite Vertex Buffer",
+                            "Filter Refraction Composite Pass",
+                        ),
+                    });
                 }
                 paint::FilterOp::Luminosity(luminosity) => {
                     if luminosity.opacity <= 0.0 {
                         continue;
                     }
 
-                    self.effect_pass(
+                    self.effect_pass(EffectPass {
                         render_context,
                         encoder,
-                        &textures.composition.view,
-                        &textures.ping.view,
+                        source: &textures.composition.view,
+                        output: &textures.ping.view,
                         target,
                         prepared,
-                        [
+                        effect: [
                             luminosity.color.r,
                             luminosity.color.g,
                             luminosity.color.b,
                             luminosity.opacity,
                         ],
-                        &self.luminosity_pipeline,
+                        pipeline: &self.luminosity_pipeline,
                         scissor,
-                        "Filter Luminosity Bind Group",
-                        "Filter Luminosity Vertex Buffer",
-                        "Filter Luminosity Pass",
-                    );
-                    self.composite_pass(
+                        labels: PassLabels::new(
+                            "Filter Luminosity Bind Group",
+                            "Filter Luminosity Vertex Buffer",
+                            "Filter Luminosity Pass",
+                        ),
+                    });
+                    self.composite_pass(CompositePass {
                         render_context,
                         encoder,
-                        &textures.ping.view,
-                        &textures.composition.view,
+                        source: TextureSource {
+                            view: &textures.ping.view,
+                            area: target.physical_area.clamp_min(1),
+                            logical_area: target.logical_area,
+                            sampling: paint::LayerSampling::Filtered,
+                        },
+                        output: &textures.composition.view,
                         target,
-                        target.physical_area.clamp_min(1),
-                        target.logical_area,
                         prepared,
-                        prepared.shape_rect,
-                        paint::LayerSampling::Filtered,
+                        source_rect: prepared.shape_rect,
                         scissor,
-                        "Filter Luminosity Composite Bind Group",
-                        "Filter Luminosity Composite Vertex Buffer",
-                        "Filter Luminosity Composite Pass",
-                    );
+                        labels: PassLabels::new(
+                            "Filter Luminosity Composite Bind Group",
+                            "Filter Luminosity Composite Vertex Buffer",
+                            "Filter Luminosity Composite Pass",
+                        ),
+                    });
                 }
                 paint::FilterOp::Noise(noise) => {
                     if noise.opacity <= 0.0 {
                         continue;
                     }
 
-                    self.effect_pass(
+                    self.effect_pass(EffectPass {
                         render_context,
                         encoder,
-                        &textures.composition.view,
-                        &textures.ping.view,
+                        source: &textures.composition.view,
+                        output: &textures.ping.view,
                         target,
                         prepared,
-                        [noise.opacity, 0.0, 0.0, 0.0],
-                        &self.noise_pipeline,
+                        effect: [noise.opacity, 0.0, 0.0, 0.0],
+                        pipeline: &self.noise_pipeline,
                         scissor,
-                        "Filter Noise Bind Group",
-                        "Filter Noise Vertex Buffer",
-                        "Filter Noise Pass",
-                    );
-                    self.composite_pass(
+                        labels: PassLabels::new(
+                            "Filter Noise Bind Group",
+                            "Filter Noise Vertex Buffer",
+                            "Filter Noise Pass",
+                        ),
+                    });
+                    self.composite_pass(CompositePass {
                         render_context,
                         encoder,
-                        &textures.ping.view,
-                        &textures.composition.view,
+                        source: TextureSource {
+                            view: &textures.ping.view,
+                            area: target.physical_area.clamp_min(1),
+                            logical_area: target.logical_area,
+                            sampling: paint::LayerSampling::Filtered,
+                        },
+                        output: &textures.composition.view,
                         target,
-                        target.physical_area.clamp_min(1),
-                        target.logical_area,
                         prepared,
-                        prepared.shape_rect,
-                        paint::LayerSampling::Filtered,
+                        source_rect: prepared.shape_rect,
                         scissor,
-                        "Filter Noise Composite Bind Group",
-                        "Filter Noise Composite Vertex Buffer",
-                        "Filter Noise Composite Pass",
-                    );
+                        labels: PassLabels::new(
+                            "Filter Noise Composite Bind Group",
+                            "Filter Noise Composite Vertex Buffer",
+                            "Filter Noise Composite Pass",
+                        ),
+                    });
                 }
             }
         }
     }
 
-    pub fn composite_layer(
-        &self,
-        render_context: &render::Context,
-        encoder: &mut wgpu::CommandEncoder,
-        source: &Layer,
-        output: &wgpu::TextureView,
-        target: Target,
-        clip: paint::Clip,
-        scissor: Option<render::Scissor>,
-    ) {
-        let Some(prepared) = prepare_clip(clip.rect, target.scale_factor) else {
+    pub(crate) fn composite_layer(&self, pass: LayerComposite<'_>) {
+        let Some(prepared) = prepare_clip(pass.clip.rect, pass.target.scale_factor) else {
             return;
         };
-        let source_rect = source_rect_for_prepared_destination(clip.rect, prepared, clip.rect);
+        let source_rect =
+            source_rect_for_prepared_destination(pass.clip.rect, prepared, pass.clip.rect);
 
-        self.composite_pass(
-            render_context,
-            encoder,
-            source.view(),
-            output,
-            target,
-            source.area(),
-            source.logical_area(),
+        self.composite_pass(CompositePass {
+            render_context: pass.render_context,
+            encoder: pass.encoder,
+            source: TextureSource {
+                view: pass.source.view(),
+                area: pass.source.area(),
+                logical_area: pass.source.logical_area(),
+                sampling: paint::LayerSampling::PixelAligned,
+            },
+            output: pass.output,
+            target: pass.target,
             prepared,
             source_rect,
-            paint::LayerSampling::PixelAligned,
-            scissor,
-            "Layer Composite Bind Group",
-            "Layer Composite Vertex Buffer",
-            "Layer Composite Pass",
-        );
+            scissor: pass.scissor,
+            labels: PassLabels {
+                bind_group: "Layer Composite Bind Group",
+                vertex_buffer: "Layer Composite Vertex Buffer",
+                pass: "Layer Composite Pass",
+            },
+        });
     }
 
     pub fn blit_to_view(
@@ -831,28 +950,19 @@ impl Renderer {
         }
     }
 
-    fn blur_pass(
-        &self,
-        render_context: &render::Context,
-        encoder: &mut wgpu::CommandEncoder,
-        source: &wgpu::TextureView,
-        output: &wgpu::TextureView,
-        target: Target,
-        prepared: PreparedFilter,
-        direction: [f32; 2],
-    ) {
-        let params = self.params(target, prepared, direction);
+    fn blur_pass(&self, pass: BlurPass<'_>) {
+        let params = self.params(pass.target, pass.prepared, pass.direction);
         let bind_group = self.bind_group(
-            render_context,
-            source,
+            pass.render_context,
+            pass.source,
             params,
             paint::LayerSampling::Filtered,
             "Filter Blur Bind Group",
         );
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut render_pass = pass.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Filter Blur Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: output,
+                view: pass.output,
                 resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
@@ -866,52 +976,42 @@ impl Renderer {
             multiview_mask: None,
         });
 
-        pass.set_pipeline(&self.blur_pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.draw(0..3, 0..1);
+        render_pass.set_pipeline(&self.blur_pipeline);
+        render_pass.set_bind_group(0, &bind_group, &[]);
+        render_pass.draw(0..3, 0..1);
     }
 
-    fn liquid_pass(
-        &self,
-        render_context: &render::Context,
-        encoder: &mut wgpu::CommandEncoder,
-        source: &wgpu::TextureView,
-        output: &wgpu::TextureView,
-        target: Target,
-        prepared: PreparedFilter,
-        effect: [f32; 4],
-        scissor: Option<render::Scissor>,
-    ) {
-        let params = self.params_with_texture_area(
-            target.scale_factor,
-            target.physical_area.clamp_min(1),
-            target.logical_area,
-            prepared,
-            prepared.shape_rect,
-            [0.0, 0.0],
-            effect,
-            paint::LayerSampling::Filtered,
-        );
+    fn liquid_pass(&self, pass: LiquidPass<'_>) {
+        let params = self.params_with_texture_area(ParamInput {
+            target_scale_factor: pass.target.scale_factor,
+            texture_area: pass.target.physical_area.clamp_min(1),
+            texture_logical_area: pass.target.logical_area,
+            prepared: pass.prepared,
+            source_rect: pass.prepared.shape_rect,
+            direction: [0.0, 0.0],
+            effect: pass.effect,
+            sampling: paint::LayerSampling::Filtered,
+        });
         let bind_group = self.bind_group(
-            render_context,
-            source,
+            pass.render_context,
+            pass.source,
             params,
             paint::LayerSampling::Filtered,
             "Filter Liquid Bind Group",
         );
-        let vertices = composite_vertices(target.logical_area, prepared);
+        let vertices = composite_vertices(pass.target.logical_area, pass.prepared);
         let vertex_buffer =
-            render_context
+            pass.render_context
                 .device()
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Filter Liquid Vertex Buffer"),
                     contents: bytemuck::cast_slice(&vertices),
                     usage: wgpu::BufferUsages::VERTEX,
                 });
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut render_pass = pass.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Filter Liquid Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: output,
+                view: pass.output,
                 resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
@@ -925,60 +1025,51 @@ impl Renderer {
             multiview_mask: None,
         });
 
-        pass.set_pipeline(&self.liquid_pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-        if let Some(scissor) = scissor {
-            pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
+        render_pass.set_pipeline(&self.liquid_pipeline);
+        render_pass.set_bind_group(0, &bind_group, &[]);
+        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        if let Some(scissor) = pass.scissor {
+            render_pass.set_scissor_rect(
+                scissor.x(),
+                scissor.y(),
+                scissor.width(),
+                scissor.height(),
+            );
         }
-        pass.draw(0..vertices.len() as u32, 0..1);
+        render_pass.draw(0..vertices.len() as u32, 0..1);
     }
 
-    fn effect_pass(
-        &self,
-        render_context: &render::Context,
-        encoder: &mut wgpu::CommandEncoder,
-        source: &wgpu::TextureView,
-        output: &wgpu::TextureView,
-        target: Target,
-        prepared: PreparedFilter,
-        effect: [f32; 4],
-        pipeline: &wgpu::RenderPipeline,
-        scissor: Option<render::Scissor>,
-        bind_group_label: &'static str,
-        vertex_buffer_label: &'static str,
-        pass_label: &'static str,
-    ) {
-        let params = self.params_with_texture_area(
-            target.scale_factor,
-            target.physical_area.clamp_min(1),
-            target.logical_area,
-            prepared,
-            prepared.shape_rect,
-            [0.0, 0.0],
-            effect,
-            paint::LayerSampling::Filtered,
-        );
+    fn effect_pass(&self, pass: EffectPass<'_>) {
+        let params = self.params_with_texture_area(ParamInput {
+            target_scale_factor: pass.target.scale_factor,
+            texture_area: pass.target.physical_area.clamp_min(1),
+            texture_logical_area: pass.target.logical_area,
+            prepared: pass.prepared,
+            source_rect: pass.prepared.shape_rect,
+            direction: [0.0, 0.0],
+            effect: pass.effect,
+            sampling: paint::LayerSampling::Filtered,
+        });
         let bind_group = self.bind_group(
-            render_context,
-            source,
+            pass.render_context,
+            pass.source,
             params,
             paint::LayerSampling::Filtered,
-            bind_group_label,
+            pass.labels.bind_group,
         );
-        let vertices = composite_vertices(target.logical_area, prepared);
+        let vertices = composite_vertices(pass.target.logical_area, pass.prepared);
         let vertex_buffer =
-            render_context
+            pass.render_context
                 .device()
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(vertex_buffer_label),
+                    label: Some(pass.labels.vertex_buffer),
                     contents: bytemuck::cast_slice(&vertices),
                     usage: wgpu::BufferUsages::VERTEX,
                 });
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some(pass_label),
+        let mut render_pass = pass.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some(pass.labels.pass),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: output,
+                view: pass.output,
                 resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
@@ -992,57 +1083,51 @@ impl Renderer {
             multiview_mask: None,
         });
 
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-        if let Some(scissor) = scissor {
-            pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
+        render_pass.set_pipeline(pass.pipeline);
+        render_pass.set_bind_group(0, &bind_group, &[]);
+        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        if let Some(scissor) = pass.scissor {
+            render_pass.set_scissor_rect(
+                scissor.x(),
+                scissor.y(),
+                scissor.width(),
+                scissor.height(),
+            );
         }
-        pass.draw(0..vertices.len() as u32, 0..1);
+        render_pass.draw(0..vertices.len() as u32, 0..1);
     }
 
-    fn composite_pass(
-        &self,
-        render_context: &render::Context,
-        encoder: &mut wgpu::CommandEncoder,
-        source: &wgpu::TextureView,
-        output: &wgpu::TextureView,
-        target: Target,
-        source_area: area::Physical,
-        source_logical_area: area::Logical,
-        prepared: PreparedFilter,
-        source_rect: Rect,
-        sampling: paint::LayerSampling,
-        scissor: Option<render::Scissor>,
-        bind_group_label: &'static str,
-        vertex_buffer_label: &'static str,
-        pass_label: &'static str,
-    ) {
-        let params = self.params_with_texture_area(
-            target.scale_factor,
-            source_area,
-            source_logical_area,
-            prepared,
-            source_rect,
-            [0.0, 0.0],
-            [0.0; 4],
-            sampling,
+    fn composite_pass(&self, pass: CompositePass<'_>) {
+        let params = self.params_with_texture_area(ParamInput {
+            target_scale_factor: pass.target.scale_factor,
+            texture_area: pass.source.area,
+            texture_logical_area: pass.source.logical_area,
+            prepared: pass.prepared,
+            source_rect: pass.source_rect,
+            direction: [0.0, 0.0],
+            effect: [0.0; 4],
+            sampling: pass.source.sampling,
+        });
+        let bind_group = self.bind_group(
+            pass.render_context,
+            pass.source.view,
+            params,
+            pass.source.sampling,
+            pass.labels.bind_group,
         );
-        let bind_group =
-            self.bind_group(render_context, source, params, sampling, bind_group_label);
-        let vertices = composite_vertices(target.logical_area, prepared);
+        let vertices = composite_vertices(pass.target.logical_area, pass.prepared);
         let vertex_buffer =
-            render_context
+            pass.render_context
                 .device()
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(vertex_buffer_label),
+                    label: Some(pass.labels.vertex_buffer),
                     contents: bytemuck::cast_slice(&vertices),
                     usage: wgpu::BufferUsages::VERTEX,
                 });
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some(pass_label),
+        let mut render_pass = pass.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some(pass.labels.pass),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: output,
+                view: pass.output,
                 resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
@@ -1056,16 +1141,21 @@ impl Renderer {
             multiview_mask: None,
         });
 
-        pass.set_pipeline(match sampling {
+        render_pass.set_pipeline(match pass.source.sampling {
             paint::LayerSampling::Filtered => &self.composite_pipeline,
             paint::LayerSampling::PixelAligned => &self.pixel_composite_pipeline,
         });
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-        if let Some(scissor) = scissor {
-            pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
+        render_pass.set_bind_group(0, &bind_group, &[]);
+        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        if let Some(scissor) = pass.scissor {
+            render_pass.set_scissor_rect(
+                scissor.x(),
+                scissor.y(),
+                scissor.width(),
+                scissor.height(),
+            );
         }
-        pass.draw(0..vertices.len() as u32, 0..1);
+        render_pass.draw(0..vertices.len() as u32, 0..1);
     }
 
     fn bind_group(
@@ -1123,53 +1213,48 @@ impl Renderer {
     }
 
     fn params(&self, target: Target, prepared: PreparedFilter, direction: [f32; 2]) -> Params {
-        self.params_with_texture_area(
-            target.scale_factor,
-            target.physical_area.clamp_min(1),
-            target.logical_area,
+        self.params_with_texture_area(ParamInput {
+            target_scale_factor: target.scale_factor,
+            texture_area: target.physical_area.clamp_min(1),
+            texture_logical_area: target.logical_area,
             prepared,
-            prepared.shape_rect,
+            source_rect: prepared.shape_rect,
             direction,
-            [prepared.blur_sigma_px, 0.0, 0.0, 0.0],
-            paint::LayerSampling::Filtered,
-        )
+            effect: [prepared.blur_sigma_px, 0.0, 0.0, 0.0],
+            sampling: paint::LayerSampling::Filtered,
+        })
     }
 
-    fn params_with_texture_area(
-        &self,
-        target_scale_factor: f32,
-        texture_area: area::Physical,
-        texture_logical_area: area::Logical,
-        prepared: PreparedFilter,
-        source_rect: Rect,
-        direction: [f32; 2],
-        effect: [f32; 4],
-        sampling: paint::LayerSampling,
-    ) -> Params {
-        let physical_area = texture_area.clamp_min(1);
+    fn params_with_texture_area(&self, input: ParamInput) -> Params {
+        let physical_area = input.texture_area.clamp_min(1);
 
         let source_rect_data = physical_source_rect_data(
-            source_rect,
-            texture_logical_area,
+            input.source_rect,
+            input.texture_logical_area,
             physical_area,
-            target_scale_factor,
-            sampling,
+            input.target_scale_factor,
+            input.sampling,
         );
         let source_scale = source_step_data(
             source_rect_data,
-            prepared.shape_rect.area,
-            target_scale_factor,
-            sampling,
+            input.prepared.shape_rect.area,
+            input.target_scale_factor,
+            input.sampling,
         );
 
         Params {
             texture_size: [physical_area.width() as f32, physical_area.height() as f32],
             source_scale,
-            direction_radius: [direction[0], direction[1], prepared.blur_radius_px, 0.0],
-            effect,
-            rect: rect_data(prepared.shape_rect),
+            direction_radius: [
+                input.direction[0],
+                input.direction[1],
+                input.prepared.blur_radius_px,
+                0.0,
+            ],
+            effect: input.effect,
+            rect: rect_data(input.prepared.shape_rect),
             source_rect: source_rect_data,
-            rounding: rounding_data(prepared.rounding),
+            rounding: rounding_data(input.prepared.rounding),
         }
     }
 }

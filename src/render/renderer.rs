@@ -483,19 +483,20 @@ impl<'a> SceneEncoder<'a> {
             return;
         };
 
-        self.filter_renderer.composite_layer(
-            self.render_context,
-            self.encoder,
-            source,
-            output,
-            self.output_target,
-            frame.clip,
-            clip_scissor(
-                frame.clip.rect,
-                self.viewport.physical_area(),
-                self.viewport.scale_factor(),
-            ),
-        );
+        self.filter_renderer
+            .composite_layer(render::filter::LayerComposite {
+                render_context: self.render_context,
+                encoder: self.encoder,
+                source,
+                output,
+                target: self.output_target,
+                clip: frame.clip,
+                scissor: clip_scissor(
+                    frame.clip.rect,
+                    self.viewport.physical_area(),
+                    self.viewport.scale_factor(),
+                ),
+            });
     }
 }
 
