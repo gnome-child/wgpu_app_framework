@@ -79,6 +79,7 @@ fn renderer_paint_vocabulary_stays_private() {
 #[test]
 fn demo_apps_do_not_leak_into_framework_source_or_public_api() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let examples_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
     let lib = std::fs::read_to_string(src_dir.join("lib.rs")).expect("crate root should read");
 
     for module in ["control_gallery", "glass_tuner", "text_editor"] {
@@ -89,6 +90,17 @@ fn demo_apps_do_not_leak_into_framework_source_or_public_api() {
         assert!(
             !lib.contains(&format!("pub mod {module};")),
             "demo app module {module} should not be public framework API"
+        );
+
+        let main = std::fs::read_to_string(examples_dir.join(module).join("main.rs"))
+            .expect("example main should read");
+        assert!(
+            !main.contains("pub use wgpu_l3::*;"),
+            "example {module} should import framework APIs explicitly, not re-export the crate"
+        );
+        assert_source_patterns_absent(
+            &examples_dir.join(module).join("app"),
+            &["super::super::".to_owned()],
         );
     }
 }
