@@ -923,6 +923,15 @@ fn public_target_contract_uses_public_command_values() {
     }
 }
 
+#[test]
+fn state_change_reasons_do_not_import_command_contracts() {
+    let state_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("state");
+
+    assert_source_patterns_absent(&state_dir, &["crate::command".to_owned()]);
+}
+
 fn assert_source_patterns_absent(path: &std::path::Path, patterns: &[String]) {
     for entry in std::fs::read_dir(path).expect("framework source directory should be readable") {
         let path = entry

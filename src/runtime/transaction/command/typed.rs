@@ -58,7 +58,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                     history,
                     history_group,
                     revision_before,
-                    state::Reason::command::<C>(),
+                    state::Reason::command(C::NAME),
                     false,
                 );
                 return Response::failed(error);
@@ -74,7 +74,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             history,
             history_group,
             revision_before,
-            state::Reason::command::<C>(),
+            state::Reason::command(C::NAME),
             changed,
         );
         if changed && request_all_redraws {

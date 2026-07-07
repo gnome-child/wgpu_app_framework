@@ -1,5 +1,3 @@
-use crate::command::Command;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reason {
     Command(&'static str),
@@ -13,8 +11,8 @@ pub enum Reason {
 }
 
 impl Reason {
-    pub fn command<C: Command>() -> Self {
-        Self::Command(C::NAME)
+    pub fn command(command_name: &'static str) -> Self {
+        Self::Command(command_name)
     }
 
     pub fn event(label: &'static str) -> Self {

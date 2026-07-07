@@ -198,7 +198,7 @@ fn ignored_history_changed_response_advances_revision_without_snapshot() {
     assert_eq!(app.store().changes().len(), 1);
     assert_eq!(
         app.store().changes()[0].reason(),
-        &state::Reason::command::<IgnoredMutation>()
+        &state::Reason::command(IgnoredMutation::NAME)
     );
     assert_eq!(app.timeline().undo_depth(), 0);
     assert_eq!(clone_count.get(), 0);
@@ -249,7 +249,7 @@ fn committed_history_user_override_advances_revision_without_snapshot() {
     assert_eq!(app.store().changes().len(), 1);
     assert_eq!(
         app.store().changes()[0].reason(),
-        &state::Reason::command::<timeline::Undo>()
+        &state::Reason::command(timeline::Undo::NAME)
     );
     assert_eq!(app.timeline().undo_depth(), 0);
     assert_eq!(app.timeline().redo_depth(), 0);
