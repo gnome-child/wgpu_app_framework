@@ -13,6 +13,7 @@ mod access;
 mod builder;
 mod context;
 mod dispatch;
+mod fuzzy;
 mod input;
 mod lifecycle;
 mod palette;

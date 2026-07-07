@@ -404,6 +404,21 @@ fn responder_chain_uses_service_responders_not_framework_fallbacks() {
 }
 
 #[test]
+fn fuzzy_matching_stays_with_palette_runtime() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let lib = std::fs::read_to_string(src_dir.join("lib.rs")).expect("crate root should read");
+
+    assert!(
+        !src_dir.join("fuzzy.rs").exists(),
+        "fuzzy search is command-palette runtime support, not a root framework concept"
+    );
+    assert!(
+        !lib.contains("mod fuzzy;") && !lib.contains("pub mod fuzzy;"),
+        "fuzzy search should stay below runtime/palette ownership"
+    );
+}
+
+#[test]
 fn runtime_services_use_typed_provider_targets() {
     let services_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src")

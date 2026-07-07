@@ -1,9 +1,9 @@
 use std::cmp::Ordering;
 
-use super::{Runtime, services::Services, transaction};
+use super::{Runtime, fuzzy, services::Services, transaction};
 use crate::{
-    command, context as command_context, error::Error, fuzzy, input, interaction, responder,
-    response, state, subject, view, window,
+    command, context as command_context, error::Error, input, interaction, responder, response,
+    state, subject, view, window,
 };
 
 const PAGE_SIZE: usize = 8;
