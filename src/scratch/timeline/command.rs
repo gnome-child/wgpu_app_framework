@@ -46,7 +46,7 @@ impl<M: state::State> Undoable for Service<'_, M> {
         }
 
         self.store.commit(state::Reason::Undo);
-        Response::changed(()).with_effect(response::Effect::Repaint)
+        Response::changed(()).with_effect(response::Effect::Rebuild)
     }
 
     fn redo(&mut self, _cx: &mut Context) -> Response<()> {
@@ -57,12 +57,18 @@ impl<M: state::State> Undoable for Service<'_, M> {
         }
 
         self.store.commit(state::Reason::Redo);
-        Response::changed(()).with_effect(response::Effect::Repaint)
+        Response::changed(()).with_effect(response::Effect::Rebuild)
     }
 }
 
 pub(in crate::scratch) fn register(commands: &mut command::Registry) {
     commands
-        .register::<Undo>(command::Spec::new("Undo").shortcut("Ctrl+Z"))
-        .register::<Redo>(command::Spec::new("Redo").shortcut("Ctrl+Shift+Z"));
+        .register::<Undo>(
+            command::Spec::new("Undo")
+                .key_chord(command::KeyChord::standard(command::Standard::Undo)),
+        )
+        .register::<Redo>(
+            command::Spec::new("Redo")
+                .key_chord(command::KeyChord::standard(command::Standard::Redo)),
+        );
 }

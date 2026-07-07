@@ -4,13 +4,14 @@ use std::{
 };
 
 use super::super::{
-    command, composition, context, diagnostics, error::Error, responder, response::AnyResponse,
-    session, state, timeline::Timeline, window,
+    composition, context, diagnostics, error::Error, responder, response::AnyResponse, session,
+    state, timeline::Timeline, window,
 };
+use super::Runtime;
 
-mod framework;
+mod system;
 mod target;
-pub(in crate::scratch::runtime) mod text;
+mod text;
 
 pub(super) struct Services<'a, M: state::State> {
     timeline: &'a mut Timeline<M>,
@@ -38,28 +39,39 @@ impl<'a, M: state::State> Services<'a, M> {
     }
 }
 
+impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
+    pub(in crate::scratch::runtime) fn focused_text_owns_command(
+        &self,
+        window: window::Id,
+        command_type: TypeId,
+    ) -> bool {
+        text::owns_command(&self.session, &self.composition, Some(window), command_type)
+    }
+}
+
 impl<M: state::State> responder::Service<M> for Services<'_, M> {
-    fn state(
+    fn claim(
         &mut self,
         store: &mut state::Store<M>,
         command_type: TypeId,
         command_name: &'static str,
         args: &dyn Any,
         cx: &context::Context,
-    ) -> result::Result<Option<command::State>, Error> {
-        if let Some(state) = text::state(
+    ) -> result::Result<Option<responder::Claim>, Error> {
+        if let Some(claim) = text::claim(
             self.session,
             self.composition,
             self.window,
             command_type,
+            command_name,
             args,
             cx,
         )? {
-            return Ok(Some(state));
+            return Ok(Some(claim));
         }
 
-        if let Some(state) = framework::state(self, store, command_type, command_name, args, cx)? {
-            return Ok(Some(state));
+        if let Some(claim) = system::claim(self, store, command_type, command_name, args, cx)? {
+            return Ok(Some(claim));
         }
 
         Ok(None)
@@ -73,17 +85,32 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
         args: Box<dyn Any + Send>,
         cx: &mut context::Context,
     ) -> Option<AnyResponse> {
-        if text::has_target(self.session, self.composition, self.window, command_type) {
+        let text_claimed = match text::state(
+            self.session,
+            self.composition,
+            self.window,
+            command_type,
+            command_name,
+            args.as_ref(),
+            cx,
+        ) {
+            Ok(Some(_)) => true,
+            Ok(None) => false,
+            Err(error) => return Some(AnyResponse::failed(error)),
+        };
+
+        if text_claimed {
             return text::invoke(
                 self.session,
                 self.composition,
                 self.window,
                 command_type,
+                command_name,
                 args,
                 cx,
             );
         }
 
-        framework::invoke(self, store, command_type, command_name, args, cx)
+        system::invoke(self, store, command_type, command_name, args, cx)
     }
 }

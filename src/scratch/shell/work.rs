@@ -1,3 +1,4 @@
+use crate::animation;
 use crate::scratch::{runtime, session, window};
 
 use super::{Presentation, Window};
@@ -9,6 +10,7 @@ pub struct Work {
     requests: Vec<session::Request>,
     pending_tasks: usize,
     task_completions: usize,
+    animation_schedule: animation::Schedule,
 }
 
 #[derive(Default)]
@@ -34,6 +36,7 @@ impl Work {
             requests: work.requests().to_vec(),
             pending_tasks: work.pending_tasks(),
             task_completions: work.task_completions(),
+            animation_schedule: work.animation_schedule(),
         }
     }
 
@@ -65,6 +68,10 @@ impl Work {
         self.pending_tasks > 0 || self.task_completions > 0
     }
 
+    pub(in crate::scratch) fn animation_schedule(&self) -> animation::Schedule {
+        self.animation_schedule
+    }
+
     pub fn is_empty(&self) -> bool {
         self.opened_windows.is_empty()
             && self.closed_windows.is_empty()
@@ -72,5 +79,6 @@ impl Work {
             && self.requests.is_empty()
             && self.pending_tasks == 0
             && self.task_completions == 0
+            && self.animation_schedule == animation::Schedule::Idle
     }
 }

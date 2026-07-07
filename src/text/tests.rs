@@ -1,5 +1,7 @@
 #![allow(unused_imports)]
 
+use std::cell::RefCell;
+use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -30,6 +32,51 @@ use super::layout::{
     word_selection_cursors,
 };
 use super::{Buffer, Color, Document, edit, layout};
+
+thread_local! {
+    static TEST_ENGINE: RefCell<Option<Engine>> = const { RefCell::new(None) };
+}
+
+struct TestEngine {
+    inner: Option<Engine>,
+}
+
+fn engine() -> TestEngine {
+    let mut engine = TEST_ENGINE
+        .with(|slot| slot.borrow_mut().take())
+        .unwrap_or_else(Engine::new);
+    engine.reset_for_test();
+    TestEngine {
+        inner: Some(engine),
+    }
+}
+
+impl Deref for TestEngine {
+    type Target = Engine;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner
+            .as_ref()
+            .expect("test engine should be present while borrowed")
+    }
+}
+
+impl DerefMut for TestEngine {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.inner
+            .as_mut()
+            .expect("test engine should be present while mutably borrowed")
+    }
+}
+
+impl Drop for TestEngine {
+    fn drop(&mut self) {
+        let Some(engine) = self.inner.take() else {
+            return;
+        };
+        TEST_ENGINE.with(|slot| *slot.borrow_mut() = Some(engine));
+    }
+}
 
 #[test]
 fn text_sources_do_not_import_framework_or_renderer_modules() {
@@ -287,7 +334,7 @@ fn document_first_style_preserves_empty_style_carrier() {
 
 #[test]
 fn engine_returns_non_zero_metrics_for_non_empty_text() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let metrics = engine.measure(&Document::plain("Label"), Measure::unbounded());
 
     assert!(metrics.width() > 0.0);
@@ -297,7 +344,7 @@ fn engine_returns_non_zero_metrics_for_non_empty_text() {
 
 #[test]
 fn longer_text_measures_wider_than_shorter_text() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let short = engine.measure(&Document::plain("Run"), Measure::unbounded());
     let long = engine.measure(&Document::plain("Run workspace task"), Measure::unbounded());
 
@@ -387,7 +434,7 @@ fn area_model_owns_buffer_state_separately_from_buffer() {
 
     let start_area = Area::new(buffer.clone()).with_state(start_state);
     let end_area = Area::new(buffer.clone()).with_state(end_state);
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let viewport = area::logical(240.0, 80.0);
     let style = Style::default();
     let now = Instant::now();
@@ -495,7 +542,7 @@ fn typing_edit_records_transaction_delta() {
 
 #[test]
 fn text_area_frame_cache_reuses_unchanged_frame_and_rebuilds_after_typing() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text("one\ntwo\nthree");
     let mut edit_state = buffer.initial_state();
@@ -543,7 +590,7 @@ fn text_area_frame_cache_reuses_unchanged_frame_and_rebuilds_after_typing() {
 
 #[test]
 fn undo_restored_clone_reuses_line_keyed_text_area_caches() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text(
         "one two three four five\nsix seven eight nine ten\neleven twelve thirteen",
@@ -654,7 +701,7 @@ fn text_area_interaction_surfaces_keep_bounded_observation_coverage() {
     let style = Style::default();
     let viewport = area::logical(360.0, 72.0);
     let state = ViewState::new_at(0.0, Instant::now()).with_scroll_y(900.0);
-    let mut engine = Engine::new();
+    let mut engine = engine();
 
     let layout = engine.text_area_paint_layout_for_area_at(
         &area_model,
@@ -686,7 +733,7 @@ fn text_area_interaction_surfaces_keep_bounded_observation_coverage() {
 
 #[test]
 fn text_diagnostics_record_visible_text_area_cache_work() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let buffer = Buffer::from_multiline_text("one\ntwo\nthree");
     let area_model = Area::new(buffer);
     let style = Style::default().with_size(13.0);
@@ -712,7 +759,7 @@ fn text_diagnostics_record_visible_text_area_cache_work() {
 
 #[test]
 fn text_area_render_buffer_is_shaped_once_and_reused_without_resize() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let buffer = Buffer::from_multiline_text(
         "one two three four five\nsix seven eight nine ten\neleven twelve thirteen",
     );
@@ -768,7 +815,7 @@ fn text_area_render_buffer_is_shaped_once_and_reused_without_resize() {
 
 #[test]
 fn text_area_render_layout_never_builds_interaction_surfaces() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut buffer = Buffer::from_multiline_text(
         "alpha
 beta
@@ -803,7 +850,7 @@ delta",
 
 #[test]
 fn text_area_render_buffer_reuses_chunk_after_small_scroll() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let text = (0..200)
         .map(|line| format!("line {line:03}"))
         .collect::<Vec<_>>()
@@ -869,7 +916,7 @@ fn text_area_render_buffer_reuses_chunk_after_small_scroll() {
 
 #[test]
 fn text_area_frame_cache_is_bounded() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 80.0);
     let state = ViewState::default();
@@ -894,7 +941,7 @@ fn text_area_frame_cache_is_bounded() {
 
 #[test]
 fn text_area_preedit_projection_is_not_cached() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let buffer = Buffer::from_multiline_text("hello");
     let area_model = Area::new(buffer.clone());
     let style = Style::default().with_size(13.0);
@@ -932,7 +979,7 @@ fn text_area_preedit_projection_is_not_cached() {
 
 #[test]
 fn text_area_prepared_frame_is_bounded_to_viewport_window() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let text = (0..1_000)
         .map(|index| format!("line {index}"))
         .collect::<Vec<_>>()
@@ -952,7 +999,7 @@ fn text_area_prepared_frame_is_bounded_to_viewport_window() {
 }
 #[test]
 fn large_text_area_scroll_and_highlight_work_are_viewport_bounded() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let text = (0..100_000)
         .map(|index| format!("line {index}"))
@@ -1088,7 +1135,7 @@ fn piece_tree_seek_handles_summary_block_boundaries() {
 }
 #[test]
 fn larger_font_measures_taller_than_smaller_font() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let small = Document::from_block({
         let mut block = Block::new(Align::Start);
         block.push_run(Run::new("Label", Style::default().with_size(10.0)));
@@ -1108,7 +1155,7 @@ fn larger_font_measures_taller_than_smaller_font() {
 
 #[test]
 fn repeated_measurement_reuses_cached_metrics() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let document = Document::plain("Cached Label");
 
     let first = engine.measure(&document, Measure::unbounded());
@@ -1121,7 +1168,7 @@ fn repeated_measurement_reuses_cached_metrics() {
 
 #[test]
 fn color_only_changes_reuse_cached_metrics() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let red = Document::plain("Cached Label").with_color(Color::RED);
     let black = Document::plain("Cached Label").with_color(Color::BLACK);
 
@@ -1134,7 +1181,7 @@ fn color_only_changes_reuse_cached_metrics() {
 
 #[test]
 fn shaping_relevant_document_and_bounds_changes_use_distinct_cache_keys() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let base = styled_document("Cached Label", Align::Start, 16.0, Weight::Normal);
     let text = styled_document("Different Label", Align::Start, 16.0, Weight::Normal);
     let size = styled_document("Cached Label", Align::Start, 20.0, Weight::Normal);
@@ -1668,7 +1715,7 @@ fn unresolved_visual_motion_uses_caret_map() {
 
 #[test]
 fn unicode_word_boundaries_drive_selection_and_delete() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello שלום again");
     let mut state = buffer.initial_state();
@@ -1708,7 +1755,7 @@ fn unicode_word_boundaries_drive_selection_and_delete() {
 
 #[test]
 fn bidi_hit_testing_preserves_visual_affinity() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let buffer = Buffer::from_text("abc אבג");
     let prepared = engine.prepare_text_field_buffer(
         &buffer,
@@ -1765,7 +1812,7 @@ fn start_end_alignment_resolves_against_base_direction() {
 
 #[test]
 fn mixed_direction_preedit_spans_are_projected_inline() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let buffer = Buffer::from_text("abc אבג");
     let field = Field::new(buffer);
     let state =
@@ -1802,7 +1849,7 @@ fn buffer_normalizes_inserted_line_endings_to_spaces() {
 
 #[test]
 fn text_field_selection_layout_uses_shaped_text_span() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello");
     let mut edit_state = buffer.initial_state();
@@ -1827,7 +1874,7 @@ fn text_field_selection_layout_uses_shaped_text_span() {
 }
 #[test]
 fn text_field_preedit_renders_inline_text_spans_and_commit_clears_projection() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello");
     let mut edit_state = buffer.initial_state();
@@ -1865,7 +1912,7 @@ fn text_field_preedit_renders_inline_text_spans_and_commit_clears_projection() {
 
 #[test]
 fn text_field_preedit_caret_uses_composed_projection() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let buffer = Buffer::from_text("hello");
     let field = Field::new(buffer);
     let style = Style::default().with_size(16.0);
@@ -1891,7 +1938,7 @@ fn text_field_preedit_caret_uses_composed_projection() {
 
 #[test]
 fn text_area_metrics_layout_skips_highlight_overlay_work() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let text = (0..1_000)
         .map(|index| format!("line {index}"))
@@ -1925,7 +1972,7 @@ fn text_area_metrics_layout_skips_highlight_overlay_work() {
 
 #[test]
 fn text_area_paint_layout_computes_highlight_overlays_from_interaction_surfaces() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let text = (0..1_000)
         .map(|index| format!("line {index}"))
@@ -1975,7 +2022,7 @@ fn text_area_paint_layout_computes_highlight_overlays_from_interaction_surfaces(
 
 #[test]
 fn wrapped_text_area_line_displays_do_not_overlap() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let long = "wrap ".repeat(40);
     let area_model = Area::new(Buffer::from_multiline_text(format!("{long}\nnext")));
     let style = Style::default().with_size(16.0);
@@ -2003,7 +2050,7 @@ fn wrapped_text_area_line_displays_do_not_overlap() {
 
 #[test]
 fn wrapped_text_area_hit_testing_uses_clicked_visual_row() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu";
     let buffer = Buffer::from_multiline_text(text);
     let area_model = Area::new(buffer);
@@ -2067,7 +2114,7 @@ fn wrapped_text_area_hit_testing_uses_clicked_visual_row() {
 
 #[test]
 fn wrapped_text_area_drag_selection_extends_into_lower_visual_row() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu";
     let mut buffer = Buffer::from_multiline_text(text);
@@ -2177,7 +2224,7 @@ fn wrapped_text_area_drag_selection_extends_into_lower_visual_row() {
 }
 #[test]
 fn text_area_metrics_reuse_measured_wrapped_heights_after_paint() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let long = "wrap ".repeat(40);
     let area_model = Area::new(Buffer::from_multiline_text(format!("{long}\nnext")));
     let style = Style::default().with_size(16.0);
@@ -2215,7 +2262,7 @@ fn text_area_metrics_reuse_measured_wrapped_heights_after_paint() {
 }
 #[test]
 fn text_area_overlay_cache_key_tracks_scroll_window() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let text = (0..1_000)
         .map(|index| format!("line {index}"))
@@ -2263,7 +2310,7 @@ fn text_area_overlay_cache_key_tracks_scroll_window() {
 }
 #[test]
 fn offscreen_text_area_selection_skips_run_highlight_calls() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let text = (0..1_000)
         .map(|index| format!("line {index}"))
@@ -2364,7 +2411,7 @@ fn fast_selection_check_matches_canonical_selected_range() {
 }
 #[test]
 fn selection_only_pointer_edits_do_not_bump_revision_or_invalidate_surfaces() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let text = (0..200)
         .map(|index| format!("line {index}"))
@@ -2413,7 +2460,7 @@ fn selection_only_pointer_edits_do_not_bump_revision_or_invalidate_surfaces() {
 
 #[test]
 fn text_area_hit_testing_refreshes_cached_line_offsets_after_edit_above() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text("abcdefghij\nclick target\nlast line");
     let mut edit_state = buffer.initial_state();
@@ -2486,7 +2533,7 @@ fn text_area_hit_testing_refreshes_cached_line_offsets_after_edit_above() {
 
 #[test]
 fn text_area_hit_testing_uses_current_line_order_after_line_delete_above() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let lines = (0..80)
         .map(|line| {
@@ -2583,7 +2630,7 @@ fn text_area_hit_testing_uses_current_line_order_after_line_delete_above() {
 
 #[test]
 fn text_area_hit_testing_uses_current_line_order_after_line_insert_above() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let lines = (0..80)
         .map(|line| {
@@ -2662,7 +2709,7 @@ fn text_area_hit_testing_uses_current_line_order_after_line_insert_above() {
 
 #[test]
 fn text_area_observed_hit_testing_uses_observed_horizontal_scroll() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let buffer = Buffer::from_multiline_text("abcdefghijklmnopqrstuvwxyz");
     let area_model = Area::new(buffer).no_wrap();
     let style = Style::default().with_size(16.0);
@@ -2703,7 +2750,7 @@ fn text_area_observed_hit_testing_uses_observed_horizontal_scroll() {
 
 #[test]
 fn text_area_hit_testing_uses_nearest_caret_in_empty_space() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let buffer = Buffer::from_multiline_text("one\ntwo");
     let area_model = Area::new(buffer.clone());
     let style = Style::default().with_size(16.0);
@@ -2779,7 +2826,7 @@ fn text_area_hit_testing_uses_nearest_caret_in_empty_space() {
 
 #[test]
 fn mixed_direction_line_edges_preserve_affinity_for_nearest_line_hits() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let buffer = Buffer::from_multiline_text("abc אבג\nxyz");
     let area_model = Area::new(buffer);
     let style = Style::default().with_size(18.0);
@@ -2824,7 +2871,7 @@ fn mixed_direction_line_edges_preserve_affinity_for_nearest_line_hits() {
 
 #[test]
 fn repeated_large_text_area_hit_tests_reuse_cached_frame() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let text = (0..5_000)
         .map(|index| format!("line {index}"))
         .collect::<Vec<_>>()
@@ -2863,7 +2910,7 @@ fn repeated_large_text_area_hit_tests_reuse_cached_frame() {
 
 #[test]
 fn warmed_large_text_area_hit_test_does_not_reshape_visible_window() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let text = (0..5_000)
         .map(|index| format!("line {index}"))
         .collect::<Vec<_>>()
@@ -2900,7 +2947,7 @@ fn warmed_large_text_area_hit_test_does_not_reshape_visible_window() {
 
 #[test]
 fn text_area_preedit_reveal_scroll_uses_composed_projection() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text("one\ntwo");
     let mut edit_state = buffer.initial_state();
@@ -2936,7 +2983,7 @@ fn text_area_preedit_reveal_scroll_uses_composed_projection() {
 
 #[test]
 fn obscured_text_field_hit_testing_maps_display_cursor_to_source_cursor() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let field = Field::new("åb").obscured_dot();
     let position = engine
         .text_field_position_at_for_field(
@@ -2955,7 +3002,7 @@ fn obscured_text_field_hit_testing_maps_display_cursor_to_source_cursor() {
 
 #[test]
 fn ensure_caret_visible_keeps_caret_inside_content_rect() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let buffer = Buffer::from_text("hello world this is a long single-line field");
     let field = Field::new(buffer);
     let area = area::logical(80.0, 32.0);
@@ -2978,7 +3025,7 @@ fn ensure_caret_visible_keeps_caret_inside_content_rect() {
 
 #[test]
 fn text_field_caret_visibility_follows_blink_phase() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let buffer = Buffer::from_text("hello");
     let field = Field::new(buffer);
     let area = area::logical(100.0, 24.0);
@@ -3014,7 +3061,7 @@ fn text_field_caret_visibility_follows_blink_phase() {
 
 #[test]
 fn text_field_selection_suppresses_caret_layout() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello");
     let mut edit_state = buffer.initial_state();
@@ -3173,7 +3220,7 @@ fn multiline_select_all_selects_the_entire_document() {
 
 #[test]
 fn text_area_reveal_scroll_uses_wrapped_visual_caret_row() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu";
     let mut buffer = Buffer::from_multiline_text(text);
@@ -3240,7 +3287,7 @@ fn text_area_reveal_scroll_uses_wrapped_visual_caret_row() {
 }
 #[test]
 fn text_area_reveal_scroll_keeps_caret_inside_vertical_viewport() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text("one\ntwo\nthree\nfour\nfive\nsix");
     let mut edit_state = buffer.initial_state();
@@ -3282,7 +3329,7 @@ fn text_area_reveal_scroll_keeps_caret_inside_vertical_viewport() {
 
 #[test]
 fn text_area_ensure_caret_visible_preserves_visible_caret_scroll_after_backspace() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let text = (0..40)
         .map(|line| format!("line {line:02} abc"))
@@ -3331,7 +3378,7 @@ fn text_area_ensure_caret_visible_preserves_visible_caret_scroll_after_backspace
 
 #[test]
 fn large_wrapped_text_area_ensure_caret_visible_uses_observed_visible_caret_after_backspace() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let wrapped = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau";
     let text = (0..2_000)
@@ -3483,7 +3530,7 @@ fn large_wrapped_text_area_ensure_caret_visible_uses_observed_visible_caret_afte
 
 #[test]
 fn text_area_ensure_caret_visible_uses_observed_hidden_caret_minimally() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let text = (0..40)
         .map(|line| format!("line {line:02}"))
@@ -3540,7 +3587,7 @@ fn text_area_ensure_caret_visible_uses_observed_hidden_caret_minimally() {
 }
 #[test]
 fn text_area_ensure_caret_visible_scrolls_hidden_caret_into_view() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let text = (0..40)
         .map(|line| format!("line {line:02}"))
@@ -3580,7 +3627,7 @@ fn text_area_ensure_caret_visible_scrolls_hidden_caret_into_view() {
 }
 #[test]
 fn large_wrapped_text_area_ensure_caret_visible_preserves_scroll_after_selection_delete() {
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let wrapped = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau";
     let text = (0..1_200)
@@ -3728,7 +3775,7 @@ fn text_area_edit_commands_preserve_scroll_when_resulting_caret_is_visible() {
     let target_start = text.find("line 30").unwrap();
     let target_end = target_start + "line 30".len();
 
-    let mut engine = Engine::new();
+    let mut engine = engine();
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text(text.clone());
     let mut edit_state = buffer.initial_state();

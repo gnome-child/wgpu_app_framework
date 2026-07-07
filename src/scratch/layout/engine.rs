@@ -1,6 +1,8 @@
+use std::time::Instant;
+
 use crate::text as text_engine;
 
-use super::super::{diagnostics, geometry, view};
+use super::super::{diagnostics, geometry, theme, view};
 use super::text;
 
 pub struct Engine {
@@ -18,16 +20,41 @@ impl Engine {
         self.text.clone()
     }
 
-    pub(super) fn label_width(&self, label: &str) -> i32 {
-        self.text.label_width(label)
+    pub(super) fn label_width_with_style(
+        &self,
+        label: &str,
+        style: super::super::theme::TypeStyle,
+    ) -> i32 {
+        self.text.label_width_with_style(label, style)
+    }
+
+    pub(super) fn label_size_for_width_with_style(
+        &self,
+        label: &str,
+        width: i32,
+        style: super::super::theme::TypeStyle,
+    ) -> geometry::Size {
+        self.text
+            .label_size_for_width_with_style(label, width, style)
+    }
+
+    pub(super) fn text_area_size_for_width(
+        &self,
+        text_area: &view::control::TextArea,
+        width: i32,
+        theme: &theme::Theme,
+    ) -> geometry::Size {
+        self.text.text_area_size_for_width(text_area, width, theme)
     }
 
     pub(super) fn text_area_layout(
         &self,
         text_area: &view::control::TextArea,
         rect: geometry::Rect,
+        theme: &theme::Theme,
+        now: Instant,
     ) -> text::Area {
-        self.text.text_area_layout(text_area, rect)
+        self.text.text_area_layout(text_area, rect, theme, now)
     }
 
     pub(super) fn text_area_position_at(
@@ -45,8 +72,10 @@ impl Engine {
         &self,
         text_box: &view::control::TextBox,
         rect: geometry::Rect,
+        theme: &theme::Theme,
+        now: Instant,
     ) -> text::Field {
-        self.text.text_field_layout(text_box, rect)
+        self.text.text_field_layout(text_box, rect, theme, now)
     }
 
     pub(super) fn text_field_position_at(

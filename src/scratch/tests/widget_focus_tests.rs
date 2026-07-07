@@ -101,6 +101,7 @@ fn focused_menu_opens_with_enter_and_tabs_within_popup() {
     assert_eq!(focused.role(), view::node::Role::Binding);
     assert_eq!(focused.label_text(), Some("Click"));
     assert_focus_outline(popup_focus.scene(), focused);
+    assert_focus_outline_after_text(popup_focus.scene(), focused, "Click");
 
     let activated = app
         .handle_input(
@@ -124,6 +125,40 @@ fn focused_menu_opens_with_enter_and_tabs_within_popup() {
     assert!(restored.same_target(&menu_focus));
     assert_eq!(restored.reason(), session::focus::Reason::Keyboard);
     assert_eq!(restored.visibility(), session::focus::Visibility::Visible);
+}
+
+#[test]
+fn focused_menu_title_outline_paints_below_open_floating_menu() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 520);
+    app.render_scene(window, size)
+        .expect("control gallery should render before menu focus");
+
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Tab, input::Modifiers::default()),
+    )
+    .expect("tab should focus Controls menu");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Enter, input::Modifiers::default()),
+    )
+    .expect("enter should open focused menu");
+
+    let presentation = app
+        .render_scene(window, size)
+        .expect("open menu should render");
+    let menu = find_frame(
+        presentation.layout(),
+        view::node::Role::Menu,
+        Some("Controls"),
+    );
+
+    assert_focus_outline(presentation.scene(), menu);
+    assert_focus_outline_before_text(presentation.scene(), menu, "Click");
 }
 
 #[test]
@@ -167,7 +202,7 @@ fn pointer_focus_is_hidden_and_tab_continues_from_pointer_target() {
         view::node::Role::Checkbox,
         Some("Wrap text"),
     );
-    let point = center(wrap_text.rect());
+    let point = center(wrap_text.active_rect());
 
     let pointed = app
         .pointer_down_at(window, size, point)
@@ -252,6 +287,10 @@ fn pointer_opened_menu_resolves_items_against_preserved_document_focus() {
         copy.is_enabled(),
         "menu copy command should resolve against preserved document focus"
     );
+    let document = find_frame(opened.layout(), view::node::Role::TextArea, None);
+    assert_focus_outline(opened.scene(), document);
+    assert_focus_outline_before_text(opened.scene(), document, "Copy");
+
     let focused = app
         .session()
         .focused(window)
@@ -365,7 +404,7 @@ fn text_box_undo_history_survives_blur_while_controls_use_app_undo() {
         view::node::Role::Checkbox,
         Some("Wrap text"),
     );
-    let point = center(wrap_text.rect());
+    let point = center(wrap_text.active_rect());
     pointer_down_then_present(&mut app, window, size, point);
     let toggled = pointer_up_then_present(&mut app, window, size, point);
 
@@ -690,7 +729,7 @@ fn click_gallery_frame(
         .render_scene(window, size)
         .expect("control gallery should render before pointer click");
     let frame = find_frame(presentation.layout(), role, label);
-    let point = center(frame.rect());
+    let point = center(frame.active_rect());
 
     pointer_down_then_present(app, window, size, point);
     pointer_up_then_present(app, window, size, point)
@@ -746,7 +785,7 @@ fn find_frame<'a>(
 
 fn slider_track_rect(frame: &layout::frame::Frame) -> geometry::Rect {
     let theme = Theme::default();
-    layout::control::slider_track_rect(frame.rect(), &theme)
+    layout::control::slider_track_rect(frame.rect(), frame.label_width(), &theme)
 }
 
 fn center(rect: geometry::Rect) -> geometry::Point {
@@ -757,26 +796,58 @@ fn center(rect: geometry::Rect) -> geometry::Point {
 }
 
 fn assert_focus_outline(scene: &Scene, frame: &layout::frame::Frame) {
+    focus_outline_index(scene, frame).unwrap_or_else(|| {
+        panic!(
+            "focused {:?} {:?} should paint a focus outline",
+            frame.role(),
+            frame.label_text()
+        )
+    });
+}
+
+fn assert_focus_outline_after_text(scene: &Scene, frame: &layout::frame::Frame, text: &str) {
+    let outline = focus_outline_index(scene, frame).expect("focus outline should paint");
+    let text = text_primitive_index(scene, text);
+
+    assert!(
+        text < outline,
+        "focus outline should paint above content in the same layer"
+    );
+}
+
+fn assert_focus_outline_before_text(scene: &Scene, frame: &layout::frame::Frame, text: &str) {
+    let outline = focus_outline_index(scene, frame).expect("focus outline should paint");
+    let text = text_primitive_index(scene, text);
+
+    assert!(
+        outline < text,
+        "focus outline should not paint above content in a later layer"
+    );
+}
+
+fn focus_outline_index(scene: &Scene, frame: &layout::frame::Frame) -> Option<usize> {
     let focus = Theme::default().focus().color;
-    assert!(
-        scene
-            .outlines()
-            .iter()
-            .any(|outline| outline.rect() == frame.rect() && outline.color() == focus),
-        "focused {:?} {:?} should paint a focus outline",
-        frame.role(),
-        frame.label_text()
-    );
-    assert!(
+
+    scene.primitives().iter().position(|primitive| {
         matches!(
-            scene.primitives().last(),
-            Some(scene::Primitive::Outline(outline))
-                if outline.rect() == frame.rect() && outline.color() == focus
-        ),
-        "focused {:?} {:?} outline should paint as an overlay after content",
-        frame.role(),
-        frame.label_text()
-    );
+            primitive,
+            scene::Primitive::Outline(outline)
+                if outline.rect() == frame.active_rect() && outline.color() == focus
+        )
+    })
+}
+
+fn text_primitive_index(scene: &Scene, value: &str) -> usize {
+    scene
+        .primitives()
+        .iter()
+        .rposition(|primitive| {
+            matches!(
+                primitive,
+                scene::Primitive::Text(text) if text.value() == value
+            )
+        })
+        .unwrap_or_else(|| panic!("scene text {value:?} should paint"))
 }
 
 fn assert_no_focus_outline(scene: &Scene, frame: &layout::frame::Frame) {
@@ -785,7 +856,7 @@ fn assert_no_focus_outline(scene: &Scene, frame: &layout::frame::Frame) {
         !scene
             .outlines()
             .iter()
-            .any(|outline| outline.rect() == frame.rect() && outline.color() == focus),
+            .any(|outline| outline.rect() == frame.active_rect() && outline.color() == focus),
         "pointer-focused {:?} {:?} should hide the focus outline",
         frame.role(),
         frame.label_text()

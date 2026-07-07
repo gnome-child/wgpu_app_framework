@@ -24,7 +24,7 @@ pub struct Diagnostics {
     pub render_text_prepare: TimingDiagnostics,
     pub render_scene_text_prepare: TimingDiagnostics,
     pub render_layer_update_text_prepare: TimingDiagnostics,
-    pub render_backdrop_prepare: TimingDiagnostics,
+    pub render_filter_prepare: TimingDiagnostics,
     pub render_encode_submit: TimingDiagnostics,
     pub total: TimingDiagnostics,
     pub scroll_input_to_present: TimingDiagnostics,
@@ -33,9 +33,15 @@ pub struct Diagnostics {
     pub render_batches: CountDiagnostics,
     pub glyph_batches: CountDiagnostics,
     pub text_surfaces: CountDiagnostics,
+    pub inline_text_cache_hits: CountDiagnostics,
+    pub inline_text_cache_misses: CountDiagnostics,
+    pub inline_text_shape_calls: CountDiagnostics,
+    pub inline_icon_cache_hits: CountDiagnostics,
+    pub inline_icon_cache_misses: CountDiagnostics,
+    pub inline_icon_shape_calls: CountDiagnostics,
     pub quad_vertices: CountDiagnostics,
     pub clip_batches: CountDiagnostics,
-    pub backdrops: CountDiagnostics,
+    pub filters: CountDiagnostics,
     pub layer_items: CountDiagnostics,
     pub layer_updates: CountDiagnostics,
     pub last_scroll_frame: LastScrollFrameDiagnostics,
@@ -133,7 +139,7 @@ pub(crate) struct RenderTimings {
     pub text_prepare: Duration,
     pub scene_text_prepare: Duration,
     pub layer_update_text_prepare: Duration,
-    pub backdrop_prepare: Duration,
+    pub filter_prepare: Duration,
     pub encode_submit: Duration,
 }
 
@@ -143,9 +149,15 @@ pub(crate) struct RenderStats {
     pub render_batches: usize,
     pub glyph_batches: usize,
     pub text_surfaces: usize,
+    pub inline_text_cache_hits: usize,
+    pub inline_text_cache_misses: usize,
+    pub inline_text_shape_calls: usize,
+    pub inline_icon_cache_hits: usize,
+    pub inline_icon_cache_misses: usize,
+    pub inline_icon_shape_calls: usize,
     pub quad_vertices: usize,
     pub clip_batches: usize,
-    pub backdrops: usize,
+    pub filters: usize,
     pub layer_items: usize,
     pub layer_updates: usize,
 }
@@ -247,7 +259,7 @@ pub(crate) struct Recorder {
     render_text_prepare: TimingSeries,
     render_scene_text_prepare: TimingSeries,
     render_layer_update_text_prepare: TimingSeries,
-    render_backdrop_prepare: TimingSeries,
+    render_filter_prepare: TimingSeries,
     render_encode_submit: TimingSeries,
     total: TimingSeries,
     scroll_input_to_present: TimingSeries,
@@ -256,9 +268,15 @@ pub(crate) struct Recorder {
     render_batches: CountSeries,
     glyph_batches: CountSeries,
     text_surfaces: CountSeries,
+    inline_text_cache_hits: CountSeries,
+    inline_text_cache_misses: CountSeries,
+    inline_text_shape_calls: CountSeries,
+    inline_icon_cache_hits: CountSeries,
+    inline_icon_cache_misses: CountSeries,
+    inline_icon_shape_calls: CountSeries,
     quad_vertices: CountSeries,
     clip_batches: CountSeries,
-    backdrops: CountSeries,
+    filters: CountSeries,
     layer_items: CountSeries,
     layer_updates: CountSeries,
 }
@@ -292,9 +310,9 @@ impl Recorder {
         self.diagnostics.render_layer_update_text_prepare = self
             .render_layer_update_text_prepare
             .record(timings.render_stages.layer_update_text_prepare);
-        self.diagnostics.render_backdrop_prepare = self
-            .render_backdrop_prepare
-            .record(timings.render_stages.backdrop_prepare);
+        self.diagnostics.render_filter_prepare = self
+            .render_filter_prepare
+            .record(timings.render_stages.filter_prepare);
         self.diagnostics.render_encode_submit = self
             .render_encode_submit
             .record(timings.render_stages.encode_submit);
@@ -309,11 +327,29 @@ impl Recorder {
         self.diagnostics.text_surfaces = self
             .text_surfaces
             .record(timings.render_stats.text_surfaces);
+        self.diagnostics.inline_text_cache_hits = self
+            .inline_text_cache_hits
+            .record(timings.render_stats.inline_text_cache_hits);
+        self.diagnostics.inline_text_cache_misses = self
+            .inline_text_cache_misses
+            .record(timings.render_stats.inline_text_cache_misses);
+        self.diagnostics.inline_text_shape_calls = self
+            .inline_text_shape_calls
+            .record(timings.render_stats.inline_text_shape_calls);
+        self.diagnostics.inline_icon_cache_hits = self
+            .inline_icon_cache_hits
+            .record(timings.render_stats.inline_icon_cache_hits);
+        self.diagnostics.inline_icon_cache_misses = self
+            .inline_icon_cache_misses
+            .record(timings.render_stats.inline_icon_cache_misses);
+        self.diagnostics.inline_icon_shape_calls = self
+            .inline_icon_shape_calls
+            .record(timings.render_stats.inline_icon_shape_calls);
         self.diagnostics.quad_vertices = self
             .quad_vertices
             .record(timings.render_stats.quad_vertices);
         self.diagnostics.clip_batches = self.clip_batches.record(timings.render_stats.clip_batches);
-        self.diagnostics.backdrops = self.backdrops.record(timings.render_stats.backdrops);
+        self.diagnostics.filters = self.filters.record(timings.render_stats.filters);
         self.diagnostics.layer_items = self.layer_items.record(timings.render_stats.layer_items);
         self.diagnostics.layer_updates = self
             .layer_updates
@@ -387,7 +423,7 @@ impl Default for Recorder {
             render_text_prepare: TimingSeries::default(),
             render_scene_text_prepare: TimingSeries::default(),
             render_layer_update_text_prepare: TimingSeries::default(),
-            render_backdrop_prepare: TimingSeries::default(),
+            render_filter_prepare: TimingSeries::default(),
             render_encode_submit: TimingSeries::default(),
             total: TimingSeries::default(),
             scroll_input_to_present: TimingSeries::default(),
@@ -396,9 +432,15 @@ impl Default for Recorder {
             render_batches: CountSeries::default(),
             glyph_batches: CountSeries::default(),
             text_surfaces: CountSeries::default(),
+            inline_text_cache_hits: CountSeries::default(),
+            inline_text_cache_misses: CountSeries::default(),
+            inline_text_shape_calls: CountSeries::default(),
+            inline_icon_cache_hits: CountSeries::default(),
+            inline_icon_cache_misses: CountSeries::default(),
+            inline_icon_shape_calls: CountSeries::default(),
             quad_vertices: CountSeries::default(),
             clip_batches: CountSeries::default(),
-            backdrops: CountSeries::default(),
+            filters: CountSeries::default(),
             layer_items: CountSeries::default(),
             layer_updates: CountSeries::default(),
         }
@@ -557,6 +599,10 @@ mod tests {
                     scene_items: 40,
                     glyph_batches: 3,
                     text_surfaces: 2,
+                    inline_text_cache_misses: 2,
+                    inline_text_shape_calls: 2,
+                    inline_icon_cache_misses: 1,
+                    inline_icon_shape_calls: 1,
                     ..RenderStats::default()
                 },
                 ..FrameTimings::default()
@@ -576,6 +622,8 @@ mod tests {
                     scene_items: 10,
                     glyph_batches: 1,
                     text_surfaces: 1,
+                    inline_text_cache_hits: 2,
+                    inline_icon_cache_hits: 1,
                     ..RenderStats::default()
                 },
                 ..FrameTimings::default()
@@ -609,6 +657,11 @@ mod tests {
         assert_eq!(diagnostics.scene_items.max, 40);
         assert_eq!(diagnostics.scene_items.average, 25);
         assert_eq!(diagnostics.glyph_batches.latest, 1);
+        assert_eq!(diagnostics.inline_text_cache_hits.latest, 2);
+        assert_eq!(diagnostics.inline_text_shape_calls.latest, 0);
+        assert_eq!(diagnostics.inline_text_shape_calls.max, 2);
+        assert_eq!(diagnostics.inline_icon_cache_hits.latest, 1);
+        assert_eq!(diagnostics.inline_icon_shape_calls.max, 1);
         assert_eq!(diagnostics.text_surfaces.latest, 1);
     }
 

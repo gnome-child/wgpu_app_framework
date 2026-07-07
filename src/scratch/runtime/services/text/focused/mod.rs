@@ -119,7 +119,7 @@ fn put_clipboard_text(cx: &mut command_context::Context, text: String) -> bool {
 
 fn effect_for_change(change: &draft::Change) -> Effect {
     if change.changed() {
-        Effect::Repaint
+        Effect::Layout
     } else {
         Effect::None
     }

@@ -54,17 +54,36 @@ impl Session {
 
         dismiss_menu_for_target(window, target)
     }
+
+    pub(in crate::scratch) fn dismiss_menu_for_surface(
+        &mut self,
+        id: app_window::Id,
+        inside_surface: bool,
+    ) -> bool {
+        let Some(window) = self.window_mut(id) else {
+            return false;
+        };
+
+        dismiss_menu_for_surface(window, inside_surface)
+    }
 }
 
 pub(super) fn dismiss_menu_for_target(
     window: &mut Window,
     target: Option<&interaction::Target>,
 ) -> bool {
+    dismiss_menu_for_surface(
+        window,
+        target.is_some_and(interaction::Target::is_menu_surface),
+    )
+}
+
+fn dismiss_menu_for_surface(window: &mut Window, inside_surface: bool) -> bool {
     if window.interaction.open_menu().is_none() {
         return false;
     }
 
-    if target.is_some_and(interaction::Target::is_menu_surface) {
+    if inside_surface {
         return false;
     }
 

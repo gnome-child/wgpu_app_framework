@@ -1,6 +1,6 @@
 use std::any::{Any, TypeId};
 
-use super::Responder;
+use super::{Kind, Responder};
 use crate::scratch::{
     command::{self, Command, State},
     context::Context,
@@ -10,14 +10,14 @@ use crate::scratch::{
 };
 
 pub(in crate::scratch) trait Service<M: state::State> {
-    fn state(
+    fn claim(
         &mut self,
         store: &mut state::Store<M>,
         command_type: TypeId,
         command_name: &'static str,
         args: &dyn Any,
         cx: &Context,
-    ) -> Result<Option<State>>;
+    ) -> Result<Option<Claim>>;
 
     fn invoke(
         &mut self,
@@ -34,6 +34,66 @@ pub struct Chain<'a, M: state::State> {
     store: &'a mut state::Store<M>,
     responders: Vec<&'a Responder<M>>,
     services: Vec<Box<dyn Service<M> + 'a>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::scratch) struct Provenance {
+    kind: Kind,
+    name: &'static str,
+    order: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::scratch) struct Claim {
+    provenance: Provenance,
+    state: State,
+}
+
+struct TargetClaim {
+    responder: usize,
+    target: usize,
+    claim: Claim,
+}
+
+impl Provenance {
+    pub(in crate::scratch) fn new(kind: Kind, name: &'static str, order: usize) -> Self {
+        Self { kind, name, order }
+    }
+
+    pub(in crate::scratch) fn kind(&self) -> Kind {
+        self.kind
+    }
+
+    pub(in crate::scratch) fn sort_key(&self) -> (usize, usize, &'static str) {
+        (self.kind.rank(), self.order, self.name)
+    }
+}
+
+impl Claim {
+    pub(in crate::scratch) fn new(provenance: Provenance, state: State) -> Self {
+        Self { provenance, state }
+    }
+
+    pub(in crate::scratch) fn service(kind: Kind, name: &'static str, state: State) -> Self {
+        Self::new(Provenance::new(kind, name, 0), state)
+    }
+
+    pub(in crate::scratch) fn with_order(mut self, order: usize) -> Self {
+        self.provenance.order = order;
+        self
+    }
+
+    pub(in crate::scratch) fn provenance(&self) -> &Provenance {
+        &self.provenance
+    }
+
+    pub(in crate::scratch) fn state(&self) -> &State {
+        &self.state
+    }
+
+    pub(in crate::scratch) fn into_state(self) -> State {
+        self.state
+    }
 }
 
 impl<'a, M: state::State> Chain<'a, M> {
@@ -58,39 +118,7 @@ impl<'a, M: state::State> Chain<'a, M> {
         args: &C::Args,
         cx: &Context,
     ) -> Result<Option<State>> {
-        for responder in &self.responders {
-            let mut claim = None;
-
-            for target in responder
-                .targets
-                .iter()
-                .filter(|target| target.handles::<C>())
-            {
-                let state = target.state::<C>(self.store.model_mut(), args, cx)?;
-                if !state.is_hidden() {
-                    if claim.is_some() {
-                        return Err(Error::AmbiguousTarget {
-                            command: C::NAME,
-                            responder: responder.name,
-                        });
-                    }
-
-                    claim = Some(state);
-                }
-            }
-
-            if claim.is_some() {
-                return Ok(claim);
-            }
-        }
-
-        for service in &mut self.services {
-            if let Some(state) = service.state(self.store, TypeId::of::<C>(), C::NAME, args, cx)? {
-                return Ok(Some(state));
-            }
-        }
-
-        Ok(None)
+        self.state_any(TypeId::of::<C>(), C::NAME, args, cx)
     }
 
     pub(in crate::scratch) fn state_any(
@@ -100,35 +128,26 @@ impl<'a, M: state::State> Chain<'a, M> {
         args: &dyn Any,
         cx: &Context,
     ) -> Result<Option<State>> {
-        for responder in &self.responders {
-            let mut claim = None;
+        Ok(self
+            .claim_any(command_type, command_name, args, cx)?
+            .map(Claim::into_state))
+    }
 
-            for target in responder
-                .targets
-                .iter()
-                .filter(|target| target.handles_type(command_type))
-            {
-                let state = target.state_any(self.store.model_mut(), args, cx)?;
-                if !state.is_hidden() {
-                    if claim.is_some() {
-                        return Err(Error::AmbiguousTarget {
-                            command: command_name,
-                            responder: responder.name,
-                        });
-                    }
-
-                    claim = Some(state);
-                }
-            }
-
-            if claim.is_some() {
-                return Ok(claim);
-            }
+    pub(in crate::scratch) fn claim_any(
+        &mut self,
+        command_type: TypeId,
+        command_name: &'static str,
+        args: &dyn Any,
+        cx: &Context,
+    ) -> Result<Option<Claim>> {
+        if let Some(claim) = self.responder_claim(command_type, command_name, args, cx)? {
+            return Ok(Some(claim.claim));
         }
 
-        for service in &mut self.services {
-            if let Some(state) = service.state(self.store, command_type, command_name, args, cx)? {
-                return Ok(Some(state));
+        let service_order_base = self.responders.len();
+        for (service_index, service) in self.services.iter_mut().enumerate() {
+            if let Some(claim) = service.claim(self.store, command_type, command_name, args, cx)? {
+                return Ok(Some(claim.with_order(service_order_base + service_index)));
             }
         }
 
@@ -140,68 +159,8 @@ impl<'a, M: state::State> Chain<'a, M> {
         args: C::Args,
         cx: &mut Context,
     ) -> Option<Response<C::Output>> {
-        for responder in &self.responders {
-            let mut claim = None;
-
-            for (index, target) in responder
-                .targets
-                .iter()
-                .enumerate()
-                .filter(|(_, target)| target.handles::<C>())
-            {
-                match target.state::<C>(self.store.model_mut(), &args, cx) {
-                    Ok(state) if state.is_hidden() => {}
-                    Ok(state) => {
-                        if claim.is_some() {
-                            return Some(Response::failed(Error::AmbiguousTarget {
-                                command: C::NAME,
-                                responder: responder.name,
-                            }));
-                        }
-
-                        claim = Some((index, state));
-                    }
-                    Err(error) => return Some(Response::failed(error)),
-                }
-            }
-
-            let Some((index, state)) = claim else {
-                continue;
-            };
-
-            match state.availability {
-                command::Availability::Hidden => unreachable!("hidden targets are not claims"),
-                command::Availability::Disabled => {
-                    return Some(Response::failed(Error::Disabled { command: C::NAME }));
-                }
-                command::Availability::Enabled => {
-                    return Some(responder.targets[index].invoke::<C>(
-                        self.store.model_mut(),
-                        args,
-                        cx,
-                    ));
-                }
-            }
-        }
-
-        for service in &mut self.services {
-            match service.state(self.store, TypeId::of::<C>(), C::NAME, &args, cx) {
-                Ok(Some(_)) => {
-                    return Some(
-                        service
-                            .invoke(self.store, TypeId::of::<C>(), C::NAME, Box::new(args), cx)
-                            .map(|response| response.into_response(C::NAME))
-                            .unwrap_or_else(|| {
-                                Response::failed(Error::MissingTarget { command: C::NAME })
-                            }),
-                    );
-                }
-                Ok(None) => {}
-                Err(error) => return Some(Response::failed(error)),
-            }
-        }
-
-        None
+        self.invoke_any(TypeId::of::<C>(), C::NAME, Box::new(args), cx)
+            .map(|response| response.into_response(C::NAME))
     }
 
     pub(in crate::scratch) fn invoke_any(
@@ -211,36 +170,8 @@ impl<'a, M: state::State> Chain<'a, M> {
         args: Box<dyn Any + Send>,
         cx: &mut Context,
     ) -> Option<AnyResponse> {
-        for responder in &self.responders {
-            let mut claim = None;
-
-            for (index, target) in responder
-                .targets
-                .iter()
-                .enumerate()
-                .filter(|(_, target)| target.handles_type(command_type))
-            {
-                match target.state_any(self.store.model_mut(), args.as_ref(), cx) {
-                    Ok(state) if state.is_hidden() => {}
-                    Ok(state) => {
-                        if claim.is_some() {
-                            return Some(AnyResponse::failed(Error::AmbiguousTarget {
-                                command: command_name,
-                                responder: responder.name,
-                            }));
-                        }
-
-                        claim = Some((index, state));
-                    }
-                    Err(error) => return Some(AnyResponse::failed(error)),
-                }
-            }
-
-            let Some((index, state)) = claim else {
-                continue;
-            };
-
-            match state.availability {
+        match self.responder_claim(command_type, command_name, args.as_ref(), cx) {
+            Ok(Some(claim)) => match claim.claim.state.availability {
                 command::Availability::Hidden => unreachable!("hidden targets are not claims"),
                 command::Availability::Disabled => {
                     return Some(AnyResponse::failed(Error::Disabled {
@@ -248,17 +179,21 @@ impl<'a, M: state::State> Chain<'a, M> {
                     }));
                 }
                 command::Availability::Enabled => {
-                    return Some(responder.targets[index].invoke_any(
-                        self.store.model_mut(),
-                        args,
-                        cx,
-                    ));
+                    return Some(
+                        self.responders[claim.responder].targets[claim.target].invoke_any(
+                            self.store.model_mut(),
+                            args,
+                            cx,
+                        ),
+                    );
                 }
-            }
+            },
+            Ok(None) => {}
+            Err(error) => return Some(AnyResponse::failed(error)),
         }
 
         for service in &mut self.services {
-            match service.state(self.store, command_type, command_name, args.as_ref(), cx) {
+            match service.claim(self.store, command_type, command_name, args.as_ref(), cx) {
                 Ok(Some(_)) => {
                     return Some(
                         service
@@ -276,5 +211,49 @@ impl<'a, M: state::State> Chain<'a, M> {
         }
 
         None
+    }
+
+    fn responder_claim(
+        &mut self,
+        command_type: TypeId,
+        command_name: &'static str,
+        args: &dyn Any,
+        cx: &Context,
+    ) -> Result<Option<TargetClaim>> {
+        for (responder_index, responder) in self.responders.iter().enumerate() {
+            let mut claim = None;
+
+            for (target_index, target) in responder
+                .targets
+                .iter()
+                .enumerate()
+                .filter(|(_, target)| target.handles_type(command_type))
+            {
+                let state = target.state_any(self.store.model_mut(), args, cx)?;
+                if state.is_hidden() {
+                    continue;
+                }
+
+                if claim.is_some() {
+                    return Err(Error::AmbiguousTarget {
+                        command: command_name,
+                        responder: responder.name,
+                    });
+                }
+
+                let provenance = Provenance::new(responder.kind, responder.name, responder_index);
+                claim = Some(TargetClaim {
+                    responder: responder_index,
+                    target: target_index,
+                    claim: Claim::new(provenance, state),
+                });
+            }
+
+            if claim.is_some() {
+                return Ok(claim);
+            }
+        }
+
+        Ok(None)
     }
 }

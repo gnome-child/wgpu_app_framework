@@ -5,27 +5,63 @@ use super::super::{
     control::{TextArea, TextBox},
 };
 use super::{Node, Role};
-use crate::scratch::interaction;
+use crate::scratch::{composition, interaction};
 
 impl Node {
     pub fn pointer_target(&self) -> Option<interaction::Target> {
-        self.pointer_target_with_path(None)
+        self.pointer_target_without_retained_id()
     }
 
-    pub fn pointer_target_at_path(&self, path: &[usize]) -> Option<interaction::Target> {
-        self.pointer_target_with_path(Some(path))
+    pub fn pointer_target_at_path(&self, _path: &[usize]) -> Option<interaction::Target> {
+        self.pointer_target()
     }
 
-    fn pointer_target_with_path(&self, path: Option<&[usize]>) -> Option<interaction::Target> {
+    pub(in crate::scratch) fn node_pointer_target(
+        &self,
+        node_id: composition::NodeId,
+    ) -> Option<interaction::Target> {
         if let Some(target) = self.text_control_target() {
             return Some(target);
         }
 
         if let Some(binding) = &self.binding {
-            let target = self
-                .id
-                .map(|id| binding.element_pointer_target(id))
-                .or_else(|| path.map(|path| binding.path_pointer_target(path)))?;
+            let target = self.id.map_or_else(
+                || {
+                    interaction::Target::command_node(
+                        node_id,
+                        None,
+                        binding.command_name(),
+                        binding.source(),
+                    )
+                },
+                |id| binding.element_pointer_target(id),
+            );
+
+            return Some(if self.role == Role::Slider {
+                target.with_capture()
+            } else {
+                target
+            });
+        }
+
+        if self.role == Role::Scroll {
+            let label = self.label.as_deref().unwrap_or("Scroll");
+            return Some(self.id.map_or_else(
+                || interaction::Target::scroll_node(node_id, None, label),
+                |id| interaction::Target::scroll(id, label),
+            ));
+        }
+
+        self.pointer_target()
+    }
+
+    fn pointer_target_without_retained_id(&self) -> Option<interaction::Target> {
+        if let Some(target) = self.text_control_target() {
+            return Some(target);
+        }
+
+        if let Some(binding) = &self.binding {
+            let target = self.id.map(|id| binding.element_pointer_target(id))?;
 
             return Some(if self.role == Role::Slider {
                 target.with_capture()
@@ -40,8 +76,11 @@ impl Node {
                 .zip(self.label.as_ref())
                 .map(|(id, label)| interaction::Target::menu(id, label.clone())),
             Role::TextArea | Role::TextBox => None,
-            Role::Popup => self.id.map(|id| {
-                interaction::Target::popup(id, self.label.as_deref().unwrap_or_else(|| id.as_str()))
+            Role::FloatingPanel => self.id.map(|id| {
+                interaction::Target::floating_panel(
+                    id,
+                    self.label.as_deref().unwrap_or_else(|| id.as_str()),
+                )
             }),
             Role::Label => self
                 .id
@@ -56,7 +95,9 @@ impl Node {
             | Role::Checkbox
             | Role::Radio
             | Role::Slider
-            | Role::Panel => None,
+            | Role::Scroll
+            | Role::Panel
+            | Role::SectionHeader => None,
         }
     }
 
@@ -173,9 +214,11 @@ impl Node {
             | Role::Checkbox
             | Role::Radio
             | Role::Slider
+            | Role::Scroll
             | Role::Panel
+            | Role::FloatingPanel
             | Role::TextBox
-            | Role::Popup
+            | Role::SectionHeader
             | Role::Label => None,
         }
     }
@@ -193,8 +236,10 @@ impl Node {
             | Role::Separator
             | Role::TextArea
             | Role::TextBox
+            | Role::Scroll
             | Role::Panel
-            | Role::Popup
+            | Role::FloatingPanel
+            | Role::SectionHeader
             | Role::Label => None,
         }
     }

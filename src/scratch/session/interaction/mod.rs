@@ -1,3 +1,4 @@
+mod command_palette;
 mod menu;
 mod pointer;
 mod scroll;

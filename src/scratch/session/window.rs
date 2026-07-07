@@ -1,4 +1,4 @@
-use super::super::{geometry, interaction, scene, state, window as app_window};
+use super::super::{geometry, interaction, response, scene, state, window as app_window};
 use super::{FileDialog, Focus, Session, Snapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7,7 +7,7 @@ pub struct Window {
     pub(super) title: String,
     pub(super) inner_size: geometry::Size,
     pub(super) canvas_color: scene::Color,
-    pub(super) redraw_requested: bool,
+    pub(super) invalidation: Option<response::Invalidation>,
     pub(super) presented_revision: Option<state::Revision>,
     pub(super) focus: Option<Focus>,
     pub(super) menu_restore_focus: Option<Focus>,
@@ -37,7 +37,7 @@ impl Window {
             title,
             inner_size,
             canvas_color,
-            redraw_requested: true,
+            invalidation: Some(response::Invalidation::Rebuild),
             presented_revision: None,
             focus: None,
             menu_restore_focus: None,
@@ -52,7 +52,7 @@ impl Window {
             title: snapshot.title,
             inner_size: snapshot.inner_size,
             canvas_color: snapshot.canvas_color,
-            redraw_requested: true,
+            invalidation: Some(response::Invalidation::Rebuild),
             presented_revision: None,
             focus: snapshot.focus,
             menu_restore_focus: None,
@@ -78,7 +78,11 @@ impl Window {
     }
 
     pub fn redraw_requested(&self) -> bool {
-        self.redraw_requested
+        self.invalidation.is_some()
+    }
+
+    pub(in crate::scratch) fn invalidation(&self) -> Option<response::Invalidation> {
+        self.invalidation
     }
 
     pub fn presented_revision(&self) -> Option<state::Revision> {
@@ -162,11 +166,21 @@ impl Session {
     }
 
     pub fn request_redraw(&mut self, id: app_window::Id) -> bool {
+        self.request_invalidation(id, response::Invalidation::Rebuild)
+    }
+
+    pub(in crate::scratch) fn request_invalidation(
+        &mut self,
+        id: app_window::Id,
+        invalidation: response::Invalidation,
+    ) -> bool {
         let Some(window) = self.window_mut(id) else {
             return false;
         };
-        let changed = !window.redraw_requested;
-        window.redraw_requested = true;
+        let previous = window.invalidation;
+        window.invalidation =
+            Some(previous.map_or(invalidation, |previous| previous.max(invalidation)));
+        let changed = previous != window.invalidation;
         changed
     }
 
@@ -174,8 +188,8 @@ impl Session {
         let Some(window) = self.window_mut(id) else {
             return false;
         };
-        let changed = window.redraw_requested;
-        window.redraw_requested = false;
+        let changed = window.invalidation.is_some();
+        window.invalidation = None;
         changed
     }
 
@@ -190,6 +204,21 @@ impl Session {
         let changed = window.presented_revision != Some(revision);
         window.presented_revision = Some(revision);
         changed
+    }
+
+    pub(in crate::scratch) fn prune_removed_interaction(
+        &mut self,
+        id: app_window::Id,
+        removed_nodes: &[super::super::composition::NodeId],
+        removed_elements: &[interaction::Id],
+    ) -> bool {
+        let Some(window) = self.window_mut(id) else {
+            return false;
+        };
+
+        window
+            .interaction
+            .prune_removed(removed_nodes, removed_elements)
     }
 
     pub fn windows(&self) -> &[Window] {

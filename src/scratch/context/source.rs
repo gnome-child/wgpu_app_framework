@@ -5,5 +5,6 @@ pub enum Source {
     Button,
     Shortcut,
     Input,
+    Palette,
     Programmatic,
 }

@@ -789,6 +789,7 @@ fn push_chrome(scene: &mut paint::Scene, rect: Rect, brush: paint::Brush) {
     scene.push_quad(paint::Quad {
         rect,
         rasterization: paint::Rasterization::default(),
+        transform: paint::Transform::identity(),
         style: paint::Style {
             fill: Some(paint::Fill::Brush(brush)),
             stroke: None,

@@ -1,10 +1,12 @@
 use super::super::{scene, session, view};
+use crate::animation;
 
 pub struct Work {
     presentations: Vec<view::Presentation>,
     requests: Vec<session::Request>,
     pending_tasks: usize,
     task_completions: usize,
+    animation_schedule: animation::Schedule,
 }
 
 pub struct RenderWork {
@@ -12,6 +14,7 @@ pub struct RenderWork {
     requests: Vec<session::Request>,
     pending_tasks: usize,
     task_completions: usize,
+    animation_schedule: animation::Schedule,
 }
 
 impl Work {
@@ -20,12 +23,14 @@ impl Work {
         requests: Vec<session::Request>,
         pending_tasks: usize,
         task_completions: usize,
+        animation_schedule: animation::Schedule,
     ) -> Self {
         Self {
             presentations,
             requests,
             pending_tasks,
             task_completions,
+            animation_schedule,
         }
     }
 
@@ -50,6 +55,7 @@ impl Work {
             && self.requests.is_empty()
             && self.pending_tasks == 0
             && self.task_completions == 0
+            && self.animation_schedule == animation::Schedule::Idle
     }
 }
 
@@ -59,12 +65,14 @@ impl RenderWork {
         requests: Vec<session::Request>,
         pending_tasks: usize,
         task_completions: usize,
+        animation_schedule: animation::Schedule,
     ) -> Self {
         Self {
             presentations,
             requests,
             pending_tasks,
             task_completions,
+            animation_schedule,
         }
     }
 
@@ -84,10 +92,15 @@ impl RenderWork {
         self.task_completions
     }
 
+    pub(in crate::scratch) fn animation_schedule(&self) -> animation::Schedule {
+        self.animation_schedule
+    }
+
     pub fn is_empty(&self) -> bool {
         self.presentations.is_empty()
             && self.requests.is_empty()
             && self.pending_tasks == 0
             && self.task_completions == 0
+            && self.animation_schedule == animation::Schedule::Idle
     }
 }

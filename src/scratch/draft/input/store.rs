@@ -69,6 +69,26 @@ impl Store {
         self.prune(protected);
     }
 
+    pub(super) fn prune_removed(
+        &mut self,
+        removed_nodes: &[crate::scratch::composition::NodeId],
+        removed_elements: &[crate::scratch::interaction::Id],
+    ) -> bool {
+        let stale = self
+            .order
+            .iter()
+            .filter(|target| target.matches_removed_identity(removed_nodes, removed_elements))
+            .cloned()
+            .collect::<Vec<_>>();
+        let changed = !stale.is_empty();
+        for target in stale {
+            self.drafts.remove(&target);
+        }
+        self.order
+            .retain(|target| !target.matches_removed_identity(removed_nodes, removed_elements));
+        changed
+    }
+
     pub(super) fn touch(&mut self, target: &Target, protected: Option<&Target>) {
         self.order.retain(|existing| existing != target);
         self.order.push_back(target.clone());

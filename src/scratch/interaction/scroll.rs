@@ -3,13 +3,19 @@ use super::Target;
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Scroll {
     offsets: Vec<ScrollEntry>,
-    reveal_requests: Vec<Target>,
+    reveal_requests: Vec<Reveal>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ScrollEntry {
     target: Target,
     offset: ScrollOffset,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Reveal {
+    Viewport(Target),
+    ActiveDescendant { viewport: Target },
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -34,7 +40,19 @@ impl Scroll {
     }
 
     pub fn should_reveal(&self, target: &Target) -> bool {
-        self.reveal_requests.iter().any(|request| request == target)
+        self.reveal_requests
+            .iter()
+            .any(|request| matches!(request, Reveal::Viewport(viewport) if viewport == target))
+    }
+
+    pub(in crate::scratch) fn active_descendant_targets(&self) -> Vec<Target> {
+        self.reveal_requests
+            .iter()
+            .filter_map(|request| match request {
+                Reveal::ActiveDescendant { viewport } => Some(viewport.clone()),
+                Reveal::Viewport(_) => None,
+            })
+            .collect()
     }
 
     pub(super) fn scroll_by(&mut self, target: Target, delta: ScrollDelta) -> bool {
@@ -84,11 +102,22 @@ impl Scroll {
     }
 
     pub(super) fn reveal(&mut self, target: Target) -> bool {
-        if self.should_reveal(&target) {
+        let request = Reveal::Viewport(target);
+        if self.reveal_requests.contains(&request) {
             return false;
         }
 
-        self.reveal_requests.push(target);
+        self.reveal_requests.push(request);
+        true
+    }
+
+    pub(super) fn reveal_active_descendant(&mut self, viewport: Target) -> bool {
+        let request = Reveal::ActiveDescendant { viewport };
+        if self.reveal_requests.contains(&request) {
+            return false;
+        }
+
+        self.reveal_requests.push(request);
         true
     }
 
@@ -96,13 +125,41 @@ impl Scroll {
         let Some(index) = self
             .reveal_requests
             .iter()
-            .position(|request| request == target)
+            .position(|request| request.viewport() == target)
         else {
             return false;
         };
 
         self.reveal_requests.remove(index);
         true
+    }
+
+    pub(super) fn prune_removed(
+        &mut self,
+        removed_nodes: &[super::super::composition::NodeId],
+        removed_elements: &[super::Id],
+    ) -> bool {
+        let before_offsets = self.offsets.len();
+        let before_reveals = self.reveal_requests.len();
+        self.offsets.retain(|entry| {
+            !entry
+                .target
+                .matches_removed_identity(removed_nodes, removed_elements)
+        });
+        self.reveal_requests.retain(|request| {
+            !request
+                .viewport()
+                .matches_removed_identity(removed_nodes, removed_elements)
+        });
+        before_offsets != self.offsets.len() || before_reveals != self.reveal_requests.len()
+    }
+}
+
+impl Reveal {
+    fn viewport(&self) -> &Target {
+        match self {
+            Self::Viewport(viewport) | Self::ActiveDescendant { viewport } => viewport,
+        }
     }
 }
 
@@ -154,5 +211,23 @@ impl ScrollDelta {
 
     fn is_zero(self) -> bool {
         self.x == 0 && self.y == 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn target_label_does_not_change_scroll_identity() {
+        let mut scroll = Scroll::default();
+        let first = Target::scroll("same.scroll", "First Label");
+        let second = Target::scroll("same.scroll", "Second Label");
+
+        assert!(scroll.scroll_by(first, ScrollDelta::vertical(42)));
+        assert_eq!(scroll.offset(&second), ScrollOffset::new(0, 42));
+
+        assert!(scroll.reveal(second));
+        assert!(scroll.should_reveal(&Target::scroll("same.scroll", "Third Label")));
     }
 }

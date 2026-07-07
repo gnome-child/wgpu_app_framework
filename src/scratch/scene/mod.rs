@@ -1,19 +1,27 @@
 mod color;
+mod material;
 mod paint;
 mod presentation;
 mod primitive;
+mod visual;
 
 pub use color::Color;
+pub use material::{
+    BackdropBlur, BackdropEdgeMode, BackdropLayer, Glass, Luminosity, Material, Noise, Refraction,
+    SurfaceLayer,
+};
 pub use presentation::Presentation;
 pub use primitive::{
-    Backdrop, Brush, EdgeMode, Icon, Offset, Outline, Primitive, Quad, Radius, Rasterization,
-    Rounding, Shadow, Snapping, Stroke, Style, Text, TextAlign, TextSurface, TextViewport,
-    TextWrap,
+    Brush, Clip, EdgeMode, Filter, FilterOp, Icon, LiquidFilter, Offset, Outline, Primitive, Quad,
+    Radius, Rasterization, Rounding, Shadow, Snapping, Stroke, Style, Text, TextAlign, TextStyle,
+    TextSurface, TextViewport, TextWrap, Transform,
 };
+pub(in crate::scratch) use visual::Target as TargetVisual;
+pub use visual::Visuals;
 
 use super::{geometry, layout, theme::Theme};
 
-const DEFAULT_CLEAR: Color = Color::rgb(20, 22, 25);
+const DEFAULT_CLEAR: Color = Color::rgb(17, 18, 20);
 
 #[derive(Clone)]
 pub struct Scene {
@@ -41,9 +49,18 @@ impl Scene {
         clear: Color,
         theme: &Theme,
     ) -> Self {
+        Self::paint_with_clear_theme_and_visuals(layout, clear, theme, &Visuals::default())
+    }
+
+    pub(in crate::scratch) fn paint_with_clear_theme_and_visuals(
+        layout: &layout::Layout,
+        clear: Color,
+        theme: &Theme,
+        visuals: &Visuals,
+    ) -> Self {
         let mut scene = Self::new_with_clear(layout.size(), clear);
 
-        paint::paint_layout_with_theme(layout, &mut scene, theme);
+        paint::paint_layout_with_theme(layout, &mut scene, theme, visuals);
 
         scene
     }
@@ -126,11 +143,11 @@ impl Scene {
             .collect()
     }
 
-    pub fn backdrops(&self) -> Vec<&Backdrop> {
+    pub fn filters(&self) -> Vec<&Filter> {
         self.primitives
             .iter()
             .filter_map(|primitive| match primitive {
-                Primitive::Backdrop(backdrop) => Some(backdrop),
+                Primitive::Filter(filter) => Some(filter),
                 _ => None,
             })
             .collect()
@@ -141,6 +158,16 @@ impl Scene {
             .iter()
             .filter_map(|primitive| match primitive {
                 Primitive::Outline(outline) => Some(outline),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn clips(&self) -> Vec<&Clip> {
+        self.primitives
+            .iter()
+            .filter_map(|primitive| match primitive {
+                Primitive::Clip(clip) => Some(clip),
                 _ => None,
             })
             .collect()
@@ -179,10 +206,20 @@ impl Scene {
         }
     }
 
-    pub(super) fn push_backdrop(&mut self, backdrop: Backdrop) {
-        if backdrop.rect().width() > 0 && backdrop.rect().height() > 0 && backdrop.blur() > 0.0 {
-            self.primitives.push(Primitive::Backdrop(backdrop));
+    pub(super) fn push_filter(&mut self, filter: Filter) {
+        if filter.rect().width() > 0 && filter.rect().height() > 0 && !filter.ops().is_empty() {
+            self.primitives.push(Primitive::Filter(filter));
         }
+    }
+
+    pub(super) fn push_clip(&mut self, clip: Clip) {
+        if clip.rect().width() > 0 && clip.rect().height() > 0 {
+            self.primitives.push(Primitive::Clip(clip));
+        }
+    }
+
+    pub(super) fn pop_clip(&mut self) {
+        self.primitives.push(Primitive::PopClip);
     }
 
     pub(super) fn push_outline(&mut self, outline: Outline) {

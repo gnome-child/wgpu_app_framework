@@ -3,6 +3,7 @@ use crate::scratch::{
     command::{self, Command},
     context as command_context,
     error::Error,
+    response,
     response::Response,
     session, state, window,
 };
@@ -11,7 +12,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub fn focus(&mut self, window: window::Id, focus: session::Focus) -> bool {
         let changed = self.session.focus(window, focus);
         if changed {
-            self.session.request_redraw(window);
+            self.session
+                .request_invalidation(window, response::Invalidation::Layout);
         }
 
         changed
@@ -20,7 +22,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub fn clear_focus(&mut self, window: window::Id) -> bool {
         let changed = self.session.clear_focus(window);
         if changed {
-            self.session.request_redraw(window);
+            self.session
+                .request_invalidation(window, response::Invalidation::Layout);
         }
 
         changed

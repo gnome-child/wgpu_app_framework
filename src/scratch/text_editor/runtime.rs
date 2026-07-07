@@ -1,32 +1,40 @@
-use super::super::{
-    Clipboard, Runtime as FrameworkRuntime, Shell, View, command, document, platform, state, window,
-};
+use super::super::{Clipboard, Runtime, Shell, View, command, document, platform, state, window};
 use super::{
     Event, LoadStressText, State, ToggleDebugPanel, ToggleWrapText, target, view,
     view::{CANVAS_COLOR, WINDOW_TITLE, window_size},
 };
 
-pub fn runtime(state: State) -> FrameworkRuntime<State, Event> {
-    FrameworkRuntime::new(state)
+pub fn runtime(state: State) -> Runtime<State, Event> {
+    Runtime::new(state)
         .commands(|commands| {
             commands
                 .register::<document::ApplyEdit>(command::Spec::new("Edit"))
-                .register::<document::NewFile>(command::Spec::new("New").shortcut("Ctrl+N"))
-                .register::<document::OpenFile>(command::Spec::new("Open").shortcut("Ctrl+O"))
+                .register::<document::NewFile>(command::Spec::new("New").shortcut("Primary+N"))
+                .register::<document::OpenFile>(command::Spec::new("Open").shortcut("Primary+O"))
                 .register::<document::OpenPath>(command::Spec::new("Open Path"))
                 .register::<document::OpenCanceled>(command::Spec::new("Open Canceled"))
-                .register::<document::SaveFile>(command::Spec::new("Save").shortcut("Ctrl+S"))
+                .register::<document::SaveFile>(command::Spec::new("Save").shortcut("Primary+S"))
                 .register::<document::SaveAsFile>(
-                    command::Spec::new("Save As").shortcut("Ctrl+Shift+S"),
+                    command::Spec::new("Save As").shortcut("Primary+Shift+S"),
                 )
                 .register::<document::SaveToPath>(command::Spec::new("Save To Path"))
                 .register::<document::SaveCanceled>(command::Spec::new("Save Canceled"))
-                .register::<document::Cut>(command::Spec::new("Cut").shortcut("Ctrl+X"))
-                .register::<document::Copy>(command::Spec::new("Copy").shortcut("Ctrl+C"))
-                .register::<document::Paste>(command::Spec::new("Paste").shortcut("Ctrl+V"))
+                .register::<document::Cut>(
+                    command::Spec::new("Cut")
+                        .key_chord(command::KeyChord::standard(command::Standard::Cut)),
+                )
+                .register::<document::Copy>(
+                    command::Spec::new("Copy")
+                        .key_chord(command::KeyChord::standard(command::Standard::Copy)),
+                )
+                .register::<document::Paste>(
+                    command::Spec::new("Paste")
+                        .key_chord(command::KeyChord::standard(command::Standard::Paste)),
+                )
                 .register::<document::Delete>(command::Spec::new("Delete"))
                 .register::<document::SelectAll>(
-                    command::Spec::new("Select All").shortcut("Ctrl+A"),
+                    command::Spec::new("Select All")
+                        .key_chord(command::KeyChord::standard(command::Standard::SelectAll)),
                 )
                 .register::<LoadStressText>(command::Spec::new("Load Stress Text"))
                 .register::<ToggleWrapText>(command::Spec::new("Wrap text"))
@@ -80,7 +88,7 @@ pub fn runtime(state: State) -> FrameworkRuntime<State, Event> {
         })
 }
 
-pub fn app(state: State) -> FrameworkRuntime<State, Event, View> {
+pub fn app(state: State) -> Runtime<State, Event, View> {
     runtime(state)
         .started(|cx| {
             cx.open_window(

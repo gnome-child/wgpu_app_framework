@@ -16,6 +16,7 @@ mod field;
 mod glyph;
 mod height;
 mod highlight;
+mod inline;
 mod key;
 mod map;
 mod measure_cache;
@@ -52,6 +53,7 @@ pub(crate) use glyph::{
 };
 use glyph::{cosmic_motion_for_text_motion, glyph_cursor, glyph_selection, text_cursor};
 pub use highlight::SelectionSpan;
+pub(crate) use inline::{InlineCache, InlineStats};
 #[cfg(test)]
 pub(super) use map::TextLayoutMap;
 #[cfg(test)]
@@ -196,6 +198,17 @@ impl Engine {
             cache: MeasureCache::new(capacity),
             ..Self::new()
         }
+    }
+    #[cfg(test)]
+    pub(super) fn reset_for_test(&mut self) {
+        self.cache = MeasureCache::new(constants::MEASURE_CACHE_CAPACITY);
+        self.text_area_line_displays = text_area::line_display_cache();
+        self.text_area_render_buffers = text_area::render_buffer_cache();
+        self.text_area_height_indices = height::cache();
+        self.diagnostics = Diagnostics::default();
+        self.highlight_stats = HighlightStats::default();
+        self.interaction_stats = TextInteractionStats::default();
+        self.uncached_measure_count = 0;
     }
     #[cfg(test)]
     pub(super) fn reset_highlight_stats(&mut self) {

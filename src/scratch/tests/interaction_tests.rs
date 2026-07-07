@@ -23,7 +23,7 @@ fn text_editor_menu_open_state_is_framework_owned_interaction() {
 
     assert!(outcome.is_handled());
     assert!(!outcome.changed_state());
-    assert_eq!(outcome.effect(), &response::Effect::Repaint);
+    assert!(outcome.effect().contains_invalidation());
     let interaction: &Interaction = app
         .session()
         .interaction(window)
@@ -39,8 +39,8 @@ fn text_editor_menu_open_state_is_framework_owned_interaction() {
         .present(window)
         .expect("window should still have a view");
 
-    assert_eq!(projected.popups().len(), 1);
-    assert_eq!(projected.popups()[0].label_text(), None);
+    assert_eq!(projected.floating_panels().len(), 1);
+    assert_eq!(projected.floating_panels()[0].label_text(), None);
 
     app.clear_redraw_request(window);
     app.handle_view(window, action)
@@ -56,7 +56,7 @@ fn text_editor_menu_open_state_is_framework_owned_interaction() {
         .present(window)
         .expect("window should still have a view");
 
-    assert!(projected.popups().is_empty());
+    assert!(projected.floating_panels().is_empty());
     assert!(app.session().windows()[0].redraw_requested());
 }
 
@@ -222,7 +222,7 @@ fn cancel_input_closes_open_menu_before_clearing_focus() {
 
     assert!(outcome.is_handled());
     assert!(!outcome.changed_state());
-    assert_eq!(outcome.effect(), &response::Effect::Repaint);
+    assert!(outcome.effect().contains_invalidation());
     assert_eq!(
         app.session()
             .interaction(window)
@@ -255,7 +255,7 @@ fn cancel_input_clears_focus_when_no_menu_is_open() {
 
     assert!(outcome.is_handled());
     assert!(!outcome.changed_state());
-    assert_eq!(outcome.effect(), &response::Effect::Repaint);
+    assert!(outcome.effect().contains_invalidation());
     assert_eq!(app.session().focused(window), None);
     assert!(app.session().windows()[0].redraw_requested());
     assert_eq!(app.revision(), state::Revision::initial());
@@ -298,7 +298,7 @@ fn pointer_actions_update_framework_owned_hover_and_press_state() {
 
     assert!(moved.is_handled());
     assert!(!moved.changed_state());
-    assert_eq!(moved.effect(), &response::Effect::Repaint);
+    assert!(moved.effect().contains_invalidation());
     let interaction: &Interaction = app
         .session()
         .interaction(window)
@@ -313,7 +313,7 @@ fn pointer_actions_update_framework_owned_hover_and_press_state() {
 
     assert!(pressed.is_handled());
     assert!(!pressed.changed_state());
-    assert_eq!(pressed.effect(), &response::Effect::Repaint);
+    assert!(pressed.effect().contains_invalidation());
     let interaction = app
         .session()
         .interaction(window)
@@ -328,7 +328,7 @@ fn pointer_actions_update_framework_owned_hover_and_press_state() {
 
     assert!(left.is_handled());
     assert!(!left.changed_state());
-    assert_eq!(left.effect(), &response::Effect::Repaint);
+    assert!(left.effect().contains_invalidation());
     let interaction = app
         .session()
         .interaction(window)
@@ -365,7 +365,7 @@ fn text_area_pointer_down_starts_framework_pointer_capture() {
 
     assert!(outcome.is_handled());
     assert!(!outcome.changed_state());
-    assert_eq!(outcome.effect(), &response::Effect::Repaint);
+    assert!(outcome.effect().contains_invalidation());
     let pointer = app
         .session()
         .interaction(window)
@@ -406,7 +406,7 @@ fn text_area_scroll_action_updates_framework_owned_scroll_state() {
 
     assert!(scrolled.is_handled());
     assert!(!scrolled.changed_state());
-    assert_eq!(scrolled.effect(), &response::Effect::Repaint);
+    assert!(scrolled.effect().contains_invalidation());
     assert_eq!(app.revision(), revision);
     assert_eq!(
         app.session()
@@ -434,7 +434,7 @@ fn text_area_scroll_action_updates_framework_owned_scroll_state() {
 
     assert!(scrolled_again.is_handled());
     assert!(!scrolled_again.changed_state());
-    assert_eq!(scrolled_again.effect(), &response::Effect::Repaint);
+    assert!(scrolled_again.effect().contains_invalidation());
     assert_eq!(app.revision(), revision);
     assert_eq!(
         app.session()
@@ -506,7 +506,7 @@ fn text_area_interaction_id_scrolls_without_focus() {
 
     assert!(scrolled.is_handled());
     assert!(!scrolled.changed_state());
-    assert_eq!(scrolled.effect(), &response::Effect::Repaint);
+    assert!(scrolled.effect().contains_invalidation());
 
     let presentation = app
         .render_scene(window, size)
@@ -563,7 +563,7 @@ fn text_input_preedit_is_framework_owned_and_projected_into_text_area() {
 
     assert!(outcome.is_handled());
     assert!(!outcome.changed_state());
-    assert_eq!(outcome.effect(), &response::Effect::Repaint);
+    assert!(outcome.effect().contains_invalidation());
     assert_eq!(app.revision(), state::Revision::initial());
     let text_input = app
         .session()
@@ -615,7 +615,7 @@ fn text_input_commit_routes_to_focused_document_and_clears_preedit() {
 
     assert!(outcome.is_handled());
     assert!(outcome.changed_state());
-    assert_eq!(outcome.effect(), &response::Effect::Repaint);
+    assert!(outcome.effect().contains_invalidation());
     assert_eq!(app.state().document.text(), "界");
     assert_eq!(app.state().last_status, "edit");
     assert_eq!(app.revision().get(), 1);
@@ -668,7 +668,7 @@ fn cancel_input_clears_text_preedit_before_clearing_focus() {
 
     assert!(canceled.is_handled());
     assert!(!canceled.changed_state());
-    assert_eq!(canceled.effect(), &response::Effect::Repaint);
+    assert!(canceled.effect().contains_invalidation());
     assert_eq!(app.session().focused(window), Some(focus));
     assert!(
         app.session()
@@ -772,7 +772,7 @@ fn text_area_pointer_click_focuses_and_routes_cursor_edit() {
 
     assert!(outcome.is_handled());
     assert!(outcome.changed_state());
-    assert_eq!(outcome.effect(), &response::Effect::Repaint);
+    assert!(outcome.effect().contains_invalidation());
     let actual_focus = app
         .session()
         .focused(window)
@@ -782,6 +782,23 @@ fn text_area_pointer_click_focuses_and_routes_cursor_edit() {
     assert_eq!(
         actual_focus.visibility(),
         session::focus::Visibility::Hidden
+    );
+    let focused = app
+        .render_scene(window, geometry::Size::new(480, 180))
+        .expect("pointer-focused text area should render");
+    let focused_text_area = focused
+        .layout()
+        .find_role(view::node::Role::TextArea)
+        .into_iter()
+        .next()
+        .expect("text area should be laid out");
+
+    assert!(
+        focused.scene().outlines().iter().any(|outline| {
+            outline.rect() == focused_text_area.rect()
+                && outline.color() == Theme::default().focus().color
+        }),
+        "pointer-focused text area should paint the focus indicator because it accepts keyboard input"
     );
     assert_eq!(app.state().document.position().index, 5);
     assert_eq!(app.state().document.selected_text(), None);
@@ -823,7 +840,7 @@ fn pointer_left_preserves_captured_text_area_until_release() {
 
     assert!(left.is_handled());
     assert!(!left.changed_state());
-    assert_eq!(left.effect(), &response::Effect::Repaint);
+    assert!(left.effect().contains_invalidation());
     let pointer = app
         .session()
         .interaction(window)
@@ -887,7 +904,7 @@ fn cancel_input_clears_pointer_capture_before_clearing_focus() {
 
     assert!(canceled.is_handled());
     assert!(!canceled.changed_state());
-    assert_eq!(canceled.effect(), &response::Effect::Repaint);
+    assert!(canceled.effect().contains_invalidation());
     assert_eq!(app.session().focused(window), Some(focus));
     let pointer = app
         .session()
@@ -974,7 +991,7 @@ fn pointer_drag_without_matching_capture_does_not_invoke_text_edit() {
 
     assert!(dragged.is_handled());
     assert!(!dragged.changed_state());
-    assert_eq!(dragged.effect(), &response::Effect::Repaint);
+    assert!(dragged.effect().contains_invalidation());
     assert_eq!(app.state().document.text(), "hello world");
     assert_eq!(app.state().document.selected_text(), None);
     assert_eq!(app.revision(), state::Revision::initial());
@@ -1008,7 +1025,7 @@ fn pointer_release_over_pressed_menu_invokes_menu_action() {
 
     assert!(released.is_handled());
     assert!(!released.changed_state());
-    assert_eq!(released.effect(), &response::Effect::Repaint);
+    assert!(released.effect().contains_invalidation());
     let interaction = app
         .session()
         .interaction(window)

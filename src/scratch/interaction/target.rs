@@ -1,13 +1,12 @@
 use std::{
-    any::TypeId,
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
 };
 
-use super::super::{context::Source, session};
-use super::{Id, Menu};
+use super::super::{composition, context::Source, session};
+use super::{CommandPalette, Id, Menu};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub struct Target {
     kind: Kind,
     identity: Identity,
@@ -16,13 +15,28 @@ pub struct Target {
     captures: bool,
 }
 
+impl PartialEq for Target {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind && self.identity == other.identity && self.source == other.source
+    }
+}
+
+impl Eq for Target {}
+
+impl Hash for Target {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.kind.hash(state);
+        self.identity.hash(state);
+        self.source.hash(state);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum Identity {
     Element(Id),
-    CommandPath {
-        command_type: TypeId,
-        source: Source,
-        path: Vec<usize>,
+    Node {
+        id: composition::NodeId,
+        element: Option<Id>,
     },
 }
 
@@ -31,7 +45,9 @@ pub enum Kind {
     Menu,
     Command,
     TextArea,
-    Popup,
+    Scroll,
+    Scrollbar,
+    FloatingPanel,
     Label,
 }
 
@@ -50,19 +66,15 @@ impl Target {
         }
     }
 
-    pub fn command_path(
-        command_type: TypeId,
+    pub fn command_node(
+        node: composition::NodeId,
+        element: Option<Id>,
         command_name: &'static str,
         source: Source,
-        path: impl Into<Vec<usize>>,
     ) -> Self {
         Self {
             kind: Kind::Command,
-            identity: Identity::CommandPath {
-                command_type,
-                source,
-                path: path.into(),
-            },
+            identity: Identity::Node { id: node, element },
             label: command_name.to_owned(),
             source: Some(source),
             captures: false,
@@ -84,12 +96,64 @@ impl Target {
         }
     }
 
-    pub fn popup(id: impl Into<Id>, label: impl Into<String>) -> Self {
-        Self::new(Kind::Popup, id, label)
+    pub fn text_area_node(
+        node: composition::NodeId,
+        element: Option<Id>,
+        label: impl Into<String>,
+    ) -> Self {
+        Self::node(Kind::TextArea, node, element, label).with_capture()
+    }
+
+    pub fn scroll(id: impl Into<Id>, label: impl Into<String>) -> Self {
+        Self::new(Kind::Scroll, id, label).with_capture()
+    }
+
+    pub fn scroll_node(
+        node: composition::NodeId,
+        element: Option<Id>,
+        label: impl Into<String>,
+    ) -> Self {
+        Self::node(Kind::Scroll, node, element, label).with_capture()
+    }
+
+    pub fn scrollbar_node(
+        node: composition::NodeId,
+        element: Option<Id>,
+        label: impl Into<String>,
+    ) -> Self {
+        Self::node(Kind::Scrollbar, node, element, label).with_capture()
+    }
+
+    pub fn floating_panel(id: impl Into<Id>, label: impl Into<String>) -> Self {
+        Self::new(Kind::FloatingPanel, id, label)
+    }
+
+    pub fn floating_panel_node(
+        node: composition::NodeId,
+        element: Option<Id>,
+        label: impl Into<String>,
+    ) -> Self {
+        Self::node(Kind::FloatingPanel, node, element, label)
     }
 
     pub fn label(id: impl Into<Id>, label: impl Into<String>) -> Self {
         Self::new(Kind::Label, id, label)
+    }
+
+    pub fn label_node(
+        node: composition::NodeId,
+        element: Option<Id>,
+        label: impl Into<String>,
+    ) -> Self {
+        Self::node(Kind::Label, node, element, label)
+    }
+
+    pub fn menu_node(
+        node: composition::NodeId,
+        element: Option<Id>,
+        label: impl Into<String>,
+    ) -> Self {
+        Self::node(Kind::Menu, node, element, label)
     }
 
     pub fn kind(&self) -> Kind {
@@ -99,8 +163,26 @@ impl Target {
     pub fn element_id(&self) -> Option<Id> {
         match self.identity {
             Identity::Element(id) => Some(id),
-            Identity::CommandPath { .. } => None,
+            Identity::Node { element, .. } => element,
         }
+    }
+
+    pub fn node_id(&self) -> Option<composition::NodeId> {
+        match self.identity {
+            Identity::Element(_) => None,
+            Identity::Node { id, .. } => Some(id),
+        }
+    }
+
+    pub(in crate::scratch) fn matches_removed_identity(
+        &self,
+        removed_nodes: &[composition::NodeId],
+        removed_elements: &[Id],
+    ) -> bool {
+        self.node_id().is_some_and(|id| removed_nodes.contains(&id))
+            || self
+                .element_id()
+                .is_some_and(|id| removed_elements.contains(&id))
     }
 
     pub fn focus_key(&self) -> u64 {
@@ -122,7 +204,13 @@ impl Target {
     }
 
     pub fn is_menu_surface(&self) -> bool {
-        matches!(self.kind, Kind::Menu | Kind::Popup) || self.source == Some(Source::Menu)
+        matches!(self.kind, Kind::Menu | Kind::FloatingPanel) || self.source == Some(Source::Menu)
+    }
+
+    pub fn is_command_palette_surface(&self) -> bool {
+        self.source == Some(Source::Palette)
+            || self.element_id() == Some(CommandPalette::panel_id())
+            || self.element_id() == CommandPalette::query_focus().target_id()
     }
 
     pub fn captures(&self) -> bool {
@@ -138,6 +226,21 @@ impl Target {
         Self {
             kind,
             identity: Identity::Element(id.into()),
+            label: label.into(),
+            source: None,
+            captures: false,
+        }
+    }
+
+    fn node(
+        kind: Kind,
+        id: composition::NodeId,
+        element: Option<Id>,
+        label: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            identity: Identity::Node { id, element },
             label: label.into(),
             source: None,
             captures: false,

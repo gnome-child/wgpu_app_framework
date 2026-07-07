@@ -33,6 +33,340 @@ fn key_down_shortcuts_are_matched_from_registered_specs() {
 }
 
 #[test]
+fn mac_profile_dispatches_primary_shortcut_with_command_not_control() {
+    let mut app = Runtime::new(SourceState::default())
+        .keymap(keymap::Profile::mac())
+        .commands(|commands| {
+            commands.register::<RecordSource>(command::Spec::new("Record").shortcut("Primary+S"));
+        })
+        .responders(|responders| {
+            responders.app().target::<RecordSource>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Keymap"));
+        });
+
+    app.start();
+    let window = app.session().windows()[0].id();
+    let control = app
+        .handle_input(
+            window,
+            Input::key_down(
+                input::Key::Character('s'),
+                input::Modifiers::new(false, true, false, false),
+            ),
+        )
+        .expect("control should be a valid key input");
+
+    assert!(!control.is_handled());
+    assert!(app.state().sources.is_empty());
+
+    let command = app
+        .handle_input(
+            window,
+            Input::key_down(
+                input::Key::Character('s'),
+                input::Modifiers::new(false, false, false, true),
+            ),
+        )
+        .expect("command should dispatch primary shortcut");
+
+    assert!(command.is_handled());
+    assert_eq!(app.state().sources, vec![context::Source::Shortcut]);
+}
+
+#[test]
+fn windows_profile_dispatches_primary_shortcut_with_control_not_command() {
+    let mut app = Runtime::new(SourceState::default())
+        .keymap(keymap::Profile::windows())
+        .commands(|commands| {
+            commands.register::<RecordSource>(command::Spec::new("Record").shortcut("Primary+S"));
+        })
+        .responders(|responders| {
+            responders.app().target::<RecordSource>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Keymap"));
+        });
+
+    app.start();
+    let window = app.session().windows()[0].id();
+    let command = app
+        .handle_input(
+            window,
+            Input::key_down(
+                input::Key::Character('s'),
+                input::Modifiers::new(false, false, false, true),
+            ),
+        )
+        .expect("command should be a valid key input");
+
+    assert!(!command.is_handled());
+    assert!(app.state().sources.is_empty());
+
+    let control = app
+        .handle_input(
+            window,
+            Input::key_down(
+                input::Key::Character('s'),
+                input::Modifiers::new(false, true, false, false),
+            ),
+        )
+        .expect("control should dispatch primary shortcut");
+
+    assert!(control.is_handled());
+    assert_eq!(app.state().sources, vec![context::Source::Shortcut]);
+}
+
+#[test]
+fn command_palette_opens_filters_and_invokes_unit_commands() {
+    let mut app = Runtime::new(SourceState::default())
+        .commands(|commands| {
+            commands
+                .register::<RecordSource>(command::Spec::new("Record").shortcut("Ctrl+R"))
+                .register::<HiddenRecordSource>(command::Spec::new("Hidden"))
+                .register::<DisabledRecordSource>(command::Spec::new("Disabled"))
+                .register::<OpenNamed>(command::Spec::new("Open Named"));
+        })
+        .responders(|responders| {
+            responders
+                .app()
+                .target::<RecordSource>()
+                .target::<HiddenRecordSource>()
+                .target::<DisabledRecordSource>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Palette"));
+        })
+        .view(|_, _| View::new(view::Node::root()));
+
+    app.start();
+    let window = app.session().windows()[0].id();
+    app.present(window).expect("initial view should present");
+
+    let opened = app
+        .handle_input(window, Input::shortcut("Ctrl+Shift+P"))
+        .expect("palette shortcut should dispatch");
+    assert!(opened.is_handled());
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(interaction::Interaction::command_palette)
+            .is_some()
+    );
+
+    let projected = app.present(window).expect("palette should project");
+    let labels = projected.labels();
+    assert!(labels.contains(&"Record"));
+    assert!(labels.contains(&"System"));
+    assert!(!labels.contains(&"Hidden"));
+    assert!(!labels.contains(&"Disabled"));
+    assert!(!labels.contains(&"Open Named"));
+
+    for ch in ['r', 'e', 'c'] {
+        app.handle_input(
+            window,
+            Input::key_down_with_text(
+                input::Key::Character(ch),
+                input::Modifiers::default(),
+                Some(ch.to_string()),
+            ),
+        )
+        .expect("typing should edit palette query");
+    }
+    let projected = app
+        .present(window)
+        .expect("filtered palette should project");
+    let labels = projected.labels();
+    assert!(labels.contains(&"Record"));
+
+    let invoked = app
+        .handle_input(
+            window,
+            Input::key_down(input::Key::Enter, input::Modifiers::default()),
+        )
+        .expect("enter should invoke selected palette command");
+
+    assert!(invoked.is_handled());
+    assert_eq!(app.state().sources, vec![context::Source::Palette]);
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(interaction::Interaction::command_palette)
+            .is_none()
+    );
+}
+
+#[test]
+fn command_palette_invokes_against_captured_focus_not_query_focus() {
+    let mut app = Runtime::new(EditorState {
+        document: SaveDocument {
+            dirty: true,
+            save_count: 0,
+        },
+        project: Project {
+            dirty: true,
+            save_count: 0,
+        },
+        ..EditorState::default()
+    })
+    .commands(|commands| {
+        commands.register::<Save>(command::Spec::new("Save"));
+    })
+    .responders(|responders| {
+        responders.app().target::<Save>();
+        responders
+            .object("document", |state: &mut EditorState| &mut state.document)
+            .target::<Save>();
+    })
+    .started(|cx| {
+        cx.open_window(window::Options::new("Palette"));
+    })
+    .view(|_, _| {
+        View::new(view::Node::root().child(view::Node::text_area_state(
+            view::control::TextArea::new("").with_focus(session::Focus::text("document")),
+        )))
+    });
+
+    app.start();
+    let window = app.session().windows()[0].id();
+    app.present(window).expect("initial view should present");
+    assert!(app.focus(window, session::Focus::text("document")));
+
+    app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
+        .expect("palette shortcut should open");
+    let projected = app.present(window).expect("palette should project");
+    assert_eq!(
+        app.session().focused(window),
+        Some(interaction::CommandPalette::query_focus())
+    );
+    assert!(projected.labels().contains(&"Document"));
+
+    for ch in ['s', 'a', 'v', 'e'] {
+        app.handle_input(
+            window,
+            Input::key_down_with_text(
+                input::Key::Character(ch),
+                input::Modifiers::default(),
+                Some(ch.to_string()),
+            ),
+        )
+        .expect("typing should edit palette query");
+    }
+    app.present(window)
+        .expect("filtered palette should project");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Enter, input::Modifiers::default()),
+    )
+    .expect("enter should invoke save");
+
+    assert!(!app.state().document.dirty);
+    assert_eq!(app.state().document.save_count, 1);
+    assert!(app.state().project.dirty);
+    assert_eq!(app.state().project.save_count, 0);
+}
+
+#[test]
+fn command_palette_navigation_and_escape_restore_captured_focus() {
+    let mut app = Runtime::new(EditorState {
+        document: SaveDocument {
+            dirty: true,
+            save_count: 0,
+        },
+        ..EditorState::default()
+    })
+    .commands(|commands| {
+        commands.register::<Save>(command::Spec::new("Save"));
+    })
+    .responders(|responders| {
+        responders
+            .object("document", |state: &mut EditorState| &mut state.document)
+            .target::<Save>();
+    })
+    .started(|cx| {
+        cx.open_window(window::Options::new("Palette"));
+    })
+    .view(|_, _| {
+        View::new(view::Node::root().child(view::Node::text_area_state(
+            view::control::TextArea::new("").with_focus(session::Focus::text("document")),
+        )))
+    });
+
+    app.start();
+    let window = app.session().windows()[0].id();
+    app.present(window).expect("initial view should present");
+    assert!(app.focus(window, session::Focus::text("document")));
+
+    app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
+        .expect("palette shortcut should open");
+    let projected = app.present(window).expect("palette should project");
+    assert_eq!(selected_palette_labels(&projected), vec!["Save"]);
+
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::ArrowDown, input::Modifiers::default()),
+    )
+    .expect("arrow down should move selection");
+    let projected = app.present(window).expect("palette should project");
+    assert_eq!(selected_palette_labels(&projected), vec!["Exit"]);
+
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::End, input::Modifiers::default()),
+    )
+    .expect("end should clamp to the last result");
+    let projected = app.present(window).expect("palette should project");
+    assert_eq!(selected_palette_labels(&projected), vec!["Command Palette"]);
+
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Home, input::Modifiers::default()),
+    )
+    .expect("home should move to the first result");
+    let projected = app.present(window).expect("palette should project");
+    assert_eq!(selected_palette_labels(&projected), vec!["Save"]);
+
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Escape, input::Modifiers::default()),
+    )
+    .expect("escape should close the palette");
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(interaction::Interaction::command_palette)
+            .is_none()
+    );
+    assert_eq!(
+        app.session().focused(window),
+        Some(session::Focus::text("document"))
+    );
+}
+
+fn selected_palette_labels(view: &View) -> Vec<&str> {
+    let mut labels = Vec::new();
+    collect_selected_palette_labels(view.root(), &mut labels);
+    labels
+}
+
+fn collect_selected_palette_labels<'a>(node: &'a view::Node, labels: &mut Vec<&'a str>) {
+    if node.is_selected()
+        && node
+            .binding()
+            .is_some_and(|binding| binding.source() == context::Source::Palette)
+    {
+        if let Some(label) = node.label_text() {
+            labels.push(label);
+        }
+    }
+
+    for child in node.children() {
+        collect_selected_palette_labels(child, labels);
+    }
+}
+
+#[test]
 fn duplicate_shortcuts_are_ambiguous_instead_of_first_registration_winning() {
     let mut app = Runtime::new(EditorState {
         project: Project {
@@ -63,6 +397,53 @@ fn duplicate_shortcuts_are_ambiguous_instead_of_first_registration_winning() {
     match error {
         Error::AmbiguousShortcut { shortcut, commands } => {
             assert_eq!(shortcut, "Ctrl+S");
+            assert_eq!(commands, vec!["app.save", "app.ping"]);
+        }
+        error => panic!("unexpected error: {error}"),
+    }
+    assert!(app.state().project.dirty);
+    assert_eq!(app.state().project.save_count, 0);
+    assert_eq!(app.revision(), state::Revision::initial());
+}
+
+#[test]
+fn duplicate_shortcuts_are_ambiguous_after_profile_resolution() {
+    let mut app = Runtime::new(EditorState {
+        project: Project {
+            dirty: true,
+            save_count: 0,
+        },
+        ..EditorState::default()
+    })
+    .keymap(keymap::Profile::windows())
+    .commands(|commands| {
+        commands
+            .register::<Save>(command::Spec::new("Save").shortcut("Primary+S"))
+            .register::<Ping>(command::Spec::new("Ping").shortcut("Ctrl+S"));
+    })
+    .responders(|responders| {
+        responders.app().target::<Save>().target::<Ping>();
+    })
+    .started(|cx| {
+        cx.open_window(window::Options::new("Keymap"));
+    });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let error = app
+        .handle_input(
+            window,
+            Input::key_down(
+                input::Key::Character('s'),
+                input::Modifiers::new(false, true, false, false),
+            ),
+        )
+        .expect_err("resolved duplicate shortcuts should not dispatch");
+
+    match error {
+        Error::AmbiguousShortcut { shortcut, commands } => {
+            assert_eq!(shortcut, "Primary+S");
             assert_eq!(commands, vec!["app.save", "app.ping"]);
         }
         error => panic!("unexpected error: {error}"),
@@ -272,7 +653,7 @@ fn command_observer_runs_after_successful_command_and_shares_revision() {
     })
     .observe::<Save>(|state, _: &(), observation| {
         assert_eq!(observation.source(), context::Source::Programmatic);
-        assert_eq!(observation.effect(), &response::Effect::Repaint);
+        assert!(observation.effect().contains_invalidation());
         assert!(observation.command_changed_state());
         state.event_count += 1;
         observation.mark_changed();
@@ -380,7 +761,7 @@ fn field_responder_target_invokes_by_type_and_bumps_revision_when_changed() {
     let response = app.invoke_focused(window, app.trigger::<Save>(()));
 
     assert!(response.output.is_ok());
-    assert_eq!(response.effect, response::Effect::Repaint);
+    assert!(response.effect.contains_invalidation());
     assert_eq!(app.revision().get(), 1);
     assert!(app.is_dirty());
     assert!(!app.state().document.dirty);
@@ -583,7 +964,7 @@ fn presentation_is_retained_as_framework_owned_composition() {
             .expect("open command should be retained")
             .is_enabled()
     );
-    assert!(composition.view().popups().is_empty());
+    assert!(composition.view().floating_panels().is_empty());
 
     let file = projected
         .menus()
@@ -602,6 +983,6 @@ fn presentation_is_retained_as_framework_owned_composition() {
         .composition(window)
         .expect("composition should update after presenting");
 
-    assert_eq!(composition.view().popups().len(), 1);
-    assert_eq!(composition.view().popups()[0].label_text(), None);
+    assert_eq!(composition.view().floating_panels().len(), 1);
+    assert_eq!(composition.view().floating_panels()[0].label_text(), None);
 }

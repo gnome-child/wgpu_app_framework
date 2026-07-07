@@ -82,6 +82,10 @@ struct TypedArgs<C: Command> {
     _command: PhantomData<C>,
 }
 
+struct UnitArgs {
+    history_group: fn(&dyn Any) -> Option<HistoryGroup>,
+}
+
 impl Clone for AnyTrigger {
     fn clone(&self) -> Self {
         Self {
@@ -115,6 +119,18 @@ impl AnyTrigger {
                 args,
                 _command: PhantomData,
             }),
+        }
+    }
+
+    pub(in crate::scratch::command) fn unit(
+        command_type: TypeId,
+        command_name: &'static str,
+        history_group: fn(&dyn Any) -> Option<HistoryGroup>,
+    ) -> Self {
+        Self {
+            command_name,
+            command_type,
+            args: Box::new(UnitArgs { history_group }),
         }
     }
 
@@ -164,6 +180,26 @@ impl AnyTrigger {
                     command: self.command_name,
                 })
             })
+    }
+}
+
+impl AnyArgs for UnitArgs {
+    fn clone_box(&self) -> Box<dyn AnyArgs> {
+        Box::new(UnitArgs {
+            history_group: self.history_group,
+        })
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        &()
+    }
+
+    fn clone_any(&self) -> Box<dyn Any + Send> {
+        Box::new(())
+    }
+
+    fn history_group(&self) -> Option<HistoryGroup> {
+        (self.history_group)(&())
     }
 }
 

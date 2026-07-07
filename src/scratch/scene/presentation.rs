@@ -1,5 +1,5 @@
-use super::super::{layout, window};
-use super::{Color, Scene};
+use super::super::{layout, theme::Theme, window};
+use super::{Color, Scene, Visuals};
 
 #[derive(Clone)]
 pub struct Presentation {
@@ -9,12 +9,19 @@ pub struct Presentation {
 }
 
 impl Presentation {
-    pub(in crate::scratch) fn with_canvas_color(
+    pub(in crate::scratch) fn with_canvas_color_theme_and_visuals(
         window: window::Id,
         layout: layout::Layout,
         canvas_color: Color,
+        theme: &Theme,
+        visuals: &Visuals,
     ) -> Self {
-        let scene = Scene::paint_with_clear(&layout, canvas_color);
+        let scene =
+            Scene::paint_with_clear_theme_and_visuals(&layout, canvas_color, theme, visuals);
+        Self::new(window, layout, scene)
+    }
+
+    fn new(window: window::Id, layout: layout::Layout, scene: Scene) -> Self {
         Self {
             window,
             layout,

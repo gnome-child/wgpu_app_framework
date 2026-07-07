@@ -12,20 +12,25 @@ pub use key::{Key, Modifiers};
 pub use outcome::Outcome;
 pub use text_drop::TextDrop;
 
-pub(in crate::scratch) use key::edit_for_key;
-
 pub enum Input {
     Cancel,
     Focus(session::Focus),
     FilePathSelected(Option<PathBuf>),
     PointerMove(Option<interaction::Target>),
-    PointerDown(interaction::Target),
+    PointerDown {
+        target: interaction::Target,
+        intent: interaction::PressIntent,
+    },
     PointerDrag(Option<interaction::Target>),
     PointerUp(Option<interaction::Target>),
     PointerLeft,
     Scroll {
         target: interaction::Target,
         delta: interaction::ScrollDelta,
+    },
+    ScrollTo {
+        target: interaction::Target,
+        offset: interaction::ScrollOffset,
     },
     Shortcut(command::KeyChord),
     KeyDown {
@@ -81,7 +86,18 @@ impl Input {
     }
 
     pub fn pointer_down(target: interaction::Target) -> Self {
-        Self::PointerDown(target)
+        Self::pointer_down_with_intent(target, interaction::PressIntent::Activate)
+    }
+
+    pub fn pointer_manipulate(target: interaction::Target) -> Self {
+        Self::pointer_down_with_intent(target, interaction::PressIntent::Manipulate)
+    }
+
+    pub fn pointer_down_with_intent(
+        target: interaction::Target,
+        intent: interaction::PressIntent,
+    ) -> Self {
+        Self::PointerDown { target, intent }
     }
 
     pub fn pointer_drag(hovered: Option<interaction::Target>) -> Self {
@@ -98,6 +114,10 @@ impl Input {
 
     pub fn scroll(target: interaction::Target, delta: interaction::ScrollDelta) -> Self {
         Self::Scroll { target, delta }
+    }
+
+    pub fn scroll_to(target: interaction::Target, offset: interaction::ScrollOffset) -> Self {
+        Self::ScrollTo { target, offset }
     }
 
     pub fn shortcut(shortcut: &'static str) -> Self {

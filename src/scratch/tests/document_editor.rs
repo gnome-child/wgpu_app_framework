@@ -531,7 +531,7 @@ fn text_editor_open_menu_requests_dialog_and_selected_path_opens_document() {
     assert_eq!(open.state().label.as_deref(), Some("Open"));
     assert_eq!(
         open.state().shortcut.map(|shortcut| shortcut.as_str()),
-        Some("Ctrl+O")
+        Some("Primary+O")
     );
 
     let effect = app
@@ -599,7 +599,7 @@ fn sequenced_view_actions_preserve_all_effects() {
 
     assert!(outcome.is_handled());
     assert!(outcome.changed_state());
-    assert!(outcome.effect().contains(&response::Effect::Repaint));
+    assert!(outcome.effect().contains_invalidation());
     assert!(outcome.effect().contains(&response::Effect::OpenFileDialog));
     assert_eq!(app.state().last_status, "choosing file");
     assert_eq!(app.session().focused(window), Some(focus));
@@ -831,7 +831,7 @@ fn text_editor_view_resolves_command_bindings_from_runtime() {
     assert_eq!(save.state().label.as_deref(), Some("Save"));
     assert_eq!(
         save.state().shortcut.map(|shortcut| shortcut.as_str()),
-        Some("Ctrl+S")
+        Some("Primary+S")
     );
 
     let wrap = projected
@@ -1070,7 +1070,7 @@ fn text_editor_view_actions_are_owned_host_events() {
 
     assert!(focus_outcome.is_handled());
     assert!(!focus_outcome.changed_state());
-    assert_eq!(focus_outcome.effect(), &response::Effect::Repaint);
+    assert!(focus_outcome.effect().contains_invalidation());
     assert_eq!(
         app.session().focused(window),
         Some(session::Focus::text("document"))

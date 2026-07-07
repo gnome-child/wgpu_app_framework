@@ -1,15 +1,14 @@
 use std::any::{Any, TypeId};
 
 use crate::scratch::{
-    command as framework_command, composition, context as command_context, document, session,
-    window,
+    command, composition, context as command_context, document, responder, session, window,
 };
-use crate::scratch::{response::AnyResponse, target::Target, timeline};
+use crate::scratch::{target::Target, timeline};
 
-mod target;
+mod focused;
 
 use super::target as service_target;
-use target::FocusedTextBox;
+use focused::FocusedTextBox;
 
 const RESPONDER_NAME: &str = "focused_text";
 
@@ -20,8 +19,17 @@ struct Text<'a> {
     focus: session::Focus,
 }
 
-impl Text<'_> {
-    fn target(&mut self) -> FocusedTextBox<'_> {
+impl<C> service_target::Provider<C> for Text<'_>
+where
+    C: command::Command,
+    for<'target> FocusedTextBox<'target>: Target<C>,
+{
+    type Target<'target>
+        = FocusedTextBox<'target>
+    where
+        Self: 'target;
+
+    fn target(&mut self) -> Self::Target<'_> {
         FocusedTextBox::new(self.session, self.composition, self.window, self.focus)
     }
 }
@@ -31,9 +39,10 @@ pub(super) fn state(
     composition: &composition::Store,
     window: Option<window::Id>,
     command_type: TypeId,
+    command_name: &'static str,
     args: &dyn Any,
     cx: &command_context::Context,
-) -> crate::scratch::error::Result<Option<framework_command::State>> {
+) -> crate::scratch::error::Result<Option<command::State>> {
     let Some((window, focus)) = base_text_for(session, composition, window) else {
         return Ok(None);
     };
@@ -43,27 +52,60 @@ pub(super) fn state(
         window,
         focus,
     };
+    let targets = targets();
 
     service_target::state(
         RESPONDER_NAME,
-        targets(),
+        &targets,
         &mut text,
         command_type,
-        command_name(command_type),
+        command_name,
         args,
         cx,
     )
 }
 
-pub(in crate::scratch::runtime) fn has_target(
+pub(super) fn claim(
+    session: &mut session::Session,
+    composition: &composition::Store,
+    window: Option<window::Id>,
+    command_type: TypeId,
+    command_name: &'static str,
+    args: &dyn Any,
+    cx: &command_context::Context,
+) -> crate::scratch::error::Result<Option<responder::Claim>> {
+    let Some((window, focus)) = base_text_for(session, composition, window) else {
+        return Ok(None);
+    };
+    let mut text = Text {
+        session,
+        composition,
+        window,
+        focus,
+    };
+    let targets = targets();
+
+    Ok(service_target::claim(
+        RESPONDER_NAME,
+        &targets,
+        &mut text,
+        command_type,
+        command_name,
+        args,
+        cx,
+    )?
+    .map(|claim| responder::Claim::service(responder::Kind::Focused, RESPONDER_NAME, claim.state)))
+}
+
+pub(super) fn owns_command(
     session: &session::Session,
     composition: &composition::Store,
     window: Option<window::Id>,
     command_type: TypeId,
 ) -> bool {
-    targets()
-        .iter()
-        .any(|target| target.handles_type(command_type))
+    let targets = targets();
+
+    service_target::handles(&targets, command_type)
         && base_text_for(session, composition, window).is_some()
 }
 
@@ -72,9 +114,15 @@ pub(super) fn invoke(
     composition: &composition::Store,
     window: Option<window::Id>,
     command_type: TypeId,
+    command_name: &'static str,
     args: Box<dyn Any + Send>,
     cx: &mut command_context::Context,
 ) -> Option<crate::scratch::response::AnyResponse> {
+    let targets = targets();
+    if !service_target::handles(&targets, command_type) {
+        return None;
+    }
+
     let Some((window, focus)) = base_text_for(session, composition, window) else {
         return None;
     };
@@ -86,7 +134,6 @@ pub(super) fn invoke(
         session.focus(window, focus);
     }
 
-    let targets = targets();
     let mut text = Text {
         session,
         composition,
@@ -99,7 +146,7 @@ pub(super) fn invoke(
         &targets,
         &mut text,
         command_type,
-        command_name(command_type),
+        command_name,
         args,
         cx,
     )
@@ -119,75 +166,12 @@ fn base_text_for(
 
 fn targets<'a>() -> [service_target::AnyTarget<Text<'a>>; 7] {
     [
-        service_target::AnyTarget::new::<document::SelectAll>(select_all_state, select_all_invoke),
-        service_target::AnyTarget::new::<document::Copy>(copy_state, copy_invoke),
-        service_target::AnyTarget::new::<document::Cut>(cut_state, cut_invoke),
-        service_target::AnyTarget::new::<document::Delete>(delete_state, delete_invoke),
-        service_target::AnyTarget::new::<document::Paste>(paste_state, paste_invoke),
-        service_target::AnyTarget::new::<timeline::Undo>(undo_state, undo_invoke),
-        service_target::AnyTarget::new::<timeline::Redo>(redo_state, redo_invoke),
+        service_target::AnyTarget::for_provider::<document::SelectAll>(),
+        service_target::AnyTarget::for_provider::<document::Copy>(),
+        service_target::AnyTarget::for_provider::<document::Cut>(),
+        service_target::AnyTarget::for_provider::<document::Delete>(),
+        service_target::AnyTarget::for_provider::<document::Paste>(),
+        service_target::AnyTarget::for_provider::<timeline::Undo>(),
+        service_target::AnyTarget::for_provider::<timeline::Redo>(),
     ]
-}
-
-macro_rules! text_target {
-    ($state:ident, $invoke:ident, $command:ty) => {
-        fn $state(
-            text: &mut Text<'_>,
-            args: &dyn Any,
-            cx: &command_context::Context,
-        ) -> crate::scratch::error::Result<framework_command::State> {
-            let args = service_target::args::<$command>(args)?;
-            let target = text.target();
-
-            Ok(Target::<$command>::state(&target, args, cx))
-        }
-
-        fn $invoke(
-            text: &mut Text<'_>,
-            args: Box<dyn Any + Send>,
-            cx: &mut command_context::Context,
-        ) -> AnyResponse {
-            let args = match service_target::args_box::<$command>(args) {
-                Ok(args) => args,
-                Err(error) => return AnyResponse::failed(error),
-            };
-            let mut target = text.target();
-
-            AnyResponse::from_response(Target::<$command>::invoke(&mut target, args, cx))
-        }
-    };
-}
-
-text_target!(select_all_state, select_all_invoke, document::SelectAll);
-text_target!(copy_state, copy_invoke, document::Copy);
-text_target!(cut_state, cut_invoke, document::Cut);
-text_target!(delete_state, delete_invoke, document::Delete);
-text_target!(paste_state, paste_invoke, document::Paste);
-text_target!(undo_state, undo_invoke, timeline::Undo);
-text_target!(redo_state, redo_invoke, timeline::Redo);
-
-fn command_name(command_type: TypeId) -> &'static str {
-    if command_type == TypeId::of::<document::SelectAll>() {
-        return <document::SelectAll as framework_command::Command>::NAME;
-    }
-    if command_type == TypeId::of::<document::Copy>() {
-        return <document::Copy as framework_command::Command>::NAME;
-    }
-    if command_type == TypeId::of::<document::Cut>() {
-        return <document::Cut as framework_command::Command>::NAME;
-    }
-    if command_type == TypeId::of::<document::Delete>() {
-        return <document::Delete as framework_command::Command>::NAME;
-    }
-    if command_type == TypeId::of::<document::Paste>() {
-        return <document::Paste as framework_command::Command>::NAME;
-    }
-    if command_type == TypeId::of::<timeline::Undo>() {
-        return <timeline::Undo as framework_command::Command>::NAME;
-    }
-    if command_type == TypeId::of::<timeline::Redo>() {
-        return <timeline::Redo as framework_command::Command>::NAME;
-    }
-
-    "unknown"
 }

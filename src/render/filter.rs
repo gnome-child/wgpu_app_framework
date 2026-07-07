@@ -4,15 +4,23 @@ use wgpu::util::DeviceExt;
 use crate::geometry::{Rect, area, point};
 use crate::paint;
 use crate::render;
+use crate::render::silhouette::{self, PreparedSilhouette, edges, rect_data, rounding_data};
+
+const FILTER_WGSL: &str = include_str!("filter.wgsl");
 
 pub struct Renderer {
     blur_pipeline: wgpu::RenderPipeline,
+    liquid_pipeline: wgpu::RenderPipeline,
+    luminosity_pipeline: wgpu::RenderPipeline,
+    noise_pipeline: wgpu::RenderPipeline,
     blit_pipeline: wgpu::RenderPipeline,
     composite_pipeline: wgpu::RenderPipeline,
     pixel_composite_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     filtered_sampler: wgpu::Sampler,
     pixel_aligned_sampler: wgpu::Sampler,
+    noise_texture: Texture,
+    noise_sampler: wgpu::Sampler,
     textures: Option<Textures>,
     format: wgpu::TextureFormat,
 }
@@ -48,6 +56,7 @@ struct Params {
     texture_size: [f32; 2],
     source_scale: [f32; 2],
     direction_radius: [f32; 4],
+    effect: [f32; 4],
     rect: [f32; 4],
     source_rect: [f32; 4],
     rounding: [f32; 4],
@@ -63,32 +72,34 @@ struct CompositeVertex {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct PreparedBackdrop {
+struct PreparedFilter {
     raster_rect: Rect,
     shape_rect: Rect,
     rounding: [f32; 4],
     blur_amount: f32,
+    blur_sigma_px: f32,
     blur_radius_px: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct PixelGeometry {
-    scale_factor: f32,
-    logical_pixel: f32,
-}
-
 impl Renderer {
-    const MAX_BLUR_RADIUS_PX: f32 = 96.0;
+    const NOISE_TEXTURE_SIZE: u32 = 128;
+    const NOISE_SEED: u32 = 0x8f73_d4a9;
+    const MAX_BLUR_RADIUS_PX: f32 = 256.0;
+    const MAX_LIQUID_REFRACTION: f32 = 48.0;
 
     pub fn new(render_context: &render::Context, format: wgpu::TextureFormat) -> Self {
+        let shader_source = shader_source();
         let shader = render_context
             .device()
-            .create_shader_module(wgpu::include_wgsl!("backdrop.wgsl"));
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("filter.wgsl"),
+                source: wgpu::ShaderSource::Wgsl(shader_source.into()),
+            });
         let bind_group_layout =
             render_context
                 .device()
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("Backdrop Bind Group Layout"),
+                    label: Some("Filter Bind Group Layout"),
                     entries: &[
                         wgpu::BindGroupLayoutEntry {
                             binding: 0,
@@ -116,13 +127,29 @@ impl Renderer {
                             },
                             count: None,
                         },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 3,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 4,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
                     ],
                 });
         let pipeline_layout =
             render_context
                 .device()
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Backdrop Pipeline Layout"),
+                    label: Some("Filter Pipeline Layout"),
                     bind_group_layouts: &[Some(&bind_group_layout)],
                     immediate_size: 0,
                 });
@@ -130,7 +157,7 @@ impl Renderer {
             render_context
                 .device()
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("Backdrop Blur Pipeline"),
+                    label: Some("Filter Blur Pipeline"),
                     layout: Some(&pipeline_layout),
                     vertex: wgpu::VertexState {
                         module: &shader,
@@ -158,7 +185,7 @@ impl Renderer {
             render_context
                 .device()
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("Backdrop Blit Pipeline"),
+                    label: Some("Filter Blit Pipeline"),
                     layout: Some(&pipeline_layout),
                     vertex: wgpu::VertexState {
                         module: &shader,
@@ -182,11 +209,95 @@ impl Renderer {
                     multiview_mask: None,
                     cache: None,
                 });
+        let liquid_pipeline =
+            render_context
+                .device()
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("Filter Liquid Pipeline"),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some("vs_composite"),
+                        buffers: &[CompositeVertex::layout()],
+                        compilation_options: Default::default(),
+                    },
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some("fs_liquid"),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format,
+                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: Default::default(),
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                });
+        let luminosity_pipeline =
+            render_context
+                .device()
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("Filter Luminosity Pipeline"),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some("vs_composite"),
+                        buffers: &[CompositeVertex::layout()],
+                        compilation_options: Default::default(),
+                    },
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some("fs_luminosity"),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format,
+                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: Default::default(),
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                });
+        let noise_pipeline =
+            render_context
+                .device()
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("Filter Noise Pipeline"),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some("vs_composite"),
+                        buffers: &[CompositeVertex::layout()],
+                        compilation_options: Default::default(),
+                    },
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some("fs_noise"),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format,
+                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: Default::default(),
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                });
         let composite_pipeline =
             render_context
                 .device()
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("Backdrop Composite Pipeline"),
+                    label: Some("Filter Composite Pipeline"),
                     layout: Some(&pipeline_layout),
                     vertex: wgpu::VertexState {
                         module: &shader,
@@ -241,7 +352,7 @@ impl Renderer {
         let filtered_sampler = render_context
             .device()
             .create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("Filtered Backdrop Sampler"),
+                label: Some("Filtered Layer Sampler"),
                 address_mode_u: wgpu::AddressMode::ClampToEdge,
                 address_mode_v: wgpu::AddressMode::ClampToEdge,
                 mag_filter: wgpu::FilterMode::Linear,
@@ -259,15 +370,33 @@ impl Renderer {
                     min_filter: wgpu::FilterMode::Nearest,
                     ..Default::default()
                 });
+        let noise_texture = create_noise_texture(render_context);
+        let noise_sampler = render_context
+            .device()
+            .create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("Filter Noise Sampler"),
+                address_mode_u: wgpu::AddressMode::Repeat,
+                address_mode_v: wgpu::AddressMode::Repeat,
+                address_mode_w: wgpu::AddressMode::Repeat,
+                mag_filter: wgpu::FilterMode::Nearest,
+                min_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+                ..Default::default()
+            });
 
         Self {
             blur_pipeline,
+            liquid_pipeline,
+            luminosity_pipeline,
+            noise_pipeline,
             blit_pipeline,
             composite_pipeline,
             pixel_composite_pipeline,
             bind_group_layout,
             filtered_sampler,
             pixel_aligned_sampler,
+            noise_texture,
+            noise_sampler,
             textures: None,
             format,
         }
@@ -318,56 +447,248 @@ impl Renderer {
         render_context: &render::Context,
         target: Target,
         encoder: &mut wgpu::CommandEncoder,
-        backdrop: paint::Backdrop,
+        filter: paint::Filter,
         scissor: Option<render::Scissor>,
     ) {
-        let paint::BackdropFilter::Blur { amount } = backdrop.filter;
-        if amount <= 0.0 {
-            return;
-        }
-
-        let Some(prepared) = prepare_backdrop(backdrop.rect, amount, target.scale_factor) else {
+        let Some(prepared) = prepare_filter(filter.rect, target.scale_factor) else {
             return;
         };
-
         let Some(textures) = self.textures.as_ref() else {
             return;
         };
 
-        self.blur_pass(
-            render_context,
-            encoder,
-            &textures.composition.view,
-            &textures.ping.view,
-            target,
-            prepared,
-            [1.0, 0.0],
-        );
-        self.blur_pass(
-            render_context,
-            encoder,
-            &textures.ping.view,
-            &textures.pong.view,
-            target,
-            prepared,
-            [0.0, 1.0],
-        );
-        self.composite_pass(
-            render_context,
-            encoder,
-            &textures.pong.view,
-            &textures.composition.view,
-            target,
-            target.physical_area.clamp_min(1),
-            target.logical_area,
-            prepared,
-            prepared.shape_rect,
-            paint::LayerSampling::Filtered,
-            scissor,
-            "Backdrop Composite Bind Group",
-            "Backdrop Composite Vertex Buffer",
-            "Backdrop Composite Pass",
-        );
+        for op in filter.ops {
+            match op {
+                paint::FilterOp::Blur { amount } => {
+                    if amount <= 0.0 {
+                        continue;
+                    }
+
+                    let prepared = prepared.with_blur(amount, target.scale_factor);
+                    self.blur_pass(
+                        render_context,
+                        encoder,
+                        &textures.composition.view,
+                        &textures.ping.view,
+                        target,
+                        prepared,
+                        [1.0, 0.0],
+                    );
+                    self.blur_pass(
+                        render_context,
+                        encoder,
+                        &textures.ping.view,
+                        &textures.pong.view,
+                        target,
+                        prepared,
+                        [0.0, 1.0],
+                    );
+                    self.composite_pass(
+                        render_context,
+                        encoder,
+                        &textures.pong.view,
+                        &textures.composition.view,
+                        target,
+                        target.physical_area.clamp_min(1),
+                        target.logical_area,
+                        prepared,
+                        prepared.shape_rect,
+                        paint::LayerSampling::Filtered,
+                        scissor,
+                        "Filter Blur Composite Bind Group",
+                        "Filter Blur Composite Vertex Buffer",
+                        "Filter Blur Composite Pass",
+                    );
+                }
+                paint::FilterOp::BackdropBlur(blur) => {
+                    if blur.sigma <= 0.0 {
+                        continue;
+                    }
+
+                    let prepared = prepared.with_blur_sigma(blur.sigma, target.scale_factor);
+                    self.blur_pass(
+                        render_context,
+                        encoder,
+                        &textures.composition.view,
+                        &textures.ping.view,
+                        target,
+                        prepared,
+                        [1.0, 0.0],
+                    );
+                    self.blur_pass(
+                        render_context,
+                        encoder,
+                        &textures.ping.view,
+                        &textures.pong.view,
+                        target,
+                        prepared,
+                        [0.0, 1.0],
+                    );
+                    self.composite_pass(
+                        render_context,
+                        encoder,
+                        &textures.pong.view,
+                        &textures.composition.view,
+                        target,
+                        target.physical_area.clamp_min(1),
+                        target.logical_area,
+                        prepared,
+                        prepared.shape_rect,
+                        paint::LayerSampling::Filtered,
+                        scissor,
+                        "Filter Backdrop Blur Composite Bind Group",
+                        "Filter Backdrop Blur Composite Vertex Buffer",
+                        "Filter Backdrop Blur Composite Pass",
+                    );
+                }
+                paint::FilterOp::Liquid {
+                    depth,
+                    splay,
+                    feather,
+                    curve,
+                } => {
+                    if liquid_is_identity(depth) {
+                        continue;
+                    }
+
+                    self.liquid_pass(
+                        render_context,
+                        encoder,
+                        &textures.composition.view,
+                        &textures.ping.view,
+                        target,
+                        prepared,
+                        liquid_effect(depth, splay, feather, curve),
+                        scissor,
+                    );
+                    self.composite_pass(
+                        render_context,
+                        encoder,
+                        &textures.ping.view,
+                        &textures.composition.view,
+                        target,
+                        target.physical_area.clamp_min(1),
+                        target.logical_area,
+                        prepared,
+                        prepared.shape_rect,
+                        paint::LayerSampling::Filtered,
+                        scissor,
+                        "Filter Liquid Composite Bind Group",
+                        "Filter Liquid Composite Vertex Buffer",
+                        "Filter Liquid Composite Pass",
+                    );
+                }
+                paint::FilterOp::Refraction(refraction) => {
+                    if refraction.displacement <= 0.0 {
+                        continue;
+                    }
+
+                    self.liquid_pass(
+                        render_context,
+                        encoder,
+                        &textures.composition.view,
+                        &textures.ping.view,
+                        target,
+                        prepared,
+                        refraction_effect(refraction),
+                        scissor,
+                    );
+                    self.composite_pass(
+                        render_context,
+                        encoder,
+                        &textures.ping.view,
+                        &textures.composition.view,
+                        target,
+                        target.physical_area.clamp_min(1),
+                        target.logical_area,
+                        prepared,
+                        prepared.shape_rect,
+                        paint::LayerSampling::Filtered,
+                        scissor,
+                        "Filter Refraction Composite Bind Group",
+                        "Filter Refraction Composite Vertex Buffer",
+                        "Filter Refraction Composite Pass",
+                    );
+                }
+                paint::FilterOp::Luminosity(luminosity) => {
+                    if luminosity.opacity <= 0.0 {
+                        continue;
+                    }
+
+                    self.effect_pass(
+                        render_context,
+                        encoder,
+                        &textures.composition.view,
+                        &textures.ping.view,
+                        target,
+                        prepared,
+                        [
+                            luminosity.color.r,
+                            luminosity.color.g,
+                            luminosity.color.b,
+                            luminosity.opacity,
+                        ],
+                        &self.luminosity_pipeline,
+                        scissor,
+                        "Filter Luminosity Bind Group",
+                        "Filter Luminosity Vertex Buffer",
+                        "Filter Luminosity Pass",
+                    );
+                    self.composite_pass(
+                        render_context,
+                        encoder,
+                        &textures.ping.view,
+                        &textures.composition.view,
+                        target,
+                        target.physical_area.clamp_min(1),
+                        target.logical_area,
+                        prepared,
+                        prepared.shape_rect,
+                        paint::LayerSampling::Filtered,
+                        scissor,
+                        "Filter Luminosity Composite Bind Group",
+                        "Filter Luminosity Composite Vertex Buffer",
+                        "Filter Luminosity Composite Pass",
+                    );
+                }
+                paint::FilterOp::Noise(noise) => {
+                    if noise.opacity <= 0.0 {
+                        continue;
+                    }
+
+                    self.effect_pass(
+                        render_context,
+                        encoder,
+                        &textures.composition.view,
+                        &textures.ping.view,
+                        target,
+                        prepared,
+                        [noise.opacity, 0.0, 0.0, 0.0],
+                        &self.noise_pipeline,
+                        scissor,
+                        "Filter Noise Bind Group",
+                        "Filter Noise Vertex Buffer",
+                        "Filter Noise Pass",
+                    );
+                    self.composite_pass(
+                        render_context,
+                        encoder,
+                        &textures.ping.view,
+                        &textures.composition.view,
+                        target,
+                        target.physical_area.clamp_min(1),
+                        target.logical_area,
+                        prepared,
+                        prepared.shape_rect,
+                        paint::LayerSampling::Filtered,
+                        scissor,
+                        "Filter Noise Composite Bind Group",
+                        "Filter Noise Composite Vertex Buffer",
+                        "Filter Noise Composite Pass",
+                    );
+                }
+            }
+        }
     }
 
     pub fn composite_layer(
@@ -418,6 +739,7 @@ impl Renderer {
             texture_size: [physical_area.width() as f32, physical_area.height() as f32],
             source_scale: [target.scale_factor, target.scale_factor],
             direction_radius: [0.0, 0.0, 0.0, 0.0],
+            effect: [0.0; 4],
             rect: [
                 0.0,
                 0.0,
@@ -437,10 +759,10 @@ impl Renderer {
             &textures.composition.view,
             params,
             paint::LayerSampling::Filtered,
-            "Backdrop Blit Bind Group",
+            "Filter Blit Bind Group",
         );
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Backdrop Blit Pass"),
+            label: Some("Filter Blit Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: output,
                 resolve_target: None,
@@ -472,9 +794,9 @@ impl Renderer {
 
         self.textures = Some(Textures {
             area,
-            composition: self.create_texture(render_context, area, "Backdrop Composition Texture"),
-            ping: self.create_texture(render_context, area, "Backdrop Ping Texture"),
-            pong: self.create_texture(render_context, area, "Backdrop Pong Texture"),
+            composition: self.create_texture(render_context, area, "Filter Composition Texture"),
+            ping: self.create_texture(render_context, area, "Filter Ping Texture"),
+            pong: self.create_texture(render_context, area, "Filter Pong Texture"),
         });
     }
 
@@ -516,7 +838,7 @@ impl Renderer {
         source: &wgpu::TextureView,
         output: &wgpu::TextureView,
         target: Target,
-        prepared: PreparedBackdrop,
+        prepared: PreparedFilter,
         direction: [f32; 2],
     ) {
         let params = self.params(target, prepared, direction);
@@ -525,10 +847,10 @@ impl Renderer {
             source,
             params,
             paint::LayerSampling::Filtered,
-            "Backdrop Blur Bind Group",
+            "Filter Blur Bind Group",
         );
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Backdrop Blur Pass"),
+            label: Some("Filter Blur Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: output,
                 resolve_target: None,
@@ -549,6 +871,136 @@ impl Renderer {
         pass.draw(0..3, 0..1);
     }
 
+    fn liquid_pass(
+        &self,
+        render_context: &render::Context,
+        encoder: &mut wgpu::CommandEncoder,
+        source: &wgpu::TextureView,
+        output: &wgpu::TextureView,
+        target: Target,
+        prepared: PreparedFilter,
+        effect: [f32; 4],
+        scissor: Option<render::Scissor>,
+    ) {
+        let params = self.params_with_texture_area(
+            target.scale_factor,
+            target.physical_area.clamp_min(1),
+            target.logical_area,
+            prepared,
+            prepared.shape_rect,
+            [0.0, 0.0],
+            effect,
+            paint::LayerSampling::Filtered,
+        );
+        let bind_group = self.bind_group(
+            render_context,
+            source,
+            params,
+            paint::LayerSampling::Filtered,
+            "Filter Liquid Bind Group",
+        );
+        let vertices = composite_vertices(target.logical_area, prepared);
+        let vertex_buffer =
+            render_context
+                .device()
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Filter Liquid Vertex Buffer"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Filter Liquid Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: output,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
+
+        pass.set_pipeline(&self.liquid_pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        if let Some(scissor) = scissor {
+            pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
+        }
+        pass.draw(0..vertices.len() as u32, 0..1);
+    }
+
+    fn effect_pass(
+        &self,
+        render_context: &render::Context,
+        encoder: &mut wgpu::CommandEncoder,
+        source: &wgpu::TextureView,
+        output: &wgpu::TextureView,
+        target: Target,
+        prepared: PreparedFilter,
+        effect: [f32; 4],
+        pipeline: &wgpu::RenderPipeline,
+        scissor: Option<render::Scissor>,
+        bind_group_label: &'static str,
+        vertex_buffer_label: &'static str,
+        pass_label: &'static str,
+    ) {
+        let params = self.params_with_texture_area(
+            target.scale_factor,
+            target.physical_area.clamp_min(1),
+            target.logical_area,
+            prepared,
+            prepared.shape_rect,
+            [0.0, 0.0],
+            effect,
+            paint::LayerSampling::Filtered,
+        );
+        let bind_group = self.bind_group(
+            render_context,
+            source,
+            params,
+            paint::LayerSampling::Filtered,
+            bind_group_label,
+        );
+        let vertices = composite_vertices(target.logical_area, prepared);
+        let vertex_buffer =
+            render_context
+                .device()
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(vertex_buffer_label),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some(pass_label),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: output,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
+
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        if let Some(scissor) = scissor {
+            pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
+        }
+        pass.draw(0..vertices.len() as u32, 0..1);
+    }
+
     fn composite_pass(
         &self,
         render_context: &render::Context,
@@ -558,7 +1010,7 @@ impl Renderer {
         target: Target,
         source_area: area::Physical,
         source_logical_area: area::Logical,
-        prepared: PreparedBackdrop,
+        prepared: PreparedFilter,
         source_rect: Rect,
         sampling: paint::LayerSampling,
         scissor: Option<render::Scissor>,
@@ -573,6 +1025,7 @@ impl Renderer {
             prepared,
             source_rect,
             [0.0, 0.0],
+            [0.0; 4],
             sampling,
         );
         let bind_group =
@@ -627,7 +1080,7 @@ impl Renderer {
             render_context
                 .device()
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Backdrop Params Buffer"),
+                    label: Some("Filter Params Buffer"),
                     contents: bytemuck::bytes_of(&params),
                     usage: wgpu::BufferUsages::UNIFORM,
                 });
@@ -650,6 +1103,14 @@ impl Renderer {
                         binding: 2,
                         resource: buffer.as_entire_binding(),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(&self.noise_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::Sampler(&self.noise_sampler),
+                    },
                 ],
             })
     }
@@ -661,7 +1122,7 @@ impl Renderer {
         }
     }
 
-    fn params(&self, target: Target, prepared: PreparedBackdrop, direction: [f32; 2]) -> Params {
+    fn params(&self, target: Target, prepared: PreparedFilter, direction: [f32; 2]) -> Params {
         self.params_with_texture_area(
             target.scale_factor,
             target.physical_area.clamp_min(1),
@@ -669,6 +1130,7 @@ impl Renderer {
             prepared,
             prepared.shape_rect,
             direction,
+            [prepared.blur_sigma_px, 0.0, 0.0, 0.0],
             paint::LayerSampling::Filtered,
         )
     }
@@ -678,9 +1140,10 @@ impl Renderer {
         target_scale_factor: f32,
         texture_area: area::Physical,
         texture_logical_area: area::Logical,
-        prepared: PreparedBackdrop,
+        prepared: PreparedFilter,
         source_rect: Rect,
         direction: [f32; 2],
+        effect: [f32; 4],
         sampling: paint::LayerSampling,
     ) -> Params {
         let physical_area = texture_area.clamp_min(1);
@@ -703,11 +1166,16 @@ impl Renderer {
             texture_size: [physical_area.width() as f32, physical_area.height() as f32],
             source_scale,
             direction_radius: [direction[0], direction[1], prepared.blur_radius_px, 0.0],
+            effect,
             rect: rect_data(prepared.shape_rect),
             source_rect: source_rect_data,
             rounding: rounding_data(prepared.rounding),
         }
     }
+}
+
+pub(crate) fn shader_source() -> String {
+    silhouette::wgsl_module_source(FILTER_WGSL)
 }
 
 impl Layer {
@@ -759,78 +1227,46 @@ impl CompositeVertex {
     }
 }
 
-impl PixelGeometry {
-    fn new(scale_factor: f32) -> Self {
-        let scale_factor = scale_factor.max(0.0001);
+impl PreparedFilter {
+    fn with_blur(mut self, blur_amount: f32, scale_factor: f32) -> Self {
+        let blur_amount = blur_amount.clamp(0.0, 1.0);
 
-        Self {
-            scale_factor,
-            logical_pixel: 1.0 / scale_factor,
-        }
+        self.blur_amount = blur_amount;
+        self.blur_radius_px = blur_radius_px(blur_amount, scale_factor);
+        self.blur_sigma_px = self.blur_radius_px * 0.42;
+        self
     }
 
-    fn snap_rect(self, rect: Rect) -> Rect {
-        let (left, top, right, bottom) = edges(rect);
-        let left = self.snap_position(left);
-        let top = self.snap_position(top);
-        let mut right = self.snap_position(right);
-        let mut bottom = self.snap_position(bottom);
+    fn with_blur_sigma(mut self, blur_sigma: f32, scale_factor: f32) -> Self {
+        let blur_sigma = blur_sigma.max(0.0);
 
-        if right <= left {
-            right = left + self.logical_pixel;
-        }
-
-        if bottom <= top {
-            bottom = top + self.logical_pixel;
-        }
-
-        Rect::rounded(
-            point::logical(left, top),
-            area::logical(right - left, bottom - top),
-            rect.rounding,
-        )
-    }
-
-    fn snap_position(self, position: f32) -> f32 {
-        (position * self.scale_factor).round() / self.scale_factor
+        self.blur_amount = 0.0;
+        self.blur_sigma_px = blur_sigma_px(blur_sigma, scale_factor);
+        self.blur_radius_px = blur_kernel_radius_px(blur_sigma, scale_factor);
+        self
     }
 }
 
-fn prepare_backdrop(rect: Rect, blur_amount: f32, scale_factor: f32) -> Option<PreparedBackdrop> {
-    if rect.area.width() <= 0.0 || rect.area.height() <= 0.0 {
-        return None;
-    }
-
-    let mut prepared = prepare_clip(rect, scale_factor)?;
-    let blur_amount = blur_amount.clamp(0.0, 1.0);
-
-    prepared.blur_amount = blur_amount;
-    prepared.blur_radius_px = blur_radius_px(blur_amount, scale_factor);
-
-    Some(prepared)
+fn prepare_filter(rect: Rect, scale_factor: f32) -> Option<PreparedFilter> {
+    prepare_clip(rect, scale_factor)
 }
 
-fn prepare_clip(rect: Rect, scale_factor: f32) -> Option<PreparedBackdrop> {
-    if rect.area.width() <= 0.0 || rect.area.height() <= 0.0 {
-        return None;
-    }
+fn prepare_clip(rect: Rect, scale_factor: f32) -> Option<PreparedFilter> {
+    let silhouette = PreparedSilhouette::for_filter_rect(rect, scale_factor)?;
 
-    let pixel_geometry = PixelGeometry::new(scale_factor);
-    let shape_rect = pixel_geometry.snap_rect(rect);
-    let raster_rect = expand_rect(shape_rect, pixel_geometry.logical_pixel);
-
-    Some(PreparedBackdrop {
-        raster_rect,
-        shape_rect,
-        rounding: shape_rect.rounding.resolve(shape_rect.area),
+    Some(PreparedFilter {
+        raster_rect: silhouette.raster_rect,
+        shape_rect: silhouette.shape_rect,
+        rounding: silhouette.rounding,
         blur_amount: 0.0,
+        blur_sigma_px: 0.0,
         blur_radius_px: 0.0,
     })
 }
 
 fn source_rect_for_prepared_destination(
     destination: Rect,
-    prepared: PreparedBackdrop,
+    prepared: PreparedFilter,
     source: Rect,
 ) -> Rect {
     let origin_delta = point::logical(
@@ -852,9 +1288,45 @@ fn blur_radius_px(amount: f32, scale_factor: f32) -> f32 {
         .clamp(0.0, Renderer::MAX_BLUR_RADIUS_PX)
 }
 
+fn blur_sigma_px(sigma: f32, scale_factor: f32) -> f32 {
+    sigma.max(0.0) * scale_factor.max(0.0001)
+}
+
+fn blur_kernel_radius_px(sigma: f32, scale_factor: f32) -> f32 {
+    (blur_sigma_px(sigma, scale_factor) * 3.0)
+        .ceil()
+        .clamp(0.0, Renderer::MAX_BLUR_RADIUS_PX)
+}
+
+fn liquid_depth_displacement(depth: f32) -> f32 {
+    depth.clamp(0.0, 1.0) * Renderer::MAX_LIQUID_REFRACTION
+}
+
+fn liquid_effect(depth: f32, splay: f32, feather: f32, curve: f32) -> [f32; 4] {
+    [
+        liquid_depth_displacement(depth),
+        splay.max(0.0),
+        feather.max(0.0),
+        curve.max(0.1),
+    ]
+}
+
+fn refraction_effect(refraction: paint::Refraction) -> [f32; 4] {
+    [
+        refraction.displacement.clamp(0.0, 4.0),
+        refraction.splay.max(0.0),
+        refraction.feather.max(0.0),
+        refraction.curve.max(0.1),
+    ]
+}
+
+fn liquid_is_identity(depth: f32) -> bool {
+    depth <= 0.0
+}
+
 fn composite_vertices(
     canvas_area: area::Logical,
-    prepared: PreparedBackdrop,
+    prepared: PreparedFilter,
 ) -> [CompositeVertex; 6] {
     let to_clip = |x: f32, y: f32| -> [f32; 2] {
         [
@@ -879,32 +1351,6 @@ fn composite_vertices(
         vertex(x0, y0),
         vertex(x1, y1),
         vertex(x1, y0),
-    ]
-}
-
-fn expand_rect(rect: Rect, amount: f32) -> Rect {
-    Rect::new(
-        point::logical(rect.origin.x() - amount, rect.origin.y() - amount),
-        area::logical(
-            rect.area.width() + amount * 2.0,
-            rect.area.height() + amount * 2.0,
-        ),
-    )
-}
-
-fn edges(rect: Rect) -> (f32, f32, f32, f32) {
-    let x0 = rect.origin.x();
-    let y0 = rect.origin.y();
-
-    (x0, y0, x0 + rect.area.width(), y0 + rect.area.height())
-}
-
-fn rect_data(rect: Rect) -> [f32; 4] {
-    [
-        rect.origin.x(),
-        rect.origin.y(),
-        rect.area.width(),
-        rect.area.height(),
     ]
 }
 
@@ -955,8 +1401,82 @@ fn source_step_data(
     }
 }
 
-fn rounding_data(rounding: [f32; 4]) -> [f32; 4] {
-    rounding
+fn create_noise_texture(render_context: &render::Context) -> Texture {
+    let extent = wgpu::Extent3d {
+        width: Renderer::NOISE_TEXTURE_SIZE,
+        height: Renderer::NOISE_TEXTURE_SIZE,
+        depth_or_array_layers: 1,
+    };
+    let texture = render_context
+        .device()
+        .create_texture(&wgpu::TextureDescriptor {
+            label: Some("Filter Noise Texture"),
+            size: extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+    let bytes = noise_texture_bytes();
+    render_context.queue().write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &bytes,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(Renderer::NOISE_TEXTURE_SIZE * 4),
+            rows_per_image: Some(Renderer::NOISE_TEXTURE_SIZE),
+        },
+        extent,
+    );
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    Texture {
+        _inner: texture,
+        view,
+    }
+}
+
+fn noise_texture_bytes() -> Vec<u8> {
+    let size = Renderer::NOISE_TEXTURE_SIZE as usize;
+    let mut bytes = Vec::with_capacity(size * size * 4);
+
+    for y in 0..Renderer::NOISE_TEXTURE_SIZE {
+        for x in 0..Renderer::NOISE_TEXTURE_SIZE {
+            let value = noise_texel(x, y);
+            bytes.extend_from_slice(&[value, value, value, u8::MAX]);
+        }
+    }
+
+    bytes
+}
+
+fn noise_texel(x: u32, y: u32) -> u8 {
+    let hash = hash_noise_texel(x, y);
+    let centered = hash as i16 - 128;
+    let value = 128 + centered * 35 / 100;
+
+    value.clamp(0, u8::MAX as i16) as u8
+}
+
+fn hash_noise_texel(x: u32, y: u32) -> u8 {
+    let mut value = x.wrapping_mul(0x9e37_79b9).rotate_left(7)
+        ^ y.wrapping_mul(0x85eb_ca6b).rotate_left(13)
+        ^ Renderer::NOISE_SEED;
+
+    value ^= value >> 16;
+    value = value.wrapping_mul(0x7feb_352d);
+    value ^= value >> 15;
+    value = value.wrapping_mul(0x846c_a68b);
+    value ^= value >> 16;
+
+    (value >> 24) as u8
 }
 
 fn clear_view(
@@ -984,34 +1504,104 @@ fn clear_view(
 }
 
 #[cfg(test)]
+pub(crate) fn prepared_filter_silhouette_for_test(
+    rect: Rect,
+    scale_factor: f32,
+) -> Option<PreparedSilhouette> {
+    let prepared = prepare_filter(rect, scale_factor)?;
+
+    Some(
+        PreparedSilhouette::from_parts(prepared.shape_rect, prepared.raster_rect)
+            .with_rounding(prepared.rounding),
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn prepared_clip_silhouette_for_test(
+    rect: Rect,
+    scale_factor: f32,
+) -> Option<PreparedSilhouette> {
+    let prepared = prepare_clip(rect, scale_factor)?;
+
+    Some(
+        PreparedSilhouette::from_parts(prepared.shape_rect, prepared.raster_rect)
+            .with_rounding(prepared.rounding),
+    )
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn backdrop_shape_snaps_and_raster_bounds_expand_by_one_physical_pixel() {
+    fn filter_shape_snaps_and_raster_bounds_expand_by_one_physical_pixel() {
         let rect = Rect::new(point::logical(10.2, 20.3), area::logical(40.4, 30.8));
-        let prepared = prepare_backdrop(rect, 1.0, 2.0).expect("backdrop should prepare");
+        let prepared = prepare_filter(rect, 2.0)
+            .expect("filter should prepare")
+            .with_blur_sigma(30.0, 2.0);
 
         assert_eq!(edges(prepared.shape_rect), (10.0, 20.5, 50.5, 51.0));
         assert_eq!(edges(prepared.raster_rect), (9.5, 20.0, 51.0, 51.5));
-        assert_eq!(prepared.blur_amount, 1.0);
-        assert_eq!(prepared.blur_radius_px, 96.0);
+        assert_eq!(prepared.blur_amount, 0.0);
+        assert_eq!(prepared.blur_sigma_px, 60.0);
+        assert_eq!(prepared.blur_radius_px, 180.0);
     }
 
     #[test]
-    fn backdrop_preserves_rounded_shape_metadata_for_composite() {
+    fn filter_preserves_rounded_shape_metadata_for_composite() {
         let rect = Rect::rounded(
             point::logical(10.0, 20.0),
             area::logical(80.0, 30.0),
             crate::geometry::rect::Rounding::relative(1.0),
         );
-        let prepared = prepare_backdrop(rect, 1.0, 1.0).expect("backdrop should prepare");
+        let prepared = prepare_filter(rect, 1.0).expect("filter should prepare");
         let vertices = composite_vertices(area::logical(100.0, 100.0), prepared);
 
         assert_eq!(prepared.rounding[0], 15.0);
         assert_eq!(vertices.len(), 6);
         assert_eq!(vertices[0].rect, [10.0, 20.0, 80.0, 30.0]);
         assert_eq!(vertices[0].rounding, [15.0, 15.0, 15.0, 15.0]);
+    }
+
+    #[test]
+    fn noise_texture_bytes_are_deterministic_rgba_grayscale() {
+        let bytes = noise_texture_bytes();
+
+        assert_eq!(
+            bytes.len(),
+            (Renderer::NOISE_TEXTURE_SIZE * Renderer::NOISE_TEXTURE_SIZE * 4) as usize
+        );
+        assert_eq!(
+            &bytes[..16],
+            &[
+                152, 152, 152, 255, 166, 166, 166, 255, 110, 110, 110, 255, 160, 160, 160, 255
+            ]
+        );
+        assert!(
+            bytes
+                .chunks_exact(4)
+                .all(|rgba| { rgba[0] == rgba[1] && rgba[1] == rgba[2] && rgba[3] == u8::MAX })
+        );
+    }
+
+    #[test]
+    fn noise_texel_range_stays_low_contrast() {
+        let bytes = noise_texture_bytes();
+        let values = bytes.chunks_exact(4).map(|rgba| rgba[0]);
+        let min = values.clone().min().expect("noise should have texels");
+        let max = values.max().expect("noise should have texels");
+
+        assert_eq!(min, 84);
+        assert_eq!(max, 172);
+    }
+
+    #[test]
+    fn noise_texel_values_are_seed_stable() {
+        assert_eq!(noise_texel(0, 0), 152);
+        assert_eq!(noise_texel(1, 0), 166);
+        assert_eq!(noise_texel(0, 1), 106);
+        assert_eq!(noise_texel(17, 31), 167);
+        assert_eq!(noise_texel(127, 127), 143);
     }
 
     #[test]
@@ -1025,6 +1615,7 @@ mod tests {
         let vertices = composite_vertices(area::logical(100.0, 100.0), prepared);
 
         assert_eq!(prepared.blur_amount, 0.0);
+        assert_eq!(prepared.blur_sigma_px, 0.0);
         assert_eq!(prepared.blur_radius_px, 0.0);
         assert_eq!(vertices[0].rect, [8.0, 12.0, 48.0, 20.0]);
         assert_eq!(vertices[0].rounding, [10.0, 10.0, 10.0, 10.0]);
@@ -1145,18 +1736,48 @@ mod tests {
     }
 
     #[test]
-    fn zero_size_backdrops_do_not_prepare() {
+    fn zero_size_filters_do_not_prepare() {
         let rect = Rect::new(point::logical(10.0, 20.0), area::logical(0.0, 30.0));
 
-        assert!(prepare_backdrop(rect, 1.0, 1.0).is_none());
+        assert!(prepare_filter(rect, 1.0).is_none());
     }
 
     #[test]
     fn normalized_blur_amount_maps_to_internal_physical_cap() {
         assert_eq!(blur_radius_px(-1.0, 1.0), 0.0);
-        assert_eq!(blur_radius_px(0.5, 1.0), 48.0);
-        assert_eq!(blur_radius_px(1.0, 1.0), 96.0);
-        assert_eq!(blur_radius_px(1.0, 2.0), 96.0);
+        assert_eq!(blur_radius_px(0.5, 1.0), 128.0);
+        assert_eq!(blur_radius_px(1.0, 1.0), 256.0);
+        assert_eq!(blur_radius_px(1.0, 2.0), 256.0);
+    }
+
+    #[test]
+    fn blur_sigma_maps_to_dip_kernel_radius() {
+        assert_eq!(blur_sigma_px(30.0, 1.0), 30.0);
+        assert_eq!(blur_sigma_px(30.0, 2.0), 60.0);
+        assert_eq!(blur_kernel_radius_px(-1.0, 1.0), 0.0);
+        assert_eq!(blur_kernel_radius_px(30.0, 1.0), 90.0);
+        assert_eq!(blur_kernel_radius_px(30.0, 2.0), 180.0);
+    }
+
+    #[test]
+    fn normalized_liquid_depth_maps_to_logical_cap() {
+        assert_eq!(liquid_depth_displacement(-1.0), 0.0);
+        assert_eq!(liquid_depth_displacement(0.5), 24.0);
+        assert_eq!(liquid_depth_displacement(1.0), 48.0);
+        assert_eq!(liquid_depth_displacement(2.0), 48.0);
+    }
+
+    #[test]
+    fn liquid_effect_clamps_and_preserves_shape_parameters() {
+        assert_eq!(liquid_effect(0.5, 2.0, 18.0, 2.0), [24.0, 2.0, 18.0, 2.0]);
+        assert_eq!(liquid_effect(2.0, -1.0, -4.0, 0.0), [48.0, 0.0, 0.0, 0.1]);
+    }
+
+    #[test]
+    fn zero_depth_liquid_is_identity() {
+        assert!(liquid_is_identity(0.0));
+        assert!(liquid_is_identity(-1.0));
+        assert!(!liquid_is_identity(0.01));
     }
 
     fn assert_edges_close(left: (f32, f32, f32, f32), right: (f32, f32, f32, f32)) {

@@ -1,9 +1,10 @@
+use crate::paint;
 use crate::render;
 use crate::render::batch;
-use crate::text::layout::system;
-use crate::{icon, paint};
+use crate::text::layout::{InlineCache, InlineStats, system};
 
-use std::cell::Ref;
+use std::cell::{Ref, RefCell};
+use std::rc::Rc;
 
 use thiserror::Error;
 
@@ -24,6 +25,7 @@ pub struct TextRenderer {
     renderers: Vec<glyphon::TextRenderer>,
     font_system: glyphon::FontSystem,
     swash_cache: glyphon::SwashCache,
+    inline_cache: InlineCache,
 }
 
 struct PreparedText<'a> {
@@ -32,20 +34,18 @@ struct PreparedText<'a> {
     top: f32,
     bounds: glyphon::TextBounds,
     default_color: glyphon::Color,
+    stats: InlineStats,
 }
 
 enum PreparedTextBuffer<'a> {
-    Owned(glyphon::cosmic_text::Buffer),
-    Shared(Ref<'a, glyphon::cosmic_text::Buffer>),
+    Shared(Rc<RefCell<glyphon::cosmic_text::Buffer>>),
+    Borrowed(Ref<'a, glyphon::cosmic_text::Buffer>),
 }
 
-impl<'a> PreparedTextBuffer<'a> {
-    fn as_ref(&self) -> &glyphon::cosmic_text::Buffer {
-        match self {
-            Self::Owned(buffer) => buffer,
-            Self::Shared(buffer) => buffer,
-        }
-    }
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct TextBatchReport {
+    pub has_text: bool,
+    pub stats: InlineStats,
 }
 
 impl TextRenderer {
@@ -65,6 +65,7 @@ impl TextRenderer {
             renderers: Vec::new(),
             font_system: system::font_system(),
             swash_cache: glyphon::SwashCache::new(),
+            inline_cache: InlineCache::new(),
         }
     }
 
@@ -78,19 +79,26 @@ impl TextRenderer {
         viewport: render::Viewport,
         renderer_index: usize,
         glyphs: &[batch::Glyph<'_>],
-    ) -> Result<bool> {
+    ) -> Result<TextBatchReport> {
         if glyphs.is_empty() {
-            return Ok(false);
+            return Ok(TextBatchReport::default());
         }
 
         self.update_viewport(render_context, viewport);
         let scale_factor = viewport.scale_factor();
         let mut prepared = Vec::with_capacity(glyphs.len());
+        let mut stats = InlineStats::default();
 
         for glyph in glyphs {
             match glyph {
                 batch::Glyph::Text(text) => {
-                    if let Some(glyph) = prepare_text(&mut self.font_system, text, scale_factor) {
+                    if let Some(glyph) = prepare_text(
+                        &mut self.font_system,
+                        &mut self.inline_cache,
+                        text,
+                        scale_factor,
+                    ) {
+                        stats.add(glyph.stats);
                         prepared.push(glyph);
                     }
                 }
@@ -103,7 +111,13 @@ impl TextRenderer {
                     prepared.extend(prepare_text_viewport(text, scale_factor));
                 }
                 batch::Glyph::Icon(icon) => {
-                    if let Some(glyph) = prepare_icon(&mut self.font_system, icon, scale_factor) {
+                    if let Some(glyph) = prepare_icon(
+                        &mut self.font_system,
+                        &mut self.inline_cache,
+                        icon,
+                        scale_factor,
+                    ) {
+                        stats.add(glyph.stats);
                         prepared.push(glyph);
                     }
                 }
@@ -111,18 +125,43 @@ impl TextRenderer {
         }
 
         if prepared.is_empty() {
-            return Ok(false);
+            return Ok(TextBatchReport {
+                has_text: false,
+                stats,
+            });
         }
 
-        let text_areas = prepared.iter().map(|text| glyphon::TextArea {
-            buffer: text.buffer.as_ref(),
-            left: text.left,
-            top: text.top,
-            scale: scale_factor,
-            bounds: text.bounds,
-            default_color: text.default_color,
-            custom_glyphs: &[],
-        });
+        let borrowed = prepared
+            .iter()
+            .filter_map(|text| match &text.buffer {
+                PreparedTextBuffer::Shared(buffer) => Some(buffer.borrow()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let mut borrowed_index = 0_usize;
+        let text_areas = prepared
+            .iter()
+            .map(|text| {
+                let buffer = match &text.buffer {
+                    PreparedTextBuffer::Borrowed(buffer) => buffer,
+                    PreparedTextBuffer::Shared(_) => {
+                        let buffer = &*borrowed[borrowed_index];
+                        borrowed_index += 1;
+                        buffer
+                    }
+                };
+
+                glyphon::TextArea {
+                    buffer,
+                    left: text.left,
+                    top: text.top,
+                    scale: scale_factor,
+                    bounds: text.bounds,
+                    default_color: text.default_color,
+                    custom_glyphs: &[],
+                }
+            })
+            .collect::<Vec<_>>();
 
         self.renderers[renderer_index].prepare(
             render_context.device(),
@@ -134,7 +173,10 @@ impl TextRenderer {
             &mut self.swash_cache,
         )?;
 
-        Ok(true)
+        Ok(TextBatchReport {
+            has_text: true,
+            stats,
+        })
     }
 
     pub fn render(
@@ -179,18 +221,14 @@ impl TextRenderer {
 
 fn prepare_text(
     font_system: &mut glyphon::FontSystem,
+    inline_cache: &mut InlineCache,
     text: &paint::Text,
     scale_factor: f32,
 ) -> Option<PreparedText<'static>> {
     let width = text.rect.area.width().max(0.0);
     let height = text.rect.area.height().max(0.0);
-    let prepared = system::prepare_document_buffer(
-        font_system,
-        &text.document,
-        width,
-        height,
-        wrap(text.wrap),
-    )?;
+    let prepared =
+        inline_cache.prepare_text(font_system, &text.document, width, height, wrap(text.wrap))?;
 
     let clip_left = text.rect.origin.x() * scale_factor;
     let clip_top = text.rect.origin.y() * scale_factor;
@@ -206,7 +244,7 @@ fn prepare_text(
     let top = snap_text_origin(top);
 
     Some(PreparedText {
-        buffer: PreparedTextBuffer::Owned(prepared.buffer),
+        buffer: PreparedTextBuffer::Shared(prepared.buffer),
         left,
         top,
         bounds: glyphon::TextBounds {
@@ -216,14 +254,16 @@ fn prepare_text(
             bottom: clip_bottom.ceil() as i32,
         },
         default_color: prepared.default_color,
+        stats: prepared.stats,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use crate::geometry::{Rect, area, point};
+    use crate::text::document::{Align, Block, Run, Style, Weight};
     use crate::text::layout::system;
-    use crate::{paint, text};
+    use crate::{icon, paint, text};
 
     use super::*;
 
@@ -231,6 +271,30 @@ mod tests {
         paint::Text {
             rect: Rect::new(point::logical(4.0, 7.0), area::logical(240.0, height)),
             document,
+            wrap: paint::TextWrap::None,
+            vertical_align: paint::TextVerticalAlign::Center,
+        }
+    }
+
+    fn label_text(
+        value: &str,
+        color: text::Color,
+        size: f32,
+        weight: Weight,
+        origin_x: f32,
+    ) -> paint::Text {
+        let mut block = Block::new(Align::Start);
+        block.push_run(Run::new(
+            value,
+            Style::default()
+                .with_color(color)
+                .with_size(size)
+                .with_weight(weight),
+        ));
+
+        paint::Text {
+            rect: Rect::new(point::logical(origin_x, 0.0), area::logical(160.0, 22.0)),
+            document: text::document::Document::from_block(block),
             wrap: paint::TextWrap::None,
             vertical_align: paint::TextVerticalAlign::Center,
         }
@@ -259,8 +323,10 @@ mod tests {
         let content_height = document_height(&document);
         let text = centered_text(document, content_height);
         let mut font_system = system::font_system();
+        let mut cache = InlineCache::new();
 
-        let prepared = prepare_text(&mut font_system, &text, 1.0).expect("text should prepare");
+        let prepared =
+            prepare_text(&mut font_system, &mut cache, &text, 1.0).expect("text should prepare");
 
         assert_close(prepared.top, text.rect.origin.y());
     }
@@ -272,10 +338,124 @@ mod tests {
         let rect_height = content_height + 40.0;
         let text = centered_text(document, rect_height);
         let mut font_system = system::font_system();
+        let mut cache = InlineCache::new();
 
-        let prepared = prepare_text(&mut font_system, &text, 1.0).expect("text should prepare");
+        let prepared =
+            prepare_text(&mut font_system, &mut cache, &text, 1.0).expect("text should prepare");
 
         assert_close(prepared.top, text.rect.origin.y() + 20.0);
+    }
+
+    #[test]
+    fn prepared_text_cache_ignores_rect_origin() {
+        let mut font_system = system::font_system();
+        let mut cache = InlineCache::new();
+        let first = label_text("Command", text::Color::BLACK, 12.0, Weight::Normal, 0.0);
+        let second = label_text("Command", text::Color::BLACK, 12.0, Weight::Normal, 40.0);
+
+        let first = prepare_text(&mut font_system, &mut cache, &first, 1.0)
+            .expect("first label should prepare");
+        let second = prepare_text(&mut font_system, &mut cache, &second, 1.0)
+            .expect("second label should prepare");
+
+        assert_eq!(first.stats.text_cache_misses, 1);
+        assert_eq!(first.stats.text_shape_calls, 1);
+        assert_eq!(second.stats.text_cache_hits, 1);
+        assert_eq!(second.stats.text_shape_calls, 0);
+    }
+
+    #[test]
+    fn prepared_text_cache_uses_current_color_without_reshaping() {
+        let mut font_system = system::font_system();
+        let mut cache = InlineCache::new();
+        let red = label_text("Command", text::Color::RED, 12.0, Weight::Normal, 0.0);
+        let black = label_text("Command", text::Color::BLACK, 12.0, Weight::Normal, 0.0);
+
+        let _ = prepare_text(&mut font_system, &mut cache, &red, 1.0)
+            .expect("red label should prepare");
+        let black = prepare_text(&mut font_system, &mut cache, &black, 1.0)
+            .expect("black label should prepare");
+
+        assert_eq!(black.stats.text_cache_hits, 1);
+        assert_eq!(black.stats.text_shape_calls, 0);
+        assert_eq!(black.default_color, system::color(text::Color::BLACK));
+    }
+
+    #[test]
+    fn prepared_text_cache_misses_when_bounds_change() {
+        let mut font_system = system::font_system();
+        let mut cache = InlineCache::new();
+        let first = label_text("Command", text::Color::BLACK, 12.0, Weight::Normal, 0.0);
+        let mut second = first.clone();
+        second.rect.area = area::logical(180.0, 22.0);
+
+        let _ = prepare_text(&mut font_system, &mut cache, &first, 1.0)
+            .expect("first label should prepare");
+        let second = prepare_text(&mut font_system, &mut cache, &second, 1.0)
+            .expect("second label should prepare");
+
+        assert_eq!(second.stats.text_cache_misses, 1);
+        assert_eq!(second.stats.text_shape_calls, 1);
+    }
+
+    #[test]
+    fn multi_color_text_stays_on_uncached_path() {
+        let mut font_system = system::font_system();
+        let mut cache = InlineCache::new();
+        let mut block = Block::new(Align::Start);
+        block.push_run(Run::new(
+            "Red",
+            Style::default()
+                .with_color(text::Color::RED)
+                .with_size(12.0),
+        ));
+        block.push_run(Run::new(
+            "Black",
+            Style::default()
+                .with_color(text::Color::BLACK)
+                .with_size(12.0),
+        ));
+        let rich = paint::Text {
+            rect: Rect::new(point::logical(0.0, 0.0), area::logical(160.0, 22.0)),
+            document: text::document::Document::from_block(block),
+            wrap: paint::TextWrap::None,
+            vertical_align: paint::TextVerticalAlign::Center,
+        };
+
+        let first = prepare_text(&mut font_system, &mut cache, &rich, 1.0)
+            .expect("rich text should prepare");
+        let second = prepare_text(&mut font_system, &mut cache, &rich, 1.0)
+            .expect("rich text should prepare again");
+
+        assert_eq!(first.stats.text_cache_hits, 0);
+        assert_eq!(second.stats.text_cache_hits, 0);
+        assert_eq!(second.stats.text_shape_calls, 1);
+    }
+
+    #[test]
+    fn prepared_icon_cache_uses_current_color_without_reshaping() {
+        let mut font_system = system::font_system();
+        let mut cache = InlineCache::new();
+        let icon = icon::Icon::phosphor(icon::Id::new("command"));
+        let red = paint::Icon {
+            rect: Rect::new(point::logical(0.0, 0.0), area::logical(18.0, 18.0)),
+            icon,
+            color: paint::Color::RED,
+            size: 12.0,
+        };
+        let black = paint::Icon {
+            color: paint::Color::BLACK,
+            ..red
+        };
+
+        let _ =
+            prepare_icon(&mut font_system, &mut cache, &red, 1.0).expect("red icon should prepare");
+        let black = prepare_icon(&mut font_system, &mut cache, &black, 1.0)
+            .expect("black icon should prepare");
+
+        assert_eq!(black.stats.icon_cache_hits, 1);
+        assert_eq!(black.stats.icon_shape_calls, 0);
+        assert_eq!(black.default_color, paint_color(paint::Color::BLACK));
     }
 }
 
@@ -314,7 +494,7 @@ fn prepare_text_surface_in_bounds<'a>(
     let top = snap_text_origin(text.rect.origin.y() * scale_factor);
 
     Some(PreparedText {
-        buffer: PreparedTextBuffer::Shared(text.buffer.borrow()),
+        buffer: PreparedTextBuffer::Borrowed(text.buffer.borrow()),
         left,
         top,
         bounds: glyphon::TextBounds {
@@ -324,6 +504,7 @@ fn prepare_text_surface_in_bounds<'a>(
             bottom: clip_bottom.ceil() as i32,
         },
         default_color: paint_color(text.default_color),
+        stats: InlineStats::default(),
     })
 }
 
@@ -340,6 +521,7 @@ fn wrap(wrap: paint::TextWrap) -> glyphon::Wrap {
 
 fn prepare_icon(
     font_system: &mut glyphon::FontSystem,
+    inline_cache: &mut InlineCache,
     icon: &paint::Icon,
     scale_factor: f32,
 ) -> Option<PreparedText<'static>> {
@@ -350,7 +532,7 @@ fn prepare_icon(
 
     let width = icon.rect.area.width().max(0.0);
     let height = icon.rect.area.height().max(0.0);
-    let prepared = prepare_icon_buffer(font_system, glyph, icon.size, icon.color, width, height)?;
+    let prepared = inline_cache.prepare_icon(font_system, glyph, icon.size, width, height)?;
     let buffer_height = height.min(prepared.line_height);
 
     let clip_left = icon.rect.origin.x() * scale_factor;
@@ -361,7 +543,7 @@ fn prepare_icon(
     let top = (icon.rect.origin.y() + (height - buffer_height).max(0.0) * 0.5) * scale_factor;
 
     Some(PreparedText {
-        buffer: PreparedTextBuffer::Owned(prepared.buffer),
+        buffer: PreparedTextBuffer::Shared(prepared.buffer),
         left,
         top,
         bounds: glyphon::TextBounds {
@@ -370,62 +552,9 @@ fn prepare_icon(
             right: clip_right.ceil() as i32,
             bottom: clip_bottom.ceil() as i32,
         },
-        default_color: prepared.default_color,
+        default_color: paint_color(icon.color),
+        stats: prepared.stats,
     })
-}
-
-struct PreparedIconBuffer {
-    buffer: glyphon::Buffer,
-    default_color: glyphon::Color,
-    line_height: f32,
-}
-
-fn prepare_icon_buffer(
-    font_system: &mut glyphon::FontSystem,
-    icon: icon::Glyph,
-    size: f32,
-    color: paint::Color,
-    width: f32,
-    height: f32,
-) -> Option<PreparedIconBuffer> {
-    let Some(character) = icon.character() else {
-        log::debug!("skipping invalid icon codepoint: {:?}", icon);
-        return None;
-    };
-
-    let font_size = size.max(1.0);
-    let line_height = font_size;
-    let buffer_height = height.min(line_height);
-    let mut buffer = glyphon::Buffer::new(font_system, glyphon::Metrics::relative(font_size, 1.0));
-    let attrs = attrs_for_icon(icon, font_size, color);
-    let text = character.to_string();
-
-    buffer.set_size(
-        font_system,
-        Some(width.max(0.0)),
-        Some(buffer_height.max(0.0)),
-    );
-    buffer.set_rich_text(
-        font_system,
-        vec![(text.as_str(), attrs.clone())],
-        &attrs,
-        glyphon::Shaping::Basic,
-        Some(glyphon::cosmic_text::Align::Center),
-    );
-    buffer.shape_until_scroll(font_system, false);
-
-    Some(PreparedIconBuffer {
-        buffer,
-        default_color: paint_color(color),
-        line_height,
-    })
-}
-
-fn attrs_for_icon(glyph: icon::Glyph, size: f32, color: paint::Color) -> glyphon::Attrs<'static> {
-    glyphon::Attrs::new()
-        .family(glyphon::Family::Name(glyph.family()))
-        .color(paint_color(color))
-        .metrics(glyphon::Metrics::relative(size.max(1.0), 1.0))
 }
 
 fn paint_color(color: paint::Color) -> glyphon::Color {

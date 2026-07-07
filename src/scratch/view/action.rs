@@ -9,7 +9,10 @@ pub enum Action {
     Activate(Binding),
     Focus(session::Focus),
     PointerMove(Option<interaction::Target>),
-    PointerDown(interaction::Target),
+    PointerDown {
+        target: interaction::Target,
+        intent: interaction::PressIntent,
+    },
     PointerDrag {
         hovered: Option<interaction::Target>,
         target: interaction::Target,
@@ -23,6 +26,10 @@ pub enum Action {
     Scroll {
         target: interaction::Target,
         delta: interaction::ScrollDelta,
+    },
+    ScrollTo {
+        target: interaction::Target,
+        offset: interaction::ScrollOffset,
     },
     ToggleMenu(interaction::Menu),
     TextEdit(text::edit::Edit),
@@ -53,7 +60,17 @@ impl Action {
     }
 
     pub fn pointer_down(target: interaction::Target) -> Self {
-        Self::PointerDown(target)
+        Self::PointerDown {
+            target,
+            intent: interaction::PressIntent::Activate,
+        }
+    }
+
+    pub fn pointer_manipulate(target: interaction::Target) -> Self {
+        Self::PointerDown {
+            target,
+            intent: interaction::PressIntent::Manipulate,
+        }
     }
 
     pub fn pointer_drag(
@@ -81,6 +98,10 @@ impl Action {
 
     pub fn scroll(target: interaction::Target, delta: interaction::ScrollDelta) -> Self {
         Self::Scroll { target, delta }
+    }
+
+    pub fn scroll_to(target: interaction::Target, offset: interaction::ScrollOffset) -> Self {
+        Self::ScrollTo { target, offset }
     }
 
     pub fn toggle_menu(menu: interaction::Menu) -> Self {

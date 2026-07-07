@@ -16,6 +16,23 @@ pub(crate) enum Schedule {
     NextFrame,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Easing {
+    Linear,
+    EaseOutCubic,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Transition<T> {
+    from: T,
+    to: T,
+    started_at: Instant,
+    duration: Duration,
+    easing: Easing,
+}
+
 impl Frame {
     pub(crate) fn new(now: Instant, previous: Option<Instant>) -> Self {
         Self {
@@ -61,6 +78,74 @@ impl Schedule {
     }
 }
 
+#[allow(dead_code)]
+impl Easing {
+    pub(crate) fn sample(self, t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+
+        match self {
+            Self::Linear => t,
+            Self::EaseOutCubic => 1.0 - (1.0 - t).powi(3),
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl Transition<f32> {
+    pub(crate) fn new(
+        from: f32,
+        to: f32,
+        started_at: Instant,
+        duration: Duration,
+        easing: Easing,
+    ) -> Self {
+        Self {
+            from,
+            to,
+            started_at,
+            duration,
+            easing,
+        }
+    }
+
+    pub(crate) fn settled(value: f32, now: Instant, duration: Duration, easing: Easing) -> Self {
+        Self::new(value, value, now, duration, easing)
+    }
+
+    pub(crate) fn target(self) -> f32 {
+        self.to
+    }
+
+    pub(crate) fn value_at(self, now: Instant) -> f32 {
+        let progress = self.progress_at(now);
+        let eased = self.easing.sample(progress);
+
+        self.from + (self.to - self.from) * eased
+    }
+
+    pub(crate) fn retarget(&mut self, to: f32, now: Instant) {
+        if self.to == to {
+            return;
+        }
+
+        self.from = self.value_at(now);
+        self.to = to;
+        self.started_at = now;
+    }
+
+    pub(crate) fn is_animating_at(self, now: Instant) -> bool {
+        self.from != self.to && self.progress_at(now) < 1.0
+    }
+
+    fn progress_at(self, now: Instant) -> f32 {
+        if self.duration.is_zero() {
+            return 1.0;
+        }
+
+        now.saturating_duration_since(self.started_at).as_secs_f32() / self.duration.as_secs_f32()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +187,29 @@ mod tests {
         );
         assert_eq!(Schedule::At(now).control_flow(now), ControlFlow::Poll);
         assert_eq!(Schedule::NextFrame.control_flow(now), ControlFlow::Poll);
+    }
+
+    #[test]
+    fn ease_out_cubic_reaches_endpoints() {
+        assert_eq!(Easing::EaseOutCubic.sample(0.0), 0.0);
+        assert_eq!(Easing::EaseOutCubic.sample(1.0), 1.0);
+        assert!(Easing::EaseOutCubic.sample(0.5) > 0.5);
+    }
+
+    #[test]
+    fn transition_interpolates_and_retargets_from_current_value() {
+        let now = Instant::now();
+        let duration = Duration::from_millis(100);
+        let mut transition = Transition::new(1.0, 2.0, now, duration, Easing::Linear);
+
+        assert_eq!(transition.value_at(now), 1.0);
+        assert_eq!(transition.value_at(now + duration), 2.0);
+
+        transition.retarget(1.0, now + Duration::from_millis(50));
+
+        assert_eq!(transition.target(), 1.0);
+        assert_eq!(transition.value_at(now + Duration::from_millis(50)), 1.5);
+        assert!(transition.is_animating_at(now + Duration::from_millis(75)));
+        assert!(!transition.is_animating_at(now + Duration::from_millis(200)));
     }
 }

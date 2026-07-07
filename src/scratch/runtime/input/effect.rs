@@ -12,7 +12,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         finish_gesture: bool,
     ) -> std::result::Result<input::Outcome, Error> {
         let effect = if self.session.pointer_up(window, target) {
-            response::Effect::Repaint
+            response::Effect::Paint
         } else {
             response::Effect::None
         };
@@ -45,7 +45,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         if offset_changed {
             diagnostics.scroll.scroll_offset_changes += 1;
         }
-        if effect.contains(&response::Effect::Repaint) {
+        if effect.contains_invalidation() {
             diagnostics.scroll.scroll_redraw_requests += 1;
         }
     }
@@ -57,7 +57,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         effect: &response::Effect,
     ) {
         if changed_state {
-            self.session.request_redraw(window);
+            self.session
+                .request_invalidation(window, response::Invalidation::Rebuild);
         }
 
         self.apply_window_effect(window, effect);
@@ -73,12 +74,15 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 self.session
                     .request_file_dialog(window, session::FileDialog::SaveAs);
             }
-            response::Effect::Repaint => {
-                self.session.request_redraw(window);
+            response::Effect::Paint | response::Effect::Layout | response::Effect::Rebuild => {
+                if let Some(invalidation) = effect.invalidation() {
+                    self.session.request_invalidation(window, invalidation);
+                }
             }
-            response::Effect::ClosePopup => {
+            response::Effect::CloseFloatingPanel => {
                 if self.session.close_menu(window) {
-                    self.session.request_redraw(window);
+                    self.session
+                        .request_invalidation(window, response::Invalidation::Rebuild);
                 }
             }
             response::Effect::Batch(effects) => {
@@ -96,7 +100,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         binding: &view::Binding,
     ) {
         if binding.source() == command_context::Source::Menu && self.session.close_menu(window) {
-            self.session.request_redraw(window);
+            self.session
+                .request_invalidation(window, response::Invalidation::Rebuild);
         }
     }
 }

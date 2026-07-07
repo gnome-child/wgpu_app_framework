@@ -50,7 +50,7 @@ fn present_pending_uses_revision_staleness_across_windows_after_command_undo() {
         .activate_in(first, &undo)
         .expect("undo command should activate");
 
-    assert_eq!(effect, response::Effect::Repaint);
+    assert!(effect.contains_invalidation());
     assert_eq!(app.state().event_count, 0);
     assert_eq!(app.revision().get(), 2);
     assert!(

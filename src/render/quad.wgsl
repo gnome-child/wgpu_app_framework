@@ -40,47 +40,6 @@ fn vs_main(in: VertexIn) -> VertexOut {
     return out;
 }
 
-fn corner_radius(point: vec2<f32>, rect: vec4<f32>, rounding: vec4<f32>) -> f32 {
-    let center = rect.xy + rect.zw * 0.5;
-
-    if point.x < center.x {
-        if point.y < center.y {
-            return rounding.x;
-        }
-
-        return rounding.w;
-    }
-
-    if point.y < center.y {
-        return rounding.y;
-    }
-
-    return rounding.z;
-}
-
-fn rounded_rect_sdf(point: vec2<f32>, rect: vec4<f32>, rounding: vec4<f32>) -> f32 {
-    let size = max(rect.zw, vec2<f32>(0.0));
-    let center = rect.xy + size * 0.5;
-    let r = corner_radius(point, rect, rounding);
-    let q = abs(point - center) - size * 0.5 + vec2<f32>(r);
-
-    return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - r;
-}
-
-fn coverage(sdf: f32) -> f32 {
-    let width = max(fwidth(sdf), 0.0001);
-
-    return clamp(0.5 - sdf / width, 0.0, 1.0);
-}
-
-fn hard_coverage(sdf: f32) -> f32 {
-    if sdf <= 0.0 {
-        return 1.0;
-    }
-
-    return 0.0;
-}
-
 fn brush_color(in: VertexOut) -> vec4<f32> {
     if in.params.z <= 0.5 {
         return in.color;
@@ -105,7 +64,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
             in.outer_rect,
             in.outer_rounding,
         );
-        let cutout_alpha = coverage(rounded_rect_sdf(
+        let cutout_alpha = rounded_rect_coverage(rounded_rect_sdf(
             in.local_position,
             in.inner_rect,
             in.inner_rounding,
@@ -122,11 +81,15 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     }
 
     let outer_sdf = rounded_rect_sdf(in.local_position, in.outer_rect, in.outer_rounding);
-    let outer_alpha = select(hard_coverage(outer_sdf), coverage(outer_sdf), in.params.w > 0.5);
+    let outer_alpha = select(
+        rounded_rect_hard_coverage(outer_sdf),
+        rounded_rect_coverage(outer_sdf),
+        in.params.w > 0.5,
+    );
     var alpha = outer_alpha;
 
     if in.params.x > 0.5 {
-        let inner_alpha = coverage(rounded_rect_sdf(
+        let inner_alpha = rounded_rect_coverage(rounded_rect_sdf(
             in.local_position,
             in.inner_rect,
             in.inner_rounding,

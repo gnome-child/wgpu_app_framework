@@ -37,29 +37,31 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let Some(target) = hit.target().cloned() else {
             return self.clear_pointer_focus(window);
         };
+        let dismissed_overlays = self.dismiss_overlays_for_hit(window, Some(&hit));
 
-        let action = if matches!(
+        let action = if hit.is_chrome() {
+            view::Action::pointer_manipulate(target)
+        } else if matches!(
             hit.frame().role(),
             view::node::Role::TextArea | view::node::Role::TextBox
         ) {
+            let pointer_down = text_pointer_down_action(hit.frame(), target.clone());
             hit.action_at_with_engine(point, &mut self.layout)
-                .map(|action| {
-                    view::Action::sequence([view::Action::pointer_down(target.clone()), action])
-                })
-                .unwrap_or_else(|| view::Action::pointer_down(target))
+                .map(|action| view::Action::sequence([pointer_down.clone(), action]))
+                .unwrap_or(pointer_down)
         } else if hit.frame().role() == view::node::Role::Slider {
             hit.action_at_with_engine(point, &mut self.layout)
                 .map(|action| {
                     view::Action::sequence([
                         view::Action::focus(session::Focus::control(&target).pointer()),
-                        view::Action::pointer_down(target.clone()),
+                        view::Action::pointer_manipulate(target.clone()),
                         action,
                     ])
                 })
                 .unwrap_or_else(|| {
                     view::Action::sequence([
                         view::Action::focus(session::Focus::control(&target).pointer()),
-                        view::Action::pointer_down(target),
+                        view::Action::pointer_manipulate(target),
                     ])
                 })
         } else if is_pointer_focusable(hit.frame()) {
@@ -71,18 +73,22 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             view::Action::pointer_down(target)
         };
 
-        self.handle_view(window, action)
+        let outcome = self.handle_view(window, action)?;
+        Ok(self.with_overlay_dismissal(window, outcome, dismissed_overlays))
     }
 
     fn clear_pointer_focus(
         &mut self,
         window: window::Id,
     ) -> std::result::Result<input::Outcome, Error> {
+        let dismissed_palette = self
+            .session
+            .dismiss_command_palette_for_target(window, None);
         let dismissed_menu = self.session.dismiss_menu_for_target(window, None);
         let mut outcome = self.clear_focus_committing_text_box(window)?;
 
-        if dismissed_menu {
-            let effect = outcome.effect().clone().then(response::Effect::Repaint);
+        if dismissed_menu || dismissed_palette {
+            let effect = outcome.effect().clone().then(response::Effect::Rebuild);
             outcome = input::Outcome::handled(outcome.changed_state(), effect);
             self.apply_window_update(window, outcome.changed_state(), outcome.effect());
         }
@@ -99,10 +105,13 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let hit = self.hit_test(window, size, point);
         let target = hit.as_ref().and_then(|hit| hit.target().cloned());
         let action = hit.as_ref().and_then(|hit| {
-            (!matches!(
-                hit.frame().role(),
-                view::node::Role::Slider | view::node::Role::TextArea | view::node::Role::TextBox
-            ))
+            (!hit.is_chrome()
+                && !matches!(
+                    hit.frame().role(),
+                    view::node::Role::Slider
+                        | view::node::Role::TextArea
+                        | view::node::Role::TextBox
+                ))
             .then(|| hit.action_at(point))
             .flatten()
         });
@@ -120,7 +129,16 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             return Ok(input::Outcome::ignored());
         };
 
-        let layout = layout::Layout::compose(composition.view(), size, &mut self.layout);
+        let theme = self.active_theme();
+        let frame = crate::animation::Frame::new(std::time::Instant::now(), None);
+        let layout = layout::Layout::compose_composition_with_theme_at(
+            composition,
+            size,
+            &mut self.layout,
+            &theme,
+            frame,
+            self.keymap,
+        );
         let hit = layout.hit_test(point);
         let hovered = hit.as_ref().and_then(|hit| hit.target().cloned());
         let active = self.session.interaction(window).and_then(|interaction| {
@@ -135,13 +153,25 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             return self.handle_view(window, view::Action::pointer_move(hovered));
         };
 
-        let action = layout
-            .frames()
-            .iter()
-            .find(|frame| frame.target() == Some(&target))
-            .and_then(|frame| frame.drag_action_at_with_engine(point, &mut self.layout));
+        let dragged = layout.drag_action_for_target(&target, point, &mut self.layout);
+        let demoted_text_box_activation = dragged
+            .as_ref()
+            .is_some_and(|(role, _)| *role == view::node::Role::TextBox)
+            && self.session.set_pointer_press_intent(
+                window,
+                &target,
+                interaction::PressIntent::Manipulate,
+            );
+        let action = dragged.and_then(|(_, action)| action);
 
-        self.handle_view(window, view::Action::pointer_drag(hovered, target, action))
+        let outcome =
+            self.handle_view(window, view::Action::pointer_drag(hovered, target, action))?;
+        if demoted_text_box_activation {
+            let effect = outcome.effect().clone().then(response::Effect::Paint);
+            return Ok(input::Outcome::handled(outcome.changed_state(), effect));
+        }
+
+        Ok(outcome)
     }
 
     pub fn scroll_at(
@@ -151,14 +181,114 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         point: geometry::Point,
         delta: interaction::ScrollDelta,
     ) -> std::result::Result<input::Outcome, Error> {
-        let Some(target) = self
-            .hit_test(window, size, point)
-            .and_then(|hit| hit.target().cloned())
-        else {
+        let theme = self.active_theme();
+        let composition = self.composition.get(window);
+        let frame = crate::animation::Frame::new(std::time::Instant::now(), None);
+        let viewport_target = composition.and_then(|composition| {
+            layout::Layout::compose_composition_with_theme_at(
+                composition,
+                size,
+                &mut self.layout,
+                &theme,
+                frame,
+                self.keymap,
+            )
+            .scroll_target_at(point, delta)
+        });
+        let Some(target) = viewport_target.or_else(|| {
+            self.hit_test(window, size, point)
+                .and_then(|hit| hit.target().cloned())
+        }) else {
             return Ok(input::Outcome::ignored());
         };
 
         self.handle_view(window, view::Action::scroll(target, delta))
+    }
+
+    fn dismiss_overlays_for_hit(
+        &mut self,
+        window: window::Id,
+        hit: Option<&layout::hit::Hit>,
+    ) -> bool {
+        let inside_palette =
+            hit.is_some_and(|hit| self.hit_is_command_palette_surface(window, hit));
+        let inside_menu = hit.is_some_and(|hit| self.hit_is_menu_surface(window, hit));
+        let dismissed_palette = self
+            .session
+            .dismiss_command_palette_for_surface(window, inside_palette);
+        let dismissed_menu = self.session.dismiss_menu_for_surface(window, inside_menu);
+
+        dismissed_palette || dismissed_menu
+    }
+
+    fn hit_is_command_palette_surface(&self, window: window::Id, hit: &layout::hit::Hit) -> bool {
+        hit.target()
+            .is_some_and(interaction::Target::is_command_palette_surface)
+            || self.hit_owner_is_descendant_of_element(
+                window,
+                hit,
+                interaction::CommandPalette::panel_id(),
+            )
+    }
+
+    fn hit_is_menu_surface(&self, window: window::Id, hit: &layout::hit::Hit) -> bool {
+        if hit
+            .target()
+            .is_some_and(interaction::Target::is_menu_surface)
+        {
+            return true;
+        }
+
+        let Some(menu_id) = self
+            .session
+            .interaction(window)
+            .and_then(|interaction| interaction.open_menu())
+            .map(interaction::Menu::id)
+        else {
+            return false;
+        };
+
+        self.hit_owner_is_descendant_of_element(window, hit, menu_id)
+    }
+
+    fn hit_owner_is_descendant_of_element(
+        &self,
+        window: window::Id,
+        hit: &layout::hit::Hit,
+        element_id: interaction::Id,
+    ) -> bool {
+        self.composition.get(window).is_some_and(|composition| {
+            composition.node_is_self_or_descendant_of_element(hit.frame().node_id(), element_id)
+        })
+    }
+
+    fn with_overlay_dismissal(
+        &mut self,
+        window: window::Id,
+        outcome: input::Outcome,
+        dismissed: bool,
+    ) -> input::Outcome {
+        if !dismissed {
+            return outcome;
+        }
+
+        self.session
+            .request_invalidation(window, response::Invalidation::Rebuild);
+        input::Outcome::handled(
+            outcome.changed_state(),
+            outcome.effect().clone().then(response::Effect::Rebuild),
+        )
+    }
+}
+
+fn text_pointer_down_action(
+    frame: &layout::frame::Frame,
+    target: interaction::Target,
+) -> view::Action {
+    if frame.is_focused() {
+        view::Action::pointer_manipulate(target)
+    } else {
+        view::Action::pointer_down(target)
     }
 }
 

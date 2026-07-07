@@ -197,7 +197,7 @@ fn click_role_with_label(
         .into_iter()
         .find(|frame| frame.label_text().unwrap_or_default() == label)
         .ok_or_else(|| io::Error::other(format!("missing {role:?} with label {label:?}")))?
-        .rect();
+        .active_rect();
     let point = center(rect);
 
     app.pointer_down_at(window, size, point)?;
@@ -336,7 +336,7 @@ fn center(rect: geometry::Rect) -> geometry::Point {
 
 fn slider_track_rect(frame: &layout::frame::Frame) -> geometry::Rect {
     let theme = Theme::default();
-    layout::control::slider_track_rect(frame.rect(), &theme)
+    layout::control::slider_track_rect(frame.rect(), frame.label_width(), &theme)
 }
 
 fn rect_contains(bounds: geometry::Rect, rect: geometry::Rect) -> bool {

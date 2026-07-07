@@ -5,11 +5,18 @@ pub struct Pointer {
     pub(super) hovered: Option<Target>,
     pub(super) pressed: Option<Target>,
     pub(super) capture: Option<Capture>,
+    pub(super) press_intent: Option<PressIntent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Capture {
     target: Target,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PressIntent {
+    Activate,
+    Manipulate,
 }
 
 impl Pointer {
@@ -23,6 +30,16 @@ impl Pointer {
 
     pub fn capture(&self) -> Option<&Capture> {
         self.capture.as_ref()
+    }
+
+    pub fn press_intent(&self) -> Option<PressIntent> {
+        self.press_intent
+    }
+
+    pub fn activation_target(&self) -> Option<&Target> {
+        (self.press_intent == Some(PressIntent::Activate))
+            .then_some(self.pressed.as_ref())
+            .flatten()
     }
 }
 

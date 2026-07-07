@@ -33,7 +33,7 @@ fn nearest_responder_target_wins() {
 
     let response = trigger.invoke(&registry, &mut chain, &mut Context::default());
     assert!(response.output.is_ok());
-    assert_eq!(response.effect, response::Effect::Repaint);
+    assert!(response.effect.contains_invalidation());
 
     drop(chain);
     assert!(!store.model().document.dirty);

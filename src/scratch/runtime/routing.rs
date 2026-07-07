@@ -1,7 +1,7 @@
 use super::super::{
     context as command_context, error::Error, input, response, state, view, window,
 };
-use super::{Runtime, services};
+use super::Runtime;
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub fn activate(
@@ -23,29 +23,28 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
 
         let before = self.revision();
+        if binding.source() == command_context::Source::Palette {
+            let effect = self.activate_command_palette_binding(window, binding)?;
+            self.apply_window_update(window, before != self.revision(), &effect);
+            return Ok(effect);
+        }
+
         let focus = if binding.source() == command_context::Source::Menu {
             self.session.command_focus(window)
         } else {
             self.session.focused(window)
         };
-        let text_box_command = binding.source() == command_context::Source::Menu
-            && services::text::has_target(
-                &self.session,
-                &self.composition,
-                Some(window),
-                binding.command_type(),
-            );
-        let text_box_commit =
-            if binding.source() == command_context::Source::Menu && !text_box_command {
-                self.commit_and_deactivate_focused_text_box(window)?
-            } else {
-                None
-            };
+        let focused_text = if binding.source() == command_context::Source::Menu {
+            Some(self.prepare_focused_text_for_command(window, binding.command_type())?)
+        } else {
+            None
+        };
 
         let result = self.activate_with_focus(focus, Some(window), binding);
         if let Ok(effect) = &result {
-            let effect = text_box_commit
+            let effect = focused_text
                 .as_ref()
+                .and_then(|focused_text| focused_text.committed())
                 .map(|outcome| outcome.effect().clone())
                 .unwrap_or(response::Effect::None)
                 .then(effect.clone());
@@ -91,9 +90,10 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             view::Action::PointerMove(target) => {
                 self.handle_input(window, input::Input::pointer_move(target))
             }
-            view::Action::PointerDown(target) => {
-                self.handle_input(window, input::Input::pointer_down(target))
-            }
+            view::Action::PointerDown { target, intent } => self.handle_input(
+                window,
+                input::Input::pointer_down_with_intent(target, intent),
+            ),
             view::Action::PointerDrag {
                 hovered,
                 target,
@@ -154,6 +154,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             view::Action::PointerLeft => self.handle_input(window, input::Input::pointer_left()),
             view::Action::Scroll { target, delta } => {
                 self.handle_input(window, input::Input::scroll(target, delta))
+            }
+            view::Action::ScrollTo { target, offset } => {
+                self.handle_input(window, input::Input::scroll_to(target, offset))
             }
             view::Action::ToggleMenu(menu) => {
                 self.handle_input(window, input::Input::toggle_menu(menu))

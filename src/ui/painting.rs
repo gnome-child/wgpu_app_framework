@@ -164,8 +164,8 @@ fn node(
         scene.push_shadow(shadow);
     }
 
-    if let Some(backdrop) = resolved_backdrop(node, rect) {
-        scene.push_backdrop(backdrop);
+    if let Some(filter) = resolved_filter(node, rect) {
+        scene.push_filter(filter);
     }
 
     if let Some(style) = resolved_quad_style(node, layout, interaction, &visual) {
@@ -173,6 +173,7 @@ fn node(
             rect,
             style,
             rasterization: paint::Rasterization::default(),
+            transform: paint::Transform::identity(),
         });
     }
 
@@ -511,10 +512,7 @@ fn resolved_background(
     visual: &PaintState,
 ) -> Option<paint::Brush> {
     let style = node.style();
-    let background = style
-        .backdrop()
-        .and_then(|backdrop| backdrop.fill())
-        .or(style.background());
+    let background = style.background();
 
     if visual.busy {
         return style.busy_background().or(background);
@@ -699,13 +697,10 @@ fn resolved_shadow(node: &ui::Node, rect: crate::geometry::Rect) -> Option<paint
     })
 }
 
-fn resolved_backdrop(node: &ui::Node, rect: crate::geometry::Rect) -> Option<paint::Backdrop> {
-    let amount = node.style().backdrop()?.blur()?;
+fn resolved_filter(node: &ui::Node, rect: crate::geometry::Rect) -> Option<paint::Filter> {
+    let filter = node.style().filter()?;
 
-    Some(paint::Backdrop {
-        rect,
-        filter: paint::BackdropFilter::Blur { amount },
-    })
+    Some(paint::Filter::stack(rect, filter.ops().iter().copied()))
 }
 
 fn resolved_label(
@@ -876,6 +871,7 @@ fn paint_text_field_selection(
                 geometry::rect::Rounding::fixed(3.0),
             ),
             rasterization: paint::Rasterization::default(),
+            transform: paint::Transform::identity(),
             style: paint::Style {
                 fill: Some(paint::Fill::Brush(
                     paint::Color::rgba(0.18, 0.42, 0.86, 0.48).into(),
@@ -910,6 +906,7 @@ fn paint_text_preedit_selection(
                 geometry::rect::Rounding::fixed(2.0),
             ),
             rasterization: paint::Rasterization::default(),
+            transform: paint::Transform::identity(),
             style: paint::Style {
                 fill: Some(paint::Fill::Brush(
                     paint::Color::rgba(0.18, 0.42, 0.86, 0.32).into(),
@@ -953,6 +950,7 @@ fn paint_text_preedit_underline(
                 snapping: paint::Snapping::FixedWidth { width_px: 1 },
                 edge_mode: paint::EdgeMode::Hard,
             },
+            transform: paint::Transform::identity(),
             style: paint::Style {
                 fill: Some(paint::Fill::Brush(color.into())),
                 stroke: None,
@@ -990,6 +988,7 @@ fn paint_text_field_caret(
             snapping: paint::Snapping::FixedWidth { width_px: 2 },
             edge_mode: paint::EdgeMode::Hard,
         },
+        transform: paint::Transform::identity(),
         style: paint::Style {
             fill: Some(paint::Fill::Brush(
                 node.style()
@@ -1030,6 +1029,7 @@ fn paint_text_drop_caret(
             snapping: paint::Snapping::FixedWidth { width_px: 2 },
             edge_mode: paint::EdgeMode::Hard,
         },
+        transform: paint::Transform::identity(),
         style: paint::Style {
             fill: Some(paint::Fill::Brush(
                 node.style()

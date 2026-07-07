@@ -560,7 +560,7 @@ fn scroll_content_is_layer_eligible(scene: &paint::Scene, record: &ui::ScrollPai
                 && items.iter().all(|item| {
                     !matches!(
                         item,
-                        paint::Item::Backdrop(_)
+                        paint::Item::Filter(_)
                             | paint::Item::Layer(_)
                             | paint::Item::Text(_)
                             | paint::Item::TextSurface(_)
@@ -627,7 +627,7 @@ fn item_rect(item: &paint::Item) -> Option<Rect> {
         paint::Item::Shadow(item) => Some(item.rect),
         paint::Item::Tint(item) => Some(item.rect),
         paint::Item::Outline(item) => Some(item.rect),
-        paint::Item::Backdrop(item) => Some(item.rect),
+        paint::Item::Filter(item) => Some(item.rect),
         paint::Item::Layer(item) => Some(item.rect),
         paint::Item::Clip(item) => Some(item.rect),
         paint::Item::PopClip => None,
@@ -719,6 +719,7 @@ mod tests {
         paint::Item::Quad(paint::Quad {
             rect: Rect::new(point::logical(x, y), area::logical(width, height)),
             rasterization: paint::Rasterization::default(),
+            transform: paint::Transform::identity(),
             style: paint::Style {
                 fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::BLACK))),
                 stroke: None,

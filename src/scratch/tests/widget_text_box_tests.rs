@@ -1,4 +1,5 @@
 use super::*;
+use std::time::{Duration, Instant};
 
 #[test]
 fn text_box_on_submit_invokes_command_with_draft_text() {
@@ -230,7 +231,7 @@ fn unbound_text_box_commit_updates_framework_owned_draft() {
 
     assert!(submitted.is_handled());
     assert!(!submitted.changed_state());
-    assert_eq!(submitted.effect(), &response::Effect::Repaint);
+    assert!(submitted.effect().contains_invalidation());
     assert_eq!(app.state().submitted, "");
     assert_eq!(app.revision(), state::Revision::initial());
 
@@ -288,7 +289,7 @@ fn character_key_updates_focused_text_box_draft_and_focus_outline() {
 
     assert!(typed.is_handled());
     assert!(!typed.changed_state());
-    assert_eq!(typed.effect(), &response::Effect::Repaint);
+    assert!(typed.effect().contains_invalidation());
     assert_eq!(app.revision(), state::Revision::initial());
 
     let target = interaction::Target::text_area(focus);
@@ -320,7 +321,7 @@ fn character_key_updates_focused_text_box_draft_and_focus_outline() {
             .outlines()
             .iter()
             .any(|outline| outline.rect() == text_box.rect()
-                && outline.color().channels() == (76, 132, 255, 255))
+                && outline.color().channels() == (10, 132, 255, 255))
     );
 }
 
@@ -367,7 +368,7 @@ fn tab_key_moves_focus_through_current_view_order() {
 
     assert!(focused_first.is_handled());
     assert!(!focused_first.changed_state());
-    assert_eq!(focused_first.effect(), &response::Effect::Repaint);
+    assert!(focused_first.effect().contains_invalidation());
     assert_keyboard_focus(app.session().focused(window), first);
 
     app.handle_input(
@@ -1057,25 +1058,33 @@ fn text_box_selection_and_caret_are_painted_as_widget_chrome() {
         .next()
         .expect("text box should be laid out");
 
-    assert!(
-        caret_scene.scene().quads().iter().any(|quad| {
-            let Some(field) = text_box.text_box_layout() else {
-                return false;
-            };
-            let Some(caret) = field.layout().caret() else {
-                return false;
-            };
-            let text_rect = text_box.text_box_text_rect();
-            let expected = geometry::Rect::new(
-                text_rect.x().saturating_add(caret.x().floor() as i32),
-                text_rect.y().saturating_add(caret.y().floor() as i32),
-                1,
-                caret.height().ceil().max(0.0) as i32,
-            );
+    let field = text_box
+        .text_box_layout()
+        .expect("focused text box should have text layout");
+    let caret = field
+        .layout()
+        .caret()
+        .expect("visible blink phase should include a caret");
+    let text_rect = text_box.text_box_text_rect();
+    let expected = geometry::Rect::new(
+        text_rect.x().saturating_add(caret.x().floor() as i32),
+        text_rect.y().saturating_add(caret.y().floor() as i32),
+        1,
+        caret.height().ceil().max(0.0) as i32,
+    );
+    let caret_quad = caret_scene
+        .scene()
+        .quads()
+        .into_iter()
+        .find(|quad| quad.rect() == expected)
+        .expect("focused text box should paint the shaped field caret");
 
-            quad.rect() == expected
-        }),
-        "focused text box should paint the shaped field caret"
+    assert_eq!(
+        caret_quad.rasterization(),
+        scene::Rasterization::new(
+            scene::Snapping::FixedWidth { width_px: 2 },
+            scene::EdgeMode::Hard
+        )
     );
 
     app.handle_input(
@@ -1096,9 +1105,53 @@ fn text_box_selection_and_caret_are_painted_as_widget_chrome() {
             .scene()
             .quads()
             .iter()
-            .any(|quad| quad.fill().channels() == (76, 132, 255, 96)),
+            .any(|quad| quad.fill().channels() == (10, 132, 255, 96)),
         "selected text box should paint a selection highlight"
     );
+}
+
+#[test]
+fn text_box_caret_blinks_from_interaction_epoch() {
+    let focus = session::Focus::text("find");
+    let initial = Instant::now();
+    let mut app = Runtime::new(TextBoxSubmitState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Text Box Blink"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.text_box(widget::TextBox::new("abcd").focus(focus));
+            })
+        });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 80);
+    app.render_scene_at(window, size, initial)
+        .expect("initial render should install a composition");
+    app.handle_input(window, Input::focus(focus))
+        .expect("text box focus should be handled");
+    let target = interaction::Target::text_area(focus);
+    let epoch = app
+        .session()
+        .interaction(window)
+        .and_then(|interaction| interaction.text_input().caret_epoch_for(&target))
+        .expect("text box focus should store a caret blink epoch");
+
+    let visible = app
+        .render_scene_at(window, size, epoch)
+        .expect("epoch frame should render");
+    let hidden = app
+        .render_scene_at(window, size, epoch + Duration::from_millis(500))
+        .expect("hidden blink frame should render");
+    let visible_again = app
+        .render_scene_at(window, size, epoch + Duration::from_millis(1000))
+        .expect("second visible blink frame should render");
+
+    assert!(text_box_caret_visible(&visible));
+    assert!(!text_box_caret_visible(&hidden));
+    assert!(text_box_caret_visible(&visible_again));
 }
 
 #[test]
@@ -1181,6 +1234,116 @@ fn text_box_pointer_click_positions_framework_owned_draft_caret() {
 }
 
 #[test]
+fn text_box_pointer_down_to_focus_paints_activation_tint() {
+    let focus = session::Focus::text("find");
+    let mut app = Runtime::new(TextBoxSubmitState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Text Box Pointer Activation"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.text_box(widget::TextBox::new("abcd").focus(focus));
+            })
+        });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 80);
+    let presentation = app
+        .render_scene(window, size)
+        .expect("text box view should render");
+    let text_box = presentation
+        .layout()
+        .find_role(view::node::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("text box should be laid out");
+    let rect = text_box.rect();
+    let left_edge = geometry::Point::new(rect.x() + 1, rect.y() + rect.height() / 2);
+
+    app.pointer_down_at(window, size, left_edge)
+        .expect("text box pointer down should be handled");
+    let pressed = app
+        .render_scene(window, size)
+        .expect("text box pointer down should render");
+
+    assert_eq!(
+        app.session()
+            .focused(window)
+            .expect("text box should be pointer focused")
+            .visibility(),
+        session::focus::Visibility::Hidden
+    );
+    assert_text_box_focus_outline(&pressed);
+    assert_text_box_control_pressed_tint(&pressed);
+
+    let target = interaction::Target::text_area(focus);
+    let draft = app
+        .session()
+        .interaction(window)
+        .expect("window should have interaction state")
+        .text_input()
+        .draft_for(&target)
+        .expect("text box pointer click should create a draft");
+
+    assert_eq!(draft.cursor(), 0);
+}
+
+#[test]
+fn focused_text_box_pointer_down_positions_caret_without_control_pressed_tint() {
+    let focus = session::Focus::text("find");
+    let mut app = Runtime::new(TextBoxSubmitState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Focused Text Box Pointer Paint"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.text_box(widget::TextBox::new("abcd").focus(focus));
+            })
+        });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 80);
+    app.render_scene(window, size)
+        .expect("text box view should render");
+    app.handle_input(window, Input::focus(focus))
+        .expect("text box should focus");
+    let presentation = app
+        .render_scene(window, size)
+        .expect("focused text box should render");
+    let text_box = presentation
+        .layout()
+        .find_role(view::node::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("text box should be laid out");
+    let rect = text_box.rect();
+    let left_edge = geometry::Point::new(rect.x() + 1, rect.y() + rect.height() / 2);
+
+    app.pointer_down_at(window, size, left_edge)
+        .expect("text box pointer down should be handled");
+    let pressed = app
+        .render_scene(window, size)
+        .expect("text box pointer down should render");
+
+    assert_no_text_box_control_pressed_tint(&pressed);
+
+    let target = interaction::Target::text_area(focus);
+    let draft = app
+        .session()
+        .interaction(window)
+        .expect("window should have interaction state")
+        .text_input()
+        .draft_for(&target)
+        .expect("text box pointer click should create a draft");
+
+    assert_eq!(draft.cursor(), 0);
+}
+
+#[test]
 fn text_box_pointer_drag_extends_selection_from_click_anchor() {
     let focus = session::Focus::text("find");
     let mut app = Runtime::new(TextBoxSubmitState::default())
@@ -1212,7 +1375,14 @@ fn text_box_pointer_drag_extends_selection_from_click_anchor() {
     let wobbled_right_edge = geometry::Point::new(rect.right() - 1, rect.y() + 2);
 
     pointer_down_then_present(&mut app, window, size, left_edge);
-    pointer_move_then_present(&mut app, window, size, wobbled_right_edge);
+    app.pointer_move_at(window, size, wobbled_right_edge)
+        .expect("text box pointer drag should be handled");
+    let dragging = app
+        .render_scene(window, size)
+        .expect("text box drag should render");
+
+    assert_no_text_box_control_pressed_tint(&dragging);
+
     pointer_up_then_present(&mut app, window, size, wobbled_right_edge);
 
     let target = interaction::Target::text_area(focus);
@@ -1255,7 +1425,7 @@ fn text_box_pointer_drag_extends_selection_from_click_anchor() {
 
     assert!(
         selected.scene().quads().iter().any(|quad| {
-            quad.fill().channels() == (76, 132, 255, 96) && quad.rect() == expected
+            quad.fill().channels() == (10, 132, 255, 96) && quad.rect() == expected
         }),
         "text box drag should paint the shaped field selection span"
     );
@@ -1276,4 +1446,94 @@ fn scene_contains_text_surface(scene: &Scene, value: &str) -> bool {
                 .is_some_and(|line| line.text() == value)
         })
     })
+}
+
+fn text_box_caret_visible(presentation: &scene::Presentation) -> bool {
+    let Some(text_box) = presentation
+        .layout()
+        .find_role(view::node::Role::TextBox)
+        .into_iter()
+        .next()
+    else {
+        return false;
+    };
+    let Some(caret) = text_box
+        .text_box_layout()
+        .and_then(|field| field.layout().caret())
+    else {
+        return false;
+    };
+    let rect = text_box.text_box_text_rect();
+    let expected = geometry::Rect::new(
+        rect.x().saturating_add(caret.x().floor() as i32),
+        rect.y().saturating_add(caret.y().floor() as i32),
+        1,
+        caret.height().ceil().max(0.0) as i32,
+    );
+
+    presentation.scene().quads().into_iter().any(|quad| {
+        quad.rect() == expected
+            && quad.rasterization()
+                == scene::Rasterization::new(
+                    scene::Snapping::FixedWidth { width_px: 2 },
+                    scene::EdgeMode::Hard,
+                )
+    })
+}
+
+fn assert_no_text_box_control_pressed_tint(presentation: &scene::Presentation) {
+    let text_box = presentation
+        .layout()
+        .find_role(view::node::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("text box should be laid out");
+    let pressed_tint = Theme::default().control().pressed_tint;
+
+    assert!(
+        !presentation
+            .scene()
+            .quads()
+            .iter()
+            .any(|quad| quad.rect() == text_box.rect() && quad.fill() == pressed_tint),
+        "text box pointer editing should not paint the generic control pressed tint"
+    );
+}
+
+fn assert_text_box_control_pressed_tint(presentation: &scene::Presentation) {
+    let text_box = presentation
+        .layout()
+        .find_role(view::node::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("text box should be laid out");
+    let pressed_tint = Theme::default().control().pressed_tint;
+
+    assert!(
+        presentation
+            .scene()
+            .quads()
+            .iter()
+            .any(|quad| quad.rect() == text_box.rect() && quad.fill() == pressed_tint),
+        "text box focus acquisition should paint the generic control pressed tint"
+    );
+}
+
+fn assert_text_box_focus_outline(presentation: &scene::Presentation) {
+    let text_box = presentation
+        .layout()
+        .find_role(view::node::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("text box should be laid out");
+    let focus = Theme::default().focus().color;
+
+    assert!(
+        presentation
+            .scene()
+            .outlines()
+            .iter()
+            .any(|outline| outline.rect() == text_box.rect() && outline.color() == focus),
+        "pointer-focused text box should paint the focus indicator because it accepts keyboard input"
+    );
 }

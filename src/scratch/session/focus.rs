@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use super::super::{interaction, window as app_window};
 use super::{Session, Window};
 
@@ -76,6 +78,14 @@ impl Focus {
         self.visibility == Visibility::Visible
     }
 
+    pub fn shows_focus_indicator(self) -> bool {
+        self.is_visible() || self.accepts_keyboard_input()
+    }
+
+    fn accepts_keyboard_input(self) -> bool {
+        matches!(self.kind, Kind::Text(_))
+    }
+
     pub fn target(self) -> interaction::Id {
         match self.kind {
             Kind::Text(target) => target,
@@ -138,7 +148,11 @@ impl Session {
         };
         let changed = window.focus.as_ref() != Some(&focus);
         let input_changed = if let Some(target) = focus.text_target() {
-            window.interaction.clear_text_input_unless(&target)
+            let input_changed = window.interaction.clear_text_input_unless(&target);
+            let blink_changed = window
+                .interaction
+                .reset_text_caret_blink(target, Instant::now());
+            input_changed || blink_changed
         } else {
             window.interaction.clear_text_preedit()
         };
@@ -162,6 +176,10 @@ impl Session {
 
     pub(in crate::scratch) fn command_focus(&self, id: app_window::Id) -> Option<Focus> {
         let window = self.window(id)?;
+        if let Some(palette) = window.interaction.command_palette() {
+            return palette.captured_focus();
+        }
+
         window.menu_restore_focus.or(window.focus).or_else(|| {
             window
                 .interaction

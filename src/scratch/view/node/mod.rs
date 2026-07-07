@@ -1,5 +1,6 @@
 use super::super::interaction;
 use super::{binding::Binding, control::Control, style::Style};
+use crate::scratch::subject;
 
 mod access;
 mod action;
@@ -11,12 +12,20 @@ mod traversal;
 pub use axis::Axis;
 pub use role::Role;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FloatingPlacement {
+    Default,
+    CenteredMaxEnvelope,
+}
+
 #[derive(Clone)]
 pub struct Node {
     role: Role,
     id: Option<interaction::Id>,
     axis: Option<Axis>,
     style: Style,
+    floating_placement: FloatingPlacement,
+    subject: Option<subject::Segment>,
     label: Option<String>,
     binding: Option<Binding>,
     control: Option<Control>,
@@ -25,5 +34,7 @@ pub struct Node {
     hovered: bool,
     pressed: bool,
     active: bool,
+    selected: bool,
+    scroll_offset: interaction::ScrollOffset,
     children: Vec<Node>,
 }

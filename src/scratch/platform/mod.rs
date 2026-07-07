@@ -1,4 +1,5 @@
 use super::{host, session, shell, state::State};
+use crate::animation;
 
 mod backend;
 mod error;
@@ -21,6 +22,7 @@ pub struct Platform<M: State, E: Send + 'static = (), B = ()> {
     backend: B,
     active_requests: Vec<session::Request>,
     poll_scheduled: bool,
+    animation_schedule: animation::Schedule,
 }
 
 impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
@@ -34,6 +36,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             backend,
             active_requests: Vec::new(),
             poll_scheduled: false,
+            animation_schedule: animation::Schedule::Idle,
         }
     }
 
@@ -55,6 +58,10 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
 
     pub fn into_parts(self) -> (host::Host<M, E>, B) {
         (self.host, self.backend)
+    }
+
+    pub(in crate::scratch) fn animation_schedule(&self) -> animation::Schedule {
+        self.animation_schedule
     }
 
     pub fn start(&mut self) -> Result<(), Error<B::Error>>
@@ -135,6 +142,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
 
         self.sync_requests(context, work.requests())?;
         self.sync_poll(context, work.needs_poll())?;
+        self.animation_schedule = work.animation_schedule();
 
         Ok(())
     }

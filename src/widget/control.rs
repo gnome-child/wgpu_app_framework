@@ -27,9 +27,8 @@ pub fn floating_panel_with_theme(theme: &theme::Theme) -> ui::Node {
         ui::Node::container(layout::Axis::Vertical).with_kind("floating_panel"),
         theme,
     )
-    .with_backdrop(
-        ui::Backdrop::glass(floating.backdrop_fill()).with_blur(floating.backdrop_blur()),
-    )
+    .with_background(floating.backdrop_fill())
+    .with_filter(ui::Filter::blur(floating.backdrop_blur()))
     .with_stroke(floating.stroke())
     .with_shadow(
         shadow.brush(),

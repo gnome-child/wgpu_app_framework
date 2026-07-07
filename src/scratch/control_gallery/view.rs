@@ -1,6 +1,9 @@
 use super::super::{
-    View, document, geometry, interaction, scene, timeline, view as framework_view,
-    view::style::{Align, Dimension, Padding},
+    View, document, geometry, interaction, scene, timeline,
+    view::{
+        Context as ViewContext,
+        style::{Align, Dimension, Padding},
+    },
     widget,
 };
 use super::{
@@ -17,13 +20,13 @@ const MENU_VIEW: interaction::Id = interaction::Id::new("control_gallery.menu.vi
 pub(super) const QUERY_FOCUS: interaction::Id = interaction::Id::new("control_gallery.query");
 
 pub const WINDOW_TITLE: &str = "wgpu_l3 Control Gallery";
-pub const CANVAS_COLOR: scene::Color = scene::Color::rgb(20, 22, 25);
+pub const CANVAS_COLOR: scene::Color = scene::Color::rgb(17, 18, 20);
 
 pub fn window_size() -> geometry::Size {
     geometry::Size::new(760, 520)
 }
 
-pub fn view(state: &State, _: framework_view::Context) -> View {
+pub fn view(state: &State, _: ViewContext) -> View {
     widget::view(|ui| {
         ui.column(|ui| {
             ui.menu_bar(|ui| {

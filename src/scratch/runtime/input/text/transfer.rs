@@ -2,6 +2,7 @@ use super::super::super::Runtime;
 use crate::scratch::{
     context as command_context, document, error::Error, input, response, state, window,
 };
+use std::time::Instant;
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(in crate::scratch::runtime::input) fn handle_text_drop(
@@ -63,7 +64,17 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             if let Some(target) = reveal_target
                 && self.session.reveal_scroll(window, target)
             {
-                effect = effect.then(response::Effect::Repaint);
+                effect = effect.then(response::Effect::Layout);
+            }
+            if let Some(focus) = focus {
+                let target = self.text_input_target(window, focus);
+                if self
+                    .session
+                    .reset_text_caret_blink(window, target, Instant::now())
+                    && !changed
+                {
+                    effect = effect.then(response::Effect::Layout);
+                }
             }
             self.timeline.record(before.into_model());
             self.store

@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use super::super::{
-    View, document, geometry, interaction, scene, session, timeline, view as framework_view, widget,
+    View, document, geometry, interaction, scene, session, timeline,
+    view::{Context as ViewContext, control::Wrap},
+    widget,
 };
 use super::{LoadStressText, State, ToggleDebugPanel, ToggleWrapText};
 
@@ -17,11 +19,11 @@ pub fn window_size() -> geometry::Size {
     geometry::Size::new(920, 680)
 }
 
-pub fn view(state: &State, cx: framework_view::Context) -> View {
+pub fn view(state: &State, cx: ViewContext) -> View {
     let wrap = if state.wrap_text {
-        framework_view::control::Wrap::Word
+        Wrap::Word
     } else {
-        framework_view::control::Wrap::None
+        Wrap::None
     };
     let debug_panel = if state.show_debug_panel {
         let dirty = if state.document.is_dirty() {

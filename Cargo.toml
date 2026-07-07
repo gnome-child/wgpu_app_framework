@@ -16,6 +16,11 @@ name = "control_gallery"
 path = "examples/control_gallery/main.rs"
 required-features = ["scratch"]
 
+[[example]]
+name = "glass_tuner"
+path = "examples/glass_tuner/main.rs"
+required-features = ["scratch"]
+
 [dependencies]
 arboard = "3.6.1"
 bytemuck = "1.25.0"

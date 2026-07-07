@@ -43,11 +43,18 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return self.handle_tab_focus(window, modifiers.shift());
         }
 
+        if let Some(outcome) = self.handle_command_palette_key(window, key, modifiers)? {
+            return Ok(outcome);
+        }
+
         if let Some(outcome) = self.handle_text_box_key_shortcut(window, key, modifiers)? {
             return Ok(outcome);
         }
 
-        if let Some(shortcut) = self.registry.shortcut_for_key(key, modifiers) {
+        if let Some(shortcut) = self
+            .registry
+            .shortcut_for_key(key, modifiers, self.keymap)?
+        {
             let outcome = self.handle_shortcut(window, shortcut)?;
             if outcome.is_handled() {
                 return Ok(outcome);
@@ -67,7 +74,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return self.handle_text_commit(window, text);
         }
 
-        let Some(edit) = input::edit_for_key(key, modifiers) else {
+        let Some(edit) = self.keymap.edit_for_key(key, modifiers) else {
             return Ok(input::Outcome::ignored());
         };
 
@@ -85,9 +92,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             view::action::FocusDirection::Forward
         };
         let Some(next) = self.composition.get(window).and_then(|composition| {
-            composition
-                .view()
-                .next_focus(self.session.focused(window), direction)
+            composition.next_focus(self.session.focused(window), direction)
         }) else {
             return Ok(input::Outcome::ignored());
         };
@@ -105,7 +110,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let Some(action) = self
             .composition
             .get(window)
-            .and_then(|composition| composition.view().focus_action(&focus))
+            .and_then(|composition| composition.focus_action(&focus))
         else {
             return Ok(None);
         };

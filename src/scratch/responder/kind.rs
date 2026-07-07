@@ -7,10 +7,11 @@ pub enum Kind {
     Window,
     Workspace,
     App,
+    Framework,
 }
 
 impl Kind {
-    pub(super) fn rank(self) -> usize {
+    pub(in crate::scratch) fn rank(self) -> usize {
         match self {
             Self::Captured => 0,
             Self::Transient => 1,
@@ -19,6 +20,7 @@ impl Kind {
             Self::Window => 4,
             Self::Workspace => 5,
             Self::App => 6,
+            Self::Framework => 7,
         }
     }
 }

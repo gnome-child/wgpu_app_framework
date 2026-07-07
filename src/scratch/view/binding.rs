@@ -1,7 +1,5 @@
-use std::any::TypeId;
-
 use super::super::{
-    command as framework_command,
+    command,
     context::{Context as CommandContext, Source},
     interaction, responder, response, state,
 };
@@ -9,26 +7,26 @@ use super::Action;
 
 #[derive(Clone)]
 pub struct Binding {
-    trigger: framework_command::AnyTrigger,
-    state: framework_command::State,
+    trigger: command::AnyTrigger,
+    state: command::State,
     source: Source,
-    slider_trigger: Option<framework_command::AnyValueTrigger<f64>>,
-    text_trigger: Option<framework_command::AnyValueTrigger<String>>,
+    slider_trigger: Option<command::AnyValueTrigger<f64>>,
+    text_trigger: Option<command::AnyValueTrigger<String>>,
 }
 
 impl Binding {
     pub(super) fn new<C>(args: C::Args, source: Source) -> Self
     where
-        C: framework_command::Command,
+        C: command::Command,
         C::Args: Clone,
     {
-        Self::from_trigger(framework_command::AnyTrigger::command::<C>(args), source)
+        Self::from_trigger(command::AnyTrigger::command::<C>(args), source)
     }
 
-    pub(super) fn from_trigger(trigger: framework_command::AnyTrigger, source: Source) -> Self {
+    pub(in crate::scratch) fn from_trigger(trigger: command::AnyTrigger, source: Source) -> Self {
         Self {
             trigger,
-            state: framework_command::State::hidden(),
+            state: command::State::hidden(),
             source,
             slider_trigger: None,
             text_trigger: None,
@@ -38,11 +36,11 @@ impl Binding {
     pub(super) fn slider(
         value: f64,
         source: Source,
-        slider_trigger: framework_command::AnyValueTrigger<f64>,
+        slider_trigger: command::AnyValueTrigger<f64>,
     ) -> Self {
         Self {
             trigger: slider_trigger.trigger(value),
-            state: framework_command::State::hidden(),
+            state: command::State::hidden(),
             source,
             slider_trigger: Some(slider_trigger),
             text_trigger: None,
@@ -52,11 +50,11 @@ impl Binding {
     pub(super) fn text(
         text: String,
         source: Source,
-        text_trigger: framework_command::AnyValueTrigger<String>,
+        text_trigger: command::AnyValueTrigger<String>,
     ) -> Self {
         Self {
             trigger: text_trigger.trigger(text),
-            state: framework_command::State::hidden(),
+            state: command::State::hidden(),
             source,
             slider_trigger: None,
             text_trigger: Some(text_trigger),
@@ -67,15 +65,15 @@ impl Binding {
         self.trigger.command_name()
     }
 
-    pub fn command_type(&self) -> TypeId {
+    pub fn command_type(&self) -> std::any::TypeId {
         self.trigger.command_type()
     }
 
-    pub(in crate::scratch) fn history_group(&self) -> Option<framework_command::HistoryGroup> {
+    pub(in crate::scratch) fn history_group(&self) -> Option<command::HistoryGroup> {
         self.trigger.history_group()
     }
 
-    pub fn state(&self) -> &framework_command::State {
+    pub fn state(&self) -> &command::State {
         &self.state
     }
 
@@ -87,7 +85,7 @@ impl Binding {
         self.state.checked
     }
 
-    pub fn shortcut(&self) -> Option<framework_command::KeyChord> {
+    pub fn shortcut(&self) -> Option<command::KeyChord> {
         self.state.shortcut
     }
 
@@ -119,15 +117,6 @@ impl Binding {
         interaction::Target::command_element(id, self.command_name(), self.source)
     }
 
-    pub(super) fn path_pointer_target(&self, path: &[usize]) -> interaction::Target {
-        interaction::Target::command_path(
-            self.command_type(),
-            self.command_name(),
-            self.source,
-            path.to_vec(),
-        )
-    }
-
     pub fn is_enabled(&self) -> bool {
         self.state.is_enabled()
     }
@@ -138,7 +127,7 @@ impl Binding {
 
     pub(super) fn resolve<M: state::State>(
         &mut self,
-        registry: &framework_command::Registry,
+        registry: &command::Registry,
         chain: &mut responder::Chain<'_, M>,
         cx: &CommandContext,
     ) {
@@ -148,7 +137,7 @@ impl Binding {
 
     pub(in crate::scratch) fn invoke<M: state::State>(
         &self,
-        registry: &framework_command::Registry,
+        registry: &command::Registry,
         chain: &mut responder::Chain<'_, M>,
         cx: &mut CommandContext,
     ) -> response::AnyResponse {

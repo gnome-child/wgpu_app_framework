@@ -179,7 +179,7 @@ fn text_editor_host_drains_scene_work() {
             .scene()
             .quads()
             .iter()
-            .any(|quad| quad.fill().channels() == (245, 247, 250, 255))
+            .any(|quad| quad.fill().channels() == (28, 28, 30, 255))
     );
     assert!(!app.session().windows()[0].redraw_requested());
     assert!(app.drain_scenes(|_| text_editor::window_size()).is_empty());

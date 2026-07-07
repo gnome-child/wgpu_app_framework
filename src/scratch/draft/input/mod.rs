@@ -1,3 +1,5 @@
+use std::{collections::HashMap, time::Instant};
+
 use crate::text;
 
 use super::{Change, State};
@@ -14,6 +16,7 @@ pub struct Input {
     target: Option<Target>,
     drafts: Store,
     preedit: Option<text::edit::Preedit>,
+    caret_epochs: HashMap<Target, Instant>,
 }
 
 impl Input {
@@ -41,6 +44,16 @@ impl Input {
             .flatten()
     }
 
+    pub fn caret_epoch_for(&self, target: &Target) -> Option<Instant> {
+        self.caret_epochs.get(target).copied()
+    }
+
+    pub(in crate::scratch) fn reset_caret_blink(&mut self, target: Target, now: Instant) -> bool {
+        let changed = self.caret_epochs.get(&target).copied() != Some(now);
+        self.caret_epochs.insert(target, now);
+        changed
+    }
+
     pub(in crate::scratch) fn set_preedit(
         &mut self,
         target: Target,
@@ -50,14 +63,16 @@ impl Input {
             if self.target.as_ref() == Some(&target) && self.drafts.contains(&target) {
                 let changed = self.preedit.is_some();
                 self.preedit = None;
-                return changed;
+                let blink_changed = self.reset_caret_blink(target, Instant::now());
+                return changed || blink_changed;
             }
 
             if self.target.as_ref() == Some(&target) {
                 let changed = self.preedit.is_some() || self.target.is_some();
                 self.preedit = None;
                 self.target = None;
-                return changed;
+                let blink_changed = self.reset_caret_blink(target, Instant::now());
+                return changed || blink_changed;
             }
 
             return false;
@@ -65,9 +80,10 @@ impl Input {
 
         let target_changed = self.target.as_ref() != Some(&target);
         let changed = target_changed || self.preedit.as_ref() != Some(&preedit);
-        self.target = Some(target);
+        self.target = Some(target.clone());
         self.preedit = Some(preedit);
-        changed
+        let blink_changed = self.reset_caret_blink(target, Instant::now());
+        changed || blink_changed
     }
 
     pub(in crate::scratch) fn edit(
@@ -90,7 +106,9 @@ impl Input {
             self.drafts.insert(target.clone(), State::new(base.clone()));
         }
 
-        let draft = self.drafts.get_or_insert_with(target, || State::new(base));
+        let draft = self
+            .drafts
+            .get_or_insert_with(target.clone(), || State::new(base));
         let before_text = draft.text().to_owned();
         let before_cursor = draft.cursor();
         let before_selection = draft.selection();
@@ -104,6 +122,7 @@ impl Input {
         let preedit_cleared = self.preedit.is_some();
 
         self.preedit = None;
+        let blink_changed = self.reset_caret_blink(target.clone(), Instant::now());
 
         Change::new(
             text,
@@ -114,7 +133,8 @@ impl Input {
                 || text_changed
                 || cursor_changed
                 || selection_changed
-                || preedit_cleared,
+                || preedit_cleared
+                || blink_changed,
             submit,
         )
     }
@@ -162,6 +182,7 @@ impl Input {
         let preedit_cleared = self.preedit.is_some();
 
         self.preedit = None;
+        let blink_changed = self.reset_caret_blink(target.clone(), Instant::now());
 
         Some(Change::new(
             text,
@@ -173,7 +194,8 @@ impl Input {
                 || text_changed
                 || cursor_changed
                 || selection_changed
-                || preedit_cleared,
+                || preedit_cleared
+                || blink_changed,
             false,
         ))
     }
@@ -183,6 +205,9 @@ impl Input {
         self.target = None;
         self.drafts.clear();
         self.preedit = None;
+        if changed {
+            self.caret_epochs.clear();
+        }
         changed
     }
 
@@ -202,6 +227,7 @@ impl Input {
 
     pub(in crate::scratch) fn clear_draft(&mut self, target: &Target) -> bool {
         let store_changed = self.drafts.remove(target);
+        let caret_changed = self.caret_epochs.remove(target).is_some();
         let target_changed = if self.target.as_ref() == Some(target) {
             self.target = None;
             self.preedit = None;
@@ -210,7 +236,7 @@ impl Input {
             false
         };
 
-        store_changed || target_changed
+        store_changed || caret_changed || target_changed
     }
 
     pub(in crate::scratch) fn deactivate(&mut self, target: &Target) -> bool {
@@ -220,6 +246,7 @@ impl Input {
 
         self.preedit = None;
         self.target = None;
+        self.caret_epochs.remove(target);
         true
     }
 
@@ -248,5 +275,26 @@ impl Input {
 
     pub(in crate::scratch) fn set_draft_limit(&mut self, limit: usize) {
         self.drafts.set_limit(limit, self.target.as_ref());
+    }
+
+    pub(in crate::scratch) fn prune_removed(
+        &mut self,
+        removed_nodes: &[crate::scratch::composition::NodeId],
+        removed_elements: &[crate::scratch::interaction::Id],
+    ) -> bool {
+        let store_changed = self.drafts.prune_removed(removed_nodes, removed_elements);
+        let before_epochs = self.caret_epochs.len();
+        self.caret_epochs
+            .retain(|target, _| !target.matches_removed_identity(removed_nodes, removed_elements));
+        let active_removed = self
+            .target
+            .as_ref()
+            .is_some_and(|target| target.matches_removed_identity(removed_nodes, removed_elements));
+        if active_removed {
+            self.target = None;
+            self.preedit = None;
+        }
+
+        store_changed || before_epochs != self.caret_epochs.len() || active_removed
     }
 }

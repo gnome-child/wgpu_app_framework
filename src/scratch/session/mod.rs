@@ -7,7 +7,7 @@ mod window;
 
 pub use focus::Focus;
 pub use request::{FileDialog, Request, RequestKind};
-pub use service::CloseWindow;
+pub use service::{CloseWindow, OpenCommandPalette};
 pub use snapshot::Snapshot;
 pub use window::{Window, WindowSnapshot};
 

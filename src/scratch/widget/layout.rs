@@ -3,7 +3,7 @@ use super::super::view;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layout {
     direction: Direction,
-    gap: i32,
+    gap: Option<i32>,
     padding: view::style::Padding,
     align_items: view::style::Align,
     justify_content: view::style::Align,
@@ -13,6 +13,7 @@ pub struct Layout {
 pub enum Direction {
     Row,
     Column,
+    Overlay,
 }
 
 impl Layout {
@@ -30,8 +31,13 @@ impl Layout {
         self
     }
 
+    pub fn overlay(mut self) -> Self {
+        self.direction = Direction::Overlay;
+        self
+    }
+
     pub fn gap(mut self, gap: i32) -> Self {
-        self.gap = gap.max(0);
+        self.gap = Some(gap.max(0));
         self
     }
 
@@ -55,6 +61,10 @@ impl Layout {
     }
 
     pub fn gap_value(&self) -> i32 {
+        self.gap.unwrap_or_default()
+    }
+
+    pub fn gap_override(&self) -> Option<i32> {
         self.gap
     }
 
@@ -75,7 +85,7 @@ impl Default for Layout {
     fn default() -> Self {
         Self {
             direction: Direction::Column,
-            gap: 0,
+            gap: None,
             padding: view::style::Padding::zero(),
             align_items: view::style::Align::Stretch,
             justify_content: view::style::Align::Start,

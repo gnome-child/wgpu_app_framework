@@ -66,11 +66,23 @@ impl Command for Paste {
 
 pub(in crate::scratch) fn register(commands: &mut command::Registry) {
     commands
-        .register::<Cut>(command::Spec::new("Cut").shortcut("Ctrl+X"))
-        .register::<Copy>(command::Spec::new("Copy").shortcut("Ctrl+C"))
-        .register::<Paste>(command::Spec::new("Paste").shortcut("Ctrl+V"))
+        .register::<Cut>(
+            command::Spec::new("Cut")
+                .key_chord(command::KeyChord::standard(command::Standard::Cut)),
+        )
+        .register::<Copy>(
+            command::Spec::new("Copy")
+                .key_chord(command::KeyChord::standard(command::Standard::Copy)),
+        )
+        .register::<Paste>(
+            command::Spec::new("Paste")
+                .key_chord(command::KeyChord::standard(command::Standard::Paste)),
+        )
         .register::<Delete>(command::Spec::new("Delete"))
-        .register::<SelectAll>(command::Spec::new("Select All").shortcut("Ctrl+A"));
+        .register::<SelectAll>(
+            command::Spec::new("Select All")
+                .key_chord(command::KeyChord::standard(command::Standard::SelectAll)),
+        );
 }
 
 pub struct NewFile;

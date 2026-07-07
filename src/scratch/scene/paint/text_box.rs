@@ -2,7 +2,9 @@ use crate::scratch::{geometry, layout, theme::Theme};
 use crate::text;
 
 use super::super::primitive::TextColor;
-use super::super::{Quad, Scene, TextSurface, TextViewport};
+use super::super::{
+    EdgeMode, Quad, Rasterization, Scene, Snapping, TextSurface, TextViewport, Visuals,
+};
 
 pub(super) fn paint_text(frame: &layout::frame::Frame, scene: &mut Scene) -> bool {
     let Some(text_box) = frame.text_box() else {
@@ -54,8 +56,19 @@ pub(super) fn paint_selection(frame: &layout::frame::Frame, scene: &mut Scene, t
     }
 }
 
-pub(super) fn paint_caret(frame: &layout::frame::Frame, scene: &mut Scene, theme: &Theme) {
+pub(super) fn paint_caret(
+    frame: &layout::frame::Frame,
+    scene: &mut Scene,
+    theme: &Theme,
+    visuals: &Visuals,
+) {
     if !frame.is_focused() {
+        return;
+    }
+    if frame
+        .target()
+        .is_some_and(|target| !visuals.caret_visible(target))
+    {
         return;
     }
 
@@ -70,8 +83,15 @@ pub(super) fn paint_caret(frame: &layout::frame::Frame, scene: &mut Scene, theme
             rect,
         )
     {
-        scene.push_quad(Quad::new(caret, theme.text().inverse));
+        scene.push_quad(caret_quad(caret, theme));
     }
+}
+
+fn caret_quad(rect: geometry::Rect, theme: &Theme) -> Quad {
+    Quad::new(rect, theme.text_input().caret).with_rasterization(Rasterization::new(
+        Snapping::FixedWidth { width_px: 2 },
+        EdgeMode::Hard,
+    ))
 }
 
 fn span_rect(rect: geometry::Rect, x: f32, y: f32, width: f32, height: f32) -> geometry::Rect {

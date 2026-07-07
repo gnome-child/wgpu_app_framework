@@ -1,32 +1,47 @@
 use crate::scratch::{geometry, layout, theme::Theme, view};
 
-use super::super::{Brush, Quad, Rounding, Scene, Stroke};
+use super::super::{Brush, Quad, Rounding, Scene, Stroke, Transform, Visuals};
 
-pub(super) fn paint(frame: &layout::frame::Frame, scene: &mut Scene, theme: &Theme) {
+pub(super) fn paint(
+    frame: &layout::frame::Frame,
+    scene: &mut Scene,
+    theme: &Theme,
+    visuals: &Visuals,
+) {
     let Some(slider) = frame.slider() else {
         return;
     };
-    let slider_theme = theme.slider();
     let rect = frame.rect();
-    let track = layout::control::slider_track_rect(rect, theme);
+    let track = frame
+        .slider_track_rect()
+        .unwrap_or_else(|| layout::control::slider_track_rect(rect, frame.label_width(), theme));
     let filled_width = ((track.width() as f64) * slider_fraction(slider)).round() as i32;
     let fill = geometry::Rect::new(track.x(), track.y(), filled_width, track.height());
-    let thumb_center = track.x().saturating_add(filled_width);
-    let thumb = geometry::Rect::new(
-        thumb_center.saturating_sub(slider_theme.thumb_width / 2),
-        rect.y()
-            .saturating_add((rect.height().saturating_sub(slider_theme.thumb_height)) / 2),
-        slider_theme.thumb_width,
-        slider_theme.thumb_height,
-    );
+    let thumb = layout::control::slider_thumb_rect(rect, slider, frame.label_width(), theme);
+    let slider_theme = theme.slider();
+    let scale_y = frame
+        .target()
+        .map(|target| visuals.slider_track_scale_y(target))
+        .unwrap_or(1.0);
+    let transform = Transform::scale_y_about_rect_center(track, scale_y);
 
-    scene.push_quad(Quad::new(track, slider_theme.track).with_rounding(Rounding::relative(1.0)));
-    scene.push_quad(Quad::new(fill, slider_theme.value).with_rounding(Rounding::relative(1.0)));
     scene.push_quad(
-        Quad::new(thumb, slider_theme.thumb)
+        Quad::new(track, slider_theme.track)
             .with_rounding(Rounding::relative(1.0))
-            .with_stroke(Stroke::new(Brush::solid(slider_theme.thumb_outline), 1.0)),
+            .with_transform(transform),
     );
+    scene.push_quad(
+        Quad::new(fill, slider_theme.value)
+            .with_rounding(Rounding::relative(1.0))
+            .with_transform(transform),
+    );
+    let mut thumb_quad =
+        Quad::new(thumb, slider_theme.thumb).with_rounding(Rounding::relative(1.0));
+    if slider_theme.thumb_outline.channels().3 > 0 {
+        thumb_quad =
+            thumb_quad.with_stroke(Stroke::new(Brush::solid(slider_theme.thumb_outline), 1.0));
+    }
+    scene.push_quad(thumb_quad);
 }
 
 fn slider_fraction(slider: &view::control::Slider) -> f64 {

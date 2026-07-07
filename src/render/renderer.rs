@@ -13,7 +13,7 @@ pub struct DrawTimings {
     pub text_prepare: Duration,
     pub scene_text_prepare: Duration,
     pub layer_update_text_prepare: Duration,
-    pub backdrop_prepare: Duration,
+    pub filter_prepare: Duration,
     pub encode_submit: Duration,
     pub total: Duration,
 }
@@ -24,9 +24,15 @@ pub struct DrawStats {
     pub render_batches: usize,
     pub glyph_batches: usize,
     pub text_surfaces: usize,
+    pub inline_text_cache_hits: usize,
+    pub inline_text_cache_misses: usize,
+    pub inline_text_shape_calls: usize,
+    pub inline_icon_cache_hits: usize,
+    pub inline_icon_cache_misses: usize,
+    pub inline_icon_shape_calls: usize,
     pub quad_vertices: usize,
     pub clip_batches: usize,
-    pub backdrops: usize,
+    pub filters: usize,
     pub layer_items: usize,
     pub layer_updates: usize,
 }
@@ -40,7 +46,7 @@ pub struct DrawReport {
 
 pub struct Renderer {
     quad_pipeline: wgpu::RenderPipeline,
-    backdrop_renderer: render::backdrop::Renderer,
+    filter_renderer: render::filter::Renderer,
     retained_renderer: render::retained::Renderer,
     text_renderer: render::text_renderer::TextRenderer,
     retained_layers: HashMap<paint::LayerId, render::retained::Layer>,
@@ -48,7 +54,7 @@ pub struct Renderer {
 
 enum RenderBatch {
     Shapes(render::quad::Batch),
-    Backdrop(paint::Backdrop),
+    Filter(paint::Filter),
     Text {
         renderer_index: usize,
         viewport: render::Viewport,
@@ -73,7 +79,7 @@ impl Renderer {
     pub fn new(render_context: &render::Context, format: wgpu::TextureFormat) -> Self {
         Self {
             quad_pipeline: render::quad::pipeline(render_context, format),
-            backdrop_renderer: render::backdrop::Renderer::new(render_context, format),
+            filter_renderer: render::filter::Renderer::new(render_context, format),
             retained_renderer: render::retained::Renderer::new(render_context, format),
             text_renderer: render::text_renderer::TextRenderer::new(render_context, format),
             retained_layers: HashMap::new(),
@@ -184,9 +190,9 @@ impl Renderer {
         stats.scene_items = scene.items().len();
         stats.layer_updates = layer_updates.len();
 
-        let backdrop_start = Instant::now();
-        let backdrop_target = self.backdrop_renderer.prepare(render_context, canvas);
-        let backdrop_prepare = backdrop_start.elapsed();
+        let filter_start = Instant::now();
+        let filter_target = self.filter_renderer.prepare(render_context, canvas);
+        let filter_prepare = filter_start.elapsed();
         for update in layer_updates {
             self.ensure_retained_layer(
                 render_context,
@@ -195,7 +201,7 @@ impl Renderer {
             );
         }
         let quad_pipeline = &self.quad_pipeline;
-        let backdrop_renderer = &self.backdrop_renderer;
+        let filter_renderer = &self.filter_renderer;
         let retained_renderer = &self.retained_renderer;
         let text_renderer = &mut self.text_renderer;
         let retained_layers = &self.retained_layers;
@@ -212,10 +218,10 @@ impl Renderer {
                 encode_scene(
                     render_context,
                     quad_pipeline,
-                    backdrop_renderer,
+                    filter_renderer,
                     retained_renderer,
                     text_renderer,
-                    backdrop_target,
+                    filter_target,
                     encoder,
                     layer.view(),
                     clear_color,
@@ -229,17 +235,17 @@ impl Renderer {
                 }
             }
 
-            backdrop_renderer.clear_composition(encoder, clear_color);
-            let Some(composition_view) = backdrop_renderer.composition_view() else {
+            filter_renderer.clear_composition(encoder, clear_color);
+            let Some(composition_view) = filter_renderer.composition_view() else {
                 return;
             };
             encode_scene(
                 render_context,
                 quad_pipeline,
-                backdrop_renderer,
+                filter_renderer,
                 retained_renderer,
                 text_renderer,
-                backdrop_target,
+                filter_target,
                 encoder,
                 composition_view,
                 clear_color,
@@ -252,7 +258,7 @@ impl Renderer {
                 return;
             }
 
-            backdrop_renderer.blit_to_view(render_context, encoder, &view, backdrop_target);
+            filter_renderer.blit_to_view(render_context, encoder, &view, filter_target);
         })?;
 
         if let Some(error) = text_render_error {
@@ -270,7 +276,7 @@ impl Renderer {
                 text_prepare,
                 scene_text_prepare,
                 layer_update_text_prepare,
-                backdrop_prepare,
+                filter_prepare,
                 encode_submit: surface_report.timings.encode_submit,
                 total: total_start.elapsed().max(surface_report.timings.total),
             },
@@ -339,9 +345,9 @@ impl Renderer {
                 .iter()
                 .filter(|batch| matches!(batch, ItemBatch::PushClip(_) | ItemBatch::PopClip))
                 .count(),
-            backdrops: item_batches
+            filters: item_batches
                 .iter()
-                .filter(|batch| matches!(batch, ItemBatch::Backdrop(_)))
+                .filter(|batch| matches!(batch, ItemBatch::Filter(_)))
                 .count(),
             layer_items: item_batches
                 .iter()
@@ -362,8 +368,8 @@ impl Renderer {
                     }
                     *quad_prepare += quad_start.elapsed();
                 }
-                ItemBatch::Backdrop(backdrop) => {
-                    render_batches.push(RenderBatch::Backdrop(**backdrop));
+                ItemBatch::Filter(filter) => {
+                    render_batches.push(RenderBatch::Filter((*filter).clone()));
                 }
                 ItemBatch::Layer(layer) => {
                     render_batches.push(RenderBatch::Layer(**layer));
@@ -376,12 +382,19 @@ impl Renderer {
                 }
                 ItemBatch::Glyphs(glyphs) => {
                     let text_start = Instant::now();
-                    if self.text_renderer.prepare_batch(
+                    let report = self.text_renderer.prepare_batch(
                         render_context,
                         viewport,
                         *text_renderer_index,
                         glyphs,
-                    )? {
+                    )?;
+                    stats.inline_text_cache_hits += report.stats.text_cache_hits;
+                    stats.inline_text_cache_misses += report.stats.text_cache_misses;
+                    stats.inline_text_shape_calls += report.stats.text_shape_calls;
+                    stats.inline_icon_cache_hits += report.stats.icon_cache_hits;
+                    stats.inline_icon_cache_misses += report.stats.icon_cache_misses;
+                    stats.inline_icon_shape_calls += report.stats.icon_shape_calls;
+                    if report.has_text {
                         render_batches.push(RenderBatch::Text {
                             renderer_index: *text_renderer_index,
                             viewport,
@@ -427,10 +440,10 @@ impl DrawStats {
                 .iter()
                 .filter(|item| matches!(item, paint::Item::Clip(_) | paint::Item::PopClip))
                 .count(),
-            backdrops: scene
+            filters: scene
                 .items()
                 .iter()
-                .filter(|item| matches!(item, paint::Item::Backdrop(_)))
+                .filter(|item| matches!(item, paint::Item::Filter(_)))
                 .count(),
             layer_items: scene
                 .items()
@@ -438,6 +451,7 @@ impl DrawStats {
                 .filter(|item| matches!(item, paint::Item::Layer(_)))
                 .count(),
             layer_updates: 0,
+            ..Self::default()
         }
     }
 
@@ -446,9 +460,15 @@ impl DrawStats {
         self.render_batches += other.render_batches;
         self.glyph_batches += other.glyph_batches;
         self.text_surfaces += other.text_surfaces;
+        self.inline_text_cache_hits += other.inline_text_cache_hits;
+        self.inline_text_cache_misses += other.inline_text_cache_misses;
+        self.inline_text_shape_calls += other.inline_text_shape_calls;
+        self.inline_icon_cache_hits += other.inline_icon_cache_hits;
+        self.inline_icon_cache_misses += other.inline_icon_cache_misses;
+        self.inline_icon_shape_calls += other.inline_icon_shape_calls;
         self.quad_vertices += other.quad_vertices;
         self.clip_batches += other.clip_batches;
-        self.backdrops += other.backdrops;
+        self.filters += other.filters;
         self.layer_items += other.layer_items;
         self.layer_updates += other.layer_updates;
     }
@@ -485,10 +505,10 @@ fn begin_main_pass<'a>(
 fn encode_scene(
     render_context: &render::Context,
     quad_pipeline: &wgpu::RenderPipeline,
-    backdrop_renderer: &render::backdrop::Renderer,
+    filter_renderer: &render::filter::Renderer,
     retained_renderer: &render::retained::Renderer,
     text_renderer: &mut render::text_renderer::TextRenderer,
-    backdrop_target: render::backdrop::Target,
+    filter_target: render::filter::Target,
     encoder: &mut wgpu::CommandEncoder,
     base_view: &wgpu::TextureView,
     clear_color: wgpu::Color,
@@ -499,7 +519,7 @@ fn encode_scene(
 ) {
     let mut layers = Vec::new();
     let mut clip_stack = Vec::new();
-    let output_target = render::backdrop::Target::from_viewport(viewport);
+    let output_target = render::filter::Target::from_viewport(viewport);
 
     for batch in render_batches {
         match batch {
@@ -520,13 +540,13 @@ fn encode_scene(
                 pass.set_vertex_buffer(0, batch.vertex_buffer().slice(..));
                 pass.draw(0..batch.vertex_count(), 0..1);
             }
-            RenderBatch::Backdrop(backdrop) => {
+            RenderBatch::Filter(filter) => {
                 if !clip_stack.is_empty() {
-                    log::debug!("skipping backdrop draw inside clipped layer");
+                    log::debug!("skipping filter draw inside clipped layer");
                     continue;
                 }
 
-                backdrop_renderer.draw(render_context, backdrop_target, encoder, *backdrop, None);
+                filter_renderer.draw(render_context, filter_target, encoder, filter.clone(), None);
             }
             RenderBatch::Text {
                 renderer_index,
@@ -578,14 +598,14 @@ fn encode_scene(
                 );
             }
             RenderBatch::PushClip(clip) => {
-                let layer = backdrop_renderer.create_layer(
+                let layer = filter_renderer.create_layer(
                     render_context,
                     output_target,
                     "Clip Layer Texture",
                 );
                 layers.push(layer);
                 let layer_index = layers.len() - 1;
-                backdrop_renderer.clear_layer(encoder, &layers[layer_index]);
+                filter_renderer.clear_layer(encoder, &layers[layer_index]);
                 clip_stack.push(ClipFrame {
                     clip: *clip,
                     layer_index,
@@ -594,7 +614,7 @@ fn encode_scene(
             RenderBatch::PopClip => {
                 composite_clip_layer(
                     render_context,
-                    backdrop_renderer,
+                    filter_renderer,
                     output_target,
                     encoder,
                     viewport,
@@ -609,7 +629,7 @@ fn encode_scene(
     while !clip_stack.is_empty() {
         composite_clip_layer(
             render_context,
-            backdrop_renderer,
+            filter_renderer,
             output_target,
             encoder,
             viewport,
@@ -622,12 +642,12 @@ fn encode_scene(
 
 fn composite_clip_layer(
     render_context: &render::Context,
-    backdrop_renderer: &render::backdrop::Renderer,
-    target: render::backdrop::Target,
+    filter_renderer: &render::filter::Renderer,
+    target: render::filter::Target,
     encoder: &mut wgpu::CommandEncoder,
     viewport: render::Viewport,
     base_view: &wgpu::TextureView,
-    layers: &[render::backdrop::Layer],
+    layers: &[render::filter::Layer],
     clip_stack: &mut Vec<ClipFrame>,
 ) {
     let Some(frame) = clip_stack.pop() else {
@@ -640,7 +660,7 @@ fn composite_clip_layer(
         return;
     };
 
-    backdrop_renderer.composite_layer(
+    filter_renderer.composite_layer(
         render_context,
         encoder,
         source,
@@ -657,7 +677,7 @@ fn composite_clip_layer(
 
 fn current_target_view<'a>(
     base_view: &'a wgpu::TextureView,
-    layers: &'a [render::backdrop::Layer],
+    layers: &'a [render::filter::Layer],
     clip_stack: &[ClipFrame],
 ) -> Option<&'a wgpu::TextureView> {
     if let Some(frame) = clip_stack.last() {
@@ -834,6 +854,7 @@ mod tests {
         scene.push_quad(paint::Quad {
             rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
             rasterization: paint::Rasterization::default(),
+            transform: paint::Transform::identity(),
             style: paint::Style {
                 fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::BLACK))),
                 stroke: None,
@@ -852,10 +873,10 @@ mod tests {
             color: paint::Color::BLACK,
             size: 16.0,
         });
-        scene.push_backdrop(paint::Backdrop {
-            rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
-            filter: paint::BackdropFilter::Blur { amount: 0.5 },
-        });
+        scene.push_filter(paint::Filter::blur(
+            Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
+            0.5,
+        ));
         scene.push_clip(paint::Clip {
             rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
         });
@@ -869,6 +890,6 @@ mod tests {
         assert_eq!(stats.glyph_batches, 1);
         assert_eq!(stats.text_surfaces, 0);
         assert_eq!(stats.clip_batches, 2);
-        assert_eq!(stats.backdrops, 1);
+        assert_eq!(stats.filters, 1);
     }
 }

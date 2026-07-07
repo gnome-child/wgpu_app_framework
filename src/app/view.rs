@@ -2595,19 +2595,21 @@ mod tests {
             Some(&command::call::Context::path(window, subject))
         );
 
-        let backdrop_index = scene
+        let filter_index = scene
             .items()
             .iter()
-            .position(|item| matches!(item, paint::Item::Backdrop(_)))
-            .expect("open menu should lower a backdrop item");
-        let paint::Item::Backdrop(backdrop) = &scene.items()[backdrop_index] else {
+            .position(|item| matches!(item, paint::Item::Filter(_)))
+            .expect("open menu should lower a filter item");
+        let paint::Item::Filter(filter) = &scene.items()[filter_index] else {
             unreachable!();
         };
-        let paint::BackdropFilter::Blur { amount } = backdrop.filter;
-        assert_eq!(amount, theme.floating_panel().backdrop_blur());
+        let [paint::FilterOp::Blur { amount }] = filter.ops.as_slice() else {
+            panic!("open menu should lower a blur filter item");
+        };
+        assert_eq!(*amount, theme.floating_panel().backdrop_blur());
 
-        let paint::Item::Quad(quad) = &scene.items()[backdrop_index + 1] else {
-            panic!("popup material fill should follow popup backdrop");
+        let paint::Item::Quad(quad) = &scene.items()[filter_index + 1] else {
+            panic!("popup material fill should follow popup filter");
         };
         assert_eq!(
             quad.style.fill,

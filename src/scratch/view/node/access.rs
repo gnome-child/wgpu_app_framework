@@ -3,8 +3,8 @@ use super::super::{
     control::{Button, Checkbox, Control, Radio, Slider, TextArea, TextBox},
     style::Style,
 };
-use super::{Axis, Node, Role};
-use crate::scratch::interaction;
+use super::{Axis, FloatingPlacement, Node, Role};
+use crate::scratch::{interaction, subject};
 
 impl Node {
     pub fn role(&self) -> Role {
@@ -17,6 +17,14 @@ impl Node {
 
     pub fn style(&self) -> &Style {
         &self.style
+    }
+
+    pub(in crate::scratch) fn floating_placement(&self) -> FloatingPlacement {
+        self.floating_placement
+    }
+
+    pub fn subject(&self) -> Option<&subject::Segment> {
+        self.subject.as_ref()
     }
 
     pub fn label_text(&self) -> Option<&str> {
@@ -64,6 +72,14 @@ impl Node {
 
     pub fn is_active(&self) -> bool {
         self.active
+    }
+
+    pub fn is_selected(&self) -> bool {
+        self.selected
+    }
+
+    pub(in crate::scratch) fn scroll_offset(&self) -> interaction::ScrollOffset {
+        self.scroll_offset
     }
 
     pub fn button_model(&self) -> Option<&Button> {

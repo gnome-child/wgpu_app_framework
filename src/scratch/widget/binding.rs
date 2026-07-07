@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
-use crate::scratch::{command as framework_command, view};
+use crate::scratch::{command, view};
 
 use super::Widget;
 
-pub struct Binding<C: framework_command::Command> {
+pub struct Binding<C: command::Command> {
     args: C::Args,
     placement: Placement,
     _command: PhantomData<C>,
@@ -18,7 +18,7 @@ enum Placement {
 
 impl<C> Binding<C>
 where
-    C: framework_command::Command<Args = ()>,
+    C: command::Command<Args = ()>,
 {
     pub fn button() -> Self {
         Self::button_with_args(())
@@ -31,7 +31,7 @@ where
 
 impl<C> Binding<C>
 where
-    C: framework_command::Command,
+    C: command::Command,
 {
     pub fn button_with_args(args: C::Args) -> Self {
         Self::new(args, Placement::Button)
@@ -52,7 +52,7 @@ where
 
 impl<C> Widget for Binding<C>
 where
-    C: framework_command::Command,
+    C: command::Command,
     C::Args: Clone,
 {
     fn into_node(self) -> view::Node {

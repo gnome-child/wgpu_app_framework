@@ -6,15 +6,26 @@ use std::{
 use super::super::{
     context::Context,
     error::{Error, Result},
-    input, responder,
+    input, keymap, responder,
     response::{AnyResponse, Response},
     state,
 };
-use super::{Command, History, HistoryGroup, KeyChord, Spec, State};
+use super::{AnyTrigger, Command, History, HistoryGroup, KeyChord, Spec, State};
 #[derive(Default)]
 pub struct Registry {
     commands: HashMap<TypeId, AnyCommand>,
     shortcuts: HashMap<KeyChord, Vec<TypeId>>,
+    order: Vec<TypeId>,
+}
+
+#[derive(Clone)]
+pub(in crate::scratch) struct ResolvedCommand {
+    registration_index: usize,
+    command_type: TypeId,
+    command_name: &'static str,
+    trigger: AnyTrigger,
+    state: State,
+    claim: responder::Claim,
 }
 
 pub(in crate::scratch) struct AnyCommand {
@@ -50,6 +61,40 @@ impl AnyCommand {
     pub(in crate::scratch::command) fn shortcut(&self) -> Option<KeyChord> {
         self.accepts_shortcut_args().then_some(self.spec.shortcut?)
     }
+
+    fn unit_trigger(&self) -> AnyTrigger {
+        AnyTrigger::unit(self.command_type, self.command_name, self.history_group)
+    }
+}
+
+impl ResolvedCommand {
+    pub(in crate::scratch) fn registration_index(&self) -> usize {
+        self.registration_index
+    }
+
+    pub(in crate::scratch) fn command_type(&self) -> TypeId {
+        self.command_type
+    }
+
+    pub(in crate::scratch) fn command_name(&self) -> &'static str {
+        self.command_name
+    }
+
+    pub(in crate::scratch) fn trigger(&self) -> AnyTrigger {
+        self.trigger.clone()
+    }
+
+    pub(in crate::scratch) fn history_group(&self) -> Option<HistoryGroup> {
+        self.trigger.history_group()
+    }
+
+    pub(in crate::scratch) fn state(&self) -> &State {
+        &self.state
+    }
+
+    pub(in crate::scratch) fn claim(&self) -> &responder::Claim {
+        &self.claim
+    }
 }
 
 impl Registry {
@@ -60,6 +105,9 @@ impl Registry {
         let shortcut = spec.shortcut;
         let command_type = TypeId::of::<C>();
         self.remove_shortcuts_for(command_type);
+        if !self.order.contains(&command_type) {
+            self.order.push(command_type);
+        }
         self.commands.insert(
             command_type,
             AnyCommand {
@@ -118,6 +166,42 @@ impl Registry {
         state.with_command(command)
     }
 
+    pub(in crate::scratch) fn resolved_unit_commands(
+        &self,
+        chain: &mut responder::Chain<'_, impl state::State>,
+        cx: &Context,
+    ) -> Vec<ResolvedCommand> {
+        let args = ();
+        self.order
+            .iter()
+            .enumerate()
+            .filter_map(|(registration_index, command_type)| {
+                let command = self.commands.get(command_type)?;
+                if !command.accepts_shortcut_args() {
+                    return None;
+                }
+                let claim =
+                    match chain.claim_any(command.command_type, command.command_name, &args, cx) {
+                        Ok(Some(claim)) => claim,
+                        Ok(None) | Err(_) => return None,
+                    };
+                let state = claim.state().clone().with_command(command);
+                if !state.is_enabled() {
+                    return None;
+                }
+
+                Some(ResolvedCommand {
+                    registration_index,
+                    command_type: command.command_type,
+                    command_name: command.command_name,
+                    trigger: command.unit_trigger(),
+                    state,
+                    claim,
+                })
+            })
+            .collect()
+    }
+
     pub fn invoke<C: Command>(
         &self,
         chain: &mut responder::Chain<'_, impl state::State>,
@@ -157,15 +241,17 @@ impl Registry {
     pub(in crate::scratch) fn shortcut_command(
         &self,
         shortcut: KeyChord,
+        profile: keymap::Profile,
     ) -> Result<Option<&AnyCommand>> {
-        let Some(command_types) = self.shortcuts.get(&shortcut) else {
+        let command_types = self.command_types_matching_shortcut(shortcut, profile);
+        if command_types.is_empty() {
             return Ok(None);
-        };
+        }
 
         if command_types.len() > 1 {
             return Err(Error::AmbiguousShortcut {
                 shortcut: shortcut.as_str(),
-                commands: self.shortcut_command_names(command_types),
+                commands: self.shortcut_command_names(&command_types),
             });
         }
 
@@ -194,20 +280,55 @@ impl Registry {
         &self,
         key: input::Key,
         modifiers: input::Modifiers,
-    ) -> Option<KeyChord> {
-        self.shortcuts
-            .keys()
-            .find(|shortcut| shortcut.matches_key(key, modifiers))
-            .copied()
+        profile: keymap::Profile,
+    ) -> Result<Option<KeyChord>> {
+        let matching = self
+            .registered_shortcuts_in_order()
+            .filter(|shortcut| shortcut.matches_key(key, modifiers, profile))
+            .collect::<Vec<_>>();
+        if matching.is_empty() {
+            return Ok(None);
+        }
+
+        let mut command_types = Vec::new();
+        for shortcut in &matching {
+            if let Some(types) = self.shortcuts.get(shortcut) {
+                push_unique_command_types(&mut command_types, types);
+            }
+        }
+
+        let shortcut = matching[0];
+        if command_types.len() > 1 {
+            return Err(Error::AmbiguousShortcut {
+                shortcut: shortcut.as_str(),
+                commands: self.shortcut_command_names(&command_types),
+            });
+        }
+
+        let Some(command) = command_types
+            .first()
+            .and_then(|command_type| self.commands.get(command_type))
+        else {
+            return Ok(None);
+        };
+        if !command.accepts_shortcut_args() {
+            return Err(Error::ShortcutRequiresArgs {
+                shortcut: shortcut.as_str(),
+                command: command.command_name,
+            });
+        }
+
+        Ok(Some(shortcut))
     }
 
     pub(in crate::scratch) fn invoke_shortcut(
         &self,
         shortcut: KeyChord,
+        profile: keymap::Profile,
         chain: &mut responder::Chain<'_, impl state::State>,
         cx: &mut Context,
     ) -> Result<Option<AnyResponse>> {
-        let Some(command) = self.shortcut_command(shortcut)? else {
+        let Some(command) = self.shortcut_command(shortcut, profile)? else {
             return Ok(None);
         };
         let args = ();
@@ -267,8 +388,47 @@ impl Registry {
             .map(|command| command.command_name)
             .collect()
     }
+
+    fn command_types_matching_shortcut(
+        &self,
+        shortcut: KeyChord,
+        profile: keymap::Profile,
+    ) -> Vec<TypeId> {
+        let requested = profile.chords(shortcut);
+        let mut command_types = Vec::new();
+        for registered in self.registered_shortcuts_in_order() {
+            let Some(registered_command_types) = self.shortcuts.get(&registered) else {
+                continue;
+            };
+            let registered = profile.chords(registered);
+            if requested
+                .iter()
+                .any(|requested| registered.iter().any(|registered| requested == registered))
+            {
+                push_unique_command_types(&mut command_types, registered_command_types);
+            }
+        }
+
+        command_types
+    }
+
+    fn registered_shortcuts_in_order(&self) -> impl Iterator<Item = KeyChord> + '_ {
+        self.order.iter().filter_map(|command_type| {
+            self.commands
+                .get(command_type)
+                .and_then(|command| command.spec.shortcut)
+        })
+    }
 }
 
 fn history_group_for<C: Command>(args: &dyn Any) -> Option<HistoryGroup> {
     args.downcast_ref::<C::Args>().and_then(C::history_group)
+}
+
+fn push_unique_command_types(target: &mut Vec<TypeId>, source: &[TypeId]) {
+    for command_type in source {
+        if !target.contains(command_type) {
+            target.push(*command_type);
+        }
+    }
 }

@@ -1,9 +1,10 @@
 use super::{
     Clipboard, Command, Composition, Context, Diagnostics, Document as TextDocument, Error, Host,
     Input, Interaction, Layout, Platform, Response, Runtime, Scene, Session, Shell, State, Target,
-    Task, Theme, Timeline, View, clipboard, command, context, control_gallery, document, draft,
-    geometry, host, input, interaction, layout, platform, responder, response, runtime, scene,
-    session, shell, state, task, text_editor, timeline, view, widget, window,
+    Task, Theme, Timeline, View, clipboard, command, composition, context, control_gallery,
+    document, draft, geometry, glass_tuner, host, input, interaction, keymap, layout, platform,
+    responder, response, runtime, scene, session, shell, state, subject, task, text_editor,
+    timeline, view, widget, window,
 };
 use crate::text;
 use std::{cell::Cell, path::PathBuf, rc::Rc};
@@ -344,7 +345,7 @@ impl Target<Save> for SaveDocument {
     fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
         self.dirty = false;
         self.save_count += 1;
-        Response::changed(()).with_effect(response::Effect::Repaint)
+        Response::changed(()).with_effect(response::Effect::Rebuild)
     }
 }
 
@@ -366,7 +367,7 @@ impl Target<Save> for Project {
     fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
         self.dirty = false;
         self.save_count += 1;
-        Response::changed(()).with_effect(response::Effect::Repaint)
+        Response::changed(()).with_effect(response::Effect::Rebuild)
     }
 }
 
@@ -649,6 +650,7 @@ impl runtime::Persistence<EditorState> for EditorPersistence {
 }
 mod architecture;
 mod commands;
+mod composition_tests;
 mod document_editor;
 mod host_adapter_tests;
 mod host_shell_tests;

@@ -3,8 +3,8 @@ use super::super::{
     control::{Button, Checkbox, Control, Radio, Slider, TextArea, TextBox},
     style::Style,
 };
-use super::{Axis, Node, Role};
-use crate::scratch::{command as framework_command, context::Source, interaction};
+use super::{Axis, FloatingPlacement, Node, Role};
+use crate::scratch::{command, context::Source, interaction, subject};
 
 impl Node {
     pub fn root() -> Self {
@@ -25,21 +25,21 @@ impl Node {
 
     pub fn bound<C>() -> Self
     where
-        C: framework_command::Command<Args = ()>,
+        C: command::Command<Args = ()>,
     {
         Self::bound_with_args::<C>(())
     }
 
     pub fn menu_bound<C>() -> Self
     where
-        C: framework_command::Command<Args = ()>,
+        C: command::Command<Args = ()>,
     {
         Self::menu_bound_with_args::<C>(())
     }
 
     pub fn bound_with_args<C>(args: C::Args) -> Self
     where
-        C: framework_command::Command,
+        C: command::Command,
         C::Args: Clone,
     {
         Self::new(Role::Binding).with_binding(Binding::new::<C>(args, Source::Button))
@@ -47,7 +47,7 @@ impl Node {
 
     pub fn menu_bound_with_args<C>(args: C::Args) -> Self
     where
-        C: framework_command::Command,
+        C: command::Command,
         C::Args: Clone,
     {
         Self::new(Role::Binding).with_binding(Binding::new::<C>(args, Source::Menu))
@@ -121,12 +121,20 @@ impl Node {
         Self::new(Role::Panel)
     }
 
-    pub fn popup(id: impl Into<interaction::Id>) -> Self {
-        Self::new(Role::Popup).with_id(id)
+    pub fn scroll() -> Self {
+        Self::new(Role::Scroll).with_axis(Axis::Vertical)
+    }
+
+    pub fn floating_panel(id: impl Into<interaction::Id>) -> Self {
+        Self::new(Role::FloatingPanel).with_id(id)
     }
 
     pub fn label(label: impl Into<String>) -> Self {
         Self::new(Role::Label).with_label(label)
+    }
+
+    pub(in crate::scratch) fn section_header(label: impl Into<String>) -> Self {
+        Self::new(Role::SectionHeader).with_label(label)
     }
 
     pub fn child(mut self, child: Node) -> Self {
@@ -144,7 +152,9 @@ impl Node {
     }
 
     pub(in crate::scratch) fn with_layout_axis(mut self, axis: Axis) -> Self {
-        self.role = Role::Stack;
+        if self.role != Role::FloatingPanel && self.role != Role::Scroll {
+            self.role = Role::Stack;
+        }
         self.axis = Some(axis);
         self
     }
@@ -154,9 +164,22 @@ impl Node {
         self
     }
 
+    pub(in crate::scratch) fn with_floating_placement(
+        mut self,
+        placement: FloatingPlacement,
+    ) -> Self {
+        self.floating_placement = placement;
+        self
+    }
+
+    pub(in crate::scratch) fn with_subject(mut self, subject: subject::Segment) -> Self {
+        self.subject = Some(subject);
+        self
+    }
+
     pub(in crate::scratch) fn bind_command<C>(mut self, args: C::Args, source: Source) -> Self
     where
-        C: framework_command::Command,
+        C: command::Command,
         C::Args: Clone,
     {
         self.binding = Some(Binding::new::<C>(args, source));
@@ -165,10 +188,15 @@ impl Node {
 
     pub(in crate::scratch) fn bind_trigger(
         mut self,
-        trigger: framework_command::AnyTrigger,
+        trigger: command::AnyTrigger,
         source: Source,
     ) -> Self {
         self.binding = Some(Binding::from_trigger(trigger, source));
+        self
+    }
+
+    pub(in crate::scratch) fn with_selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
         self
     }
 
@@ -176,7 +204,7 @@ impl Node {
         mut self,
         value: f64,
         source: Source,
-        slider_trigger: framework_command::AnyValueTrigger<f64>,
+        slider_trigger: command::AnyValueTrigger<f64>,
     ) -> Self {
         self.binding = Some(Binding::slider(value, source, slider_trigger));
         self
@@ -186,7 +214,7 @@ impl Node {
         mut self,
         text: String,
         source: Source,
-        text_trigger: framework_command::AnyValueTrigger<String>,
+        text_trigger: command::AnyValueTrigger<String>,
     ) -> Self {
         self.binding = Some(Binding::text(text, source, text_trigger));
         self
@@ -208,6 +236,8 @@ impl Node {
             id: None,
             axis: None,
             style: Style::default(),
+            floating_placement: FloatingPlacement::Default,
+            subject: None,
             label: None,
             binding: None,
             control: None,
@@ -216,6 +246,8 @@ impl Node {
             hovered: false,
             pressed: false,
             active: false,
+            selected: false,
+            scroll_offset: interaction::ScrollOffset::default(),
             children: Vec::new(),
         }
     }

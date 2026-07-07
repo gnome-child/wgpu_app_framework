@@ -15,4 +15,8 @@ impl Path {
     pub fn indexes(&self) -> &[usize] {
         &self.0
     }
+
+    pub(in crate::scratch) fn is_descendant_of(&self, ancestor: &Self) -> bool {
+        self.0.len() > ancestor.0.len() && self.0.starts_with(&ancestor.0)
+    }
 }

@@ -5,6 +5,7 @@ pub use event::{Event, WindowEvent};
 pub use window::Window;
 
 use super::{Error, session, shell, state::State, window as app_window};
+use crate::animation;
 
 pub struct Host<M: State, E: Send + 'static = ()> {
     shell: shell::Shell<M, E>,
@@ -12,6 +13,7 @@ pub struct Host<M: State, E: Send + 'static = ()> {
     presentations: Vec<shell::Presentation>,
     requests: Vec<session::Request>,
     needs_poll: bool,
+    animation_schedule: animation::Schedule,
 }
 
 impl<M: State, E: Send + 'static> Host<M, E> {
@@ -22,6 +24,7 @@ impl<M: State, E: Send + 'static> Host<M, E> {
             presentations: Vec::new(),
             requests: Vec::new(),
             needs_poll: false,
+            animation_schedule: animation::Schedule::Idle,
         }
     }
 
@@ -143,5 +146,6 @@ impl<M: State, E: Send + 'static> Host<M, E> {
 
         self.requests = work.requests().to_vec();
         self.needs_poll = work.needs_poll();
+        self.animation_schedule = work.animation_schedule();
     }
 }

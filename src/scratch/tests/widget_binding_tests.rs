@@ -156,7 +156,7 @@ fn hidden_command_bound_widgets_are_pruned_after_resolution() {
         .present(window)
         .expect("window should still have a view");
 
-    assert_eq!(projected.popups().len(), 1);
+    assert_eq!(projected.floating_panels().len(), 1);
     assert!(projected.binding::<HiddenRecordSource>().is_none());
 }
 

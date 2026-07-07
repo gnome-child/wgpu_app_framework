@@ -17,6 +17,7 @@ pub struct TextArea {
     scroll: interaction::ScrollOffset,
     reveal: bool,
     preedit: Option<text::edit::Preedit>,
+    caret_epoch: Option<Instant>,
 }
 
 impl TextArea {
@@ -37,6 +38,7 @@ impl TextArea {
             scroll: interaction::ScrollOffset::default(),
             reveal: false,
             preedit: None,
+            caret_epoch: None,
         }
     }
 
@@ -70,15 +72,24 @@ impl TextArea {
     }
 
     pub fn view_state(&self) -> text::edit::ViewState {
-        let state = text::edit::ViewState::default()
+        self.view_state_at(Instant::now())
+    }
+
+    pub(in crate::scratch) fn view_state_at(&self, now: Instant) -> text::edit::ViewState {
+        let epoch = self.caret_epoch.unwrap_or(now);
+        let state = text::edit::ViewState::new_at(0.0, epoch)
             .with_scroll(self.scroll.x() as f32, self.scroll.y() as f32)
             .with_preedit(self.preedit.clone());
 
         if self.reveal {
-            state.ensure_caret_visible(Instant::now())
+            state.ensure_caret_visible(now)
         } else {
             state
         }
+    }
+
+    pub(in crate::scratch) fn caret_epoch(&self) -> Option<Instant> {
+        self.caret_epoch
     }
 
     pub fn wrap(&self) -> Wrap {
@@ -137,12 +148,14 @@ impl TextArea {
             self.scroll = interaction::ScrollOffset::default();
             self.reveal = false;
             self.preedit = None;
+            self.caret_epoch = None;
             return;
         };
 
         self.scroll = interaction.scroll().offset(target);
         self.reveal = interaction.scroll().should_reveal(target);
         self.preedit = interaction.text_input().preedit_for(target).cloned();
+        self.caret_epoch = interaction.text_input().caret_epoch_for(target);
     }
 
     pub(in crate::scratch::view) fn project_focus(&mut self, focus: Option<&session::Focus>) {
@@ -150,6 +163,7 @@ impl TextArea {
             .focus
             .as_ref()
             .is_some_and(|text_focus| focus.is_some_and(|focus| text_focus.same_target(focus)));
-        self.focus_visible = self.focused && focus.is_some_and(|focus| focus.is_visible());
+        self.focus_visible =
+            self.focused && focus.is_some_and(|focus| focus.shows_focus_indicator());
     }
 }

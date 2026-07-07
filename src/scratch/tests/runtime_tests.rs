@@ -448,7 +448,7 @@ fn timeline_commands_are_framework_registered_and_invoke_runtime_history() {
         app.state_for(&undo)
             .shortcut
             .map(|shortcut| shortcut.as_str()),
-        Some("Ctrl+Z")
+        Some("Standard::Undo")
     );
     assert!(!app.state_for(&redo).is_enabled());
 

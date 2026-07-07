@@ -7,7 +7,7 @@ pub use options::Options;
 use super::scene;
 
 pub const DEFAULT_TITLE: &str = "Window";
-pub const DEFAULT_CANVAS_COLOR: scene::Color = scene::Color::rgb(20, 22, 25);
+pub const DEFAULT_CANVAS_COLOR: scene::Color = scene::Color::rgb(17, 18, 20);
 
 pub(in crate::scratch) const DEFAULT_WIDTH: i32 = 800;
 pub(in crate::scratch) const DEFAULT_HEIGHT: i32 = 600;

@@ -1,4 +1,4 @@
-use crate::geometry::{Rect, point};
+use crate::geometry::{Rect, area, point};
 use crate::icon;
 use crate::text;
 use std::cell::RefCell;
@@ -66,8 +66,13 @@ impl Scene {
         self.items.push(Item::Outline(outline));
     }
 
-    pub fn push_backdrop(&mut self, backdrop: Backdrop) {
-        self.items.push(Item::Backdrop(backdrop));
+    pub fn push_filter(&mut self, filter: Filter) {
+        if filter.rect.area.width() > 0.0
+            && filter.rect.area.height() > 0.0
+            && !filter.ops.is_empty()
+        {
+            self.items.push(Item::Filter(filter));
+        }
     }
 
     pub fn push_layer(&mut self, layer: Layer) {
@@ -138,7 +143,7 @@ pub enum Item {
     Shadow(Shadow),
     Tint(Tint),
     Outline(Outline),
-    Backdrop(Backdrop),
+    Filter(Filter),
     Layer(Layer),
     Clip(Clip),
     PopClip,
@@ -149,6 +154,7 @@ impl Item {
         match self {
             Self::Quad(quad) => {
                 quad.rect = translate_rect(quad.rect, delta);
+                quad.transform = quad.transform.translated(delta);
                 true
             }
             Self::Text(text) => {
@@ -182,8 +188,8 @@ impl Item {
                 outline.rect = translate_rect(outline.rect, delta);
                 true
             }
-            Self::Backdrop(backdrop) => {
-                backdrop.rect = translate_rect(backdrop.rect, delta);
+            Self::Filter(filter) => {
+                filter.rect = translate_rect(filter.rect, delta);
                 true
             }
             Self::Layer(layer) => {
@@ -212,6 +218,15 @@ pub struct Quad {
     pub rect: Rect,
     pub style: Style,
     pub rasterization: Rasterization,
+    pub transform: Transform,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Transform {
+    pub origin: point::Logical,
+    pub translate: point::Logical,
+    pub scale_x: f32,
+    pub scale_y: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -358,10 +373,10 @@ pub struct Outline {
     pub offset: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Backdrop {
+#[derive(Debug, Clone, PartialEq)]
+pub struct Filter {
     pub rect: Rect,
-    pub filter: BackdropFilter,
+    pub ops: Vec<FilterOp>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -370,8 +385,280 @@ pub struct Clip {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum BackdropFilter {
-    Blur { amount: f32 },
+pub enum FilterOp {
+    Blur {
+        amount: f32,
+    },
+    BackdropBlur(BackdropBlur),
+    Liquid {
+        depth: f32,
+        splay: f32,
+        feather: f32,
+        curve: f32,
+    },
+    Refraction(Refraction),
+    Luminosity(Luminosity),
+    Noise(Noise),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BackdropBlur {
+    pub sigma: f32,
+    pub edge_mode: BackdropEdgeMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackdropEdgeMode {
+    Mirror,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LiquidFilter {
+    pub depth: f32,
+    pub splay: f32,
+    pub feather: f32,
+    pub curve: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Refraction {
+    pub displacement: f32,
+    pub splay: f32,
+    pub feather: f32,
+    pub curve: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Luminosity {
+    pub color: Color,
+    pub opacity: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Noise {
+    pub opacity: f32,
+}
+
+impl Filter {
+    pub fn blur(rect: Rect, amount: f32) -> Self {
+        Self::stack(rect, [FilterOp::blur(amount)])
+    }
+
+    pub fn liquid(rect: Rect, params: LiquidFilter) -> Self {
+        Self::stack(rect, [FilterOp::liquid(params)])
+    }
+
+    pub fn stack(rect: Rect, ops: impl IntoIterator<Item = FilterOp>) -> Self {
+        Self {
+            rect,
+            ops: ops.into_iter().map(FilterOp::clamped).collect(),
+        }
+    }
+}
+
+impl Transform {
+    pub fn identity() -> Self {
+        Self {
+            origin: point::logical(0.0, 0.0),
+            translate: point::logical(0.0, 0.0),
+            scale_x: 1.0,
+            scale_y: 1.0,
+        }
+    }
+
+    pub fn translate(delta: point::Logical) -> Self {
+        Self {
+            translate: delta,
+            ..Self::identity()
+        }
+    }
+
+    pub fn scale_about(origin: point::Logical, scale_x: f32, scale_y: f32) -> Self {
+        Self {
+            origin,
+            scale_x: sanitized_scale(scale_x),
+            scale_y: sanitized_scale(scale_y),
+            ..Self::identity()
+        }
+    }
+
+    pub fn scale_y_about(origin: point::Logical, scale_y: f32) -> Self {
+        Self::scale_about(origin, 1.0, scale_y)
+    }
+
+    pub fn is_identity(self) -> bool {
+        self.translate.x() == 0.0
+            && self.translate.y() == 0.0
+            && self.scale_x == 1.0
+            && self.scale_y == 1.0
+    }
+
+    pub fn transformed_rect(self, rect: Rect) -> Rect {
+        if self.is_identity() {
+            return rect;
+        }
+
+        let left = rect.origin.x();
+        let top = rect.origin.y();
+        let right = left + rect.area.width();
+        let bottom = top + rect.area.height();
+        let x0 = self.transform_x(left);
+        let x1 = self.transform_x(right);
+        let y0 = self.transform_y(top);
+        let y1 = self.transform_y(bottom);
+        let left = x0.min(x1);
+        let top = y0.min(y1);
+        let right = x0.max(x1);
+        let bottom = y0.max(y1);
+
+        Rect::rounded(
+            point::logical(left, top),
+            area::logical((right - left).max(0.0), (bottom - top).max(0.0)),
+            rect.rounding,
+        )
+    }
+
+    pub fn translated(self, delta: point::Logical) -> Self {
+        Self {
+            origin: point::logical(self.origin.x() + delta.x(), self.origin.y() + delta.y()),
+            ..self
+        }
+    }
+
+    fn transform_x(self, x: f32) -> f32 {
+        ((x - self.origin.x()) * self.scale_x) + self.origin.x() + self.translate.x()
+    }
+
+    fn transform_y(self, y: f32) -> f32 {
+        ((y - self.origin.y()) * self.scale_y) + self.origin.y() + self.translate.y()
+    }
+}
+
+impl Default for Transform {
+    fn default() -> Self {
+        Self::identity()
+    }
+}
+
+fn sanitized_scale(scale: f32) -> f32 {
+    if scale.is_finite() { scale } else { 1.0 }
+}
+
+impl FilterOp {
+    pub fn blur(amount: f32) -> Self {
+        Self::Blur {
+            amount: amount.clamp(0.0, 1.0),
+        }
+    }
+
+    pub fn backdrop_blur(params: BackdropBlur) -> Self {
+        Self::BackdropBlur(params.clamped())
+    }
+
+    pub fn liquid(params: LiquidFilter) -> Self {
+        Self::Liquid {
+            depth: params.depth.clamp(0.0, 1.0),
+            splay: params.splay.max(0.0),
+            feather: params.feather.max(0.0),
+            curve: params.curve.max(0.1),
+        }
+    }
+
+    pub fn refraction(params: Refraction) -> Self {
+        Self::Refraction(params.clamped())
+    }
+
+    pub fn luminosity(params: Luminosity) -> Self {
+        Self::Luminosity(params.clamped())
+    }
+
+    pub fn noise(params: Noise) -> Self {
+        Self::Noise(params.clamped())
+    }
+
+    pub fn clamped(self) -> Self {
+        match self {
+            Self::Blur { amount } => Self::blur(amount),
+            Self::BackdropBlur(params) => Self::backdrop_blur(params),
+            Self::Liquid {
+                depth,
+                splay,
+                feather,
+                curve,
+            } => Self::liquid(LiquidFilter {
+                depth,
+                splay,
+                feather,
+                curve,
+            }),
+            Self::Refraction(params) => Self::refraction(params),
+            Self::Luminosity(params) => Self::luminosity(params),
+            Self::Noise(params) => Self::noise(params),
+        }
+    }
+}
+
+impl BackdropBlur {
+    pub fn new(sigma: f32) -> Self {
+        Self {
+            sigma,
+            edge_mode: BackdropEdgeMode::Mirror,
+        }
+    }
+
+    pub fn clamped(self) -> Self {
+        Self {
+            sigma: self.sigma.max(0.0),
+            edge_mode: self.edge_mode,
+        }
+    }
+}
+
+impl Refraction {
+    const MAX_DISPLACEMENT: f32 = 4.0;
+
+    pub fn new(displacement: f32, splay: f32, feather: f32, curve: f32) -> Self {
+        Self {
+            displacement,
+            splay,
+            feather,
+            curve,
+        }
+    }
+
+    pub fn clamped(self) -> Self {
+        Self {
+            displacement: self.displacement.clamp(0.0, Self::MAX_DISPLACEMENT),
+            splay: self.splay.max(0.0),
+            feather: self.feather.max(0.0),
+            curve: self.curve.max(0.1),
+        }
+    }
+}
+
+impl Luminosity {
+    pub fn new(color: Color, opacity: f32) -> Self {
+        Self { color, opacity }
+    }
+
+    pub fn clamped(self) -> Self {
+        Self {
+            color: self.color,
+            opacity: self.opacity.clamp(0.0, 1.0),
+        }
+    }
+}
+
+impl Noise {
+    pub fn new(opacity: f32) -> Self {
+        Self { opacity }
+    }
+
+    pub fn clamped(self) -> Self {
+        Self {
+            opacity: self.opacity.clamp(0.0, 1.0),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -591,6 +878,7 @@ mod tests {
         Quad {
             rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
             rasterization: Rasterization::default(),
+            transform: Transform::identity(),
             style: Style {
                 fill: Some(Fill::Brush(Brush::solid(Color::RED))),
                 stroke: None,
@@ -609,7 +897,7 @@ mod tests {
             Item::Shadow(item) => Some(item.rect.origin),
             Item::Tint(item) => Some(item.rect.origin),
             Item::Outline(item) => Some(item.rect.origin),
-            Item::Backdrop(item) => Some(item.rect.origin),
+            Item::Filter(item) => Some(item.rect.origin),
             Item::Layer(item) => Some(item.rect.origin),
             Item::Clip(item) => Some(item.rect.origin),
             Item::PopClip => None,
@@ -662,10 +950,10 @@ mod tests {
             spread: 1.0,
             offset: point::logical(0.0, 4.0),
         };
-        let backdrop = Backdrop {
-            rect: Rect::new(point::logical(1.72, 0.0), area::logical(10.0, 10.0)),
-            filter: BackdropFilter::Blur { amount: 0.5 },
-        };
+        let filter = Filter::blur(
+            Rect::new(point::logical(1.72, 0.0), area::logical(10.0, 10.0)),
+            0.5,
+        );
         let clip = Clip {
             rect: Rect::new(point::logical(1.73, 0.0), area::logical(10.0, 10.0)),
         };
@@ -689,7 +977,7 @@ mod tests {
         scene.push_icon(icon);
         scene.push_text(text.clone());
         scene.push_shadow(shadow);
-        scene.push_backdrop(backdrop);
+        scene.push_filter(filter.clone());
         scene.push_clip(clip);
         scene.push_outline(outline);
         scene.pop_clip();
@@ -703,7 +991,7 @@ mod tests {
                 Item::Icon(icon),
                 Item::Text(text),
                 Item::Shadow(shadow),
-                Item::Backdrop(backdrop),
+                Item::Filter(filter),
                 Item::Clip(clip),
                 Item::Outline(outline),
                 Item::PopClip,
@@ -719,6 +1007,7 @@ mod tests {
         scene.push_quad(Quad {
             rect,
             rasterization: Rasterization::default(),
+            transform: Transform::identity(),
             style: Style {
                 fill: None,
                 stroke: None,
@@ -761,10 +1050,7 @@ mod tests {
             width: 1.0,
             offset: 0.0,
         });
-        scene.push_backdrop(Backdrop {
-            rect,
-            filter: BackdropFilter::Blur { amount: 1.0 },
-        });
+        scene.push_filter(Filter::blur(rect, 1.0));
         scene.push_clip(Clip { rect });
         scene.pop_clip();
 
@@ -798,33 +1084,101 @@ mod tests {
     }
 
     #[test]
-    fn backdrop_item_is_stored() {
+    fn filter_item_is_stored() {
         let mut scene = Scene::new();
-        let backdrop = Backdrop {
-            rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
-            filter: BackdropFilter::Blur { amount: 0.5 },
-        };
+        let filter = Filter::stack(
+            Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
+            [
+                FilterOp::Blur { amount: 0.5 },
+                FilterOp::Liquid {
+                    depth: 0.2,
+                    splay: 2.0,
+                    feather: 18.0,
+                    curve: 2.0,
+                },
+            ],
+        );
 
-        scene.push_backdrop(backdrop);
+        scene.push_filter(filter.clone());
 
-        assert_eq!(scene.items(), &[Item::Backdrop(backdrop)]);
+        assert_eq!(scene.items(), &[Item::Filter(filter)]);
     }
 
     #[test]
-    fn backdrop_preserves_rounded_rect_shape() {
+    fn filter_preserves_rounded_rect_shape() {
         let mut scene = Scene::new();
-        let backdrop = Backdrop {
-            rect: Rect::rounded(
+        let filter = Filter::blur(
+            Rect::rounded(
                 point::logical(0.0, 0.0),
                 area::logical(20.0, 10.0),
                 rect::Rounding::relative(1.0),
             ),
-            filter: BackdropFilter::Blur { amount: 0.5 },
+            0.5,
+        );
+
+        scene.push_filter(filter.clone());
+
+        assert_eq!(scene.items(), &[Item::Filter(filter)]);
+    }
+
+    #[test]
+    fn empty_and_zero_size_filters_are_skipped() {
+        let mut scene = Scene::new();
+        let rect = Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0));
+
+        scene.push_filter(Filter::stack(rect, []));
+        scene.push_filter(Filter::blur(
+            Rect::new(point::logical(0.0, 0.0), area::logical(0.0, 10.0)),
+            0.5,
+        ));
+
+        assert!(scene.items().is_empty());
+    }
+
+    #[test]
+    fn filter_ops_clamp_parameters() {
+        assert_eq!(FilterOp::blur(2.0), FilterOp::Blur { amount: 1.0 });
+        assert_eq!(
+            FilterOp::liquid(LiquidFilter {
+                depth: 2.0,
+                splay: -2.0,
+                feather: -4.0,
+                curve: 0.0,
+            }),
+            FilterOp::Liquid {
+                depth: 1.0,
+                splay: 0.0,
+                feather: 0.0,
+                curve: 0.1,
+            }
+        );
+    }
+
+    #[test]
+    fn transform_scales_rect_about_origin() {
+        let rect = Rect::new(point::logical(10.0, 20.0), area::logical(40.0, 10.0));
+        let transform = Transform::scale_y_about(point::logical(30.0, 25.0), 1.5);
+
+        assert_eq!(
+            transform.transformed_rect(rect),
+            Rect::new(point::logical(10.0, 17.5), area::logical(40.0, 15.0))
+        );
+    }
+
+    #[test]
+    fn translated_items_move_quad_transform_origin() {
+        let mut scene = Scene::new();
+        let mut quad = solid_quad(10.0);
+        quad.transform = Transform::scale_y_about(point::logical(15.0, 5.0), 1.5);
+
+        scene.push_quad(quad);
+        scene.translate_items(0..scene.items().len(), point::logical(3.0, 4.0));
+
+        let Item::Quad(translated) = scene.items()[0] else {
+            panic!("expected translated quad");
         };
-
-        scene.push_backdrop(backdrop);
-
-        assert_eq!(scene.items(), &[Item::Backdrop(backdrop)]);
+        assert_eq!(translated.rect.origin, point::logical(13.0, 4.0));
+        assert_eq!(translated.transform.origin, point::logical(18.0, 9.0));
     }
 
     #[test]

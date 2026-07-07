@@ -1,6 +1,7 @@
 use crate::text;
+use std::time::Instant;
 
-use super::super::{Runtime, services};
+use super::super::Runtime;
 use crate::scratch::{
     command, context as command_context, document, error::Error, input, interaction, response,
     session, state, window,
@@ -8,7 +9,6 @@ use crate::scratch::{
 
 mod field;
 mod focus;
-mod shortcut;
 mod transfer;
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
@@ -27,7 +27,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 
         if text.is_empty() {
             return if self.session.clear_text_input(window) {
-                Ok(self.window_outcome(window, false, response::Effect::Repaint))
+                Ok(self.window_outcome(window, false, response::Effect::Layout))
             } else {
                 Ok(input::Outcome::ignored())
             };
@@ -77,12 +77,20 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .output_ref()
             .is_some_and(|outcome| outcome.buffer_changed());
         let mut effect = response.effect.clone();
-        if reveal && self.session.reveal_scroll(window, reveal_target) {
-            effect = effect.then(response::Effect::Repaint);
+        if reveal && self.session.reveal_scroll(window, reveal_target.clone()) {
+            effect = effect.then(response::Effect::Layout);
+        }
+        if response.output.is_ok()
+            && self
+                .session
+                .reset_text_caret_blink(window, reveal_target, Instant::now())
+            && !changed
+        {
+            effect = effect.then(response::Effect::Layout);
         }
         if cleared_preedit {
-            effect = effect.then(response::Effect::Repaint);
-            self.apply_window_update(window, false, &response::Effect::Repaint);
+            effect = effect.then(response::Effect::Layout);
+            self.apply_window_update(window, false, &response::Effect::Layout);
         }
 
         response
@@ -95,29 +103,18 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         window: window::Id,
         shortcut: command::KeyChord,
     ) -> std::result::Result<input::Outcome, Error> {
-        if let Some(text_box_outcome) =
-            self.handle_text_box_shortcut_for_chord(window, shortcut.as_str())?
-        {
+        if let Some(text_box_outcome) = self.handle_text_box_shortcut_for_chord(window, shortcut)? {
             return Ok(text_box_outcome);
         }
 
-        let Some(command) = self.registry.shortcut_command(shortcut)? else {
+        let Some(command) = self.registry.shortcut_command(shortcut, self.keymap)? else {
             return Ok(input::Outcome::ignored());
         };
         let command_type = command.command_type();
         let command_name = command.command_name();
         let history_group = command.history_group(&());
-        let text_box_command = services::text::has_target(
-            &self.session,
-            &self.composition,
-            Some(window),
-            command_type,
-        );
-        let text_box_commit = if text_box_command {
-            None
-        } else {
-            self.commit_and_deactivate_focused_text_box(window)?
-        };
+        let focused_text = self.prepare_focused_text_for_command(window, command_type)?;
+        let keymap = self.keymap;
 
         let source = command_context::Source::Shortcut;
         let Some(transaction) = self.transact_any_command(
@@ -127,11 +124,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             command_name,
             history_group,
             source,
-            |registry, chain, cx| registry.invoke_shortcut(shortcut, chain, cx),
+            |registry, chain, cx| registry.invoke_shortcut(shortcut, keymap, chain, cx),
         )?
         else {
-            return Ok(text_box_commit.unwrap_or_else(|| {
-                if text_box_command {
+            let owned_by_text = focused_text.is_owned_by_text();
+
+            return Ok(focused_text.into_committed().unwrap_or_else(|| {
+                if owned_by_text {
                     self.window_outcome(window, false, response::Effect::None)
                 } else {
                     input::Outcome::ignored()
@@ -139,12 +138,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             }));
         };
 
-        let changed = text_box_commit
-            .as_ref()
+        let changed = focused_text
+            .committed()
             .is_some_and(input::Outcome::changed_state)
             || transaction.changed_state;
-        let effect = text_box_commit
-            .as_ref()
+        let effect = focused_text
+            .committed()
             .map(|outcome| outcome.effect().clone())
             .unwrap_or(response::Effect::None)
             .then(transaction.effect);

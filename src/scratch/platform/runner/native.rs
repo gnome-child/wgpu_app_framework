@@ -1,10 +1,13 @@
+use std::time::Instant;
+
 use winit::{
     event::WindowEvent as WinitWindowEvent,
-    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    event_loop::{ActiveEventLoop, EventLoop},
 };
 
 use super::super::{Error, Native, NativeError, Platform, RunError};
 use super::Runner;
+use crate::animation;
 use crate::scratch::{host, shell, state::State};
 
 impl<M: State, E: Send + 'static> Runner<M, E, Native> {
@@ -85,11 +88,12 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
             return;
         }
 
-        let control_flow = if self.platform.backend().poll_requested() {
-            ControlFlow::Poll
+        let schedule = if self.platform.backend().poll_requested() {
+            animation::Schedule::NextFrame
         } else {
-            ControlFlow::Wait
+            self.platform.animation_schedule()
         };
+        let control_flow = schedule.control_flow(Instant::now());
         event_loop.set_control_flow(control_flow);
     }
 

@@ -2,7 +2,7 @@ use crate::paint;
 
 pub enum ItemBatch<'a> {
     Shapes(Vec<Shape<'a>>),
-    Backdrop(&'a paint::Backdrop),
+    Filter(&'a paint::Filter),
     Layer(&'a paint::Layer),
     Glyphs(Vec<Glyph<'a>>),
     PushClip(&'a paint::Clip),
@@ -37,7 +37,7 @@ pub fn item_batches(items: &[paint::Item]) -> Vec<ItemBatch<'_>> {
             paint::Item::Shadow(shadow) => push_shape(&mut batches, Shape::Shadow(shadow)),
             paint::Item::Tint(tint) => push_shape(&mut batches, Shape::Tint(tint)),
             paint::Item::Outline(outline) => push_shape(&mut batches, Shape::Outline(outline)),
-            paint::Item::Backdrop(backdrop) => batches.push(ItemBatch::Backdrop(backdrop)),
+            paint::Item::Filter(filter) => batches.push(ItemBatch::Filter(filter)),
             paint::Item::Layer(layer) => batches.push(ItemBatch::Layer(layer)),
             paint::Item::Clip(clip) => batches.push(ItemBatch::PushClip(clip)),
             paint::Item::PopClip => batches.push(ItemBatch::PopClip),
@@ -71,7 +71,7 @@ mod tests {
     #[derive(Debug, PartialEq, Eq)]
     enum Kind {
         Shapes(usize),
-        Backdrop,
+        Filter,
         Layer,
         Glyphs(usize),
         PushClip,
@@ -82,6 +82,7 @@ mod tests {
         paint::Quad {
             rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
             rasterization: paint::Rasterization::default(),
+            transform: paint::Transform::identity(),
             style: paint::Style {
                 fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::RED))),
                 stroke: None,
@@ -130,7 +131,7 @@ mod tests {
             .iter()
             .map(|batch| match batch {
                 ItemBatch::Shapes(shapes) => Kind::Shapes(shapes.len()),
-                ItemBatch::Backdrop(_) => Kind::Backdrop,
+                ItemBatch::Filter(_) => Kind::Filter,
                 ItemBatch::Layer(_) => Kind::Layer,
                 ItemBatch::Glyphs(glyphs) => Kind::Glyphs(glyphs.len()),
                 ItemBatch::PushClip(_) => Kind::PushClip,
@@ -168,23 +169,23 @@ mod tests {
     }
 
     #[test]
-    fn backdrop_batches_as_own_ordered_operation() {
-        let items = vec![paint::Item::Backdrop(paint::Backdrop {
-            rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
-            filter: paint::BackdropFilter::Blur { amount: 0.5 },
-        })];
+    fn filter_batches_as_own_ordered_operation() {
+        let items = vec![paint::Item::Filter(paint::Filter::blur(
+            Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
+            0.5,
+        ))];
 
-        assert_eq!(kinds(&item_batches(&items)), vec![Kind::Backdrop]);
+        assert_eq!(kinds(&item_batches(&items)), vec![Kind::Filter]);
     }
 
     #[test]
-    fn backdrop_splits_shape_batches_to_preserve_order() {
+    fn filter_splits_shape_batches_to_preserve_order() {
         let items = vec![
             paint::Item::Quad(solid_quad(0.0)),
-            paint::Item::Backdrop(paint::Backdrop {
-                rect: Rect::new(point::logical(1.0, 0.0), area::logical(10.0, 10.0)),
-                filter: paint::BackdropFilter::Blur { amount: 0.5 },
-            }),
+            paint::Item::Filter(paint::Filter::blur(
+                Rect::new(point::logical(1.0, 0.0), area::logical(10.0, 10.0)),
+                0.5,
+            )),
             paint::Item::Quad(solid_quad(2.0)),
             paint::Item::Text(label(3.0)),
         ];
@@ -193,7 +194,7 @@ mod tests {
             kinds(&item_batches(&items)),
             vec![
                 Kind::Shapes(1),
-                Kind::Backdrop,
+                Kind::Filter,
                 Kind::Shapes(1),
                 Kind::Glyphs(1)
             ]

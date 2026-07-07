@@ -1,11 +1,15 @@
+use super::super::scene;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Style {
     width: Option<Dimension>,
     height: Option<Dimension>,
-    gap: i32,
+    max_height: Option<i32>,
+    gap: Option<i32>,
     padding: Padding,
     align_items: Align,
     justify_content: Align,
+    background: Option<scene::Brush>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -47,8 +51,13 @@ impl Style {
         self
     }
 
+    pub fn with_max_height(mut self, height: i32) -> Self {
+        self.max_height = Some(height.max(0));
+        self
+    }
+
     pub fn with_gap(mut self, gap: i32) -> Self {
-        self.gap = gap.max(0);
+        self.gap = Some(gap.max(0));
         self
     }
 
@@ -67,6 +76,11 @@ impl Style {
         self
     }
 
+    pub fn with_background(mut self, background: scene::Brush) -> Self {
+        self.background = Some(background);
+        self
+    }
+
     pub fn width(&self) -> Option<Dimension> {
         self.width
     }
@@ -75,7 +89,15 @@ impl Style {
         self.height
     }
 
+    pub fn max_height(&self) -> Option<i32> {
+        self.max_height
+    }
+
     pub fn gap(&self) -> i32 {
+        self.gap.unwrap_or_default()
+    }
+
+    pub fn gap_override(&self) -> Option<i32> {
         self.gap
     }
 
@@ -90,6 +112,10 @@ impl Style {
     pub fn justify_content(&self) -> Align {
         self.justify_content
     }
+
+    pub fn background(&self) -> Option<scene::Brush> {
+        self.background
+    }
 }
 
 impl Default for Style {
@@ -97,10 +123,12 @@ impl Default for Style {
         Self {
             width: None,
             height: None,
-            gap: 0,
+            max_height: None,
+            gap: None,
             padding: Padding::zero(),
             align_items: Align::Stretch,
             justify_content: Align::Start,
+            background: None,
         }
     }
 }

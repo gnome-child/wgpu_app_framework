@@ -1,4 +1,5 @@
 use crate::scratch::{state::State, window as app_window};
+use std::time::Instant;
 
 use super::{Shell, Work, window};
 
@@ -22,6 +23,8 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
     }
 
     pub fn step(&mut self) -> Work {
+        self.runtime.invalidate_due_animation_frames(Instant::now());
+
         if self.runtime.pending_task_completions() > 0 {
             self.runtime.dispatch_next_task_completion();
         } else if self.runtime.pending_tasks() > 0 {

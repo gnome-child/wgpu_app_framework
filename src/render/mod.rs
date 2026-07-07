@@ -6,15 +6,16 @@ pub use frame::Frame;
 pub use renderer::Renderer;
 pub use surface::Surface;
 
-mod backdrop;
 mod batch;
 pub mod canvas;
 pub mod context;
+mod filter;
 pub mod frame;
 pub mod primitive;
 mod quad;
 pub mod renderer;
 mod retained;
+mod silhouette;
 pub mod surface;
 mod text_renderer;
 

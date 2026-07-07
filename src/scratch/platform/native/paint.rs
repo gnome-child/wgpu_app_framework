@@ -15,9 +15,9 @@ pub(in crate::scratch::platform::native) fn to_paint_scene(source: &scene::Scene
             }
             scene::Primitive::Icon(icon) => scene.push_icon(to_paint_icon(icon)),
             scene::Primitive::Shadow(shadow) => scene.push_shadow(to_paint_shadow(shadow)),
-            scene::Primitive::Backdrop(backdrop) => {
-                scene.push_backdrop(to_paint_backdrop(backdrop))
-            }
+            scene::Primitive::Filter(filter) => scene.push_filter(to_paint_filter(filter)),
+            scene::Primitive::Clip(clip) => scene.push_clip(to_paint_clip(clip)),
+            scene::Primitive::PopClip => scene.pop_clip(),
             scene::Primitive::Outline(outline) => scene.push_outline(to_paint_outline(outline)),
         }
     }
@@ -30,6 +30,7 @@ fn to_paint_quad(quad: &scene::Quad) -> paint::Quad {
         rect: into_paint_rounded_rect(quad.rect(), quad.rounding()),
         style: to_paint_style(quad.style()),
         rasterization: to_paint_rasterization(quad.rasterization()),
+        transform: to_paint_transform(quad.transform()),
     }
 }
 
@@ -37,7 +38,10 @@ fn to_paint_text(text: &scene::Text) -> paint::Text {
     let mut block = text::document::Block::new(into_text_align(text.align()));
     block.push_run(text::document::Run::new(
         text.value().to_owned(),
-        text::document::Style::default().with_color(super::color::text_color(text.color())),
+        text::document::Style::default()
+            .with_size(text.style().size())
+            .with_weight(text.style().weight())
+            .with_color(super::color::text_color(text.color())),
     ));
 
     paint::Text {
@@ -84,12 +88,58 @@ fn to_paint_shadow(shadow: &scene::Shadow) -> paint::Shadow {
     }
 }
 
-fn to_paint_backdrop(backdrop: &scene::Backdrop) -> paint::Backdrop {
-    paint::Backdrop {
-        rect: into_paint_rounded_rect(backdrop.rect(), backdrop.rounding()),
-        filter: paint::BackdropFilter::Blur {
-            amount: backdrop.blur(),
-        },
+fn to_paint_filter(filter: &scene::Filter) -> paint::Filter {
+    paint::Filter::stack(
+        into_paint_rounded_rect(filter.rect(), filter.rounding()),
+        filter.ops().iter().copied().map(to_paint_filter_op),
+    )
+}
+
+fn to_paint_filter_op(op: scene::FilterOp) -> paint::FilterOp {
+    match op {
+        scene::FilterOp::Blur { amount } => paint::FilterOp::blur(amount),
+        scene::FilterOp::BackdropBlur(blur) => {
+            paint::FilterOp::backdrop_blur(paint::BackdropBlur {
+                sigma: blur.sigma(),
+                edge_mode: to_paint_backdrop_edge_mode(blur.edge_mode()),
+            })
+        }
+        scene::FilterOp::Liquid {
+            depth,
+            splay,
+            feather,
+            curve,
+        } => paint::FilterOp::liquid(paint::LiquidFilter {
+            depth,
+            splay,
+            feather,
+            curve,
+        }),
+        scene::FilterOp::Refraction(refraction) => paint::FilterOp::refraction(paint::Refraction {
+            displacement: refraction.displacement(),
+            splay: refraction.splay(),
+            feather: refraction.feather(),
+            curve: refraction.curve(),
+        }),
+        scene::FilterOp::Luminosity(luminosity) => paint::FilterOp::luminosity(paint::Luminosity {
+            color: super::color::paint_color(luminosity.color()),
+            opacity: luminosity.opacity(),
+        }),
+        scene::FilterOp::Noise(noise) => paint::FilterOp::noise(paint::Noise {
+            opacity: noise.opacity(),
+        }),
+    }
+}
+
+fn to_paint_backdrop_edge_mode(edge_mode: scene::BackdropEdgeMode) -> paint::BackdropEdgeMode {
+    match edge_mode {
+        scene::BackdropEdgeMode::Mirror => paint::BackdropEdgeMode::Mirror,
+    }
+}
+
+fn to_paint_clip(clip: &scene::Clip) -> paint::Clip {
+    paint::Clip {
+        rect: into_paint_rounded_rect(clip.rect(), clip.rounding()),
     }
 }
 
@@ -169,6 +219,15 @@ fn to_paint_rasterization(rasterization: scene::Rasterization) -> paint::Rasteri
     }
 }
 
+fn to_paint_transform(transform: scene::Transform) -> paint::Transform {
+    paint::Transform {
+        origin: paint_geometry::point::logical(transform.origin_x(), transform.origin_y()),
+        translate: paint_geometry::point::logical(transform.translate_x(), transform.translate_y()),
+        scale_x: transform.scale_x(),
+        scale_y: transform.scale_y(),
+    }
+}
+
 fn to_paint_snapping(snapping: scene::Snapping) -> paint::Snapping {
     match snapping {
         scene::Snapping::Disabled => paint::Snapping::Disabled,
@@ -226,7 +285,7 @@ mod tests {
             .surfaces
             .first()
             .expect("text box viewport should contain a surface");
-        let expected = super::super::color::paint_color(scene::Color::rgb(26, 29, 33));
+        let expected = super::super::color::paint_color(scene::Color::rgb(245, 245, 247));
 
         assert_eq!(surface.default_color, expected);
         assert_eq!(
@@ -241,10 +300,11 @@ mod tests {
     }
 
     #[test]
-    fn popup_backdrop_and_gradient_material_convert_to_native_paint() {
+    fn popup_material_layers_convert_to_native_paint() {
         let theme = Theme::dark();
         let view = view::View::new(
-            view::Node::root().child(view::Node::popup("popup").child(view::Node::label("Row"))),
+            view::Node::root()
+                .child(view::Node::floating_panel("panel").child(view::Node::label("Row"))),
         );
         let mut engine = layout::engine::Engine::new();
         let layout = layout::Layout::compose_with_theme(
@@ -255,19 +315,39 @@ mod tests {
         );
         let source_scene = scene::Scene::paint_with_theme(&layout, &theme);
         let paint = to_paint_scene(&source_scene);
-        let backdrop = paint
+        let filters: Vec<_> = paint
             .items()
             .iter()
-            .find_map(|item| match item {
-                paint::Item::Backdrop(backdrop) => Some(backdrop),
+            .filter_map(|item| match item {
+                paint::Item::Filter(filter) => Some(filter),
                 _ => None,
             })
-            .expect("popup should convert to native backdrop");
-        let paint::BackdropFilter::Blur { amount } = backdrop.filter;
-
-        assert_eq!(amount, theme.floating_panel().backdrop_blur);
+            .collect();
+        let blur_filter = filters
+            .iter()
+            .copied()
+            .find(|filter| {
+                matches!(
+                    filter.ops.as_slice(),
+                    [paint::FilterOp::BackdropBlur(blur)] if blur.sigma == 44.55
+                )
+            })
+            .expect("popup should convert to native blur filter");
+        assert!(filters.iter().any(|filter| {
+            matches!(
+                filter.ops.as_slice(),
+                [paint::FilterOp::Luminosity(luminosity)]
+                    if luminosity.opacity == 0.92
+            )
+        }));
+        assert!(filters.iter().any(|filter| {
+            matches!(
+                filter.ops.as_slice(),
+                [paint::FilterOp::Noise(noise)] if noise.opacity == 0.022
+            )
+        }));
         assert_eq!(
-            backdrop.rect.rounding,
+            blur_filter.rect.rounding,
             paint_geometry::rect::Rounding::fixed(10.0)
         );
 
@@ -275,18 +355,77 @@ mod tests {
             .items()
             .iter()
             .find_map(|item| match item {
-                paint::Item::Quad(quad) if quad.rect == backdrop.rect => Some(quad),
+                paint::Item::Quad(quad) if quad.rect == blur_filter.rect => Some(quad),
                 _ => None,
             })
             .expect("popup material should convert to native quad");
 
         assert_eq!(
             material.style.fill,
-            Some(paint::Fill::Brush(paint::Brush::linear_gradient(
-                super::super::color::paint_color(scene::Color::rgba(28, 28, 30, 87)),
-                super::super::color::paint_color(scene::Color::rgba(44, 44, 46, 117)),
+            Some(paint::Fill::Brush(paint::Brush::solid(
+                super::super::color::paint_color(scene::Color::rgba(28, 28, 30, 224)),
             )))
         );
+    }
+
+    #[test]
+    fn rounded_clip_converts_to_native_paint_clip() {
+        let rect = geometry::Rect::new(4, 8, 80, 32);
+        let clip = scene::Clip::new(rect).with_rounding(scene::Rounding::fixed(10.0));
+        let paint = to_paint_clip(&clip);
+
+        assert_eq!(
+            paint.rect,
+            into_paint_rounded_rect(rect, scene::Rounding::fixed(10.0))
+        );
+    }
+
+    #[test]
+    fn scroll_viewport_clip_converts_to_native_paint_clip_stack() {
+        let view = widget::view(|ui| {
+            ui.column(|ui| {
+                ui.add(
+                    widget::Scroll::new()
+                        .id("scroll.native")
+                        .height(view::style::Dimension::fixed(56))
+                        .children(|ui| {
+                            for index in 0..6 {
+                                ui.label(format!("Row {index}"));
+                            }
+                        }),
+                );
+            });
+        });
+        let mut engine = layout::engine::Engine::new();
+        let layout = layout::Layout::compose(&view, geometry::Size::new(200, 120), &mut engine);
+        let source_scene = scene::Scene::paint_with_theme(&layout, &Theme::dark());
+        let paint = to_paint_scene(&source_scene);
+
+        assert!(
+            paint
+                .items()
+                .iter()
+                .any(|item| matches!(item, paint::Item::Clip(_))),
+            "scroll children should convert to native clip pushes"
+        );
+        assert!(
+            paint
+                .items()
+                .iter()
+                .any(|item| matches!(item, paint::Item::PopClip)),
+            "scroll children should convert to native clip pops"
+        );
+    }
+
+    #[test]
+    fn transform_converts_to_native_paint_space() {
+        let transform = scene::Transform::scale_about(12.0, 18.0, 1.25, 1.5);
+        let paint = to_paint_transform(transform);
+
+        assert_eq!(paint.origin, paint_geometry::point::logical(12.0, 18.0));
+        assert_eq!(paint.translate, paint_geometry::point::logical(0.0, 0.0));
+        assert_eq!(paint.scale_x, 1.25);
+        assert_eq!(paint.scale_y, 1.5);
     }
 
     #[test]

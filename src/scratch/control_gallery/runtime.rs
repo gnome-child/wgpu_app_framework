@@ -1,4 +1,4 @@
-use super::super::{Runtime as FrameworkRuntime, Shell, View, command, document, platform, window};
+use super::super::{Runtime, Shell, View, command, document, platform, window};
 use super::{
     State,
     command::{
@@ -9,25 +9,35 @@ use super::{
     view::{CANVAS_COLOR, WINDOW_TITLE, window_size},
 };
 
-pub fn app(state: State) -> FrameworkRuntime<State, (), View> {
-    FrameworkRuntime::new(state)
+pub fn app(state: State) -> Runtime<State, (), View> {
+    Runtime::new(state)
         .commands(|commands| {
             commands
-                .register::<IncrementClicks>(command::Spec::new("Click").shortcut("Ctrl+K"))
+                .register::<IncrementClicks>(command::Spec::new("Click").shortcut("Primary+K"))
                 .register::<ToggleWrap>(command::Spec::new("Wrap text"))
                 .register::<ToggleGrid>(command::Spec::new("Show grid"))
                 .register::<SelectMode>(command::Spec::new("Select mode"))
                 .register::<SetLevel>(command::Spec::new("Set level"))
                 .register::<SubmitQuery>(command::Spec::new("Submit query"))
                 .register::<ToggleAdvanced>(command::Spec::new("Advanced"))
-                .register::<document::Cut>(command::Spec::new("Cut").shortcut("Ctrl+X"))
-                .register::<document::Copy>(command::Spec::new("Copy").shortcut("Ctrl+C"))
-                .register::<document::Paste>(command::Spec::new("Paste").shortcut("Ctrl+V"))
+                .register::<document::Cut>(
+                    command::Spec::new("Cut")
+                        .key_chord(command::KeyChord::standard(command::Standard::Cut)),
+                )
+                .register::<document::Copy>(
+                    command::Spec::new("Copy")
+                        .key_chord(command::KeyChord::standard(command::Standard::Copy)),
+                )
+                .register::<document::Paste>(
+                    command::Spec::new("Paste")
+                        .key_chord(command::KeyChord::standard(command::Standard::Paste)),
+                )
                 .register::<document::Delete>(command::Spec::new("Delete"))
                 .register::<document::SelectAll>(
-                    command::Spec::new("Select All").shortcut("Ctrl+A"),
+                    command::Spec::new("Select All")
+                        .key_chord(command::KeyChord::standard(command::Standard::SelectAll)),
                 )
-                .register::<ResetControls>(command::Spec::new("Reset").shortcut("Ctrl+R"));
+                .register::<ResetControls>(command::Spec::new("Reset").shortcut("Primary+R"));
         })
         .responders(|responders| {
             responders

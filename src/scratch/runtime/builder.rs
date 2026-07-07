@@ -1,7 +1,7 @@
 use super::super::{
     clipboard::Clipboard,
     command::{self, Command},
-    responder, state, task, view,
+    keymap, responder, state, task, theme, view,
 };
 use super::{Context, Retention, Runtime};
 
@@ -20,6 +20,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 
     pub fn commands(mut self, configure: impl FnOnce(&mut command::Registry)) -> Self {
         configure(&mut self.registry);
+        self
+    }
+
+    pub fn keymap(mut self, profile: keymap::Profile) -> Self {
+        self.keymap = profile;
         self
     }
 
@@ -44,6 +49,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         self
     }
 
+    pub fn theme(mut self, callback: impl Fn(&M) -> theme::Theme + 'static) -> Self {
+        self.theme = Some(Box::new(callback));
+        self
+    }
+
     pub fn event<E2: Send + 'static>(
         self,
         callback: impl for<'a> FnMut(&mut Context<'a, M>, E2) + 'static,
@@ -58,14 +68,20 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             clipboard: self.clipboard,
             tasks: task::Queue::default(),
             registry: self.registry,
+            keymap: self.keymap,
             observers: self.observers,
             responders: self.responders,
             gesture: self.gesture,
             history_group: self.history_group,
             started: self.started,
             event: Some(Box::new(callback)),
+            theme: self.theme,
             view: self.view,
             started_ran: self.started_ran,
+            frame_times: self.frame_times,
+            animation_schedules: self.animation_schedules,
+            visual_animations: self.visual_animations,
+            layout_cache: self.layout_cache,
         }
     }
 
@@ -83,14 +99,20 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             clipboard: self.clipboard,
             tasks: self.tasks,
             registry: self.registry,
+            keymap: self.keymap,
             observers: self.observers,
             responders: self.responders,
             gesture: self.gesture,
             history_group: self.history_group,
             started: self.started,
             event: self.event,
+            theme: self.theme,
             view: Some(Box::new(callback)),
             started_ran: self.started_ran,
+            frame_times: self.frame_times,
+            animation_schedules: self.animation_schedules,
+            visual_animations: self.visual_animations,
+            layout_cache: self.layout_cache,
         }
     }
 }

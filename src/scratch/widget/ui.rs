@@ -1,8 +1,8 @@
 use crate::scratch::{interaction, view};
 
 use super::{
-    Button, Checkbox, Element, Label, Menu, MenuBar, Radio, Separator, Slider, TextArea, TextBox,
-    Widget,
+    Button, Checkbox, Element, Label, Menu, MenuBar, Radio, Scroll, Separator, Slider, TextArea,
+    TextBox, Widget,
 };
 
 pub struct Ui {
@@ -29,6 +29,14 @@ impl Ui {
 
     pub fn column(&mut self, children: impl FnOnce(&mut Ui)) -> &mut Self {
         self.add(Element::new().column().children(children))
+    }
+
+    pub fn overlay(&mut self, children: impl FnOnce(&mut Ui)) -> &mut Self {
+        self.add(Element::new().overlay().children(children))
+    }
+
+    pub fn scroll(&mut self, children: impl FnOnce(&mut Ui)) -> &mut Self {
+        self.add(Scroll::new().children(children))
     }
 
     pub fn menu_bar(&mut self, children: impl FnOnce(&mut Ui)) -> &mut Self {

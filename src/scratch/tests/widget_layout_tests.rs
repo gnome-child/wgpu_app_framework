@@ -119,17 +119,176 @@ fn widget_element_style_affects_row_layout_frames() {
     assert_eq!(panels.len(), 2);
     assert_eq!(buttons.len(), 1);
     assert_eq!(panels[0].rect().x(), 5);
-    assert_eq!(panels[0].rect().y(), 26);
     assert_eq!(panels[0].rect().width(), 50);
     assert_eq!(panels[1].rect().x(), 65);
-    assert_eq!(panels[1].rect().y(), 26);
     assert!(panels[1].rect().width() > 100);
     assert_eq!(
         buttons[0].rect().x(),
         panels[1].rect().x() + panels[1].rect().width() + 10
     );
-    assert_eq!(buttons[0].rect().y(), 26);
-    assert_eq!(buttons[0].rect().height(), 28);
+    assert_eq!(
+        buttons[0].rect().height(),
+        Theme::default().control().height
+    );
+    let content_y = 2;
+    let content_height = 80 - 4;
+    assert_eq!(
+        panels[0].rect().y(),
+        content_y + (content_height - panels[0].rect().height()) / 2
+    );
+    assert_eq!(
+        panels[1].rect().y(),
+        content_y + (content_height - panels[1].rect().height()) / 2
+    );
+    assert_eq!(
+        buttons[0].rect().y(),
+        content_y + (content_height - buttons[0].rect().height()) / 2
+    );
+}
+
+#[test]
+fn row_layout_fits_children_unless_width_grows() {
+    let view = widget::view(|ui| {
+        ui.add(
+            widget::Element::new()
+                .row()
+                .layout(|layout| layout.gap(6))
+                .children(|ui| {
+                    ui.button(widget::Button::new("Tiny"));
+                    ui.button(widget::Button::new("Much wider"));
+                }),
+        );
+    });
+
+    let mut layout_engine = layout::engine::Engine::new();
+    let layout = layout::Layout::compose(&view, geometry::Size::new(300, 80), &mut layout_engine);
+    let buttons = layout.find_role(view::node::Role::Button);
+
+    assert_eq!(buttons.len(), 2);
+    assert!(buttons[0].rect().width() < buttons[1].rect().width());
+    assert_eq!(buttons[1].rect().x(), buttons[0].rect().right() + 6);
+    assert!(buttons[1].rect().right() < 300);
+}
+
+#[test]
+fn fit_height_text_uses_height_for_allocated_width() {
+    let text = "Alpha beta gamma delta epsilon zeta eta theta";
+    let view = widget::view(|ui| {
+        ui.add(
+            widget::Element::new()
+                .row()
+                .layout(|layout| layout.align_items(view::style::Align::Start))
+                .children(|ui| {
+                    ui.add(
+                        widget::Element::new()
+                            .label(text)
+                            .width(view::style::Dimension::fixed(90))
+                            .height(view::style::Dimension::fit()),
+                    );
+                }),
+        );
+    });
+
+    let mut layout_engine = layout::engine::Engine::new();
+    let layout = layout::Layout::compose(&view, geometry::Size::new(300, 160), &mut layout_engine);
+    let label = layout
+        .find_role(view::node::Role::Panel)
+        .into_iter()
+        .find(|frame| frame.label_text() == Some(text))
+        .expect("fit label should be laid out");
+    let scene = scene::Scene::paint(&layout);
+    let painted = scene
+        .texts()
+        .into_iter()
+        .find(|painted| painted.value() == text)
+        .expect("fit label should paint");
+
+    assert_eq!(label.rect().width(), 90);
+    assert!(label.rect().height() > Theme::default().menu().row_height);
+    assert_eq!(painted.rect(), label.rect());
+    assert_eq!(painted.wrap(), scene::TextWrap::WordOrGlyph);
+}
+
+#[test]
+fn button_reserved_labels_stabilize_fit_width() {
+    let show_width = reserved_toggle_button_width("Show panel");
+    let hide_width = reserved_toggle_button_width("Hide panel");
+
+    assert_eq!(show_width, hide_width);
+}
+
+#[test]
+fn button_text_is_center_aligned_by_default() {
+    let view = widget::view(|ui| {
+        ui.button(widget::Button::new("Hide panel").reserve_labels(["Show panel"]));
+    });
+    let mut layout_engine = layout::engine::Engine::new();
+    let layout = layout::Layout::compose(&view, geometry::Size::new(240, 80), &mut layout_engine);
+    let painted = scene::Scene::paint(&layout);
+
+    assert!(
+        painted
+            .texts()
+            .iter()
+            .any(|text| text.value() == "Hide panel" && text.align() == scene::TextAlign::Center),
+        "button label should use centered text alignment"
+    );
+}
+
+#[test]
+fn choice_and_slider_labels_are_passive_hit_regions() {
+    let view = widget::view(|ui| {
+        ui.column(|ui| {
+            ui.checkbox(widget::Checkbox::new("Wrap text", true).trigger::<RecordSource>(()));
+            ui.slider(widget::Slider::new("Level", 0.4, 0.0..=1.0).on_change::<SetLevel>());
+        });
+    });
+    let mut layout_engine = layout::engine::Engine::new();
+    let layout = layout::Layout::compose(&view, geometry::Size::new(260, 90), &mut layout_engine);
+    let checkbox = layout
+        .find_role(view::node::Role::Checkbox)
+        .into_iter()
+        .next()
+        .expect("checkbox should be laid out");
+    let slider = layout
+        .find_role(view::node::Role::Slider)
+        .into_iter()
+        .next()
+        .expect("slider should be laid out");
+
+    assert_eq!(
+        layout
+            .hit_test(center(checkbox.active_rect()))
+            .map(|hit| hit.frame().role()),
+        Some(view::node::Role::Checkbox)
+    );
+    assert_eq!(
+        layout
+            .hit_test(center(slider.active_rect()))
+            .map(|hit| hit.frame().role()),
+        Some(view::node::Role::Slider)
+    );
+    assert!(
+        layout
+            .hit_test(geometry::Point::new(
+                checkbox.active_rect().right().saturating_add(10),
+                checkbox
+                    .rect()
+                    .y()
+                    .saturating_add(checkbox.rect().height() / 2),
+            ))
+            .is_none(),
+        "checkbox label text should not be an active hit target"
+    );
+    assert!(
+        layout
+            .hit_test(geometry::Point::new(
+                slider.rect().x().saturating_add(12),
+                slider.rect().y().saturating_add(slider.rect().height() / 2),
+            ))
+            .is_none(),
+        "slider label text should not be an active hit target"
+    );
 }
 
 #[test]
@@ -204,7 +363,31 @@ fn widget_element_style_affects_column_layout_frames() {
     assert_eq!(panels[0].rect().y(), 6);
     assert_eq!(panels[0].rect().height(), 20);
     assert_eq!(panels[1].rect().y(), 30);
-    assert_eq!(panels[1].rect().height(), 32);
-    assert_eq!(labels[0].rect().y(), 66);
-    assert_eq!(labels[0].rect().height(), 28);
+    let expected_grow_height = 100 - 12 - 8 - panels[0].rect().height() - labels[0].rect().height();
+    assert_eq!(panels[1].rect().height(), expected_grow_height);
+    assert_eq!(labels[0].rect().y(), panels[1].rect().bottom() + 4);
+    assert!(labels[0].rect().height() > 0);
+}
+
+fn reserved_toggle_button_width(label: &str) -> i32 {
+    let view = widget::view(|ui| {
+        ui.button(widget::Button::new(label).reserve_labels(["Show panel", "Hide panel"]));
+    });
+    let mut layout_engine = layout::engine::Engine::new();
+    let layout = layout::Layout::compose(&view, geometry::Size::new(240, 80), &mut layout_engine);
+
+    layout
+        .find_role(view::node::Role::Button)
+        .into_iter()
+        .next()
+        .expect("button should be laid out")
+        .rect()
+        .width()
+}
+
+fn center(rect: geometry::Rect) -> geometry::Point {
+    geometry::Point::new(
+        rect.x().saturating_add(rect.width() / 2),
+        rect.y().saturating_add(rect.height() / 2),
+    )
 }

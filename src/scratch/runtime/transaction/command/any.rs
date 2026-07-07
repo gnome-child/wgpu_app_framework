@@ -111,7 +111,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             && let Some(window) = window
             && self.session.clear_text_input(window)
         {
-            effect = effect.then(crate::scratch::response::Effect::Repaint);
+            effect = effect.then(crate::scratch::response::Effect::Layout);
         }
 
         Ok(Some(Outcome::new(response, changed, effect)))

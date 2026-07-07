@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crate::text;
 
 use crate::scratch::{draft, interaction, window as app_window};
@@ -27,6 +29,19 @@ impl Session {
         };
 
         window.interaction.set_text_preedit(target, preedit)
+    }
+
+    pub fn reset_text_caret_blink(
+        &mut self,
+        id: app_window::Id,
+        target: interaction::Target,
+        now: Instant,
+    ) -> bool {
+        let Some(window) = self.window_mut(id) else {
+            return false;
+        };
+
+        window.interaction.reset_text_caret_blink(target, now)
     }
 
     pub fn edit_text_draft(

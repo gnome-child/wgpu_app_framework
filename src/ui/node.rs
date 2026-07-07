@@ -1,7 +1,7 @@
 use crate::widget::menu;
 use crate::{action, geometry, icon, paint, pointer, text};
 
-use super::{Backdrop, Id, Path, focus, layout, scroll};
+use super::{Filter, Id, Path, focus, layout, scroll};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node {
@@ -39,13 +39,13 @@ pub struct Layout {
     cross_align: layout::Align,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Style {
     background: Option<paint::Brush>,
     rounding: geometry::rect::Rounding,
     stroke: Option<paint::Stroke>,
     shadow: Option<Shadow>,
-    backdrop: Option<Backdrop>,
+    filter: Option<Filter>,
     hover_background: Option<paint::Brush>,
     focus_background: Option<paint::Brush>,
     active_background: Option<paint::Brush>,
@@ -229,7 +229,7 @@ impl Node {
     }
 
     pub fn style(&self) -> Style {
-        self.style
+        self.style.clone()
     }
 
     pub fn interactivity(&self) -> Interactivity {
@@ -411,8 +411,8 @@ impl Node {
         self
     }
 
-    pub fn with_backdrop(mut self, backdrop: Backdrop) -> Self {
-        self.style.backdrop = Some(backdrop);
+    pub fn with_filter(mut self, filter: Filter) -> Self {
+        self.style.filter = Some(filter);
         self
     }
 
@@ -799,83 +799,83 @@ impl Style {
         Self::default()
     }
 
-    pub fn background(self) -> Option<paint::Brush> {
+    pub fn background(&self) -> Option<paint::Brush> {
         self.background
     }
 
-    pub fn rounding(self) -> geometry::rect::Rounding {
+    pub fn rounding(&self) -> geometry::rect::Rounding {
         self.rounding
     }
 
-    pub fn stroke(self) -> Option<paint::Stroke> {
+    pub fn stroke(&self) -> Option<paint::Stroke> {
         self.stroke
     }
 
-    pub fn shadow(self) -> Option<Shadow> {
+    pub fn shadow(&self) -> Option<Shadow> {
         self.shadow
     }
 
-    pub fn backdrop(self) -> Option<Backdrop> {
-        self.backdrop
+    pub fn filter(&self) -> Option<Filter> {
+        self.filter.clone()
     }
 
-    pub fn hover_background(self) -> Option<paint::Brush> {
+    pub fn hover_background(&self) -> Option<paint::Brush> {
         self.hover_background
     }
 
-    pub fn focus_background(self) -> Option<paint::Brush> {
+    pub fn focus_background(&self) -> Option<paint::Brush> {
         self.focus_background
     }
 
-    pub fn active_background(self) -> Option<paint::Brush> {
+    pub fn active_background(&self) -> Option<paint::Brush> {
         self.active_background
     }
 
-    pub fn busy_background(self) -> Option<paint::Brush> {
+    pub fn busy_background(&self) -> Option<paint::Brush> {
         self.busy_background
     }
 
-    pub fn disabled_background(self) -> Option<paint::Brush> {
+    pub fn disabled_background(&self) -> Option<paint::Brush> {
         self.disabled_background
     }
 
-    pub fn hover_tint(self) -> Option<paint::Brush> {
+    pub fn hover_tint(&self) -> Option<paint::Brush> {
         self.hover_tint
     }
 
-    pub fn pressed_tint(self) -> Option<paint::Brush> {
+    pub fn pressed_tint(&self) -> Option<paint::Brush> {
         self.pressed_tint
     }
 
-    pub fn active_tint(self) -> Option<paint::Brush> {
+    pub fn active_tint(&self) -> Option<paint::Brush> {
         self.active_tint
     }
 
-    pub fn busy_tint(self) -> Option<paint::Brush> {
+    pub fn busy_tint(&self) -> Option<paint::Brush> {
         self.busy_tint
     }
 
-    pub fn disabled_tint(self) -> Option<paint::Brush> {
+    pub fn disabled_tint(&self) -> Option<paint::Brush> {
         self.disabled_tint
     }
 
-    pub fn focus_outline(self) -> Option<FocusOutline> {
+    pub fn focus_outline(&self) -> Option<FocusOutline> {
         self.focus_outline
     }
 
-    pub fn label_color(self) -> Option<paint::Color> {
+    pub fn label_color(&self) -> Option<paint::Color> {
         self.label_color
     }
 
-    pub fn busy_label_color(self) -> Option<paint::Color> {
+    pub fn busy_label_color(&self) -> Option<paint::Color> {
         self.busy_label_color
     }
 
-    pub fn disabled_label_color(self) -> Option<paint::Color> {
+    pub fn disabled_label_color(&self) -> Option<paint::Color> {
         self.disabled_label_color
     }
 
-    pub fn padding(self) -> layout::Insets {
+    pub fn padding(&self) -> layout::Insets {
         self.padding
     }
 }
@@ -887,7 +887,7 @@ impl Default for Style {
             rounding: geometry::rect::Rounding::none(),
             stroke: None,
             shadow: None,
-            backdrop: None,
+            filter: None,
             hover_background: None,
             focus_background: None,
             active_background: None,

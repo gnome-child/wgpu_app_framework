@@ -3,16 +3,20 @@ mod control;
 mod element;
 mod layout;
 mod menu;
+pub mod panel;
 mod root;
+mod scroll;
 mod trigger;
 mod ui;
 
 pub use binding::Binding;
-pub use control::{Button, Checkbox, Label, Panel, Radio, Separator, Slider, TextArea, TextBox};
+pub use control::{Button, Checkbox, Label, Radio, Separator, Slider, TextArea, TextBox};
 pub use element::Element;
 pub use layout::{Direction, Layout};
 pub use menu::{Menu, MenuBar};
+pub use panel::Panel;
 pub use root::Root;
+pub use scroll::Scroll;
 pub use ui::Ui;
 
 use super::view;

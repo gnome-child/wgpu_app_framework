@@ -7,6 +7,7 @@ pub use builder::Builder;
 pub use builder::Object;
 pub use chain::Chain;
 pub(in crate::scratch) use chain::Service;
+pub(in crate::scratch) use chain::{Claim, Provenance};
 pub use kind::Kind;
 
 use super::{interaction, session, state, target::AnyTarget};

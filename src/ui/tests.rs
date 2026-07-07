@@ -209,10 +209,10 @@ fn shadow(scene: &paint::Scene, index: usize) -> paint::Shadow {
     }
 }
 
-fn backdrop(scene: &paint::Scene, index: usize) -> paint::Backdrop {
+fn filter(scene: &paint::Scene, index: usize) -> &paint::Filter {
     match scene.items().get(index) {
-        Some(paint::Item::Backdrop(backdrop)) => *backdrop,
-        item => panic!("expected backdrop item at {index}, got {item:?}"),
+        Some(paint::Item::Filter(filter)) => filter,
+        item => panic!("expected filter item at {index}, got {item:?}"),
     }
 }
 
@@ -1440,13 +1440,11 @@ fn node_defaults_to_default_cursor_and_stores_cursor_intent() {
 }
 
 #[test]
-fn node_with_backdrop_stores_backdrop_data() {
-    let backdrop = Backdrop::new()
-        .with_fill(paint::Color::rgba(0.1, 0.2, 0.3, 0.4))
-        .with_blur(0.5);
-    let node = Node::leaf().key(A).with_backdrop(backdrop);
+fn node_with_filter_stores_filter_data() {
+    let filter = Filter::new().with_blur(0.5);
+    let node = Node::leaf().key(A).with_filter(filter.clone());
 
-    assert_eq!(node.style().backdrop(), Some(backdrop));
+    assert_eq!(node.style().filter(), Some(filter));
 }
 
 #[test]
@@ -1535,10 +1533,8 @@ fn floating_panel_uses_default_glass_material_tokens() {
     let panel = widget::floating_panel().key(A);
     let style = panel.style();
 
-    assert_eq!(
-        style.backdrop(),
-        Some(Backdrop::glass(floating.backdrop_fill()).with_blur(floating.backdrop_blur()))
-    );
+    assert_eq!(style.background(), Some(floating.backdrop_fill()));
+    assert_eq!(style.filter(), Some(Filter::blur(floating.backdrop_blur())));
     assert_eq!(style.stroke(), Some(floating.stroke()));
     let shadow = style.shadow().expect("floating panel has shadow");
     assert_eq!(shadow.brush(), floating.shadow().brush());
@@ -2414,7 +2410,7 @@ fn shape_chrome_builders_accept_gradient_brushes() {
         .with_disabled_tint(brush)
         .with_focus_outline(brush, 2.0, 1.0)
         .with_shadow(brush, 12.0, 1.0, point::logical(0.0, 4.0))
-        .with_backdrop(Backdrop::new().with_fill(brush));
+        .with_filter(Filter::blur(0.5));
 
     assert_eq!(node.style().background(), Some(brush));
     assert_eq!(node.style().stroke().expect("stroke").brush, brush);
@@ -2429,8 +2425,8 @@ fn shape_chrome_builders_accept_gradient_brushes() {
     );
     assert_eq!(node.style().shadow().expect("shadow").brush(), brush);
     assert_eq!(
-        node.style().backdrop().expect("backdrop").fill(),
-        Some(brush)
+        node.style().filter().expect("filter").ops(),
+        &[paint::FilterOp::Blur { amount: 0.5 }]
     );
 }
 
@@ -3201,14 +3197,11 @@ fn popup_shadow_renders_before_popup_panel_fill() {
 }
 
 #[test]
-fn backdrop_lowers_before_node_background() {
+fn filter_lowers_before_node_background() {
     let root = Node::leaf()
         .key(A)
-        .with_backdrop(
-            Backdrop::new()
-                .with_fill(paint::Color::rgba(1.0, 1.0, 1.0, 0.5))
-                .with_blur(0.5),
-        )
+        .with_filter(Filter::blur(0.5))
+        .with_background(paint::Color::rgba(1.0, 1.0, 1.0, 0.5))
         .with_rounding(rect::Rounding::relative(0.4));
     let mut tree = Tree::new();
     let mut scene = paint::Scene::new();
@@ -3217,13 +3210,13 @@ fn backdrop_lowers_before_node_background() {
     let layout = layout(&tree);
     tree.paint(&layout, Interaction::default(), &mut scene);
 
-    assert!(matches!(scene.items()[0], paint::Item::Backdrop(_)));
+    assert!(matches!(scene.items()[0], paint::Item::Filter(_)));
     assert!(matches!(scene.items()[1], paint::Item::Quad(_)));
-    assert_eq!(backdrop(&scene, 0).rect, quad(&scene, 1).rect);
-    assert_eq!(backdrop(&scene, 0).rect.rounding, root.style().rounding());
+    assert_eq!(filter(&scene, 0).rect, quad(&scene, 1).rect);
+    assert_eq!(filter(&scene, 0).rect.rounding, root.style().rounding());
     assert_eq!(
-        backdrop(&scene, 0).filter,
-        paint::BackdropFilter::Blur { amount: 0.5 }
+        filter(&scene, 0).ops,
+        vec![paint::FilterOp::Blur { amount: 0.5 }]
     );
     assert_eq!(
         quad(&scene, 1).style.fill,
@@ -3234,7 +3227,7 @@ fn backdrop_lowers_before_node_background() {
 }
 
 #[test]
-fn popup_backdrop_lowers_after_shadow_before_popup_panel_fill() {
+fn popup_filter_lowers_after_shadow_before_popup_panel_fill() {
     let popup_rect = Rect::rounded(
         point::logical(10.0, 10.0),
         area::logical(40.0, 40.0),
@@ -3249,7 +3242,7 @@ fn popup_backdrop_lowers_after_shadow_before_popup_panel_fill() {
         Node::leaf()
             .key(B)
             .with_background(paint::Color::rgba(1.0, 1.0, 1.0, 0.35))
-            .with_backdrop(Backdrop::new().with_blur(0.75))
+            .with_filter(Filter::blur(0.75))
             .with_rounding(rect::Rounding::relative(0.5))
             .with_shadow(
                 paint::Color::rgba(0.0, 0.0, 0.0, 0.35),
@@ -3263,10 +3256,10 @@ fn popup_backdrop_lowers_after_shadow_before_popup_panel_fill() {
 
     assert!(matches!(scene.items()[0], paint::Item::Quad(_)));
     assert!(matches!(scene.items()[1], paint::Item::Shadow(_)));
-    assert!(matches!(scene.items()[2], paint::Item::Backdrop(_)));
+    assert!(matches!(scene.items()[2], paint::Item::Filter(_)));
     assert!(matches!(scene.items()[3], paint::Item::Quad(_)));
     assert_eq!(shadow(&scene, 1).rect, popup_rect);
-    assert_eq!(backdrop(&scene, 2).rect, popup_rect);
+    assert_eq!(filter(&scene, 2).rect, popup_rect);
     assert_eq!(quad(&scene, 3).rect, popup_rect);
 }
 

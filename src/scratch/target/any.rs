@@ -5,7 +5,7 @@ use crate::scratch::{
     command::{Command, State},
     context::Context,
     error::{Error, Result},
-    response::{AnyResponse, Response},
+    response::AnyResponse,
     state,
 };
 
@@ -49,22 +49,8 @@ impl<M: state::State> AnyTarget<M> {
         }
     }
 
-    pub(in crate::scratch) fn handles<C: Command>(&self) -> bool {
-        self.command_type == TypeId::of::<C>()
-    }
-
     pub(in crate::scratch) fn handles_type(&self, command_type: TypeId) -> bool {
         self.command_type == command_type
-    }
-
-    pub(in crate::scratch) fn state<C: Command>(
-        &self,
-        model: &mut M,
-        args: &C::Args,
-        cx: &Context,
-    ) -> Result<State> {
-        debug_assert!(self.handles::<C>());
-        (self.state)(model, args, cx)
     }
 
     pub(in crate::scratch) fn state_any(
@@ -74,16 +60,6 @@ impl<M: state::State> AnyTarget<M> {
         cx: &Context,
     ) -> Result<State> {
         (self.state)(model, args, cx)
-    }
-
-    pub(in crate::scratch) fn invoke<C: Command>(
-        &self,
-        model: &mut M,
-        args: C::Args,
-        cx: &mut Context,
-    ) -> Response<C::Output> {
-        debug_assert!(self.handles::<C>());
-        (self.invoke)(model, Box::new(args), cx).into_response(C::NAME)
     }
 
     pub(in crate::scratch) fn invoke_any(

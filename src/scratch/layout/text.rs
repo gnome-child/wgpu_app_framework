@@ -7,11 +7,12 @@ use crate::{
 
 use super::super::{
     diagnostics,
-    geometry::{Point, Rect},
+    geometry::{Point, Rect, Size},
     interaction, scene,
     theme::Theme,
     view,
 };
+use super::viewport::Viewport;
 
 #[derive(Clone)]
 pub(in crate::scratch) struct Service {
@@ -23,7 +24,8 @@ pub struct Area {
     layout: text_engine::layout::TextFieldLayout,
     interaction_surfaces: Vec<text_engine::layout::TextAreaSurface>,
     render_surfaces: Vec<text_engine::layout::TextAreaSurface>,
-    resolved_scroll: Option<interaction::ScrollOffset>,
+    viewport: Viewport,
+    state: text_engine::edit::ViewState,
 }
 
 #[derive(Clone)]
@@ -31,6 +33,7 @@ pub struct Field {
     layout: text_engine::layout::TextFieldLayout,
     render_surface: Option<text_engine::layout::TextAreaSurface>,
     state: text_engine::edit::ViewState,
+    style: text_engine::document::Style,
 }
 
 impl Service {
@@ -40,13 +43,55 @@ impl Service {
         }
     }
 
-    pub(super) fn label_width(&self, label: &str) -> i32 {
+    pub(super) fn label_width_with_style(
+        &self,
+        label: &str,
+        style: super::super::theme::TypeStyle,
+    ) -> i32 {
         let metrics = self.inner.borrow_mut().measure(
-            &text_engine::document::Document::plain(label),
+            &document(label, style),
             text_engine::layout::Measure::unbounded(),
         );
 
         metrics.width().ceil().max(0.0) as i32
+    }
+
+    pub(super) fn label_size_for_width_with_style(
+        &self,
+        label: &str,
+        width: i32,
+        style: super::super::theme::TypeStyle,
+    ) -> Size {
+        let metrics = self
+            .inner
+            .borrow_mut()
+            .measure(&document(label, style), measure_for_width(width));
+
+        Size::new(
+            metrics.width().ceil().max(0.0) as i32,
+            metrics.height().ceil().max(0.0) as i32,
+        )
+    }
+
+    pub(super) fn text_area_size_for_width(
+        &self,
+        text_area: &view::control::TextArea,
+        width: i32,
+        theme: &Theme,
+    ) -> Size {
+        let measure = match text_area.wrap() {
+            view::control::Wrap::None => text_engine::layout::Measure::unbounded(),
+            view::control::Wrap::Word => measure_for_width(width),
+        };
+        let metrics = self.inner.borrow_mut().measure(
+            &document(text_area.buffer().text(), theme.typography().body()),
+            measure,
+        );
+
+        Size::new(
+            metrics.width().ceil().max(0.0) as i32,
+            metrics.height().ceil().max(0.0) as i32,
+        )
     }
 
     pub(super) fn take_diagnostics(&self) -> diagnostics::Text {
@@ -57,27 +102,38 @@ impl Service {
         diagnostics
     }
 
-    pub(super) fn text_area_layout(&self, text_area: &view::control::TextArea, rect: Rect) -> Area {
+    pub(super) fn text_area_layout(
+        &self,
+        text_area: &view::control::TextArea,
+        rect: Rect,
+        theme: &Theme,
+        now: Instant,
+    ) -> Area {
         let area_model = text_area.area_model();
-        let style = field_style();
-        let viewport = area::logical(rect.width() as f32, rect.height() as f32);
-        let now = Instant::now();
-        let mut state = text_area.view_state();
+        let style = field_style(theme);
+        let logical_viewport = area::logical(rect.width() as f32, rect.height() as f32);
+        let layout_now = text_area.caret_epoch().unwrap_or(now);
+        let mut state = text_area.view_state_at(layout_now);
         let paint_layout = {
             let mut engine = self.inner.borrow_mut();
             if state.caret_visibility_pending() {
-                state =
-                    engine.ensure_caret_visible_for_area(&area_model, style, viewport, state, None);
+                state = engine.ensure_caret_visible_for_area(
+                    &area_model,
+                    style,
+                    logical_viewport,
+                    state,
+                    None,
+                );
             }
             let mut paint_layout = engine.text_area_paint_layout_for_area_at(
                 &area_model,
                 style,
-                viewport,
+                logical_viewport,
                 state.clone(),
-                now,
+                layout_now,
             );
             let clamped_state =
-                clamp_text_area_scroll_state(&state, paint_layout.layout(), viewport);
+                clamp_text_area_scroll_state(&state, paint_layout.layout(), logical_viewport);
             if clamped_state.scroll_x() != state.scroll_x()
                 || clamped_state.scroll_y() != state.scroll_y()
             {
@@ -85,21 +141,22 @@ impl Service {
                 paint_layout = engine.text_area_paint_layout_for_area_at(
                     &area_model,
                     style,
-                    viewport,
+                    logical_viewport,
                     state.clone(),
-                    now,
+                    layout_now,
                 );
             }
             paint_layout
         };
-        let resolved_scroll = Some(scroll_offset_for_text_state(&state));
+        let viewport = viewport_for_text_area(rect, paint_layout.layout(), &state);
         let (layout, interaction_surfaces, render_surfaces) = paint_layout.into_projection_parts();
 
         Area {
             layout,
             interaction_surfaces,
             render_surfaces,
-            resolved_scroll,
+            viewport,
+            state,
         }
     }
 
@@ -121,23 +178,28 @@ impl Service {
             .text_area_position_at_for_observed_surfaces(
                 &area_model,
                 local,
-                text_area.view_state(),
-                text_area.view_state().scroll_x(),
+                layout.state.clone(),
+                layout.state.scroll_x(),
                 layout.interaction_surfaces(),
             )
     }
 
-    pub(super) fn text_field_layout(&self, text_box: &view::control::TextBox, rect: Rect) -> Field {
+    pub(super) fn text_field_layout(
+        &self,
+        text_box: &view::control::TextBox,
+        rect: Rect,
+        theme: &Theme,
+        now: Instant,
+    ) -> Field {
         let field = field_model(text_box);
-        let style = field_style();
+        let style = field_style(theme);
         let viewport = area::logical(rect.width() as f32, rect.height() as f32);
-        let now = Instant::now();
-        let mut state =
-            text_engine::edit::ViewState::default().with_preedit(text_box.preedit().cloned());
+        let epoch = text_box.caret_epoch().unwrap_or(now);
+        let mut state = text_engine::edit::ViewState::new_at(0.0, epoch)
+            .with_preedit(text_box.preedit().cloned());
         let mut engine = self.inner.borrow_mut();
 
         if text_box.cursor().is_some() {
-            state = state.ensure_caret_visible(now);
             state = engine.ensure_caret_visible_for_field(&field, style, viewport, state);
         }
 
@@ -146,7 +208,7 @@ impl Service {
             style,
             viewport,
             state.clone(),
-            now,
+            epoch,
         );
         let (layout, render_surface) = paint_layout.into_parts();
 
@@ -154,6 +216,7 @@ impl Service {
             layout,
             render_surface,
             state,
+            style,
         }
     }
 
@@ -165,7 +228,7 @@ impl Service {
         position: Point,
     ) -> Option<text_engine::buffer::Position> {
         let field = field_model(text_box);
-        let style = field_style();
+        let style = layout.style.clone();
         let viewport = area::logical(rect.width() as f32, rect.height() as f32);
         let local = point::logical(
             position.x().saturating_sub(rect.x()) as f32,
@@ -180,6 +243,18 @@ impl Service {
             layout.state.clone(),
         )
     }
+}
+
+fn document(
+    label: impl Into<String>,
+    style: super::super::theme::TypeStyle,
+) -> text_engine::document::Document {
+    let mut block = text_engine::document::Block::new(text_engine::document::Align::Start);
+    block.push_run(text_engine::document::Run::new(
+        label.into(),
+        style.document_style(text_engine::Color::rgb(0.0, 0.0, 0.0)),
+    ));
+    text_engine::document::Document::from_block(block)
 }
 
 impl fmt::Debug for Service {
@@ -218,8 +293,8 @@ impl Area {
         &self.render_surfaces
     }
 
-    pub fn resolved_scroll(&self) -> Option<interaction::ScrollOffset> {
-        self.resolved_scroll
+    pub fn viewport(&self) -> Viewport {
+        self.viewport
     }
 }
 
@@ -259,9 +334,15 @@ fn field_model(text_box: &view::control::TextBox) -> text_engine::edit::Field {
     }
 }
 
-fn field_style() -> text_engine::document::Style {
-    text_engine::document::Style::default()
-        .with_color(text_color_from_scene(Theme::default().text().inverse))
+fn field_style(theme: &Theme) -> text_engine::document::Style {
+    theme
+        .typography()
+        .interface()
+        .document_style(text_color_from_scene(theme.text_input().foreground))
+}
+
+fn measure_for_width(width: i32) -> text_engine::layout::Measure {
+    text_engine::layout::Measure::bounded(area::logical(width.max(0) as f32, f32::MAX))
 }
 
 fn text_color_from_scene(color: scene::Color) -> text_engine::Color {
@@ -294,6 +375,20 @@ fn scroll_offset_for_text_state(state: &text_engine::edit::ViewState) -> interac
         scroll_component(state.scroll_x()),
         scroll_component(state.scroll_y()),
     )
+}
+
+fn viewport_for_text_area(
+    rect: Rect,
+    layout: &text_engine::layout::TextFieldLayout,
+    state: &text_engine::edit::ViewState,
+) -> Viewport {
+    let content_area = layout.content_area();
+    let content = Size::new(
+        content_area.width().ceil().max(0.0) as i32,
+        content_area.height().ceil().max(0.0) as i32,
+    );
+
+    Viewport::new(rect, content, scroll_offset_for_text_state(state))
 }
 
 fn clamp_text_area_scroll_state(

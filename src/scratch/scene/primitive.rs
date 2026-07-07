@@ -1,9 +1,11 @@
 use std::{cell::RefCell, fmt, rc::Rc};
 
-use crate::icon as framework_icon;
+use crate::icon as icons;
+use crate::text as text_model;
 
 use super::super::geometry;
 use super::Color;
+use super::material::{BackdropBlur, Luminosity, Noise, Refraction};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Primitive {
@@ -12,7 +14,9 @@ pub enum Primitive {
     TextViewport(TextViewport),
     Icon(Icon),
     Shadow(Shadow),
-    Backdrop(Backdrop),
+    Filter(Filter),
+    Clip(Clip),
+    PopClip,
     Outline(Outline),
 }
 
@@ -22,13 +26,25 @@ pub struct Quad {
     style: Style,
     rounding: Rounding,
     rasterization: Rasterization,
+    transform: Transform,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Transform {
+    origin_x: f32,
+    origin_y: f32,
+    translate_x: f32,
+    translate_y: f32,
+    scale_x: f32,
+    scale_y: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Text {
     rect: geometry::Rect,
     value: String,
     color: Color,
+    style: TextStyle,
     wrap: TextWrap,
     align: TextAlign,
 }
@@ -42,7 +58,7 @@ pub struct TextViewport {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Icon {
     rect: geometry::Rect,
-    icon: framework_icon::Icon,
+    icon: icons::Icon,
     color: Color,
     size: f32,
 }
@@ -57,11 +73,36 @@ pub struct Shadow {
     rounding: Rounding,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Backdrop {
+#[derive(Debug, Clone, PartialEq)]
+pub struct Filter {
     rect: geometry::Rect,
-    blur: f32,
+    ops: Vec<FilterOp>,
     rounding: Rounding,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FilterOp {
+    Blur {
+        amount: f32,
+    },
+    BackdropBlur(BackdropBlur),
+    Liquid {
+        depth: f32,
+        splay: f32,
+        feather: f32,
+        curve: f32,
+    },
+    Refraction(Refraction),
+    Luminosity(Luminosity),
+    Noise(Noise),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LiquidFilter {
+    pub(in crate::scratch) depth: f32,
+    pub(in crate::scratch) splay: f32,
+    pub(in crate::scratch) feather: f32,
+    pub(in crate::scratch) curve: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -70,6 +111,12 @@ pub struct Outline {
     color: Color,
     width: f32,
     offset: f32,
+    rounding: Rounding,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Clip {
+    rect: geometry::Rect,
     rounding: Rounding,
 }
 
@@ -84,6 +131,12 @@ pub enum TextAlign {
     Start,
     Center,
     End,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextStyle {
+    size: f32,
+    weight: text_model::document::Weight,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -166,6 +219,7 @@ impl Quad {
             style: Style::filled(fill),
             rounding: Rounding::none(),
             rasterization: Rasterization::default(),
+            transform: Transform::identity(),
         }
     }
 
@@ -175,6 +229,7 @@ impl Quad {
             style,
             rounding: Rounding::none(),
             rasterization: Rasterization::default(),
+            transform: Transform::identity(),
         }
     }
 
@@ -190,6 +245,11 @@ impl Quad {
 
     pub fn with_rasterization(mut self, rasterization: Rasterization) -> Self {
         self.rasterization = rasterization;
+        self
+    }
+
+    pub fn with_transform(mut self, transform: Transform) -> Self {
+        self.transform = transform;
         self
     }
 
@@ -216,6 +276,82 @@ impl Quad {
     pub fn rasterization(&self) -> Rasterization {
         self.rasterization
     }
+
+    pub fn transform(&self) -> Transform {
+        self.transform
+    }
+}
+
+impl Transform {
+    pub const fn identity() -> Self {
+        Self {
+            origin_x: 0.0,
+            origin_y: 0.0,
+            translate_x: 0.0,
+            translate_y: 0.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+        }
+    }
+
+    pub fn translate(x: f32, y: f32) -> Self {
+        Self {
+            translate_x: sanitized_transform_value(x, 0.0),
+            translate_y: sanitized_transform_value(y, 0.0),
+            ..Self::identity()
+        }
+    }
+
+    pub fn scale_about(origin_x: f32, origin_y: f32, scale_x: f32, scale_y: f32) -> Self {
+        Self {
+            origin_x: sanitized_transform_value(origin_x, 0.0),
+            origin_y: sanitized_transform_value(origin_y, 0.0),
+            scale_x: sanitized_transform_value(scale_x, 1.0),
+            scale_y: sanitized_transform_value(scale_y, 1.0),
+            ..Self::identity()
+        }
+    }
+
+    pub fn scale_y_about_rect_center(rect: geometry::Rect, scale_y: f32) -> Self {
+        let origin_x = rect.x() as f32 + rect.width() as f32 / 2.0;
+        let origin_y = rect.y() as f32 + rect.height() as f32 / 2.0;
+
+        Self::scale_about(origin_x, origin_y, 1.0, scale_y)
+    }
+
+    pub const fn origin_x(self) -> f32 {
+        self.origin_x
+    }
+
+    pub const fn origin_y(self) -> f32 {
+        self.origin_y
+    }
+
+    pub const fn translate_x(self) -> f32 {
+        self.translate_x
+    }
+
+    pub const fn translate_y(self) -> f32 {
+        self.translate_y
+    }
+
+    pub const fn scale_x(self) -> f32 {
+        self.scale_x
+    }
+
+    pub const fn scale_y(self) -> f32 {
+        self.scale_y
+    }
+}
+
+impl Default for Transform {
+    fn default() -> Self {
+        Self::identity()
+    }
+}
+
+fn sanitized_transform_value(value: f32, fallback: f32) -> f32 {
+    if value.is_finite() { value } else { fallback }
 }
 
 impl Text {
@@ -229,9 +365,15 @@ impl Text {
             rect,
             value: value.into(),
             color,
+            style: TextStyle::default(),
             wrap,
             align: TextAlign::Start,
         }
+    }
+
+    pub(in crate::scratch::scene) fn with_style(mut self, style: TextStyle) -> Self {
+        self.style = style;
+        self
     }
 
     pub(in crate::scratch::scene) fn with_align(mut self, align: TextAlign) -> Self {
@@ -251,12 +393,36 @@ impl Text {
         self.color
     }
 
+    pub fn style(&self) -> TextStyle {
+        self.style
+    }
+
     pub fn wrap(&self) -> TextWrap {
         self.wrap
     }
 
     pub fn align(&self) -> TextAlign {
         self.align
+    }
+}
+
+impl TextStyle {
+    pub(in crate::scratch) const fn new(size: f32, weight: text_model::document::Weight) -> Self {
+        Self { size, weight }
+    }
+
+    pub fn size(self) -> f32 {
+        self.size
+    }
+
+    pub fn weight(self) -> text_model::document::Weight {
+        self.weight
+    }
+}
+
+impl Default for TextStyle {
+    fn default() -> Self {
+        Self::new(16.0, text_model::document::Weight::Normal)
     }
 }
 
@@ -300,10 +466,32 @@ impl TextSurface {
     }
 }
 
+impl Clip {
+    pub(in crate::scratch) fn new(rect: geometry::Rect) -> Self {
+        Self {
+            rect,
+            rounding: Rounding::none(),
+        }
+    }
+
+    pub(in crate::scratch) fn with_rounding(mut self, rounding: Rounding) -> Self {
+        self.rounding = rounding;
+        self
+    }
+
+    pub fn rect(self) -> geometry::Rect {
+        self.rect
+    }
+
+    pub fn rounding(self) -> Rounding {
+        self.rounding
+    }
+}
+
 impl Icon {
     pub(in crate::scratch::scene) fn new(
         rect: geometry::Rect,
-        icon: framework_icon::Icon,
+        icon: icons::Icon,
         color: Color,
         size: f32,
     ) -> Self {
@@ -319,7 +507,7 @@ impl Icon {
         self.rect
     }
 
-    pub fn icon(&self) -> framework_icon::Icon {
+    pub fn icon(&self) -> icons::Icon {
         self.icon
     }
 
@@ -380,11 +568,14 @@ impl Shadow {
     }
 }
 
-impl Backdrop {
-    pub(in crate::scratch::scene) fn new(rect: geometry::Rect, blur: f32) -> Self {
+impl Filter {
+    pub(in crate::scratch::scene) fn stack(
+        rect: geometry::Rect,
+        ops: impl IntoIterator<Item = FilterOp>,
+    ) -> Self {
         Self {
             rect,
-            blur,
+            ops: ops.into_iter().map(FilterOp::clamped).collect(),
             rounding: Rounding::none(),
         }
     }
@@ -398,12 +589,77 @@ impl Backdrop {
         self.rect
     }
 
-    pub fn blur(&self) -> f32 {
-        self.blur
+    pub fn ops(&self) -> &[FilterOp] {
+        &self.ops
     }
 
     pub fn rounding(&self) -> Rounding {
         self.rounding
+    }
+}
+
+impl FilterOp {
+    pub const fn blur(amount: f32) -> Self {
+        Self::Blur { amount }
+    }
+
+    pub const fn backdrop_blur(params: BackdropBlur) -> Self {
+        Self::BackdropBlur(params)
+    }
+
+    pub const fn liquid(params: LiquidFilter) -> Self {
+        Self::Liquid {
+            depth: params.depth,
+            splay: params.splay,
+            feather: params.feather,
+            curve: params.curve,
+        }
+    }
+
+    pub const fn refraction(params: Refraction) -> Self {
+        Self::Refraction(params)
+    }
+
+    pub const fn luminosity(params: Luminosity) -> Self {
+        Self::Luminosity(params)
+    }
+
+    pub const fn noise(params: Noise) -> Self {
+        Self::Noise(params)
+    }
+
+    pub fn clamped(self) -> Self {
+        match self {
+            Self::Blur { amount } => Self::Blur {
+                amount: amount.clamp(0.0, 1.0),
+            },
+            Self::BackdropBlur(params) => Self::BackdropBlur(params.clamped()),
+            Self::Liquid {
+                depth,
+                splay,
+                feather,
+                curve,
+            } => Self::Liquid {
+                depth: depth.clamp(0.0, 1.0),
+                splay: splay.max(0.0),
+                feather: feather.max(0.0),
+                curve: curve.max(0.1),
+            },
+            Self::Refraction(params) => Self::Refraction(params.clamped()),
+            Self::Luminosity(params) => Self::Luminosity(params.clamped()),
+            Self::Noise(params) => Self::Noise(params.clamped()),
+        }
+    }
+}
+
+impl LiquidFilter {
+    pub const fn new(depth: f32, splay: f32, feather: f32, curve: f32) -> Self {
+        Self {
+            depth,
+            splay,
+            feather,
+            curve,
+        }
     }
 }
 

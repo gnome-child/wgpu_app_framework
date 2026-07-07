@@ -1,9 +1,15 @@
 use wgpu::util::DeviceExt;
 
-use crate::geometry::{Rect, area, point};
+use crate::geometry::{Rect, area};
 use crate::paint;
 use crate::render;
 use crate::render::batch;
+use crate::render::silhouette::{
+    self, PixelGeometry, PreparedSilhouette, clamped_width, edges, expand_rect, expand_rounding,
+    inset_rect, offset_rect, rect_data, rounding_data, shrink_rounding, union_rects,
+};
+
+const QUAD_WGSL: &str = include_str!("quad.wgsl");
 
 pub struct Batch {
     vertex_buffer: wgpu::Buffer,
@@ -24,9 +30,13 @@ pub fn pipeline(
     render_context: &render::Context,
     format: wgpu::TextureFormat,
 ) -> wgpu::RenderPipeline {
+    let shader_source = shader_source();
     let shader = render_context
         .device()
-        .create_shader_module(wgpu::include_wgsl!("quad.wgsl"));
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("quad.wgsl"),
+            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
+        });
 
     let pipeline_layout =
         render_context
@@ -64,6 +74,10 @@ pub fn pipeline(
             multiview_mask: None,
             cache: None,
         })
+}
+
+pub(crate) fn shader_source() -> String {
+    silhouette::wgsl_module_source(QUAD_WGSL)
 }
 
 pub fn prepare_batch(
@@ -105,6 +119,7 @@ struct AnalyticShape {
     brush: paint::Brush,
     blur: f32,
     antialias: bool,
+    snap_outer: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,79 +156,6 @@ struct PreparedBrush {
     kind: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct PixelGeometry {
-    scale_factor: f32,
-    logical_pixel: f32,
-}
-
-impl PixelGeometry {
-    fn new(scale_factor: f32) -> Self {
-        let scale_factor = scale_factor.max(0.0001);
-
-        Self {
-            scale_factor,
-            logical_pixel: 1.0 / scale_factor,
-        }
-    }
-
-    fn logical_pixel(self) -> f32 {
-        self.logical_pixel
-    }
-
-    fn snap_distance(self, distance: f32) -> f32 {
-        if distance <= 0.0 {
-            return 0.0;
-        }
-
-        (distance * self.scale_factor).round().max(1.0) / self.scale_factor
-    }
-
-    fn snap_rect(self, rect: Rect) -> Rect {
-        let (left, top, right, bottom) = edges(rect);
-        let left = self.snap_position(left);
-        let top = self.snap_position(top);
-        let mut right = self.snap_position(right);
-        let mut bottom = self.snap_position(bottom);
-
-        if right <= left {
-            right = left + self.logical_pixel;
-        }
-
-        if bottom <= top {
-            bottom = top + self.logical_pixel;
-        }
-
-        Rect::rounded(
-            point::logical(left, top),
-            area::logical(right - left, bottom - top),
-            rect.rounding,
-        )
-    }
-
-    fn snap_position(self, position: f32) -> f32 {
-        (position * self.scale_factor).round() / self.scale_factor
-    }
-
-    fn snap_fixed_width_rect(self, rect: Rect, width_px: u32) -> Rect {
-        let (left, top, _, bottom) = edges(rect);
-        let left = self.snap_position(left);
-        let top = self.snap_position(top);
-        let mut bottom = self.snap_position(bottom);
-        let width = (width_px.max(1) as f32) / self.scale_factor;
-
-        if bottom <= top {
-            bottom = top + self.logical_pixel;
-        }
-
-        Rect::rounded(
-            point::logical(left, top),
-            area::logical(width, bottom - top),
-            rect.rounding,
-        )
-    }
-}
-
 fn push_shape_vertices(
     buffer: &mut Vec<render::primitive::Vertex>,
     viewport: render::Viewport,
@@ -243,7 +185,7 @@ fn analytic_shapes_for_shape(shape: &batch::Shape<'_>, scale_factor: f32) -> Vec
 
 #[cfg(test)]
 fn analytic_shapes_for_quad(quad: &paint::Quad) -> Vec<AnalyticShape> {
-    let rect = quad.rect;
+    let rect = quad.transform.transformed_rect(quad.rect);
     analytic_shapes_for_quad_rect(quad, rect)
 }
 
@@ -255,12 +197,13 @@ fn analytic_shapes_for_quad_at_scale(quad: &paint::Quad, scale_factor: f32) -> V
 
 fn rasterized_quad_rect(quad: &paint::Quad, scale_factor: f32) -> Rect {
     let pixel_geometry = PixelGeometry::new(scale_factor);
+    let rect = quad.transform.transformed_rect(quad.rect);
 
     match quad.rasterization.snapping {
-        paint::Snapping::Disabled => quad.rect,
-        paint::Snapping::Rect => pixel_geometry.snap_rect(quad.rect),
+        paint::Snapping::Disabled => rect,
+        paint::Snapping::Rect => pixel_geometry.snap_rect(rect),
         paint::Snapping::FixedWidth { width_px } => {
-            pixel_geometry.snap_fixed_width_rect(quad.rect, width_px)
+            pixel_geometry.snap_fixed_width_rect(rect, width_px)
         }
     }
 }
@@ -268,25 +211,30 @@ fn rasterized_quad_rect(quad: &paint::Quad, scale_factor: f32) -> Rect {
 fn analytic_shapes_for_quad_rect(quad: &paint::Quad, rect: Rect) -> Vec<AnalyticShape> {
     let mut shapes = Vec::new();
     let antialias = quad.rasterization.edge_mode == paint::EdgeMode::Antialiased;
+    let snap_outer = quad.rasterization.snapping != paint::Snapping::Disabled;
 
     if let Some(fill) = quad.style.fill {
         match fill {
             paint::Fill::Brush(brush) => {
                 let mut shape = fill_shape(rect, brush);
                 shape.antialias = antialias;
+                shape.snap_outer = snap_outer;
                 shapes.push(shape);
             }
         }
     }
 
     if let Some(stroke) = quad.style.stroke {
-        if let Some(shape) = internal_stroke_shape(rect, stroke.width, stroke.brush) {
+        if let Some(mut shape) = internal_stroke_shape(rect, stroke.width, stroke.brush) {
+            shape.snap_outer = snap_outer;
             shapes.push(shape);
         }
     }
 
     if let Some(brush) = quad.style.tint {
-        shapes.push(fill_shape(rect, brush));
+        let mut shape = fill_shape(rect, brush);
+        shape.snap_outer = snap_outer;
+        shapes.push(shape);
     }
 
     shapes
@@ -381,18 +329,18 @@ fn prepare_fill_shape(
     shape: AnalyticShape,
     pixel_geometry: PixelGeometry,
 ) -> Option<PreparedShape> {
-    let outer_rect = pixel_geometry.snap_rect(shape.outer_rect);
-    let raster_rect = if shape.antialias {
-        expand_rect(outer_rect, pixel_geometry.logical_pixel())
-    } else {
-        outer_rect
-    };
+    let silhouette = PreparedSilhouette::for_rect(
+        shape.outer_rect,
+        pixel_geometry,
+        shape.snap_outer,
+        shape.antialias,
+    )?;
 
     Some(PreparedShape {
         kind: shape.kind,
-        raster_rect,
-        outer_rect,
-        outer_rounding: outer_rect.rounding.resolve(outer_rect.area),
+        raster_rect: silhouette.raster_rect,
+        outer_rect: silhouette.shape_rect,
+        outer_rounding: silhouette.rounding,
         inner: None,
         brush: shape.brush,
         blur: shape.blur,
@@ -404,21 +352,22 @@ fn prepare_internal_ring_shape(
     shape: AnalyticShape,
     pixel_geometry: PixelGeometry,
 ) -> Option<PreparedShape> {
-    let outer_rect = pixel_geometry.snap_rect(shape.outer_rect);
+    let outer =
+        PreparedSilhouette::for_rect(shape.outer_rect, pixel_geometry, shape.snap_outer, true)?;
+    let outer_rect = outer.shape_rect;
     let width = pixel_geometry.snap_distance(ring_width(shape)?);
     let Some(inner_rect) = inset_rect(outer_rect, width) else {
         return prepare_fill_shape(fill_shape(outer_rect, shape.brush), pixel_geometry);
     };
-    let outer_rounding = outer_rect.rounding.resolve(outer_rect.area);
+    let outer_rounding = outer.rounding;
     let inner = AnalyticInner {
         rect: inner_rect,
         rounding: shrink_rounding(outer_rounding, width),
     };
-    let raster_rect = expand_rect(outer_rect, pixel_geometry.logical_pixel());
 
     Some(PreparedShape {
         kind: shape.kind,
-        raster_rect,
+        raster_rect: outer.raster_rect,
         outer_rect,
         outer_rounding,
         inner: Some(inner),
@@ -437,7 +386,10 @@ fn prepare_external_ring_shape(
     let inner_rect = pixel_geometry.snap_rect(inner.rect);
     let outer_rect = expand_rect(inner_rect, width);
     let inner_rounding = inner.rounding;
-    let outer_rounding = expand_rounding(inner_rounding, width);
+    let outer_rounding = silhouette::clamp_resolved_rounding(
+        expand_rounding(inner_rounding, width),
+        outer_rect.area,
+    );
     let raster_rect = expand_rect(outer_rect, pixel_geometry.logical_pixel());
 
     Some(PreparedShape {
@@ -472,10 +424,10 @@ fn prepare_shadow_shape(
         kind: shape.kind,
         raster_rect,
         outer_rect,
-        outer_rounding: shape.outer_rounding,
+        outer_rounding: silhouette::clamp_resolved_rounding(shape.outer_rounding, outer_rect.area),
         inner: Some(AnalyticInner {
             rect: inner_rect,
-            rounding: inner.rounding,
+            rounding: inner_rect.rounding.resolve(inner_rect.area),
         }),
         brush: shape.brush,
         blur,
@@ -492,6 +444,7 @@ fn fill_shape(rect: Rect, brush: paint::Brush) -> AnalyticShape {
         brush,
         blur: 0.0,
         antialias: true,
+        snap_outer: true,
     }
 }
 
@@ -517,6 +470,7 @@ fn internal_stroke_shape(rect: Rect, width: f32, brush: paint::Brush) -> Option<
         brush,
         blur: 0.0,
         antialias: true,
+        snap_outer: true,
     })
 }
 
@@ -541,6 +495,7 @@ fn shadow_shape(shadow: &paint::Shadow) -> Option<AnalyticShape> {
         brush: shadow.brush,
         blur: shadow.blur.max(0.0),
         antialias: true,
+        snap_outer: true,
     })
 }
 
@@ -569,6 +524,7 @@ fn external_outline_shape(
         brush,
         blur: 0.0,
         antialias: true,
+        snap_outer: true,
     })
 }
 
@@ -587,78 +543,6 @@ fn ring_width(shape: AnalyticShape) -> Option<f32> {
         .into_iter()
         .filter(|width| *width > 0.0)
         .min_by(|a, b| a.total_cmp(b))
-}
-
-fn inset_rect(rect: Rect, inset: f32) -> Option<Rect> {
-    let width = rect.area.width() - inset * 2.0;
-    let height = rect.area.height() - inset * 2.0;
-
-    if width <= 0.0 || height <= 0.0 {
-        return None;
-    }
-
-    Some(Rect::new(
-        point::logical(rect.origin.x() + inset, rect.origin.y() + inset),
-        area::logical(width, height),
-    ))
-}
-
-fn expand_rect(rect: Rect, amount: f32) -> Rect {
-    Rect::new(
-        point::logical(rect.origin.x() - amount, rect.origin.y() - amount),
-        area::logical(
-            rect.area.width() + amount * 2.0,
-            rect.area.height() + amount * 2.0,
-        ),
-    )
-}
-
-fn offset_rect(rect: Rect, offset: point::Logical) -> Rect {
-    Rect::rounded(
-        point::logical(rect.origin.x() + offset.x(), rect.origin.y() + offset.y()),
-        rect.area,
-        rect.rounding,
-    )
-}
-
-fn union_rects(a: Rect, b: Rect) -> Rect {
-    let (a_left, a_top, a_right, a_bottom) = edges(a);
-    let (b_left, b_top, b_right, b_bottom) = edges(b);
-    let left = a_left.min(b_left);
-    let top = a_top.min(b_top);
-    let right = a_right.max(b_right);
-    let bottom = a_bottom.max(b_bottom);
-
-    Rect::new(
-        point::logical(left, top),
-        area::logical(right - left, bottom - top),
-    )
-}
-
-fn expand_rounding(rounding: [f32; 4], amount: f32) -> [f32; 4] {
-    [
-        expand_corner_radius(rounding[0], amount),
-        expand_corner_radius(rounding[1], amount),
-        expand_corner_radius(rounding[2], amount),
-        expand_corner_radius(rounding[3], amount),
-    ]
-}
-
-fn expand_corner_radius(rounding: f32, amount: f32) -> f32 {
-    if rounding <= 0.0 {
-        0.0
-    } else {
-        rounding + amount
-    }
-}
-
-fn shrink_rounding(rounding: [f32; 4], amount: f32) -> [f32; 4] {
-    [
-        (rounding[0] - amount).max(0.0),
-        (rounding[1] - amount).max(0.0),
-        (rounding[2] - amount).max(0.0),
-        (rounding[3] - amount).max(0.0),
-    ]
 }
 
 fn brush_data(brush: paint::Brush) -> PreparedBrush {
@@ -683,35 +567,40 @@ fn brush_data(brush: paint::Brush) -> PreparedBrush {
     }
 }
 
-fn clamped_width(rect: Rect, width: f32) -> f32 {
-    width
-        .max(0.0)
-        .min(rect.area.width() / 2.0)
-        .min(rect.area.height() / 2.0)
+#[cfg(test)]
+pub(crate) fn prepared_fill_silhouette_for_test(
+    rect: Rect,
+    scale_factor: f32,
+) -> PreparedSilhouette {
+    let shape = fill_shape(rect, paint::Brush::solid(paint::Color::BLACK));
+    let prepared = prepare_shape(shape, PixelGeometry::new(scale_factor))
+        .expect("fill silhouette should prepare");
+
+    PreparedSilhouette::from_parts(prepared.outer_rect, prepared.raster_rect)
+        .with_rounding(prepared.outer_rounding)
 }
 
-fn edges(rect: Rect) -> (f32, f32, f32, f32) {
-    let x0 = rect.origin.x();
-    let y0 = rect.origin.y();
+#[cfg(test)]
+pub(crate) fn prepared_shadow_cutout_silhouette_for_test(
+    shadow: paint::Shadow,
+    scale_factor: f32,
+) -> PreparedSilhouette {
+    let shape = analytic_shapes_for_shadow(&shadow)
+        .into_iter()
+        .next()
+        .expect("shadow should lower to shape");
+    let prepared = prepare_shape(shape, PixelGeometry::new(scale_factor))
+        .expect("shadow silhouette should prepare");
+    let inner = prepared.inner.expect("shadow should keep owner cutout");
+    let raster_rect = expand_rect(inner.rect, PixelGeometry::new(scale_factor).logical_pixel());
 
-    (x0, y0, x0 + rect.area.width(), y0 + rect.area.height())
-}
-
-fn rect_data(rect: Rect) -> [f32; 4] {
-    [
-        rect.origin.x(),
-        rect.origin.y(),
-        rect.area.width(),
-        rect.area.height(),
-    ]
-}
-
-fn rounding_data(rounding: [f32; 4]) -> [f32; 4] {
-    rounding
+    PreparedSilhouette::from_parts(inner.rect, raster_rect).with_rounding(inner.rounding)
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::geometry::point;
+
     use super::*;
 
     fn rect() -> Rect {
@@ -723,6 +612,7 @@ mod tests {
             rect: rect(),
             style,
             rasterization: paint::Rasterization::default(),
+            transform: paint::Transform::identity(),
         }
     }
 
@@ -881,6 +771,16 @@ mod tests {
     }
 
     #[test]
+    fn transformed_quad_lowers_to_transformed_analytic_bounds() {
+        let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
+        quad.transform = paint::Transform::scale_y_about(point::logical(30.0, 35.0), 1.5);
+        let shapes = analytic_shapes_for_quad(&quad);
+
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(rect_bounds(shapes[0].outer_rect), (10.0, 12.5, 50.0, 57.5));
+    }
+
+    #[test]
     fn fill_raster_bounds_expand_by_one_physical_pixel() {
         let shape = fill_shape(rect(), paint::Brush::solid(paint::Color::RED));
         let prepared = prepared_shape(shape, 1.0);
@@ -897,6 +797,25 @@ mod tests {
 
         assert_eq!(prepared.outer_rect, rect());
         assert_eq!(rect_bounds(prepared.raster_rect), (9.5, 19.5, 50.5, 50.5));
+    }
+
+    #[test]
+    fn unsnapped_transformed_quad_preserves_subpixel_bounds() {
+        let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
+        quad.rect = Rect::new(point::logical(10.0, 20.0), area::logical(40.0, 4.0));
+        quad.transform = paint::Transform::scale_y_about(point::logical(30.0, 22.0), 1.03125);
+
+        let shapes = analytic_shapes_for_quad_at_scale(&quad, 1.0);
+        let prepared = prepared_shape(shapes[0], 1.0);
+
+        assert_eq!(
+            rect_bounds(shapes[0].outer_rect),
+            (10.0, 19.9375, 50.0, 24.0625)
+        );
+        assert_eq!(
+            rect_bounds(prepared.outer_rect),
+            (10.0, 19.9375, 50.0, 24.0625)
+        );
     }
 
     #[test]
@@ -1178,6 +1097,7 @@ mod tests {
             ),
             style: style(Some(solid(paint::Color::RED)), None, None),
             rasterization: paint::Rasterization::default(),
+            transform: paint::Transform::identity(),
         };
         let shapes = analytic_shapes_for_quad(&quad);
 
@@ -1217,6 +1137,7 @@ mod tests {
             ),
             style: style(None, Some(stroke(4.0)), None),
             rasterization: paint::Rasterization::default(),
+            transform: paint::Transform::identity(),
         };
         let shapes = analytic_shapes_for_quad(&quad);
         let inner = shapes[0].inner.expect("stroke should be a ring");

@@ -4,8 +4,8 @@ pub mod focus;
 pub mod layout;
 pub mod scroll;
 
-mod backdrop;
 mod event;
+mod filter;
 mod node;
 mod painting;
 mod popup;
@@ -19,8 +19,8 @@ pub use crate::action::{
 };
 pub use crate::input::{Key, Modifiers};
 pub use crate::path::{Id, Path};
-pub use backdrop::Backdrop;
 pub use event::Event;
+pub use filter::Filter;
 pub use node::{Cursor, Interaction, Interactivity, Layout, Node, Shadow, Style};
 pub(crate) use node::{CursorOverlay, CursorOverlayText, Intent};
 pub(crate) use painting::{ScrollPaintRecord, ScrollPaintRecords};

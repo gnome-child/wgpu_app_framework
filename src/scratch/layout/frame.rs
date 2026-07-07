@@ -1,18 +1,44 @@
 use super::super::{
-    context,
+    composition, context,
     geometry::{Point, Rect},
-    interaction,
+    interaction, keymap, scene,
     theme::Theme,
     view,
 };
-use super::{control, engine, path, text};
+use super::{control, engine, measure, path, text, viewport};
+use crate::animation;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(in crate::scratch) struct Clip {
+    rect: Rect,
+    rounding: scene::Rounding,
+}
+
+#[derive(Clone)]
+pub(in crate::scratch) struct ShortcutPart {
+    run: keymap::ShortcutRun,
+    width: i32,
+}
+
+impl ShortcutPart {
+    pub(in crate::scratch) fn run(&self) -> &keymap::ShortcutRun {
+        &self.run
+    }
+
+    pub(in crate::scratch) fn width(&self) -> i32 {
+        self.width
+    }
+}
 
 #[derive(Clone)]
 pub struct Frame {
+    node_id: composition::NodeId,
     path: path::Path,
     role: view::node::Role,
     rect: Rect,
+    active_rect: Rect,
     label: Option<String>,
+    label_width: i32,
     text: Option<String>,
     text_wrap: Option<view::control::Wrap>,
     focused: bool,
@@ -20,8 +46,15 @@ pub struct Frame {
     hovered: bool,
     pressed: bool,
     active: bool,
+    selected: bool,
+    floating_layer: bool,
+    background: Option<scene::Brush>,
+    clip: Option<Clip>,
+    viewport: Option<viewport::Viewport>,
     text_area_layout: Option<text::Area>,
     text_box_layout: Option<text::Field>,
+    text_box_text_rect: Rect,
+    slider_track_rect: Option<Rect>,
     checkbox: Option<view::control::Checkbox>,
     radio: Option<view::control::Radio>,
     text_area: Option<view::control::TextArea>,
@@ -30,31 +63,104 @@ pub struct Frame {
     target: Option<interaction::Target>,
     binding: Option<view::Binding>,
     action: Option<view::Action>,
-    menu_shortcut_width: Option<i32>,
+    shortcut_width: Option<i32>,
+    shortcut_content_width: i32,
+    shortcut_display: Option<Vec<ShortcutPart>>,
 }
 
 impl Frame {
     pub(super) fn new(
         node: &view::Node,
+        node_id: composition::NodeId,
         path: path::Path,
         rect: Rect,
         engine: &mut engine::Engine,
+        theme: &Theme,
+        floating_layer: bool,
+        clip: Option<Clip>,
+        animation_frame: animation::Frame,
+        keymap: keymap::Profile,
     ) -> Self {
-        let target = target_for(node, &path);
+        let target = target_for(node, node_id);
         let binding = node.binding().cloned();
         let text_area = node.text_area_model();
-        let text_area_layout = text_area.map(|text_area| engine.text_area_layout(text_area, rect));
+        let now = animation_frame.now();
+        let text_area_layout =
+            text_area.map(|text_area| engine.text_area_layout(text_area, rect, theme, now));
+        let viewport = text_area_layout.as_ref().map(text::Area::viewport);
         let checkbox = node.checkbox_model().cloned();
         let radio = node.radio_model().cloned();
         let text_box = node.text_box_model().cloned();
+        let text_box_text_rect = text_box_text_rect_for(rect, theme);
         let text_box_layout = text_box
             .as_ref()
-            .map(|text_box| engine.text_field_layout(text_box, text_box_text_rect_for(rect)));
+            .map(|text_box| engine.text_field_layout(text_box, text_box_text_rect, theme, now));
+        let label = label_for(node).map(str::to_owned);
+        let label_width = label
+            .as_deref()
+            .map(|label| match node.role() {
+                view::node::Role::Menu => {
+                    engine.label_width_with_style(label, super::interface_text_style(theme))
+                }
+                view::node::Role::SectionHeader => engine.label_width_with_style(
+                    &super::section_header_text(label),
+                    super::section_header_style(theme),
+                ),
+                view::node::Role::Binding
+                | view::node::Role::Button
+                | view::node::Role::Checkbox
+                | view::node::Role::Radio
+                | view::node::Role::Slider
+                | view::node::Role::TextBox => {
+                    engine.label_width_with_style(label, super::interface_text_style(theme))
+                }
+                view::node::Role::Label
+                    if node
+                        .binding()
+                        .is_some_and(|binding| binding.source() == context::Source::Palette) =>
+                {
+                    engine.label_width_with_style(label, super::interface_text_style(theme))
+                }
+                _ => engine.label_width_with_style(label, theme.typography().body()),
+            })
+            .unwrap_or_default();
+        let shortcut_display = binding
+            .as_ref()
+            .and_then(view::Binding::shortcut)
+            .map(|shortcut| shortcut.display_parts(keymap, theme.shortcuts().display()));
+        let (shortcut_display, shortcut_content_width) = shortcut_display
+            .map(|display| {
+                let mut width = 0_i32;
+                let mut parts = Vec::with_capacity(display.runs().len());
+                for (index, run) in display.runs().iter().cloned().enumerate() {
+                    if index > 0 {
+                        width = width.saturating_add(measure::shortcut_run_gap(theme));
+                    }
+                    let run_width = measure::shortcut_run_width(&run, engine, theme);
+                    width = width.saturating_add(run_width);
+                    parts.push(ShortcutPart {
+                        run,
+                        width: run_width,
+                    });
+                }
+
+                (Some(parts), width)
+            })
+            .unwrap_or((None, 0));
+        let shortcut_width = shortcut_display.as_ref().map(|_| shortcut_content_width);
+        let slider = node.slider_model().cloned();
+        let slider_track_rect = slider
+            .as_ref()
+            .map(|_| control::slider_track_rect(rect, label_width, theme));
+        let active_rect = active_rect_for(node, rect, slider.as_ref(), label_width, theme);
         Self {
             path,
+            node_id,
             role: node.role(),
             rect,
-            label: label_for(node).map(str::to_owned),
+            active_rect,
+            label,
+            label_width,
             text: node
                 .label_text()
                 .is_none()
@@ -74,27 +180,45 @@ impl Frame {
             hovered: node.is_hovered(),
             pressed: node.is_pressed(),
             active: node.is_active(),
+            selected: node.is_selected(),
+            floating_layer,
+            background: node.style().background(),
+            clip,
+            viewport,
             text_area_layout,
             text_box_layout,
+            text_box_text_rect,
+            slider_track_rect,
             checkbox,
             radio,
             text_area: text_area.cloned(),
             text_box,
-            slider: node.slider_model().cloned(),
+            slider,
             target,
             binding,
             action: action_for(node),
-            menu_shortcut_width: None,
+            shortcut_width,
+            shortcut_content_width,
+            shortcut_display,
         }
     }
 
-    pub(super) fn with_menu_shortcut_width(mut self, width: i32) -> Self {
-        self.menu_shortcut_width = Some(width.max(0));
+    pub(super) fn with_viewport(mut self, viewport: viewport::Viewport) -> Self {
+        self.viewport = Some(viewport);
+        self
+    }
+
+    pub(super) fn with_shortcut_width(mut self, width: i32) -> Self {
+        self.shortcut_width = Some(width.max(0));
         self
     }
 
     pub fn path(&self) -> &path::Path {
         &self.path
+    }
+
+    pub fn node_id(&self) -> composition::NodeId {
+        self.node_id
     }
 
     pub fn role(&self) -> view::node::Role {
@@ -105,8 +229,16 @@ impl Frame {
         self.rect
     }
 
+    pub(in crate::scratch) fn active_rect(&self) -> Rect {
+        self.active_rect
+    }
+
     pub fn label_text(&self) -> Option<&str> {
         self.label.as_deref()
+    }
+
+    pub(in crate::scratch) fn label_width(&self) -> i32 {
+        self.label_width
     }
 
     pub fn text(&self) -> Option<&str> {
@@ -137,6 +269,30 @@ impl Frame {
         self.active
     }
 
+    pub fn is_selected(&self) -> bool {
+        self.selected
+    }
+
+    pub(in crate::scratch) fn is_floating_layer(&self) -> bool {
+        self.floating_layer
+    }
+
+    pub(in crate::scratch) fn background(&self) -> Option<scene::Brush> {
+        self.background
+    }
+
+    pub(in crate::scratch) fn clip(&self) -> Option<Clip> {
+        self.clip
+    }
+
+    pub fn viewport(&self) -> Option<viewport::Viewport> {
+        self.viewport
+    }
+
+    pub fn resolved_scroll(&self) -> Option<interaction::ScrollOffset> {
+        self.viewport.map(viewport::Viewport::resolved_scroll)
+    }
+
     pub fn is_enabled(&self) -> bool {
         self.binding.as_ref().is_none_or(view::Binding::is_enabled)
     }
@@ -145,12 +301,16 @@ impl Frame {
         self.binding.as_ref().and_then(view::Binding::checked)
     }
 
-    pub(in crate::scratch) fn shortcut(&self) -> Option<crate::scratch::command::KeyChord> {
-        self.binding.as_ref().and_then(view::Binding::shortcut)
+    pub(in crate::scratch) fn shortcut_display(&self) -> Option<&[ShortcutPart]> {
+        self.shortcut_display.as_deref()
     }
 
-    pub(in crate::scratch) fn menu_shortcut_width(&self) -> i32 {
-        self.menu_shortcut_width.unwrap_or_default()
+    pub(in crate::scratch) fn shortcut_width(&self) -> i32 {
+        self.shortcut_width.unwrap_or_default()
+    }
+
+    pub(in crate::scratch) fn shortcut_content_width(&self) -> i32 {
+        self.shortcut_content_width
     }
 
     pub(in crate::scratch) fn checkbox(&self) -> Option<&view::control::Checkbox> {
@@ -165,8 +325,16 @@ impl Frame {
         self.slider.as_ref()
     }
 
+    pub(in crate::scratch) fn slider_track_rect(&self) -> Option<Rect> {
+        self.slider_track_rect
+    }
+
     pub(in crate::scratch) fn text_box(&self) -> Option<&view::control::TextBox> {
         self.text_box.as_ref()
+    }
+
+    pub(in crate::scratch) fn text_area(&self) -> Option<&view::control::TextArea> {
+        self.text_area.as_ref()
     }
 
     pub fn text_area_layout(&self) -> Option<&text::Area> {
@@ -178,7 +346,7 @@ impl Frame {
     }
 
     pub(in crate::scratch) fn text_box_text_rect(&self) -> Rect {
-        text_box_text_rect_for(self.rect)
+        self.text_box_text_rect
     }
 
     pub fn target(&self) -> Option<&interaction::Target> {
@@ -193,8 +361,12 @@ impl Frame {
         self.binding.as_ref().map(view::Binding::source)
     }
 
-    pub(super) fn target_is_some(&self) -> bool {
-        self.target.is_some()
+    pub(in crate::scratch) fn clip_contains(&self, point: Point) -> bool {
+        self.clip.is_none_or(|clip| clip.contains(point))
+    }
+
+    pub(super) fn accepts_hit(&self, point: Point) -> bool {
+        self.target.is_some() && self.active_rect.contains(point) && self.clip_contains(point)
     }
 
     pub fn action_at(&self, point: Point) -> Option<view::Action> {
@@ -264,21 +436,66 @@ impl Frame {
 
     fn slider_value_at(&self, point: Point) -> Option<f64> {
         let slider = self.slider.as_ref()?;
-        let theme = Theme::default();
-        let fraction = control::slider_fraction_at(self.rect, &theme, point);
+        let track = self.slider_track_rect?;
+        let width = track.width().max(1) as f64;
+        let offset = point.x().saturating_sub(track.x()) as f64;
+        let fraction = offset / width;
 
         Some(slider.value_at_fraction(fraction))
     }
 }
 
-fn text_box_text_rect_for(rect: Rect) -> Rect {
-    let padding_x = Theme::default().text_input().padding_x;
+impl Clip {
+    pub(super) fn new(rect: Rect) -> Self {
+        Self {
+            rect,
+            rounding: scene::Rounding::none(),
+        }
+    }
+
+    pub(super) fn rounded(rect: Rect, rounding: scene::Rounding) -> Self {
+        Self { rect, rounding }
+    }
+
+    pub(in crate::scratch) fn rect(self) -> Rect {
+        self.rect
+    }
+
+    pub(in crate::scratch) fn rounding(self) -> scene::Rounding {
+        self.rounding
+    }
+
+    pub(in crate::scratch) fn contains(self, point: Point) -> bool {
+        self.rect.contains(point)
+    }
+}
+
+fn text_box_text_rect_for(rect: Rect, theme: &Theme) -> Rect {
+    let padding_x = theme.text_input().padding_x;
     Rect::new(
         rect.x().saturating_add(padding_x),
         rect.y(),
         rect.width().saturating_sub(padding_x.saturating_mul(2)),
         rect.height(),
     )
+}
+
+fn active_rect_for(
+    node: &view::Node,
+    rect: Rect,
+    slider: Option<&view::control::Slider>,
+    label_width: i32,
+    theme: &Theme,
+) -> Rect {
+    match node.role() {
+        view::node::Role::Checkbox | view::node::Role::Radio => {
+            control::choice_mark_rect(rect, theme)
+        }
+        view::node::Role::Slider => slider
+            .map(|slider| control::slider_active_rect(rect, slider, label_width, theme))
+            .unwrap_or(rect),
+        _ => rect,
+    }
 }
 
 fn label_for(node: &view::Node) -> Option<&str> {
@@ -311,12 +528,14 @@ fn action_for(node: &view::Node) -> Option<view::Action> {
         | view::node::Role::Checkbox
         | view::node::Role::Radio
         | view::node::Role::Slider
+        | view::node::Role::Scroll
         | view::node::Role::Panel
-        | view::node::Role::Popup
+        | view::node::Role::FloatingPanel
+        | view::node::Role::SectionHeader
         | view::node::Role::Label => None,
     }
 }
 
-fn target_for(node: &view::Node, path: &path::Path) -> Option<interaction::Target> {
-    node.pointer_target_at_path(path.indexes())
+fn target_for(node: &view::Node, node_id: composition::NodeId) -> Option<interaction::Target> {
+    node.node_pointer_target(node_id)
 }

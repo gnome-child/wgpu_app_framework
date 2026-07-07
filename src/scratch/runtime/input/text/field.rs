@@ -1,8 +1,9 @@
 use crate::text;
 
 use super::super::super::Runtime;
-use super::shortcut::Shortcut as TextBoxShortcut;
-use crate::scratch::{draft, error::Error, input, interaction, response, session, state, window};
+use crate::scratch::{
+    command, draft, error::Error, input, interaction, keymap, response, session, state, window,
+};
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(in crate::scratch::runtime) fn text_box_base_text(
@@ -42,6 +43,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let Some(change) = self.session.edit_text_draft(window, focus, base, edit) else {
             return Ok(None);
         };
+        if focus.same_target(&interaction::CommandPalette::query_focus())
+            && change.text_changed()
+            && self.session.reset_command_palette_selection(window)
+        {
+            self.session
+                .request_invalidation(window, response::Invalidation::Rebuild);
+        }
 
         let outcome = self.finish_text_box_change(window, focus, change.clone())?;
         Ok(Some((change, outcome)))
@@ -56,7 +64,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let mut handled = change.changed() || change.submit();
         let mut changed_state = false;
         let mut effect = if change.changed() {
-            response::Effect::Repaint
+            if focus.same_target(&interaction::CommandPalette::query_focus())
+                && change.text_changed()
+            {
+                response::Effect::Rebuild
+            } else {
+                response::Effect::Layout
+            }
         } else {
             response::Effect::None
         };
@@ -82,11 +96,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         key: input::Key,
         modifiers: input::Modifiers,
     ) -> std::result::Result<Option<input::Outcome>, Error> {
-        let Some(shortcut) = TextBoxShortcut::for_key(key, modifiers) else {
-            return Ok(None);
-        };
-
-        if shortcut != TextBoxShortcut::ClearSelection {
+        if self.keymap.text_box_shortcut_for_key(key, modifiers)
+            != Some(keymap::TextBoxShortcut::ClearSelection)
+        {
             return Ok(None);
         }
 
@@ -158,7 +170,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let outcome = self.handle_view(window, action)?;
         let sealed = self.session.seal_text_draft(window, focus);
         let effect = outcome.effect().clone().then(if sealed {
-            response::Effect::Repaint
+            response::Effect::Layout
         } else {
             response::Effect::None
         });
@@ -172,9 +184,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(super) fn handle_text_box_shortcut_for_chord(
         &mut self,
         window: window::Id,
-        shortcut: &'static str,
+        shortcut: command::KeyChord,
     ) -> std::result::Result<Option<input::Outcome>, Error> {
-        if TextBoxShortcut::for_chord(shortcut) != Some(TextBoxShortcut::ClearSelection) {
+        if self.keymap.text_box_shortcut_for_chord(shortcut)
+            != Some(keymap::TextBoxShortcut::ClearSelection)
+        {
             return Ok(None);
         }
 

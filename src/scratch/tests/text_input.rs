@@ -1,4 +1,5 @@
 use super::*;
+use std::time::Duration;
 
 #[test]
 fn text_editor_text_area_focus_routes_edits_through_runtime() {
@@ -57,7 +58,7 @@ fn text_editor_input_flow_is_framework_owned() {
 
     assert!(focus_outcome.is_handled());
     assert!(!focus_outcome.changed_state());
-    assert_eq!(focus_outcome.effect(), &response::Effect::Repaint);
+    assert!(focus_outcome.effect().contains_invalidation());
 
     let edit_outcome = app
         .handle_input(window, Input::text_edit(text::edit::Edit::insert("alpha")))
@@ -296,7 +297,7 @@ fn focused_text_area_renders_focus_outline_and_controls_caret_visibility() {
 
     assert!(text_area_layout.layout().caret().is_none());
     assert!(!unfocused.scene().outlines().iter().any(|outline| {
-        outline.rect() == text_area_rect && outline.color().channels() == (76, 132, 255, 255)
+        outline.rect() == text_area_rect && outline.color().channels() == (10, 132, 255, 255)
     }));
 
     app.handle_input(window, Input::focus(focus))
@@ -319,8 +320,95 @@ fn focused_text_area_renders_focus_outline_and_controls_caret_visibility() {
             .outlines()
             .iter()
             .any(|outline| outline.rect() == focused_text_area.rect()
-                && outline.color().channels() == (76, 132, 255, 255))
+                && outline.color().channels() == (10, 132, 255, 255))
     );
+}
+
+#[test]
+fn focused_text_area_caret_blinks_and_schedules_next_deadline() {
+    let mut app = text_editor::app(text_editor::State {
+        document: TextDocument::from_multiline_text("focus"),
+        ..text_editor::State::default()
+    });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(480, 180);
+    let projected = app
+        .present(window)
+        .expect("view should expose focus target");
+    let focus = projected.text_areas()[0]
+        .focus()
+        .expect("text area should expose a focus target");
+
+    app.handle_input(window, Input::focus(focus))
+        .expect("focus should be handled");
+    let target = interaction::Target::text_area(focus);
+    let epoch = app
+        .session()
+        .interaction(window)
+        .and_then(|interaction| interaction.text_input().caret_epoch_for(&target))
+        .expect("text area focus should store a caret blink epoch");
+
+    let visible = app
+        .render_scene_at(window, size, epoch)
+        .expect("focused text area should render");
+    assert!(text_area_caret_visible(&visible));
+    assert_text_area_caret_rasterization(&visible);
+    assert_eq!(
+        app.animation_schedule(),
+        crate::animation::Schedule::At(epoch + Duration::from_millis(500))
+    );
+    let work = app.drain_scenes(|_| size);
+    assert_eq!(
+        work.animation_schedule(),
+        crate::animation::Schedule::At(epoch + Duration::from_millis(500))
+    );
+    assert!(!app.session().windows()[0].redraw_requested());
+    let revision = app.revision();
+    let before_blink = app
+        .diagnostics(window)
+        .expect("diagnostics should exist")
+        .frame
+        .clone();
+    app.invalidate_due_animation_frames(epoch + Duration::from_millis(500));
+    assert_eq!(app.revision(), revision);
+    assert!(app.session().windows()[0].redraw_requested());
+
+    let hidden_at = epoch + Duration::from_millis(500);
+    let hidden = app
+        .render_scene_at(window, size, hidden_at)
+        .expect("focused text area should render hidden blink frame");
+    let after_blink = app
+        .diagnostics(window)
+        .expect("diagnostics should exist")
+        .frame
+        .clone();
+    assert!(!text_area_caret_visible(&hidden));
+    assert_eq!(after_blink.view_rebuilds, before_blink.view_rebuilds);
+    assert_eq!(
+        after_blink.layout_recomposes,
+        before_blink.layout_recomposes
+    );
+    assert!(after_blink.layout_reuses > before_blink.layout_reuses);
+    assert_eq!(
+        app.animation_schedule(),
+        crate::animation::Schedule::At(epoch + Duration::from_millis(1000))
+    );
+
+    app.handle_input(
+        window,
+        Input::key_down(
+            input::Key::ArrowLeft,
+            input::Modifiers::new(true, false, false, false),
+        ),
+    )
+    .expect("shift-arrow should be handled");
+    app.render_scene_at(window, size, epoch + Duration::from_millis(1100))
+        .expect("selected text area should render");
+
+    assert_eq!(app.animation_schedule(), crate::animation::Schedule::Idle);
 }
 
 #[test]
@@ -352,7 +440,7 @@ fn text_editor_key_down_escape_uses_cancel_flow_for_preedit() {
 
     assert!(escaped.is_handled());
     assert!(!escaped.changed_state());
-    assert_eq!(escaped.effect(), &response::Effect::Repaint);
+    assert!(escaped.effect().contains_invalidation());
     assert_eq!(app.session().focused(window), Some(focus));
     assert!(
         app.session()
@@ -503,7 +591,7 @@ fn text_editor_key_down_alt_f4_dispatches_framework_close_window() {
 
     assert!(closed.is_handled());
     assert!(!closed.changed_state());
-    assert_eq!(closed.effect(), &response::Effect::Repaint);
+    assert!(closed.effect().contains_invalidation());
     assert!(!app.session().contains(window));
     assert_eq!(app.revision(), state::Revision::initial());
 }
@@ -794,14 +882,14 @@ fn text_editor_edit_menu_undo_redo_commands_use_runtime_timeline() {
     assert_eq!(undo.state().label.as_deref(), Some("Undo"));
     assert_eq!(
         undo.state().shortcut.map(|shortcut| shortcut.as_str()),
-        Some("Ctrl+Z")
+        Some("Standard::Undo")
     );
 
     let effect = app
         .activate_in(window, undo)
         .expect("undo command should activate");
 
-    assert_eq!(effect, response::Effect::Repaint);
+    assert!(effect.contains_invalidation());
     assert_eq!(app.state().document.text(), "");
     assert_eq!(app.revision().get(), 2);
 
@@ -887,7 +975,7 @@ fn text_editor_edit_menu_clipboard_commands_use_focused_document() {
     assert_eq!(copy.state().label.as_deref(), Some("Copy"));
     assert_eq!(
         copy.state().shortcut.map(|shortcut| shortcut.as_str()),
-        Some("Ctrl+C")
+        Some("Standard::Copy")
     );
 
     app.activate_in(window, copy).expect("copy should activate");
@@ -964,14 +1052,14 @@ fn text_editor_file_menu_exit_closes_framework_window() {
     assert_eq!(exit.state().label.as_deref(), Some("Exit"));
     assert_eq!(
         exit.state().shortcut.map(|shortcut| shortcut.as_str()),
-        Some("Alt+F4")
+        Some("Standard::CloseWindow")
     );
 
     let effect = app
         .activate_in(window, exit)
         .expect("exit command should activate");
 
-    assert_eq!(effect, response::Effect::Repaint);
+    assert!(effect.contains_invalidation());
     assert!(app.session().windows().is_empty());
     assert_eq!(app.revision(), state::Revision::initial());
     assert!(app.present(window).is_none());
@@ -1029,5 +1117,72 @@ fn text_editor_file_menu_load_stress_text_updates_document_and_status() {
             .labels()
             .iter()
             .any(|label| label.contains("Status: loaded Unicode stress fixture"))
+    );
+}
+
+fn text_area_caret_visible(presentation: &scene::Presentation) -> bool {
+    let Some(text_area) = presentation
+        .layout()
+        .find_role(view::node::Role::TextArea)
+        .into_iter()
+        .next()
+    else {
+        return false;
+    };
+    let Some(caret) = text_area
+        .text_area_layout()
+        .and_then(|area| area.layout().caret())
+    else {
+        return false;
+    };
+    let rect = text_area.rect();
+    let expected = geometry::Rect::new(
+        rect.x().saturating_add(caret.x().floor() as i32),
+        rect.y().saturating_add(caret.y().floor() as i32),
+        1,
+        caret.height().ceil().max(0.0) as i32,
+    );
+
+    presentation.scene().quads().into_iter().any(|quad| {
+        quad.rect() == expected
+            && quad.rasterization()
+                == scene::Rasterization::new(
+                    scene::Snapping::FixedWidth { width_px: 2 },
+                    scene::EdgeMode::Hard,
+                )
+    })
+}
+
+fn assert_text_area_caret_rasterization(presentation: &scene::Presentation) {
+    let text_area = presentation
+        .layout()
+        .find_role(view::node::Role::TextArea)
+        .into_iter()
+        .next()
+        .expect("text area should be laid out");
+    let caret = text_area
+        .text_area_layout()
+        .and_then(|area| area.layout().caret())
+        .expect("visible blink phase should expose a text area caret");
+    let rect = text_area.rect();
+    let expected = geometry::Rect::new(
+        rect.x().saturating_add(caret.x().floor() as i32),
+        rect.y().saturating_add(caret.y().floor() as i32),
+        1,
+        caret.height().ceil().max(0.0) as i32,
+    );
+    let caret_quad = presentation
+        .scene()
+        .quads()
+        .into_iter()
+        .find(|quad| quad.rect() == expected)
+        .expect("text area caret should be painted as a quad");
+
+    assert_eq!(
+        caret_quad.rasterization(),
+        scene::Rasterization::new(
+            scene::Snapping::FixedWidth { width_px: 2 },
+            scene::EdgeMode::Hard
+        )
     );
 }

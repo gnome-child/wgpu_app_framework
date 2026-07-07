@@ -1,6 +1,6 @@
 use std::{error::Error, fs, io};
 
-use crate::scratch::{geometry, input, session, shell as framework_shell, view};
+use crate::scratch::{geometry, input, session, shell::Event as ShellEvent, view};
 
 use super::{LoadStressText, State, app, shell as new_shell, window_size};
 
@@ -109,7 +109,7 @@ fn smoke_shell_file_flow() -> Result {
     let _ = fs::remove_file(&path);
 
     let mut shell = new_shell(State::default());
-    let started = shell.handle_event(framework_shell::Event::Started)?;
+    let started = shell.handle_event(ShellEvent::Started)?;
     let window = started
         .opened_windows()
         .first()
@@ -130,7 +130,7 @@ fn smoke_shell_file_flow() -> Result {
         })
         .ok_or_else(|| io::Error::other("shell smoke did not lay out a text area"))?;
     let text_area_point = geometry::Point::new(text_area_rect.x() + 4, text_area_rect.y() + 4);
-    shell.handle_event(framework_shell::Event::PointerDown {
+    shell.handle_event(ShellEvent::PointerDown {
         window,
         point: text_area_point,
     })?;
@@ -145,7 +145,7 @@ fn smoke_shell_file_flow() -> Result {
     }
 
     for character in "smoke".chars() {
-        shell.handle_event(framework_shell::Event::KeyDown {
+        shell.handle_event(ShellEvent::KeyDown {
             window,
             key: input::Key::Character(character),
             modifiers: input::Modifiers::default(),
@@ -156,7 +156,7 @@ fn smoke_shell_file_flow() -> Result {
         return Err(io::Error::other("shell key input did not edit document").into());
     }
 
-    let save = shell.handle_event(framework_shell::Event::KeyDown {
+    let save = shell.handle_event(ShellEvent::KeyDown {
         window,
         key: input::Key::Character('s'),
         modifiers: input::Modifiers::new(false, true, false, false),
@@ -172,7 +172,7 @@ fn smoke_shell_file_flow() -> Result {
         return Err(io::Error::other("save shortcut requested the wrong dialog").into());
     }
 
-    let selected = shell.handle_event(framework_shell::Event::FilePathSelected {
+    let selected = shell.handle_event(ShellEvent::FilePathSelected {
         window,
         path: Some(path.clone()),
     })?;
@@ -180,7 +180,7 @@ fn smoke_shell_file_flow() -> Result {
         return Err(io::Error::other("save path selection did not schedule file write").into());
     }
 
-    let saved = shell.handle_event(framework_shell::Event::Poll)?;
+    let saved = shell.handle_event(ShellEvent::Poll)?;
     if saved.pending_tasks() != 0 || saved.needs_poll() {
         return Err(io::Error::other("save poll did not complete file write").into());
     }
@@ -189,7 +189,7 @@ fn smoke_shell_file_flow() -> Result {
     }
 
     fs::write(&path, "opened from smoke")?;
-    let open = shell.handle_event(framework_shell::Event::KeyDown {
+    let open = shell.handle_event(ShellEvent::KeyDown {
         window,
         key: input::Key::Character('o'),
         modifiers: input::Modifiers::new(false, true, false, false),
@@ -205,7 +205,7 @@ fn smoke_shell_file_flow() -> Result {
         return Err(io::Error::other("open shortcut requested the wrong dialog").into());
     }
 
-    shell.handle_event(framework_shell::Event::FilePathSelected {
+    shell.handle_event(ShellEvent::FilePathSelected {
         window,
         path: Some(path.clone()),
     })?;

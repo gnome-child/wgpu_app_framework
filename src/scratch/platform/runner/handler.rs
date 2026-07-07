@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use winit::{
     application::ApplicationHandler, event::WindowEvent as WinitWindowEvent,
     event_loop::ActiveEventLoop,
@@ -60,7 +62,10 @@ impl<M: State, E: Send + 'static> ApplicationHandler<E> for Runner<M, E, Native>
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if self.platform.backend_mut().take_poll_requested() {
+        let poll_requested = self.platform.backend_mut().take_poll_requested();
+        let animation_due = self.platform.animation_schedule().is_due(Instant::now());
+
+        if poll_requested || animation_due {
             let mut context = NativeContext::new(event_loop);
             if let Err(error) = self.platform.poll_with(&mut context) {
                 self.fail(event_loop, error);

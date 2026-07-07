@@ -1,4 +1,4 @@
-use crate::scratch::{command, context::Source, interaction, view};
+use crate::scratch::{command, context::Source, interaction, scene, subject, view};
 
 use super::{Direction, Layout, Ui, Widget};
 
@@ -7,15 +7,23 @@ pub struct Element {
     layout: Layout,
     width: Option<view::style::Dimension>,
     height: Option<view::style::Dimension>,
+    max_height: Option<i32>,
+    background: Option<scene::Brush>,
 }
 
 impl Element {
     pub fn new() -> Self {
+        Self::from_node(view::Node::panel())
+    }
+
+    pub(in crate::scratch::widget) fn from_node(node: view::Node) -> Self {
         Self {
-            node: view::Node::panel(),
+            node,
             layout: Layout::default(),
             width: None,
             height: None,
+            max_height: None,
+            background: None,
         }
     }
 
@@ -29,6 +37,11 @@ impl Element {
         self
     }
 
+    pub fn subject(mut self, subject: subject::Segment) -> Self {
+        self.node = self.node.with_subject(subject);
+        self
+    }
+
     pub fn width(mut self, size: view::style::Dimension) -> Self {
         self.width = Some(size);
         self
@@ -36,6 +49,16 @@ impl Element {
 
     pub fn height(mut self, size: view::style::Dimension) -> Self {
         self.height = Some(size);
+        self
+    }
+
+    pub fn max_height(mut self, height: i32) -> Self {
+        self.max_height = Some(height.max(0));
+        self
+    }
+
+    pub fn background(mut self, background: scene::Brush) -> Self {
+        self.background = Some(background);
         self
     }
 
@@ -51,6 +74,11 @@ impl Element {
 
     pub fn column(mut self) -> Self {
         self.layout = self.layout.column();
+        self.apply_layout_direction()
+    }
+
+    pub fn overlay(mut self) -> Self {
+        self.layout = self.layout.overlay();
         self.apply_layout_direction()
     }
 
@@ -89,10 +117,15 @@ impl Element {
         self.height
     }
 
+    pub fn max_height_state(&self) -> Option<i32> {
+        self.max_height
+    }
+
     fn apply_layout_direction(mut self) -> Self {
         self.node = match self.layout.direction() {
             Direction::Row => self.node.with_layout_axis(view::node::Axis::Horizontal),
             Direction::Column => self.node.with_layout_axis(view::node::Axis::Vertical),
+            Direction::Overlay => self.node.with_layout_axis(view::node::Axis::Overlay),
         };
         self
     }
@@ -107,16 +140,24 @@ impl Default for Element {
 impl Widget for Element {
     fn into_node(self) -> view::Node {
         let mut style = view::Style::new()
-            .with_gap(self.layout.gap_value())
             .with_padding(self.layout.padding_value())
             .with_align_items(self.layout.align_items_value())
             .with_justify_content(self.layout.justify_content_value());
 
+        if let Some(gap) = self.layout.gap_override() {
+            style = style.with_gap(gap);
+        }
         if let Some(width) = self.width {
             style = style.with_width(width);
         }
         if let Some(height) = self.height {
             style = style.with_height(height);
+        }
+        if let Some(max_height) = self.max_height {
+            style = style.with_max_height(max_height);
+        }
+        if let Some(background) = self.background {
+            style = style.with_background(background);
         }
 
         self.node.with_style(style)

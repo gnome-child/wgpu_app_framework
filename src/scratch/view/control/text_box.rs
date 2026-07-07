@@ -3,6 +3,7 @@ use crate::text;
 use super::super::action::Action;
 use crate::scratch::{interaction, session};
 use std::ops::Range;
+use std::time::Instant;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextBox {
@@ -14,6 +15,7 @@ pub struct TextBox {
     cursor: Option<usize>,
     selection: Option<Range<usize>>,
     preedit: Option<text::edit::Preedit>,
+    caret_epoch: Option<Instant>,
 }
 
 impl TextBox {
@@ -27,6 +29,7 @@ impl TextBox {
             cursor: None,
             selection: None,
             preedit: None,
+            caret_epoch: None,
         }
     }
 
@@ -80,6 +83,10 @@ impl TextBox {
         self.preedit.as_ref()
     }
 
+    pub(in crate::scratch) fn caret_epoch(&self) -> Option<Instant> {
+        self.caret_epoch
+    }
+
     pub fn focus_action(&self) -> Option<Action> {
         self.focus.clone().map(Action::focus)
     }
@@ -114,6 +121,7 @@ impl TextBox {
     ) {
         let Some(focus) = self.focus else {
             self.preedit = None;
+            self.caret_epoch = None;
             return;
         };
 
@@ -130,6 +138,7 @@ impl TextBox {
             self.selection = None;
         }
         self.preedit = interaction.text_input().preedit_for(&target).cloned();
+        self.caret_epoch = interaction.text_input().caret_epoch_for(&target);
     }
 
     pub(in crate::scratch::view) fn project_focus(&mut self, focus: Option<&session::Focus>) {
@@ -137,7 +146,8 @@ impl TextBox {
             .focus
             .as_ref()
             .is_some_and(|text_focus| focus.is_some_and(|focus| text_focus.same_target(focus)));
-        self.focus_visible = self.focused && focus.is_some_and(|focus| focus.is_visible());
+        self.focus_visible =
+            self.focused && focus.is_some_and(|focus| focus.shows_focus_indicator());
         if self.focused && self.cursor.is_none() {
             self.cursor = Some(self.text.len());
         }
@@ -145,6 +155,7 @@ impl TextBox {
             self.cursor = None;
             self.selection = None;
             self.preedit = None;
+            self.caret_epoch = None;
         }
     }
 }
