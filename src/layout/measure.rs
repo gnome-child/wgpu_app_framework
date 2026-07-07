@@ -1,5 +1,4 @@
 use super::super::{
-    context::Source,
     geometry::{Rect, Size},
     keymap, theme, view,
 };
@@ -37,19 +36,11 @@ pub(in crate::layout) fn intrinsic_width(
         view::Role::Menu => menu_intrinsic_width(node, engine, theme),
         view::Role::FloatingPanel => floating_panel_width(node, engine, theme, profile),
         view::Role::Scroll => scroll_intrinsic_width(node, engine, theme, profile),
-        view::Role::Binding
-            if node
-                .binding()
-                .is_some_and(|binding| binding.source() == Source::Menu) =>
-        {
+        view::Role::Binding if control::is_menu_panel_row(node) => {
             menu_row_width(node, engine, theme, profile).max(theme.menu().panel_min_width)
         }
         view::Role::Binding => label_width.max(theme.menu().panel_min_width),
-        view::Role::Label
-            if node
-                .binding()
-                .is_some_and(|binding| binding.source() == Source::Palette) =>
-        {
+        view::Role::Label if control::is_palette_row(node) => {
             let shortcut_width = palette_shortcut_width(node, engine, theme, profile);
             control::palette_row_width(label_width, shortcut_width, theme)
         }
@@ -67,13 +58,7 @@ pub(in crate::layout) fn intrinsic_height(node: &view::Node, theme: &theme::Them
     match node.role() {
         view::Role::FloatingPanel => floating_panel_height(node, theme),
         view::Role::MenuBar | view::Role::Menu => theme.menu().bar_height,
-        view::Role::Binding
-            if node
-                .binding()
-                .is_some_and(|binding| binding.source() == Source::Menu) =>
-        {
-            theme.menu().row_height
-        }
+        view::Role::Binding if control::is_menu_panel_row(node) => theme.menu().row_height,
         view::Role::Binding
         | view::Role::Button
         | view::Role::Checkbox

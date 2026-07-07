@@ -81,6 +81,11 @@ pub(crate) fn is_menu_panel_row(node: &view::Node) -> bool {
             .is_some_and(|binding| binding.source() == Source::Menu)
 }
 
+pub(crate) fn is_palette_row(node: &view::Node) -> bool {
+    node.binding()
+        .is_some_and(|binding| binding.source() == Source::Palette)
+}
+
 pub(crate) fn palette_row_parts(
     rect: Rect,
     shortcut_width: i32,
