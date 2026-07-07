@@ -77,6 +77,20 @@ fn renderer_paint_vocabulary_stays_private() {
 }
 
 #[test]
+fn paint_geometry_stays_below_text_and_native_rendering() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let allowed_roots = [
+        src_dir.join("paint_geometry"),
+        src_dir.join("paint"),
+        src_dir.join("render"),
+        src_dir.join("platform").join("native"),
+        src_dir.join("text"),
+    ];
+
+    assert_imports_only_under_any(&src_dir, &allowed_roots, &["paint_geometry"]);
+}
+
+#[test]
 fn demo_apps_do_not_leak_into_framework_source_or_public_api() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let examples_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");

@@ -52,6 +52,17 @@ pub use output::{
     Measure, Metrics, TextAreaPaintLayout, TextAreaSurface, TextFieldLayout, TextFieldPaintLayout,
 };
 
+pub(crate) type SurfaceArea = geom_area::Logical;
+pub(crate) type SurfacePoint = point::Logical;
+
+pub(crate) fn surface_area(width: f32, height: f32) -> SurfaceArea {
+    geom_area::logical(width, height)
+}
+
+pub(crate) fn surface_point(x: f32, y: f32) -> SurfacePoint {
+    point::logical(x, y)
+}
+
 impl Engine {
     fn visual_motion_position(
         &mut self,

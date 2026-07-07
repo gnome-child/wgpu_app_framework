@@ -1,9 +1,6 @@
 use std::{cell::RefCell, fmt, rc::Rc, time::Instant};
 
-use crate::{
-    paint_geometry::{area, point},
-    text as text_engine,
-};
+use crate::text as text_engine;
 
 use super::super::{
     diagnostics,
@@ -111,7 +108,8 @@ impl Service {
     ) -> Area {
         let area_model = text_area.area_model();
         let style = field_style(theme);
-        let logical_viewport = area::logical(rect.width() as f32, rect.height() as f32);
+        let logical_viewport =
+            text_engine::layout::surface_area(rect.width() as f32, rect.height() as f32);
         let layout_now = text_area.caret_epoch().unwrap_or(now);
         let mut state = text_area.view_state_at(layout_now);
         let paint_layout = {
@@ -168,7 +166,7 @@ impl Service {
         position: Point,
     ) -> Option<text_engine::buffer::Position> {
         let area_model = text_area.area_model();
-        let local = point::logical(
+        let local = text_engine::layout::surface_point(
             position.x().saturating_sub(rect.x()) as f32,
             position.y().saturating_sub(rect.y()) as f32,
         );
@@ -193,7 +191,7 @@ impl Service {
     ) -> Field {
         let field = field_model(text_box);
         let style = field_style(theme);
-        let viewport = area::logical(rect.width() as f32, rect.height() as f32);
+        let viewport = text_engine::layout::surface_area(rect.width() as f32, rect.height() as f32);
         let epoch = text_box.caret_epoch().unwrap_or(now);
         let mut state = text_engine::edit::ViewState::new_at(0.0, epoch)
             .with_preedit(text_box.preedit().cloned());
@@ -229,8 +227,8 @@ impl Service {
     ) -> Option<text_engine::buffer::Position> {
         let field = field_model(text_box);
         let style = layout.style;
-        let viewport = area::logical(rect.width() as f32, rect.height() as f32);
-        let local = point::logical(
+        let viewport = text_engine::layout::surface_area(rect.width() as f32, rect.height() as f32);
+        let local = text_engine::layout::surface_point(
             position.x().saturating_sub(rect.x()) as f32,
             position.y().saturating_sub(rect.y()) as f32,
         );
@@ -342,7 +340,10 @@ fn field_style(theme: &Theme) -> text_engine::document::Style {
 }
 
 fn measure_for_width(width: i32) -> text_engine::layout::Measure {
-    text_engine::layout::Measure::bounded(area::logical(width.max(0) as f32, f32::MAX))
+    text_engine::layout::Measure::bounded(text_engine::layout::surface_area(
+        width.max(0) as f32,
+        f32::MAX,
+    ))
 }
 
 fn text_color_from_scene(color: scene::Color) -> text_engine::Color {
@@ -394,7 +395,7 @@ fn viewport_for_text_area(
 fn clamp_text_area_scroll_state(
     state: &text_engine::edit::ViewState,
     layout: &text_engine::layout::TextFieldLayout,
-    viewport: area::Logical,
+    viewport: text_engine::layout::SurfaceArea,
 ) -> text_engine::edit::ViewState {
     let content_area = layout.content_area();
     let max_scroll_x = (content_area.width() - viewport.width()).max(0.0);
