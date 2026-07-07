@@ -48,6 +48,35 @@ struct ClipFrame {
     layer_index: usize,
 }
 
+struct SceneEncoder<'a> {
+    render_context: &'a render::Context,
+    quad_pipeline: &'a wgpu::RenderPipeline,
+    filter_renderer: &'a render::filter::Renderer,
+    text_renderer: &'a mut render::text_renderer::TextRenderer,
+    filter_target: render::filter::Target,
+    output_target: render::filter::Target,
+    encoder: &'a mut wgpu::CommandEncoder,
+    base_view: &'a wgpu::TextureView,
+    clear_color: wgpu::Color,
+    viewport: render::Viewport,
+    layers: Vec<render::filter::Layer>,
+    clip_stack: Vec<ClipFrame>,
+    text_render_error: &'a mut Option<render::text_renderer::Error>,
+}
+
+struct SceneEncoderInput<'a> {
+    render_context: &'a render::Context,
+    quad_pipeline: &'a wgpu::RenderPipeline,
+    filter_renderer: &'a render::filter::Renderer,
+    text_renderer: &'a mut render::text_renderer::TextRenderer,
+    filter_target: render::filter::Target,
+    encoder: &'a mut wgpu::CommandEncoder,
+    base_view: &'a wgpu::TextureView,
+    clear_color: wgpu::Color,
+    viewport: render::Viewport,
+    text_render_error: &'a mut Option<render::text_renderer::Error>,
+}
+
 impl Renderer {
     pub fn new(render_context: &render::Context, format: wgpu::TextureFormat) -> Self {
         Self {
@@ -132,19 +161,19 @@ impl Renderer {
             let Some(composition_view) = filter_renderer.composition_view() else {
                 return;
             };
-            encode_scene(
+            let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
                 render_context,
                 quad_pipeline,
                 filter_renderer,
                 text_renderer,
                 filter_target,
                 encoder,
-                composition_view,
+                base_view: composition_view,
                 clear_color,
-                main_viewport,
-                &prepared_scene.render_batches,
-                &mut text_render_error,
-            );
+                viewport: main_viewport,
+                text_render_error: &mut text_render_error,
+            });
+            scene_encoder.encode(&prepared_scene.render_batches);
             if text_render_error.is_some() {
                 return;
             }
@@ -333,149 +362,141 @@ fn begin_main_pass<'a>(
     })
 }
 
-fn encode_scene(
-    render_context: &render::Context,
-    quad_pipeline: &wgpu::RenderPipeline,
-    filter_renderer: &render::filter::Renderer,
-    text_renderer: &mut render::text_renderer::TextRenderer,
-    filter_target: render::filter::Target,
-    encoder: &mut wgpu::CommandEncoder,
-    base_view: &wgpu::TextureView,
-    clear_color: wgpu::Color,
-    viewport: render::Viewport,
-    render_batches: &[RenderBatch],
-    text_render_error: &mut Option<render::text_renderer::Error>,
-) {
-    let mut layers = Vec::new();
-    let mut clip_stack = Vec::new();
-    let output_target = render::filter::Target::from_viewport(viewport);
-
-    for batch in render_batches {
-        match batch {
-            RenderBatch::Shapes(batch) => {
-                let Some(scissor) = current_scissor(
-                    &clip_stack,
-                    viewport.physical_area(),
-                    viewport.scale_factor(),
-                ) else {
-                    continue;
-                };
-                let Some(target_view) = current_target_view(base_view, &layers, &clip_stack) else {
-                    return;
-                };
-                let mut pass = begin_main_pass(encoder, target_view, clear_color, false);
-                pass.set_pipeline(quad_pipeline);
-                pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
-                pass.set_vertex_buffer(0, batch.vertex_buffer().slice(..));
-                pass.draw(0..batch.vertex_count(), 0..1);
-            }
-            RenderBatch::Filter(filter) => {
-                if !clip_stack.is_empty() {
-                    log::debug!("skipping filter draw inside clipped layer");
-                    continue;
-                }
-
-                filter_renderer.draw(render_context, filter_target, encoder, filter.clone(), None);
-            }
-            RenderBatch::Text {
-                renderer_index,
-                viewport: text_viewport,
-            } => {
-                let Some(scissor) = current_scissor(
-                    &clip_stack,
-                    viewport.physical_area(),
-                    viewport.scale_factor(),
-                ) else {
-                    continue;
-                };
-                let Some(target_view) = current_target_view(base_view, &layers, &clip_stack) else {
-                    return;
-                };
-                let mut pass = begin_main_pass(encoder, target_view, clear_color, false);
-                pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
-                if let Err(error) =
-                    text_renderer.render(render_context, *text_viewport, *renderer_index, &mut pass)
-                {
-                    *text_render_error = Some(error);
-                    return;
-                }
-            }
-            RenderBatch::PushClip(clip) => {
-                let layer = filter_renderer.create_layer(
-                    render_context,
-                    output_target,
-                    "Clip Layer Texture",
-                );
-                layers.push(layer);
-                let layer_index = layers.len() - 1;
-                filter_renderer.clear_layer(encoder, &layers[layer_index]);
-                clip_stack.push(ClipFrame {
-                    clip: *clip,
-                    layer_index,
-                });
-            }
-            RenderBatch::PopClip => {
-                composite_clip_layer(
-                    render_context,
-                    filter_renderer,
-                    output_target,
-                    encoder,
-                    viewport,
-                    base_view,
-                    &layers,
-                    &mut clip_stack,
-                );
-            }
+impl<'a> SceneEncoder<'a> {
+    fn new(input: SceneEncoderInput<'a>) -> Self {
+        Self {
+            render_context: input.render_context,
+            quad_pipeline: input.quad_pipeline,
+            filter_renderer: input.filter_renderer,
+            text_renderer: input.text_renderer,
+            filter_target: input.filter_target,
+            output_target: render::filter::Target::from_viewport(input.viewport),
+            encoder: input.encoder,
+            base_view: input.base_view,
+            clear_color: input.clear_color,
+            viewport: input.viewport,
+            layers: Vec::new(),
+            clip_stack: Vec::new(),
+            text_render_error: input.text_render_error,
         }
     }
 
-    while !clip_stack.is_empty() {
-        composite_clip_layer(
-            render_context,
-            filter_renderer,
-            output_target,
-            encoder,
-            viewport,
-            base_view,
-            &layers,
-            &mut clip_stack,
+    fn encode(&mut self, render_batches: &[RenderBatch]) {
+        for batch in render_batches {
+            match batch {
+                RenderBatch::Shapes(batch) => self.encode_shapes(batch),
+                RenderBatch::Filter(filter) => self.encode_filter(filter),
+                RenderBatch::Text {
+                    renderer_index,
+                    viewport,
+                } => self.encode_text(*renderer_index, *viewport),
+                RenderBatch::PushClip(clip) => self.push_clip(*clip),
+                RenderBatch::PopClip => self.composite_clip_layer(),
+            }
+        }
+
+        while !self.clip_stack.is_empty() {
+            self.composite_clip_layer();
+        }
+    }
+
+    fn encode_shapes(&mut self, batch: &render::quad::Batch) {
+        let Some(scissor) = current_scissor(
+            &self.clip_stack,
+            self.viewport.physical_area(),
+            self.viewport.scale_factor(),
+        ) else {
+            return;
+        };
+        let Some(target_view) = current_target_view(self.base_view, &self.layers, &self.clip_stack)
+        else {
+            return;
+        };
+        let mut pass = begin_main_pass(self.encoder, target_view, self.clear_color, false);
+        pass.set_pipeline(self.quad_pipeline);
+        pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
+        pass.set_vertex_buffer(0, batch.vertex_buffer().slice(..));
+        pass.draw(0..batch.vertex_count(), 0..1);
+    }
+
+    fn encode_filter(&mut self, filter: &paint::Filter) {
+        if !self.clip_stack.is_empty() {
+            log::debug!("skipping filter draw inside clipped layer");
+            return;
+        }
+
+        self.filter_renderer.draw(
+            self.render_context,
+            self.filter_target,
+            self.encoder,
+            filter.clone(),
+            None,
         );
     }
-}
 
-fn composite_clip_layer(
-    render_context: &render::Context,
-    filter_renderer: &render::filter::Renderer,
-    target: render::filter::Target,
-    encoder: &mut wgpu::CommandEncoder,
-    viewport: render::Viewport,
-    base_view: &wgpu::TextureView,
-    layers: &[render::filter::Layer],
-    clip_stack: &mut Vec<ClipFrame>,
-) {
-    let Some(frame) = clip_stack.pop() else {
-        return;
-    };
-    let Some(source) = layers.get(frame.layer_index) else {
-        return;
-    };
-    let Some(output) = current_target_view(base_view, layers, clip_stack) else {
-        return;
-    };
+    fn encode_text(&mut self, renderer_index: usize, text_viewport: render::Viewport) {
+        let Some(scissor) = current_scissor(
+            &self.clip_stack,
+            self.viewport.physical_area(),
+            self.viewport.scale_factor(),
+        ) else {
+            return;
+        };
+        let Some(target_view) = current_target_view(self.base_view, &self.layers, &self.clip_stack)
+        else {
+            return;
+        };
+        let mut pass = begin_main_pass(self.encoder, target_view, self.clear_color, false);
+        pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
+        if let Err(error) = self.text_renderer.render(
+            self.render_context,
+            text_viewport,
+            renderer_index,
+            &mut pass,
+        ) {
+            *self.text_render_error = Some(error);
+        }
+    }
 
-    filter_renderer.composite_layer(
-        render_context,
-        encoder,
-        source,
-        output,
-        target,
-        frame.clip,
-        clip_scissor(
-            frame.clip.rect,
-            viewport.physical_area(),
-            viewport.scale_factor(),
-        ),
-    );
+    fn push_clip(&mut self, clip: paint::Clip) {
+        let layer = self.filter_renderer.create_layer(
+            self.render_context,
+            self.output_target,
+            "Clip Layer Texture",
+        );
+        self.layers.push(layer);
+        let layer_index = self.layers.len() - 1;
+        self.filter_renderer
+            .clear_layer(self.encoder, &self.layers[layer_index]);
+        self.clip_stack.push(ClipFrame { clip, layer_index });
+    }
+
+    fn composite_clip_layer(&mut self) {
+        let Some(frame) = self.clip_stack.pop() else {
+            return;
+        };
+        let Some(source) = self.layers.get(frame.layer_index) else {
+            return;
+        };
+        let Some(output) = current_target_view(self.base_view, &self.layers, &self.clip_stack)
+        else {
+            return;
+        };
+
+        self.filter_renderer.composite_layer(
+            self.render_context,
+            self.encoder,
+            source,
+            output,
+            self.output_target,
+            frame.clip,
+            clip_scissor(
+                frame.clip.rect,
+                self.viewport.physical_area(),
+                self.viewport.scale_factor(),
+            ),
+        );
+    }
 }
 
 fn current_target_view<'a>(
