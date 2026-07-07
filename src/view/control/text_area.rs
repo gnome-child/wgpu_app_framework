@@ -71,10 +71,6 @@ impl TextArea {
         if self.focused { area } else { area.read_only() }
     }
 
-    pub fn view_state(&self) -> text::edit::ViewState {
-        self.view_state_at(Instant::now())
-    }
-
     pub(crate) fn view_state_at(&self, now: Instant) -> text::edit::ViewState {
         let epoch = self.caret_epoch.unwrap_or(now);
         let state = text::edit::ViewState::new_at(0.0, epoch)
