@@ -30,6 +30,17 @@ impl ShortcutPart {
     }
 }
 
+pub(super) struct Input<'a> {
+    pub(super) node: &'a view::Node,
+    pub(super) node_id: composition::NodeId,
+    pub(super) path: path::Path,
+    pub(super) rect: Rect,
+    pub(super) floating_layer: bool,
+    pub(super) clip: Option<Clip>,
+    pub(super) animation_frame: animation::Frame,
+    pub(super) keymap: keymap::Profile,
+}
+
 #[derive(Clone)]
 pub struct Frame {
     node_id: composition::NodeId,
@@ -69,18 +80,17 @@ pub struct Frame {
 }
 
 impl Frame {
-    pub(super) fn new(
-        node: &view::Node,
-        node_id: composition::NodeId,
-        path: path::Path,
-        rect: Rect,
-        engine: &mut engine::Engine,
-        theme: &Theme,
-        floating_layer: bool,
-        clip: Option<Clip>,
-        animation_frame: animation::Frame,
-        keymap: keymap::Profile,
-    ) -> Self {
+    pub(super) fn new(input: Input<'_>, engine: &mut engine::Engine, theme: &Theme) -> Self {
+        let Input {
+            node,
+            node_id,
+            path,
+            rect,
+            floating_layer,
+            clip,
+            animation_frame,
+            keymap,
+        } = input;
         let target = target_for(node, node_id);
         let binding = node.binding().cloned();
         let text_area = node.text_area_model();

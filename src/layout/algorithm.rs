@@ -5,7 +5,7 @@ use super::super::{
 };
 use super::{
     engine, flow,
-    frame::{Clip, Frame},
+    frame::{Clip, Frame, Input as FrameInput},
     measure, path,
     viewport::Viewport,
 };
@@ -80,16 +80,18 @@ impl<'a> LayoutContext<'a> {
         clip: Option<Clip>,
     ) -> Frame {
         Frame::new(
-            node,
-            node_id,
-            path,
-            rect,
+            FrameInput {
+                node,
+                node_id,
+                path,
+                rect,
+                floating_layer,
+                clip,
+                animation_frame: self.animation_frame,
+                keymap: self.keymap,
+            },
             self.engine,
             self.theme,
-            floating_layer,
-            clip,
-            self.animation_frame,
-            self.keymap,
         )
     }
 }
