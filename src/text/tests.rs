@@ -546,7 +546,7 @@ fn typing_edit_records_transaction_delta() {
     assert_eq!(change.transaction.deltas.len(), 1);
     assert_eq!(
         change.transaction.deltas[0].kind,
-        edit::transaction::Kind::Insert
+        edit::TransactionKind::Insert
     );
     assert_eq!(change.transaction.deltas[0].inserted, "!");
 }

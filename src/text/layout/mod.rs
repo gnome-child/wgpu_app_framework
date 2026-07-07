@@ -111,7 +111,7 @@ impl Engine {
     fn invalidate_text_area_height_indices_for_impacts(
         &mut self,
         _buffer: &Buffer,
-        _impacts: &[edit::transaction::Impact],
+        _impacts: &[edit::Impact],
     ) {
         // Height indices are keyed by presentation style and reconcile by
         // per-line identity during sync. Text edits change line revisions and
@@ -123,7 +123,7 @@ impl Engine {
     pub(crate) fn invalidate_text_area_for_edit(
         &mut self,
         buffer: &Buffer,
-        impacts: &[edit::transaction::Impact],
+        impacts: &[edit::Impact],
     ) {
         self.invalidate_text_area_height_indices_for_impacts(buffer, impacts);
         self.invalidate_text_area_surfaces_for(buffer);

@@ -8,10 +8,10 @@ mod history;
 mod marker;
 mod motion;
 mod operation;
-pub(crate) mod outcome;
+mod outcome;
 mod state;
 mod surface;
-pub(crate) mod transaction;
+mod transaction;
 mod view;
 
 pub use action::{Action, ActionResult};
@@ -27,6 +27,10 @@ pub use outcome::Outcome;
 pub use state::State;
 pub use surface::{Area, AreaWrap, Field, FieldMode, Obscuring, Surface};
 pub(crate) use surface::{FieldProjection, PreeditProjection, projected_state_for_field};
+#[cfg(test)]
+pub(crate) use transaction::Impact;
+#[cfg(test)]
+pub(crate) use transaction::Kind as TransactionKind;
 pub use view::{
     ObservedArea, Preedit, RevealIntent, ScrollAnchor, View, ViewState, Viewport, Visibility,
 };
