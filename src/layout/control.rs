@@ -1,4 +1,5 @@
 use super::super::{
+    context::Source,
     geometry::{Rect, Size},
     theme, view,
 };
@@ -67,6 +68,17 @@ pub(crate) fn menu_row_width(label_width: i32, shortcut_width: i32, theme: &them
         .size_hint()
         .preferred()
         .width()
+}
+
+pub(crate) fn is_menu_panel(node: &view::Node) -> bool {
+    !node.children().is_empty() && node.children().iter().all(is_menu_panel_row)
+}
+
+pub(crate) fn is_menu_panel_row(node: &view::Node) -> bool {
+    node.role() == view::Role::Separator
+        || node
+            .binding()
+            .is_some_and(|binding| binding.source() == Source::Menu)
 }
 
 pub(crate) fn palette_row_parts(

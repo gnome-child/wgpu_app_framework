@@ -4,7 +4,7 @@ use super::super::{
     keymap, theme, view,
 };
 use super::{
-    Viewport, engine, flow,
+    Viewport, control, engine, flow,
     frame::{Clip, Frame, Input as FrameInput},
     measure, path,
 };
@@ -801,7 +801,7 @@ fn layout_floating_panel(
     _clip: Option<Clip>,
     ctx: &mut LayoutContext<'_>,
 ) {
-    if !is_menu_panel(node) {
+    if !control::is_menu_panel(node) {
         let padding = ctx.theme.floating_panel().padding.max(0);
         let content = Rect::new(
             rect.x().saturating_add(padding),
@@ -836,7 +836,7 @@ fn layout_floating_panel(
         let retained_child = retained_child(retained, index);
         let height = intrinsic_height(child, ctx.theme);
         let child_rect = Rect::new(row_x, y, row_width, height);
-        if is_menu_panel_row(child) {
+        if control::is_menu_panel_row(child) {
             layout_menu_row(
                 child,
                 retained_child,
@@ -859,17 +859,6 @@ fn layout_floating_panel(
         }
         y = y.saturating_add(height);
     }
-}
-
-fn is_menu_panel(node: &view::Node) -> bool {
-    !node.children().is_empty() && node.children().iter().all(is_menu_panel_row)
-}
-
-fn is_menu_panel_row(node: &view::Node) -> bool {
-    node.role() == view::Role::Separator
-        || node
-            .binding()
-            .is_some_and(|binding| binding.source() == super::super::context::Source::Menu)
 }
 
 fn layout_menu_row(

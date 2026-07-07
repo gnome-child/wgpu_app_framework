@@ -146,7 +146,7 @@ pub(in crate::layout) fn intrinsic_height_for_width(
 }
 
 pub(in crate::layout) fn floating_panel_height(node: &view::Node, theme: &theme::Theme) -> i32 {
-    let content_height = if is_menu_panel(node) {
+    let content_height = if control::is_menu_panel(node) {
         node.children()
             .iter()
             .map(|child| intrinsic_height(child, theme))
@@ -168,7 +168,7 @@ pub(in crate::layout) fn floating_panel_height_for_width(
 ) -> i32 {
     let padding = theme.floating_panel().padding.max(0);
     let content_width = width.max(0).saturating_sub(padding.saturating_mul(2));
-    let content_height = if is_menu_panel(node) {
+    let content_height = if control::is_menu_panel(node) {
         node.children()
             .iter()
             .map(|child| intrinsic_height_for_width(child, content_width, engine, theme, profile))
@@ -190,7 +190,7 @@ pub(in crate::layout) fn floating_panel_max_envelope_height_for_width(
 ) -> i32 {
     let padding = theme.floating_panel().padding.max(0);
     let content_width = width.max(0).saturating_sub(padding.saturating_mul(2));
-    let content_height = if is_menu_panel(node) {
+    let content_height = if control::is_menu_panel(node) {
         node.children()
             .iter()
             .map(|child| intrinsic_height_for_width(child, content_width, engine, theme, profile))
@@ -209,7 +209,7 @@ pub(in crate::layout) fn floating_panel_width(
     theme: &theme::Theme,
     profile: keymap::Profile,
 ) -> i32 {
-    let content_width = if is_menu_panel(node) {
+    let content_width = if control::is_menu_panel(node) {
         node.children()
             .iter()
             .map(|child| {
@@ -467,17 +467,6 @@ fn scroll_intrinsic_height_for_width(
     }
 }
 
-fn is_menu_panel(node: &view::Node) -> bool {
-    !node.children().is_empty() && node.children().iter().all(is_menu_panel_row)
-}
-
-fn is_menu_panel_row(node: &view::Node) -> bool {
-    node.role() == view::Role::Separator
-        || node
-            .binding()
-            .is_some_and(|binding| binding.source() == Source::Menu)
-}
-
 pub(in crate::layout) fn menu_shortcut_width(
     node: &view::Node,
     engine: &mut engine::Engine,
@@ -625,7 +614,7 @@ pub(in crate::layout) fn gap_total(gap: i32, child_count: usize) -> i32 {
 }
 
 pub(in crate::layout) fn layout_gap(node: &view::Node, theme: &theme::Theme) -> i32 {
-    if node.role() == view::Role::FloatingPanel && !is_menu_panel(node) {
+    if node.role() == view::Role::FloatingPanel && !control::is_menu_panel(node) {
         return node
             .style()
             .gap_override()
