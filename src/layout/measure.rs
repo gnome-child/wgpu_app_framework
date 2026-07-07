@@ -27,7 +27,7 @@ pub(in crate::layout) fn intrinsic_width(
 ) -> i32 {
     let label_width = node
         .label_text()
-        .map(|label| engine.label_width_with_style(label, intrinsic_label_style(node, theme)))
+        .map(|label| engine.label_width_with_style(label, typography::label_style(node, theme)))
         .unwrap_or_default();
 
     match node.role() {
@@ -566,7 +566,12 @@ fn menu_intrinsic_width(
 ) -> i32 {
     let label_width = node
         .label_text()
-        .map(|label| engine.label_width_with_style(label, typography::interface_text_style(theme)))
+        .map(|label| {
+            engine.label_width_with_style(
+                label,
+                typography::label_style_for(view::Role::Menu, None, theme),
+            )
+        })
         .unwrap_or_default();
     let content_width = if has_single_character_label(node) {
         label_width.max(control::control_content_extent(
@@ -592,7 +597,7 @@ fn menu_row_width(
 
     let label_width = node
         .label_text()
-        .map(|label| engine.label_width_with_style(label, typography::interface_text_style(theme)))
+        .map(|label| engine.label_width_with_style(label, typography::label_style(node, theme)))
         .unwrap_or_default();
     let shortcut_width = node
         .binding()
@@ -839,7 +844,7 @@ fn button_intrinsic_width(
             node,
             node.label_text()
                 .map(|label| {
-                    engine.label_width_with_style(label, typography::interface_text_style(theme))
+                    engine.label_width_with_style(label, typography::label_style(node, theme))
                 })
                 .unwrap_or_default(),
             theme,
@@ -851,8 +856,10 @@ fn button_intrinsic_width(
 
     for label in button.measurement_labels() {
         count += 1;
-        max_width = max_width
-            .max(engine.label_width_with_style(label, typography::interface_text_style(theme)));
+        max_width = max_width.max(engine.label_width_with_style(
+            label,
+            typography::label_style_for(view::Role::Button, None, theme),
+        ));
         all_single_character &= label.chars().count() == 1;
     }
 
@@ -888,27 +895,6 @@ pub(crate) fn section_header_height(theme: &theme::Theme) -> i32 {
 
 fn body_line_height(theme: &theme::Theme) -> i32 {
     theme.typography().body().size().ceil().max(1.0) as i32
-}
-
-fn intrinsic_label_style(node: &view::Node, theme: &theme::Theme) -> theme::TypeStyle {
-    match node.role() {
-        view::Role::Menu
-        | view::Role::Binding
-        | view::Role::Button
-        | view::Role::Checkbox
-        | view::Role::Radio
-        | view::Role::Slider
-        | view::Role::TextBox => typography::interface_text_style(theme),
-        view::Role::Label
-            if node
-                .binding()
-                .is_some_and(|binding| binding.source() == Source::Palette) =>
-        {
-            typography::interface_text_style(theme)
-        }
-        view::Role::SectionHeader => typography::section_header_style(theme),
-        _ => theme.typography().body(),
-    }
 }
 
 fn has_single_character_label(node: &view::Node) -> bool {

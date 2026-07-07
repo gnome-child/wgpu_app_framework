@@ -105,30 +105,15 @@ impl Frame {
         let label = label_for(node).map(str::to_owned);
         let label_width = label
             .as_deref()
-            .map(|label| match node.role() {
-                view::Role::Menu => {
-                    engine.label_width_with_style(label, typography::interface_text_style(theme))
+            .map(|label| {
+                if node.role() == view::Role::SectionHeader {
+                    engine.label_width_with_style(
+                        &typography::section_header_text(label),
+                        typography::label_style(node, theme),
+                    )
+                } else {
+                    engine.label_width_with_style(label, typography::label_style(node, theme))
                 }
-                view::Role::SectionHeader => engine.label_width_with_style(
-                    &typography::section_header_text(label),
-                    typography::section_header_style(theme),
-                ),
-                view::Role::Binding
-                | view::Role::Button
-                | view::Role::Checkbox
-                | view::Role::Radio
-                | view::Role::Slider
-                | view::Role::TextBox => {
-                    engine.label_width_with_style(label, typography::interface_text_style(theme))
-                }
-                view::Role::Label
-                    if node
-                        .binding()
-                        .is_some_and(|binding| binding.source() == context::Source::Palette) =>
-                {
-                    engine.label_width_with_style(label, typography::interface_text_style(theme))
-                }
-                _ => engine.label_width_with_style(label, theme.typography().body()),
             })
             .unwrap_or_default();
         let shortcut_display = binding

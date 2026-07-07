@@ -426,7 +426,7 @@ fn paint_menu_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     if let Some(label) = frame.label_text() {
         scene.push_text(
             Text::new(parts.label, label, color, TextWrap::None)
-                .with_style(scene_text_style(layout::interface_text_style(theme)))
+                .with_style(text_style_for(frame, theme))
                 .with_align(TextAlign::Start),
         );
     }
@@ -448,7 +448,7 @@ fn paint_palette_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     if let Some(label) = frame.label_text() {
         scene.push_text(
             Text::new(parts.label, label, color, TextWrap::None)
-                .with_style(scene_text_style(layout::interface_text_style(theme)))
+                .with_style(text_style_for(frame, theme))
                 .with_align(TextAlign::Start),
         );
     }
@@ -533,7 +533,7 @@ fn paint_section_header(frame: &layout::Frame, scene: &mut Scene, theme: &Theme)
             theme.text().muted,
             TextWrap::None,
         )
-        .with_style(scene_text_style(layout::section_header_style(theme)))
+        .with_style(text_style_for(frame, theme))
         .with_align(theme.command_palette().section_alignment()),
     );
 }
@@ -668,20 +668,11 @@ fn text_color_for(frame: &layout::Frame, theme: &Theme) -> super::Color {
 }
 
 fn text_style_for(frame: &layout::Frame, theme: &Theme) -> TextStyle {
-    match frame.role() {
-        view::Role::SectionHeader => scene_text_style(layout::section_header_style(theme)),
-        view::Role::Menu
-        | view::Role::Binding
-        | view::Role::Button
-        | view::Role::Checkbox
-        | view::Role::Radio
-        | view::Role::Slider
-        | view::Role::TextBox => scene_text_style(layout::interface_text_style(theme)),
-        view::Role::Label if frame.binding_source() == Some(context::Source::Palette) => {
-            scene_text_style(layout::interface_text_style(theme))
-        }
-        _ => scene_text_style(theme.typography().body()),
-    }
+    scene_text_style(layout::label_style_for(
+        frame.role(),
+        frame.binding_source(),
+        theme,
+    ))
 }
 
 fn scene_text_style(style: crate::theme::TypeStyle) -> TextStyle {
