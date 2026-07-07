@@ -551,12 +551,13 @@ Before merging a substantial change, answer these questions:
 
 ## Relationship To Existing Docs
 
-`docs/ui_command_architecture.md` applies this document to the legacy UI and
-command boundary. Its north star remains authoritative for that seam:
+`docs/ui_command_architecture.md` applies this document to the view, runtime,
+and command boundary. Its north star remains authoritative for that seam:
 
 ```text
 Node tree is data.
-Snapshot is derived structure.
+Composition is retained identity.
+Layout is derived geometry.
 Interaction is runtime state.
 Commands are capability contracts.
 Runtime wires them together.
