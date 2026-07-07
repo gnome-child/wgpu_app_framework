@@ -298,7 +298,7 @@ fn prepare_cached_text(font_system: &mut FontSystem, key: &TextKey) -> Option<Ca
     buffer.shape_until_scroll(font_system, false);
 
     Some(CachedText {
-        content_height: prepared_content_height(&buffer, line_height),
+        content_height: system::prepared_content_height(&buffer, line_height),
         buffer: Rc::new(RefCell::new(buffer)),
     })
 }
@@ -336,18 +336,6 @@ fn attrs_for_shape(style: Style) -> Attrs<'static> {
         .family(Family::SansSerif)
         .weight(system::weight(style.weight()))
         .metrics(Metrics::relative(style.size().max(1.0), 1.25))
-}
-
-fn prepared_content_height(buffer: &Buffer, fallback: f32) -> f32 {
-    let mut height = 0.0_f32;
-    let mut line_count = 0_usize;
-
-    for run in buffer.layout_runs() {
-        height = height.max(run.line_top + run.line_height);
-        line_count += 1;
-    }
-
-    if line_count == 0 { fallback } else { height }
 }
 
 fn finite_bits(value: f32) -> u32 {

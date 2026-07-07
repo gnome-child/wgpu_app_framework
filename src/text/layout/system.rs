@@ -121,7 +121,7 @@ pub(crate) fn prepare_document_buffer(
     })
 }
 
-fn prepared_content_height(buffer: &Buffer, fallback: f32) -> f32 {
+pub(in crate::text::layout) fn prepared_content_height(buffer: &Buffer, fallback: f32) -> f32 {
     let mut height = 0.0_f32;
     let mut line_count = 0_usize;
 
