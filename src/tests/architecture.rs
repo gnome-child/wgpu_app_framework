@@ -524,6 +524,8 @@ fn layout_frame_and_hit_inspection_stays_internal() {
     for pattern in [
         "pub struct Layout",
         "pub fn size(&self)",
+        "pub mod chrome;",
+        "pub(crate) mod chrome;",
         "pub mod engine;",
         "pub(crate) mod engine;",
         "pub mod frame;",

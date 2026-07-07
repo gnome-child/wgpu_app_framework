@@ -691,7 +691,7 @@ fn generic_scroll_pointer_drag_updates_viewport_offset() {
         .chrome()
         .iter()
         .map(|chrome| match chrome.kind() {
-            layout::chrome::Kind::Scrollbar(scrollbar) => scrollbar.track(),
+            layout::ChromeKind::Scrollbar(scrollbar) => scrollbar.track(),
         })
         .next()
         .expect("scrollbar chrome should be projected");
@@ -2093,7 +2093,7 @@ fn chrome_hit_respects_owner_ancestor_clip() {
         .find(|chrome| chrome.scroll_target() == &inner_target)
         .expect("inner scroll should project chrome");
     let track = match inner_chrome.kind() {
-        layout::chrome::Kind::Scrollbar(scrollbar) => scrollbar.track(),
+        layout::ChromeKind::Scrollbar(scrollbar) => scrollbar.track(),
     };
     let point = rect_top_point(track);
 
@@ -2135,7 +2135,7 @@ fn scrollbar_drag_does_not_dismiss_owning_palette() {
         .iter()
         .find(|chrome| chrome.scroll_target() == &target)
         .map(|chrome| match chrome.kind() {
-            layout::chrome::Kind::Scrollbar(scrollbar) => scrollbar.track(),
+            layout::ChromeKind::Scrollbar(scrollbar) => scrollbar.track(),
         })
         .expect("palette results should project scrollbar chrome");
     let press = frame_point_at(track);
@@ -4431,7 +4431,7 @@ fn first_scrollbar_track(layout: &layout::Layout) -> geometry::Rect {
         .chrome()
         .iter()
         .map(|chrome| match chrome.kind() {
-            layout::chrome::Kind::Scrollbar(scrollbar) => scrollbar.track(),
+            layout::ChromeKind::Scrollbar(scrollbar) => scrollbar.track(),
         })
         .next()
         .expect("scrollbar chrome should be projected")

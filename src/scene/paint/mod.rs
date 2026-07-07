@@ -221,22 +221,17 @@ fn visible_fill(color: super::Color) -> Option<super::Color> {
     (color.channels().3 > 0).then_some(color)
 }
 
-fn paint_chrome(
-    chrome: &layout::chrome::Chrome,
-    scene: &mut Scene,
-    theme: &Theme,
-    visuals: &Visuals,
-) {
+fn paint_chrome(chrome: &layout::Chrome, scene: &mut Scene, theme: &Theme, visuals: &Visuals) {
     match chrome.kind() {
-        layout::chrome::Kind::Scrollbar(scrollbar) => {
+        layout::ChromeKind::Scrollbar(scrollbar) => {
             paint_scrollbar(chrome, *scrollbar, scene, theme, visuals);
         }
     }
 }
 
 fn paint_scrollbar(
-    chrome: &layout::chrome::Chrome,
-    scrollbar: layout::chrome::Scrollbar,
+    chrome: &layout::Chrome,
+    scrollbar: layout::Scrollbar,
     scene: &mut Scene,
     theme: &Theme,
     visuals: &Visuals,
@@ -289,7 +284,7 @@ fn paint_scrollbar(
     }
 }
 
-fn chrome_layer_for(layout: &layout::Layout, chrome: &layout::chrome::Chrome) -> Layer {
+fn chrome_layer_for(layout: &layout::Layout, chrome: &layout::Chrome) -> Layer {
     layout
         .frames()
         .iter()

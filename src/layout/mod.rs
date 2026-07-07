@@ -8,7 +8,7 @@ use super::{
 use crate::animation;
 
 mod algorithm;
-pub(crate) mod chrome;
+mod chrome;
 pub(crate) mod control;
 mod engine;
 pub(crate) mod flow;
@@ -20,6 +20,7 @@ pub(crate) mod text;
 pub(crate) mod typography;
 mod viewport;
 
+pub(crate) use chrome::{Chrome, Kind as ChromeKind, Scrollbar};
 pub(crate) use engine::Engine;
 pub(crate) use frame::Frame;
 pub(crate) use hit::Hit;
@@ -29,7 +30,7 @@ pub(crate) use viewport::Viewport;
 pub(crate) struct Layout {
     size: Size,
     frames: Vec<Frame>,
-    chrome: Vec<chrome::Chrome>,
+    chrome: Vec<Chrome>,
 }
 
 impl Layout {
@@ -116,7 +117,7 @@ impl Layout {
         &self.frames
     }
 
-    pub(crate) fn chrome(&self) -> &[chrome::Chrome] {
+    pub(crate) fn chrome(&self) -> &[Chrome] {
         &self.chrome
     }
 

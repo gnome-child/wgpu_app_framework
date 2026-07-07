@@ -164,9 +164,7 @@ impl Animations {
             seen_scrolls.insert(scroll_key.clone());
 
             let offset = match chrome.kind() {
-                layout::chrome::Kind::Scrollbar(scrollbar) => {
-                    scrollbar.viewport().resolved_scroll()
-                }
+                layout::ChromeKind::Scrollbar(scrollbar) => scrollbar.viewport().resolved_scroll(),
             };
             let offset_changed = self
                 .scrollbar_offsets
