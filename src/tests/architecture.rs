@@ -175,6 +175,8 @@ fn retained_node_identity_replaces_structural_command_fallbacks() {
             format!("{}{}", "Command", "Path"),
             format!("{}{}", "command", "_path"),
             format!("{}{}", "path_", "pointer_target"),
+            format!("{}{}", "pointer_target_", "at_path"),
+            format!("{}{}", "without_", "retained_id"),
         ],
     );
 }

@@ -81,7 +81,7 @@ impl Node {
     }
 
     pub(in crate::view) fn contains_focus(&self, focus: session::Focus) -> bool {
-        self.contains_focus_at(&focus, &[], false)
+        self.contains_focus_at(&focus, false)
     }
 
     pub(in crate::view) fn contains_enabled_focus_retained(
@@ -344,20 +344,14 @@ impl Node {
         self.subject_path_for_focus_retained_at(&focus, retained, &mut Vec::new())
     }
 
-    fn contains_focus_at(
-        &self,
-        focus: &session::Focus,
-        path: &[usize],
-        require_enabled: bool,
-    ) -> bool {
-        self.focus_at(path, require_enabled)
+    fn contains_focus_at(&self, focus: &session::Focus, require_enabled: bool) -> bool {
+        self.focus_at(require_enabled)
             .as_ref()
             .is_some_and(|node_focus| node_focus.same_target(focus))
-            || self.children.iter().enumerate().any(|(index, child)| {
-                let mut child_path = path.to_vec();
-                child_path.push(index);
-                child.contains_focus_at(focus, &child_path, require_enabled)
-            })
+            || self
+                .children
+                .iter()
+                .any(|child| child.contains_focus_at(focus, require_enabled))
     }
 
     fn contains_focus_retained_at(
@@ -473,7 +467,7 @@ impl Node {
         None
     }
 
-    fn focus_at(&self, path: &[usize], require_enabled: bool) -> Option<session::Focus> {
+    fn focus_at(&self, require_enabled: bool) -> Option<session::Focus> {
         if let Some(focus) = self.text_area_model().and_then(TextArea::focus) {
             return Some(focus);
         }
@@ -486,7 +480,7 @@ impl Node {
             return None;
         }
 
-        self.pointer_target_at_path(path)
+        self.pointer_target()
             .map(|target| session::Focus::control(&target))
     }
 

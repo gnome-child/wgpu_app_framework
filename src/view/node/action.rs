@@ -9,11 +9,7 @@ use crate::{composition, interaction};
 
 impl Node {
     pub fn pointer_target(&self) -> Option<interaction::Target> {
-        self.pointer_target_without_retained_id()
-    }
-
-    pub fn pointer_target_at_path(&self, _path: &[usize]) -> Option<interaction::Target> {
-        self.pointer_target()
+        self.explicit_pointer_target()
     }
 
     pub(crate) fn node_pointer_target(
@@ -55,7 +51,7 @@ impl Node {
         self.pointer_target()
     }
 
-    fn pointer_target_without_retained_id(&self) -> Option<interaction::Target> {
+    fn explicit_pointer_target(&self) -> Option<interaction::Target> {
         if let Some(target) = self.text_control_target() {
             return Some(target);
         }
