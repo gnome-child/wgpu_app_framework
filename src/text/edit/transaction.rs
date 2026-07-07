@@ -107,10 +107,3 @@ impl Transaction {
         true
     }
 }
-
-impl Delta {
-    #[allow(dead_code)]
-    pub(crate) fn inserted_end(&self) -> usize {
-        self.range.start + self.inserted.len()
-    }
-}

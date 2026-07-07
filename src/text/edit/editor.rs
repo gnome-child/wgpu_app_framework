@@ -46,7 +46,6 @@ impl Editor {
         self.apply_edit_with_caret_map(buffer, state, edit, &mut NoCaretMap)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn apply_edit_with_caret_map(
         &mut self,
         buffer: &mut Buffer,
@@ -57,7 +56,6 @@ impl Editor {
         self.apply_edit_with_caret_map_for_state(buffer, state, edit, caret_map)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn apply_action(
         &mut self,
         buffer: &mut Buffer,
