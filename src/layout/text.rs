@@ -20,7 +20,7 @@ pub(crate) struct Service {
 }
 
 #[derive(Clone)]
-pub struct Area {
+pub(crate) struct Area {
     layout: text_engine::layout::TextFieldLayout,
     interaction_surfaces: Vec<text_engine::layout::TextAreaSurface>,
     render_surfaces: Vec<text_engine::layout::TextAreaSurface>,
@@ -29,7 +29,7 @@ pub struct Area {
 }
 
 #[derive(Clone)]
-pub struct Field {
+pub(crate) struct Field {
     layout: text_engine::layout::TextFieldLayout,
     render_surface: Option<text_engine::layout::TextAreaSurface>,
     state: text_engine::edit::ViewState,
@@ -281,29 +281,29 @@ impl text_engine::edit::CaretMap for Service {
 }
 
 impl Area {
-    pub fn layout(&self) -> &text_engine::layout::TextFieldLayout {
+    pub(crate) fn layout(&self) -> &text_engine::layout::TextFieldLayout {
         &self.layout
     }
 
-    pub fn interaction_surfaces(&self) -> &[text_engine::layout::TextAreaSurface] {
+    pub(crate) fn interaction_surfaces(&self) -> &[text_engine::layout::TextAreaSurface] {
         &self.interaction_surfaces
     }
 
-    pub fn render_surfaces(&self) -> &[text_engine::layout::TextAreaSurface] {
+    pub(crate) fn render_surfaces(&self) -> &[text_engine::layout::TextAreaSurface] {
         &self.render_surfaces
     }
 
-    pub fn viewport(&self) -> Viewport {
+    pub(crate) fn viewport(&self) -> Viewport {
         self.viewport
     }
 }
 
 impl Field {
-    pub fn layout(&self) -> &text_engine::layout::TextFieldLayout {
+    pub(crate) fn layout(&self) -> &text_engine::layout::TextFieldLayout {
         &self.layout
     }
 
-    pub fn render_surface(&self) -> Option<&text_engine::layout::TextAreaSurface> {
+    pub(crate) fn render_surface(&self) -> Option<&text_engine::layout::TextAreaSurface> {
         self.render_surface.as_ref()
     }
 }

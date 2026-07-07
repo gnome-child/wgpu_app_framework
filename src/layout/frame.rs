@@ -42,7 +42,7 @@ pub(super) struct Input<'a> {
 }
 
 #[derive(Clone)]
-pub struct Frame {
+pub(crate) struct Frame {
     node_id: composition::NodeId,
     path: path::Path,
     role: view::node::Role,
@@ -54,8 +54,9 @@ pub struct Frame {
     text_wrap: Option<view::control::Wrap>,
     focused: bool,
     focus_visible: bool,
-    hovered: bool,
+    #[cfg(test)]
     pressed: bool,
+    #[cfg(test)]
     active: bool,
     selected: bool,
     floating_layer: bool,
@@ -187,8 +188,9 @@ impl Frame {
                 .or_else(|| text_box.as_ref().map(|_| view::control::Wrap::None)),
             focused: node.is_focused(),
             focus_visible: node.focus_visible(),
-            hovered: node.is_hovered(),
+            #[cfg(test)]
             pressed: node.is_pressed(),
+            #[cfg(test)]
             active: node.is_active(),
             selected: node.is_selected(),
             floating_layer,
@@ -227,15 +229,15 @@ impl Frame {
         &self.path
     }
 
-    pub fn node_id(&self) -> composition::NodeId {
+    pub(crate) fn node_id(&self) -> composition::NodeId {
         self.node_id
     }
 
-    pub fn role(&self) -> view::node::Role {
+    pub(crate) fn role(&self) -> view::node::Role {
         self.role
     }
 
-    pub fn rect(&self) -> Rect {
+    pub(crate) fn rect(&self) -> Rect {
         self.rect
     }
 
@@ -243,7 +245,7 @@ impl Frame {
         self.active_rect
     }
 
-    pub fn label_text(&self) -> Option<&str> {
+    pub(crate) fn label_text(&self) -> Option<&str> {
         self.label.as_deref()
     }
 
@@ -251,35 +253,33 @@ impl Frame {
         self.label_width
     }
 
-    pub fn text(&self) -> Option<&str> {
+    pub(crate) fn text(&self) -> Option<&str> {
         self.text.as_deref()
     }
 
-    pub fn text_wrap(&self) -> Option<view::control::Wrap> {
+    pub(crate) fn text_wrap(&self) -> Option<view::control::Wrap> {
         self.text_wrap
     }
 
-    pub fn is_focused(&self) -> bool {
+    pub(crate) fn is_focused(&self) -> bool {
         self.focused
     }
 
-    pub fn focus_visible(&self) -> bool {
+    pub(crate) fn focus_visible(&self) -> bool {
         self.focus_visible
     }
 
-    pub fn is_hovered(&self) -> bool {
-        self.hovered
-    }
-
-    pub fn is_pressed(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn is_pressed(&self) -> bool {
         self.pressed
     }
 
-    pub fn is_active(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn is_active(&self) -> bool {
         self.active
     }
 
-    pub fn is_selected(&self) -> bool {
+    pub(crate) fn is_selected(&self) -> bool {
         self.selected
     }
 
@@ -303,7 +303,7 @@ impl Frame {
         self.viewport.map(viewport::Viewport::resolved_scroll)
     }
 
-    pub fn is_enabled(&self) -> bool {
+    pub(crate) fn is_enabled(&self) -> bool {
         self.binding.as_ref().is_none_or(view::Binding::is_enabled)
     }
 
@@ -347,11 +347,11 @@ impl Frame {
         self.text_area.as_ref()
     }
 
-    pub fn text_area_layout(&self) -> Option<&text::Area> {
+    pub(crate) fn text_area_layout(&self) -> Option<&text::Area> {
         self.text_area_layout.as_ref()
     }
 
-    pub fn text_box_layout(&self) -> Option<&text::Field> {
+    pub(crate) fn text_box_layout(&self) -> Option<&text::Field> {
         self.text_box_layout.as_ref()
     }
 
@@ -359,11 +359,12 @@ impl Frame {
         self.text_box_text_rect
     }
 
-    pub fn target(&self) -> Option<&interaction::Target> {
+    pub(crate) fn target(&self) -> Option<&interaction::Target> {
         self.target.as_ref()
     }
 
-    pub fn action(&self) -> Option<&view::Action> {
+    #[cfg(test)]
+    pub(crate) fn action(&self) -> Option<&view::Action> {
         self.action.as_ref()
     }
 
@@ -379,7 +380,7 @@ impl Frame {
         self.target.is_some() && self.active_rect.contains(point) && self.clip_contains(point)
     }
 
-    pub fn action_at(&self, point: Point) -> Option<view::Action> {
+    pub(crate) fn action_at(&self, point: Point) -> Option<view::Action> {
         if self.role == view::node::Role::Slider {
             let value = self.slider_value_at(point)?;
             if let Some(action) = self
@@ -394,7 +395,7 @@ impl Frame {
         self.action.clone()
     }
 
-    pub fn action_at_with_engine(
+    pub(crate) fn action_at_with_engine(
         &self,
         point: Point,
         engine: &mut engine::Engine,
@@ -419,7 +420,7 @@ impl Frame {
         self.action_at(point)
     }
 
-    pub fn drag_action_at_with_engine(
+    pub(crate) fn drag_action_at_with_engine(
         &self,
         point: Point,
         engine: &mut engine::Engine,

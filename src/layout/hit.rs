@@ -2,7 +2,7 @@ use super::super::{geometry::Point, interaction, view};
 use super::{chrome, engine, frame::Frame};
 
 #[derive(Clone)]
-pub struct Hit {
+pub(crate) struct Hit {
     frame: Frame,
     chrome: Option<chrome::Chrome>,
 }
@@ -22,7 +22,7 @@ impl Hit {
         }
     }
 
-    pub fn frame(&self) -> &Frame {
+    pub(crate) fn frame(&self) -> &Frame {
         &self.frame
     }
 
@@ -30,7 +30,7 @@ impl Hit {
         self.chrome.is_some()
     }
 
-    pub fn target(&self) -> Option<&interaction::Target> {
+    pub(crate) fn target(&self) -> Option<&interaction::Target> {
         if let Some(chrome) = &self.chrome {
             return Some(chrome.target());
         }
@@ -38,7 +38,8 @@ impl Hit {
         self.frame.target()
     }
 
-    pub fn action(&self) -> Option<&view::Action> {
+    #[cfg(test)]
+    pub(crate) fn action(&self) -> Option<&view::Action> {
         if self.chrome.is_some() {
             return None;
         }
@@ -46,7 +47,7 @@ impl Hit {
         self.frame.action()
     }
 
-    pub fn action_at(&self, point: Point) -> Option<view::Action> {
+    pub(crate) fn action_at(&self, point: Point) -> Option<view::Action> {
         if self.chrome.is_some() {
             return None;
         }
@@ -54,7 +55,7 @@ impl Hit {
         self.frame.action_at(point)
     }
 
-    pub fn action_at_with_engine(
+    pub(crate) fn action_at_with_engine(
         &self,
         point: Point,
         engine: &mut engine::Engine,
@@ -64,20 +65,5 @@ impl Hit {
         }
 
         self.frame.action_at_with_engine(point, engine)
-    }
-
-    pub fn drag_action_at_with_engine(
-        &self,
-        point: Point,
-        engine: &mut engine::Engine,
-    ) -> Option<view::Action> {
-        if let Some(chrome) = &self.chrome {
-            return Some(view::Action::scroll_to(
-                chrome.scroll_target().clone(),
-                chrome.scroll_offset_at(point),
-            ));
-        }
-
-        self.frame.drag_action_at_with_engine(point, engine)
     }
 }

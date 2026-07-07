@@ -4,7 +4,7 @@ use super::super::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Viewport {
+pub(crate) struct Viewport {
     rect: Rect,
     content: Size,
     offset: ScrollOffset,
@@ -13,7 +13,7 @@ pub struct Viewport {
 }
 
 impl Viewport {
-    pub fn new(rect: Rect, content: Size, offset: ScrollOffset) -> Self {
+    pub(crate) fn new(rect: Rect, content: Size, offset: ScrollOffset) -> Self {
         let max = ScrollOffset::new(
             content.width().saturating_sub(rect.width()).max(0),
             content.height().saturating_sub(rect.height()).max(0),
@@ -30,38 +30,34 @@ impl Viewport {
         }
     }
 
-    pub fn rect(self) -> Rect {
+    pub(crate) fn rect(self) -> Rect {
         self.rect
     }
 
-    pub fn content(self) -> Size {
+    pub(crate) fn content(self) -> Size {
         self.content
     }
 
-    pub fn requested_offset(self) -> ScrollOffset {
-        self.offset
-    }
-
-    pub fn max_scroll(self) -> ScrollOffset {
+    pub(crate) fn max_scroll(self) -> ScrollOffset {
         self.max
     }
 
-    pub fn resolved_scroll(self) -> ScrollOffset {
+    pub(crate) fn resolved_scroll(self) -> ScrollOffset {
         self.resolved
     }
 
-    pub fn can_consume(self, delta: ScrollDelta) -> bool {
+    pub(crate) fn can_consume(self, delta: ScrollDelta) -> bool {
         (delta.x() < 0 && self.resolved.x() > 0)
             || (delta.x() > 0 && self.resolved.x() < self.max.x())
             || (delta.y() < 0 && self.resolved.y() > 0)
             || (delta.y() > 0 && self.resolved.y() < self.max.y())
     }
 
-    pub fn is_scrollable(self) -> bool {
+    pub(crate) fn is_scrollable(self) -> bool {
         self.max.x() > 0 || self.max.y() > 0
     }
 
-    pub fn reveal_rect(self, rect: Rect, margin: i32) -> ScrollOffset {
+    pub(crate) fn reveal_rect(self, rect: Rect, margin: i32) -> ScrollOffset {
         ScrollOffset::new(
             reveal_axis(
                 self.resolved.x(),

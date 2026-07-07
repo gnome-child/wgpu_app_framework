@@ -231,8 +231,12 @@ fn structural_layout_paths_stay_internal() {
 #[test]
 fn layout_frame_and_hit_inspection_stays_internal() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let layout_mod = std::fs::read_to_string(src_dir.join("layout").join("mod.rs"))
-        .expect("layout module should read");
+    let layout_dir = src_dir.join("layout");
+    let layout_mod =
+        std::fs::read_to_string(layout_dir.join("mod.rs")).expect("layout module should read");
+    let runtime_presentation =
+        std::fs::read_to_string(src_dir.join("runtime").join("presentation.rs"))
+            .expect("runtime presentation module should read");
 
     for pattern in [
         "pub mod frame;",
@@ -250,6 +254,38 @@ fn layout_frame_and_hit_inspection_stays_internal() {
             "layout inspection API must stay internal: {pattern}"
         );
     }
+
+    let internal_layout_sources = ["frame.rs", "hit.rs", "viewport.rs", "text.rs"]
+        .into_iter()
+        .map(|file| {
+            std::fs::read_to_string(layout_dir.join(file))
+                .unwrap_or_else(|error| panic!("{file} should read: {error}"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    for pattern in [
+        "pub struct Frame",
+        "pub struct Hit",
+        "pub struct Viewport",
+        "pub struct Area",
+        "pub struct Field",
+        "pub fn frame(&self)",
+        "pub fn viewport(&self)",
+        "pub fn resolved_scroll(&self)",
+        "pub fn action_at(",
+        "pub fn drag_action_at_with_engine(",
+    ] {
+        assert!(
+            !internal_layout_sources.contains(pattern),
+            "internal layout inspection item must stay crate-visible: {pattern}"
+        );
+    }
+
+    assert!(
+        !runtime_presentation.contains("pub fn hit_test("),
+        "runtime hit testing exposes layout hit internals and must stay crate-visible"
+    );
 }
 
 #[test]

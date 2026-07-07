@@ -507,7 +507,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         rendered
     }
 
-    pub fn hit_test(
+    pub(crate) fn hit_test(
         &mut self,
         window: window::Id,
         size: geometry::Size,
