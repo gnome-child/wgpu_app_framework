@@ -905,7 +905,7 @@ fn text_editor_debug_panel_reads_framework_diagnostics_from_view_context() {
     diagnostics.text.text_area_paint_layout_calls = 7;
     diagnostics.text.text_area_metrics_layout_calls = 3;
     diagnostics.scroll.wheel_events = 5;
-    diagnostics.scroll.text_area_projection_reuses = 2;
+    diagnostics.scroll.text_area_viewports = 2;
     diagnostics.frame.full_redraws = 11;
     diagnostics.frame.view_rebuilds = 12;
     diagnostics.frame.layout_reuses = 13;
@@ -924,6 +924,11 @@ fn text_editor_debug_panel_reads_framework_diagnostics_from_view_context() {
             .any(|label| label.contains("Text layout: paint 7, metrics 3"))
     );
     assert!(labels.iter().any(|label| label.contains("Scroll: wheel 5")));
+    assert!(
+        labels
+            .iter()
+            .any(|label| label.contains("text area viewports 2"))
+    );
     assert!(
         labels
             .iter()
@@ -961,7 +966,7 @@ fn text_editor_render_records_live_text_and_frame_diagnostics() {
         .diagnostics(window)
         .expect("window should have diagnostics after render");
     assert_eq!(diagnostics.frame.full_redraws, 1);
-    assert_eq!(diagnostics.scroll.projection_count, 1);
+    assert_eq!(diagnostics.scroll.text_area_viewports, 1);
     assert!(diagnostics.text.text_area_paint_layout_calls > 0);
     assert!(diagnostics.text.text_area_visible_logical_lines > 0);
     assert!(diagnostics.text.text_area_render_surface_calls > 0);

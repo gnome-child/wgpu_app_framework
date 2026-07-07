@@ -53,7 +53,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .count();
         let diagnostics = self.diagnostics.get_mut(window);
         diagnostics.text.add(text);
-        diagnostics.scroll.projection_count += text_area_count;
+        diagnostics.scroll.text_area_viewports += text_area_count;
         diagnostics.frame.full_redraws += 1;
         diagnostics.frame.layout_recomposes += 1;
         diagnostics.frame.text_area_render_surfaces = text_surfaces;
