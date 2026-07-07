@@ -534,7 +534,7 @@ fn active_descendant_reveal_offset(
 
     layout.reveal_offset_for_descendant(target, margin, |frame| {
         if target == &palette_results_target {
-            if frame.binding_source() != Some(command_context::Source::Palette) {
+            if !frame.is_palette_row() {
                 return false;
             }
 

@@ -284,7 +284,7 @@ fn text_pointer_down_action(frame: &layout::Frame, target: interaction::Target) 
 }
 
 fn is_pointer_focusable(frame: &layout::Frame) -> bool {
-    if frame.binding_source() == Some(crate::context::Source::Menu) {
+    if frame.is_menu_row() {
         return false;
     }
 

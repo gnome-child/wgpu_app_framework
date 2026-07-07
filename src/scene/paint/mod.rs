@@ -6,7 +6,7 @@ mod text_surface;
 
 use crate::icon as icons;
 
-use super::super::{context, geometry, keymap, layout, theme::Theme, view};
+use super::super::{geometry, keymap, layout, theme::Theme, view};
 use super::{
     BackdropLayer, Brush, Clip, Filter, FilterOp, Icon, Material, Offset, Outline, Quad, Scene,
     Shadow, Style, SurfaceLayer, Text, TextAlign, TextStyle, TextWrap, Visuals,
@@ -98,12 +98,8 @@ fn paint_frame(
     }
 
     match frame.role() {
-        view::Role::Binding if frame.binding_source() == Some(context::Source::Menu) => {
-            paint_menu_row(frame, scene, theme);
-        }
-        _ if frame.binding_source() == Some(context::Source::Palette) => {
-            paint_palette_row(frame, scene, theme);
-        }
+        view::Role::Binding if frame.is_menu_row() => paint_menu_row(frame, scene, theme),
+        _ if frame.is_palette_row() => paint_palette_row(frame, scene, theme),
         view::Role::Separator => {
             paint_menu_separator(frame, scene, theme);
         }
@@ -127,8 +123,8 @@ fn paint_frame(
         _ => {}
     }
 
-    if frame.binding_source() == Some(context::Source::Menu)
-        || frame.binding_source() == Some(context::Source::Palette)
+    if frame.is_menu_row()
+        || frame.is_palette_row()
         || frame.role() == view::Role::Separator
         || frame.role() == view::Role::SectionHeader
         || is_floating_panel_role(frame.role())
@@ -178,10 +174,8 @@ fn layer_for(frame: &layout::Frame) -> Layer {
     match frame.role() {
         view::Role::MenuBar | view::Role::Menu => Layer::Chrome,
         view::Role::FloatingPanel | view::Role::Separator => Layer::Floating,
-        view::Role::Binding if frame.binding_source() == Some(context::Source::Menu) => {
-            Layer::Floating
-        }
-        _ if frame.binding_source() == Some(context::Source::Palette) => Layer::Floating,
+        view::Role::Binding if frame.is_menu_row() => Layer::Floating,
+        _ if frame.is_palette_row() => Layer::Floating,
         _ => Layer::Base,
     }
 }
@@ -192,12 +186,8 @@ fn role_fill(frame: &layout::Frame, theme: &Theme) -> Option<super::Color> {
         view::Role::MenuBar => Some(theme.menu().bar_background),
         view::Role::Menu => visible_fill(theme.menu().title_background),
         view::Role::FloatingPanel => None,
-        view::Role::Binding if frame.binding_source() == Some(context::Source::Menu) => {
-            visible_fill(theme.menu().row_background)
-        }
-        view::Role::Label if frame.binding_source() == Some(context::Source::Palette) => {
-            visible_fill(theme.menu().row_background)
-        }
+        view::Role::Binding if frame.is_menu_row() => visible_fill(theme.menu().row_background),
+        view::Role::Label if frame.is_palette_row() => visible_fill(theme.menu().row_background),
         view::Role::Binding => visible_fill(if frame.is_enabled() {
             theme.control().background
         } else {
@@ -306,10 +296,8 @@ fn role_rounding(frame: &layout::Frame, theme: &Theme) -> super::Rounding {
     match frame.role() {
         view::Role::FloatingPanel => theme.floating_panel().rounding,
         view::Role::Menu => theme.control().rounding,
-        view::Role::Binding if frame.binding_source() == Some(context::Source::Menu) => {
-            theme.control().rounding
-        }
-        _ if frame.binding_source() == Some(context::Source::Palette) => theme.control().rounding,
+        view::Role::Binding if frame.is_menu_row() => theme.control().rounding,
+        _ if frame.is_palette_row() => theme.control().rounding,
         view::Role::Button
         | view::Role::Checkbox
         | view::Role::Radio
@@ -567,10 +555,7 @@ fn visual_tint_for(
         return None;
     }
 
-    if matches!(
-        frame.binding_source(),
-        Some(context::Source::Menu | context::Source::Palette)
-    ) {
+    if frame.is_menu_row() || frame.is_palette_row() {
         return row_highlight_tint_for(frame, theme, visuals);
     }
 
@@ -598,8 +583,7 @@ fn row_highlight_tint_for(
     theme: &Theme,
     visuals: &Visuals,
 ) -> Option<super::Color> {
-    let source = frame.binding_source()?;
-    if !matches!(source, context::Source::Menu | context::Source::Palette) {
+    if !frame.is_menu_row() && !frame.is_palette_row() {
         return None;
     }
     let target_visual = frame
@@ -613,7 +597,7 @@ fn row_highlight_tint_for(
 
     let highlighted = target_visual.hovered()
         || frame.focus_visible()
-        || (source == context::Source::Palette && target_visual.selected());
+        || (frame.is_palette_row() && target_visual.selected());
 
     highlighted.then_some(theme.menu().row_hover_tint)
 }

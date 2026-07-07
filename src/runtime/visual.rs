@@ -6,7 +6,7 @@ use std::{
 use crate::animation::{self, Easing, Transition};
 use crate::text;
 
-use super::super::{context, interaction, layout, scene, theme, view, window};
+use super::super::{interaction, layout, scene, theme, view, window};
 
 const SLIDER_TRACK_IDLE_SCALE_Y: f32 = 1.0;
 const SLIDER_TRACK_HOVER_SCALE_Y: f32 = 1.5;
@@ -267,7 +267,7 @@ impl Animations {
                 continue;
             };
 
-            let selected = if frame.binding_source() == Some(context::Source::Palette) {
+            let selected = if frame.is_palette_row() {
                 let selected = selected_palette == Some(palette_row);
                 palette_row = palette_row.saturating_add(1);
                 selected

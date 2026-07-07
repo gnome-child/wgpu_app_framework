@@ -344,6 +344,14 @@ impl Frame {
         self.binding.as_ref().map(view::Binding::source)
     }
 
+    pub(crate) fn is_menu_row(&self) -> bool {
+        self.role == view::Role::Binding && self.binding_source() == Some(context::Source::Menu)
+    }
+
+    pub(crate) fn is_palette_row(&self) -> bool {
+        self.binding_source() == Some(context::Source::Palette)
+    }
+
     pub(crate) fn clip_contains(&self, point: Point) -> bool {
         self.clip.is_none_or(|clip| clip.contains(point))
     }
