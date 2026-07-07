@@ -46,6 +46,25 @@ pub(super) struct Update {
     schedule: animation::Schedule,
 }
 
+struct VisualPass<'a> {
+    window: window::Id,
+    layout: &'a layout::Layout,
+    interaction: Option<&'a interaction::Interaction>,
+    theme: &'a theme::Theme,
+    now: Instant,
+    visuals: &'a mut scene::Visuals,
+    schedule: &'a mut animation::Schedule,
+    seen: &'a mut HashSet<Key>,
+    remove: &'a mut Vec<Key>,
+}
+
+struct TransitionStep {
+    key: Key,
+    desired: f32,
+    base: f32,
+    duration: Duration,
+}
+
 impl Animations {
     pub(super) fn update_window(
         &mut self,
@@ -105,17 +124,20 @@ impl Animations {
             }
         }
 
-        self.update_scrollbar_visuals(
-            window,
-            layout,
-            interaction,
-            theme,
-            now,
-            &mut visuals,
-            &mut schedule,
-            &mut seen,
-            &mut remove,
-        );
+        {
+            let mut pass = VisualPass {
+                window,
+                layout,
+                interaction,
+                theme,
+                now,
+                visuals: &mut visuals,
+                schedule: &mut schedule,
+                seen: &mut seen,
+                remove: &mut remove,
+            };
+            self.update_scrollbar_visuals(&mut pass);
+        }
 
         self.transitions
             .retain(|key, _| key.window != window || seen.contains(key));
@@ -126,28 +148,17 @@ impl Animations {
         Update { visuals, schedule }
     }
 
-    fn update_scrollbar_visuals(
-        &mut self,
-        window: window::Id,
-        layout: &layout::Layout,
-        interaction: Option<&interaction::Interaction>,
-        theme: &theme::Theme,
-        now: Instant,
-        visuals: &mut scene::Visuals,
-        schedule: &mut animation::Schedule,
-        seen: &mut HashSet<Key>,
-        remove: &mut Vec<Key>,
-    ) {
-        let pointer = interaction.map(interaction::Interaction::pointer);
+    fn update_scrollbar_visuals(&mut self, pass: &mut VisualPass<'_>) {
+        let pointer = pass.interaction.map(interaction::Interaction::pointer);
         let hovered = pointer.and_then(interaction::Pointer::hovered);
         let pressed = pointer.and_then(interaction::Pointer::pressed);
         let mut seen_scrolls = HashSet::new();
 
-        for chrome in layout.chrome() {
+        for chrome in pass.layout.chrome() {
             let target = chrome.target().clone();
             let scroll_target = chrome.scroll_target().clone();
             let scroll_key = ScrollKey {
-                window,
+                window: pass.window,
                 target: scroll_target.clone(),
             };
             seen_scrolls.insert(scroll_key.clone());
@@ -164,20 +175,24 @@ impl Animations {
             let is_hovered = hovered == Some(&target);
             let is_pressed = pressed == Some(&target);
             if offset_changed || is_hovered || is_pressed {
-                self.scrollbar_activity.insert(scroll_key.clone(), now);
+                self.scrollbar_activity.insert(scroll_key.clone(), pass.now);
             }
 
-            let (desired_opacity, fade_deadline) =
-                self.scrollbar_opacity_target(&scroll_key, is_hovered || is_pressed, theme, now);
-            let base_thickness = match theme.scrollbar().metrics.policy {
-                theme::ScrollbarPolicy::GutterAlways => theme.scrollbar().metrics.thickness,
+            let (desired_opacity, fade_deadline) = self.scrollbar_opacity_target(
+                &scroll_key,
+                is_hovered || is_pressed,
+                pass.theme,
+                pass.now,
+            );
+            let base_thickness = match pass.theme.scrollbar().metrics.policy {
+                theme::ScrollbarPolicy::GutterAlways => pass.theme.scrollbar().metrics.thickness,
                 theme::ScrollbarPolicy::OverlayAuto => {
-                    theme.scrollbar().appearance.overlay_thickness
+                    pass.theme.scrollbar().appearance.overlay_thickness
                 }
             }
             .max(1);
             let desired_thickness = if is_hovered || is_pressed {
-                theme
+                pass.theme
                     .scrollbar()
                     .appearance
                     .hover_thickness
@@ -186,38 +201,38 @@ impl Animations {
                 base_thickness
             };
             let opacity = self.transition_value(
-                Key {
-                    window,
-                    target: target.clone(),
-                    property: Property::ScrollbarOpacity,
+                pass,
+                TransitionStep {
+                    key: Key {
+                        window: pass.window,
+                        target: target.clone(),
+                        property: Property::ScrollbarOpacity,
+                    },
+                    desired: desired_opacity,
+                    base: idle_opacity_for(pass.theme),
+                    duration: Duration::from_millis(
+                        pass.theme.scrollbar().appearance.fade_duration_ms,
+                    ),
                 },
-                desired_opacity,
-                idle_opacity_for(theme),
-                now,
-                Duration::from_millis(theme.scrollbar().appearance.fade_duration_ms),
-                schedule,
-                seen,
-                remove,
             );
             let thickness = self.transition_value(
-                Key {
-                    window,
-                    target: target.clone(),
-                    property: Property::ScrollbarThickness,
+                pass,
+                TransitionStep {
+                    key: Key {
+                        window: pass.window,
+                        target: target.clone(),
+                        property: Property::ScrollbarThickness,
+                    },
+                    desired: desired_thickness as f32,
+                    base: base_thickness as f32,
+                    duration: SCROLLBAR_THICKNESS_TRANSITION,
                 },
-                desired_thickness as f32,
-                base_thickness as f32,
-                now,
-                SCROLLBAR_THICKNESS_TRANSITION,
-                schedule,
-                seen,
-                remove,
             );
 
             if let Some(deadline) = fade_deadline {
-                *schedule = schedule.merge(animation::Schedule::At(deadline));
+                *pass.schedule = pass.schedule.merge(animation::Schedule::At(deadline));
             }
-            visuals.set_scrollbar(
+            pass.visuals.set_scrollbar(
                 target,
                 opacity,
                 thickness.round() as i32,
@@ -227,9 +242,9 @@ impl Animations {
         }
 
         self.scrollbar_offsets
-            .retain(|key, _| key.window != window || seen_scrolls.contains(key));
+            .retain(|key, _| key.window != pass.window || seen_scrolls.contains(key));
         self.scrollbar_activity
-            .retain(|key, _| key.window != window || seen_scrolls.contains(key));
+            .retain(|key, _| key.window != pass.window || seen_scrolls.contains(key));
     }
 
     fn update_target_visuals(
@@ -311,29 +326,18 @@ impl Animations {
         }
     }
 
-    fn transition_value(
-        &mut self,
-        key: Key,
-        desired: f32,
-        base: f32,
-        now: Instant,
-        duration: Duration,
-        schedule: &mut animation::Schedule,
-        seen: &mut HashSet<Key>,
-        remove: &mut Vec<Key>,
-    ) -> f32 {
-        seen.insert(key.clone());
-        let transition = self
-            .transitions
-            .entry(key.clone())
-            .or_insert_with(|| VisualTransition::settled(base, base, now, duration));
-        transition.retarget(desired, now);
-        let value = transition.value_at(now);
+    fn transition_value(&mut self, pass: &mut VisualPass<'_>, step: TransitionStep) -> f32 {
+        pass.seen.insert(step.key.clone());
+        let transition = self.transitions.entry(step.key.clone()).or_insert_with(|| {
+            VisualTransition::settled(step.base, step.base, pass.now, step.duration)
+        });
+        transition.retarget(step.desired, pass.now);
+        let value = transition.value_at(pass.now);
 
-        if transition.is_animating_at(now) {
-            *schedule = schedule.merge(animation::Schedule::NextFrame);
-        } else if transition.is_at_base(now) {
-            remove.push(key);
+        if transition.is_animating_at(pass.now) {
+            *pass.schedule = pass.schedule.merge(animation::Schedule::NextFrame);
+        } else if transition.is_at_base(pass.now) {
+            pass.remove.push(step.key);
         }
 
         value
