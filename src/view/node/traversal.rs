@@ -249,19 +249,6 @@ impl Node {
         retained: &composition::Node,
     ) {
         let pointer_target = self.node_pointer_target(require_retained_id(retained));
-        self.hovered = pointer_target
-            .as_ref()
-            .is_some_and(|target| interaction.pointer().hovered() == Some(target));
-        self.pressed = pointer_target
-            .as_ref()
-            .is_some_and(|target| interaction.pointer().pressed() == Some(target));
-        self.active = match self.role {
-            Role::MenuBar => interaction.open_menu().is_some(),
-            Role::Menu => interaction
-                .open_menu()
-                .is_some_and(|menu| self.id == Some(menu.id())),
-            _ => false,
-        };
         self.scroll_offset = if self.role == Role::Scroll {
             pointer_target
                 .as_ref()

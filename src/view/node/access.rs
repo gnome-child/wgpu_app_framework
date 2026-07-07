@@ -62,16 +62,6 @@ impl Node {
             || self.text_box_model().is_some_and(TextBox::focus_visible)
     }
 
-    #[cfg(test)]
-    pub(crate) fn is_pressed(&self) -> bool {
-        self.pressed
-    }
-
-    #[cfg(test)]
-    pub(crate) fn is_active(&self) -> bool {
-        self.active
-    }
-
     pub fn is_selected(&self) -> bool {
         self.selected
     }

@@ -54,10 +54,6 @@ pub(crate) struct Frame {
     text_wrap: Option<view::Wrap>,
     focused: bool,
     focus_visible: bool,
-    #[cfg(test)]
-    pressed: bool,
-    #[cfg(test)]
-    active: bool,
     selected: bool,
     floating_layer: bool,
     background: Option<scene::Brush>,
@@ -188,10 +184,6 @@ impl Frame {
                 .or_else(|| text_box.as_ref().map(|_| view::Wrap::None)),
             focused: node.is_focused(),
             focus_visible: node.focus_visible(),
-            #[cfg(test)]
-            pressed: node.is_pressed(),
-            #[cfg(test)]
-            active: node.is_active(),
             selected: node.is_selected(),
             floating_layer,
             background: node.style().background(),
@@ -272,16 +264,6 @@ impl Frame {
 
     pub(crate) fn focus_visible(&self) -> bool {
         self.focus_visible
-    }
-
-    #[cfg(test)]
-    pub(crate) fn is_pressed(&self) -> bool {
-        self.pressed
-    }
-
-    #[cfg(test)]
-    pub(crate) fn is_active(&self) -> bool {
-        self.active
     }
 
     pub(crate) fn is_selected(&self) -> bool {
