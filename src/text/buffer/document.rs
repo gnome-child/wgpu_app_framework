@@ -123,14 +123,6 @@ impl TextDocument {
             .unwrap_or(0)
     }
 
-    #[allow(dead_code)]
-    pub(super) fn line_ending_len(&self, line: usize) -> usize {
-        self.tree
-            .line(line)
-            .map(|line| line.ending.len())
-            .unwrap_or(0)
-    }
-
     pub(in crate::text) fn text(&self) -> String {
         self.stats
             .full_materializations
@@ -557,64 +549,5 @@ impl TextDocument {
     #[cfg(test)]
     pub(super) fn stats(&self) -> TextDocumentStatsSnapshot {
         self.stats.snapshot()
-    }
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-struct BufferLineIndex {
-    text_lens: Vec<usize>,
-    ending_lens: Vec<usize>,
-}
-
-#[allow(dead_code)]
-impl BufferLineIndex {
-    fn from_document(document: &TextDocument) -> Self {
-        Self {
-            text_lens: (0..document.line_count())
-                .map(|line| document.line_text_len(line))
-                .collect(),
-            ending_lens: (0..document.line_count())
-                .map(|line| document.line_ending_len(line))
-                .collect(),
-        }
-    }
-
-    fn replace_from_document(
-        &mut self,
-        document: &TextDocument,
-        start_line: usize,
-        old_line_count: usize,
-        new_line_count: usize,
-    ) {
-        let start = start_line.min(self.line_count());
-        let end = start
-            .saturating_add(old_line_count)
-            .min(self.text_lens.len());
-        let new_end = start
-            .saturating_add(new_line_count)
-            .min(document.line_count());
-        self.text_lens.splice(
-            start..end,
-            (start..new_end).map(|line| document.line_text_len(line)),
-        );
-        let end = start
-            .saturating_add(old_line_count)
-            .min(self.ending_lens.len());
-        self.ending_lens.splice(
-            start..end,
-            (start..new_end).map(|line| document.line_ending_len(line)),
-        );
-    }
-
-    fn line_count(&self) -> usize {
-        self.text_lens.len().max(1)
-    }
-
-    fn line_text_len(&self, line: usize) -> usize {
-        self.text_lens
-            .get(line.min(self.line_count().saturating_sub(1)))
-            .copied()
-            .unwrap_or(0)
     }
 }
