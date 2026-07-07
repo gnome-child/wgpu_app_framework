@@ -18,6 +18,7 @@ pub mod hit;
 mod measure;
 pub mod path;
 pub(crate) mod text;
+pub(crate) mod typography;
 pub mod viewport;
 
 use frame::Frame;
@@ -222,24 +223,4 @@ impl Layout {
             .filter(|frame| frame.role() == role)
             .collect()
     }
-}
-
-pub(crate) fn section_header_text(label: &str) -> String {
-    measure::section_header_text(label)
-}
-
-pub(crate) fn section_header_style(theme: &Theme) -> crate::theme::TypeStyle {
-    measure::section_header_style(theme)
-}
-
-pub(crate) fn shortcut_text_style(theme: &Theme) -> crate::theme::TypeStyle {
-    measure::shortcut_text_style(theme)
-}
-
-pub(crate) fn shortcut_run_gap(theme: &Theme) -> i32 {
-    measure::shortcut_run_gap(theme)
-}
-
-pub(crate) fn interface_text_style(theme: &Theme) -> crate::theme::TypeStyle {
-    measure::interface_text_style(theme)
 }

@@ -3,7 +3,7 @@ use super::super::{
     geometry::{Rect, Size},
     keymap, theme, view,
 };
-use super::{control, engine, flow};
+use super::{control, engine, flow, typography};
 
 pub(in crate::layout) fn size_hint(
     node: &view::Node,
@@ -118,9 +118,9 @@ pub(in crate::layout) fn intrinsic_height_for_width(
             .map(|label| {
                 engine
                     .label_size_for_width_with_style(
-                        &section_header_text(label),
+                        &typography::section_header_text(label),
                         width,
-                        section_header_style(theme),
+                        typography::section_header_style(theme),
                     )
                     .height()
             })
@@ -515,7 +515,8 @@ pub(in crate::layout) fn shortcut_display_width(
         .sum::<i32>();
 
     run_width.saturating_add(
-        shortcut_run_gap(theme).saturating_mul(display.runs().len().saturating_sub(1) as i32),
+        typography::shortcut_run_gap(theme)
+            .saturating_mul(display.runs().len().saturating_sub(1) as i32),
     )
 }
 
@@ -526,18 +527,17 @@ pub(in crate::layout) fn shortcut_run_width(
 ) -> i32 {
     match run {
         keymap::ShortcutRun::Text(value) => {
-            engine.label_width_with_style(value, shortcut_text_style(theme))
+            engine.label_width_with_style(value, typography::shortcut_text_style(theme))
         }
         keymap::ShortcutRun::Icon(_) => shortcut_icon_extent(theme),
     }
 }
 
-pub(in crate::layout) fn shortcut_run_gap(_theme: &theme::Theme) -> i32 {
-    2
-}
-
 pub(in crate::layout) fn shortcut_icon_extent(theme: &theme::Theme) -> i32 {
-    shortcut_text_style(theme).size().ceil().max(1.0) as i32
+    typography::shortcut_text_style(theme)
+        .size()
+        .ceil()
+        .max(1.0) as i32
 }
 
 pub(in crate::layout) fn menu_title_width(
@@ -560,7 +560,7 @@ fn menu_intrinsic_width(
 ) -> i32 {
     let label_width = node
         .label_text()
-        .map(|label| engine.label_width_with_style(label, interface_text_style(theme)))
+        .map(|label| engine.label_width_with_style(label, typography::interface_text_style(theme)))
         .unwrap_or_default();
     let content_width = if has_single_character_label(node) {
         label_width.max(control::control_content_extent(
@@ -581,7 +581,7 @@ fn menu_row_width(node: &view::Node, engine: &mut engine::Engine, theme: &theme:
 
     let label_width = node
         .label_text()
-        .map(|label| engine.label_width_with_style(label, interface_text_style(theme)))
+        .map(|label| engine.label_width_with_style(label, typography::interface_text_style(theme)))
         .unwrap_or_default();
     let shortcut_width = node
         .binding()
@@ -831,7 +831,9 @@ fn button_intrinsic_width(
         return control_intrinsic_width(
             node,
             node.label_text()
-                .map(|label| engine.label_width_with_style(label, interface_text_style(theme)))
+                .map(|label| {
+                    engine.label_width_with_style(label, typography::interface_text_style(theme))
+                })
                 .unwrap_or_default(),
             theme,
         );
@@ -842,8 +844,8 @@ fn button_intrinsic_width(
 
     for label in button.measurement_labels() {
         count += 1;
-        max_width =
-            max_width.max(engine.label_width_with_style(label, interface_text_style(theme)));
+        max_width = max_width
+            .max(engine.label_width_with_style(label, typography::interface_text_style(theme)));
         all_single_character &= label.chars().count() == 1;
     }
 
@@ -864,30 +866,17 @@ fn section_header_width(
 ) -> i32 {
     node.label_text()
         .map(|label| {
-            engine.label_width_with_style(&section_header_text(label), section_header_style(theme))
+            engine.label_width_with_style(
+                &typography::section_header_text(label),
+                typography::section_header_style(theme),
+            )
         })
         .unwrap_or_default()
 }
 
 pub(crate) fn section_header_height(theme: &theme::Theme) -> i32 {
-    (section_header_style(theme).size() * 1.25).ceil() as i32 + theme.control().padding.max(0)
-}
-
-pub(in crate::layout) fn section_header_text(label: &str) -> String {
-    label.chars().flat_map(char::to_uppercase).collect()
-}
-
-pub(crate) fn section_header_style(theme: &theme::Theme) -> theme::TypeStyle {
-    let caption = theme.typography().caption();
-    theme::TypeStyle::new(caption.size(), crate::text::document::Weight::Bold)
-}
-
-pub(crate) fn shortcut_text_style(theme: &theme::Theme) -> theme::TypeStyle {
-    interface_text_style(theme)
-}
-
-pub(crate) fn interface_text_style(theme: &theme::Theme) -> theme::TypeStyle {
-    theme.typography().interface()
+    (typography::section_header_style(theme).size() * 1.25).ceil() as i32
+        + theme.control().padding.max(0)
 }
 
 fn body_line_height(theme: &theme::Theme) -> i32 {
@@ -902,15 +891,15 @@ fn intrinsic_label_style(node: &view::Node, theme: &theme::Theme) -> theme::Type
         | view::node::Role::Checkbox
         | view::node::Role::Radio
         | view::node::Role::Slider
-        | view::node::Role::TextBox => interface_text_style(theme),
+        | view::node::Role::TextBox => typography::interface_text_style(theme),
         view::node::Role::Label
             if node
                 .binding()
                 .is_some_and(|binding| binding.source() == Source::Palette) =>
         {
-            interface_text_style(theme)
+            typography::interface_text_style(theme)
         }
-        view::node::Role::SectionHeader => section_header_style(theme),
+        view::node::Role::SectionHeader => typography::section_header_style(theme),
         _ => theme.typography().body(),
     }
 }

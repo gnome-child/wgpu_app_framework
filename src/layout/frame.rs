@@ -5,7 +5,7 @@ use super::super::{
     theme::Theme,
     view,
 };
-use super::{control, engine, measure, path, text, viewport};
+use super::{control, engine, measure, path, text, typography, viewport};
 use crate::animation;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -110,11 +110,11 @@ impl Frame {
             .as_deref()
             .map(|label| match node.role() {
                 view::node::Role::Menu => {
-                    engine.label_width_with_style(label, super::interface_text_style(theme))
+                    engine.label_width_with_style(label, typography::interface_text_style(theme))
                 }
                 view::node::Role::SectionHeader => engine.label_width_with_style(
-                    &super::section_header_text(label),
-                    super::section_header_style(theme),
+                    &typography::section_header_text(label),
+                    typography::section_header_style(theme),
                 ),
                 view::node::Role::Binding
                 | view::node::Role::Button
@@ -122,14 +122,14 @@ impl Frame {
                 | view::node::Role::Radio
                 | view::node::Role::Slider
                 | view::node::Role::TextBox => {
-                    engine.label_width_with_style(label, super::interface_text_style(theme))
+                    engine.label_width_with_style(label, typography::interface_text_style(theme))
                 }
                 view::node::Role::Label
                     if node
                         .binding()
                         .is_some_and(|binding| binding.source() == context::Source::Palette) =>
                 {
-                    engine.label_width_with_style(label, super::interface_text_style(theme))
+                    engine.label_width_with_style(label, typography::interface_text_style(theme))
                 }
                 _ => engine.label_width_with_style(label, theme.typography().body()),
             })
@@ -144,7 +144,7 @@ impl Frame {
                 let mut parts = Vec::with_capacity(display.runs().len());
                 for (index, run) in display.runs().iter().cloned().enumerate() {
                     if index > 0 {
-                        width = width.saturating_add(measure::shortcut_run_gap(theme));
+                        width = width.saturating_add(typography::shortcut_run_gap(theme));
                     }
                     let run_width = measure::shortcut_run_width(&run, engine, theme);
                     width = width.saturating_add(run_width);
