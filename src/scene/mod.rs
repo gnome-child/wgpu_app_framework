@@ -17,7 +17,7 @@ pub use primitive::{
     TextSurface, TextViewport, TextWrap, Transform,
 };
 pub(crate) use visual::Target as TargetVisual;
-pub use visual::Visuals;
+pub(crate) use visual::Visuals;
 
 use super::{geometry, layout, theme::Theme};
 

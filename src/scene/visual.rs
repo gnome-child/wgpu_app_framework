@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::super::interaction;
 
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct Visuals {
+pub(crate) struct Visuals {
     targets: HashMap<interaction::Target, Target>,
     slider_track_scale_y: HashMap<interaction::Target, f32>,
     scrollbars: HashMap<interaction::Target, Scrollbar>,
@@ -78,13 +78,6 @@ impl Visuals {
 
     pub(crate) fn scrollbar(&self, target: &interaction::Target) -> Scrollbar {
         self.scrollbars.get(target).copied().unwrap_or_default()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.targets.is_empty()
-            && self.slider_track_scale_y.is_empty()
-            && self.scrollbars.is_empty()
-            && self.carets.is_empty()
     }
 }
 

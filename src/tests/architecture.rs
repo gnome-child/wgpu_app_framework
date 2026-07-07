@@ -700,6 +700,8 @@ fn scene_layout_painting_stays_internal() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let scene_mod = std::fs::read_to_string(src_dir.join("scene").join("mod.rs"))
         .expect("scene module should read");
+    let scene_visual = std::fs::read_to_string(src_dir.join("scene").join("visual.rs"))
+        .expect("scene visuals should read");
 
     for pattern in [
         "pub fn paint(",
@@ -712,6 +714,11 @@ fn scene_layout_painting_stays_internal() {
             "layout-to-scene painting must stay runtime/internal: {pattern}"
         );
     }
+    assert!(
+        !scene_mod.contains("pub use visual::Visuals")
+            && !scene_visual.contains("pub struct Visuals"),
+        "scene Visuals are runtime-derived paint input, not public scene API"
+    );
 }
 
 #[test]
