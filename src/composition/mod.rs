@@ -50,7 +50,8 @@ impl Composition {
     ) {
         let tree = self.tree.clone();
         if let Some(interaction) = interaction {
-            self.view.project_interaction_retained(interaction, &tree);
+            self.view
+                .project_layout_interaction_retained(interaction, &tree);
         }
         self.view.project_focus_retained(focus, &tree);
     }

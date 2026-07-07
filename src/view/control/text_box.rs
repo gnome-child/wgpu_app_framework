@@ -112,7 +112,7 @@ impl TextBox {
         ))
     }
 
-    pub(in crate::view) fn project_interaction(
+    pub(in crate::view) fn project_layout_interaction(
         &mut self,
         interaction: &interaction::Interaction,
         bound: bool,

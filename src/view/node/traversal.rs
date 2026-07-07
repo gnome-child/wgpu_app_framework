@@ -235,15 +235,15 @@ impl Node {
         self.children.retain(|child| !child.is_hidden_binding());
     }
 
-    pub(in crate::view) fn project_interaction_retained(
+    pub(in crate::view) fn project_layout_interaction_retained(
         &mut self,
         interaction: &interaction::Interaction,
         retained: &composition::Node,
     ) {
-        self.project_interaction_retained_at(interaction, retained);
+        self.project_layout_interaction_retained_at(interaction, retained);
     }
 
-    fn project_interaction_retained_at(
+    fn project_layout_interaction_retained_at(
         &mut self,
         interaction: &interaction::Interaction,
         retained: &composition::Node,
@@ -264,15 +264,18 @@ impl Node {
             None
         };
         if let Some(Control::TextArea(text_area)) = &mut self.control {
-            text_area.project_interaction(interaction, text_area_target.as_ref());
+            text_area.project_layout_interaction(interaction, text_area_target.as_ref());
         }
 
         if let Some(Control::TextBox(text_box)) = &mut self.control {
-            text_box.project_interaction(interaction, self.binding.is_some());
+            text_box.project_layout_interaction(interaction, self.binding.is_some());
         }
 
         for (index, child) in self.children.iter_mut().enumerate() {
-            child.project_interaction_retained_at(interaction, retained_child(retained, index));
+            child.project_layout_interaction_retained_at(
+                interaction,
+                retained_child(retained, index),
+            );
         }
     }
 

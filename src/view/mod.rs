@@ -175,13 +175,13 @@ impl View {
         }
     }
 
-    pub(crate) fn project_interaction_retained(
+    pub(crate) fn project_layout_interaction_retained(
         &mut self,
         interaction: &interaction::Interaction,
         tree: &composition::Tree,
     ) {
         self.root
-            .project_interaction_retained(interaction, tree.root());
+            .project_layout_interaction_retained(interaction, tree.root());
     }
 
     pub(crate) fn project_focus_retained(

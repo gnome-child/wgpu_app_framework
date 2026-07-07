@@ -137,7 +137,7 @@ impl TextArea {
         ))
     }
 
-    pub(in crate::view) fn project_interaction(
+    pub(in crate::view) fn project_layout_interaction(
         &mut self,
         interaction: &interaction::Interaction,
         target: Option<&interaction::Target>,

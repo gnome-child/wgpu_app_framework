@@ -354,7 +354,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             interaction
         };
         if let Some(interaction) = interaction.as_ref() {
-            view.project_interaction_retained(interaction, &tree);
+            view.project_layout_interaction_retained(interaction, &tree);
         }
         if focus.is_some_and(|focus| !view.contains_enabled_focus_retained(&tree, focus)) {
             self.clear_focus(window);
