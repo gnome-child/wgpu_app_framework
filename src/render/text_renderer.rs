@@ -250,6 +250,108 @@ fn prepare_text(
     })
 }
 
+fn prepare_text_viewport<'a>(
+    viewport: &'a paint::TextViewport,
+    scale_factor: f32,
+) -> impl Iterator<Item = PreparedText<'a>> + 'a {
+    viewport.surfaces.iter().filter_map(move |surface| {
+        prepare_text_surface_in_bounds(surface, viewport.rect, scale_factor)
+    })
+}
+
+fn prepare_text_surface_in_bounds<'a>(
+    text: &'a paint::TextSurface,
+    bounds_rect: crate::paint_geometry::Rect,
+    scale_factor: f32,
+) -> Option<PreparedText<'a>> {
+    let width = text.rect.area.width().max(0.0);
+    let height = text.rect.area.height().max(0.0);
+    if width <= 0.0 || height <= 0.0 {
+        return None;
+    }
+
+    let clip_left = bounds_rect.origin.x() * scale_factor;
+    let clip_top = bounds_rect.origin.y() * scale_factor;
+    let clip_right = clip_left + bounds_rect.area.width().max(0.0) * scale_factor;
+    let clip_bottom = clip_top + bounds_rect.area.height().max(0.0) * scale_factor;
+    let left = snap_text_origin(text.rect.origin.x() * scale_factor);
+    let top = snap_text_origin(text.rect.origin.y() * scale_factor);
+
+    Some(PreparedText {
+        buffer: PreparedTextBuffer::Borrowed(text.buffer.borrow()),
+        left,
+        top,
+        bounds: glyphon::TextBounds {
+            left: clip_left.floor() as i32,
+            top: clip_top.floor() as i32,
+            right: clip_right.ceil() as i32,
+            bottom: clip_bottom.ceil() as i32,
+        },
+        default_color: paint_color(text.default_color),
+        stats: InlineStats::default(),
+    })
+}
+
+fn snap_text_origin(position: f32) -> f32 {
+    position.round()
+}
+
+fn wrap(wrap: paint::TextWrap) -> glyphon::Wrap {
+    match wrap {
+        paint::TextWrap::WordOrGlyph => glyphon::Wrap::WordOrGlyph,
+        paint::TextWrap::None => glyphon::Wrap::None,
+    }
+}
+
+fn prepare_icon(
+    font_system: &mut glyphon::FontSystem,
+    inline_cache: &mut InlineCache,
+    icon: &paint::Icon,
+    scale_factor: f32,
+) -> Option<PreparedText<'static>> {
+    let Some(glyph) = icon.icon.glyph() else {
+        log::debug!("skipping missing icon glyph: {:?}", icon.icon);
+        return None;
+    };
+
+    let width = icon.rect.area.width().max(0.0);
+    let height = icon.rect.area.height().max(0.0);
+    let prepared = inline_cache.prepare_icon(font_system, glyph, icon.size, width, height)?;
+    let buffer_height = height.min(prepared.line_height);
+
+    let clip_left = icon.rect.origin.x() * scale_factor;
+    let clip_top = icon.rect.origin.y() * scale_factor;
+    let clip_right = clip_left + width * scale_factor;
+    let clip_bottom = clip_top + height * scale_factor;
+    let left = clip_left;
+    let top = (icon.rect.origin.y() + (height - buffer_height).max(0.0) * 0.5) * scale_factor;
+
+    Some(PreparedText {
+        buffer: PreparedTextBuffer::Shared(prepared.buffer),
+        left,
+        top,
+        bounds: glyphon::TextBounds {
+            left: clip_left.floor() as i32,
+            top: clip_top.floor() as i32,
+            right: clip_right.ceil() as i32,
+            bottom: clip_bottom.ceil() as i32,
+        },
+        default_color: paint_color(icon.color),
+        stats: prepared.stats,
+    })
+}
+
+fn paint_color(color: paint::Color) -> glyphon::Color {
+    let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+
+    glyphon::Color::rgba(
+        channel(color.r),
+        channel(color.g),
+        channel(color.b),
+        channel(color.a),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use crate::paint_geometry::{Rect, area, point};
@@ -449,106 +551,4 @@ mod tests {
         assert_eq!(black.stats.icon_shape_calls, 0);
         assert_eq!(black.default_color, paint_color(paint::Color::BLACK));
     }
-}
-
-fn prepare_text_viewport<'a>(
-    viewport: &'a paint::TextViewport,
-    scale_factor: f32,
-) -> impl Iterator<Item = PreparedText<'a>> + 'a {
-    viewport.surfaces.iter().filter_map(move |surface| {
-        prepare_text_surface_in_bounds(surface, viewport.rect, scale_factor)
-    })
-}
-
-fn prepare_text_surface_in_bounds<'a>(
-    text: &'a paint::TextSurface,
-    bounds_rect: crate::paint_geometry::Rect,
-    scale_factor: f32,
-) -> Option<PreparedText<'a>> {
-    let width = text.rect.area.width().max(0.0);
-    let height = text.rect.area.height().max(0.0);
-    if width <= 0.0 || height <= 0.0 {
-        return None;
-    }
-
-    let clip_left = bounds_rect.origin.x() * scale_factor;
-    let clip_top = bounds_rect.origin.y() * scale_factor;
-    let clip_right = clip_left + bounds_rect.area.width().max(0.0) * scale_factor;
-    let clip_bottom = clip_top + bounds_rect.area.height().max(0.0) * scale_factor;
-    let left = snap_text_origin(text.rect.origin.x() * scale_factor);
-    let top = snap_text_origin(text.rect.origin.y() * scale_factor);
-
-    Some(PreparedText {
-        buffer: PreparedTextBuffer::Borrowed(text.buffer.borrow()),
-        left,
-        top,
-        bounds: glyphon::TextBounds {
-            left: clip_left.floor() as i32,
-            top: clip_top.floor() as i32,
-            right: clip_right.ceil() as i32,
-            bottom: clip_bottom.ceil() as i32,
-        },
-        default_color: paint_color(text.default_color),
-        stats: InlineStats::default(),
-    })
-}
-
-fn snap_text_origin(position: f32) -> f32 {
-    position.round()
-}
-
-fn wrap(wrap: paint::TextWrap) -> glyphon::Wrap {
-    match wrap {
-        paint::TextWrap::WordOrGlyph => glyphon::Wrap::WordOrGlyph,
-        paint::TextWrap::None => glyphon::Wrap::None,
-    }
-}
-
-fn prepare_icon(
-    font_system: &mut glyphon::FontSystem,
-    inline_cache: &mut InlineCache,
-    icon: &paint::Icon,
-    scale_factor: f32,
-) -> Option<PreparedText<'static>> {
-    let Some(glyph) = icon.icon.glyph() else {
-        log::debug!("skipping missing icon glyph: {:?}", icon.icon);
-        return None;
-    };
-
-    let width = icon.rect.area.width().max(0.0);
-    let height = icon.rect.area.height().max(0.0);
-    let prepared = inline_cache.prepare_icon(font_system, glyph, icon.size, width, height)?;
-    let buffer_height = height.min(prepared.line_height);
-
-    let clip_left = icon.rect.origin.x() * scale_factor;
-    let clip_top = icon.rect.origin.y() * scale_factor;
-    let clip_right = clip_left + width * scale_factor;
-    let clip_bottom = clip_top + height * scale_factor;
-    let left = clip_left;
-    let top = (icon.rect.origin.y() + (height - buffer_height).max(0.0) * 0.5) * scale_factor;
-
-    Some(PreparedText {
-        buffer: PreparedTextBuffer::Shared(prepared.buffer),
-        left,
-        top,
-        bounds: glyphon::TextBounds {
-            left: clip_left.floor() as i32,
-            top: clip_top.floor() as i32,
-            right: clip_right.ceil() as i32,
-            bottom: clip_bottom.ceil() as i32,
-        },
-        default_color: paint_color(icon.color),
-        stats: prepared.stats,
-    })
-}
-
-fn paint_color(color: paint::Color) -> glyphon::Color {
-    let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
-
-    glyphon::Color::rgba(
-        channel(color.r),
-        channel(color.g),
-        channel(color.b),
-        channel(color.a),
-    )
 }
