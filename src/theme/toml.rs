@@ -1871,7 +1871,7 @@ fn rounding_to_toml(
     }
 
     match top_left {
-        scene::Radius::Fixed(value) if value == 0.0 => Ok(RoundingToml::Name("none".to_owned())),
+        scene::Radius::Fixed(0.0) => Ok(RoundingToml::Name("none".to_owned())),
         scene::Radius::Fixed(value) => Ok(RoundingToml::Fixed { fixed: value }),
         scene::Radius::Relative(value) => Ok(RoundingToml::Relative { relative: value }),
     }

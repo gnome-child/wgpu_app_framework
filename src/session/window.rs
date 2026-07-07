@@ -90,7 +90,7 @@ impl Window {
     }
 
     pub fn focus(&self) -> Option<Focus> {
-        self.focus.clone()
+        self.focus
     }
 
     pub fn interaction(&self) -> &interaction::Interaction {
@@ -115,7 +115,7 @@ impl WindowSnapshot {
             title: window.title.clone(),
             inner_size: window.inner_size,
             canvas_color: window.canvas_color,
-            focus: window.focus.clone(),
+            focus: window.focus,
         }
     }
 
@@ -136,7 +136,7 @@ impl WindowSnapshot {
     }
 
     pub fn focus(&self) -> Option<Focus> {
-        self.focus.clone()
+        self.focus
     }
 }
 
@@ -180,8 +180,7 @@ impl Session {
         let previous = window.invalidation;
         window.invalidation =
             Some(previous.map_or(invalidation, |previous| previous.max(invalidation)));
-        let changed = previous != window.invalidation;
-        changed
+        previous != window.invalidation
     }
 
     pub fn clear_redraw_request(&mut self, id: app_window::Id) -> bool {

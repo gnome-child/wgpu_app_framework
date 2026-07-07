@@ -355,10 +355,9 @@ fn collect_selected_palette_labels<'a>(node: &'a view::Node, labels: &mut Vec<&'
         && node
             .binding()
             .is_some_and(|binding| binding.source() == context::Source::Palette)
+        && let Some(label) = node.label_text()
     {
-        if let Some(label) = node.label_text() {
-            labels.push(label);
-        }
+        labels.push(label);
     }
 
     for child in node.children() {

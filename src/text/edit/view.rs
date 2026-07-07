@@ -426,7 +426,7 @@ impl ViewState {
             return true;
         }
 
-        (elapsed.as_millis() / interval) % 2 == 0
+        (elapsed.as_millis() / interval).is_multiple_of(2)
     }
 
     pub fn next_caret_deadline(&self, now: Instant) -> Instant {

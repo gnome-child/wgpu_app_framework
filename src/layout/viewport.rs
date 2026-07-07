@@ -99,9 +99,7 @@ fn reveal_axis(
     let visible_end = viewport_start.saturating_add(viewport_extent.saturating_sub(margin));
     let visible_extent = visible_end.saturating_sub(visible_start);
     let target_end = target_start.saturating_add(target_extent);
-    let delta = if target_extent > visible_extent {
-        target_start as i64 - visible_start as i64
-    } else if target_start < visible_start {
+    let delta = if target_extent > visible_extent || target_start < visible_start {
         target_start as i64 - visible_start as i64
     } else if target_end > visible_end {
         target_end as i64 - visible_end as i64

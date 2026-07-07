@@ -126,7 +126,7 @@ impl Node {
 
         self.children
             .iter()
-            .find_map(|child| child.text_commit_action(focus.clone(), text.clone()))
+            .find_map(|child| child.text_commit_action(focus, text.clone()))
     }
 
     pub(in crate::view) fn text_box_for_focus(&self, focus: session::Focus) -> Option<&TextBox> {
@@ -140,7 +140,7 @@ impl Node {
 
         self.children
             .iter()
-            .find_map(|child| child.text_box_for_focus(focus.clone()))
+            .find_map(|child| child.text_box_for_focus(focus))
     }
 
     pub(in crate::view) fn text_input_target_for_focus(
@@ -165,7 +165,7 @@ impl Node {
 
         self.children
             .iter()
-            .find_map(|child| child.text_input_target_for_focus(focus.clone()))
+            .find_map(|child| child.text_input_target_for_focus(focus))
     }
 
     pub(in crate::view) fn collect_menus<'a>(&'a self, menus: &mut Vec<&'a Node>) {

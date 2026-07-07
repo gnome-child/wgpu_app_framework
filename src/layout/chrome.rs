@@ -120,23 +120,23 @@ fn scrollbars_for_frame(frame: &Frame, theme: &theme::Theme) -> Vec<Chrome> {
     }
 
     let mut scrollbars = Vec::new();
-    if viewport.max_scroll().y() > 0 {
-        if let Some(scrollbar) = scrollbar_for_axis(frame, viewport, theme, Axis::Vertical) {
-            scrollbars.push(Chrome {
-                target: scrollbar_target(frame, Axis::Vertical),
-                scroll_target: scroll_target.clone(),
-                kind: Kind::Scrollbar(scrollbar),
-            });
-        }
+    if viewport.max_scroll().y() > 0
+        && let Some(scrollbar) = scrollbar_for_axis(frame, viewport, theme, Axis::Vertical)
+    {
+        scrollbars.push(Chrome {
+            target: scrollbar_target(frame, Axis::Vertical),
+            scroll_target: scroll_target.clone(),
+            kind: Kind::Scrollbar(scrollbar),
+        });
     }
-    if viewport.max_scroll().x() > 0 {
-        if let Some(scrollbar) = scrollbar_for_axis(frame, viewport, theme, Axis::Horizontal) {
-            scrollbars.push(Chrome {
-                target: scrollbar_target(frame, Axis::Horizontal),
-                scroll_target,
-                kind: Kind::Scrollbar(scrollbar),
-            });
-        }
+    if viewport.max_scroll().x() > 0
+        && let Some(scrollbar) = scrollbar_for_axis(frame, viewport, theme, Axis::Horizontal)
+    {
+        scrollbars.push(Chrome {
+            target: scrollbar_target(frame, Axis::Horizontal),
+            scroll_target,
+            kind: Kind::Scrollbar(scrollbar),
+        });
     }
 
     scrollbars

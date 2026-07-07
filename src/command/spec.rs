@@ -109,7 +109,7 @@ enum ParsedKey {
     Invalid,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 struct ParsedModifiers {
     shift: bool,
     control: bool,
@@ -275,18 +275,6 @@ impl ParsedModifiers {
             self.alt,
             self.super_key || (self.primary && primary_is_super),
         )
-    }
-}
-
-impl Default for ParsedModifiers {
-    fn default() -> Self {
-        Self {
-            shift: false,
-            control: false,
-            alt: false,
-            super_key: false,
-            primary: false,
-        }
     }
 }
 

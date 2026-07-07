@@ -128,9 +128,7 @@ pub(super) fn invoke<S>(
         Ok(claim) => claim,
         Err(error) => return Some(AnyResponse::failed(error)),
     };
-    let Some(claim) = claim else {
-        return None;
-    };
+    let claim = claim?;
 
     match claim.state.availability {
         command::Availability::Hidden => unreachable!("hidden targets are not claims"),

@@ -223,11 +223,11 @@ fn analytic_shapes_for_quad_rect(quad: &paint::Quad, rect: Rect) -> Vec<Analytic
         }
     }
 
-    if let Some(stroke) = quad.style.stroke {
-        if let Some(mut shape) = internal_stroke_shape(rect, stroke.width, stroke.brush) {
-            shape.snap_outer = snap_outer;
-            shapes.push(shape);
-        }
+    if let Some(stroke) = quad.style.stroke
+        && let Some(mut shape) = internal_stroke_shape(rect, stroke.width, stroke.brush)
+    {
+        shape.snap_outer = snap_outer;
+        shapes.push(shape);
     }
 
     if let Some(brush) = quad.style.tint {

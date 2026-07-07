@@ -121,9 +121,7 @@ fn line_highlight_range_for_run(
     run: &glyphon::cosmic_text::LayoutRun<'_>,
     range: Option<(Cursor, Cursor)>,
 ) -> Option<(usize, usize)> {
-    let Some((start, end)) = range else {
-        return None;
-    };
+    let (start, end) = range?;
     let (start, end) = if (end.line, end.index) < (start.line, start.index) {
         (end, start)
     } else {

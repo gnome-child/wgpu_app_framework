@@ -228,7 +228,7 @@ impl Service {
         position: Point,
     ) -> Option<text_engine::buffer::Position> {
         let field = field_model(text_box);
-        let style = layout.style.clone();
+        let style = layout.style;
         let viewport = area::logical(rect.width() as f32, rect.height() as f32);
         let local = point::logical(
             position.x().saturating_sub(rect.x()) as f32,

@@ -690,9 +690,10 @@ fn generic_scroll_pointer_drag_updates_viewport_offset() {
         .layout()
         .chrome()
         .iter()
-        .find_map(|chrome| match chrome.kind() {
-            layout::chrome::Kind::Scrollbar(scrollbar) => Some(scrollbar.track()),
+        .map(|chrome| match chrome.kind() {
+            layout::chrome::Kind::Scrollbar(scrollbar) => scrollbar.track(),
         })
+        .next()
         .expect("scrollbar chrome should be projected");
     let press = geometry::Point::new(track.x().saturating_add(track.width() / 2), track.y() + 1);
     let drag = geometry::Point::new(
@@ -1308,11 +1309,10 @@ fn command_palette_search_box_wins_over_clipped_results() {
     app.pointer_down_at(window, size, point)
         .expect("query pointer down should be handled");
 
-    assert_eq!(
+    assert!(
         app.session()
             .focused(window)
-            .is_some_and(|focus| focus.same_target(&interaction::CommandPalette::query_focus())),
-        true
+            .is_some_and(|focus| focus.same_target(&interaction::CommandPalette::query_focus()))
     );
 }
 
@@ -2134,8 +2134,8 @@ fn scrollbar_drag_does_not_dismiss_owning_palette() {
         .chrome()
         .iter()
         .find(|chrome| chrome.scroll_target() == &target)
-        .and_then(|chrome| match chrome.kind() {
-            layout::chrome::Kind::Scrollbar(scrollbar) => Some(scrollbar.track()),
+        .map(|chrome| match chrome.kind() {
+            layout::chrome::Kind::Scrollbar(scrollbar) => scrollbar.track(),
         })
         .expect("palette results should project scrollbar chrome");
     let press = frame_point_at(track);
@@ -4433,9 +4433,10 @@ fn first_scrollbar_track(layout: &layout::Layout) -> geometry::Rect {
     layout
         .chrome()
         .iter()
-        .find_map(|chrome| match chrome.kind() {
-            layout::chrome::Kind::Scrollbar(scrollbar) => Some(scrollbar.track()),
+        .map(|chrome| match chrome.kind() {
+            layout::chrome::Kind::Scrollbar(scrollbar) => scrollbar.track(),
         })
+        .next()
         .expect("scrollbar chrome should be projected")
 }
 

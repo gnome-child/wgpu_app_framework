@@ -32,7 +32,7 @@ struct TestEngine {
 fn engine() -> TestEngine {
     let mut engine = TEST_ENGINE
         .with(|slot| slot.borrow_mut().take())
-        .unwrap_or_else(Engine::new);
+        .unwrap_or_default();
     engine.reset_for_test();
     TestEngine {
         inner: Some(engine),
@@ -583,7 +583,7 @@ fn text_area_frame_cache_reuses_unchanged_frame_and_rebuilds_after_typing() {
         .into_interaction_parts()
         .1;
     assert_eq!(surface_line_text(&first, 2), surface_line_text(&second, 2));
-    assert!(engine.text_area_line_displays.len() > 0);
+    assert!(!engine.text_area_line_displays.is_empty());
 
     apply_edit(&mut editor, &mut buffer, &mut edit_state, Edit::insert("!"));
     let third = engine
@@ -985,7 +985,7 @@ fn text_area_preedit_projection_is_not_cached() {
         surface_line_text(&after, 0)
     );
     assert_eq!(surface_line_text(&after, 0), "hello");
-    assert!(engine.text_area_line_displays.len() > 0);
+    assert!(!engine.text_area_line_displays.is_empty());
 }
 
 #[test]

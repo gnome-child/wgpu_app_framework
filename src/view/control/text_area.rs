@@ -97,7 +97,7 @@ impl TextArea {
     }
 
     pub fn focus(&self) -> Option<session::Focus> {
-        self.focus.clone()
+        self.focus
     }
 
     pub fn is_focused(&self) -> bool {
@@ -113,13 +113,11 @@ impl TextArea {
     }
 
     pub fn focus_action(&self) -> Option<Action> {
-        self.focus.clone().map(Action::focus)
+        self.focus.map(Action::focus)
     }
 
     pub fn pointer_focus_action(&self) -> Option<Action> {
-        self.focus
-            .clone()
-            .map(|focus| Action::focus(focus.pointer()))
+        self.focus.map(|focus| Action::focus(focus.pointer()))
     }
 
     pub fn click_action(&self, position: text::buffer::Position) -> Option<Action> {

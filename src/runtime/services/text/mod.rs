@@ -123,9 +123,7 @@ pub(super) fn invoke(
         return None;
     }
 
-    let Some((window, focus)) = base_text_for(session, composition, window) else {
-        return None;
-    };
+    let (window, focus) = base_text_for(session, composition, window)?;
 
     if !session
         .focused(window)

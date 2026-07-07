@@ -792,11 +792,11 @@ fn text_box_node(node: &view::Node) -> Option<&view::Node> {
     node.children().iter().find_map(text_box_node)
 }
 
-fn text_draft<'a, M, E, V>(
-    app: &'a Runtime<M, E, V>,
+fn text_draft<M, E, V>(
+    app: &Runtime<M, E, V>,
     window: window::Id,
     focus: session::Focus,
-) -> &'a draft::State
+) -> &draft::State
 where
     M: State,
     E: Send + 'static,

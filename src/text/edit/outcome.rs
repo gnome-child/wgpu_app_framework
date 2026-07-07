@@ -34,7 +34,11 @@ impl Outcome {
                 after,
                 transaction,
             }),
-            impacts: text_changed.then_some(impacts).unwrap_or_default(),
+            impacts: if text_changed {
+                impacts
+            } else {
+                Default::default()
+            },
         }
     }
 

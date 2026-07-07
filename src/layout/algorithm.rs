@@ -398,9 +398,9 @@ fn root_floating_panel_rect(
 }
 
 fn floating_panel_anchor(node: &view::Node, frames: &[Frame]) -> Option<Rect> {
-    let Some(anchor_id) = node.pointer_target().and_then(|target| target.element_id()) else {
-        return None;
-    };
+    let anchor_id = node
+        .pointer_target()
+        .and_then(|target| target.element_id())?;
 
     frames.iter().find_map(|frame| {
         let target_id = frame.target().and_then(|target| target.element_id());
