@@ -1,4 +1,4 @@
-use super::super::{scene, theme::Theme};
+use wgpu_l3::{scene, theme::Theme};
 
 #[derive(Debug, Clone)]
 pub struct State {
@@ -97,7 +97,7 @@ impl Default for State {
     }
 }
 
-impl super::super::state::State for State {}
+impl wgpu_l3::state::State for State {}
 
 impl AcrylicToken {
     pub fn label(self) -> &'static str {

@@ -1,4 +1,3 @@
-use super::super::{Clipboard, Runtime, Shell, View, command, document, platform, state, window};
 use super::{
     State,
     command::{LoadStressText, ToggleDebugPanel, ToggleWrapText},
@@ -6,6 +5,7 @@ use super::{
     target, view,
     view::{CANVAS_COLOR, WINDOW_TITLE, window_size},
 };
+use wgpu_l3::{Clipboard, Runtime, Shell, View, command, document, platform, state, window};
 
 pub fn runtime(state: State) -> Runtime<State, Event> {
     Runtime::new(state)

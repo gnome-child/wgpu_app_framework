@@ -1,4 +1,3 @@
-use super::super::{Context, Response, Target, command};
 use super::{
     State,
     command::{
@@ -6,6 +5,7 @@ use super::{
         ToggleGrid, ToggleWrap,
     },
 };
+use wgpu_l3::{Context, Response, Target, command};
 
 impl Target<IncrementClicks> for State {
     fn state(&self, _: &(), _: &Context) -> command::State {

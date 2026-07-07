@@ -1,17 +1,17 @@
-use super::super::{
-    View, document, geometry, interaction, scene, timeline,
-    view::{
-        Context as ViewContext,
-        style::{Align, Dimension, Padding},
-    },
-    widget,
-};
 use super::{
     Mode, State,
     command::{
         IncrementClicks, ResetControls, SelectMode, SetLevel, SubmitQuery, ToggleAdvanced,
         ToggleGrid, ToggleWrap,
     },
+};
+use wgpu_l3::{
+    View, document, geometry, interaction, scene, timeline,
+    view::{
+        Context as ViewContext,
+        style::{Align, Dimension, Padding},
+    },
+    widget,
 };
 
 const MENU_CONTROLS: interaction::Id = interaction::Id::new("control_gallery.menu.controls");
@@ -157,7 +157,7 @@ fn input_panel(state: &State) -> widget::Element {
             ui.text_box(
                 widget::TextBox::new(state.query.clone())
                     .placeholder("Type to search")
-                    .focus(super::super::session::Focus::text(QUERY_FOCUS))
+                    .focus(wgpu_l3::session::Focus::text(QUERY_FOCUS))
                     .on_submit::<SubmitQuery>(),
             );
         })

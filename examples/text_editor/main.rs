@@ -1,5 +1,3 @@
-pub use wgpu_l3::*;
-
 #[path = "app/mod.rs"]
 mod text_editor;
 

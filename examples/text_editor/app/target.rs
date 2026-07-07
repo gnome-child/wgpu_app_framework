@@ -1,17 +1,17 @@
 use std::path::{Path, PathBuf};
 
-use super::super::{
-    Response, Target, Task, command,
-    context::Context,
-    document,
-    response::{self},
-};
 use super::{
     State,
     command::{LoadStressText, ToggleDebugPanel, ToggleWrapText},
     event::Event,
     state::STRESS_TEXT,
     view::compact_path,
+};
+use wgpu_l3::{
+    Response, Target, Task, command,
+    context::Context,
+    document,
+    response::{self},
 };
 
 impl Target<ToggleWrapText> for State {

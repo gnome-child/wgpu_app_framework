@@ -1,15 +1,15 @@
-use super::super::{
+use super::{
+    State,
+    command::{SetToken, TogglePanel},
+    state::AcrylicToken,
+};
+use wgpu_l3::{
     View, geometry, interaction, scene,
     view::{
         Context as ViewContext,
         style::{Align, Dimension, Padding},
     },
     widget,
-};
-use super::{
-    State,
-    command::{SetToken, TogglePanel},
-    state::AcrylicToken,
 };
 
 const PANEL_ID: interaction::Id = interaction::Id::new("glass_tuner.panel");

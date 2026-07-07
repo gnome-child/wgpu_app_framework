@@ -1,5 +1,5 @@
-use super::super::command::Command;
 use super::state::AcrylicToken;
+use wgpu_l3::command::Command;
 
 pub struct TogglePanel;
 pub struct SetToken;

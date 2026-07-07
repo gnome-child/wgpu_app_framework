@@ -1,9 +1,9 @@
-use super::super::{Context, Response, Target, command};
 use super::{
     State,
     command::{SetToken, TogglePanel},
     state::AcrylicToken,
 };
+use wgpu_l3::{Context, Response, Target, command};
 
 impl Target<TogglePanel> for State {
     fn state(&self, _: &(), _: &Context) -> command::State {

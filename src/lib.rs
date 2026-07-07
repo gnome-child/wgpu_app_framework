@@ -1,3 +1,5 @@
+extern crate self as wgpu_l3;
+
 pub mod clipboard;
 pub mod command;
 pub mod composition;

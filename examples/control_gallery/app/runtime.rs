@@ -1,6 +1,3 @@
-use super::super::{Runtime, View, command, document, window};
-#[cfg(not(test))]
-use super::super::{Shell, platform};
 use super::{
     State,
     command::{
@@ -10,6 +7,9 @@ use super::{
     view,
     view::{CANVAS_COLOR, WINDOW_TITLE, window_size},
 };
+use wgpu_l3::{Runtime, View, command, document, window};
+#[cfg(not(test))]
+use wgpu_l3::{Shell, platform};
 
 pub fn app(state: State) -> Runtime<State, (), View> {
     Runtime::new(state)

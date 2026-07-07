@@ -1,5 +1,5 @@
-use super::super::command::{Command, HistoryGroup};
 use super::Mode;
+use wgpu_l3::command::{Command, HistoryGroup};
 
 pub struct IncrementClicks;
 pub struct ToggleWrap;

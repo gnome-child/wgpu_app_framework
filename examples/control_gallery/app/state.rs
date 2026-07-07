@@ -49,4 +49,4 @@ impl Default for State {
     }
 }
 
-impl super::super::state::State for State {}
+impl wgpu_l3::state::State for State {}

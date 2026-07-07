@@ -1,13 +1,13 @@
 use std::path::Path;
 
-use super::super::{
-    View, document, geometry, interaction, scene, session, timeline,
-    view::{Context as ViewContext, control::Wrap},
-    widget,
-};
 use super::{
     State,
     command::{LoadStressText, ToggleDebugPanel, ToggleWrapText},
+};
+use wgpu_l3::{
+    View, document, geometry, interaction, scene, session, timeline,
+    view::{Context as ViewContext, control::Wrap},
+    widget,
 };
 
 const FILE_MENU: interaction::Id = interaction::Id::new("menu.file");

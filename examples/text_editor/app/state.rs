@@ -1,4 +1,4 @@
-use super::super::Document as TextDocument;
+use wgpu_l3::Document as TextDocument;
 
 pub const STRESS_TEXT: &str = include_str!("../fixtures/unicode_stress_dump.txt");
 
@@ -10,7 +10,7 @@ pub struct State {
     pub last_status: String,
 }
 
-impl super::super::State for State {}
+impl wgpu_l3::State for State {}
 
 impl Default for State {
     fn default() -> Self {

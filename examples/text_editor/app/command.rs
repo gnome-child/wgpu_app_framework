@@ -1,4 +1,4 @@
-use super::super::command;
+use wgpu_l3::command;
 
 pub struct ToggleWrapText;
 
