@@ -93,12 +93,6 @@ pub(super) fn glyph_selection(selection: CursorSelection) -> glyphon::cosmic_tex
         CursorSelection::Normal(cursor) => {
             glyphon::cosmic_text::Selection::Normal(glyph_cursor(cursor))
         }
-        CursorSelection::Line(cursor) => {
-            glyphon::cosmic_text::Selection::Line(glyph_cursor(cursor))
-        }
-        CursorSelection::Word(cursor) => {
-            glyphon::cosmic_text::Selection::Word(glyph_cursor(cursor))
-        }
     }
 }
 

@@ -252,9 +252,7 @@ fn selection_mark_for_document(buffer: &Buffer, selection: CursorSelection) -> O
     let inner = &buffer.inner;
     match selection {
         CursorSelection::None => None,
-        CursorSelection::Normal(cursor)
-        | CursorSelection::Line(cursor)
-        | CursorSelection::Word(cursor) => inner.document.mark_for_cursor(cursor),
+        CursorSelection::Normal(cursor) => inner.document.mark_for_cursor(cursor),
     }
 }
 

@@ -45,14 +45,11 @@ impl Cursor {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub(crate) enum CursorSelection {
     #[default]
     None,
     Normal(Cursor),
-    Line(Cursor),
-    Word(Cursor),
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
