@@ -21,7 +21,7 @@ mod key;
 mod map;
 mod measure_cache;
 mod output;
-pub(crate) mod system;
+mod system;
 mod text_area;
 
 pub use caret::{Caret, CaretLayout};
@@ -50,6 +50,13 @@ pub(super) use map::VisualLineGroup;
 use measure_cache::MeasureCache;
 pub use output::{
     Measure, Metrics, TextAreaPaintLayout, TextAreaSurface, TextFieldLayout, TextFieldPaintLayout,
+};
+#[cfg(test)]
+pub(super) use system::align as glyphon_align;
+pub(crate) use system::font_system as glyphon_font_system;
+#[cfg(test)]
+pub(crate) use system::{
+    color as glyphon_color, measure_document as measure_document_with_glyphon,
 };
 
 pub(crate) type SurfaceArea = geom_area::Logical;

@@ -1,7 +1,7 @@
 use crate::paint;
 use crate::render;
 use crate::render::batch;
-use crate::text::layout::{InlineCache, InlineStats, system};
+use crate::text::layout::{self as text_layout, InlineCache, InlineStats};
 
 use std::cell::{Ref, RefCell};
 use std::rc::Rc;
@@ -63,7 +63,7 @@ impl TextRenderer {
             viewport,
             atlas,
             renderers: Vec::new(),
-            font_system: system::font_system(),
+            font_system: text_layout::glyphon_font_system(),
             swash_cache: glyphon::SwashCache::new(),
             inline_cache: InlineCache::new(),
         }
@@ -356,7 +356,6 @@ fn paint_color(color: paint::Color) -> glyphon::Color {
 mod tests {
     use crate::paint_geometry::{Rect, area, point};
     use crate::text::document::{Align, Block, Run, Style, Weight};
-    use crate::text::layout::system;
     use crate::{icon, paint, text};
 
     use super::*;
@@ -395,8 +394,8 @@ mod tests {
     }
 
     fn document_height(document: &text::document::Document) -> f32 {
-        let mut font_system = system::font_system();
-        system::measure_document(
+        let mut font_system = text_layout::glyphon_font_system();
+        text_layout::measure_document_with_glyphon(
             &mut font_system,
             document,
             text::layout::Measure::bounded(area::logical(240.0, 1_000.0)),
@@ -416,7 +415,7 @@ mod tests {
         let document = text::document::Document::plain("one\ntwo\nthree");
         let content_height = document_height(&document);
         let text = centered_text(document, content_height);
-        let mut font_system = system::font_system();
+        let mut font_system = text_layout::glyphon_font_system();
         let mut cache = InlineCache::new();
 
         let prepared =
@@ -431,7 +430,7 @@ mod tests {
         let content_height = document_height(&document);
         let rect_height = content_height + 40.0;
         let text = centered_text(document, rect_height);
-        let mut font_system = system::font_system();
+        let mut font_system = text_layout::glyphon_font_system();
         let mut cache = InlineCache::new();
 
         let prepared =
@@ -442,7 +441,7 @@ mod tests {
 
     #[test]
     fn prepared_text_cache_ignores_rect_origin() {
-        let mut font_system = system::font_system();
+        let mut font_system = text_layout::glyphon_font_system();
         let mut cache = InlineCache::new();
         let first = label_text("Command", text::Color::BLACK, 12.0, Weight::Normal, 0.0);
         let second = label_text("Command", text::Color::BLACK, 12.0, Weight::Normal, 40.0);
@@ -460,7 +459,7 @@ mod tests {
 
     #[test]
     fn prepared_text_cache_uses_current_color_without_reshaping() {
-        let mut font_system = system::font_system();
+        let mut font_system = text_layout::glyphon_font_system();
         let mut cache = InlineCache::new();
         let red = label_text("Command", text::Color::RED, 12.0, Weight::Normal, 0.0);
         let black = label_text("Command", text::Color::BLACK, 12.0, Weight::Normal, 0.0);
@@ -472,12 +471,15 @@ mod tests {
 
         assert_eq!(black.stats.text_cache_hits, 1);
         assert_eq!(black.stats.text_shape_calls, 0);
-        assert_eq!(black.default_color, system::color(text::Color::BLACK));
+        assert_eq!(
+            black.default_color,
+            text_layout::glyphon_color(text::Color::BLACK)
+        );
     }
 
     #[test]
     fn prepared_text_cache_misses_when_bounds_change() {
-        let mut font_system = system::font_system();
+        let mut font_system = text_layout::glyphon_font_system();
         let mut cache = InlineCache::new();
         let first = label_text("Command", text::Color::BLACK, 12.0, Weight::Normal, 0.0);
         let mut second = first.clone();
@@ -494,7 +496,7 @@ mod tests {
 
     #[test]
     fn multi_color_text_stays_on_uncached_path() {
-        let mut font_system = system::font_system();
+        let mut font_system = text_layout::glyphon_font_system();
         let mut cache = InlineCache::new();
         let mut block = Block::new(Align::Start);
         block.push_run(Run::new(
@@ -528,7 +530,7 @@ mod tests {
 
     #[test]
     fn prepared_icon_cache_uses_current_color_without_reshaping() {
-        let mut font_system = system::font_system();
+        let mut font_system = text_layout::glyphon_font_system();
         let mut cache = InlineCache::new();
         let icon = icon::Icon::phosphor(icon::Id::new("command"));
         let red = paint::Icon {

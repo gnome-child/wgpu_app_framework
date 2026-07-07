@@ -231,6 +231,23 @@ fn text_unicode_helpers_stay_private_to_text_engine() {
 }
 
 #[test]
+fn text_layout_system_module_stays_private() {
+    let layout_mod = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("text")
+            .join("layout")
+            .join("mod.rs"),
+    )
+    .expect("text layout module should read");
+
+    assert!(
+        !layout_mod.contains("pub(crate) mod system;") && !layout_mod.contains("pub mod system;"),
+        "glyphon system adapters should stay behind the text layout facade"
+    );
+}
+
+#[test]
 fn draft_input_module_stays_private() {
     let draft_mod = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

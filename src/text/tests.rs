@@ -1808,15 +1808,15 @@ fn bidi_hit_testing_preserves_visual_affinity() {
 #[test]
 fn start_end_alignment_resolves_against_base_direction() {
     assert_eq!(
-        layout::system::align(Align::Start, ResolvedTextDirection::Ltr),
+        layout::glyphon_align(Align::Start, ResolvedTextDirection::Ltr),
         glyphon::cosmic_text::Align::Left
     );
     assert_eq!(
-        layout::system::align(Align::Start, ResolvedTextDirection::Rtl),
+        layout::glyphon_align(Align::Start, ResolvedTextDirection::Rtl),
         glyphon::cosmic_text::Align::Right
     );
     assert_eq!(
-        layout::system::align(Align::End, ResolvedTextDirection::Rtl),
+        layout::glyphon_align(Align::End, ResolvedTextDirection::Rtl),
         glyphon::cosmic_text::Align::Left
     );
 }
