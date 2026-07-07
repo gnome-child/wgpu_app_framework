@@ -34,14 +34,17 @@ fn idless_sibling_insertions_remain_positional_by_design() {
     let window = window::Id::new(1);
 
     let first = store.install(window, anonymous_label_view(["one", "two"]));
-    let first_slot = retained_id(&first.tree().root().children()[0]);
-    let second_slot = retained_id(&first.tree().root().children()[1]);
+    let first_position_id = retained_id(&first.tree().root().children()[0]);
+    let second_position_id = retained_id(&first.tree().root().children()[1]);
 
     let second = store.install(window, anonymous_label_view(["zero", "one", "two"]));
-    assert_eq!(retained_id(&second.tree().root().children()[0]), first_slot);
+    assert_eq!(
+        retained_id(&second.tree().root().children()[0]),
+        first_position_id
+    );
     assert_eq!(
         retained_id(&second.tree().root().children()[1]),
-        second_slot
+        second_position_id
     );
     assert_eq!(second.changes().added().len(), 1);
     assert!(second.changes().removed().is_empty());

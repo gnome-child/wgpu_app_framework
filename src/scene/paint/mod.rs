@@ -460,7 +460,7 @@ fn shortcut_text_color(theme: &Theme) -> super::Color {
     theme.text().muted
 }
 
-fn paint_shortcut(frame: &layout::Frame, slot: geometry::Rect, scene: &mut Scene, theme: &Theme) {
+fn paint_shortcut(frame: &layout::Frame, area: geometry::Rect, scene: &mut Scene, theme: &Theme) {
     let Some(parts) = frame.shortcut_display() else {
         return;
     };
@@ -468,7 +468,7 @@ fn paint_shortcut(frame: &layout::Frame, slot: geometry::Rect, scene: &mut Scene
         return;
     }
 
-    let mut x = slot.right().saturating_sub(frame.shortcut_content_width());
+    let mut x = area.right().saturating_sub(frame.shortcut_content_width());
     let color = shortcut_text_color(theme);
     let style = scene_text_style(layout::shortcut_text_style(theme));
     let gap = layout::shortcut_run_gap(theme);
@@ -479,7 +479,7 @@ fn paint_shortcut(frame: &layout::Frame, slot: geometry::Rect, scene: &mut Scene
         }
 
         let width = part.width();
-        let rect = geometry::Rect::new(x, slot.y(), width, slot.height());
+        let rect = geometry::Rect::new(x, area.y(), width, area.height());
         match part.run() {
             keymap::ShortcutRun::Text(value) => {
                 scene.push_text(
@@ -489,11 +489,11 @@ fn paint_shortcut(frame: &layout::Frame, slot: geometry::Rect, scene: &mut Scene
                 );
             }
             keymap::ShortcutRun::Icon(icon) => {
-                let extent = width.min(slot.height()).max(1);
+                let extent = width.min(area.height()).max(1);
                 let icon_rect = geometry::Rect::new(
                     x,
-                    slot.y()
-                        .saturating_add((slot.height().saturating_sub(extent)) / 2),
+                    area.y()
+                        .saturating_add((area.height().saturating_sub(extent)) / 2),
                     extent,
                     extent,
                 );

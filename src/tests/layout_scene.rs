@@ -3470,7 +3470,7 @@ fn menu_popup_width_uses_active_keymap_profile_for_shortcut_measurement() {
     assert!(
         mac_parts.shortcut.right()
             <= mac_popup.rect().right() - expected_theme.floating_panel().padding,
-        "active-profile shortcut slot should fit inside the measured menu popup"
+        "active-profile shortcut part should fit inside the measured menu popup"
     );
 }
 

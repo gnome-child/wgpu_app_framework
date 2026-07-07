@@ -126,8 +126,8 @@ pub(crate) fn slider_track_rect(
     measured_label_width: i32,
     theme: &theme::Theme,
 ) -> Rect {
-    let slot = row_part(slider_row(measured_label_width, theme), rect, 1);
-    centered_rect(slot, slot.width(), theme.slider().track_height)
+    let area = row_part(slider_row(measured_label_width, theme), rect, 1);
+    centered_rect(area, area.width(), theme.slider().track_height)
 }
 
 pub(crate) fn slider_row_width(label_width: i32, theme: &theme::Theme) -> i32 {
@@ -269,14 +269,14 @@ fn rect_part(parts: &[Rect], fallback: Rect, index: usize) -> Rect {
         .unwrap_or_else(|| Rect::new(fallback.x(), fallback.y(), 0, fallback.height()))
 }
 
-fn centered_rect(slot: Rect, width: i32, height: i32) -> Rect {
-    let width = width.max(0).min(slot.width());
-    let height = height.max(0).min(slot.height());
+fn centered_rect(area: Rect, width: i32, height: i32) -> Rect {
+    let width = width.max(0).min(area.width());
+    let height = height.max(0).min(area.height());
     Rect::new(
-        slot.x()
-            .saturating_add((slot.width().saturating_sub(width)) / 2),
-        slot.y()
-            .saturating_add((slot.height().saturating_sub(height)) / 2),
+        area.x()
+            .saturating_add((area.width().saturating_sub(width)) / 2),
+        area.y()
+            .saturating_add((area.height().saturating_sub(height)) / 2),
         width,
         height,
     )
