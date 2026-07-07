@@ -8,6 +8,9 @@ use super::super::super::unicode::{
 use super::super::{Preedit, State, ViewState};
 use super::{Field, Obscuring};
 
+type CursorRange = Option<(Cursor, Cursor)>;
+type HighlightRanges = (CursorRange, CursorRange);
+
 pub(crate) struct FieldProjection {
     pub(crate) buffer: Buffer,
     pub(crate) edit_state: State,
@@ -153,7 +156,7 @@ impl PreeditProjection {
         self.underline.is_some()
     }
 
-    pub(crate) fn highlight_ranges(&self) -> (Option<(Cursor, Cursor)>, Option<(Cursor, Cursor)>) {
+    pub(crate) fn highlight_ranges(&self) -> HighlightRanges {
         (self.underline, self.selection)
     }
 
