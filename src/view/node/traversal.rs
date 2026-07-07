@@ -1,7 +1,11 @@
 use super::super::{
     action::Action,
+    control::{Control, TextArea, TextBox},
+};
+#[cfg(test)]
+use super::super::{
     binding::Binding,
-    control::{Button, Checkbox, Control, Radio, Slider, TextArea, TextBox},
+    control::{Button, Checkbox, Radio, Slider},
 };
 use super::{Node, Role};
 use crate::{
@@ -10,6 +14,7 @@ use crate::{
 };
 
 impl Node {
+    #[cfg(test)]
     pub(in crate::view) fn collect_bindings<'a>(&'a self, bindings: &mut Vec<&'a Binding>) {
         if let Some(binding) = &self.binding {
             bindings.push(binding);
@@ -20,6 +25,7 @@ impl Node {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::view) fn collect_text_areas<'a>(&'a self, text_areas: &mut Vec<&'a TextArea>) {
         if let Some(text_area) = self.text_area_model() {
             text_areas.push(text_area);
@@ -30,6 +36,7 @@ impl Node {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::view) fn collect_buttons<'a>(&'a self, buttons: &mut Vec<&'a Button>) {
         if let Some(button) = self.button_model() {
             buttons.push(button);
@@ -40,6 +47,7 @@ impl Node {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::view) fn collect_checkboxes<'a>(&'a self, checkboxes: &mut Vec<&'a Checkbox>) {
         if let Some(checkbox) = self.checkbox_model() {
             checkboxes.push(checkbox);
@@ -50,6 +58,7 @@ impl Node {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::view) fn collect_radios<'a>(&'a self, radios: &mut Vec<&'a Radio>) {
         if let Some(radio) = self.radio_model() {
             radios.push(radio);
@@ -60,6 +69,7 @@ impl Node {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::view) fn collect_sliders<'a>(&'a self, sliders: &mut Vec<&'a Slider>) {
         if let Some(slider) = self.slider_model() {
             sliders.push(slider);
@@ -70,6 +80,7 @@ impl Node {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::view) fn collect_text_boxes<'a>(&'a self, text_boxes: &mut Vec<&'a TextBox>) {
         if let Some(text_box) = self.text_box_model() {
             text_boxes.push(text_box);
@@ -168,6 +179,7 @@ impl Node {
             .find_map(|child| child.text_input_target_for_focus(focus))
     }
 
+    #[cfg(test)]
     pub(in crate::view) fn collect_menus<'a>(&'a self, menus: &mut Vec<&'a Node>) {
         if self.role == Role::Menu {
             menus.push(self);
@@ -178,6 +190,7 @@ impl Node {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::view) fn collect_labels<'a>(&'a self, labels: &mut Vec<&'a str>) {
         if let Some(label) = &self.label {
             labels.push(label);
@@ -188,6 +201,7 @@ impl Node {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::view) fn collect_floating_panels<'a>(&'a self, panels: &mut Vec<&'a Node>) {
         if self.role == Role::FloatingPanel {
             panels.push(self);

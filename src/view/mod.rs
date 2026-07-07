@@ -1,3 +1,4 @@
+#[cfg(test)]
 use std::any::TypeId;
 
 use super::{
@@ -23,7 +24,9 @@ pub use presentation::Presentation;
 pub use style::Style;
 
 use action::FocusDirection;
-use control::{Button, Checkbox, Radio, Slider, TextArea, TextBox};
+use control::TextBox;
+#[cfg(test)]
+use control::{Button, Checkbox, Radio, Slider, TextArea};
 
 #[derive(Clone)]
 pub struct View {
@@ -39,50 +42,58 @@ impl View {
         &self.root
     }
 
-    pub fn bindings(&self) -> Vec<&Binding> {
+    #[cfg(test)]
+    pub(crate) fn bindings(&self) -> Vec<&Binding> {
         let mut bindings = Vec::new();
         self.root.collect_bindings(&mut bindings);
         bindings
     }
 
-    pub fn binding<C: command::Command>(&self) -> Option<&Binding> {
+    #[cfg(test)]
+    pub(crate) fn binding<C: command::Command>(&self) -> Option<&Binding> {
         let command_type = TypeId::of::<C>();
         self.bindings()
             .into_iter()
             .find(|binding| binding.command_type() == command_type)
     }
 
-    pub fn text_areas(&self) -> Vec<&TextArea> {
+    #[cfg(test)]
+    pub(crate) fn text_areas(&self) -> Vec<&TextArea> {
         let mut text_areas = Vec::new();
         self.root.collect_text_areas(&mut text_areas);
         text_areas
     }
 
-    pub fn buttons(&self) -> Vec<&Button> {
+    #[cfg(test)]
+    pub(crate) fn buttons(&self) -> Vec<&Button> {
         let mut buttons = Vec::new();
         self.root.collect_buttons(&mut buttons);
         buttons
     }
 
-    pub fn checkboxes(&self) -> Vec<&Checkbox> {
+    #[cfg(test)]
+    pub(crate) fn checkboxes(&self) -> Vec<&Checkbox> {
         let mut checkboxes = Vec::new();
         self.root.collect_checkboxes(&mut checkboxes);
         checkboxes
     }
 
-    pub fn radios(&self) -> Vec<&Radio> {
+    #[cfg(test)]
+    pub(crate) fn radios(&self) -> Vec<&Radio> {
         let mut radios = Vec::new();
         self.root.collect_radios(&mut radios);
         radios
     }
 
-    pub fn sliders(&self) -> Vec<&Slider> {
+    #[cfg(test)]
+    pub(crate) fn sliders(&self) -> Vec<&Slider> {
         let mut sliders = Vec::new();
         self.root.collect_sliders(&mut sliders);
         sliders
     }
 
-    pub fn text_boxes(&self) -> Vec<&TextBox> {
+    #[cfg(test)]
+    pub(crate) fn text_boxes(&self) -> Vec<&TextBox> {
         let mut text_boxes = Vec::new();
         self.root.collect_text_boxes(&mut text_boxes);
         text_boxes
@@ -134,19 +145,22 @@ impl View {
         self.root.text_input_target_for_focus(focus)
     }
 
-    pub fn menus(&self) -> Vec<&Node> {
+    #[cfg(test)]
+    pub(crate) fn menus(&self) -> Vec<&Node> {
         let mut menus = Vec::new();
         self.root.collect_menus(&mut menus);
         menus
     }
 
-    pub fn labels(&self) -> Vec<&str> {
+    #[cfg(test)]
+    pub(crate) fn labels(&self) -> Vec<&str> {
         let mut labels = Vec::new();
         self.root.collect_labels(&mut labels);
         labels
     }
 
-    pub fn floating_panels(&self) -> Vec<&Node> {
+    #[cfg(test)]
+    pub(crate) fn floating_panels(&self) -> Vec<&Node> {
         let mut panels = Vec::new();
         self.root.collect_floating_panels(&mut panels);
         panels

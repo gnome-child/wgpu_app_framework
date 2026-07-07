@@ -343,6 +343,32 @@ fn scene_layout_painting_stays_internal() {
 }
 
 #[test]
+fn view_tree_inspection_helpers_stay_internal() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let view_mod = std::fs::read_to_string(src_dir.join("view").join("mod.rs"))
+        .expect("view module should read");
+
+    for pattern in [
+        "pub fn bindings(",
+        "pub fn binding<",
+        "pub fn text_areas(",
+        "pub fn buttons(",
+        "pub fn checkboxes(",
+        "pub fn radios(",
+        "pub fn sliders(",
+        "pub fn text_boxes(",
+        "pub fn menus(",
+        "pub fn labels(",
+        "pub fn floating_panels(",
+    ] {
+        assert!(
+            !view_mod.contains(pattern),
+            "view tree inspection helpers must stay internal: {pattern}"
+        );
+    }
+}
+
+#[test]
 fn focus_traversal_goes_through_retained_composition() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let view_mod = std::fs::read_to_string(src_dir.join("view").join("mod.rs"))
