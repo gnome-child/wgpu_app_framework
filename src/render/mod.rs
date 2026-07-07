@@ -19,7 +19,7 @@ mod silhouette;
 mod surface;
 mod text_renderer;
 
-pub fn color_to_wgpu(color: crate::paint::Color) -> wgpu::Color {
+pub(crate) fn color_to_wgpu(color: crate::paint::Color) -> wgpu::Color {
     wgpu::Color {
         r: color.r as f64,
         g: color.g as f64,
@@ -71,7 +71,7 @@ impl Viewport {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Scissor {
+pub(crate) struct Scissor {
     x: u32,
     y: u32,
     width: u32,
@@ -79,7 +79,7 @@ pub struct Scissor {
 }
 
 impl Scissor {
-    pub fn new(x: u32, y: u32, width: u32, height: u32) -> Option<Self> {
+    pub(crate) fn new(x: u32, y: u32, width: u32, height: u32) -> Option<Self> {
         if width == 0 || height == 0 {
             None
         } else {
@@ -92,24 +92,24 @@ impl Scissor {
         }
     }
 
-    pub fn x(self) -> u32 {
+    pub(crate) fn x(self) -> u32 {
         self.x
     }
 
-    pub fn y(self) -> u32 {
+    pub(crate) fn y(self) -> u32 {
         self.y
     }
 
-    pub fn width(self) -> u32 {
+    pub(crate) fn width(self) -> u32 {
         self.width
     }
 
-    pub fn height(self) -> u32 {
+    pub(crate) fn height(self) -> u32 {
         self.height
     }
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub(crate) type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {

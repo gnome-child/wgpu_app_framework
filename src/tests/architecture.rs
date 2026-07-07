@@ -102,6 +102,28 @@ fn renderer_file_modules_stay_private() {
 }
 
 #[test]
+fn renderer_adapter_helpers_stay_crate_private() {
+    let render_mod = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("render")
+            .join("mod.rs"),
+    )
+    .expect("render module should read");
+
+    for item in [
+        "pub fn color_to_wgpu",
+        "pub struct Scissor",
+        "pub type Result",
+    ] {
+        assert!(
+            !render_mod.contains(item),
+            "renderer adapter helper should stay crate-private: {item}"
+        );
+    }
+}
+
+#[test]
 fn paint_geometry_stays_below_text_and_native_rendering() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let allowed_roots = [
