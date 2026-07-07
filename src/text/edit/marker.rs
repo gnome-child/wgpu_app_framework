@@ -6,7 +6,7 @@ pub(crate) struct Marker {
     pub(crate) buffer_id: u64,
     pub(crate) revision: u64,
     pub(crate) cursor: Mark,
-    pub(crate) selection: Option<buffer::mark::Range>,
+    pub(crate) selection: Option<buffer::MarkRange>,
     cursor_position: Position,
     selection_positions: Option<Selection>,
 }
@@ -41,7 +41,7 @@ impl Marker {
         }
     }
 
-    pub(super) fn selection_for(&self, buffer: &Buffer) -> Option<buffer::mark::Range> {
+    pub(super) fn selection_for(&self, buffer: &Buffer) -> Option<buffer::MarkRange> {
         let inner = &buffer.inner;
         if let Some(selection) = self.selection
             && inner.document.position_for_mark(selection.start).is_some()

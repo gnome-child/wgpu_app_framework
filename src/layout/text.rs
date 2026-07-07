@@ -317,7 +317,7 @@ fn field_model(text_box: &view::control::TextBox) -> text_engine::edit::Field {
                 .expect("text buffers always contain a valid end position")
         });
     let selection = text_box.selection().and_then(|selection| {
-        Some(text_engine::buffer::mark::Range {
+        Some(text_engine::buffer::MarkRange {
             start: buffer.mark_for_position(text_engine::buffer::Position::new(selection.start))?,
             end: buffer.mark_for_position(text_engine::buffer::Position::new(selection.end))?,
         })

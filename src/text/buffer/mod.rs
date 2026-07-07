@@ -7,13 +7,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use super::unicode::normalize_for_mode;
 
 mod document;
-pub mod mark;
+mod mark;
 #[cfg(test)]
 pub(super) use document::TEXT_DOCUMENT_BLOCK_TARGET_LINES;
 use document::TextDocument;
 #[cfg(test)]
 pub(super) use document::TextDocumentStatsSnapshot;
-pub use mark::Mark;
+pub use mark::{Mark, MarkGravity, MarkRange};
 
 static NEXT_BUFFER_ID: AtomicU64 = AtomicU64::new(1);
 

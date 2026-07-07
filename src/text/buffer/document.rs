@@ -4,8 +4,7 @@ use super::super::unicode::{
     next_grapheme_boundary, next_word_boundary, previous_grapheme_boundary, previous_word_boundary,
 };
 use super::{
-    Cursor, LineId, LineLayoutIdentity, Position, Range, Selection,
-    mark::{Gravity as MarkGravity, Mark, Range as MarkRange},
+    Cursor, LineId, LineLayoutIdentity, Mark, MarkGravity, MarkRange, Position, Range, Selection,
 };
 
 mod line;

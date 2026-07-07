@@ -1,4 +1,4 @@
-use super::super::buffer::{Mark, mark::Range as MarkRange};
+use super::super::buffer::{Mark, MarkRange};
 use super::super::{
     buffer::{Buffer, Cursor, CursorSelection, Position, Range, Selection},
     unicode::normalize_for_mode,

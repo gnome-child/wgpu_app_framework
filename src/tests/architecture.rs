@@ -91,6 +91,18 @@ fn paint_geometry_stays_below_text_and_native_rendering() {
 }
 
 #[test]
+fn text_buffer_mark_module_stays_private() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let buffer_mod = std::fs::read_to_string(src_dir.join("text").join("buffer").join("mod.rs"))
+        .expect("text buffer module should read");
+
+    assert!(
+        !buffer_mod.contains("pub mod mark;"),
+        "text buffer mark file module must stay private; re-export Mark, MarkRange, and MarkGravity"
+    );
+}
+
+#[test]
 fn demo_apps_do_not_leak_into_framework_source_or_public_api() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let examples_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");

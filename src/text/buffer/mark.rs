@@ -1,7 +1,7 @@
 use super::{Affinity, LineId};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub enum Gravity {
+pub enum MarkGravity {
     Upstream,
     #[default]
     Downstream,
@@ -12,11 +12,11 @@ pub struct Mark {
     pub line_id: LineId,
     pub byte_offset: usize,
     pub affinity: Affinity,
-    pub gravity: Gravity,
+    pub gravity: MarkGravity,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Range {
+pub struct MarkRange {
     pub start: Mark,
     pub end: Mark,
 }
