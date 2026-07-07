@@ -271,9 +271,12 @@ fn layout_frame_and_hit_inspection_stays_internal() {
             .expect("runtime presentation module should read");
 
     for pattern in [
+        "pub mod engine;",
         "pub mod frame;",
         "pub mod hit;",
         "pub mod viewport;",
+        "pub fn compose(",
+        "pub fn compose_with_theme(",
         "pub fn frames(&self)",
         "pub fn viewport(&self)",
         "pub fn resolved_scroll(&self)",

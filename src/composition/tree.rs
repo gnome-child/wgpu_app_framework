@@ -15,6 +15,7 @@ pub struct NodeId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 enum Space {
     Retained,
+    #[cfg(test)]
     Layout,
 }
 
@@ -48,6 +49,7 @@ pub(crate) struct Node {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Identity {
     Retained(NodeId),
+    #[cfg(test)]
     Layout(NodeId),
 }
 
@@ -67,6 +69,7 @@ impl NodeId {
         id
     }
 
+    #[cfg(test)]
     pub(in crate::composition) fn layout(next: &mut u64) -> Self {
         let id = Self {
             space: Space::Layout,
@@ -85,13 +88,16 @@ impl NodeId {
 impl Identity {
     fn node_id(self) -> NodeId {
         match self {
-            Self::Retained(id) | Self::Layout(id) => id,
+            Self::Retained(id) => id,
+            #[cfg(test)]
+            Self::Layout(id) => id,
         }
     }
 
     fn retained_id(self) -> Option<NodeId> {
         match self {
             Self::Retained(id) => Some(id),
+            #[cfg(test)]
             Self::Layout(_) => None,
         }
     }
@@ -153,6 +159,7 @@ impl Tree {
         (Self { root }, changes)
     }
 
+    #[cfg(test)]
     pub(crate) fn layout(view: &view::View) -> Self {
         let mut next_id = 1;
         let root = Node::build_layout(view.root(), None, &mut next_id);
@@ -201,6 +208,7 @@ impl Node {
         node
     }
 
+    #[cfg(test)]
     fn build_layout(view: &view::Node, parent: Option<Identity>, next_id: &mut u64) -> Self {
         let id = Identity::Layout(NodeId::layout(next_id));
         let mut node = Self::new(id, view, parent);
