@@ -1,7 +1,4 @@
-use super::super::{
-    geometry::{Rect, Size},
-    keymap, theme, view,
-};
+use super::super::{geometry::Size, keymap, theme, view};
 use super::{control, engine, flow, flow::gap_total, typography};
 
 pub(in crate::layout) fn size_hint(
@@ -741,14 +738,6 @@ pub(in crate::layout) fn cross_axis_offset(
     align: view::Align,
 ) -> i32 {
     origin.saturating_add(main_axis_offset(align, available, size))
-}
-
-pub(in crate::layout) fn inset_rect(rect: Rect, padding: view::Padding) -> Rect {
-    let x = rect.x.saturating_add(padding.left());
-    let y = rect.y.saturating_add(padding.top());
-    let width = rect.width.saturating_sub(padding.horizontal());
-    let height = rect.height.saturating_sub(padding.vertical());
-    Rect::new(x, y, width, height)
 }
 
 pub(in crate::layout) fn resolved_height(

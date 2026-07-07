@@ -430,7 +430,7 @@ fn axis_offset(align: view::Align, available: i32, content: i32) -> i32 {
     }
 }
 
-fn inset_rect(rect: Rect, padding: view::Padding) -> Rect {
+pub(in crate::layout) fn inset_rect(rect: Rect, padding: view::Padding) -> Rect {
     Rect::new(
         rect.x().saturating_add(padding.left()),
         rect.y().saturating_add(padding.top()),

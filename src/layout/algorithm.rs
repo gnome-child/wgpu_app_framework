@@ -12,9 +12,9 @@ use crate::animation;
 use measure::{
     cross_axis_height_for_width, cross_axis_offset, cross_axis_width,
     floating_panel_height_for_width, floating_panel_max_envelope_height_for_width,
-    floating_panel_width, grows_vertical_space, inset_rect, intrinsic_height,
-    intrinsic_height_for_width, intrinsic_width, layout_gap, menu_shortcut_width, menu_title_width,
-    resolved_height, resolved_height_for_width, resolved_row_width, resolved_width, size_hint,
+    floating_panel_width, grows_vertical_space, intrinsic_height, intrinsic_height_for_width,
+    intrinsic_width, layout_gap, menu_shortcut_width, menu_title_width, resolved_height,
+    resolved_height_for_width, resolved_row_width, resolved_width, size_hint,
 };
 
 const SCROLL_AXIS_LIMIT: i32 = i32::MAX / 4;
@@ -567,7 +567,7 @@ fn overlay_stack_placement(
     theme: &theme::Theme,
     profile: keymap::Profile,
 ) -> StackPlacement {
-    let content = inset_rect(rect, node.style().padding());
+    let content = flow::inset_rect(rect, node.style().padding());
     let child_rects = node
         .children()
         .iter()
