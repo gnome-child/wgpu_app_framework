@@ -356,7 +356,7 @@ fn slider_track_rect(frame: &layout::frame::Frame) -> geometry::Rect {
     layout::control::slider_track_rect(frame.rect(), frame.label_width(), &theme)
 }
 
-fn only_slider(layout: &Layout) -> &layout::frame::Frame {
+fn only_slider(layout: &layout::Layout) -> &layout::frame::Frame {
     layout
         .find_role(view::node::Role::Slider)
         .into_iter()

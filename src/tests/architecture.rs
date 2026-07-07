@@ -299,6 +299,7 @@ fn structural_layout_paths_stay_internal() {
 #[test]
 fn layout_frame_and_hit_inspection_stays_internal() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let lib = std::fs::read_to_string(src_dir.join("lib.rs")).expect("crate root should read");
     let layout_dir = src_dir.join("layout");
     let layout_mod =
         std::fs::read_to_string(layout_dir.join("mod.rs")).expect("layout module should read");
@@ -306,7 +307,16 @@ fn layout_frame_and_hit_inspection_stays_internal() {
         std::fs::read_to_string(src_dir.join("runtime").join("presentation.rs"))
             .expect("runtime presentation module should read");
 
+    for pattern in ["pub mod layout;", "pub use layout::Layout;"] {
+        assert!(
+            !lib.contains(pattern),
+            "layout is derived runtime/presentation structure, not public root API: {pattern}"
+        );
+    }
+
     for pattern in [
+        "pub struct Layout",
+        "pub fn size(&self)",
         "pub mod engine;",
         "pub mod frame;",
         "pub mod hit;",

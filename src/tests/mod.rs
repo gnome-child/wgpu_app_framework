@@ -1,10 +1,10 @@
 use super::{
     Clipboard, Command, Context, Diagnostics, Document as TextDocument, Error, Host, Input,
-    Interaction, Layout, Platform, Response, Runtime, Scene, Session, Shell, State, Target, Task,
-    Theme, Timeline, View, clipboard, command, composition, context, control_gallery, document,
-    draft, geometry, glass_tuner, host, input, interaction, keymap, layout, platform, responder,
-    response, runtime, scene, session, shell, state, subject, task, text_editor, timeline, view,
-    widget, window,
+    Interaction, Platform, Response, Runtime, Scene, Session, Shell, State, Target, Task, Theme,
+    Timeline, View, clipboard, command, composition, context, control_gallery, document, draft,
+    geometry, glass_tuner, host, input, interaction, keymap, layout, platform, responder, response,
+    runtime, scene, session, shell, state, subject, task, text_editor, timeline, view, widget,
+    window,
 };
 use crate::text;
 use std::{cell::Cell, path::PathBuf, rc::Rc};
@@ -303,7 +303,7 @@ impl platform::Backend for FakeBackend {
     ) -> Result<(), Self::Error> {
         self.events.push(BackendEvent::Present {
             window: presentation.window(),
-            size: presentation.layout().size(),
+            size: presentation.size(),
             clear_color: presentation.scene().clear(),
         });
         Ok(())

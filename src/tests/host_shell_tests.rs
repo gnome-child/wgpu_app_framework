@@ -191,7 +191,7 @@ fn shell_drains_text_editor_to_scene_work_and_requests() {
     assert_eq!(work.presentations().len(), 1);
     assert_eq!(work.presentations()[0].window(), window);
     assert_eq!(
-        work.presentations()[0].layout().size(),
+        work.presentations()[0].size(),
         geometry::Size::new(640, 480)
     );
     assert!(work.requests().is_empty());
@@ -374,7 +374,7 @@ fn text_editor_shell_event_surface_drives_save_flow() {
     );
     assert_eq!(started.presentations().len(), 1);
     assert_eq!(
-        started.presentations()[0].layout().size(),
+        started.presentations()[0].size(),
         text_editor::window_size()
     );
     assert_eq!(

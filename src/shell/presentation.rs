@@ -1,4 +1,4 @@
-use crate::{layout, scene, window};
+use crate::{geometry, layout, scene, window};
 
 #[derive(Clone)]
 pub struct Presentation {
@@ -20,7 +20,12 @@ impl Presentation {
         self.window
     }
 
-    pub fn layout(&self) -> &layout::Layout {
+    pub fn size(&self) -> geometry::Size {
+        self.layout.size()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn layout(&self) -> &layout::Layout {
         &self.layout
     }
 

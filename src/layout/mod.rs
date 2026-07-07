@@ -24,7 +24,7 @@ use frame::Frame;
 use hit::Hit;
 
 #[derive(Clone)]
-pub struct Layout {
+pub(crate) struct Layout {
     size: Size,
     frames: Vec<Frame>,
     chrome: Vec<chrome::Chrome>,
@@ -106,7 +106,7 @@ impl Layout {
         }
     }
 
-    pub fn size(&self) -> Size {
+    pub(crate) fn size(&self) -> Size {
         self.size
     }
 

@@ -47,7 +47,7 @@ fn text_editor_view_composes_to_layout_without_runtime_mutation() {
     let projected = app.present(window).expect("window should have a view");
     let revision = app.revision();
     let mut layout_engine = layout::engine::Engine::new();
-    let _: &Layout = &layout::Layout::compose(
+    let _: &layout::Layout = &layout::Layout::compose(
         &projected,
         geometry::Size::new(800, 600),
         &mut layout_engine,

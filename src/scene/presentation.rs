@@ -1,4 +1,4 @@
-use super::super::{layout, theme::Theme, window};
+use super::super::{geometry, layout, theme::Theme, window};
 use super::{Color, Scene, Visuals};
 
 #[derive(Clone)]
@@ -33,7 +33,11 @@ impl Presentation {
         self.window
     }
 
-    pub fn layout(&self) -> &layout::Layout {
+    pub fn size(&self) -> geometry::Size {
+        self.layout.size()
+    }
+
+    pub(crate) fn layout(&self) -> &layout::Layout {
         &self.layout
     }
 

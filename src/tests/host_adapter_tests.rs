@@ -159,10 +159,7 @@ fn text_editor_host_drains_scene_work() {
     assert!(work.requests().is_empty());
     assert_eq!(work.pending_tasks(), 0);
     assert_eq!(work.presentations()[0].window(), window);
-    assert_eq!(
-        work.presentations()[0].layout().size(),
-        text_editor::window_size()
-    );
+    assert_eq!(work.presentations()[0].size(), text_editor::window_size());
     assert_eq!(
         work.presentations()[0].scene().clear(),
         text_editor::CANVAS_COLOR
@@ -194,7 +191,7 @@ fn text_editor_host_drains_scene_work() {
 
     assert_eq!(work.presentations().len(), 1);
     assert_eq!(
-        work.presentations()[0].layout().size(),
+        work.presentations()[0].size(),
         geometry::Size::new(640, 480)
     );
     assert_eq!(work.requests().len(), 1);

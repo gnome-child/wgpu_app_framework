@@ -136,7 +136,7 @@ impl<M: State, E: Send + 'static> Host<M, E> {
                 .iter_mut()
                 .find(|window| window.id() == presentation.window())
             {
-                window.set_size(presentation.layout().size());
+                window.set_size(presentation.size());
             }
 
             self.presentations
