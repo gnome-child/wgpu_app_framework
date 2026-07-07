@@ -2,6 +2,7 @@ mod choice;
 mod slider;
 mod text_area;
 mod text_box;
+mod text_surface;
 
 use crate::icon as icons;
 
