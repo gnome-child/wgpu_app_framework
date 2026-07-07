@@ -260,7 +260,7 @@ fn prepare_text(
 
 #[cfg(test)]
 mod tests {
-    use crate::geometry::{Rect, area, point};
+    use crate::paint_geometry::{Rect, area, point};
     use crate::text::document::{Align, Block, Run, Style, Weight};
     use crate::text::layout::system;
     use crate::{icon, paint, text};
@@ -477,7 +477,7 @@ fn prepare_text_viewport<'a>(
 
 fn prepare_text_surface_in_bounds<'a>(
     text: &'a paint::TextSurface,
-    bounds_rect: crate::geometry::Rect,
+    bounds_rect: crate::paint_geometry::Rect,
     scale_factor: f32,
 ) -> Option<PreparedText<'a>> {
     let width = text.rect.area.width().max(0.0);

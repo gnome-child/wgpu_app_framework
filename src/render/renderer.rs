@@ -1,5 +1,5 @@
-use crate::geometry::Rect;
 use crate::paint;
+use crate::paint_geometry::Rect;
 use crate::render;
 use crate::render::batch::{ItemBatch, item_batches};
 use std::collections::HashMap;
@@ -689,7 +689,7 @@ fn current_target_view<'a>(
 
 fn current_scissor(
     clips: &[ClipFrame],
-    physical_area: crate::geometry::area::Physical,
+    physical_area: crate::paint_geometry::area::Physical,
     scale_factor: f32,
 ) -> Option<render::Scissor> {
     let mut scissor = render::Scissor::new(
@@ -711,7 +711,7 @@ fn current_scissor(
 
 fn clip_scissor(
     rect: Rect,
-    physical_area: crate::geometry::area::Physical,
+    physical_area: crate::paint_geometry::area::Physical,
     scale_factor: f32,
 ) -> Option<render::Scissor> {
     let scale_factor = scale_factor.max(0.0001);
@@ -754,7 +754,7 @@ fn intersect_scissor(a: render::Scissor, b: render::Scissor) -> Option<render::S
 
 #[cfg(test)]
 mod tests {
-    use crate::geometry::{Rect, area, point, rect};
+    use crate::paint_geometry::{Rect, area, point, rect};
     use crate::{paint, text};
 
     use super::*;

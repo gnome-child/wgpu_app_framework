@@ -13,7 +13,7 @@ use super::constants::{
 };
 use super::key::{StyleKey, finite_bits};
 use super::output::TextAreaSurface;
-use crate::geometry::area;
+use crate::paint_geometry::area;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Observation {

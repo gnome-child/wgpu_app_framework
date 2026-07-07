@@ -20,7 +20,7 @@ use super::super::{
         RenderBufferKey as TextAreaRenderBufferKey,
     },
 };
-use crate::geometry::area;
+use crate::paint_geometry::area;
 
 impl Engine {
     pub(super) fn text_area_render_surfaces(

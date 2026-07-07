@@ -3,23 +3,17 @@ name = "wgpu_l3"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-scratch = []
-
 [[example]]
 name = "text_editor"
 path = "examples/text_editor/main.rs"
-required-features = ["scratch"]
 
 [[example]]
 name = "control_gallery"
 path = "examples/control_gallery/main.rs"
-required-features = ["scratch"]
 
 [[example]]
 name = "glass_tuner"
 path = "examples/glass_tuner/main.rs"
-required-features = ["scratch"]
 
 [dependencies]
 arboard = "3.6.1"

@@ -4,7 +4,7 @@ use super::buffer::{Buffer, CursorSelection, Position};
 use super::document::{Document, Style};
 use super::edit;
 use super::edit::{Motion, State, Surface, ViewState};
-use crate::geometry::{area as geom_area, point};
+use crate::paint_geometry::{area as geom_area, point};
 
 mod area;
 mod caret;
@@ -34,9 +34,6 @@ pub(super) use constants::{
 };
 #[cfg(test)]
 pub(super) use content::text_area_estimated_line_height;
-pub(crate) use content::{
-    AreaScrollKey, stable_text_area_content_area, text_area_scroll_base_content_area,
-};
 pub use diagnostics::Diagnostics;
 pub(crate) use diagnostics::HighlightStats;
 #[cfg(test)]

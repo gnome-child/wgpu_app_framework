@@ -18,7 +18,7 @@ use super::{
     output::{TextAreaSurface, TextFieldLayout, TextFieldPaintLayout},
     system,
 };
-use crate::geometry::{area, point};
+use crate::paint_geometry::{area, point};
 
 impl Engine {
     pub fn text_field_layout_for_field(

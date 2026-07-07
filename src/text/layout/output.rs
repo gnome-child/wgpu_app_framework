@@ -6,7 +6,7 @@ use super::super::Color;
 use super::super::buffer::LineId;
 use super::caret::{Caret, CaretLayout};
 use super::highlight::SelectionSpan;
-use crate::geometry::{area, point};
+use crate::paint_geometry::{area, point};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Measure {

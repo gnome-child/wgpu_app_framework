@@ -1,8 +1,8 @@
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-use crate::geometry::{Rect, area, point};
 use crate::paint;
+use crate::paint_geometry::{Rect, area, point};
 use crate::render;
 use crate::render::silhouette::{self, PreparedSilhouette, edges, rect_data, rounding_data};
 
@@ -1552,7 +1552,7 @@ mod tests {
         let rect = Rect::rounded(
             point::logical(10.0, 20.0),
             area::logical(80.0, 30.0),
-            crate::geometry::rect::Rounding::relative(1.0),
+            crate::paint_geometry::rect::Rounding::relative(1.0),
         );
         let prepared = prepare_filter(rect, 1.0).expect("filter should prepare");
         let vertices = composite_vertices(area::logical(100.0, 100.0), prepared);
@@ -1609,7 +1609,7 @@ mod tests {
         let rect = Rect::rounded(
             point::logical(8.0, 12.0),
             area::logical(48.0, 20.0),
-            crate::geometry::rect::Rounding::relative(1.0),
+            crate::paint_geometry::rect::Rounding::relative(1.0),
         );
         let prepared = prepare_clip(rect, 1.0).expect("clip should prepare");
         let vertices = composite_vertices(area::logical(100.0, 100.0), prepared);

@@ -16,7 +16,7 @@ use super::super::{
     text_area,
     text_area::{DisplaySegment as TextAreaDisplaySegment, Observation as TextAreaObservation},
 };
-use crate::geometry::area;
+use crate::paint_geometry::area;
 
 impl Engine {
     pub fn text_area_metrics_layout_for_area_at(

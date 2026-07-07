@@ -18,7 +18,7 @@ use super::super::{
         LineDisplay as TextAreaLineDisplay, LineDisplayKey as TextAreaLineDisplayKey,
     },
 };
-use crate::geometry::area;
+use crate::paint_geometry::area;
 
 impl Engine {
     pub(super) fn text_area_content_height(

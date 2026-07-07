@@ -1,4 +1,4 @@
-use wgpu_l3::scratch::text_editor;
+use wgpu_l3::text_editor;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 

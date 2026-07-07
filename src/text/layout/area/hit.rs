@@ -11,7 +11,7 @@ use super::super::{
     output::{TextAreaPaintLayout, TextAreaSurface},
     text_area::DisplaySegment as TextAreaDisplaySegment,
 };
-use crate::geometry::{area, point};
+use crate::paint_geometry::{area, point};
 
 impl Engine {
     pub fn text_area_position_at_for_area(

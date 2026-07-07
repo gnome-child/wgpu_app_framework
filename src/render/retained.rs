@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-use crate::geometry::{Rect, area, point};
+use crate::paint_geometry::{Rect, area, point};
 use crate::render;
 
 pub(crate) struct Renderer {

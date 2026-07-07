@@ -233,9 +233,9 @@ shared concept. Keep those mindsets separate.
 
 Current local markers:
 
-- `scratch::interaction::TextDraft` is local text-box editing state. Its likely
+- `interaction::TextDraft` is local text-box editing state. Its likely
   twin is document/text-area editing state in the production text engine, but it
-  should not be unified until a second scratch control needs the same draft,
+  should not be unified until a second control needs the same draft,
   caret, and commit semantics. Scratch text boxes now route pointer clicks to
   draft caret placement through layout hit-testing, but this remains local
   widget state rather than the document editing model.
@@ -265,12 +265,12 @@ Current local markers:
   buffers keep warm line display, render, and height measurements despite fresh
   buffer ids. Text-local undo history has moved out of `text::view` and into
   production app compatibility state (`app::text::Driver`);
-  scratch framework `History` remains the real framework timeline and already
+  framework `History` remains the real framework timeline and already
   coalesces typed text commits and pointer gestures. `text::buffer` temporarily
-  mirrors `text::edit::State` for compatibility; new scratch document editing
+  mirrors `text::edit::State` for compatibility; new document editing
   and visual motion route through explicit `text::edit::State` instead.
 - `text::edit::CaretMap` is the visual-motion seam. `layout::Engine` owns the
-  shaped caret fallback now, and scratch command context carries a
+  shaped caret fallback now, and command context carries a
   `layout::TextService` handle so document targets can use it without knowing
   about runtime internals. Glyphon input-adapter helpers are gone from
   `text::edit` and glyphon-buffer conversion helpers are gone from
@@ -280,11 +280,11 @@ Current local markers:
   wrap conversion lives in `text::layout`. The legacy adapter module still
   exists for the production framework, but the core text surface no longer
   imports command or glyphon.
-- `scratch::document` owns its command output shape. Scratch edit commands
+- `document` owns its command output shape. Framework edit commands
   return `document::Outcome`; `text::edit::CommandResult` is converted at the
-  document boundary and no longer leaks into scratch command registration,
+  document boundary and no longer leaks into command registration,
   responder targets, or text-editor observers.
-- `scratch::clipboard::{Payload, Text}` is the typed clipboard seam with only
+- `clipboard::{Payload, Text}` is the typed clipboard seam with only
   one payload. Representation negotiation should wait for the second real
   payload caller.
 

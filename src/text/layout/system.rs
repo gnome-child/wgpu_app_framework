@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use glyphon::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping};
 
-use crate::{geometry::area, text};
+use crate::{paint_geometry::area, text};
 
 type FontDatabase = glyphon::fontdb::Database;
 

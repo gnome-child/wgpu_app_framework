@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::geometry::{Rect, area, point};
+use crate::paint_geometry::{Rect, area, point};
 
 const TEXT_FIELD_CARET_BLINK_INTERVAL: Duration = Duration::from_millis(500);
 

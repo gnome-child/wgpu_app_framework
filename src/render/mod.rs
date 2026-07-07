@@ -30,8 +30,8 @@ pub fn color_to_wgpu(color: crate::paint::Color) -> wgpu::Color {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Viewport {
-    physical_area: crate::geometry::area::Physical,
-    logical_area: crate::geometry::area::Logical,
+    physical_area: crate::paint_geometry::area::Physical,
+    logical_area: crate::paint_geometry::area::Logical,
     scale_factor: f32,
 }
 
@@ -45,7 +45,7 @@ impl Viewport {
     }
 
     pub(crate) fn from_logical_area(
-        logical_area: crate::geometry::area::Logical,
+        logical_area: crate::paint_geometry::area::Logical,
         scale_factor: f32,
     ) -> Self {
         let physical_area = logical_area.to_physical(scale_factor).clamp_min(1);
@@ -56,11 +56,11 @@ impl Viewport {
         }
     }
 
-    pub(crate) fn physical_area(self) -> crate::geometry::area::Physical {
+    pub(crate) fn physical_area(self) -> crate::paint_geometry::area::Physical {
         self.physical_area
     }
 
-    pub(crate) fn logical_area(self) -> crate::geometry::area::Logical {
+    pub(crate) fn logical_area(self) -> crate::paint_geometry::area::Logical {
         self.logical_area
     }
 
@@ -164,15 +164,16 @@ mod tests {
 
     #[test]
     fn logical_viewport_preserves_requested_scene_area() {
-        let viewport = Viewport::from_logical_area(crate::geometry::area::logical(10.4, 20.6), 2.0);
+        let viewport =
+            Viewport::from_logical_area(crate::paint_geometry::area::logical(10.4, 20.6), 2.0);
 
         assert_eq!(
             viewport.physical_area(),
-            crate::geometry::area::physical(21, 41)
+            crate::paint_geometry::area::physical(21, 41)
         );
         assert_eq!(
             viewport.logical_area(),
-            crate::geometry::area::logical(10.4, 20.6)
+            crate::paint_geometry::area::logical(10.4, 20.6)
         );
     }
 }

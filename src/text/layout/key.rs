@@ -1,5 +1,5 @@
 use super::super::document::{Style, TextDirection, Weight};
-use crate::geometry::area;
+use crate::paint_geometry::area;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct StyleKey {

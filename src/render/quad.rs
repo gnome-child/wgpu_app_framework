@@ -1,7 +1,7 @@
 use wgpu::util::DeviceExt;
 
-use crate::geometry::{Rect, area};
 use crate::paint;
+use crate::paint_geometry::{Rect, area};
 use crate::render;
 use crate::render::batch;
 use crate::render::silhouette::{
@@ -599,7 +599,7 @@ pub(crate) fn prepared_shadow_cutout_silhouette_for_test(
 
 #[cfg(test)]
 mod tests {
-    use crate::geometry::point;
+    use crate::paint_geometry::point;
 
     use super::*;
 
@@ -916,7 +916,7 @@ mod tests {
             rect: Rect::rounded(
                 rect().origin,
                 rect().area,
-                crate::geometry::rect::Rounding::relative(1.0),
+                crate::paint_geometry::rect::Rounding::relative(1.0),
             ),
             brush: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.35)),
             blur: 18.0,
@@ -1026,7 +1026,7 @@ mod tests {
         let rect = Rect::rounded(
             point::logical(10.0, 20.0),
             area::logical(80.0, 30.0),
-            crate::geometry::rect::Rounding::relative(1.0),
+            crate::paint_geometry::rect::Rounding::relative(1.0),
         );
         let outline = paint::Outline {
             rect,
@@ -1049,7 +1049,7 @@ mod tests {
         let rect = Rect::rounded(
             point::logical(10.0, 20.0),
             area::logical(80.0, 30.0),
-            crate::geometry::rect::Rounding::relative(1.0),
+            crate::paint_geometry::rect::Rounding::relative(1.0),
         );
         let outline = paint::Outline {
             rect,
@@ -1093,7 +1093,7 @@ mod tests {
             rect: Rect::rounded(
                 point::logical(10.0, 20.0),
                 area::logical(40.0, 40.0),
-                crate::geometry::rect::Rounding::relative(1.0),
+                crate::paint_geometry::rect::Rounding::relative(1.0),
             ),
             style: style(Some(solid(paint::Color::RED)), None, None),
             rasterization: paint::Rasterization::default(),
@@ -1112,7 +1112,7 @@ mod tests {
         let rect = Rect::rounded(
             point::logical(10.0, 20.0),
             area::logical(80.0, 30.0),
-            crate::geometry::rect::Rounding::relative(1.0),
+            crate::paint_geometry::rect::Rounding::relative(1.0),
         );
         let fill = fill_shape(rect, paint::Brush::solid(paint::Color::RED));
         let tint = paint::Tint {
@@ -1133,7 +1133,7 @@ mod tests {
             rect: Rect::rounded(
                 point::logical(10.0, 20.0),
                 area::logical(80.0, 30.0),
-                crate::geometry::rect::Rounding::relative(1.0),
+                crate::paint_geometry::rect::Rounding::relative(1.0),
             ),
             style: style(None, Some(stroke(4.0)), None),
             rasterization: paint::Rasterization::default(),

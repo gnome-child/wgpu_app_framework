@@ -1,4 +1,4 @@
-use wgpu_l3::scratch::control_gallery;
+use wgpu_l3::control_gallery;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 

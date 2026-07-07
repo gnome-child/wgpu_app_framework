@@ -1,5 +1,5 @@
-use crate::geometry::{Rect, area, point};
 use crate::icon;
+use crate::paint_geometry::{Rect, area, point};
 use crate::text;
 use std::cell::RefCell;
 use std::fmt;
@@ -869,8 +869,8 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use crate::geometry::{area, point, rect};
     use crate::icon;
+    use crate::paint_geometry::{area, point, rect};
 
     use super::*;
 

@@ -1,155 +1,91 @@
+use super::{registry::AnyCommand, spec::KeyChord};
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Availability {
+    Enabled,
+    Disabled,
+    Hidden,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct State {
-    available: bool,
-    active: bool,
-    running: bool,
-    display: Option<String>,
-    hint: Option<String>,
+    pub(crate) availability: Availability,
+    pub(crate) checked: Option<bool>,
+    pub(crate) label: Option<String>,
+    pub(crate) shortcut: Option<KeyChord>,
+    pub(crate) tooltip: Option<String>,
 }
 
 impl State {
-    fn new(available: bool, active: bool) -> Self {
+    pub(crate) fn enabled() -> Self {
         Self {
-            available,
-            active,
-            running: false,
-            display: None,
-            hint: None,
+            availability: Availability::Enabled,
+            checked: None,
+            label: None,
+            shortcut: None,
+            tooltip: None,
         }
     }
 
-    /// A command that can run in the resolved context.
-    pub fn available() -> Self {
-        Self::new(true, false)
-    }
-
-    /// A command that cannot run in the resolved context.
-    pub fn unavailable() -> Self {
-        Self::new(false, false)
-    }
-
-    /// An allowed command that is currently on, selected, or toggled.
-    pub fn active() -> Self {
-        Self::new(true, true)
-    }
-
-    /// An allowed command whose work is currently in flight.
-    pub fn running() -> Self {
-        Self::new(true, false).with_running(true)
-    }
-
-    pub fn available_if(available: bool) -> Self {
-        Self::available().with_available(available)
-    }
-
-    pub fn active_if(active: bool) -> Self {
-        Self::available().with_active(active)
-    }
-
-    pub fn running_if(running: bool) -> Self {
-        Self::available().with_running(running)
-    }
-
-    /// Whether the command is allowed in the resolved context before running state is considered.
-    pub fn is_available(&self) -> bool {
-        self.available
-    }
-
-    /// Whether the command is currently on, selected, or toggled in the resolved context.
-    ///
-    /// Completed or historical work should stay in application state unless it represents a
-    /// persistent current state.
-    pub fn is_active(&self) -> bool {
-        self.active
-    }
-
-    /// Whether command work is currently in flight in the resolved context.
-    pub fn is_running(&self) -> bool {
-        self.running
-    }
-
-    /// Runtime display override for this command in the resolved context.
-    pub fn display(&self) -> Option<&str> {
-        self.display.as_deref()
-    }
-
-    /// Runtime hint override for this command in the resolved context.
-    pub fn hint(&self) -> Option<&str> {
-        self.hint.as_deref()
-    }
-
-    pub fn with_available(mut self, available: bool) -> Self {
-        self.available = available;
-        self
-    }
-
-    pub fn with_active(mut self, active: bool) -> Self {
-        self.active = active;
-        self
-    }
-
-    pub fn with_running(mut self, running: bool) -> Self {
-        self.running = running;
-        self
-    }
-
-    pub fn with_display(mut self, display: impl Into<String>) -> Self {
-        self.display = Some(display.into());
-        self
-    }
-
-    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
-        self.hint = Some(hint.into());
-        self
-    }
-
-    pub fn clear_display(mut self) -> Self {
-        self.display = None;
-        self
-    }
-
-    pub fn clear_hint(mut self) -> Self {
-        self.hint = None;
-        self
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Presentation {
-    display: String,
-    hint: Option<String>,
-    state: State,
-}
-
-impl Presentation {
-    pub fn new(display: impl Into<String>, hint: Option<String>, state: State) -> Self {
+    pub(crate) fn disabled() -> Self {
         Self {
-            display: display.into(),
-            hint,
-            state,
+            availability: Availability::Disabled,
+            checked: None,
+            label: None,
+            shortcut: None,
+            tooltip: None,
         }
     }
 
-    pub fn display(&self) -> &str {
-        &self.display
+    /// Means "this target does not claim the command in this state; keep resolving".
+    pub(crate) fn hidden() -> Self {
+        Self {
+            availability: Availability::Hidden,
+            checked: None,
+            label: None,
+            shortcut: None,
+            tooltip: None,
+        }
     }
 
-    pub fn hint(&self) -> Option<&str> {
-        self.hint.as_deref()
+    pub(crate) fn is_enabled(&self) -> bool {
+        self.availability == Availability::Enabled
     }
 
-    pub fn state(&self) -> &State {
-        &self.state
+    pub(crate) fn is_hidden(&self) -> bool {
+        self.availability == Availability::Hidden
     }
-}
 
-pub fn with_running_overlay(mut state: State, running: bool) -> State {
-    state.running |= running;
-    state
-}
+    pub(crate) fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
 
-impl Default for State {
-    fn default() -> Self {
-        Self::available()
+    pub(crate) fn with_shortcut(mut self, shortcut: KeyChord) -> Self {
+        self.shortcut = Some(shortcut);
+        self
+    }
+
+    pub(crate) fn with_tooltip(mut self, tooltip: impl Into<String>) -> Self {
+        self.tooltip = Some(tooltip.into());
+        self
+    }
+
+    pub(crate) fn checked(mut self, checked: bool) -> Self {
+        self.checked = Some(checked);
+        self
+    }
+
+    pub(in crate::command) fn with_command(mut self, command: &AnyCommand) -> Self {
+        if self.label.is_none() {
+            self = self.with_label(command.spec.display_name);
+        }
+
+        if let Some(shortcut) = command.shortcut()
+            && self.shortcut.is_none()
+        {
+            self = self.with_shortcut(shortcut);
+        }
+
+        self
     }
 }

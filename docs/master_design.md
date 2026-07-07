@@ -81,16 +81,16 @@ The module tree should read as a conceptual map, not as a filing cabinet.
 
 ### Governing Shape
 
-`src/scratch` is the architectural direction for the framework. The legacy
-root modules exist for compatibility and migration, but new framework concepts
-should be proven in the scratch architecture and should not import legacy
-framework modules.
+The promoted root framework modules are the architectural direction. The old
+parallel `src/scratch` namespace and legacy compatibility surface have been
+retired; new framework concepts should live in the root module tree according
+to the ownership boundaries below.
 
 The intended dependency direction is:
 
 ```text
 basic vocabulary
-  geometry, theme, text document/buffer/layout/edit primitives
+  geometry, paint_geometry, theme, text document/buffer/layout/edit primitives
 
 declarative description
   widget builders -> view nodes -> presentation/action data
@@ -121,17 +121,17 @@ widgets, commands, layout policy, scenes, windows, or renderers.
 `text`
 
 Owns document, buffer, edit, surface, layout, and unicode concepts. The text
-engine should be usable without the scratch runtime. Editing state belongs to
+engine should be usable without the framework runtime. Editing state belongs to
 explicit edit/session values, not secretly to a shared buffer when multiple
 views or surfaces can exist.
 
-`scratch::widget`
+`widget`
 
 Owns ergonomic builders for view data. Widgets produce nodes. Widgets do not
 execute behavior. A widget may project an app-facing concept into declarative
 view/action data, but it should not become the runtime for that concept.
 
-`scratch::view`
+`view`
 
 Owns declarative node data, bindings, presentation, style, focus affordances,
 and action metadata. View answers "what is being presented?" It should not own
@@ -146,7 +146,7 @@ that must be named but not painted should use an id or an explicit
 ancestry/grouping vocabulary. Future accessible-name support is additive and
 must not collapse these fields back together.
 
-`scratch::composition`
+`composition`
 
 Owns the installed view for a window, the retained composition tree derived
 from each fresh view description, and the frame-to-frame identity runtime needs
@@ -166,7 +166,7 @@ collide with retained composition identity. Subject segment names are strings
 for grouping, display/debug output, and future serialization, not routing
 identity.
 
-`scratch::layout`
+`layout`
 
 Owns measurement, frame construction, text measurement integration, and
 hit-testing. Layout answers "where is it?" and "what was hit?" It should not
@@ -202,7 +202,7 @@ oversized rect aligns its top or left edge. Reveal margins are viewport
 metrics. Nested reveal through ancestor viewports is a later design, not an
 implicit side effect.
 
-`scratch::scene`
+`scene`
 
 Owns paint primitives and visual presentation data. Scene answers "what should
 be drawn?" It should not know the application model, command registry,
@@ -213,7 +213,7 @@ does not decide that a role or layer should ignore clipping. Filters inside
 clipped content must be covered by integration tests before being treated as a
 stable rendering contract.
 
-`scratch::theme`
+`theme`
 
 Owns visual and metric tokens. Theme metrics may affect layout and measurement;
 theme appearance affects paint only. Keep those domains distinct when adding
@@ -245,7 +245,7 @@ display is house grammar on every platform: icon modifiers with separators are
 a deliberate departure from OS-native menu grammar, while key resolution stays
 platform-truthful.
 
-`scratch::session` and `scratch::interaction`
+`session` and `interaction`
 
 Own runtime UI state: focus, hover, pressed state, pointer state, open menus,
 text input focus, scroll state, and other state that exists because a user is
@@ -267,7 +267,7 @@ is its kind, stable id or retained node identity, and routing source. Changing
 a target label or capture behavior must not fork hover, scroll, draft, or
 focus identity.
 
-`scratch::command`
+`command`
 
 Owns command contracts: typed args, typed output, names, key chords,
 availability, history policy, observers, registry metadata, and triggers.
@@ -280,7 +280,7 @@ Copy, Save, CloseWindow, and CommandPalette name user intent before platform
 resolution. A standard role may resolve to multiple concrete chords; the first
 is the display chord and all chords match input.
 
-`scratch::keymap`
+`keymap`
 
 Owns platform keymap profiles, shortcut resolution, shortcut formatting, and
 text-edit key motion defaults. Keymap answers "which concrete keys does this
@@ -294,21 +294,21 @@ the resolved chord through the active theme. Menu and palette layout must
 measure the same formatted string that paint draws; semantic declarations such
 as `Primary+S` and `Standard::Undo` must never leak directly to pixels.
 
-`scratch::state`
+`state`
 
 Owns model storage, snapshots, revisions, change reasons, and committed state
 transitions. State answers "what changed?" and "which model value is current?"
 It should not know how a widget painted, which native event arrived, or which
 renderer will draw the result.
 
-`scratch::target` and `scratch::responder`
+`target` and `responder`
 
 Own executable capability and routing participation. A target says "this value
 can perform this command." A responder chain says "these are the current places
 where a request may be answered." They should stay typed at the edges and erase
 only inside routing machinery.
 
-`scratch::response`
+`response`
 
 Owns the result vocabulary for command handling: changed state, effects,
 follow-up work, and output. Responses describe what happened and what must be
@@ -318,13 +318,13 @@ Invalidation effects merge by maximum depth: `Paint < Layout < Rebuild`.
 composition, and `Rebuild` rebuilds/projects the view and reconciles
 composition.
 
-`scratch::timeline`
+`timeline`
 
 Owns undo and redo history. History is a framework concept, not incidental app
 bookkeeping. Command history policy should route through the timeline instead
 of each feature inventing local undo semantics.
 
-`scratch::runtime`
+`runtime`
 
 Owns orchestration. Runtime may know about state, timeline, session,
 composition, layout, diagnostics, clipboard, tasks, command registry,
@@ -337,7 +337,7 @@ window layout when size and theme still match; layout invalidation refreshes
 transient projection and recomposes without rebuilding the view; rebuild
 invalidation runs the full view projection and composition reconciliation path.
 
-`scratch::platform`, `scratch::host`, and native/render adapters
+`platform`, `host`, and native/render adapters
 
 Own the boundary with the operating system, window system, GPU, renderer,
 clipboard, dialogs, and native event loop. Renderer dependencies belong at this
@@ -526,7 +526,7 @@ Use tests to preserve:
 - Command dispatch and availability contracts.
 - Undo, redo, coalescing, retention, and transaction semantics.
 - Text editing and layout invariants.
-- Import boundaries between scratch and legacy framework modules.
+- Accidental restoration of `src/scratch` or the retired legacy root surface.
 - Renderer and platform dependency boundaries.
 - Private runtime services that should not become public vocabulary.
 - Deletion of stale concepts after unification.

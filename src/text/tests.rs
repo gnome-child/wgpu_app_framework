@@ -5,7 +5,7 @@ use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use crate::geometry::{area, point};
+use crate::paint_geometry::{area, point};
 
 use super::buffer::{
     Affinity, Cursor, CursorSelection, Mark, Position, Range, TEXT_DOCUMENT_BLOCK_TARGET_LINES,
@@ -104,23 +104,46 @@ fn assert_text_sources_do_not_import_modules(path: &std::path::Path, modules: &[
 
         let source = std::fs::read_to_string(&path).expect("text source file should read");
         for module in modules {
-            let absolute_path = format!("crate::{module}");
-            let absolute_use = format!("use crate::{module}");
-            let grouped_use = format!("use crate::{{{module}");
-            let grouped_path = format!("use crate::{{{module},");
-            let grouped_nested = format!("use crate::{{{module}::");
             assert!(
-                !source.contains(&absolute_path)
-                    && !source.contains(&absolute_use)
-                    && !source.contains(&grouped_use)
-                    && !source.contains(&grouped_path)
-                    && !source.contains(&grouped_nested),
+                !source_imports_crate_module(&source, module),
                 "{} must not import or reference framework/render module {}",
                 path.display(),
                 module
             );
         }
     }
+}
+
+fn source_imports_crate_module(source: &str, module: &str) -> bool {
+    if source.contains(&format!("crate::{module}::")) {
+        return true;
+    }
+
+    source.lines().any(|line| {
+        let line = line.trim();
+        if line == format!("use crate::{module};")
+            || line.starts_with(&format!("use crate::{module}::"))
+        {
+            return true;
+        }
+
+        let Some(grouped) = line
+            .strip_prefix("use crate::{")
+            .and_then(|line| line.strip_suffix(';'))
+        else {
+            return false;
+        };
+
+        grouped.split(',').any(|segment| {
+            let segment = segment.trim();
+            let root = segment
+                .split_once("::")
+                .map_or(segment, |(root, _)| root.trim())
+                .split_once(" as ")
+                .map_or_else(|| segment, |(root, _)| root.trim());
+            root == module
+        })
+    })
 }
 
 fn surface_line_text(surfaces: &[TextAreaSurface], line: usize) -> String {

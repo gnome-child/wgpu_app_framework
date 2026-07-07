@@ -14,7 +14,7 @@ use super::super::{
     output::TextFieldLayout,
     text_area::DisplaySegment as TextAreaDisplaySegment,
 };
-use crate::geometry::area;
+use crate::paint_geometry::area;
 
 impl Engine {
     pub fn text_area_caret_for_area(

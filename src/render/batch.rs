@@ -63,7 +63,7 @@ fn push_glyph<'a>(batches: &mut Vec<ItemBatch<'a>>, glyph: Glyph<'a>) {
 
 #[cfg(test)]
 mod tests {
-    use crate::geometry::{Rect, area, point};
+    use crate::paint_geometry::{Rect, area, point};
     use crate::{icon, paint, text};
 
     use super::*;

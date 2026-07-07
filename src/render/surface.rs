@@ -1,6 +1,6 @@
 use wgpu::SurfaceTarget;
 
-use crate::geometry::area;
+use crate::paint_geometry::area;
 use crate::render;
 use std::time::Instant;
 

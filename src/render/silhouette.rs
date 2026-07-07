@@ -1,4 +1,4 @@
-use crate::geometry::{Rect, area, point};
+use crate::paint_geometry::{Rect, area, point};
 
 pub(crate) const WGSL: &str = r#"
 fn silhouette_corner_radius(point: vec2<f32>, rect: vec4<f32>, rounding: vec4<f32>) -> f32 {
@@ -327,7 +327,7 @@ fn edge_scale(edge: f32, radius_sum: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::geometry::rect;
+    use crate::paint_geometry::rect;
     use crate::render::{filter, quad};
     use crate::{paint, render};
 

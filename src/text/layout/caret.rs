@@ -1,6 +1,6 @@
 use super::super::edit::{ViewState, Viewport, Visibility};
 use super::constants::TEXT_FIELD_CARET_MARGIN;
-use crate::geometry::{area, point};
+use crate::paint_geometry::{area, point};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Caret {
