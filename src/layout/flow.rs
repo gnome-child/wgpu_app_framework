@@ -439,7 +439,7 @@ fn inset_rect(rect: Rect, padding: view::Padding) -> Rect {
     )
 }
 
-fn gap_total(gap: i32, child_count: usize) -> i32 {
+pub(in crate::layout) fn gap_total(gap: i32, child_count: usize) -> i32 {
     gap.max(0)
         .saturating_mul(child_count.saturating_sub(1) as i32)
 }
@@ -486,6 +486,20 @@ mod tests {
         assert_eq!(rects[0], Rect::new(0, 0, 20, 10));
         assert_eq!(rects[1], Rect::new(25, 0, 55, 10));
         assert_eq!(rects[2], Rect::new(85, 0, 15, 10));
+    }
+
+    #[test]
+    fn negative_gaps_are_measured_and_placed_as_zero() {
+        let row = Row::new()
+            .gap(-4)
+            .item(Item::fixed(SizeHint::fixed(Size::new(10, 5))))
+            .item(Item::fixed(SizeHint::fixed(Size::new(20, 5))));
+
+        assert_eq!(row.size_hint().preferred(), Size::new(30, 5));
+        assert_eq!(
+            row.layout(Rect::new(0, 0, 40, 5)),
+            vec![Rect::new(0, 0, 10, 5), Rect::new(10, 0, 20, 5)]
+        );
     }
 
     #[test]

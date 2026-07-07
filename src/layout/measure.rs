@@ -2,7 +2,7 @@ use super::super::{
     geometry::{Rect, Size},
     keymap, theme, view,
 };
-use super::{control, engine, flow, typography};
+use super::{control, engine, flow, flow::gap_total, typography};
 
 pub(in crate::layout) fn size_hint(
     node: &view::Node,
@@ -597,10 +597,6 @@ fn menu_row_width(
         .unwrap_or_default();
 
     control::menu_row_width(label_width, shortcut_width, theme)
-}
-
-pub(in crate::layout) fn gap_total(gap: i32, child_count: usize) -> i32 {
-    gap.saturating_mul(child_count.saturating_sub(1) as i32)
 }
 
 pub(in crate::layout) fn layout_gap(node: &view::Node, theme: &theme::Theme) -> i32 {
