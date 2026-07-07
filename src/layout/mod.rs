@@ -12,7 +12,7 @@ pub(crate) mod chrome;
 pub(crate) mod control;
 mod engine;
 pub(crate) mod flow;
-pub(crate) mod frame;
+mod frame;
 pub(crate) mod hit;
 mod measure;
 mod path;
@@ -21,8 +21,8 @@ pub(crate) mod typography;
 pub(crate) mod viewport;
 
 pub(crate) use engine::Engine;
+pub(crate) use frame::Frame;
 
-use frame::Frame;
 use hit::Hit;
 
 #[derive(Clone)]

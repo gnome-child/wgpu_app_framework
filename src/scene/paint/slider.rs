@@ -2,12 +2,7 @@ use crate::{geometry, layout, theme::Theme, view};
 
 use super::super::{Brush, Quad, Rounding, Scene, Stroke, Transform, Visuals};
 
-pub(super) fn paint(
-    frame: &layout::frame::Frame,
-    scene: &mut Scene,
-    theme: &Theme,
-    visuals: &Visuals,
-) {
+pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme, visuals: &Visuals) {
     let Some(slider) = frame.slider() else {
         return;
     };

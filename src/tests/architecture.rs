@@ -527,6 +527,7 @@ fn layout_frame_and_hit_inspection_stays_internal() {
         "pub mod engine;",
         "pub(crate) mod engine;",
         "pub mod frame;",
+        "pub(crate) mod frame;",
         "pub mod hit;",
         "pub mod viewport;",
         "pub fn compose(",

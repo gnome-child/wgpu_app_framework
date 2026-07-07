@@ -703,7 +703,7 @@ fn open_view_menu_and_wrap_command_point(
     frame_point(wrap_command)
 }
 
-fn frame_point(frame: &layout::frame::Frame) -> geometry::Point {
+fn frame_point(frame: &layout::Frame) -> geometry::Point {
     let rect = frame.rect();
     geometry::Point::new(rect.x() + 1, rect.y() + 1)
 }

@@ -4358,7 +4358,7 @@ fn scroll_outer_until_inner_overlaps_search(
     .expect("outer scroll should be handled");
 }
 
-fn first_scroll_frame(presentation: &scene::Presentation) -> &layout::frame::Frame {
+fn first_scroll_frame(presentation: &scene::Presentation) -> &layout::Frame {
     presentation
         .layout()
         .find_role(view::node::Role::Scroll)
@@ -4370,7 +4370,7 @@ fn first_scroll_frame(presentation: &scene::Presentation) -> &layout::frame::Fra
 fn scroll_frame_with_label<'a>(
     presentation: &'a scene::Presentation,
     label: &str,
-) -> &'a layout::frame::Frame {
+) -> &'a layout::Frame {
     presentation
         .layout()
         .find_role(view::node::Role::Scroll)
@@ -4379,7 +4379,7 @@ fn scroll_frame_with_label<'a>(
         .expect("named scroll should be laid out")
 }
 
-fn command_palette_results_frame(presentation: &scene::Presentation) -> &layout::frame::Frame {
+fn command_palette_results_frame(presentation: &scene::Presentation) -> &layout::Frame {
     presentation
         .layout()
         .find_role(view::node::Role::Scroll)
@@ -4391,7 +4391,7 @@ fn command_palette_results_frame(presentation: &scene::Presentation) -> &layout:
         .expect("command palette results scroll should be laid out")
 }
 
-fn command_palette_panel_frame(presentation: &scene::Presentation) -> &layout::frame::Frame {
+fn command_palette_panel_frame(presentation: &scene::Presentation) -> &layout::Frame {
     presentation
         .layout()
         .find_role(view::node::Role::FloatingPanel)
@@ -4405,8 +4405,8 @@ fn command_palette_panel_frame(presentation: &scene::Presentation) -> &layout::f
 
 fn immediate_scroll_child_frames<'a>(
     layout: &'a layout::Layout,
-    scroll: &layout::frame::Frame,
-) -> Vec<&'a layout::frame::Frame> {
+    scroll: &layout::Frame,
+) -> Vec<&'a layout::Frame> {
     let child_depth = scroll.path_depth() + 1;
     layout
         .frames()
@@ -4415,7 +4415,7 @@ fn immediate_scroll_child_frames<'a>(
         .collect()
 }
 
-fn selected_palette_result_frame(presentation: &scene::Presentation) -> &layout::frame::Frame {
+fn selected_palette_result_frame(presentation: &scene::Presentation) -> &layout::Frame {
     presentation
         .layout()
         .frames()

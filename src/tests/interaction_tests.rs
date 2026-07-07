@@ -1142,7 +1142,7 @@ fn labeled_frame<'a>(
     layout: &'a layout::Layout,
     role: view::node::Role,
     label: &str,
-) -> &'a layout::frame::Frame {
+) -> &'a layout::Frame {
     layout
         .find_role(role)
         .into_iter()

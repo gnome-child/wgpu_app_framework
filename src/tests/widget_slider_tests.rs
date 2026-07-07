@@ -351,12 +351,12 @@ fn due_slider_hover_animation_requests_redraw_without_model_revision_change() {
     assert!(app.session().windows()[0].redraw_requested());
 }
 
-fn slider_track_rect(frame: &layout::frame::Frame) -> geometry::Rect {
+fn slider_track_rect(frame: &layout::Frame) -> geometry::Rect {
     let theme = Theme::default();
     layout::control::slider_track_rect(frame.rect(), frame.label_width(), &theme)
 }
 
-fn only_slider(layout: &layout::Layout) -> &layout::frame::Frame {
+fn only_slider(layout: &layout::Layout) -> &layout::Frame {
     layout
         .find_role(view::node::Role::Slider)
         .into_iter()
@@ -374,7 +374,7 @@ fn track_scale_y(scene: &Scene, track: geometry::Rect) -> f32 {
         .expect("slider track should paint")
 }
 
-fn thumb_transform_scale_y(scene: &Scene, slider: &layout::frame::Frame) -> f32 {
+fn thumb_transform_scale_y(scene: &Scene, slider: &layout::Frame) -> f32 {
     let theme = Theme::default();
     let thumb = layout::control::slider_thumb_rect(
         slider.rect(),

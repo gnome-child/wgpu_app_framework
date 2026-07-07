@@ -43,7 +43,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let text_surfaces = layout
             .frames()
             .iter()
-            .filter_map(layout::frame::Frame::text_area_layout)
+            .filter_map(layout::Frame::text_area_layout)
             .map(|text_area| text_area.render_surfaces().len())
             .sum();
         let text_area_count = layout
@@ -536,7 +536,7 @@ fn caret_animation_schedule(layout: &layout::Layout, now: Instant) -> animation:
         .fold(animation::Schedule::Idle, animation::Schedule::merge)
 }
 
-fn focused_text_caret_deadline(frame: &layout::frame::Frame, now: Instant) -> Option<Instant> {
+fn focused_text_caret_deadline(frame: &layout::Frame, now: Instant) -> Option<Instant> {
     if !frame.is_focused() {
         return None;
     }

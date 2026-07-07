@@ -51,7 +51,7 @@ pub(super) fn paint_layout_with_theme(
 }
 
 fn paint_frame_with_clip(
-    frame: &layout::frame::Frame,
+    frame: &layout::Frame,
     scene: &mut Scene,
     theme: &Theme,
     visuals: &Visuals,
@@ -70,7 +70,7 @@ fn paint_frame_with_clip(
 }
 
 fn paint_frame(
-    frame: &layout::frame::Frame,
+    frame: &layout::Frame,
     scene: &mut Scene,
     theme: &Theme,
     visuals: &Visuals,
@@ -170,7 +170,7 @@ fn paint_frame(
     }
 }
 
-fn layer_for(frame: &layout::frame::Frame) -> Layer {
+fn layer_for(frame: &layout::Frame) -> Layer {
     if frame.is_floating_layer() {
         return Layer::Floating;
     }
@@ -186,7 +186,7 @@ fn layer_for(frame: &layout::frame::Frame) -> Layer {
     }
 }
 
-fn role_fill(frame: &layout::frame::Frame, theme: &Theme) -> Option<super::Color> {
+fn role_fill(frame: &layout::Frame, theme: &Theme) -> Option<super::Color> {
     match frame.role() {
         view::node::Role::Root => Some(theme.surfaces().root),
         view::node::Role::MenuBar => Some(theme.menu().bar_background),
@@ -309,7 +309,7 @@ fn color_with_opacity(color: super::Color, opacity: f32) -> super::Color {
     )
 }
 
-fn role_rounding(frame: &layout::frame::Frame, theme: &Theme) -> super::Rounding {
+fn role_rounding(frame: &layout::Frame, theme: &Theme) -> super::Rounding {
     match frame.role() {
         view::node::Role::FloatingPanel => theme.floating_panel().rounding,
         view::node::Role::Menu => theme.control().rounding,
@@ -342,7 +342,7 @@ fn paint_brush_quad(
     }
 }
 
-fn paint_floating_panel_shadow(frame: &layout::frame::Frame, scene: &mut Scene, theme: &Theme) {
+fn paint_floating_panel_shadow(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     let panel = theme.floating_panel();
     scene.push_shadow(
         Shadow::new(
@@ -356,7 +356,7 @@ fn paint_floating_panel_shadow(frame: &layout::frame::Frame, scene: &mut Scene, 
     );
 }
 
-fn paint_floating_panel_filter(frame: &layout::frame::Frame, scene: &mut Scene, theme: &Theme) {
+fn paint_floating_panel_filter(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     let panel = theme.floating_panel();
     let Material::Glass(glass) = &panel.material else {
         return;
@@ -374,7 +374,7 @@ fn paint_floating_panel_filter(frame: &layout::frame::Frame, scene: &mut Scene, 
     }
 }
 
-fn paint_floating_panel_material(frame: &layout::frame::Frame, scene: &mut Scene, theme: &Theme) {
+fn paint_floating_panel_material(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     let panel = theme.floating_panel();
     match &panel.material {
         Material::Solid(brush) => {
@@ -417,7 +417,7 @@ fn brush_with_opacity(brush: Brush, opacity: f32) -> Brush {
     }
 }
 
-fn paint_menu_row(frame: &layout::frame::Frame, scene: &mut Scene, theme: &Theme) {
+fn paint_menu_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     let slots = layout::control::menu_row_slots(frame.rect(), frame.shortcut_width(), theme);
     let color = text_color_for(frame, theme);
 
@@ -443,13 +443,13 @@ fn paint_menu_row(frame: &layout::frame::Frame, scene: &mut Scene, theme: &Theme
     paint_shortcut(frame, slots.shortcut, scene, theme);
 }
 
-fn paint_menu_separator(frame: &layout::frame::Frame, scene: &mut Scene, theme: &Theme) {
+fn paint_menu_separator(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     let slots = layout::control::menu_row_slots(frame.rect(), frame.shortcut_width(), theme);
 
     scene.push_quad(Quad::new(slots.separator, theme.menu().separator));
 }
 
-fn paint_palette_row(frame: &layout::frame::Frame, scene: &mut Scene, theme: &Theme) {
+fn paint_palette_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     let rect = frame.rect();
     let slots = layout::control::palette_row_slots(rect, frame.shortcut_width(), theme);
     let color = theme.text().primary;
@@ -471,12 +471,7 @@ fn shortcut_text_color(theme: &Theme) -> super::Color {
     theme.text().muted
 }
 
-fn paint_shortcut(
-    frame: &layout::frame::Frame,
-    slot: geometry::Rect,
-    scene: &mut Scene,
-    theme: &Theme,
-) {
+fn paint_shortcut(frame: &layout::Frame, slot: geometry::Rect, scene: &mut Scene, theme: &Theme) {
     let Some(parts) = frame.shortcut_display() else {
         return;
     };
@@ -537,7 +532,7 @@ fn shortcut_icon(icon: keymap::ShortcutIcon) -> icons::Icon {
     icons::Icon::phosphor(icons::Id::new(id))
 }
 
-fn paint_section_header(frame: &layout::frame::Frame, scene: &mut Scene, theme: &Theme) {
+fn paint_section_header(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     let Some(label) = frame.label_text() else {
         return;
     };
@@ -557,7 +552,7 @@ fn paint_section_header(frame: &layout::frame::Frame, scene: &mut Scene, theme: 
 }
 
 fn visual_tint_for(
-    frame: &layout::frame::Frame,
+    frame: &layout::Frame,
     theme: &Theme,
     visuals: &Visuals,
 ) -> Option<super::Color> {
@@ -612,7 +607,7 @@ fn visual_tint_for(
 }
 
 fn row_highlight_tint_for(
-    frame: &layout::frame::Frame,
+    frame: &layout::Frame,
     theme: &Theme,
     visuals: &Visuals,
 ) -> Option<super::Color> {
@@ -636,12 +631,12 @@ fn row_highlight_tint_for(
     highlighted.then_some(theme.menu().row_hover_tint)
 }
 
-fn visual_tint_rect_for(frame: &layout::frame::Frame) -> geometry::Rect {
+fn visual_tint_rect_for(frame: &layout::Frame) -> geometry::Rect {
     frame.rect()
 }
 
 fn visual_tint_rounding_for(
-    _frame: &layout::frame::Frame,
+    _frame: &layout::Frame,
     default: super::Rounding,
     _theme: &Theme,
 ) -> super::Rounding {
@@ -652,11 +647,11 @@ fn is_control_visual_role(role: view::node::Role) -> bool {
     matches!(role, view::node::Role::Binding | view::node::Role::Button)
 }
 
-fn text_for(frame: &layout::frame::Frame) -> Option<&str> {
+fn text_for(frame: &layout::Frame) -> Option<&str> {
     frame.label_text().or_else(|| frame.text())
 }
 
-fn text_rect_for(frame: &layout::frame::Frame, theme: &Theme) -> geometry::Rect {
+fn text_rect_for(frame: &layout::Frame, theme: &Theme) -> geometry::Rect {
     match frame.role() {
         view::node::Role::Checkbox | view::node::Role::Radio => {
             layout::control::choice_label_rect(frame.rect(), theme)
@@ -669,7 +664,7 @@ fn text_rect_for(frame: &layout::frame::Frame, theme: &Theme) -> geometry::Rect 
     }
 }
 
-fn text_color_for(frame: &layout::frame::Frame, theme: &Theme) -> super::Color {
+fn text_color_for(frame: &layout::Frame, theme: &Theme) -> super::Color {
     if !frame.is_enabled() {
         return theme.text().muted;
     }
@@ -689,7 +684,7 @@ fn text_color_for(frame: &layout::frame::Frame, theme: &Theme) -> super::Color {
     }
 }
 
-fn text_style_for(frame: &layout::frame::Frame, theme: &Theme) -> TextStyle {
+fn text_style_for(frame: &layout::Frame, theme: &Theme) -> TextStyle {
     match frame.role() {
         view::node::Role::SectionHeader => {
             scene_text_style(layout::typography::section_header_style(theme))
@@ -714,7 +709,7 @@ fn scene_text_style(style: crate::theme::TypeStyle) -> TextStyle {
     TextStyle::new(style.size(), style.weight())
 }
 
-fn text_wrap_for(frame: &layout::frame::Frame) -> TextWrap {
+fn text_wrap_for(frame: &layout::Frame) -> TextWrap {
     if matches!(
         frame.role(),
         view::node::Role::Checkbox | view::node::Role::Radio | view::node::Role::Slider
@@ -728,14 +723,14 @@ fn text_wrap_for(frame: &layout::frame::Frame) -> TextWrap {
     }
 }
 
-fn text_align_for(frame: &layout::frame::Frame) -> TextAlign {
+fn text_align_for(frame: &layout::Frame) -> TextAlign {
     match frame.role() {
         view::node::Role::Button | view::node::Role::Menu => TextAlign::Center,
         _ => TextAlign::Start,
     }
 }
 
-fn outline_color_for(frame: &layout::frame::Frame, theme: &Theme) -> Option<super::Color> {
+fn outline_color_for(frame: &layout::Frame, theme: &Theme) -> Option<super::Color> {
     matches!(
         frame.role(),
         view::node::Role::TextArea
@@ -748,11 +743,11 @@ fn outline_color_for(frame: &layout::frame::Frame, theme: &Theme) -> Option<supe
     .and_then(visible_fill)
 }
 
-fn focus_outline_color_for(frame: &layout::frame::Frame, theme: &Theme) -> Option<super::Color> {
+fn focus_outline_color_for(frame: &layout::Frame, theme: &Theme) -> Option<super::Color> {
     (frame.focus_visible() && is_focus_outline_role(frame.role())).then_some(theme.focus().color)
 }
 
-fn focus_outline_rect_for(frame: &layout::frame::Frame) -> geometry::Rect {
+fn focus_outline_rect_for(frame: &layout::Frame) -> geometry::Rect {
     match frame.role() {
         view::node::Role::Checkbox | view::node::Role::Radio | view::node::Role::Slider => {
             frame.active_rect()
@@ -762,7 +757,7 @@ fn focus_outline_rect_for(frame: &layout::frame::Frame) -> geometry::Rect {
 }
 
 fn focus_outline_rounding_for(
-    frame: &layout::frame::Frame,
+    frame: &layout::Frame,
     default: super::Rounding,
     theme: &Theme,
 ) -> super::Rounding {

@@ -281,10 +281,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     }
 }
 
-fn text_pointer_down_action(
-    frame: &layout::frame::Frame,
-    target: interaction::Target,
-) -> view::Action {
+fn text_pointer_down_action(frame: &layout::Frame, target: interaction::Target) -> view::Action {
     if frame.is_focused() {
         view::Action::pointer_manipulate(target)
     } else {
@@ -292,7 +289,7 @@ fn text_pointer_down_action(
     }
 }
 
-fn is_pointer_focusable(frame: &layout::frame::Frame) -> bool {
+fn is_pointer_focusable(frame: &layout::Frame) -> bool {
     if frame.binding_source() == Some(crate::context::Source::Menu) {
         return false;
     }

@@ -344,7 +344,7 @@ impl Animations {
     }
 }
 
-fn caret_visible_for(frame: &layout::frame::Frame, now: Instant) -> Option<bool> {
+fn caret_visible_for(frame: &layout::Frame, now: Instant) -> Option<bool> {
     if !frame.is_focused() {
         return None;
     }

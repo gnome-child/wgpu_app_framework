@@ -622,7 +622,7 @@ fn app_shortcut_commits_and_deactivates_focused_text_box_before_dispatch() {
         .find_role(view::node::Role::TextBox)
         .into_iter()
         .next()
-        .and_then(layout::frame::Frame::text_box)
+        .and_then(layout::Frame::text_box)
         .expect("query text box should be present");
     assert_eq!(
         text_box.text(),
@@ -665,7 +665,7 @@ fn app_menu_command_commits_and_deactivates_focused_text_box_before_dispatch() {
         .find_role(view::node::Role::TextBox)
         .into_iter()
         .next()
-        .and_then(layout::frame::Frame::text_box)
+        .and_then(layout::Frame::text_box)
         .expect("query text box should be present");
     assert_eq!(text_box.text(), "");
 }
@@ -752,7 +752,7 @@ fn drag_gallery_slider_to_fraction(
     pointer_up_then_present(app, window, size, point);
 }
 
-fn focused_frame(layout: &layout::Layout) -> &layout::frame::Frame {
+fn focused_frame(layout: &layout::Layout) -> &layout::Frame {
     layout
         .frames()
         .iter()
@@ -760,7 +760,7 @@ fn focused_frame(layout: &layout::Layout) -> &layout::frame::Frame {
         .expect("one frame should be focused")
 }
 
-fn first_frame(layout: &layout::Layout, role: view::node::Role) -> &layout::frame::Frame {
+fn first_frame(layout: &layout::Layout, role: view::node::Role) -> &layout::Frame {
     layout
         .frames()
         .iter()
@@ -772,7 +772,7 @@ fn find_frame<'a>(
     layout: &'a layout::Layout,
     role: view::node::Role,
     label: Option<&str>,
-) -> &'a layout::frame::Frame {
+) -> &'a layout::Frame {
     layout
         .frames()
         .iter()
@@ -780,7 +780,7 @@ fn find_frame<'a>(
         .expect("frame should exist")
 }
 
-fn slider_track_rect(frame: &layout::frame::Frame) -> geometry::Rect {
+fn slider_track_rect(frame: &layout::Frame) -> geometry::Rect {
     let theme = Theme::default();
     layout::control::slider_track_rect(frame.rect(), frame.label_width(), &theme)
 }
@@ -792,7 +792,7 @@ fn center(rect: geometry::Rect) -> geometry::Point {
     )
 }
 
-fn assert_focus_outline(scene: &Scene, frame: &layout::frame::Frame) {
+fn assert_focus_outline(scene: &Scene, frame: &layout::Frame) {
     focus_outline_index(scene, frame).unwrap_or_else(|| {
         panic!(
             "focused {:?} {:?} should paint a focus outline",
@@ -802,7 +802,7 @@ fn assert_focus_outline(scene: &Scene, frame: &layout::frame::Frame) {
     });
 }
 
-fn assert_focus_outline_after_text(scene: &Scene, frame: &layout::frame::Frame, text: &str) {
+fn assert_focus_outline_after_text(scene: &Scene, frame: &layout::Frame, text: &str) {
     let outline = focus_outline_index(scene, frame).expect("focus outline should paint");
     let text = text_primitive_index(scene, text);
 
@@ -812,7 +812,7 @@ fn assert_focus_outline_after_text(scene: &Scene, frame: &layout::frame::Frame, 
     );
 }
 
-fn assert_focus_outline_before_text(scene: &Scene, frame: &layout::frame::Frame, text: &str) {
+fn assert_focus_outline_before_text(scene: &Scene, frame: &layout::Frame, text: &str) {
     let outline = focus_outline_index(scene, frame).expect("focus outline should paint");
     let text = text_primitive_index(scene, text);
 
@@ -822,7 +822,7 @@ fn assert_focus_outline_before_text(scene: &Scene, frame: &layout::frame::Frame,
     );
 }
 
-fn focus_outline_index(scene: &Scene, frame: &layout::frame::Frame) -> Option<usize> {
+fn focus_outline_index(scene: &Scene, frame: &layout::Frame) -> Option<usize> {
     let focus = Theme::default().focus().color;
 
     scene.primitives().iter().position(|primitive| {
@@ -847,7 +847,7 @@ fn text_primitive_index(scene: &Scene, value: &str) -> usize {
         .unwrap_or_else(|| panic!("scene text {value:?} should paint"))
 }
 
-fn assert_no_focus_outline(scene: &Scene, frame: &layout::frame::Frame) {
+fn assert_no_focus_outline(scene: &Scene, frame: &layout::Frame) {
     let focus = Theme::default().focus().color;
     assert!(
         !scene

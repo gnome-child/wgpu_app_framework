@@ -3,7 +3,7 @@ use crate::{layout, theme::Theme};
 use super::super::{Quad, Scene, TextViewport, Visuals};
 use super::text_surface;
 
-pub(super) fn paint_text(frame: &layout::frame::Frame, scene: &mut Scene) -> bool {
+pub(super) fn paint_text(frame: &layout::Frame, scene: &mut Scene) -> bool {
     let Some(text_box) = frame.text_box() else {
         return false;
     };
@@ -27,7 +27,7 @@ pub(super) fn paint_text(frame: &layout::frame::Frame, scene: &mut Scene) -> boo
     true
 }
 
-pub(super) fn paint_selection(frame: &layout::frame::Frame, scene: &mut Scene, theme: &Theme) {
+pub(super) fn paint_selection(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     let Some(field) = frame.text_box_layout() else {
         return;
     };
@@ -43,7 +43,7 @@ pub(super) fn paint_selection(frame: &layout::frame::Frame, scene: &mut Scene, t
 }
 
 pub(super) fn paint_caret(
-    frame: &layout::frame::Frame,
+    frame: &layout::Frame,
     scene: &mut Scene,
     theme: &Theme,
     visuals: &Visuals,

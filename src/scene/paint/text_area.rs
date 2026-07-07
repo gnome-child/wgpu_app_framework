@@ -4,7 +4,7 @@ use super::super::{Quad, Scene, TextViewport, Visuals};
 use super::text_surface;
 
 pub(super) fn paint(
-    frame: &layout::frame::Frame,
+    frame: &layout::Frame,
     text_area: &layout::text::Area,
     scene: &mut Scene,
     theme: &Theme,

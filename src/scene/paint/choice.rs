@@ -4,12 +4,7 @@ use crate::{geometry, layout, theme::Theme, view};
 use super::super::{Brush, Color, Icon, Quad, Scene, Stroke, Visuals};
 use super::super::{Rounding, Style};
 
-pub(super) fn paint(
-    frame: &layout::frame::Frame,
-    scene: &mut Scene,
-    theme: &Theme,
-    visuals: &Visuals,
-) {
+pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme, visuals: &Visuals) {
     let Some(selected) = selected(frame) else {
         return;
     };
@@ -55,11 +50,7 @@ pub(super) fn paint(
     }
 }
 
-fn choice_tint_for(
-    frame: &layout::frame::Frame,
-    theme: &Theme,
-    visuals: &Visuals,
-) -> Option<Color> {
+fn choice_tint_for(frame: &layout::Frame, theme: &Theme, visuals: &Visuals) -> Option<Color> {
     if !frame.is_enabled() {
         return None;
     }
@@ -77,7 +68,7 @@ fn choice_tint_for(
     }
 }
 
-fn selected(frame: &layout::frame::Frame) -> Option<bool> {
+fn selected(frame: &layout::Frame) -> Option<bool> {
     match frame.role() {
         view::node::Role::Checkbox => Some(frame.checkbox()?.checked()),
         view::node::Role::Radio => Some(frame.radio()?.selected()),
