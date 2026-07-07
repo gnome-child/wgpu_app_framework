@@ -14,7 +14,6 @@ pub mod frame;
 pub mod primitive;
 mod quad;
 pub mod renderer;
-mod retained;
 mod silhouette;
 pub mod surface;
 mod text_renderer;
@@ -44,6 +43,7 @@ impl Viewport {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn from_logical_area(
         logical_area: crate::paint_geometry::area::Logical,
         scale_factor: f32,

@@ -58,6 +58,25 @@ fn renderer_dependencies_stay_in_native_platform() {
 }
 
 #[test]
+fn renderer_paint_vocabulary_stays_private() {
+    let lib = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("lib.rs"),
+    )
+    .expect("crate root should read");
+
+    assert!(
+        !lib.contains("pub mod paint;"),
+        "renderer-facing paint vocabulary should not be public framework API"
+    );
+    assert!(
+        !lib.contains("pub mod paint_geometry;"),
+        "renderer-space geometry should not be public framework API"
+    );
+}
+
+#[test]
 fn responder_chain_uses_service_responders_not_framework_fallbacks() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let forbidden = [

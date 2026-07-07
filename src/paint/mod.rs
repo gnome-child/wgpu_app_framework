@@ -5,9 +5,6 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct LayerId(pub u64);
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scene {
     clear_color: Option<Color>,
@@ -40,10 +37,6 @@ impl Scene {
         }
     }
 
-    pub fn push_text_surface(&mut self, text: TextSurface) {
-        self.items.push(Item::TextSurface(text));
-    }
-
     pub fn push_text_viewport(&mut self, text: TextViewport) {
         if !text.surfaces.is_empty() {
             self.items.push(Item::TextViewport(text));
@@ -56,10 +49,6 @@ impl Scene {
 
     pub fn push_shadow(&mut self, shadow: Shadow) {
         self.items.push(Item::Shadow(shadow));
-    }
-
-    pub fn push_tint(&mut self, tint: Tint) {
-        self.items.push(Item::Tint(tint));
     }
 
     pub fn push_outline(&mut self, outline: Outline) {
@@ -75,10 +64,6 @@ impl Scene {
         }
     }
 
-    pub fn push_layer(&mut self, layer: Layer) {
-        self.items.push(Item::Layer(layer));
-    }
-
     pub fn push_clip(&mut self, clip: Clip) {
         self.items.push(Item::Clip(clip));
     }
@@ -89,14 +74,6 @@ impl Scene {
 
     pub fn items(&self) -> &[Item] {
         &self.items
-    }
-
-    pub fn len(&self) -> usize {
-        self.items.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.clear_color.is_none() && self.items.is_empty()
     }
 }
 
@@ -110,14 +87,11 @@ impl Default for Scene {
 pub enum Item {
     Quad(Quad),
     Text(Text),
-    TextSurface(TextSurface),
     TextViewport(TextViewport),
     Icon(Icon),
     Shadow(Shadow),
-    Tint(Tint),
     Outline(Outline),
     Filter(Filter),
-    Layer(Layer),
     Clip(Clip),
     PopClip,
 }
@@ -217,21 +191,6 @@ impl PartialEq for TextViewport {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct LayerUpdate {
-    pub id: LayerId,
-    pub coverage: Rect,
-    pub scene: Scene,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Layer {
-    pub id: LayerId,
-    pub rect: Rect,
-    pub source: Rect,
-    pub sampling: LayerSampling,
-}
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LayerSampling {
     #[default]
@@ -247,7 +206,6 @@ pub enum TextWrap {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextVerticalAlign {
-    Start,
     Center,
 }
 
@@ -266,12 +224,6 @@ pub struct Shadow {
     pub blur: f32,
     pub spread: f32,
     pub offset: point::Logical,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Tint {
-    pub rect: Rect,
-    pub brush: Brush,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -349,12 +301,9 @@ pub struct Noise {
 }
 
 impl Filter {
+    #[cfg(test)]
     pub fn blur(rect: Rect, amount: f32) -> Self {
         Self::stack(rect, [FilterOp::blur(amount)])
-    }
-
-    pub fn liquid(rect: Rect, params: LiquidFilter) -> Self {
-        Self::stack(rect, [FilterOp::liquid(params)])
     }
 
     pub fn stack(rect: Rect, ops: impl IntoIterator<Item = FilterOp>) -> Self {
@@ -375,13 +324,7 @@ impl Transform {
         }
     }
 
-    pub fn translate(delta: point::Logical) -> Self {
-        Self {
-            translate: delta,
-            ..Self::identity()
-        }
-    }
-
+    #[cfg(test)]
     pub fn scale_about(origin: point::Logical, scale_x: f32, scale_y: f32) -> Self {
         Self {
             origin,
@@ -391,6 +334,7 @@ impl Transform {
         }
     }
 
+    #[cfg(test)]
     pub fn scale_y_about(origin: point::Logical, scale_y: f32) -> Self {
         Self::scale_about(origin, 1.0, scale_y)
     }
@@ -427,13 +371,6 @@ impl Transform {
         )
     }
 
-    pub fn translated(self, delta: point::Logical) -> Self {
-        Self {
-            origin: point::logical(self.origin.x() + delta.x(), self.origin.y() + delta.y()),
-            ..self
-        }
-    }
-
     fn transform_x(self, x: f32) -> f32 {
         ((x - self.origin.x()) * self.scale_x) + self.origin.x() + self.translate.x()
     }
@@ -449,6 +386,7 @@ impl Default for Transform {
     }
 }
 
+#[cfg(test)]
 fn sanitized_scale(scale: f32) -> f32 {
     if scale.is_finite() { scale } else { 1.0 }
 }
@@ -508,13 +446,6 @@ impl FilterOp {
 }
 
 impl BackdropBlur {
-    pub fn new(sigma: f32) -> Self {
-        Self {
-            sigma,
-            edge_mode: BackdropEdgeMode::Mirror,
-        }
-    }
-
     pub fn clamped(self) -> Self {
         Self {
             sigma: self.sigma.max(0.0),
@@ -525,15 +456,6 @@ impl BackdropBlur {
 
 impl Refraction {
     const MAX_DISPLACEMENT: f32 = 4.0;
-
-    pub fn new(displacement: f32, splay: f32, feather: f32, curve: f32) -> Self {
-        Self {
-            displacement,
-            splay,
-            feather,
-            curve,
-        }
-    }
 
     pub fn clamped(self) -> Self {
         Self {
@@ -546,10 +468,6 @@ impl Refraction {
 }
 
 impl Luminosity {
-    pub fn new(color: Color, opacity: f32) -> Self {
-        Self { color, opacity }
-    }
-
     pub fn clamped(self) -> Self {
         Self {
             color: self.color,
@@ -559,10 +477,6 @@ impl Luminosity {
 }
 
 impl Noise {
-    pub fn new(opacity: f32) -> Self {
-        Self { opacity }
-    }
-
     pub fn clamped(self) -> Self {
         Self {
             opacity: self.opacity.clamp(0.0, 1.0),
@@ -603,6 +517,7 @@ impl Brush {
         Self::Gradient(Gradient::linear(from, to))
     }
 
+    #[cfg(test)]
     pub fn dimmed(self, factor: f32) -> Self {
         match self {
             Self::Solid(color) => Self::Solid(color.dimmed(factor)),
@@ -639,6 +554,7 @@ impl Gradient {
         ))
     }
 
+    #[cfg(test)]
     pub fn dimmed(self, factor: f32) -> Self {
         match self {
             Self::Linear(gradient) => Self::Linear(gradient.dimmed(factor)),
@@ -686,6 +602,7 @@ impl LinearGradient {
         self.to
     }
 
+    #[cfg(test)]
     pub fn dimmed(self, factor: f32) -> Self {
         Self {
             start: self.start,
@@ -710,6 +627,7 @@ impl UnitPoint {
     pub const TOP_LEFT: Self = Self { x: 0.0, y: 0.0 };
     pub const BOTTOM_RIGHT: Self = Self { x: 1.0, y: 1.0 };
 
+    #[cfg(test)]
     pub fn new(x: f32, y: f32) -> Self {
         Self {
             x: x.clamp(0.0, 1.0),
@@ -735,14 +653,11 @@ pub struct Color {
 }
 
 impl Color {
-    pub const fn rgb(r: f32, g: f32, b: f32) -> Self {
-        Self { r, g, b, a: 1.0 }
-    }
-
     pub const fn rgba(r: f32, g: f32, b: f32, a: f32) -> Self {
         Self { r, g, b, a }
     }
 
+    #[cfg(test)]
     pub const BLACK: Self = Self {
         r: 0.0,
         g: 0.0,
@@ -750,6 +665,7 @@ impl Color {
         a: 1.0,
     };
 
+    #[cfg(test)]
     pub const RED: Self = Self {
         r: 1.0,
         b: 0.0,
@@ -761,6 +677,7 @@ impl Color {
         [self.r, self.g, self.b, self.a]
     }
 
+    #[cfg(test)]
     pub fn dimmed(self, factor: f32) -> Self {
         let factor = factor.max(0.0);
 
@@ -797,7 +714,6 @@ mod tests {
     fn new_scene_is_empty() {
         let scene = Scene::new();
 
-        assert!(scene.is_empty());
         assert_eq!(scene.clear_color(), None);
         assert!(scene.items().is_empty());
     }
@@ -809,17 +725,13 @@ mod tests {
         scene.clear(Color::BLACK);
 
         assert_eq!(scene.clear_color(), Some(Color::BLACK));
-        assert!(!scene.is_empty());
+        assert!(scene.items().is_empty());
     }
 
     #[test]
     fn pushed_items_preserve_order() {
         let mut scene = Scene::new();
         let first = solid_quad(1.0);
-        let tint = Tint {
-            rect: Rect::new(point::logical(1.25, 0.0), area::logical(10.0, 10.0)),
-            brush: Brush::solid(Color::rgba(1.0, 1.0, 1.0, 0.2)),
-        };
         let text = Text {
             rect: Rect::new(point::logical(1.5, 0.0), area::logical(10.0, 10.0)),
             document: text::document::Document::plain("Label"),
@@ -862,7 +774,6 @@ mod tests {
         };
 
         scene.push_quad(first);
-        scene.push_tint(tint);
         scene.push_icon(icon);
         scene.push_text(text.clone());
         scene.push_shadow(shadow);
@@ -876,7 +787,6 @@ mod tests {
             scene.items(),
             &[
                 Item::Quad(first),
-                Item::Tint(tint),
                 Item::Icon(icon),
                 Item::Text(text),
                 Item::Shadow(shadow),
@@ -1069,6 +979,5 @@ mod tests {
         });
 
         assert!(scene.items().is_empty());
-        assert!(scene.is_empty());
     }
 }

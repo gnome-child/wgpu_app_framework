@@ -90,7 +90,7 @@ The intended dependency direction is:
 
 ```text
 basic vocabulary
-  geometry, paint_geometry, theme, text document/buffer/layout/edit primitives
+  geometry, theme, text document/buffer/layout/edit primitives
 
 declarative description
   widget builders -> view nodes -> presentation/action data
@@ -117,6 +117,11 @@ questions owned by higher layers.
 
 Owns spatial facts: points, rects, sizes, areas. It should not know about
 widgets, commands, layout policy, scenes, windows, or renderers.
+
+Renderer-space paint geometry is a private adapter vocabulary below the native
+renderer. It may support text and GPU preparation internals, but it is not
+public framework geometry and should not leak into widget, view, layout, or app
+APIs.
 
 `text`
 
@@ -207,6 +212,11 @@ implicit side effect.
 Owns paint primitives and visual presentation data. Scene answers "what should
 be drawn?" It should not know the application model, command registry,
 interaction routing, or renderer internals.
+
+The renderer may lower scene primitives into a private paint vocabulary for GPU
+batching. That vocabulary is not a second public scene API; apps and framework
+features should speak in `scene` terms unless they are inside the native
+renderer adapter.
 
 Scene clips are paint primitives. Paint applies every resolved frame clip; it
 does not decide that a role or layer should ignore clipping. Filters inside

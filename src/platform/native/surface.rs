@@ -102,7 +102,7 @@ impl Native {
             .ok_or(NativeError::MissingWindow { window })?;
         let scene = super::paint::to_paint_scene(presentation.scene());
 
-        renderer.draw(context, native_window.canvas_mut(), &scene, &[])?;
+        renderer.draw(context, native_window.canvas_mut(), &scene)?;
 
         Ok(())
     }

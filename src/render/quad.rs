@@ -178,7 +178,6 @@ fn analytic_shapes_for_shape(shape: &batch::Shape<'_>, scale_factor: f32) -> Vec
     match shape {
         batch::Shape::Quad(quad) => analytic_shapes_for_quad_at_scale(quad, scale_factor),
         batch::Shape::Shadow(shadow) => analytic_shapes_for_shadow(shadow),
-        batch::Shape::Tint(tint) => analytic_shapes_for_tint(tint),
         batch::Shape::Outline(outline) => analytic_shapes_for_outline(outline),
     }
 }
@@ -238,10 +237,6 @@ fn analytic_shapes_for_quad_rect(quad: &paint::Quad, rect: Rect) -> Vec<Analytic
     }
 
     shapes
-}
-
-fn analytic_shapes_for_tint(tint: &paint::Tint) -> Vec<AnalyticShape> {
-    vec![fill_shape(tint.rect, tint.brush)]
 }
 
 fn analytic_shapes_for_shadow(shadow: &paint::Shadow) -> Vec<AnalyticShape> {
@@ -729,10 +724,6 @@ mod tests {
             Some(brush),
         ));
         let quad_shapes = analytic_shapes_for_quad(&quad);
-        let tint_shape = analytic_shapes_for_tint(&paint::Tint {
-            rect: rect(),
-            brush,
-        })[0];
         let outline_shape = analytic_shapes_for_outline(&paint::Outline {
             rect: rect(),
             brush,
@@ -749,7 +740,6 @@ mod tests {
 
         assert_eq!(quad_shapes[0].brush, brush);
         assert_eq!(quad_shapes[1].brush, brush);
-        assert_eq!(tint_shape.brush, brush);
         assert_eq!(outline_shape.brush, brush);
         assert_eq!(shadow_shape.brush, brush);
     }
@@ -972,15 +962,16 @@ mod tests {
 
     #[test]
     fn tint_raster_bounds_expand_while_shape_bounds_stay_exact() {
-        let tint = paint::Tint {
-            rect: rect(),
-            brush: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.25)),
-        };
-        let shape = analytic_shapes_for_tint(&tint)[0];
+        let quad = quad(style(
+            None,
+            None,
+            Some(paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.25))),
+        ));
+        let shape = analytic_shapes_for_quad(&quad)[0];
         let prepared = prepared_shape(shape, 1.0);
 
-        assert_eq!(shape.outer_rect, tint.rect);
-        assert_eq!(prepared.outer_rect, tint.rect);
+        assert_eq!(shape.outer_rect, quad.rect);
+        assert_eq!(prepared.outer_rect, quad.rect);
         assert_eq!(rect_bounds(prepared.raster_rect), (9.0, 19.0, 51.0, 51.0));
     }
 
@@ -1115,11 +1106,17 @@ mod tests {
             crate::paint_geometry::rect::Rounding::relative(1.0),
         );
         let fill = fill_shape(rect, paint::Brush::solid(paint::Color::RED));
-        let tint = paint::Tint {
+        let quad = paint::Quad {
             rect,
-            brush: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.25)),
+            style: style(
+                None,
+                None,
+                Some(paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.25))),
+            ),
+            rasterization: paint::Rasterization::default(),
+            transform: paint::Transform::identity(),
         };
-        let shapes = analytic_shapes_for_tint(&tint);
+        let shapes = analytic_shapes_for_quad(&quad);
 
         assert_eq!(shapes.len(), 1);
         assert_eq!(shapes[0].outer_rect, fill.outer_rect);

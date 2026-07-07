@@ -2,7 +2,6 @@ use crate::paint;
 use crate::paint_geometry::Rect;
 use crate::render;
 use crate::render::batch::{ItemBatch, item_batches};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DrawStats {
@@ -19,16 +18,12 @@ pub struct DrawStats {
     pub quad_vertices: usize,
     pub clip_batches: usize,
     pub filters: usize,
-    pub layer_items: usize,
-    pub layer_updates: usize,
 }
 
 pub struct Renderer {
     quad_pipeline: wgpu::RenderPipeline,
     filter_renderer: render::filter::Renderer,
-    retained_renderer: render::retained::Renderer,
     text_renderer: render::text_renderer::TextRenderer,
-    retained_layers: HashMap<paint::LayerId, render::retained::Layer>,
 }
 
 enum RenderBatch {
@@ -38,7 +33,6 @@ enum RenderBatch {
         renderer_index: usize,
         viewport: render::Viewport,
     },
-    Layer(paint::Layer),
     PushClip(paint::Clip),
     PopClip,
 }
@@ -59,9 +53,7 @@ impl Renderer {
         Self {
             quad_pipeline: render::quad::pipeline(render_context, format),
             filter_renderer: render::filter::Renderer::new(render_context, format),
-            retained_renderer: render::retained::Renderer::new(render_context, format),
             text_renderer: render::text_renderer::TextRenderer::new(render_context, format),
-            retained_layers: HashMap::new(),
         }
     }
 
@@ -99,28 +91,18 @@ impl Renderer {
         render_context: &render::Context,
         canvas: &mut render::Canvas,
         scene: &paint::Scene,
-        layer_updates: &[paint::LayerUpdate],
     ) -> render::Result<DrawStats> {
         let clear_color = scene
             .clear_color()
             .map(render::color_to_wgpu)
             .unwrap_or_else(|| canvas.color());
         let main_viewport = render::Viewport::from_canvas(canvas);
-        let update_batches = layer_updates
-            .iter()
-            .map(|update| item_batches(update.scene.items()))
-            .collect::<Vec<_>>();
         let item_batches = item_batches(scene.items());
-        let update_text_batches = update_batches
-            .iter()
-            .flatten()
-            .filter(|batch| matches!(batch, ItemBatch::Glyphs(_)))
-            .count();
         let scene_text_batches = item_batches
             .iter()
             .filter(|batch| matches!(batch, ItemBatch::Glyphs(_)))
             .count();
-        let text_batch_count = update_text_batches + scene_text_batches;
+        let text_batch_count = scene_text_batches;
 
         if text_batch_count > 0 {
             self.text_renderer
@@ -128,21 +110,7 @@ impl Renderer {
         }
 
         let mut text_renderer_index = 0;
-        let mut prepared_updates = Vec::with_capacity(layer_updates.len());
         let mut stats = DrawStats::default();
-        for (update, batches) in layer_updates.iter().zip(update_batches) {
-            let viewport =
-                render::Viewport::from_logical_area(update.coverage.area, canvas.scale_factor());
-            let mut prepared = self.prepare_scene_batches(
-                render_context,
-                viewport,
-                &batches,
-                &mut text_renderer_index,
-            )?;
-            prepared.stats.layer_updates = 1;
-            stats.add(prepared.stats);
-            prepared_updates.push((update.id, prepared));
-        }
         let prepared_scene = self.prepare_scene_batches(
             render_context,
             main_viewport,
@@ -151,51 +119,15 @@ impl Renderer {
         )?;
         stats.add(prepared_scene.stats);
         stats.scene_items = scene.items().len();
-        stats.layer_updates = layer_updates.len();
 
         let filter_target = self.filter_renderer.prepare(render_context, canvas);
-        for update in layer_updates {
-            self.ensure_retained_layer(
-                render_context,
-                render::Viewport::from_logical_area(update.coverage.area, canvas.scale_factor()),
-                update.id,
-            );
-        }
         let quad_pipeline = &self.quad_pipeline;
         let filter_renderer = &self.filter_renderer;
-        let retained_renderer = &self.retained_renderer;
         let text_renderer = &mut self.text_renderer;
-        let retained_layers = &self.retained_layers;
         let mut text_render_error = None;
-        let scale_factor = canvas.scale_factor();
 
         canvas.draw(render_context, |encoder, frame| {
             let view = frame.create_view();
-            for (id, prepared) in &prepared_updates {
-                let Some(layer) = retained_layers.get(id) else {
-                    continue;
-                };
-                retained_renderer.clear_layer(encoder, layer);
-                encode_scene(
-                    render_context,
-                    quad_pipeline,
-                    filter_renderer,
-                    retained_renderer,
-                    text_renderer,
-                    filter_target,
-                    encoder,
-                    layer.view(),
-                    clear_color,
-                    render::Viewport::from_logical_area(layer.logical_area(), scale_factor),
-                    &prepared.render_batches,
-                    retained_layers,
-                    &mut text_render_error,
-                );
-                if text_render_error.is_some() {
-                    return;
-                }
-            }
-
             filter_renderer.clear_composition(encoder, clear_color);
             let Some(composition_view) = filter_renderer.composition_view() else {
                 return;
@@ -204,7 +136,6 @@ impl Renderer {
                 render_context,
                 quad_pipeline,
                 filter_renderer,
-                retained_renderer,
                 text_renderer,
                 filter_target,
                 encoder,
@@ -212,7 +143,6 @@ impl Renderer {
                 clear_color,
                 main_viewport,
                 &prepared_scene.render_batches,
-                retained_layers,
                 &mut text_render_error,
             );
             if text_render_error.is_some() {
@@ -229,29 +159,6 @@ impl Renderer {
         self.text_renderer.trim();
 
         Ok(stats)
-    }
-
-    fn ensure_retained_layer(
-        &mut self,
-        render_context: &render::Context,
-        viewport: render::Viewport,
-        id: paint::LayerId,
-    ) {
-        let area = viewport.physical_area().clamp_min(1);
-        if self.retained_layers.get(&id).is_some_and(|layer| {
-            layer.area() == area && layer.logical_area() == viewport.logical_area()
-        }) {
-            return;
-        }
-
-        self.retained_layers.insert(
-            id,
-            self.retained_renderer.create_layer_for_viewport(
-                render_context,
-                viewport,
-                "Retained Texture Layer",
-            ),
-        );
     }
 
     fn prepare_scene_batches(
@@ -275,7 +182,6 @@ impl Renderer {
                         glyphs
                             .iter()
                             .map(|glyph| match glyph {
-                                crate::render::batch::Glyph::TextSurface(_) => 1,
                                 crate::render::batch::Glyph::TextViewport(viewport) => {
                                     viewport.surfaces.len()
                                 }
@@ -294,10 +200,6 @@ impl Renderer {
                 .iter()
                 .filter(|batch| matches!(batch, ItemBatch::Filter(_)))
                 .count(),
-            layer_items: item_batches
-                .iter()
-                .filter(|batch| matches!(batch, ItemBatch::Layer(_)))
-                .count(),
             ..DrawStats::default()
         };
 
@@ -313,9 +215,6 @@ impl Renderer {
                 }
                 ItemBatch::Filter(filter) => {
                     render_batches.push(RenderBatch::Filter((*filter).clone()));
-                }
-                ItemBatch::Layer(layer) => {
-                    render_batches.push(RenderBatch::Layer(**layer));
                 }
                 ItemBatch::PushClip(clip) => {
                     render_batches.push(RenderBatch::PushClip(**clip));
@@ -370,7 +269,6 @@ impl DrawStats {
                 .items()
                 .iter()
                 .map(|item| match item {
-                    paint::Item::TextSurface(_) => 1,
                     paint::Item::TextViewport(viewport) => viewport.surfaces.len(),
                     _ => 0,
                 })
@@ -386,12 +284,6 @@ impl DrawStats {
                 .iter()
                 .filter(|item| matches!(item, paint::Item::Filter(_)))
                 .count(),
-            layer_items: scene
-                .items()
-                .iter()
-                .filter(|item| matches!(item, paint::Item::Layer(_)))
-                .count(),
-            layer_updates: 0,
             ..Self::default()
         }
     }
@@ -410,8 +302,6 @@ impl DrawStats {
         self.quad_vertices += other.quad_vertices;
         self.clip_batches += other.clip_batches;
         self.filters += other.filters;
-        self.layer_items += other.layer_items;
-        self.layer_updates += other.layer_updates;
     }
 }
 
@@ -447,7 +337,6 @@ fn encode_scene(
     render_context: &render::Context,
     quad_pipeline: &wgpu::RenderPipeline,
     filter_renderer: &render::filter::Renderer,
-    retained_renderer: &render::retained::Renderer,
     text_renderer: &mut render::text_renderer::TextRenderer,
     filter_target: render::filter::Target,
     encoder: &mut wgpu::CommandEncoder,
@@ -455,7 +344,6 @@ fn encode_scene(
     clear_color: wgpu::Color,
     viewport: render::Viewport,
     render_batches: &[RenderBatch],
-    retained_layers: &HashMap<paint::LayerId, render::retained::Layer>,
     text_render_error: &mut Option<render::text_renderer::Error>,
 ) {
     let mut layers = Vec::new();
@@ -511,32 +399,6 @@ fn encode_scene(
                     *text_render_error = Some(error);
                     return;
                 }
-            }
-            RenderBatch::Layer(layer) => {
-                let Some(source) = retained_layers.get(&layer.id) else {
-                    continue;
-                };
-                let Some(scissor) = current_scissor(
-                    &clip_stack,
-                    viewport.physical_area(),
-                    viewport.scale_factor(),
-                ) else {
-                    continue;
-                };
-                let Some(target_view) = current_target_view(base_view, &layers, &clip_stack) else {
-                    return;
-                };
-                debug_assert_eq!(layer.sampling, paint::LayerSampling::PixelAligned);
-                retained_renderer.draw(
-                    render_context,
-                    encoder,
-                    source,
-                    target_view,
-                    viewport,
-                    layer.rect,
-                    layer.source,
-                    Some(scissor),
-                );
             }
             RenderBatch::PushClip(clip) => {
                 let layer = filter_renderer.create_layer(

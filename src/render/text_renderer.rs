@@ -102,11 +102,6 @@ impl TextRenderer {
                         prepared.push(glyph);
                     }
                 }
-                batch::Glyph::TextSurface(text) => {
-                    if let Some(glyph) = prepare_text_surface(text, scale_factor) {
-                        prepared.push(glyph);
-                    }
-                }
                 batch::Glyph::TextViewport(text) => {
                     prepared.extend(prepare_text_viewport(text, scale_factor));
                 }
@@ -235,12 +230,9 @@ fn prepare_text(
     let clip_right = clip_left + width * scale_factor;
     let clip_bottom = clip_top + height * scale_factor;
     let left = snap_text_origin(clip_left);
-    let top = match text.vertical_align {
-        paint::TextVerticalAlign::Start => text.rect.origin.y(),
-        paint::TextVerticalAlign::Center => {
-            text.rect.origin.y() + (height - height.min(prepared.content_height)).max(0.0) * 0.5
-        }
-    } * scale_factor;
+    let top = (text.rect.origin.y()
+        + (height - height.min(prepared.content_height)).max(0.0) * 0.5)
+        * scale_factor;
     let top = snap_text_origin(top);
 
     Some(PreparedText {
@@ -457,13 +449,6 @@ mod tests {
         assert_eq!(black.stats.icon_shape_calls, 0);
         assert_eq!(black.default_color, paint_color(paint::Color::BLACK));
     }
-}
-
-fn prepare_text_surface<'a>(
-    text: &'a paint::TextSurface,
-    scale_factor: f32,
-) -> Option<PreparedText<'a>> {
-    prepare_text_surface_in_bounds(text, text.rect, scale_factor)
 }
 
 fn prepare_text_viewport<'a>(

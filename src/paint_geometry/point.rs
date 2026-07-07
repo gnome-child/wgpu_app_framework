@@ -10,10 +10,6 @@ pub struct Logical {
     y: f32,
 }
 
-pub fn physical(x: f32, y: f32) -> Physical {
-    Physical { x, y }
-}
-
 pub fn logical(x: f32, y: f32) -> Logical {
     Logical { x, y }
 }

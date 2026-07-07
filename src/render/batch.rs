@@ -3,7 +3,6 @@ use crate::paint;
 pub enum ItemBatch<'a> {
     Shapes(Vec<Shape<'a>>),
     Filter(&'a paint::Filter),
-    Layer(&'a paint::Layer),
     Glyphs(Vec<Glyph<'a>>),
     PushClip(&'a paint::Clip),
     PopClip,
@@ -12,7 +11,6 @@ pub enum ItemBatch<'a> {
 #[derive(Debug, Clone, Copy)]
 pub enum Glyph<'a> {
     Text(&'a paint::Text),
-    TextSurface(&'a paint::TextSurface),
     TextViewport(&'a paint::TextViewport),
     Icon(&'a paint::Icon),
 }
@@ -20,7 +18,6 @@ pub enum Glyph<'a> {
 pub enum Shape<'a> {
     Quad(&'a paint::Quad),
     Shadow(&'a paint::Shadow),
-    Tint(&'a paint::Tint),
     Outline(&'a paint::Outline),
 }
 
@@ -31,14 +28,11 @@ pub fn item_batches(items: &[paint::Item]) -> Vec<ItemBatch<'_>> {
         match item {
             paint::Item::Quad(quad) => push_shape(&mut batches, Shape::Quad(quad)),
             paint::Item::Text(text) => push_glyph(&mut batches, Glyph::Text(text)),
-            paint::Item::TextSurface(text) => push_glyph(&mut batches, Glyph::TextSurface(text)),
             paint::Item::TextViewport(text) => push_glyph(&mut batches, Glyph::TextViewport(text)),
             paint::Item::Icon(icon) => push_glyph(&mut batches, Glyph::Icon(icon)),
             paint::Item::Shadow(shadow) => push_shape(&mut batches, Shape::Shadow(shadow)),
-            paint::Item::Tint(tint) => push_shape(&mut batches, Shape::Tint(tint)),
             paint::Item::Outline(outline) => push_shape(&mut batches, Shape::Outline(outline)),
             paint::Item::Filter(filter) => batches.push(ItemBatch::Filter(filter)),
-            paint::Item::Layer(layer) => batches.push(ItemBatch::Layer(layer)),
             paint::Item::Clip(clip) => batches.push(ItemBatch::PushClip(clip)),
             paint::Item::PopClip => batches.push(ItemBatch::PopClip),
         }
@@ -72,7 +66,6 @@ mod tests {
     enum Kind {
         Shapes(usize),
         Filter,
-        Layer,
         Glyphs(usize),
         PushClip,
         PopClip,
@@ -109,13 +102,6 @@ mod tests {
         }
     }
 
-    fn tint(x: f32) -> paint::Tint {
-        paint::Tint {
-            rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
-            brush: paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.25)),
-        }
-    }
-
     fn shadow(x: f32) -> paint::Shadow {
         paint::Shadow {
             rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
@@ -132,7 +118,6 @@ mod tests {
             .map(|batch| match batch {
                 ItemBatch::Shapes(shapes) => Kind::Shapes(shapes.len()),
                 ItemBatch::Filter(_) => Kind::Filter,
-                ItemBatch::Layer(_) => Kind::Layer,
                 ItemBatch::Glyphs(glyphs) => Kind::Glyphs(glyphs.len()),
                 ItemBatch::PushClip(_) => Kind::PushClip,
                 ItemBatch::PopClip => Kind::PopClip,
@@ -145,7 +130,6 @@ mod tests {
         let items = vec![
             paint::Item::Quad(solid_quad(0.0)),
             paint::Item::Shadow(shadow(0.5)),
-            paint::Item::Tint(tint(1.0)),
             paint::Item::Text(label(2.0)),
             paint::Item::Icon(icon(2.5)),
             paint::Item::Quad(solid_quad(3.0)),
@@ -153,7 +137,7 @@ mod tests {
 
         assert_eq!(
             kinds(&item_batches(&items)),
-            vec![Kind::Shapes(3), Kind::Glyphs(2), Kind::Shapes(1)]
+            vec![Kind::Shapes(2), Kind::Glyphs(2), Kind::Shapes(1)]
         );
     }
 
@@ -198,25 +182,6 @@ mod tests {
                 Kind::Shapes(1),
                 Kind::Glyphs(1)
             ]
-        );
-    }
-
-    #[test]
-    fn layer_batches_as_own_ordered_operation() {
-        let items = vec![
-            paint::Item::Quad(solid_quad(0.0)),
-            paint::Item::Layer(paint::Layer {
-                id: paint::LayerId(7),
-                rect: Rect::new(point::logical(1.0, 0.0), area::logical(10.0, 10.0)),
-                source: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
-                sampling: paint::LayerSampling::PixelAligned,
-            }),
-            paint::Item::Text(label(2.0)),
-        ];
-
-        assert_eq!(
-            kinds(&item_batches(&items)),
-            vec![Kind::Shapes(1), Kind::Layer, Kind::Glyphs(1)]
         );
     }
 

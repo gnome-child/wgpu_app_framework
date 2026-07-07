@@ -16,8 +16,6 @@ pub mod input;
 pub mod interaction;
 pub mod keymap;
 pub mod layout;
-pub mod paint;
-pub mod paint_geometry;
 pub mod platform;
 pub mod responder;
 pub mod response;
@@ -38,6 +36,8 @@ pub mod widget;
 pub mod window;
 
 mod animation;
+mod paint;
+mod paint_geometry;
 mod render;
 
 pub use clipboard::Clipboard;
