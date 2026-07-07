@@ -278,7 +278,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         Some(layout)
     }
 
-    pub fn drain(&mut self) -> work::Work {
+    #[cfg(test)]
+    pub(crate) fn drain(&mut self) -> work::Work {
         work::Work::new(
             self.present_pending(),
             self.requests(),
@@ -288,7 +289,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         )
     }
 
-    pub fn drain_scenes(
+    pub(crate) fn drain_scenes(
         &mut self,
         size_for: impl FnMut(window::Id) -> geometry::Size,
     ) -> work::RenderWork {
@@ -301,7 +302,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         )
     }
 
-    pub fn present(&mut self, window: window::Id) -> Option<view::View> {
+    pub(crate) fn present(&mut self, window: window::Id) -> Option<view::View> {
         if !self.session.contains(window) {
             return None;
         }
@@ -371,7 +372,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         Some(presented)
     }
 
-    pub fn present_pending(&mut self) -> Vec<view::Presentation> {
+    #[cfg(test)]
+    pub(crate) fn present_pending(&mut self) -> Vec<view::Presentation> {
         let revision = self.revision();
         let windows = self
             .session

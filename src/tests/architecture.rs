@@ -719,6 +719,11 @@ fn view_tree_inspection_helpers_stay_internal() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let view_mod = std::fs::read_to_string(src_dir.join("view").join("mod.rs"))
         .expect("view module should read");
+    let view_presentation = std::fs::read_to_string(src_dir.join("view").join("presentation.rs"))
+        .expect("view presentation should read");
+    let runtime_presentation =
+        std::fs::read_to_string(src_dir.join("runtime").join("presentation.rs"))
+            .expect("runtime presentation should read");
 
     for pattern in [
         "pub fn bindings(",
@@ -736,6 +741,22 @@ fn view_tree_inspection_helpers_stay_internal() {
         assert!(
             !view_mod.contains(pattern),
             "view tree inspection helpers must stay internal: {pattern}"
+        );
+    }
+    assert!(
+        !view_mod.contains("pub use presentation::Presentation;")
+            && !view_presentation.contains("pub struct Presentation"),
+        "view Presentation is an internal runtime checkpoint, not public view API"
+    );
+    for pattern in [
+        "pub fn drain(&mut self)",
+        "pub fn drain_scenes(",
+        "pub fn present(&mut self",
+        "pub fn present_pending(",
+    ] {
+        assert!(
+            !runtime_presentation.contains(pattern),
+            "runtime pre-render presentation method should stay crate-internal: {pattern}"
         );
     }
 }

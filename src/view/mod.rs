@@ -12,6 +12,7 @@ mod command_palette;
 mod context;
 mod control;
 mod node;
+#[cfg(test)]
 mod presentation;
 mod style;
 
@@ -22,7 +23,8 @@ pub(crate) use command_palette::{CommandPalette, Entry as CommandPaletteEntry};
 pub use context::Context;
 pub use control::{Button, Checkbox, Radio, Slider, TextArea, TextBox, Wrap};
 pub use node::{Axis, FloatingPlacement, Node, Role};
-pub use presentation::Presentation;
+#[cfg(test)]
+pub(crate) use presentation::Presentation;
 pub use style::{Align, Dimension, Padding, Style};
 
 #[derive(Clone)]

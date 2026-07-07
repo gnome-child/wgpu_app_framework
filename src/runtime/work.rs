@@ -1,7 +1,10 @@
-use super::super::{scene, session, view};
+#[cfg(test)]
+use super::super::view;
+use super::super::{scene, session};
 use crate::animation;
 
-pub struct Work {
+#[cfg(test)]
+pub(crate) struct Work {
     presentations: Vec<view::Presentation>,
     requests: Vec<session::Request>,
     pending_tasks: usize,
@@ -9,7 +12,7 @@ pub struct Work {
     animation_schedule: animation::Schedule,
 }
 
-pub struct RenderWork {
+pub(crate) struct RenderWork {
     presentations: Vec<scene::Presentation>,
     requests: Vec<session::Request>,
     pending_tasks: usize,
@@ -17,6 +20,7 @@ pub struct RenderWork {
     animation_schedule: animation::Schedule,
 }
 
+#[cfg(test)]
 impl Work {
     pub(super) fn new(
         presentations: Vec<view::Presentation>,
@@ -34,23 +38,23 @@ impl Work {
         }
     }
 
-    pub fn presentations(&self) -> &[view::Presentation] {
+    pub(crate) fn presentations(&self) -> &[view::Presentation] {
         &self.presentations
     }
 
-    pub fn requests(&self) -> &[session::Request] {
+    pub(crate) fn requests(&self) -> &[session::Request] {
         &self.requests
     }
 
-    pub fn pending_tasks(&self) -> usize {
+    pub(crate) fn pending_tasks(&self) -> usize {
         self.pending_tasks
     }
 
-    pub fn task_completions(&self) -> usize {
+    pub(crate) fn task_completions(&self) -> usize {
         self.task_completions
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.presentations.is_empty()
             && self.requests.is_empty()
             && self.pending_tasks == 0
@@ -76,19 +80,19 @@ impl RenderWork {
         }
     }
 
-    pub fn presentations(&self) -> &[scene::Presentation] {
+    pub(crate) fn presentations(&self) -> &[scene::Presentation] {
         &self.presentations
     }
 
-    pub fn requests(&self) -> &[session::Request] {
+    pub(crate) fn requests(&self) -> &[session::Request] {
         &self.requests
     }
 
-    pub fn pending_tasks(&self) -> usize {
+    pub(crate) fn pending_tasks(&self) -> usize {
         self.pending_tasks
     }
 
-    pub fn task_completions(&self) -> usize {
+    pub(crate) fn task_completions(&self) -> usize {
         self.task_completions
     }
 
@@ -96,7 +100,8 @@ impl RenderWork {
         self.animation_schedule
     }
 
-    pub fn is_empty(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
         self.presentations.is_empty()
             && self.requests.is_empty()
             && self.pending_tasks == 0
