@@ -57,7 +57,7 @@ fn push_glyph<'a>(batches: &mut Vec<ItemBatch<'a>>, glyph: Glyph<'a>) {
 
 #[cfg(test)]
 mod tests {
-    use crate::paint_geometry::{Rect, area, point};
+    use crate::paint_geometry::{self, Rect};
     use crate::{icon, paint, text};
 
     use super::*;
@@ -73,7 +73,10 @@ mod tests {
 
     fn solid_quad(x: f32) -> paint::Quad {
         paint::Quad {
-            rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
+            rect: Rect::new(
+                paint_geometry::logical_point(x, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             rasterization: paint::Rasterization::default(),
             transform: paint::Transform::identity(),
             style: paint::Style {
@@ -86,7 +89,10 @@ mod tests {
 
     fn label(x: f32) -> paint::Text {
         paint::Text {
-            rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
+            rect: Rect::new(
+                paint_geometry::logical_point(x, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             document: text::document::Document::plain("Label"),
             wrap: paint::TextWrap::WordOrGlyph,
             vertical_align: paint::TextVerticalAlign::Center,
@@ -95,7 +101,10 @@ mod tests {
 
     fn icon(x: f32) -> paint::Icon {
         paint::Icon {
-            rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
+            rect: Rect::new(
+                paint_geometry::logical_point(x, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             icon: icon::Icon::phosphor(icon::Id::new("check")),
             color: paint::Color::BLACK,
             size: 16.0,
@@ -104,11 +113,14 @@ mod tests {
 
     fn shadow(x: f32) -> paint::Shadow {
         paint::Shadow {
-            rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
+            rect: Rect::new(
+                paint_geometry::logical_point(x, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             brush: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.35)),
             blur: 16.0,
             spread: 1.0,
-            offset: point::logical(0.0, 4.0),
+            offset: paint_geometry::logical_point(0.0, 4.0),
         }
     }
 
@@ -155,7 +167,10 @@ mod tests {
     #[test]
     fn filter_batches_as_own_ordered_operation() {
         let items = vec![paint::Item::Filter(paint::Filter::blur(
-            Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
+            Rect::new(
+                paint_geometry::logical_point(0.0, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             0.5,
         ))];
 
@@ -167,7 +182,10 @@ mod tests {
         let items = vec![
             paint::Item::Quad(solid_quad(0.0)),
             paint::Item::Filter(paint::Filter::blur(
-                Rect::new(point::logical(1.0, 0.0), area::logical(10.0, 10.0)),
+                Rect::new(
+                    paint_geometry::logical_point(1.0, 0.0),
+                    paint_geometry::logical_area(10.0, 10.0),
+                ),
                 0.5,
             )),
             paint::Item::Quad(solid_quad(2.0)),
@@ -188,7 +206,10 @@ mod tests {
     #[test]
     fn clip_commands_split_batches_to_preserve_order() {
         let clip = paint::Clip {
-            rect: Rect::new(point::logical(1.0, 0.0), area::logical(10.0, 10.0)),
+            rect: Rect::new(
+                paint_geometry::logical_point(1.0, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
         };
         let items = vec![
             paint::Item::Quad(solid_quad(0.0)),

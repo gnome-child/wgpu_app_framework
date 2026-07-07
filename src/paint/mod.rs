@@ -1,5 +1,5 @@
 use crate::icon;
-use crate::paint_geometry::{Rect, area, point};
+use crate::paint_geometry::{self, Rect};
 use crate::text;
 use std::cell::RefCell;
 use std::fmt;
@@ -106,8 +106,8 @@ pub struct Quad {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transform {
-    pub origin: point::Logical,
-    pub translate: point::Logical,
+    pub origin: paint_geometry::LogicalPoint,
+    pub translate: paint_geometry::LogicalPoint,
     pub scale_x: f32,
     pub scale_y: f32,
 }
@@ -223,7 +223,7 @@ pub struct Shadow {
     pub brush: Brush,
     pub blur: f32,
     pub spread: f32,
-    pub offset: point::Logical,
+    pub offset: paint_geometry::LogicalPoint,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -317,15 +317,15 @@ impl Filter {
 impl Transform {
     pub fn identity() -> Self {
         Self {
-            origin: point::logical(0.0, 0.0),
-            translate: point::logical(0.0, 0.0),
+            origin: paint_geometry::logical_point(0.0, 0.0),
+            translate: paint_geometry::logical_point(0.0, 0.0),
             scale_x: 1.0,
             scale_y: 1.0,
         }
     }
 
     #[cfg(test)]
-    pub fn scale_about(origin: point::Logical, scale_x: f32, scale_y: f32) -> Self {
+    pub fn scale_about(origin: paint_geometry::LogicalPoint, scale_x: f32, scale_y: f32) -> Self {
         Self {
             origin,
             scale_x: sanitized_scale(scale_x),
@@ -335,7 +335,7 @@ impl Transform {
     }
 
     #[cfg(test)]
-    pub fn scale_y_about(origin: point::Logical, scale_y: f32) -> Self {
+    pub fn scale_y_about(origin: paint_geometry::LogicalPoint, scale_y: f32) -> Self {
         Self::scale_about(origin, 1.0, scale_y)
     }
 
@@ -365,8 +365,8 @@ impl Transform {
         let bottom = y0.max(y1);
 
         Rect::rounded(
-            point::logical(left, top),
-            area::logical((right - left).max(0.0), (bottom - top).max(0.0)),
+            paint_geometry::logical_point(left, top),
+            paint_geometry::logical_area((right - left).max(0.0), (bottom - top).max(0.0)),
             rect.rounding,
         )
     }
@@ -693,13 +693,16 @@ impl Color {
 #[cfg(test)]
 mod tests {
     use crate::icon;
-    use crate::paint_geometry::{area, point, rect};
+    use crate::paint_geometry;
 
     use super::*;
 
     fn solid_quad(x: f32) -> Quad {
         Quad {
-            rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
+            rect: Rect::new(
+                paint_geometry::logical_point(x, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             rasterization: Rasterization::default(),
             transform: Transform::identity(),
             style: Style {
@@ -733,42 +736,60 @@ mod tests {
         let mut scene = Scene::new();
         let first = solid_quad(1.0);
         let text = Text {
-            rect: Rect::new(point::logical(1.5, 0.0), area::logical(10.0, 10.0)),
+            rect: Rect::new(
+                paint_geometry::logical_point(1.5, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             document: text::document::Document::plain("Label"),
             wrap: TextWrap::WordOrGlyph,
             vertical_align: TextVerticalAlign::Center,
         };
         let icon = Icon {
-            rect: Rect::new(point::logical(1.6, 0.0), area::logical(10.0, 10.0)),
+            rect: Rect::new(
+                paint_geometry::logical_point(1.6, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             icon: icon::Icon::phosphor(icon::Id::new("check")),
             color: Color::BLACK,
             size: 16.0,
         };
         let shadow = Shadow {
-            rect: Rect::new(point::logical(1.7, 0.0), area::logical(10.0, 10.0)),
+            rect: Rect::new(
+                paint_geometry::logical_point(1.7, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             brush: Brush::solid(Color::rgba(0.0, 0.0, 0.0, 0.35)),
             blur: 16.0,
             spread: 1.0,
-            offset: point::logical(0.0, 4.0),
+            offset: paint_geometry::logical_point(0.0, 4.0),
         };
         let filter = Filter::blur(
-            Rect::new(point::logical(1.72, 0.0), area::logical(10.0, 10.0)),
+            Rect::new(
+                paint_geometry::logical_point(1.72, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             0.5,
         );
         let clip = Clip {
-            rect: Rect::new(point::logical(1.73, 0.0), area::logical(10.0, 10.0)),
+            rect: Rect::new(
+                paint_geometry::logical_point(1.73, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
         };
         let outline = Outline {
-            rect: Rect::new(point::logical(1.75, 0.0), area::logical(10.0, 10.0)),
+            rect: Rect::new(
+                paint_geometry::logical_point(1.75, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             brush: Brush::solid(Color::BLACK),
             width: 2.0,
             offset: 1.0,
         };
         let second = Quad {
             rect: Rect::rounded(
-                point::logical(2.0, 0.0),
-                area::logical(10.0, 10.0),
-                rect::Rounding::none(),
+                paint_geometry::logical_point(2.0, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+                paint_geometry::Rounding::none(),
             ),
             ..solid_quad(2.0)
         };
@@ -804,14 +825,14 @@ mod tests {
         let mut scene = Scene::new();
         let shadow = Shadow {
             rect: Rect::rounded(
-                point::logical(0.0, 0.0),
-                area::logical(20.0, 10.0),
-                rect::Rounding::relative(1.0),
+                paint_geometry::logical_point(0.0, 0.0),
+                paint_geometry::logical_area(20.0, 10.0),
+                paint_geometry::Rounding::relative(1.0),
             ),
             brush: Brush::solid(Color::rgba(0.0, 0.0, 0.0, 0.3)),
             blur: 18.0,
             spread: 1.0,
-            offset: point::logical(0.0, 6.0),
+            offset: paint_geometry::logical_point(0.0, 6.0),
         };
 
         scene.push_shadow(shadow);
@@ -823,7 +844,10 @@ mod tests {
     fn filter_item_is_stored() {
         let mut scene = Scene::new();
         let filter = Filter::stack(
-            Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
+            Rect::new(
+                paint_geometry::logical_point(0.0, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             [
                 FilterOp::Blur { amount: 0.5 },
                 FilterOp::Liquid {
@@ -845,9 +869,9 @@ mod tests {
         let mut scene = Scene::new();
         let filter = Filter::blur(
             Rect::rounded(
-                point::logical(0.0, 0.0),
-                area::logical(20.0, 10.0),
-                rect::Rounding::relative(1.0),
+                paint_geometry::logical_point(0.0, 0.0),
+                paint_geometry::logical_area(20.0, 10.0),
+                paint_geometry::Rounding::relative(1.0),
             ),
             0.5,
         );
@@ -860,11 +884,17 @@ mod tests {
     #[test]
     fn empty_and_zero_size_filters_are_skipped() {
         let mut scene = Scene::new();
-        let rect = Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0));
+        let rect = Rect::new(
+            paint_geometry::logical_point(0.0, 0.0),
+            paint_geometry::logical_area(10.0, 10.0),
+        );
 
         scene.push_filter(Filter::stack(rect, []));
         scene.push_filter(Filter::blur(
-            Rect::new(point::logical(0.0, 0.0), area::logical(0.0, 10.0)),
+            Rect::new(
+                paint_geometry::logical_point(0.0, 0.0),
+                paint_geometry::logical_area(0.0, 10.0),
+            ),
             0.5,
         ));
 
@@ -892,12 +922,18 @@ mod tests {
 
     #[test]
     fn transform_scales_rect_about_origin() {
-        let rect = Rect::new(point::logical(10.0, 20.0), area::logical(40.0, 10.0));
-        let transform = Transform::scale_y_about(point::logical(30.0, 25.0), 1.5);
+        let rect = Rect::new(
+            paint_geometry::logical_point(10.0, 20.0),
+            paint_geometry::logical_area(40.0, 10.0),
+        );
+        let transform = Transform::scale_y_about(paint_geometry::logical_point(30.0, 25.0), 1.5);
 
         assert_eq!(
             transform.transformed_rect(rect),
-            Rect::new(point::logical(10.0, 17.5), area::logical(40.0, 15.0))
+            Rect::new(
+                paint_geometry::logical_point(10.0, 17.5),
+                paint_geometry::logical_area(40.0, 15.0)
+            )
         );
     }
 
@@ -906,9 +942,9 @@ mod tests {
         let mut scene = Scene::new();
         let clip = Clip {
             rect: Rect::rounded(
-                point::logical(0.0, 0.0),
-                area::logical(20.0, 10.0),
-                rect::Rounding::relative(0.5),
+                paint_geometry::logical_point(0.0, 0.0),
+                paint_geometry::logical_area(20.0, 10.0),
+                paint_geometry::Rounding::relative(0.5),
             ),
         };
         let quad = solid_quad(1.0);
@@ -972,7 +1008,10 @@ mod tests {
         let mut scene = Scene::new();
 
         scene.push_text(Text {
-            rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
+            rect: Rect::new(
+                paint_geometry::logical_point(0.0, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             document: text::document::Document::plain(""),
             wrap: TextWrap::WordOrGlyph,
             vertical_align: TextVerticalAlign::Center,

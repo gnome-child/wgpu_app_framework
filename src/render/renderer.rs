@@ -514,7 +514,7 @@ fn current_target_view<'a>(
 
 fn current_scissor(
     clips: &[ClipFrame],
-    physical_area: crate::paint_geometry::area::Physical,
+    physical_area: crate::paint_geometry::PhysicalArea,
     scale_factor: f32,
 ) -> Option<render::Scissor> {
     let mut scissor = render::Scissor::new(
@@ -536,7 +536,7 @@ fn current_scissor(
 
 fn clip_scissor(
     rect: Rect,
-    physical_area: crate::paint_geometry::area::Physical,
+    physical_area: crate::paint_geometry::PhysicalArea,
     scale_factor: f32,
 ) -> Option<render::Scissor> {
     let scale_factor = scale_factor.max(0.0001);
@@ -579,7 +579,7 @@ fn intersect_scissor(a: render::Scissor, b: render::Scissor) -> Option<render::S
 
 #[cfg(test)]
 mod tests {
-    use crate::paint_geometry::{Rect, area, point, rect};
+    use crate::paint_geometry::{self, Rect};
     use crate::{paint, text};
 
     use super::*;
@@ -587,8 +587,11 @@ mod tests {
     #[test]
     fn clip_scissor_converts_logical_rect_to_physical_pixels() {
         let scissor = clip_scissor(
-            Rect::new(point::logical(2.25, 3.25), area::logical(10.5, 8.5)),
-            area::physical(100, 80),
+            Rect::new(
+                paint_geometry::logical_point(2.25, 3.25),
+                paint_geometry::logical_area(10.5, 8.5),
+            ),
+            paint_geometry::physical_area(100, 80),
             2.0,
         )
         .expect("clip should produce scissor");
@@ -606,20 +609,23 @@ mod tests {
                 layer_index: 0,
                 clip: paint::Clip {
                     rect: Rect::rounded(
-                        point::logical(2.0, 2.0),
-                        area::logical(20.0, 20.0),
-                        rect::Rounding::relative(0.5),
+                        paint_geometry::logical_point(2.0, 2.0),
+                        paint_geometry::logical_area(20.0, 20.0),
+                        paint_geometry::Rounding::relative(0.5),
                     ),
                 },
             },
             ClipFrame {
                 layer_index: 1,
                 clip: paint::Clip {
-                    rect: Rect::new(point::logical(10.0, 0.0), area::logical(20.0, 12.0)),
+                    rect: Rect::new(
+                        paint_geometry::logical_point(10.0, 0.0),
+                        paint_geometry::logical_area(20.0, 12.0),
+                    ),
                 },
             },
         ];
-        let scissor = current_scissor(&clips, area::physical(100, 80), 1.0)
+        let scissor = current_scissor(&clips, paint_geometry::physical_area(100, 80), 1.0)
             .expect("nested clips should intersect");
 
         assert_eq!(scissor.x(), 10);
@@ -635,16 +641,19 @@ mod tests {
                 layer_index: 0,
                 clip: paint::Clip {
                     rect: Rect::rounded(
-                        point::logical(2.0, 2.0),
-                        area::logical(20.0, 20.0),
-                        rect::Rounding::relative(0.5),
+                        paint_geometry::logical_point(2.0, 2.0),
+                        paint_geometry::logical_area(20.0, 20.0),
+                        paint_geometry::Rounding::relative(0.5),
                     ),
                 },
             },
             ClipFrame {
                 layer_index: 1,
                 clip: paint::Clip {
-                    rect: Rect::new(point::logical(10.0, 0.0), area::logical(20.0, 12.0)),
+                    rect: Rect::new(
+                        paint_geometry::logical_point(10.0, 0.0),
+                        paint_geometry::logical_area(20.0, 12.0),
+                    ),
                 },
             },
         ];
@@ -658,12 +667,12 @@ mod tests {
     fn clip_scissor_keeps_rounded_clip_metadata_as_optimization_only() {
         let clip = paint::Clip {
             rect: Rect::rounded(
-                point::logical(4.0, 4.0),
-                area::logical(18.0, 12.0),
-                rect::Rounding::relative(1.0),
+                paint_geometry::logical_point(4.0, 4.0),
+                paint_geometry::logical_area(18.0, 12.0),
+                paint_geometry::Rounding::relative(1.0),
             ),
         };
-        let scissor = clip_scissor(clip.rect, area::physical(100, 80), 1.0)
+        let scissor = clip_scissor(clip.rect, paint_geometry::physical_area(100, 80), 1.0)
             .expect("clip should produce scissor");
 
         assert_eq!(clip.rect.rounding.resolve(clip.rect.area)[0], 6.0);
@@ -677,7 +686,10 @@ mod tests {
     fn draw_stats_summarize_scene_and_batches() {
         let mut scene = paint::Scene::new();
         scene.push_quad(paint::Quad {
-            rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
+            rect: Rect::new(
+                paint_geometry::logical_point(0.0, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             rasterization: paint::Rasterization::default(),
             transform: paint::Transform::identity(),
             style: paint::Style {
@@ -687,23 +699,35 @@ mod tests {
             },
         });
         scene.push_text(paint::Text {
-            rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
+            rect: Rect::new(
+                paint_geometry::logical_point(0.0, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             document: text::document::Document::plain("hello"),
             wrap: paint::TextWrap::WordOrGlyph,
             vertical_align: paint::TextVerticalAlign::Center,
         });
         scene.push_icon(paint::Icon {
-            rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
+            rect: Rect::new(
+                paint_geometry::logical_point(0.0, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             icon: crate::icon::Icon::phosphor(crate::icon::Id::new("check")),
             color: paint::Color::BLACK,
             size: 16.0,
         });
         scene.push_filter(paint::Filter::blur(
-            Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
+            Rect::new(
+                paint_geometry::logical_point(0.0, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
             0.5,
         ));
         scene.push_clip(paint::Clip {
-            rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
+            rect: Rect::new(
+                paint_geometry::logical_point(0.0, 0.0),
+                paint_geometry::logical_area(10.0, 10.0),
+            ),
         });
         scene.pop_clip();
 

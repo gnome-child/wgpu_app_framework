@@ -1,4 +1,4 @@
-use crate::{paint_geometry::area as surface_area, render};
+use crate::{paint_geometry, render};
 
 use super::super::{NativeError, Window};
 use super::window::{InitialSize, Options, Window as NativeWindow};
@@ -49,7 +49,8 @@ impl Native {
         let inner_size = handle.inner_size();
         let canvas = render::Canvas::new(
             render::CanvasOptions {
-                area: surface_area::physical(inner_size.width, inner_size.height).clamp_min(1),
+                area: paint_geometry::physical_area(inner_size.width, inner_size.height)
+                    .clamp_min(1),
                 scale_factor: handle.scale_factor() as f32,
                 color: render::color_to_wgpu(super::color::paint_color(window.canvas_color())),
             },
@@ -144,6 +145,6 @@ fn render_context_options() -> render::ContextOptions {
     }
 }
 
-fn native_logical_area(area: geometry::LogicalArea) -> surface_area::Logical {
-    surface_area::logical(area.width(), area.height())
+fn native_logical_area(area: geometry::LogicalArea) -> paint_geometry::LogicalArea {
+    paint_geometry::logical_area(area.width(), area.height())
 }

@@ -138,7 +138,7 @@ fn paint_geometry_stays_below_text_and_native_rendering() {
 }
 
 #[test]
-fn paint_geometry_file_modules_stay_crate_private() {
+fn paint_geometry_file_modules_stay_private() {
     let paint_geometry_mod = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src")
@@ -148,10 +148,13 @@ fn paint_geometry_file_modules_stay_crate_private() {
     .expect("paint geometry module should read");
 
     for module in ["area", "point", "rect"] {
-        assert!(
-            !paint_geometry_mod.contains(&format!("pub mod {module};")),
-            "paint geometry file module should stay crate-private: {module}"
-        );
+        for visibility in ["pub mod", "pub(crate) mod"] {
+            let pattern = format!("{visibility} {module};");
+            assert!(
+                !paint_geometry_mod.contains(&pattern),
+                "paint geometry file module should stay behind the facade: {pattern}"
+            );
+        }
     }
 }
 

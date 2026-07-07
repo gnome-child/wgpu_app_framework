@@ -6,16 +6,16 @@ use super::super::Color;
 use super::super::buffer::LineId;
 use super::caret::{Caret, CaretLayout};
 use super::highlight::SelectionSpan;
-use crate::paint_geometry::area;
+use crate::paint_geometry;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Measure {
-    pub(in crate::text) max: Option<area::Logical>,
+    pub(in crate::text) max: Option<paint_geometry::LogicalArea>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Metrics {
-    pub(in crate::text) area: area::Logical,
+    pub(in crate::text) area: paint_geometry::LogicalArea,
     pub(in crate::text) line_count: usize,
 }
 
@@ -27,7 +27,7 @@ pub struct TextFieldLayout {
     pub(in crate::text) caret: Option<Caret>,
     pub(in crate::text) scroll_x: f32,
     pub(in crate::text) scroll_y: f32,
-    pub(in crate::text) content_area: area::Logical,
+    pub(in crate::text) content_area: paint_geometry::LogicalArea,
 }
 
 pub struct TextAreaPaintLayout {
@@ -76,27 +76,30 @@ impl Measure {
         Self { max: None }
     }
 
-    pub fn bounded(max: area::Logical) -> Self {
+    pub fn bounded(max: paint_geometry::LogicalArea) -> Self {
         Self {
-            max: Some(area::logical(max.width().max(0.0), max.height().max(0.0))),
+            max: Some(paint_geometry::logical_area(
+                max.width().max(0.0),
+                max.height().max(0.0),
+            )),
         }
     }
 
-    pub fn max(self) -> Option<area::Logical> {
+    pub fn max(self) -> Option<paint_geometry::LogicalArea> {
         self.max
     }
 }
 
 impl Metrics {
-    pub fn new(area: area::Logical, line_count: usize) -> Self {
+    pub fn new(area: paint_geometry::LogicalArea, line_count: usize) -> Self {
         Self { area, line_count }
     }
 
     pub fn empty() -> Self {
-        Self::new(area::logical(0.0, 0.0), 0)
+        Self::new(paint_geometry::logical_area(0.0, 0.0), 0)
     }
 
-    pub fn area(self) -> area::Logical {
+    pub fn area(self) -> paint_geometry::LogicalArea {
         self.area
     }
 
@@ -122,7 +125,7 @@ impl TextFieldLayout {
             caret: None,
             scroll_x: 0.0,
             scroll_y: 0.0,
-            content_area: area::logical(0.0, 0.0),
+            content_area: paint_geometry::logical_area(0.0, 0.0),
         }
     }
 
@@ -154,7 +157,7 @@ impl TextFieldLayout {
         self.scroll_y
     }
 
-    pub fn content_area(&self) -> area::Logical {
+    pub fn content_area(&self) -> paint_geometry::LogicalArea {
         self.content_area
     }
 }

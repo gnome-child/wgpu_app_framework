@@ -2,7 +2,7 @@ use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
 use crate::paint;
-use crate::paint_geometry::{Rect, area, point};
+use crate::paint_geometry::{self, Rect};
 use crate::render;
 use crate::render::silhouette::{self, PreparedSilhouette, edges, rect_data, rounding_data};
 
@@ -27,19 +27,19 @@ pub struct Renderer {
 
 pub struct Layer {
     texture: Texture,
-    area: area::Physical,
-    logical_area: area::Logical,
+    area: paint_geometry::PhysicalArea,
+    logical_area: paint_geometry::LogicalArea,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct Target {
-    physical_area: area::Physical,
-    logical_area: area::Logical,
+    physical_area: paint_geometry::PhysicalArea,
+    logical_area: paint_geometry::LogicalArea,
     scale_factor: f32,
 }
 
 struct Textures {
-    area: area::Physical,
+    area: paint_geometry::PhysicalArea,
     composition: Texture,
     ping: Texture,
     pong: Texture,
@@ -62,8 +62,8 @@ pub(crate) struct LayerComposite<'a> {
 
 struct TextureSource<'a> {
     view: &'a wgpu::TextureView,
-    area: area::Physical,
-    logical_area: area::Logical,
+    area: paint_geometry::PhysicalArea,
+    logical_area: paint_geometry::LogicalArea,
     sampling: paint::LayerSampling,
 }
 
@@ -136,8 +136,8 @@ impl PassLabels {
 
 struct ParamInput {
     target_scale_factor: f32,
-    texture_area: area::Physical,
-    texture_logical_area: area::Logical,
+    texture_area: paint_geometry::PhysicalArea,
+    texture_logical_area: paint_geometry::LogicalArea,
     prepared: PreparedFilter,
     source_rect: Rect,
     direction: [f32; 2],
@@ -902,7 +902,11 @@ impl Renderer {
         pass.draw(0..3, 0..1);
     }
 
-    fn ensure_textures(&mut self, render_context: &render::Context, area: area::Physical) {
+    fn ensure_textures(
+        &mut self,
+        render_context: &render::Context,
+        area: paint_geometry::PhysicalArea,
+    ) {
         if self
             .textures
             .as_ref()
@@ -922,7 +926,7 @@ impl Renderer {
     fn create_texture(
         &self,
         render_context: &render::Context,
-        area: area::Physical,
+        area: paint_geometry::PhysicalArea,
         label: &'static str,
     ) -> Texture {
         let texture = render_context
@@ -1268,11 +1272,11 @@ impl Layer {
         &self.texture.view
     }
 
-    pub fn area(&self) -> area::Physical {
+    pub fn area(&self) -> paint_geometry::PhysicalArea {
         self.area
     }
 
-    pub fn logical_area(&self) -> area::Logical {
+    pub fn logical_area(&self) -> paint_geometry::LogicalArea {
         self.logical_area
     }
 }
@@ -1354,13 +1358,13 @@ fn source_rect_for_prepared_destination(
     prepared: PreparedFilter,
     source: Rect,
 ) -> Rect {
-    let origin_delta = point::logical(
+    let origin_delta = paint_geometry::logical_point(
         prepared.shape_rect.origin.x() - destination.origin.x(),
         prepared.shape_rect.origin.y() - destination.origin.y(),
     );
 
     Rect::new(
-        point::logical(
+        paint_geometry::logical_point(
             source.origin.x() + origin_delta.x(),
             source.origin.y() + origin_delta.y(),
         ),
@@ -1410,7 +1414,7 @@ fn liquid_is_identity(depth: f32) -> bool {
 }
 
 fn composite_vertices(
-    canvas_area: area::Logical,
+    canvas_area: paint_geometry::LogicalArea,
     prepared: PreparedFilter,
 ) -> [CompositeVertex; 6] {
     let to_clip = |x: f32, y: f32| -> [f32; 2] {
@@ -1441,8 +1445,8 @@ fn composite_vertices(
 
 fn physical_source_rect_data(
     source_rect: Rect,
-    texture_logical_area: area::Logical,
-    texture_physical_area: area::Physical,
+    texture_logical_area: paint_geometry::LogicalArea,
+    texture_physical_area: paint_geometry::PhysicalArea,
     target_scale_factor: f32,
     sampling: paint::LayerSampling,
 ) -> [f32; 4] {
@@ -1462,8 +1466,8 @@ fn physical_source_rect_data(
 }
 
 fn source_scale_data(
-    texture_logical_area: area::Logical,
-    texture_physical_area: area::Physical,
+    texture_logical_area: paint_geometry::LogicalArea,
+    texture_physical_area: paint_geometry::PhysicalArea,
 ) -> [f32; 2] {
     [
         texture_physical_area.width() as f32 / texture_logical_area.width().max(1.0),
@@ -1473,7 +1477,7 @@ fn source_scale_data(
 
 fn source_step_data(
     source_rect_data: [f32; 4],
-    destination_area: area::Logical,
+    destination_area: paint_geometry::LogicalArea,
     target_scale_factor: f32,
     sampling: paint::LayerSampling,
 ) -> [f32; 2] {
@@ -1620,7 +1624,10 @@ mod tests {
 
     #[test]
     fn filter_shape_snaps_and_raster_bounds_expand_by_one_physical_pixel() {
-        let rect = Rect::new(point::logical(10.2, 20.3), area::logical(40.4, 30.8));
+        let rect = Rect::new(
+            paint_geometry::logical_point(10.2, 20.3),
+            paint_geometry::logical_area(40.4, 30.8),
+        );
         let prepared = prepare_filter(rect, 2.0)
             .expect("filter should prepare")
             .with_blur_sigma(30.0, 2.0);
@@ -1635,12 +1642,12 @@ mod tests {
     #[test]
     fn filter_preserves_rounded_shape_metadata_for_composite() {
         let rect = Rect::rounded(
-            point::logical(10.0, 20.0),
-            area::logical(80.0, 30.0),
-            crate::paint_geometry::rect::Rounding::relative(1.0),
+            paint_geometry::logical_point(10.0, 20.0),
+            paint_geometry::logical_area(80.0, 30.0),
+            crate::paint_geometry::Rounding::relative(1.0),
         );
         let prepared = prepare_filter(rect, 1.0).expect("filter should prepare");
-        let vertices = composite_vertices(area::logical(100.0, 100.0), prepared);
+        let vertices = composite_vertices(paint_geometry::logical_area(100.0, 100.0), prepared);
 
         assert_eq!(prepared.rounding[0], 15.0);
         assert_eq!(vertices.len(), 6);
@@ -1692,12 +1699,12 @@ mod tests {
     #[test]
     fn clip_preserves_rounded_shape_metadata_for_layer_composite() {
         let rect = Rect::rounded(
-            point::logical(8.0, 12.0),
-            area::logical(48.0, 20.0),
-            crate::paint_geometry::rect::Rounding::relative(1.0),
+            paint_geometry::logical_point(8.0, 12.0),
+            paint_geometry::logical_area(48.0, 20.0),
+            crate::paint_geometry::Rounding::relative(1.0),
         );
         let prepared = prepare_clip(rect, 1.0).expect("clip should prepare");
-        let vertices = composite_vertices(area::logical(100.0, 100.0), prepared);
+        let vertices = composite_vertices(paint_geometry::logical_area(100.0, 100.0), prepared);
 
         assert_eq!(prepared.blur_amount, 0.0);
         assert_eq!(prepared.blur_sigma_px, 0.0);
@@ -1708,8 +1715,14 @@ mod tests {
 
     #[test]
     fn layer_source_rect_tracks_snapped_destination_without_scaling() {
-        let destination = Rect::new(point::logical(10.2, 20.3), area::logical(40.4, 30.8));
-        let source = Rect::new(point::logical(4.0, 8.0), area::logical(40.4, 30.8));
+        let destination = Rect::new(
+            paint_geometry::logical_point(10.2, 20.3),
+            paint_geometry::logical_area(40.4, 30.8),
+        );
+        let source = Rect::new(
+            paint_geometry::logical_point(4.0, 8.0),
+            paint_geometry::logical_area(40.4, 30.8),
+        );
         let prepared = prepare_clip(destination, 2.0).expect("clip should prepare");
 
         let source = source_rect_for_prepared_destination(destination, prepared, source);
@@ -1721,15 +1734,21 @@ mod tests {
 
     #[test]
     fn layer_source_rect_data_uses_source_texture_scale() {
-        let destination = Rect::new(point::logical(10.2, 20.3), area::logical(40.4, 30.8));
-        let source = Rect::new(point::logical(4.0, 8.0), area::logical(40.4, 30.8));
+        let destination = Rect::new(
+            paint_geometry::logical_point(10.2, 20.3),
+            paint_geometry::logical_area(40.4, 30.8),
+        );
+        let source = Rect::new(
+            paint_geometry::logical_point(4.0, 8.0),
+            paint_geometry::logical_area(40.4, 30.8),
+        );
         let prepared = prepare_clip(destination, 2.0).expect("clip should prepare");
         let source = source_rect_for_prepared_destination(destination, prepared, source);
 
         let source_data = physical_source_rect_data(
             source,
-            area::logical(100.0, 80.0),
-            area::physical(200, 160),
+            paint_geometry::logical_area(100.0, 80.0),
+            paint_geometry::physical_area(200, 160),
             2.0,
             paint::LayerSampling::Filtered,
         );
@@ -1743,12 +1762,15 @@ mod tests {
 
     #[test]
     fn layer_source_rect_data_does_not_assume_destination_scale() {
-        let source = Rect::new(point::logical(4.0, 8.0), area::logical(40.0, 30.0));
+        let source = Rect::new(
+            paint_geometry::logical_point(4.0, 8.0),
+            paint_geometry::logical_area(40.0, 30.0),
+        );
 
         let source_data = physical_source_rect_data(
             source,
-            area::logical(80.0, 100.0),
-            area::physical(100, 150),
+            paint_geometry::logical_area(80.0, 100.0),
+            paint_geometry::physical_area(100, 150),
             2.0,
             paint::LayerSampling::Filtered,
         );
@@ -1758,12 +1780,15 @@ mod tests {
 
     #[test]
     fn pixel_aligned_source_rect_data_uses_target_scale() {
-        let source = Rect::new(point::logical(2.0, 4.0), area::logical(801.2, 1047.2));
+        let source = Rect::new(
+            paint_geometry::logical_point(2.0, 4.0),
+            paint_geometry::logical_area(801.2, 1047.2),
+        );
 
         let source_data = physical_source_rect_data(
             source,
-            area::logical(805.2, 2138.4),
-            area::physical(1007, 2673),
+            paint_geometry::logical_area(805.2, 2138.4),
+            paint_geometry::physical_area(1007, 2673),
             1.25,
             paint::LayerSampling::PixelAligned,
         );
@@ -1778,7 +1803,7 @@ mod tests {
         assert_eq!(
             source_step_data(
                 source_rect_data,
-                area::logical(32.0, 22.0),
+                paint_geometry::logical_area(32.0, 22.0),
                 2.0,
                 paint::LayerSampling::Filtered,
             ),
@@ -1791,13 +1816,16 @@ mod tests {
         let source_rect_data = [10.0, 20.0, 96.0, 72.0];
 
         assert_eq!(
-            source_scale_data(area::logical(200.0, 100.0), area::physical(300, 300)),
+            source_scale_data(
+                paint_geometry::logical_area(200.0, 100.0),
+                paint_geometry::physical_area(300, 300)
+            ),
             [1.5, 3.0]
         );
         assert_eq!(
             source_step_data(
                 source_rect_data,
-                area::logical(64.0, 48.0),
+                paint_geometry::logical_area(64.0, 48.0),
                 2.0,
                 paint::LayerSampling::Filtered,
             ),
@@ -1812,7 +1840,7 @@ mod tests {
         assert_eq!(
             source_step_data(
                 source_rect_data,
-                area::logical(64.0, 48.0),
+                paint_geometry::logical_area(64.0, 48.0),
                 1.25,
                 paint::LayerSampling::PixelAligned,
             ),
@@ -1822,7 +1850,10 @@ mod tests {
 
     #[test]
     fn zero_size_filters_do_not_prepare() {
-        let rect = Rect::new(point::logical(10.0, 20.0), area::logical(0.0, 30.0));
+        let rect = Rect::new(
+            paint_geometry::logical_point(10.0, 20.0),
+            paint_geometry::logical_area(0.0, 30.0),
+        );
 
         assert!(prepare_filter(rect, 1.0).is_none());
     }

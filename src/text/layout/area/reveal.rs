@@ -14,14 +14,14 @@ use super::super::{
     output::TextFieldLayout,
     text_area::DisplaySegment as TextAreaDisplaySegment,
 };
-use crate::paint_geometry::area;
+use crate::paint_geometry;
 
 impl Engine {
     pub fn text_area_caret_for_area(
         &mut self,
         area_model: &Area,
         style: Style,
-        area: area::Logical,
+        area: paint_geometry::LogicalArea,
         state: ViewState,
     ) -> Option<Caret> {
         self.text_area_paint_layout_for_area_at(area_model, style, area, state, Instant::now())
@@ -34,7 +34,7 @@ impl Engine {
         &mut self,
         area_model: &Area,
         style: Style,
-        viewport: area::Logical,
+        viewport: paint_geometry::LogicalArea,
         state: ViewState,
         observed_layout: Option<&TextFieldLayout>,
     ) -> ViewState {
@@ -107,7 +107,8 @@ impl Engine {
             })
         };
 
-        let content_area = area::logical(display.width.max(viewport.width()), content_height);
+        let content_area =
+            paint_geometry::logical_area(display.width.max(viewport.width()), content_height);
         if let Some(caret_layout) = caret_layout
             && let Some(next) = ensure_caret_visible_from_layout(
                 state.clone(),
@@ -130,7 +131,7 @@ impl Engine {
         &mut self,
         area_model: &Area,
         style: Style,
-        viewport: area::Logical,
+        viewport: paint_geometry::LogicalArea,
         _state: ViewState,
         anchor: ScrollAnchor,
     ) -> Option<f32> {

@@ -1,7 +1,7 @@
 use wgpu::util::DeviceExt;
 
 use crate::paint;
-use crate::paint_geometry::{Rect, area};
+use crate::paint_geometry::{self, Rect};
 use crate::render;
 use crate::render::batch;
 use crate::render::silhouette::{
@@ -251,7 +251,7 @@ fn analytic_shapes_for_outline(outline: &paint::Outline) -> Vec<AnalyticShape> {
 
 fn push_analytic_shape_vertices(
     buffer: &mut Vec<render::Vertex>,
-    canvas_area: area::Logical,
+    canvas_area: paint_geometry::LogicalArea,
     pixel_geometry: PixelGeometry,
     shape: AnalyticShape,
 ) {
@@ -594,12 +594,15 @@ pub(crate) fn prepared_shadow_cutout_silhouette_for_test(
 
 #[cfg(test)]
 mod tests {
-    use crate::paint_geometry::point;
+    use crate::paint_geometry;
 
     use super::*;
 
     fn rect() -> Rect {
-        Rect::new(point::logical(10.0, 20.0), area::logical(40.0, 30.0))
+        Rect::new(
+            paint_geometry::logical_point(10.0, 20.0),
+            paint_geometry::logical_area(40.0, 30.0),
+        )
     }
 
     fn quad(style: paint::Style) -> paint::Quad {
@@ -648,7 +651,7 @@ mod tests {
 
         push_analytic_shape_vertices(
             &mut vertices,
-            area::logical(100.0, 100.0),
+            paint_geometry::logical_area(100.0, 100.0),
             PixelGeometry::new(1.0),
             shape,
         );
@@ -735,7 +738,7 @@ mod tests {
             brush,
             blur: 10.0,
             spread: 1.0,
-            offset: point::logical(0.0, 4.0),
+            offset: paint_geometry::logical_point(0.0, 4.0),
         })[0];
 
         assert_eq!(quad_shapes[0].brush, brush);
@@ -763,7 +766,8 @@ mod tests {
     #[test]
     fn transformed_quad_lowers_to_transformed_analytic_bounds() {
         let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
-        quad.transform = paint::Transform::scale_y_about(point::logical(30.0, 35.0), 1.5);
+        quad.transform =
+            paint::Transform::scale_y_about(paint_geometry::logical_point(30.0, 35.0), 1.5);
         let shapes = analytic_shapes_for_quad(&quad);
 
         assert_eq!(shapes.len(), 1);
@@ -792,8 +796,12 @@ mod tests {
     #[test]
     fn unsnapped_transformed_quad_preserves_subpixel_bounds() {
         let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
-        quad.rect = Rect::new(point::logical(10.0, 20.0), area::logical(40.0, 4.0));
-        quad.transform = paint::Transform::scale_y_about(point::logical(30.0, 22.0), 1.03125);
+        quad.rect = Rect::new(
+            paint_geometry::logical_point(10.0, 20.0),
+            paint_geometry::logical_area(40.0, 4.0),
+        );
+        quad.transform =
+            paint::Transform::scale_y_about(paint_geometry::logical_point(30.0, 22.0), 1.03125);
 
         let shapes = analytic_shapes_for_quad_at_scale(&quad, 1.0);
         let prepared = prepared_shape(shapes[0], 1.0);
@@ -810,7 +818,10 @@ mod tests {
 
     #[test]
     fn snapped_rect_edges_round_through_physical_coordinates() {
-        let rect = Rect::new(point::logical(10.2, 20.3), area::logical(40.4, 30.8));
+        let rect = Rect::new(
+            paint_geometry::logical_point(10.2, 20.3),
+            paint_geometry::logical_area(40.4, 30.8),
+        );
         let snapped = PixelGeometry::new(2.0).snap_rect(rect);
 
         assert_eq!(rect_bounds(snapped), (10.0, 20.5, 50.5, 51.0));
@@ -819,7 +830,10 @@ mod tests {
     #[test]
     fn fixed_width_snapping_forces_stable_quad_width_only_when_requested() {
         let scale_factor = 1.5;
-        let rect = Rect::new(point::logical(10.2, 20.3), area::logical(7.7, 9.2));
+        let rect = Rect::new(
+            paint_geometry::logical_point(10.2, 20.3),
+            paint_geometry::logical_area(7.7, 9.2),
+        );
         let mut snapped_quad = quad(style(Some(solid(paint::Color::RED)), None, None));
         snapped_quad.rect = rect;
         snapped_quad.rasterization.snapping = paint::Snapping::FixedWidth { width_px: 2 };
@@ -863,7 +877,10 @@ mod tests {
         assert_eq!(bounds(&shapes), edges(rect()));
         assert_eq!(
             inner.rect,
-            Rect::new(point::logical(12.0, 22.0), area::logical(36.0, 26.0))
+            Rect::new(
+                paint_geometry::logical_point(12.0, 22.0),
+                paint_geometry::logical_area(36.0, 26.0)
+            )
         );
         assert_eq!(vertex_count_for_shape(shapes[0]), 6);
     }
@@ -879,7 +896,10 @@ mod tests {
         assert_eq!(prepared.outer_rect, rect());
         assert_eq!(
             inner.rect,
-            Rect::new(point::logical(12.0, 22.0), area::logical(36.0, 26.0))
+            Rect::new(
+                paint_geometry::logical_point(12.0, 22.0),
+                paint_geometry::logical_area(36.0, 26.0)
+            )
         );
     }
 
@@ -906,12 +926,12 @@ mod tests {
             rect: Rect::rounded(
                 rect().origin,
                 rect().area,
-                crate::paint_geometry::rect::Rounding::relative(1.0),
+                crate::paint_geometry::Rounding::relative(1.0),
             ),
             brush: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.35)),
             blur: 18.0,
             spread: 2.0,
-            offset: point::logical(0.0, 6.0),
+            offset: paint_geometry::logical_point(0.0, 6.0),
         };
         let shapes = analytic_shapes_for_shadow(&shadow);
         let inner = shapes[0].inner.expect("shadow should cut out owner");
@@ -934,7 +954,7 @@ mod tests {
             brush: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.35)),
             blur: 10.0,
             spread: 2.0,
-            offset: point::logical(0.0, 6.0),
+            offset: paint_geometry::logical_point(0.0, 6.0),
         };
         let shape = analytic_shapes_for_shadow(&shadow)[0];
         let prepared = prepared_shape(shape, 1.0);
@@ -952,7 +972,7 @@ mod tests {
             brush: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.35)),
             blur: 10.0,
             spread: 2.0,
-            offset: point::logical(0.0, 6.0),
+            offset: paint_geometry::logical_point(0.0, 6.0),
         };
         let vertices = vertices_for_shape(analytic_shapes_for_shadow(&shadow)[0]);
 
@@ -1008,16 +1028,19 @@ mod tests {
         assert_eq!(bounds(&shapes), (5.0, 15.0, 55.0, 55.0));
         assert_eq!(
             inner.rect,
-            Rect::new(point::logical(7.0, 17.0), area::logical(46.0, 36.0))
+            Rect::new(
+                paint_geometry::logical_point(7.0, 17.0),
+                paint_geometry::logical_area(46.0, 36.0)
+            )
         );
     }
 
     #[test]
     fn rounded_outline_lowers_to_expanded_rounded_ring() {
         let rect = Rect::rounded(
-            point::logical(10.0, 20.0),
-            area::logical(80.0, 30.0),
-            crate::paint_geometry::rect::Rounding::relative(1.0),
+            paint_geometry::logical_point(10.0, 20.0),
+            paint_geometry::logical_area(80.0, 30.0),
+            crate::paint_geometry::Rounding::relative(1.0),
         );
         let outline = paint::Outline {
             rect,
@@ -1038,9 +1061,9 @@ mod tests {
     #[test]
     fn rounded_outline_raster_bounds_include_outline_and_aa_fringe() {
         let rect = Rect::rounded(
-            point::logical(10.0, 20.0),
-            area::logical(80.0, 30.0),
-            crate::paint_geometry::rect::Rounding::relative(1.0),
+            paint_geometry::logical_point(10.0, 20.0),
+            paint_geometry::logical_area(80.0, 30.0),
+            crate::paint_geometry::Rounding::relative(1.0),
         );
         let outline = paint::Outline {
             rect,
@@ -1074,7 +1097,10 @@ mod tests {
         assert_eq!(rect_bounds(prepared.raster_rect), (4.0, 14.0, 56.0, 56.0));
         assert_eq!(
             inner.rect,
-            Rect::new(point::logical(7.0, 17.0), area::logical(46.0, 36.0))
+            Rect::new(
+                paint_geometry::logical_point(7.0, 17.0),
+                paint_geometry::logical_area(46.0, 36.0)
+            )
         );
     }
 
@@ -1082,9 +1108,9 @@ mod tests {
     fn rounded_fill_lowers_to_one_analytic_shape() {
         let quad = paint::Quad {
             rect: Rect::rounded(
-                point::logical(10.0, 20.0),
-                area::logical(40.0, 40.0),
-                crate::paint_geometry::rect::Rounding::relative(1.0),
+                paint_geometry::logical_point(10.0, 20.0),
+                paint_geometry::logical_area(40.0, 40.0),
+                crate::paint_geometry::Rounding::relative(1.0),
             ),
             style: style(Some(solid(paint::Color::RED)), None, None),
             rasterization: paint::Rasterization::default(),
@@ -1101,9 +1127,9 @@ mod tests {
     #[test]
     fn rounded_tint_uses_same_shape_as_rounded_fill() {
         let rect = Rect::rounded(
-            point::logical(10.0, 20.0),
-            area::logical(80.0, 30.0),
-            crate::paint_geometry::rect::Rounding::relative(1.0),
+            paint_geometry::logical_point(10.0, 20.0),
+            paint_geometry::logical_area(80.0, 30.0),
+            crate::paint_geometry::Rounding::relative(1.0),
         );
         let fill = fill_shape(rect, paint::Brush::solid(paint::Color::RED));
         let quad = paint::Quad {
@@ -1128,9 +1154,9 @@ mod tests {
     fn rounded_internal_stroke_stays_inside_rect_bounds() {
         let quad = paint::Quad {
             rect: Rect::rounded(
-                point::logical(10.0, 20.0),
-                area::logical(80.0, 30.0),
-                crate::paint_geometry::rect::Rounding::relative(1.0),
+                paint_geometry::logical_point(10.0, 20.0),
+                paint_geometry::logical_area(80.0, 30.0),
+                crate::paint_geometry::Rounding::relative(1.0),
             ),
             style: style(None, Some(stroke(4.0)), None),
             rasterization: paint::Rasterization::default(),
@@ -1143,7 +1169,10 @@ mod tests {
         assert_eq!(bounds(&shapes), edges(quad.rect));
         assert_eq!(
             inner.rect,
-            Rect::new(point::logical(14.0, 24.0), area::logical(72.0, 22.0))
+            Rect::new(
+                paint_geometry::logical_point(14.0, 24.0),
+                paint_geometry::logical_area(72.0, 22.0)
+            )
         );
         assert_eq!(shapes[0].outer_rounding[0], 15.0);
         assert_eq!(inner.rounding[0], 11.0);

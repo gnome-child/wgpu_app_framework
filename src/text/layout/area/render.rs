@@ -20,7 +20,7 @@ use super::super::{
         RenderBufferKey as TextAreaRenderBufferKey,
     },
 };
-use crate::paint_geometry::area;
+use crate::paint_geometry;
 
 impl Engine {
     pub(super) fn text_area_render_surfaces(
@@ -29,7 +29,7 @@ impl Engine {
         source: &Buffer,
         committed: bool,
         style: Style,
-        viewport: area::Logical,
+        viewport: paint_geometry::LogicalArea,
         state: &ViewState,
     ) -> Vec<TextAreaSurface> {
         let total_started = Instant::now();
@@ -194,7 +194,7 @@ impl Engine {
         source: &Buffer,
         committed: bool,
         style: Style,
-        viewport: area::Logical,
+        viewport: paint_geometry::LogicalArea,
         state: &ViewState,
     ) -> Option<TextAreaRenderAnchor> {
         let line_count = source.logical_line_count().max(1);
@@ -238,7 +238,7 @@ impl Engine {
         source: &Buffer,
         committed: bool,
         style: Style,
-        viewport: area::Logical,
+        viewport: paint_geometry::LogicalArea,
         state: &ViewState,
     ) {
         let line_count = source.logical_line_count().max(1);

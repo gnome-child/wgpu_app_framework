@@ -1,5 +1,5 @@
 use super::super::document::{Style, TextDirection, Weight};
-use crate::paint_geometry::area;
+use crate::paint_geometry;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct StyleKey {
@@ -25,7 +25,7 @@ pub(super) struct BoundsKey {
 }
 
 impl BoundsKey {
-    pub(super) fn new(bounds: area::Logical) -> Self {
+    pub(super) fn new(bounds: paint_geometry::LogicalArea) -> Self {
         Self {
             width: finite_bits(bounds.width().max(0.0)),
             height: finite_bits(bounds.height().max(0.0)),

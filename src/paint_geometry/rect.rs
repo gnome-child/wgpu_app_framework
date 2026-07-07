@@ -1,4 +1,4 @@
-use crate::paint_geometry::{area, point};
+use super::{area, point};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rect {

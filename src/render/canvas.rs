@@ -1,18 +1,18 @@
 use wgpu::SurfaceTarget;
 
-use crate::paint_geometry::area;
+use crate::paint_geometry;
 use crate::render;
 
 pub struct Canvas {
     surface: render::Surface,
-    physical_area: area::Physical,
-    logical_area: area::Logical,
+    physical_area: paint_geometry::PhysicalArea,
+    logical_area: paint_geometry::LogicalArea,
     scale_factor: f32,
     color: wgpu::Color,
 }
 
 pub struct Options {
-    pub area: area::Physical,
+    pub area: paint_geometry::PhysicalArea,
     pub scale_factor: f32,
     pub color: wgpu::Color,
 }
@@ -40,11 +40,11 @@ impl Canvas {
         &self.surface
     }
 
-    pub fn physical_area(&self) -> area::Physical {
+    pub fn physical_area(&self) -> paint_geometry::PhysicalArea {
         self.physical_area
     }
 
-    pub fn logical_area(&self) -> area::Logical {
+    pub fn logical_area(&self) -> paint_geometry::LogicalArea {
         self.logical_area
     }
 
@@ -59,7 +59,7 @@ impl Canvas {
     pub fn resize(
         &mut self,
         render_context: &render::Context,
-        area: area::Physical,
+        area: paint_geometry::PhysicalArea,
         scale_factor: f32,
     ) {
         self.physical_area = area;

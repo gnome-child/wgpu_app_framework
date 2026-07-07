@@ -84,7 +84,7 @@ fn to_paint_shadow(shadow: &scene::Shadow) -> paint::Shadow {
         brush: paint::Brush::solid(super::color::paint_color(shadow.color())),
         blur: shadow.blur(),
         spread: shadow.spread(),
-        offset: paint_geometry::point::logical(shadow.offset().x(), shadow.offset().y()),
+        offset: paint_geometry::logical_point(shadow.offset().x(), shadow.offset().y()),
     }
 }
 
@@ -154,8 +154,8 @@ fn to_paint_outline(outline: &scene::Outline) -> paint::Outline {
 
 fn into_paint_rect(rect: geometry::Rect) -> paint_geometry::Rect {
     paint_geometry::Rect::new(
-        paint_geometry::point::logical(rect.x() as f32, rect.y() as f32),
-        paint_geometry::area::logical(rect.width() as f32, rect.height() as f32),
+        paint_geometry::logical_point(rect.x() as f32, rect.y() as f32),
+        paint_geometry::logical_area(rect.width() as f32, rect.height() as f32),
     )
 }
 
@@ -164,8 +164,8 @@ fn into_paint_rounded_rect(
     rounding: scene::Rounding,
 ) -> paint_geometry::Rect {
     paint_geometry::Rect::rounded(
-        paint_geometry::point::logical(rect.x() as f32, rect.y() as f32),
-        paint_geometry::area::logical(rect.width() as f32, rect.height() as f32),
+        paint_geometry::logical_point(rect.x() as f32, rect.y() as f32),
+        paint_geometry::logical_area(rect.width() as f32, rect.height() as f32),
         into_paint_rounding(rounding),
     )
 }
@@ -221,8 +221,8 @@ fn to_paint_rasterization(rasterization: scene::Rasterization) -> paint::Rasteri
 
 fn to_paint_transform(transform: scene::Transform) -> paint::Transform {
     paint::Transform {
-        origin: paint_geometry::point::logical(transform.origin_x(), transform.origin_y()),
-        translate: paint_geometry::point::logical(transform.translate_x(), transform.translate_y()),
+        origin: paint_geometry::logical_point(transform.origin_x(), transform.origin_y()),
+        translate: paint_geometry::logical_point(transform.translate_x(), transform.translate_y()),
         scale_x: transform.scale_x(),
         scale_y: transform.scale_y(),
     }
@@ -243,8 +243,8 @@ fn to_paint_edge_mode(edge_mode: scene::EdgeMode) -> paint::EdgeMode {
     }
 }
 
-fn into_paint_rounding(rounding: scene::Rounding) -> paint_geometry::rect::Rounding {
-    paint_geometry::rect::Rounding::new(
+fn into_paint_rounding(rounding: scene::Rounding) -> paint_geometry::Rounding {
+    paint_geometry::Rounding::new(
         into_paint_radius(rounding.top_left()),
         into_paint_radius(rounding.top_right()),
         into_paint_radius(rounding.bottom_right()),
@@ -252,10 +252,10 @@ fn into_paint_rounding(rounding: scene::Rounding) -> paint_geometry::rect::Round
     )
 }
 
-fn into_paint_radius(radius: scene::Radius) -> paint_geometry::rect::Radius {
+fn into_paint_radius(radius: scene::Radius) -> paint_geometry::Radius {
     match radius {
-        scene::Radius::Relative(value) => paint_geometry::rect::Radius::relative(value),
-        scene::Radius::Fixed(value) => paint_geometry::rect::Radius::fixed(value),
+        scene::Radius::Relative(value) => paint_geometry::Radius::relative(value),
+        scene::Radius::Fixed(value) => paint_geometry::Radius::fixed(value),
     }
 }
 
@@ -348,7 +348,7 @@ mod tests {
         }));
         assert_eq!(
             blur_filter.rect.rounding,
-            paint_geometry::rect::Rounding::fixed(10.0)
+            paint_geometry::Rounding::fixed(10.0)
         );
 
         let material = paint
@@ -422,8 +422,8 @@ mod tests {
         let transform = scene::Transform::scale_about(12.0, 18.0, 1.25, 1.5);
         let paint = to_paint_transform(transform);
 
-        assert_eq!(paint.origin, paint_geometry::point::logical(12.0, 18.0));
-        assert_eq!(paint.translate, paint_geometry::point::logical(0.0, 0.0));
+        assert_eq!(paint.origin, paint_geometry::logical_point(12.0, 18.0));
+        assert_eq!(paint.translate, paint_geometry::logical_point(0.0, 0.0));
         assert_eq!(paint.scale_x, 1.25);
         assert_eq!(paint.scale_y, 1.5);
     }

@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use glyphon::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping};
 
-use crate::{paint_geometry::area, text};
+use crate::{paint_geometry, text};
 
 type FontDatabase = glyphon::fontdb::Database;
 
@@ -86,7 +86,7 @@ pub(crate) fn measure_document(
         line_count += block_lines;
     }
 
-    super::Metrics::new(area::logical(width, height), line_count)
+    super::Metrics::new(paint_geometry::logical_area(width, height), line_count)
 }
 
 pub(crate) fn prepare_document_buffer(
