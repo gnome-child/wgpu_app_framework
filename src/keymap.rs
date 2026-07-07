@@ -65,7 +65,7 @@ impl Platform {
 }
 
 impl DisplayStyle {
-    pub(crate) fn for_platform(self, _platform: Platform) -> ResolvedDisplayStyle {
+    pub(crate) fn resolve(self) -> ResolvedDisplayStyle {
         match self {
             Self::Default => ResolvedDisplayStyle::Symbols,
             Self::Symbols => ResolvedDisplayStyle::Symbols,
@@ -265,14 +265,14 @@ impl ConcreteChord {
     }
 
     fn display(self, platform: Platform, style: DisplayStyle) -> String {
-        match style.for_platform(platform) {
+        match style.resolve() {
             ResolvedDisplayStyle::Symbols => self.symbol_display_text(platform),
             ResolvedDisplayStyle::Text => self.text_display(false),
         }
     }
 
     fn display_parts(self, platform: Platform, style: DisplayStyle) -> ShortcutDisplay {
-        match style.for_platform(platform) {
+        match style.resolve() {
             ResolvedDisplayStyle::Symbols => self.symbol_display_parts(platform),
             ResolvedDisplayStyle::Text => ShortcutDisplay::text(self.text_display(false)),
         }
