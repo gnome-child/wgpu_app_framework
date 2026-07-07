@@ -1,5 +1,5 @@
 use super::super::command::Command;
-use super::AcrylicToken;
+use super::state::AcrylicToken;
 
 pub struct TogglePanel;
 pub struct SetToken;

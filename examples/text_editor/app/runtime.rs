@@ -1,6 +1,9 @@
 use super::super::{Clipboard, Runtime, Shell, View, command, document, platform, state, window};
 use super::{
-    Event, LoadStressText, State, ToggleDebugPanel, ToggleWrapText, target, view,
+    State,
+    command::{LoadStressText, ToggleDebugPanel, ToggleWrapText},
+    event::Event,
+    target, view,
     view::{CANVAS_COLOR, WINDOW_TITLE, window_size},
 };
 
@@ -97,9 +100,10 @@ pub fn app(state: State) -> Runtime<State, Event, View> {
                     .with_canvas_color(CANVAS_COLOR),
             );
         })
-        .view(view)
+        .view(view::view)
 }
 
+#[cfg(test)]
 pub fn shell(state: State) -> Shell<State, Event> {
     Shell::new(app(state))
 }

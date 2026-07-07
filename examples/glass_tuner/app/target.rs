@@ -2,6 +2,7 @@ use super::super::{Context, Response, Target, command};
 use super::{
     State,
     command::{SetToken, TogglePanel},
+    state::AcrylicToken,
 };
 
 impl Target<TogglePanel> for State {
@@ -21,15 +22,11 @@ impl Target<TogglePanel> for State {
 }
 
 impl Target<SetToken> for State {
-    fn state(&self, _: &(super::AcrylicToken, f64), _: &Context) -> command::State {
+    fn state(&self, _: &(AcrylicToken, f64), _: &Context) -> command::State {
         command::State::enabled()
     }
 
-    fn invoke(
-        &mut self,
-        (token, value): (super::AcrylicToken, f64),
-        _: &mut Context,
-    ) -> Response<()> {
+    fn invoke(&mut self, (token, value): (AcrylicToken, f64), _: &mut Context) -> Response<()> {
         self.set_token(token, value);
         Response::changed(())
     }

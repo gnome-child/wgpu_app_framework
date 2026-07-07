@@ -7,8 +7,11 @@ use super::super::{
     response::{self},
 };
 use super::{
-    Event, LoadStressText, State, ToggleDebugPanel, ToggleWrapText, compact_path,
+    State,
+    command::{LoadStressText, ToggleDebugPanel, ToggleWrapText},
+    event::Event,
     state::STRESS_TEXT,
+    view::compact_path,
 };
 
 impl Target<ToggleWrapText> for State {

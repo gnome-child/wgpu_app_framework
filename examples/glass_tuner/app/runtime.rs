@@ -1,4 +1,6 @@
-use super::super::{Runtime, Shell, View, command, platform, window};
+use super::super::{Runtime, View, command, window};
+#[cfg(not(test))]
+use super::super::{Shell, platform};
 use super::{
     State,
     command::{SetToken, TogglePanel},
@@ -30,14 +32,17 @@ pub fn app(state: State) -> Runtime<State, (), View> {
         .view(view::view)
 }
 
+#[cfg(not(test))]
 pub fn shell(state: State) -> Shell<State> {
     Shell::new(app(state))
 }
 
+#[cfg(not(test))]
 pub fn runner(state: State) -> platform::Runner<State> {
     platform::Runner::new(shell(state))
 }
 
+#[cfg(not(test))]
 pub fn run(state: State) -> Result<(), platform::RunError<platform::NativeError>> {
     runner(state).run()
 }

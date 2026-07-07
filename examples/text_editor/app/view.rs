@@ -5,7 +5,10 @@ use super::super::{
     view::{Context as ViewContext, control::Wrap},
     widget,
 };
-use super::{LoadStressText, State, ToggleDebugPanel, ToggleWrapText};
+use super::{
+    State,
+    command::{LoadStressText, ToggleDebugPanel, ToggleWrapText},
+};
 
 const FILE_MENU: interaction::Id = interaction::Id::new("menu.file");
 const EDIT_MENU: interaction::Id = interaction::Id::new("menu.edit");

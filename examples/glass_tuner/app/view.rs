@@ -7,8 +7,9 @@ use super::super::{
     widget,
 };
 use super::{
-    AcrylicToken, State,
+    State,
     command::{SetToken, TogglePanel},
+    state::AcrylicToken,
 };
 
 const PANEL_ID: interaction::Id = interaction::Id::new("glass_tuner.panel");
