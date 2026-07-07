@@ -353,7 +353,7 @@ fn due_slider_hover_animation_requests_redraw_without_model_revision_change() {
 
 fn slider_track_rect(frame: &layout::Frame) -> geometry::Rect {
     let theme = Theme::default();
-    layout::control::slider_track_rect(frame.rect(), frame.label_width(), &theme)
+    layout::slider_track_rect(frame.rect(), frame.label_width(), &theme)
 }
 
 fn only_slider(layout: &layout::Layout) -> &layout::Frame {
@@ -376,7 +376,7 @@ fn track_scale_y(scene: &Scene, track: geometry::Rect) -> f32 {
 
 fn thumb_transform_scale_y(scene: &Scene, slider: &layout::Frame) -> f32 {
     let theme = Theme::default();
-    let thumb = layout::control::slider_thumb_rect(
+    let thumb = layout::slider_thumb_rect(
         slider.rect(),
         slider.slider().expect("slider model should exist"),
         slider.label_width(),

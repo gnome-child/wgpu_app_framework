@@ -1411,7 +1411,7 @@ fn command_palette_rows_use_interface_shortcut_typography() {
         .iter()
         .find(|frame| frame.label_text() == Some("Palette One"))
         .expect("palette row should be laid out");
-    let slots = layout::control::palette_row_slots(row.rect(), row.shortcut_width(), &expected);
+    let slots = layout::palette_row_slots(row.rect(), row.shortcut_width(), &expected);
     let shortcut = scene_text_in_rect(rendered.scene(), "R", slots.shortcut);
     let shortcut_icon = scene_icon_in_rect(rendered.scene(), "caret-up", slots.shortcut);
 
@@ -1458,8 +1458,7 @@ fn command_palette_formats_shortcuts_with_active_keymap_profile() {
         .iter()
         .find(|frame| frame.label_text() == Some("Palette One"))
         .expect("palette row should be laid out");
-    let slots =
-        layout::control::palette_row_slots(row.rect(), row.shortcut_width(), &Theme::dark());
+    let slots = layout::palette_row_slots(row.rect(), row.shortcut_width(), &Theme::dark());
 
     assert!(scene_icon_in_rect(rendered.scene(), "command", slots.shortcut).size() > 0.0);
     assert_eq!(
@@ -3331,7 +3330,7 @@ fn menu_popup_rows_use_row_layout_for_labels_shortcuts_and_separators() {
         })
         .expect("exit row should be laid out");
     let theme = Theme::default();
-    let slots = layout::control::menu_row_slots(exit.rect(), exit.shortcut_width(), &theme);
+    let slots = layout::menu_row_slots(exit.rect(), exit.shortcut_width(), &theme);
     let exit_label = rendered
         .scene()
         .texts()
@@ -3376,7 +3375,7 @@ fn menu_popup_rows_use_row_layout_for_labels_shortcuts_and_separators() {
         .next()
         .expect("file menu popup should be laid out");
     let separator_slots =
-        layout::control::menu_row_slots(separator.rect(), separator.shortcut_width(), &theme);
+        layout::menu_row_slots(separator.rect(), separator.shortcut_width(), &theme);
 
     assert_eq!(separator.rect().height(), theme.menu().row_height);
     assert_eq!(
@@ -3609,7 +3608,7 @@ fn checked_menu_popup_rows_do_not_paint_active_tint() {
         })
         .expect("checked wrap row should be laid out");
     let theme = Theme::default();
-    let slots = layout::control::menu_row_slots(wrap.rect(), wrap.shortcut_width(), &theme);
+    let slots = layout::menu_row_slots(wrap.rect(), wrap.shortcut_width(), &theme);
 
     assert_eq!(wrap.checked(), Some(true));
     assert_no_tint_quad(opened.scene(), wrap.rect(), theme.menu().title_active_tint);

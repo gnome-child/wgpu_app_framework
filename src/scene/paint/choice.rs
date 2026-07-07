@@ -9,7 +9,7 @@ pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme, vis
         return;
     };
     let choice = theme.choice();
-    let mark = layout::control::choice_mark_rect(frame.rect(), theme);
+    let mark = layout::choice_mark_rect(frame.rect(), theme);
     let mark_rounding = match frame.role() {
         view::node::Role::Radio => Rounding::relative(1.0),
         _ => theme.control().rounding,

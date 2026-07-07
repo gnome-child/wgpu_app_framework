@@ -9,7 +9,7 @@ use crate::animation;
 
 mod algorithm;
 mod chrome;
-pub(crate) mod control;
+mod control;
 mod engine;
 pub(crate) mod flow;
 mod frame;
@@ -21,6 +21,10 @@ mod typography;
 mod viewport;
 
 pub(crate) use chrome::{Chrome, Kind as ChromeKind, Scrollbar};
+pub(crate) use control::{
+    choice_label_rect, choice_mark_rect, control_content_extent, menu_row_slots, palette_row_slots,
+    slider_label_rect, slider_thumb_rect, slider_track_rect,
+};
 pub(crate) use engine::Engine;
 pub(crate) use frame::Frame;
 pub(crate) use hit::Hit;

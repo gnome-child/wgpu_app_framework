@@ -782,7 +782,7 @@ fn find_frame<'a>(
 
 fn slider_track_rect(frame: &layout::Frame) -> geometry::Rect {
     let theme = Theme::default();
-    layout::control::slider_track_rect(frame.rect(), frame.label_width(), &theme)
+    layout::slider_track_rect(frame.rect(), frame.label_width(), &theme)
 }
 
 fn center(rect: geometry::Rect) -> geometry::Point {

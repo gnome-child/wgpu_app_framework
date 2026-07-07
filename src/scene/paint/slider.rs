@@ -9,10 +9,10 @@ pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme, vis
     let rect = frame.rect();
     let track = frame
         .slider_track_rect()
-        .unwrap_or_else(|| layout::control::slider_track_rect(rect, frame.label_width(), theme));
+        .unwrap_or_else(|| layout::slider_track_rect(rect, frame.label_width(), theme));
     let filled_width = ((track.width() as f64) * slider_fraction(slider)).round() as i32;
     let fill = geometry::Rect::new(track.x(), track.y(), filled_width, track.height());
-    let thumb = layout::control::slider_thumb_rect(rect, slider, frame.label_width(), theme);
+    let thumb = layout::slider_thumb_rect(rect, slider, frame.label_width(), theme);
     let slider_theme = theme.slider();
     let scale_y = frame
         .target()

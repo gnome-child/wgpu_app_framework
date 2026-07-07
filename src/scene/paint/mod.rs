@@ -413,7 +413,7 @@ fn brush_with_opacity(brush: Brush, opacity: f32) -> Brush {
 }
 
 fn paint_menu_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
-    let slots = layout::control::menu_row_slots(frame.rect(), frame.shortcut_width(), theme);
+    let slots = layout::menu_row_slots(frame.rect(), frame.shortcut_width(), theme);
     let color = text_color_for(frame, theme);
 
     if frame.checked() == Some(true) {
@@ -421,7 +421,7 @@ fn paint_menu_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
             slots.glyph,
             icons::Icon::phosphor(icons::Id::new("check")).with_style(icons::Style::Bold),
             color,
-            layout::control::control_content_extent(theme.menu().row_height, theme) as f32,
+            layout::control_content_extent(theme.menu().row_height, theme) as f32,
         ));
     }
 
@@ -437,14 +437,14 @@ fn paint_menu_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
 }
 
 fn paint_menu_separator(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
-    let slots = layout::control::menu_row_slots(frame.rect(), frame.shortcut_width(), theme);
+    let slots = layout::menu_row_slots(frame.rect(), frame.shortcut_width(), theme);
 
     scene.push_quad(Quad::new(slots.separator, theme.menu().separator));
 }
 
 fn paint_palette_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     let rect = frame.rect();
-    let slots = layout::control::palette_row_slots(rect, frame.shortcut_width(), theme);
+    let slots = layout::palette_row_slots(rect, frame.shortcut_width(), theme);
     let color = theme.text().primary;
 
     if let Some(label) = frame.label_text() {
@@ -643,10 +643,10 @@ fn text_for(frame: &layout::Frame) -> Option<&str> {
 fn text_rect_for(frame: &layout::Frame, theme: &Theme) -> geometry::Rect {
     match frame.role() {
         view::node::Role::Checkbox | view::node::Role::Radio => {
-            layout::control::choice_label_rect(frame.rect(), theme)
+            layout::choice_label_rect(frame.rect(), theme)
         }
         view::node::Role::Slider => {
-            layout::control::slider_label_rect(frame.rect(), frame.label_width(), theme)
+            layout::slider_label_rect(frame.rect(), frame.label_width(), theme)
         }
         view::node::Role::TextBox => frame.text_box_text_rect(),
         _ => frame.rect(),
