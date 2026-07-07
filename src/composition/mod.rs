@@ -2,7 +2,7 @@ mod store;
 mod tree;
 
 pub(crate) use store::Store;
-pub use tree::NodeId;
+pub(crate) use tree::NodeId;
 pub(crate) use tree::{Changes, Node, Tree};
 
 use super::{interaction, session, subject, view, window};

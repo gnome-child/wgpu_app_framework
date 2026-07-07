@@ -7,7 +7,7 @@ use super::super::{interaction, subject, view};
 /// The namespace distinguishes retained composition identity from view-only
 /// layout identity, so the two cannot collide.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct NodeId {
+pub(crate) struct NodeId {
     space: Space,
     value: u64,
 }

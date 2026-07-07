@@ -202,6 +202,8 @@ fn composition_tree_owns_identity_not_behavior() {
         ],
     );
     for pattern in [
+        "pub use tree::NodeId",
+        "pub struct NodeId",
         "pub use tree::{Changes",
         "pub use tree::{Node",
         "pub use tree::{Tree",
@@ -215,6 +217,25 @@ fn composition_tree_owns_identity_not_behavior() {
             "retained composition tree internals must not be public API: {pattern}"
         );
     }
+
+    let interaction_target = std::fs::read_to_string(src_dir.join("interaction").join("target.rs"))
+        .expect("interaction target module should read");
+    for pattern in [
+        "pub fn command_node(",
+        "pub fn text_area_node(",
+        "pub fn scroll_node(",
+        "pub fn scrollbar_node(",
+        "pub fn floating_panel_node(",
+        "pub fn label_node(",
+        "pub fn menu_node(",
+        "pub fn node_id(",
+    ] {
+        assert!(
+            !interaction_target.contains(pattern),
+            "retained node identity must not leak through public targets: {pattern}"
+        );
+    }
+
     assert_source_patterns_absent(
         &widget_dir,
         &[

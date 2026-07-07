@@ -66,7 +66,7 @@ impl Target {
         }
     }
 
-    pub fn command_node(
+    pub(crate) fn command_node(
         node: composition::NodeId,
         element: Option<Id>,
         command_name: &'static str,
@@ -96,19 +96,11 @@ impl Target {
         }
     }
 
-    pub fn text_area_node(
-        node: composition::NodeId,
-        element: Option<Id>,
-        label: impl Into<String>,
-    ) -> Self {
-        Self::node(Kind::TextArea, node, element, label).with_capture()
-    }
-
     pub fn scroll(id: impl Into<Id>, label: impl Into<String>) -> Self {
         Self::new(Kind::Scroll, id, label).with_capture()
     }
 
-    pub fn scroll_node(
+    pub(crate) fn scroll_node(
         node: composition::NodeId,
         element: Option<Id>,
         label: impl Into<String>,
@@ -116,7 +108,7 @@ impl Target {
         Self::node(Kind::Scroll, node, element, label).with_capture()
     }
 
-    pub fn scrollbar_node(
+    pub(crate) fn scrollbar_node(
         node: composition::NodeId,
         element: Option<Id>,
         label: impl Into<String>,
@@ -128,32 +120,8 @@ impl Target {
         Self::new(Kind::FloatingPanel, id, label)
     }
 
-    pub fn floating_panel_node(
-        node: composition::NodeId,
-        element: Option<Id>,
-        label: impl Into<String>,
-    ) -> Self {
-        Self::node(Kind::FloatingPanel, node, element, label)
-    }
-
     pub fn label(id: impl Into<Id>, label: impl Into<String>) -> Self {
         Self::new(Kind::Label, id, label)
-    }
-
-    pub fn label_node(
-        node: composition::NodeId,
-        element: Option<Id>,
-        label: impl Into<String>,
-    ) -> Self {
-        Self::node(Kind::Label, node, element, label)
-    }
-
-    pub fn menu_node(
-        node: composition::NodeId,
-        element: Option<Id>,
-        label: impl Into<String>,
-    ) -> Self {
-        Self::node(Kind::Menu, node, element, label)
     }
 
     pub fn kind(&self) -> Kind {
@@ -167,7 +135,7 @@ impl Target {
         }
     }
 
-    pub fn node_id(&self) -> Option<composition::NodeId> {
+    pub(crate) fn node_id(&self) -> Option<composition::NodeId> {
         match self.identity {
             Identity::Element(_) => None,
             Identity::Node { id, .. } => Some(id),
