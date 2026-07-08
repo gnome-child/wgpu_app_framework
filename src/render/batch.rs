@@ -258,4 +258,25 @@ mod tests {
             vec![Kind::Shapes(1), Kind::Group, Kind::Glyphs(1)]
         );
     }
+
+    #[test]
+    fn promoted_group_text_stays_in_separate_glyph_batch() {
+        let group = paint::Group {
+            bounds: Rect::new(
+                paint::point::logical(20.0, 20.0),
+                paint::area::logical(40.0, 20.0),
+            ),
+            opacity: 0.5,
+            items: vec![paint::Item::Text(label(0.0)), paint::Item::Icon(icon(12.0))],
+        };
+        let items = vec![paint::Item::Text(label(0.0)), paint::Item::Group(group)];
+        let batches = item_batches(&items);
+        let group = match &batches[1] {
+            ItemBatch::Group(group) => group,
+            _ => panic!("second batch should be the promoted group"),
+        };
+
+        assert_eq!(kinds(&batches), vec![Kind::Glyphs(1), Kind::Group]);
+        assert_eq!(kinds(&item_batches(&group.items)), vec![Kind::Glyphs(2)]);
+    }
 }

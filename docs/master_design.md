@@ -262,6 +262,12 @@ and backend rendering. It is not a second public scene API; apps and framework
 features should speak in `scene` terms unless they are inside the native
 renderer adapter.
 
+Renderer queue writes apply before encoded passes execute. A shared GPU buffer
+written once per batch is therefore last-write-wins for the whole submitted
+frame, not a sequence of interleaved "update then draw" operations. Per-batch
+values, such as glyphon viewport resolution for base text versus promoted
+overlay text, must ride per-batch buffers.
+
 Scene clips are paint primitives. Paint applies every resolved frame clip; it
 does not decide that a role or layer should ignore clipping. Filters inside
 clipped or promoted content sample from the accumulated backdrop beneath the

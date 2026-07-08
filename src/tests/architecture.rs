@@ -1028,6 +1028,38 @@ fn text_origin_snapping_belongs_to_paint_grid() {
 }
 
 #[test]
+fn glyphon_viewports_are_owned_per_text_batch() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let text_renderer = std::fs::read_to_string(src_dir.join("render").join("text_renderer.rs"))
+        .expect("text renderer should read");
+    let render_start = text_renderer
+        .find("pub fn render(")
+        .expect("text renderer should expose render method");
+    let trim_start = text_renderer[render_start..]
+        .find("pub fn trim(")
+        .map(|offset| render_start + offset)
+        .expect("text renderer render method should be followed by trim");
+    let render_body = &text_renderer[render_start..trim_start];
+
+    assert!(
+        text_renderer.contains("viewports: Vec<glyphon::Viewport>"),
+        "glyphon viewport state must be parallel to per-batch text renderers"
+    );
+    assert!(
+        !text_renderer.contains("viewport: glyphon::Viewport"),
+        "text renderer must not keep one shared glyphon viewport uniform"
+    );
+    assert!(
+        text_renderer.contains("self.update_viewport(render_context, renderer_index, viewport)"),
+        "viewport writes should happen while preparing the owning text batch"
+    );
+    assert!(
+        !render_body.contains("update_viewport"),
+        "render must consume the prepared batch viewport, not write shared viewport state"
+    );
+}
+
+#[test]
 fn master_design_names_answer_patterns() {
     let master = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

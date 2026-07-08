@@ -36,10 +36,7 @@ pub struct Renderer {
 enum RenderBatch {
     Shapes(render::quad::Batch),
     Filter(paint::Filter),
-    Text {
-        renderer_index: usize,
-        viewport: render::Viewport,
-    },
+    Text { renderer_index: usize },
     PushClip(paint::Clip),
     PopClip,
     Group(PreparedGroup),
@@ -305,7 +302,6 @@ impl Renderer {
                     if report.has_text {
                         render_batches.push(RenderBatch::Text {
                             renderer_index: *text_renderer_index,
-                            viewport,
                         });
                     }
 
@@ -460,10 +456,7 @@ impl<'a> SceneEncoder<'a> {
             match batch {
                 RenderBatch::Shapes(batch) => self.encode_shapes(batch),
                 RenderBatch::Filter(filter) => self.encode_filter(filter),
-                RenderBatch::Text {
-                    renderer_index,
-                    viewport,
-                } => self.encode_text(*renderer_index, *viewport),
+                RenderBatch::Text { renderer_index } => self.encode_text(*renderer_index),
                 RenderBatch::PushClip(clip) => self.push_clip(*clip),
                 RenderBatch::PopClip => self.composite_clip_layer(),
                 RenderBatch::Group(group) => self.encode_group(group),
@@ -545,7 +538,7 @@ impl<'a> SceneEncoder<'a> {
         self.mark_current_dirty();
     }
 
-    fn encode_text(&mut self, renderer_index: usize, text_viewport: render::Viewport) {
+    fn encode_text(&mut self, renderer_index: usize) {
         let Some(scissor) = current_scissor(
             &self.clip_stack,
             self.viewport.physical_area(),
@@ -560,12 +553,7 @@ impl<'a> SceneEncoder<'a> {
         {
             let mut pass = begin_main_pass(self.encoder, target_view, self.clear_color, false);
             pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
-            if let Err(error) = self.text_renderer.render(
-                self.render_context,
-                text_viewport,
-                renderer_index,
-                &mut pass,
-            ) {
+            if let Err(error) = self.text_renderer.render(renderer_index, &mut pass) {
                 *self.text_render_error = Some(error);
             }
         }
@@ -582,10 +570,7 @@ impl<'a> SceneEncoder<'a> {
                 match batch {
                     RenderBatch::Shapes(batch) => self.encode_shapes(batch),
                     RenderBatch::Filter(filter) => self.encode_filter(filter),
-                    RenderBatch::Text {
-                        renderer_index,
-                        viewport,
-                    } => self.encode_text(*renderer_index, *viewport),
+                    RenderBatch::Text { renderer_index } => self.encode_text(*renderer_index),
                     RenderBatch::PushClip(clip) => self.push_clip(*clip),
                     RenderBatch::PopClip => self.composite_clip_layer(),
                     RenderBatch::Group(group) => self.encode_group(group),
@@ -957,19 +942,30 @@ mod tests {
                 paint::area::logical(10.0, 10.0),
             ),
             opacity: 0.5,
-            items: vec![paint::Item::Quad(paint::Quad {
-                rect: Rect::new(
-                    paint::point::logical(0.0, 0.0),
-                    paint::area::logical(10.0, 10.0),
-                ),
-                rasterization: paint::Rasterization::default(),
-                transform: paint::Transform::identity(),
-                style: paint::Style {
-                    fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::BLACK))),
-                    stroke: None,
-                    tint: None,
-                },
-            })],
+            items: vec![
+                paint::Item::Quad(paint::Quad {
+                    rect: Rect::new(
+                        paint::point::logical(0.0, 0.0),
+                        paint::area::logical(10.0, 10.0),
+                    ),
+                    rasterization: paint::Rasterization::default(),
+                    transform: paint::Transform::identity(),
+                    style: paint::Style {
+                        fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::BLACK))),
+                        stroke: None,
+                        tint: None,
+                    },
+                }),
+                paint::Item::Text(paint::Text {
+                    rect: Rect::new(
+                        paint::point::logical(0.0, 0.0),
+                        paint::area::logical(10.0, 10.0),
+                    ),
+                    document: text::document::Document::plain("group"),
+                    wrap: paint::TextWrap::WordOrGlyph,
+                    vertical_align: paint::TextVerticalAlign::Center,
+                }),
+            ],
         });
 
         let batches = item_batches(scene.items());
@@ -977,7 +973,7 @@ mod tests {
 
         assert_eq!(stats.scene_items, 7);
         assert_eq!(stats.render_batches, 6);
-        assert_eq!(stats.glyph_batches, 1);
+        assert_eq!(stats.glyph_batches, 2);
         assert_eq!(stats.text_surfaces, 0);
         assert_eq!(stats.clip_batches, 2);
         assert_eq!(stats.filters, 1);

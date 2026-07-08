@@ -20,9 +20,10 @@ pub enum Error {
 }
 
 pub struct TextRenderer {
-    viewport: glyphon::Viewport,
+    cache: glyphon::Cache,
     atlas: glyphon::TextAtlas,
     renderers: Vec<glyphon::TextRenderer>,
+    viewports: Vec<glyphon::Viewport>,
     font_system: glyphon::FontSystem,
     swash_cache: glyphon::SwashCache,
     inline_cache: InlineCache,
@@ -51,7 +52,6 @@ pub(crate) struct TextBatchReport {
 impl TextRenderer {
     pub fn new(render_context: &render::Context, format: wgpu::TextureFormat) -> Self {
         let cache = glyphon::Cache::new(render_context.device());
-        let viewport = glyphon::Viewport::new(render_context.device(), &cache);
         let atlas = glyphon::TextAtlas::new(
             render_context.device(),
             render_context.queue(),
@@ -60,9 +60,10 @@ impl TextRenderer {
         );
 
         Self {
-            viewport,
+            cache,
             atlas,
             renderers: Vec::new(),
+            viewports: Vec::new(),
             font_system: text_layout::glyphon_font_system(),
             swash_cache: glyphon::SwashCache::new(),
             inline_cache: InlineCache::new(),
@@ -84,7 +85,7 @@ impl TextRenderer {
             return Ok(TextBatchReport::default());
         }
 
-        self.update_viewport(render_context, viewport);
+        self.update_viewport(render_context, renderer_index, viewport);
         let scale_factor = viewport.scale_factor();
         let mut prepared = Vec::with_capacity(glyphs.len());
         let mut stats = InlineStats::default();
@@ -163,7 +164,7 @@ impl TextRenderer {
             render_context.queue(),
             &mut self.font_system,
             &mut self.atlas,
-            &self.viewport,
+            &self.viewports[renderer_index],
             text_areas,
             &mut self.swash_cache,
         )?;
@@ -174,16 +175,9 @@ impl TextRenderer {
         })
     }
 
-    pub fn render(
-        &mut self,
-        render_context: &render::Context,
-        viewport: render::Viewport,
-        renderer_index: usize,
-        pass: &mut wgpu::RenderPass<'_>,
-    ) -> Result<()> {
-        self.update_viewport(render_context, viewport);
+    pub fn render(&mut self, renderer_index: usize, pass: &mut wgpu::RenderPass<'_>) -> Result<()> {
         self.renderers[renderer_index]
-            .render(&self.atlas, &self.viewport, pass)
+            .render(&self.atlas, &self.viewports[renderer_index], pass)
             .map_err(Error::from)
     }
 
@@ -191,9 +185,14 @@ impl TextRenderer {
         self.atlas.trim();
     }
 
-    fn update_viewport(&mut self, render_context: &render::Context, viewport: render::Viewport) {
+    fn update_viewport(
+        &mut self,
+        render_context: &render::Context,
+        renderer_index: usize,
+        viewport: render::Viewport,
+    ) {
         let physical_area = viewport.physical_area();
-        self.viewport.update(
+        self.viewports[renderer_index].update(
             render_context.queue(),
             glyphon::Resolution {
                 width: physical_area.width(),
@@ -210,6 +209,8 @@ impl TextRenderer {
                 wgpu::MultisampleState::default(),
                 None,
             ));
+            self.viewports
+                .push(glyphon::Viewport::new(render_context.device(), &self.cache));
         }
     }
 }
