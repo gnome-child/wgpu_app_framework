@@ -12,12 +12,12 @@ pub use material::{
 };
 pub use presentation::Presentation;
 pub use primitive::{
-    Brush, Clip, EdgeMode, Filter, FilterOp, Icon, LiquidFilter, Offset, Outline, Primitive, Quad,
-    Radius, Rasterization, Rounding, Shadow, Snapping, Stroke, Style, Text, TextAlign, TextStyle,
-    TextSurface, TextViewport, TextWrap, Transform,
+    Brush, Clip, EdgeMode, Filter, FilterOp, Icon, LiquidFilter, Motion, Offset, Outline,
+    Primitive, Quad, Radius, Rasterization, Rounding, Shadow, Snapping, Stroke, Style, Text,
+    TextAlign, TextStyle, TextSurface, TextViewport, TextWrap, Transform,
 };
-pub(crate) use visual::Target as TargetVisual;
 pub(crate) use visual::Visuals;
+pub(crate) use visual::{Scalar as VisualScalar, Target as TargetVisual};
 
 use super::{geometry, layout, theme::Theme};
 

@@ -37,11 +37,15 @@ pub(in crate::platform::native) fn to_paint_scene_at_scale(
 }
 
 fn to_paint_quad(quad: &scene::Quad, grid: paint_geometry::Grid) -> paint::Quad {
+    let rect = into_paint_rounded_rect_at_scale(quad.rect(), quad.rounding(), grid);
+    let transform = to_paint_transform(quad.transform());
+    let (rect, transform) = resolve_quad_transform(rect, transform, grid);
+
     paint::Quad {
-        rect: into_paint_rounded_rect_at_scale(quad.rect(), quad.rounding(), grid),
+        rect,
         style: to_paint_style(quad.style()),
         rasterization: to_paint_rasterization(quad.rasterization()),
-        transform: to_paint_transform(quad.transform()),
+        transform,
     }
 }
 
@@ -263,6 +267,29 @@ fn to_paint_transform(transform: scene::Transform) -> paint::Transform {
         translate: paint_geometry::logical_point(transform.translate_x(), transform.translate_y()),
         scale_x: transform.scale_x(),
         scale_y: transform.scale_y(),
+        motion: to_paint_motion(transform.motion()),
+    }
+}
+
+fn resolve_quad_transform(
+    rect: paint_geometry::Rect,
+    transform: paint::Transform,
+    grid: paint_geometry::Grid,
+) -> (paint_geometry::Rect, paint::Transform) {
+    if transform.motion == paint::Motion::Resting && !transform.is_identity() {
+        (
+            grid.snap_rect_with_stable_size(transform.transformed_rect(rect)),
+            paint::Transform::identity(),
+        )
+    } else {
+        (rect, transform)
+    }
+}
+
+fn to_paint_motion(motion: scene::Motion) -> paint::Motion {
+    match motion {
+        scene::Motion::Moving => paint::Motion::Moving,
+        scene::Motion::Resting => paint::Motion::Resting,
     }
 }
 
@@ -300,7 +327,27 @@ fn into_paint_radius(radius: scene::Radius) -> paint_geometry::Radius {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{control_gallery, geometry, input, layout, theme::Theme, view, widget};
+    use crate::{
+        Command, Runtime, control_gallery, geometry, input, layout, theme::Theme, view, widget,
+        window,
+    };
+    use std::time::{Duration, Instant};
+
+    struct NativeSetLevel;
+
+    impl Command for NativeSetLevel {
+        type Args = f64;
+        type Output = ();
+
+        const NAME: &'static str = "native.set-level";
+    }
+
+    #[derive(Clone)]
+    struct NativeSliderState {
+        value: f64,
+    }
+
+    impl crate::State for NativeSliderState {}
 
     #[test]
     fn text_box_surface_color_is_preserved_in_paint_viewport() {
@@ -497,6 +544,68 @@ mod tests {
         assert_eq!(paint.translate, paint_geometry::logical_point(0.0, 0.0));
         assert_eq!(paint.scale_x, 1.25);
         assert_eq!(paint.scale_y, 1.5);
+        assert_eq!(paint.motion, paint::Motion::Resting);
+    }
+
+    #[test]
+    fn settled_slider_hover_transform_converts_to_snapped_geometry() {
+        let mut app = Runtime::new(NativeSliderState { value: 5.0 })
+            .commands(|commands| {
+                commands.register::<NativeSetLevel>(crate::command::Spec::new("Set Level"));
+            })
+            .started(|cx| {
+                cx.open_window(window::Options::new("Native Slider"));
+            })
+            .view(|state, _| {
+                widget::view(|ui| {
+                    ui.slider(
+                        widget::Slider::new("Level", state.value, 0.0..=10.0)
+                            .on_change::<NativeSetLevel>(),
+                    );
+                })
+            });
+
+        app.start();
+
+        let window = app.session().windows()[0].id();
+        let size = geometry::Size::new(240, 80);
+        let theme = Theme::default();
+        let start = Instant::now();
+        let initial = app
+            .render_scene_at(window, size, start)
+            .expect("slider should render");
+        let slider = initial
+            .layout()
+            .find_role(view::Role::Slider)
+            .into_iter()
+            .next()
+            .expect("slider should be laid out");
+        let track = layout::slider_track_rect(slider.rect(), slider.label_width(), &theme);
+        let hover = geometry::Point::new(track.x() + track.width() / 2, track.y() + 1);
+
+        app.pointer_move_at(window, size, hover)
+            .expect("hovering the slider should be handled");
+        let settled = app
+            .render_scene_at(window, size, start + Duration::from_millis(180))
+            .expect("settled slider should render");
+        let paint = to_paint_scene_at_scale(settled.scene(), 1.0);
+        let track_color = super::super::color::paint_color(theme.slider().track);
+        let track_quad = paint
+            .items()
+            .iter()
+            .find_map(|item| match item {
+                paint::Item::Quad(quad)
+                    if quad.style.fill
+                        == Some(paint::Fill::Brush(paint::Brush::solid(track_color))) =>
+                {
+                    Some(quad)
+                }
+                _ => None,
+            })
+            .expect("slider track should convert to a native paint quad");
+
+        assert!(track_quad.transform.is_identity());
+        assert!(paint_geometry::Grid::new(1.0).rect_is_aligned(track_quad.rect));
     }
 
     #[test]

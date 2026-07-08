@@ -240,7 +240,9 @@ fn paint_scrollbar(
             theme_scrollbar.appearance.overlay_thickness.max(1)
         }
     };
-    let thickness = visual.thickness().max(base_thickness);
+    let thickness = match visual.thickness_motion() {
+        super::Motion::Moving | super::Motion::Resting => visual.thickness().max(base_thickness),
+    };
     let track = scrollbar.track_with_thickness(thickness);
     let thumb = scrollbar.thumb_with_thickness(thickness);
     let appearance = theme_scrollbar.appearance;

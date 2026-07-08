@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 
 use super::super::interaction;
+use super::Motion;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Visuals {
     targets: HashMap<interaction::Target, Target>,
-    slider_track_scale_y: HashMap<interaction::Target, f32>,
+    slider_track_scale_y: HashMap<interaction::Target, Scalar>,
     scrollbars: HashMap<interaction::Target, Scrollbar>,
     carets: HashMap<interaction::Target, bool>,
 }
@@ -19,9 +20,16 @@ pub(crate) struct Target {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Scalar {
+    value: f32,
+    motion: Motion,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Scrollbar {
     opacity: f32,
     thickness: i32,
+    thickness_motion: Motion,
     hovered: bool,
     pressed: bool,
 }
@@ -45,16 +53,20 @@ impl Visuals {
         self.carets.get(target).copied().unwrap_or(true)
     }
 
-    pub(crate) fn set_slider_track_scale_y(&mut self, target: interaction::Target, scale_y: f32) {
+    pub(crate) fn set_slider_track_scale_y(
+        &mut self,
+        target: interaction::Target,
+        scale_y: Scalar,
+    ) {
         self.slider_track_scale_y
-            .insert(target, sanitize_scale(scale_y));
+            .insert(target, scale_y.sanitized_scale());
     }
 
-    pub(crate) fn slider_track_scale_y(&self, target: &interaction::Target) -> f32 {
+    pub(crate) fn slider_track_scale_y(&self, target: &interaction::Target) -> Scalar {
         self.slider_track_scale_y
             .get(target)
             .copied()
-            .unwrap_or(1.0)
+            .unwrap_or_else(|| Scalar::resting(1.0))
     }
 
     pub(crate) fn set_scrollbar(
@@ -62,6 +74,7 @@ impl Visuals {
         target: interaction::Target,
         opacity: f32,
         thickness: i32,
+        thickness_motion: Motion,
         hovered: bool,
         pressed: bool,
     ) {
@@ -70,6 +83,7 @@ impl Visuals {
             Scrollbar {
                 opacity: sanitize_opacity(opacity),
                 thickness: thickness.max(1),
+                thickness_motion,
                 hovered,
                 pressed,
             },
@@ -108,6 +122,37 @@ impl Target {
     }
 }
 
+impl Scalar {
+    pub(crate) fn moving(value: f32) -> Self {
+        Self {
+            value,
+            motion: Motion::Moving,
+        }
+    }
+
+    pub(crate) fn resting(value: f32) -> Self {
+        Self {
+            value,
+            motion: Motion::Resting,
+        }
+    }
+
+    pub(crate) fn value(self) -> f32 {
+        self.value
+    }
+
+    pub(crate) fn motion(self) -> Motion {
+        self.motion
+    }
+
+    fn sanitized_scale(self) -> Self {
+        Self {
+            value: sanitize_scale(self.value),
+            motion: self.motion,
+        }
+    }
+}
+
 impl Scrollbar {
     pub(crate) fn opacity(self) -> f32 {
         self.opacity
@@ -115,6 +160,10 @@ impl Scrollbar {
 
     pub(crate) fn thickness(self) -> i32 {
         self.thickness
+    }
+
+    pub(crate) fn thickness_motion(self) -> Motion {
+        self.thickness_motion
     }
 
     pub(crate) fn hovered(self) -> bool {
@@ -131,6 +180,7 @@ impl Default for Scrollbar {
         Self {
             opacity: 0.0,
             thickness: 1,
+            thickness_motion: Motion::Resting,
             hovered: false,
             pressed: false,
         }

@@ -17,8 +17,9 @@ pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme, vis
     let scale_y = frame
         .target()
         .map(|target| visuals.slider_track_scale_y(target))
-        .unwrap_or(1.0);
-    let transform = Transform::scale_y_about_rect_center(track, scale_y);
+        .unwrap_or_else(|| super::super::VisualScalar::resting(1.0));
+    let transform =
+        Transform::scale_y_about_rect_center(track, scale_y.value()).with_motion(scale_y.motion());
 
     scene.push_quad(
         Quad::new(track, slider_theme.track)

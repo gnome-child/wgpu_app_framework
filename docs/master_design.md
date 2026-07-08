@@ -253,15 +253,21 @@ Scene is also the presentation-space boundary. The doctrine is: layout is
 snapped, presentation is continuous, and animation is presentation. Resting
 layout geometry is snapped once when integer layout rects become floating
 paint rects at the active device scale. Presentation transforms may then move
-or scale that snapped geometry continuously, and a settled animation must land
-back on the same scene geometry as the static state.
+or scale that snapped geometry continuously while their `Motion` is `Moving`.
+When motion stops, the pose is geometry again: a `Resting` transform is baked
+into the paint rect and snapped, even if that resting pose is a held hover
+plateau rather than the base state. Paint call sites forward motion state from
+runtime visuals; they do not invent their own answer to whether a transition
+is still moving.
 
 Renderer-local snapping is exception vocabulary, not a second source of truth.
 `Snapping::Rect` checks that incoming geometry was already snapped at the
 layout-to-paint boundary. `Snapping::FixedWidth` remains a real exception for
 hairlines such as text carets that must keep a fixed physical-pixel width.
-Explicit unsnapped/presentation motion remains continuous; do not add another
-primitive-local snap policy when the boundary snap should own the fact.
+Explicit moving presentation remains continuous; do not add another
+primitive-local snap policy when the boundary snap should own the fact. A
+permanent unsnapped transform is not a default behavior; a future caller must
+earn and name that variant explicitly.
 
 `theme`
 

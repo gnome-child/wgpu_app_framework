@@ -234,6 +234,7 @@ fn slider_hover_animates_track_transform_without_tint_or_layout_shift() {
     let hover = geometry::Point::new(track.x() + track.width() / 2, track.y() + 1);
 
     assert_eq!(track_scale_y(initial.scene(), track), 1.0);
+    assert_eq!(track_motion(initial.scene(), track), scene::Motion::Resting);
     let before_hover = app
         .diagnostics(window)
         .expect("diagnostics should exist")
@@ -261,6 +262,7 @@ fn slider_hover_animates_track_transform_without_tint_or_layout_shift() {
     assert_eq!(hovered_slider.rect(), initial_rect);
     assert_eq!(hovered_slider.active_rect(), initial_active_rect);
     assert_eq!(track_scale_y(hovered.scene(), track), 1.0);
+    assert_eq!(track_motion(hovered.scene(), track), scene::Motion::Moving);
     assert_no_slider_hover_tint(hovered.scene(), initial_active_rect);
     assert_eq!(
         app.animation_schedule(),
@@ -278,12 +280,14 @@ fn slider_hover_animates_track_transform_without_tint_or_layout_shift() {
         .expect("mid-animation slider should render");
     let mid_scale = track_scale_y(mid.scene(), track);
     assert!(mid_scale > 1.0 && mid_scale < 1.5);
+    assert_eq!(track_motion(mid.scene(), track), scene::Motion::Moving);
     assert_eq!(thumb_transform_scale_y(mid.scene(), hovered_slider), 1.0);
 
     let settled = app
         .render_scene_at(window, size, start + Duration::from_millis(180))
         .expect("settled hovered slider should render");
     assert_approx_eq_f32(track_scale_y(settled.scene(), track), 1.5);
+    assert_eq!(track_motion(settled.scene(), track), scene::Motion::Resting);
     assert_eq!(app.animation_schedule(), crate::animation::Schedule::Idle);
 
     app.pointer_move_at(window, size, geometry::Point::new(239, 79))
@@ -292,6 +296,7 @@ fn slider_hover_animates_track_transform_without_tint_or_layout_shift() {
         .render_scene_at(window, size, start + Duration::from_millis(180))
         .expect("leaving slider should render");
     assert_approx_eq_f32(track_scale_y(leaving.scene(), track), 1.5);
+    assert_eq!(track_motion(leaving.scene(), track), scene::Motion::Moving);
     assert_eq!(
         app.animation_schedule(),
         crate::animation::Schedule::NextFrame
@@ -301,6 +306,7 @@ fn slider_hover_animates_track_transform_without_tint_or_layout_shift() {
         .render_scene_at(window, size, start + Duration::from_millis(360))
         .expect("idle slider should render");
     assert_approx_eq_f32(track_scale_y(idle.scene(), track), 1.0);
+    assert_eq!(track_motion(idle.scene(), track), scene::Motion::Resting);
     assert_eq!(app.animation_schedule(), crate::animation::Schedule::Idle);
     assert_eq!(idle.scene().clear(), initial.scene().clear());
     assert_eq!(
@@ -377,6 +383,16 @@ fn track_scale_y(scene: &Scene, track: geometry::Rect) -> f32 {
         .into_iter()
         .find(|quad| quad.rect() == track && quad.fill() == theme.slider().track)
         .map(|quad| quad.transform().scale_y())
+        .expect("slider track should paint")
+}
+
+fn track_motion(scene: &Scene, track: geometry::Rect) -> scene::Motion {
+    let theme = Theme::default();
+    scene
+        .quads()
+        .into_iter()
+        .find(|quad| quad.rect() == track && quad.fill() == theme.slider().track)
+        .map(|quad| quad.transform().motion())
         .expect("slider track should paint")
 }
 

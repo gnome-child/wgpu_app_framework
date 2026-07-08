@@ -110,6 +110,13 @@ pub struct Transform {
     pub translate: paint_geometry::LogicalPoint,
     pub scale_x: f32,
     pub scale_y: f32,
+    pub motion: Motion,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Motion {
+    Moving,
+    Resting,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -321,6 +328,7 @@ impl Transform {
             translate: paint_geometry::logical_point(0.0, 0.0),
             scale_x: 1.0,
             scale_y: 1.0,
+            motion: Motion::Resting,
         }
     }
 
@@ -344,6 +352,12 @@ impl Transform {
             && self.translate.y() == 0.0
             && self.scale_x == 1.0
             && self.scale_y == 1.0
+    }
+
+    #[cfg(test)]
+    pub fn with_motion(mut self, motion: Motion) -> Self {
+        self.motion = motion;
+        self
     }
 
     pub fn transformed_rect(self, rect: Rect) -> Rect {

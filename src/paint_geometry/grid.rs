@@ -53,6 +53,18 @@ impl Grid {
         )
     }
 
+    pub(crate) fn snap_rect_with_stable_size(self, rect: rect::Rect) -> rect::Rect {
+        let (left, right) = self.snap_span_with_stable_distance(rect.origin.x(), rect.area.width());
+        let (top, bottom) =
+            self.snap_span_with_stable_distance(rect.origin.y(), rect.area.height());
+
+        rect::Rect::rounded(
+            point::logical(left, top),
+            area::logical(right - left, bottom - top),
+            rect.rounding,
+        )
+    }
+
     pub(crate) fn snap_fixed_width_rect(self, rect: rect::Rect, width_px: u32) -> rect::Rect {
         let left = self.snap_position(rect.origin.x());
         let top = self.snap_position(rect.origin.y());
@@ -81,6 +93,25 @@ impl Grid {
         let physical = position * self.scale_factor;
 
         (physical - round_ties_toward_zero(physical)).abs() <= 0.001
+    }
+
+    fn snap_span_with_stable_distance(self, start: f32, distance: f32) -> (f32, f32) {
+        if distance <= 0.0 {
+            let start = self.snap_position(start);
+            return (start, start + self.logical_pixel);
+        }
+
+        let snapped_distance = self.snap_distance(distance);
+        let snapped_physical_distance = snapped_distance * self.scale_factor;
+        let physical_center = (start + (distance / 2.0)) * self.scale_factor;
+        let physical_start =
+            round_ties_toward_zero(physical_center - (snapped_physical_distance / 2.0));
+        let physical_end = physical_start + snapped_physical_distance;
+
+        (
+            physical_start / self.scale_factor,
+            physical_end / self.scale_factor,
+        )
     }
 }
 
@@ -164,5 +195,37 @@ mod tests {
         let grid = Grid::new(1.5);
 
         assert_approx_eq(grid.snap_distance(0.1), 2.0 / 3.0);
+    }
+
+    #[test]
+    fn stable_size_rect_snaps_scaled_plateau_to_aligned_edges() {
+        let grid = Grid::new(1.0);
+        let rect = rect::Rect::new(point::logical(10.0, 18.5), area::logical(40.0, 9.0));
+        let snapped = grid.snap_rect_with_stable_size(rect);
+        let (left, top, right, bottom) = bounds(snapped);
+
+        assert_approx_eq(left, 10.0);
+        assert_approx_eq(top, 18.0);
+        assert_approx_eq(right, 50.0);
+        assert_approx_eq(bottom, 27.0);
+        assert!(grid.rect_is_aligned(snapped));
+    }
+
+    #[test]
+    fn stable_size_rect_keeps_distance_stable_across_positions() {
+        let grid = Grid::new(1.0);
+        let first = grid.snap_rect_with_stable_size(rect::Rect::new(
+            point::logical(10.0, 18.5),
+            area::logical(40.0, 9.0),
+        ));
+        let second = grid.snap_rect_with_stable_size(rect::Rect::new(
+            point::logical(10.0, 19.5),
+            area::logical(40.0, 9.0),
+        ));
+
+        assert_approx_eq(first.area.height(), 9.0);
+        assert_approx_eq(second.area.height(), 9.0);
+        assert!(grid.rect_is_aligned(first));
+        assert!(grid.rect_is_aligned(second));
     }
 }

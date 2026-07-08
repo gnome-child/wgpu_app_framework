@@ -115,9 +115,15 @@ impl Animations {
             transition.retarget(desired, now);
 
             let value = transition.value_at(now);
-            visuals.set_slider_track_scale_y(target, value);
+            let is_animating = transition.is_animating_at(now);
+            let scalar = if is_animating {
+                scene::VisualScalar::moving(value)
+            } else {
+                scene::VisualScalar::resting(value)
+            };
+            visuals.set_slider_track_scale_y(target, scalar);
 
-            if transition.is_animating_at(now) {
+            if is_animating {
                 schedule = schedule.merge(animation::Schedule::NextFrame);
             } else if transition.is_at_base(now) {
                 remove.push(key);
@@ -198,7 +204,7 @@ impl Animations {
             } else {
                 base_thickness
             };
-            let opacity = self.transition_value(
+            let (opacity, _) = self.transition_value(
                 pass,
                 TransitionStep {
                     key: Key {
@@ -213,7 +219,7 @@ impl Animations {
                     ),
                 },
             );
-            let thickness = self.transition_value(
+            let (thickness, thickness_motion) = self.transition_value(
                 pass,
                 TransitionStep {
                     key: Key {
@@ -234,6 +240,7 @@ impl Animations {
                 target,
                 opacity,
                 thickness.round() as i32,
+                thickness_motion,
                 is_hovered,
                 is_pressed,
             );
@@ -324,21 +331,31 @@ impl Animations {
         }
     }
 
-    fn transition_value(&mut self, pass: &mut VisualPass<'_>, step: TransitionStep) -> f32 {
+    fn transition_value(
+        &mut self,
+        pass: &mut VisualPass<'_>,
+        step: TransitionStep,
+    ) -> (f32, scene::Motion) {
         pass.seen.insert(step.key.clone());
         let transition = self.transitions.entry(step.key.clone()).or_insert_with(|| {
             VisualTransition::settled(step.base, step.base, pass.now, step.duration)
         });
         transition.retarget(step.desired, pass.now);
         let value = transition.value_at(pass.now);
+        let is_animating = transition.is_animating_at(pass.now);
+        let motion = if is_animating {
+            scene::Motion::Moving
+        } else {
+            scene::Motion::Resting
+        };
 
-        if transition.is_animating_at(pass.now) {
+        if is_animating {
             *pass.schedule = pass.schedule.merge(animation::Schedule::NextFrame);
         } else if transition.is_at_base(pass.now) {
             pass.remove.push(step.key);
         }
 
-        value
+        (value, motion)
     }
 }
 

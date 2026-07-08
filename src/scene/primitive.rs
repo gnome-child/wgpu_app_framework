@@ -37,6 +37,13 @@ pub struct Transform {
     translate_y: f32,
     scale_x: f32,
     scale_y: f32,
+    motion: Motion,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Motion {
+    Moving,
+    Resting,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -291,6 +298,7 @@ impl Transform {
             translate_y: 0.0,
             scale_x: 1.0,
             scale_y: 1.0,
+            motion: Motion::Resting,
         }
     }
 
@@ -319,6 +327,11 @@ impl Transform {
         Self::scale_about(origin_x, origin_y, 1.0, scale_y)
     }
 
+    pub fn with_motion(mut self, motion: Motion) -> Self {
+        self.motion = motion;
+        self
+    }
+
     pub const fn origin_x(self) -> f32 {
         self.origin_x
     }
@@ -341,6 +354,10 @@ impl Transform {
 
     pub const fn scale_y(self) -> f32 {
         self.scale_y
+    }
+
+    pub const fn motion(self) -> Motion {
+        self.motion
     }
 }
 
