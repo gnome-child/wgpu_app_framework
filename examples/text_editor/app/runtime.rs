@@ -15,13 +15,11 @@ pub fn runtime(state: State) -> Runtime<State, Event> {
                 .register::<document::NewFile>(command::Spec::new("New").shortcut("Primary+N"))
                 .register::<document::OpenFile>(command::Spec::new("Open").shortcut("Primary+O"))
                 .register::<document::OpenPath>(command::Spec::new("Open Path"))
-                .register::<document::OpenCanceled>(command::Spec::new("Open Canceled"))
                 .register::<document::SaveFile>(command::Spec::new("Save").shortcut("Primary+S"))
                 .register::<document::SaveAsFile>(
                     command::Spec::new("Save As").shortcut("Primary+Shift+S"),
                 )
                 .register::<document::SaveToPath>(command::Spec::new("Save To Path"))
-                .register::<document::SaveCanceled>(command::Spec::new("Save Canceled"))
                 .register::<document::Cut>(
                     command::Spec::new("Cut")
                         .key_chord(command::KeyChord::standard(command::Standard::Cut)),
@@ -49,14 +47,14 @@ pub fn runtime(state: State) -> Runtime<State, Event> {
                 .target::<document::NewFile>()
                 .target::<document::OpenFile>()
                 .target::<document::OpenPath>()
-                .target::<document::OpenCanceled>()
                 .target::<document::SaveFile>()
                 .target::<document::SaveAsFile>()
                 .target::<document::SaveToPath>()
-                .target::<document::SaveCanceled>()
                 .target::<LoadStressText>()
                 .target::<ToggleWrapText>()
-                .target::<ToggleDebugPanel>();
+                .target::<ToggleDebugPanel>()
+                .listen::<document::OpenDialogCanceled>()
+                .listen::<document::SaveDialogCanceled>();
             responders
                 .object("document", |state: &mut State| &mut state.document)
                 .target::<document::ApplyEdit>()

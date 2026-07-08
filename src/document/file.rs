@@ -1,9 +1,6 @@
 use std::path::PathBuf;
 
-use super::{
-    Document, NewFile, OpenCanceled, OpenFile, OpenPath, SaveAsFile, SaveCanceled, SaveFile,
-    SaveToPath,
-};
+use super::{Document, NewFile, OpenFile, OpenPath, SaveAsFile, SaveFile, SaveToPath};
 use crate::{
     command,
     context::Context,
@@ -42,16 +39,6 @@ impl Target<OpenPath> for Document {
             Ok(()) => Response::changed(Ok(())),
             Err(error) => Response::output(Err(error.to_string())),
         }
-    }
-}
-
-impl Target<OpenCanceled> for Document {
-    fn state(&self, _: &(), _: &Context) -> command::State {
-        command::State::enabled()
-    }
-
-    fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
-        Response::output(())
     }
 }
 
@@ -96,15 +83,5 @@ impl Target<SaveToPath> for Document {
             Ok(()) => Response::changed(Ok(())),
             Err(error) => Response::output(Err(error.to_string())),
         }
-    }
-}
-
-impl Target<SaveCanceled> for Document {
-    fn state(&self, _: &(), _: &Context) -> command::State {
-        command::State::enabled()
-    }
-
-    fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
-        Response::output(())
     }
 }

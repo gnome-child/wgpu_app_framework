@@ -645,6 +645,12 @@ fn text_editor_open_dialog_cancel_updates_status_without_touching_document() {
     assert_eq!(app.state().last_status, "open canceled");
     assert_eq!(app.session().file_dialog(window), None);
     assert_eq!(app.revision().get(), 2);
+    assert_eq!(
+        app.store().changes()[1].reason(),
+        &state::Reason::Notification(
+            <document::OpenDialogCanceled as notification::Notification>::NAME
+        )
+    );
 }
 
 #[test]
@@ -781,6 +787,30 @@ fn text_editor_save_dialog_cancel_updates_status_without_saving() {
     assert_eq!(app.state().last_status, "save canceled");
     assert_eq!(app.session().file_dialog(window), None);
     assert_eq!(app.revision().get(), 3);
+    assert_eq!(
+        app.store().changes()[2].reason(),
+        &state::Reason::Notification(
+            <document::SaveDialogCanceled as notification::Notification>::NAME
+        )
+    );
+}
+
+#[test]
+fn text_editor_dialog_cancel_notifications_are_not_palette_commands() {
+    let mut app = text_editor::app(text_editor::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    app.present(window).expect("initial view should present");
+    app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
+        .expect("palette shortcut should open");
+
+    let projected = app.present(window).expect("palette should project");
+    let labels = projected.labels();
+
+    assert!(!labels.contains(&"Open Canceled"));
+    assert!(!labels.contains(&"Save Canceled"));
 }
 
 #[test]

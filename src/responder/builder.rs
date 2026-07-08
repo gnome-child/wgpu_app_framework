@@ -3,6 +3,7 @@ use std::{marker::PhantomData, rc::Rc};
 use super::{Chain, Kind, Responder};
 use crate::{
     command::Command,
+    notification::{self, Notification},
     session, state,
     target::{AnyTarget, Target},
 };
@@ -100,6 +101,18 @@ where
         self.spec
             .targets
             .push(AnyTarget::new::<C, T>(Rc::clone(&self.selector)));
+        self
+    }
+
+    pub fn listen<N: Notification>(&mut self) -> &mut Self
+    where
+        T: notification::Listener<N>,
+    {
+        self.spec
+            .listeners
+            .push(notification::AnyListener::new::<N, T>(Rc::clone(
+                &self.selector,
+            )));
         self
     }
 }

@@ -291,11 +291,34 @@ availability, history policy, observers, registry metadata, and triggers.
 Commands describe what can be asked. They do not decide which concrete target
 is currently meant by focus, capture, or app state.
 
+Commands are imperative requests. Past-tense facts are notifications, not
+commands. A past-tense command is a classification error because facts have no
+availability, no history policy, no registry spec, and no advertised command
+surface.
+
 Command shortcuts are semantic data. `Primary+S` means the platform command
 modifier, not the physical Control key, and standard roles such as Undo, Redo,
 Copy, Save, CloseWindow, and CommandPalette name user intent before platform
 resolution. A standard role may resolve to multiple concrete chords; the first
 is the display chord and all chords match input.
+
+`notification`
+
+Owns typed framework facts that have already happened. A notification has a
+stable name and payload, and a responder may listen to it. Delivery is
+zero-to-many: silence is a valid response, and multiple listeners all hear the
+fact in responder-chain order.
+
+Notifications are not undoable. Listener mutations should be peripheral state
+such as status, caches, and session bookkeeping. If a fact requires a
+history-bearing content change, the listener should speak an imperative
+command. Internal framework notifications are also distinct from future
+OS-facing toasts or user-visible system alerts.
+
+Document dialog-cancel notifications live under `document` in v1 because the
+current dialog kinds are document-shaped. Future generic dialogs should let the
+opener declare which fact a dialog outcome emits instead of treating that
+placement as load-bearing.
 
 `keymap`
 
@@ -321,9 +344,10 @@ renderer will draw the result.
 `target` and `responder`
 
 Own executable capability and routing participation. A target says "this value
-can perform this command." A responder chain says "these are the current places
-where a request may be answered." They should stay typed at the edges and erase
-only inside routing machinery.
+can perform this command." A listener says "this value wants to hear this
+notification." A responder chain says "these are the current places where a
+request may be answered or a fact may be delivered." They should stay typed at
+the edges and erase only inside routing machinery.
 
 `response`
 

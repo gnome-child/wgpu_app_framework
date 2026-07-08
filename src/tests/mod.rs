@@ -2,12 +2,17 @@ use super::{
     Clipboard, Command, Context, Diagnostics, Document as TextDocument, Error, Host, Input,
     Platform, Response, Runtime, Scene, Session, Shell, State, Target, Task, Theme, Timeline, View,
     clipboard, command, composition, context, control_gallery, document, draft, geometry,
-    glass_tuner, host, input, interaction, keymap, layout, platform, responder, response, runtime,
-    scene, session, shell, state, subject, task, text_editor, timeline, view, widget, window,
+    glass_tuner, host, input, interaction, keymap, layout, notification, platform, responder,
+    response, runtime, scene, session, shell, state, subject, task, text_editor, timeline, view,
+    widget, window,
 };
 use crate::interaction::Interaction;
 use crate::text;
-use std::{cell::Cell, path::PathBuf, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    path::PathBuf,
+    rc::Rc,
+};
 
 struct Save;
 
@@ -656,6 +661,7 @@ mod host_adapter_tests;
 mod host_shell_tests;
 mod interaction_tests;
 mod layout_scene;
+mod notifications;
 mod platform_tests;
 mod responder_tests;
 mod runtime_tests;

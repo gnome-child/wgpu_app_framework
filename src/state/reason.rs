@@ -2,6 +2,7 @@
 pub enum Reason {
     Command(&'static str),
     Event(&'static str),
+    Notification(&'static str),
     Load,
     Save,
     Restore,
@@ -17,6 +18,10 @@ impl Reason {
 
     pub fn event(label: &'static str) -> Self {
         Self::Event(label)
+    }
+
+    pub fn notification(notification_name: &'static str) -> Self {
+        Self::Notification(notification_name)
     }
 
     pub fn programmatic(label: &'static str) -> Self {

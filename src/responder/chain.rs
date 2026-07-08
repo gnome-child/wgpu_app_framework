@@ -5,6 +5,7 @@ use crate::{
     command::{self, Command, State},
     context::Context,
     error::{Error, Result},
+    notification::{Notification, Reaction},
     response::{AnyResponse, Response},
     state,
 };
@@ -211,6 +212,35 @@ impl<'a, M: state::State> Chain<'a, M> {
         }
 
         None
+    }
+
+    pub(crate) fn notify<N: Notification>(
+        &mut self,
+        payload: &N::Payload,
+        cx: &mut Context,
+    ) -> Reaction {
+        self.notify_any(TypeId::of::<N>(), payload, cx)
+    }
+
+    fn notify_any(
+        &mut self,
+        notification_type: TypeId,
+        payload: &dyn Any,
+        cx: &mut Context,
+    ) -> Reaction {
+        let mut reaction = Reaction::ignored();
+
+        for responder in &self.responders {
+            for listener in responder
+                .listeners
+                .iter()
+                .filter(|listener| listener.handles_type(notification_type))
+            {
+                reaction = reaction.then(listener.notify_any(self.store.model_mut(), payload, cx));
+            }
+        }
+
+        reaction
     }
 
     fn responder_claim(

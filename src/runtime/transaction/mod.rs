@@ -2,6 +2,7 @@ mod activation;
 mod command;
 pub(in crate::runtime) mod gesture;
 pub(in crate::runtime) mod history;
+mod notification;
 mod observer;
 mod outcome;
 

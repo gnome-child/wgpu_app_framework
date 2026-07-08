@@ -8,13 +8,15 @@ use crate::text;
 mod command;
 mod edit;
 mod file;
+mod notification;
 mod outcome;
 
 pub(crate) use command::register;
 pub use command::{
-    ApplyEdit, Copy, Cut, Delete, NewFile, OpenCanceled, OpenFile, OpenPath, Paste, SaveAsFile,
-    SaveCanceled, SaveFile, SaveToPath, SelectAll,
+    ApplyEdit, Copy, Cut, Delete, NewFile, OpenFile, OpenPath, Paste, SaveAsFile, SaveFile,
+    SaveToPath, SelectAll,
 };
+pub use notification::{OpenDialogCanceled, SaveDialogCanceled};
 pub use outcome::Outcome;
 
 #[derive(Clone)]

@@ -11,6 +11,7 @@ use wgpu_l3::{
     Response, Target, Task, command,
     context::Context,
     document,
+    notification::{self, Listener},
     response::{self},
 };
 
@@ -103,14 +104,10 @@ impl Target<document::OpenPath> for State {
     }
 }
 
-impl Target<document::OpenCanceled> for State {
-    fn state(&self, _: &(), _: &Context) -> command::State {
-        command::State::enabled()
-    }
-
-    fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
+impl Listener<document::OpenDialogCanceled> for State {
+    fn notify(&mut self, _: &(), _: &mut Context) -> notification::Reaction {
         self.last_status = "open canceled".to_owned();
-        Response::changed(())
+        notification::Reaction::changed()
     }
 }
 
@@ -154,14 +151,10 @@ impl Target<document::SaveToPath> for State {
     }
 }
 
-impl Target<document::SaveCanceled> for State {
-    fn state(&self, _: &(), _: &Context) -> command::State {
-        command::State::enabled()
-    }
-
-    fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
+impl Listener<document::SaveDialogCanceled> for State {
+    fn notify(&mut self, _: &(), _: &mut Context) -> notification::Reaction {
         self.last_status = "save canceled".to_owned();
-        Response::changed(())
+        notification::Reaction::changed()
     }
 }
 

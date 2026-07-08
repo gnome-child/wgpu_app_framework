@@ -112,15 +112,6 @@ impl Command for OpenPath {
     const NAME: &'static str = "document.open_path";
 }
 
-pub struct OpenCanceled;
-
-impl Command for OpenCanceled {
-    type Args = ();
-    type Output = ();
-
-    const NAME: &'static str = "document.open_canceled";
-}
-
 pub struct SaveFile;
 
 impl Command for SaveFile {
@@ -146,15 +137,6 @@ impl Command for SaveToPath {
     type Output = Result<(), String>;
 
     const NAME: &'static str = "document.save_to_path";
-}
-
-pub struct SaveCanceled;
-
-impl Command for SaveCanceled {
-    type Args = ();
-    type Output = ();
-
-    const NAME: &'static str = "document.save_canceled";
 }
 
 fn is_typing_edit(edit: &text::edit::Edit) -> bool {
