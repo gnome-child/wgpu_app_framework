@@ -43,6 +43,7 @@ pub struct Target {
 
 struct Textures {
     area: paint::area::Physical,
+    logical_area: paint::area::Logical,
     composition: Texture,
     ping: Texture,
     pong: Texture,
@@ -51,6 +52,7 @@ struct Textures {
 struct Texture {
     _inner: wgpu::Texture,
     view: wgpu::TextureView,
+    area: paint::area::Physical,
 }
 
 pub(crate) struct LayerComposite<'a> {
@@ -83,6 +85,21 @@ impl<'a> TextureSource<'a> {
         Self {
             view,
             area,
+            logical_area,
+            sampling,
+        }
+    }
+}
+
+impl Texture {
+    fn source(
+        &self,
+        logical_area: paint::area::Logical,
+        sampling: paint::LayerSampling,
+    ) -> TextureSource<'_> {
+        TextureSource {
+            view: &self.view,
+            area: self.area,
             logical_area,
             sampling,
         }
@@ -544,7 +561,11 @@ impl Renderer {
 
     pub fn prepare(&mut self, render_context: &render::Context, canvas: &render::Canvas) -> Target {
         let target = Target::new(canvas);
-        self.ensure_textures(render_context, target.physical_area.clamp_min(1));
+        self.ensure_textures(
+            render_context,
+            target.physical_area.clamp_min(1),
+            target.logical_area,
+        );
         target
     }
 
@@ -566,7 +587,8 @@ impl Renderer {
         label: &'static str,
     ) -> Layer {
         let area = target.physical_area.clamp_min(1);
-        if let Some(layer) = take_pooled_layer(&mut self.layer_pool.borrow_mut(), area) {
+        if let Some(mut layer) = take_pooled_layer(&mut self.layer_pool.borrow_mut(), area) {
+            layer.logical_area = area.to_logical(target.scale_factor);
             return layer;
         }
 
@@ -625,12 +647,9 @@ impl Renderer {
                     self.blur_pass(BlurPass {
                         render_context: pass.render_context,
                         encoder: pass.encoder,
-                        source: TextureSource {
-                            view: &textures.ping.view,
-                            area: pass.target.physical_area.clamp_min(1),
-                            logical_area: pass.target.logical_area,
-                            sampling: paint::LayerSampling::Filtered,
-                        },
+                        source: textures
+                            .ping
+                            .source(textures.logical_area, paint::LayerSampling::Filtered),
                         output: &textures.pong.view,
                         target: pass.target,
                         prepared,
@@ -640,12 +659,9 @@ impl Renderer {
                     self.composite_pass(CompositePass {
                         render_context: pass.render_context,
                         encoder: pass.encoder,
-                        source: TextureSource {
-                            view: &textures.pong.view,
-                            area: pass.target.physical_area.clamp_min(1),
-                            logical_area: pass.target.logical_area,
-                            sampling: paint::LayerSampling::Filtered,
-                        },
+                        source: textures
+                            .pong
+                            .source(textures.logical_area, paint::LayerSampling::Filtered),
                         output: pass.output,
                         target: pass.target,
                         prepared,
@@ -685,12 +701,9 @@ impl Renderer {
                     self.blur_pass(BlurPass {
                         render_context: pass.render_context,
                         encoder: pass.encoder,
-                        source: TextureSource {
-                            view: &textures.ping.view,
-                            area: pass.target.physical_area.clamp_min(1),
-                            logical_area: pass.target.logical_area,
-                            sampling: paint::LayerSampling::Filtered,
-                        },
+                        source: textures
+                            .ping
+                            .source(textures.logical_area, paint::LayerSampling::Filtered),
                         output: &textures.pong.view,
                         target: pass.target,
                         prepared,
@@ -700,12 +713,9 @@ impl Renderer {
                     self.composite_pass(CompositePass {
                         render_context: pass.render_context,
                         encoder: pass.encoder,
-                        source: TextureSource {
-                            view: &textures.pong.view,
-                            area: pass.target.physical_area.clamp_min(1),
-                            logical_area: pass.target.logical_area,
-                            sampling: paint::LayerSampling::Filtered,
-                        },
+                        source: textures
+                            .pong
+                            .source(textures.logical_area, paint::LayerSampling::Filtered),
                         output: pass.output,
                         target: pass.target,
                         prepared,
@@ -753,12 +763,9 @@ impl Renderer {
                     self.composite_pass(CompositePass {
                         render_context: pass.render_context,
                         encoder: pass.encoder,
-                        source: TextureSource {
-                            view: &textures.ping.view,
-                            area: pass.target.physical_area.clamp_min(1),
-                            logical_area: pass.target.logical_area,
-                            sampling: paint::LayerSampling::Filtered,
-                        },
+                        source: textures
+                            .ping
+                            .source(textures.logical_area, paint::LayerSampling::Filtered),
                         output: pass.output,
                         target: pass.target,
                         prepared,
@@ -801,12 +808,9 @@ impl Renderer {
                     self.composite_pass(CompositePass {
                         render_context: pass.render_context,
                         encoder: pass.encoder,
-                        source: TextureSource {
-                            view: &textures.ping.view,
-                            area: pass.target.physical_area.clamp_min(1),
-                            logical_area: pass.target.logical_area,
-                            sampling: paint::LayerSampling::Filtered,
-                        },
+                        source: textures
+                            .ping
+                            .source(textures.logical_area, paint::LayerSampling::Filtered),
                         output: pass.output,
                         target: pass.target,
                         prepared,
@@ -860,12 +864,9 @@ impl Renderer {
                     self.composite_pass(CompositePass {
                         render_context: pass.render_context,
                         encoder: pass.encoder,
-                        source: TextureSource {
-                            view: &textures.ping.view,
-                            area: pass.target.physical_area.clamp_min(1),
-                            logical_area: pass.target.logical_area,
-                            sampling: paint::LayerSampling::Filtered,
-                        },
+                        source: textures
+                            .ping
+                            .source(textures.logical_area, paint::LayerSampling::Filtered),
                         output: pass.output,
                         target: pass.target,
                         prepared,
@@ -914,12 +915,9 @@ impl Renderer {
                     self.composite_pass(CompositePass {
                         render_context: pass.render_context,
                         encoder: pass.encoder,
-                        source: TextureSource {
-                            view: &textures.ping.view,
-                            area: pass.target.physical_area.clamp_min(1),
-                            logical_area: pass.target.logical_area,
-                            sampling: paint::LayerSampling::Filtered,
-                        },
+                        source: textures
+                            .ping
+                            .source(textures.logical_area, paint::LayerSampling::Filtered),
                         output: pass.output,
                         target: pass.target,
                         prepared,
@@ -955,12 +953,7 @@ impl Renderer {
         self.composite_pass(CompositePass {
             render_context: pass.render_context,
             encoder: pass.encoder,
-            source: TextureSource {
-                view: pass.source.view(),
-                area: pass.source.area(),
-                logical_area: pass.source.logical_area(),
-                sampling: paint::LayerSampling::PixelAligned,
-            },
+            source: pass.source.source(paint::LayerSampling::PixelAligned),
             output: pass.output,
             target: pass.target,
             prepared,
@@ -1040,17 +1033,23 @@ impl Renderer {
         pass.draw(0..3, 0..1);
     }
 
-    fn ensure_textures(&mut self, render_context: &render::Context, area: paint::area::Physical) {
+    fn ensure_textures(
+        &mut self,
+        render_context: &render::Context,
+        area: paint::area::Physical,
+        logical_area: paint::area::Logical,
+    ) {
         if self
             .textures
             .as_ref()
-            .is_some_and(|textures| textures.area == area)
+            .is_some_and(|textures| textures.area == area && textures.logical_area == logical_area)
         {
             return;
         }
 
         self.textures = Some(Textures {
             area,
+            logical_area,
             composition: self.create_texture(render_context, area, "Filter Composition Texture"),
             ping: self.create_texture(render_context, area, "Filter Ping Texture"),
             pong: self.create_texture(render_context, area, "Filter Pong Texture"),
@@ -1085,6 +1084,7 @@ impl Renderer {
         Texture {
             _inner: texture,
             view,
+            area,
         }
     }
 
@@ -1360,37 +1360,41 @@ impl Renderer {
     }
 
     fn params_with_texture_area(&self, input: ParamInput) -> Params {
-        let physical_area = input.texture_area.clamp_min(1);
+        params_with_texture_area(input)
+    }
+}
 
-        let source_rect_data = physical_source_rect_data(
-            input.source_rect,
-            input.texture_logical_area,
-            physical_area,
-            input.target_scale_factor,
-            input.sampling,
-        );
-        let source_scale = source_step_data(
-            source_rect_data,
-            input.prepared.shape_rect.area,
-            input.target_scale_factor,
-            input.sampling,
-        );
+fn params_with_texture_area(input: ParamInput) -> Params {
+    let physical_area = input.texture_area.clamp_min(1);
 
-        Params {
-            texture_size: [physical_area.width() as f32, physical_area.height() as f32],
-            source_scale,
-            direction_radius: [
-                input.direction[0],
-                input.direction[1],
-                input.prepared.blur_radius_px,
-                0.0,
-            ],
-            effect: input.effect,
-            rect: rect_data(input.prepared.shape_rect),
-            source_rect: source_rect_data,
-            target_rect: physical_rect_data(input.prepared.shape_rect, input.target_scale_factor),
-            rounding: rounding_data(input.prepared.rounding),
-        }
+    let source_rect_data = physical_source_rect_data(
+        input.source_rect,
+        input.texture_logical_area,
+        physical_area,
+        input.target_scale_factor,
+        input.sampling,
+    );
+    let source_scale = source_step_data(
+        source_rect_data,
+        input.prepared.shape_rect.area,
+        input.target_scale_factor,
+        input.sampling,
+    );
+
+    Params {
+        texture_size: [physical_area.width() as f32, physical_area.height() as f32],
+        source_scale,
+        direction_radius: [
+            input.direction[0],
+            input.direction[1],
+            input.prepared.blur_radius_px,
+            0.0,
+        ],
+        effect: input.effect,
+        rect: rect_data(input.prepared.shape_rect),
+        source_rect: source_rect_data,
+        target_rect: physical_rect_data(input.prepared.shape_rect, input.target_scale_factor),
+        rounding: rounding_data(input.prepared.rounding),
     }
 }
 
@@ -1408,12 +1412,14 @@ impl Layer {
         &self.texture.view
     }
 
-    pub fn area(&self) -> paint::area::Physical {
-        self.area
-    }
-
-    pub fn logical_area(&self) -> paint::area::Logical {
-        self.logical_area
+    fn source(&self, sampling: paint::LayerSampling) -> TextureSource<'_> {
+        debug_assert_eq!(self.texture.area, self.area);
+        TextureSource {
+            view: self.view(),
+            area: self.area,
+            logical_area: self.logical_area,
+            sampling,
+        }
     }
 }
 
@@ -1692,6 +1698,7 @@ fn create_noise_texture(render_context: &render::Context) -> Texture {
     Texture {
         _inner: texture,
         view,
+        area: paint::area::physical(Renderer::NOISE_TEXTURE_SIZE, Renderer::NOISE_TEXTURE_SIZE),
     }
 }
 
@@ -2001,6 +2008,32 @@ mod tests {
             ),
             [0.0, 0.0, 200.0, 100.0]
         );
+    }
+
+    #[test]
+    fn group_intermediate_params_keep_shared_texture_extent() {
+        let prepared = prepare_filter(
+            Rect::new(
+                paint::point::logical(0.0, 0.0),
+                paint::area::logical(160.0, 80.0),
+            ),
+            1.5,
+        )
+        .expect("filter should prepare");
+        let params = params_with_texture_area(ParamInput {
+            target_scale_factor: 1.5,
+            texture_area: paint::area::physical(1200, 900),
+            texture_logical_area: paint::area::logical(800.0, 600.0),
+            prepared,
+            source_rect: prepared.shape_rect,
+            direction: [0.0, 1.0],
+            effect: [1.0, 0.0, 0.0, 0.0],
+            sampling: paint::LayerSampling::Filtered,
+        });
+
+        assert_eq!(params.texture_size, [1200.0, 900.0]);
+        assert_eq!(params.source_rect, [0.0, 0.0, 240.0, 120.0]);
+        assert_eq!(params.target_rect, [0.0, 0.0, 240.0, 120.0]);
     }
 
     #[test]
