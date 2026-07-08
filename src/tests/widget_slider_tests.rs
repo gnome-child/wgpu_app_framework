@@ -263,6 +263,11 @@ fn slider_hover_animates_track_transform_without_tint_or_layout_shift() {
     assert_eq!(hovered_slider.active_rect(), initial_active_rect);
     assert_eq!(track_scale_y(hovered.scene(), track), 1.0);
     assert_eq!(track_motion(hovered.scene(), track), scene::Motion::Moving);
+    let hover_motion = track_scale_motion(hovered.scene(), track)
+        .expect("moving slider track should carry snapped endpoint data");
+    assert_approx_eq_f32(hover_motion.from_y(), 1.0);
+    assert_approx_eq_f32(hover_motion.to_y(), 1.5);
+    assert_approx_eq_f32(hover_motion.progress(), 0.0);
     assert_no_slider_hover_tint(hovered.scene(), initial_active_rect);
     assert_eq!(
         app.animation_schedule(),
@@ -281,6 +286,11 @@ fn slider_hover_animates_track_transform_without_tint_or_layout_shift() {
     let mid_scale = track_scale_y(mid.scene(), track);
     assert!(mid_scale > 1.0 && mid_scale < 1.5);
     assert_eq!(track_motion(mid.scene(), track), scene::Motion::Moving);
+    let mid_motion = track_scale_motion(mid.scene(), track)
+        .expect("mid-animation slider track should carry endpoint data");
+    assert_approx_eq_f32(mid_motion.from_y(), 1.0);
+    assert_approx_eq_f32(mid_motion.to_y(), 1.5);
+    assert!(mid_motion.progress() > 0.0 && mid_motion.progress() < 1.0);
     assert_eq!(thumb_transform_scale_y(mid.scene(), hovered_slider), 1.0);
 
     let settled = app
@@ -297,6 +307,11 @@ fn slider_hover_animates_track_transform_without_tint_or_layout_shift() {
         .expect("leaving slider should render");
     assert_approx_eq_f32(track_scale_y(leaving.scene(), track), 1.5);
     assert_eq!(track_motion(leaving.scene(), track), scene::Motion::Moving);
+    let leave_motion = track_scale_motion(leaving.scene(), track)
+        .expect("leaving slider track should carry retarget endpoint data");
+    assert_approx_eq_f32(leave_motion.from_y(), 1.5);
+    assert_approx_eq_f32(leave_motion.to_y(), 1.0);
+    assert_approx_eq_f32(leave_motion.progress(), 0.0);
     assert_eq!(
         app.animation_schedule(),
         crate::animation::Schedule::NextFrame
@@ -394,6 +409,15 @@ fn track_motion(scene: &Scene, track: geometry::Rect) -> scene::Motion {
         .find(|quad| quad.rect() == track && quad.fill() == theme.slider().track)
         .map(|quad| quad.transform().motion())
         .expect("slider track should paint")
+}
+
+fn track_scale_motion(scene: &Scene, track: geometry::Rect) -> Option<scene::ScaleMotion> {
+    let theme = Theme::default();
+    scene
+        .quads()
+        .into_iter()
+        .find(|quad| quad.rect() == track && quad.fill() == theme.slider().track)
+        .and_then(|quad| quad.transform().scale_motion())
 }
 
 fn thumb_transform_scale_y(scene: &Scene, slider: &layout::Frame) -> f32 {

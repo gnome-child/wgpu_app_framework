@@ -1,7 +1,7 @@
 use crate::{geometry, text, theme::Theme};
 
 use super::super::primitive::TextColor;
-use super::super::{EdgeMode, Quad, Rasterization, Snapping, TextSurface};
+use super::super::{Rule, TextSurface};
 
 fn surface_rect(
     viewport: geometry::Rect,
@@ -36,11 +36,8 @@ pub(super) fn clipped_span_rect(
     clip_rect(span_rect(viewport, x, y, width, height), viewport)
 }
 
-pub(super) fn caret_quad(rect: geometry::Rect, theme: &Theme) -> Quad {
-    Quad::new(rect, theme.text_input().caret).with_rasterization(Rasterization::new(
-        Snapping::FixedWidth { width_px: 2 },
-        EdgeMode::Hard,
-    ))
+pub(super) fn caret_rule(rect: geometry::Rect, theme: &Theme) -> Rule {
+    Rule::vertical(rect, theme.text_input().caret, 2)
 }
 
 fn span_rect(viewport: geometry::Rect, x: f32, y: f32, width: f32, height: f32) -> geometry::Rect {

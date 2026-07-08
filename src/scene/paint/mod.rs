@@ -427,7 +427,11 @@ fn paint_menu_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
 fn paint_menu_separator(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     let parts = layout::menu_row_parts(frame.rect(), frame.shortcut_width(), theme);
 
-    scene.push_quad(Quad::new(parts.separator, theme.menu().separator));
+    scene.push_rule(super::Rule::horizontal(
+        parts.separator,
+        theme.menu().separator,
+        1,
+    ));
 }
 
 fn paint_palette_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {

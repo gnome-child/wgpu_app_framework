@@ -31,6 +31,10 @@ impl Scene {
         self.items.push(Item::Quad(quad));
     }
 
+    pub fn push_rule(&mut self, rule: Rule) {
+        self.items.push(Item::Rule(rule));
+    }
+
     pub fn push_text(&mut self, text: Text) {
         if !text.document.is_empty() {
             self.items.push(Item::Text(text));
@@ -86,6 +90,7 @@ impl Default for Scene {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Quad(Quad),
+    Rule(Rule),
     Text(Text),
     TextViewport(TextViewport),
     Icon(Icon),
@@ -105,18 +110,42 @@ pub struct Quad {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rule {
+    pub axis: Axis,
+    pub rect: Rect,
+    pub brush: Brush,
+    pub thickness_px: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Axis {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transform {
     pub origin: paint_geometry::LogicalPoint,
     pub translate: paint_geometry::LogicalPoint,
     pub scale_x: f32,
     pub scale_y: f32,
     pub motion: Motion,
+    pub scale_motion: Option<ScaleMotion>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Motion {
     Moving,
     Resting,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScaleMotion {
+    pub from_x: f32,
+    pub from_y: f32,
+    pub to_x: f32,
+    pub to_y: f32,
+    pub progress: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,7 +167,6 @@ impl Default for Rasterization {
 pub enum Snapping {
     Disabled,
     Rect,
-    FixedWidth { width_px: u32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -329,6 +357,7 @@ impl Transform {
             scale_x: 1.0,
             scale_y: 1.0,
             motion: Motion::Resting,
+            scale_motion: None,
         }
     }
 
@@ -360,6 +389,31 @@ impl Transform {
         self
     }
 
+    pub fn with_scale(mut self, scale_x: f32, scale_y: f32) -> Self {
+        self.scale_x = sanitized_scale(scale_x);
+        self.scale_y = sanitized_scale(scale_y);
+        self
+    }
+
+    #[cfg(test)]
+    pub fn with_scale_motion(
+        mut self,
+        from_x: f32,
+        from_y: f32,
+        to_x: f32,
+        to_y: f32,
+        progress: f32,
+    ) -> Self {
+        self.scale_motion = Some(ScaleMotion {
+            from_x: sanitized_scale(from_x),
+            from_y: sanitized_scale(from_y),
+            to_x: sanitized_scale(to_x),
+            to_y: sanitized_scale(to_y),
+            progress: sanitized_progress(progress),
+        });
+        self
+    }
+
     pub fn transformed_rect(self, rect: Rect) -> Rect {
         if self.is_identity() {
             return rect;
@@ -385,6 +439,44 @@ impl Transform {
         )
     }
 
+    pub(crate) fn resolve_rect(self, rect: Rect, grid: paint_geometry::Grid) -> (Rect, Self) {
+        if self.motion == Motion::Moving
+            && let Some(scale_motion) = self.scale_motion
+        {
+            return (
+                self.scaled_motion_rect(rect, scale_motion, grid),
+                Self::identity(),
+            );
+        }
+
+        if self.motion == Motion::Resting && !self.is_identity() {
+            return (
+                grid.snap_rect_with_stable_size(self.transformed_rect(rect)),
+                Self::identity(),
+            );
+        }
+
+        (rect, self)
+    }
+
+    fn scaled_motion_rect(
+        self,
+        rect: Rect,
+        scale_motion: ScaleMotion,
+        grid: paint_geometry::Grid,
+    ) -> Rect {
+        let from = grid.snap_rect_with_stable_size(
+            self.with_scale(scale_motion.from_x, scale_motion.from_y)
+                .transformed_rect(rect),
+        );
+        let to = grid.snap_rect_with_stable_size(
+            self.with_scale(scale_motion.to_x, scale_motion.to_y)
+                .transformed_rect(rect),
+        );
+
+        lerp_rect(from, to, scale_motion.progress)
+    }
+
     fn transform_x(self, x: f32) -> f32 {
         ((x - self.origin.x()) * self.scale_x) + self.origin.x() + self.translate.x()
     }
@@ -400,9 +492,43 @@ impl Default for Transform {
     }
 }
 
-#[cfg(test)]
 fn sanitized_scale(scale: f32) -> f32 {
     if scale.is_finite() { scale } else { 1.0 }
+}
+
+#[cfg(test)]
+fn sanitized_progress(progress: f32) -> f32 {
+    if progress.is_finite() {
+        progress.clamp(0.0, 1.0)
+    } else {
+        1.0
+    }
+}
+
+fn lerp_rect(from: Rect, to: Rect, progress: f32) -> Rect {
+    let progress = progress.clamp(0.0, 1.0);
+    let left = lerp(from.origin.x(), to.origin.x(), progress);
+    let top = lerp(from.origin.y(), to.origin.y(), progress);
+    let right = lerp(
+        from.origin.x() + from.area.width(),
+        to.origin.x() + to.area.width(),
+        progress,
+    );
+    let bottom = lerp(
+        from.origin.y() + from.area.height(),
+        to.origin.y() + to.area.height(),
+        progress,
+    );
+
+    Rect::rounded(
+        paint_geometry::logical_point(left, top),
+        paint_geometry::logical_area((right - left).max(0.0), (bottom - top).max(0.0)),
+        to.rounding,
+    )
+}
+
+fn lerp(from: f32, to: f32, progress: f32) -> f32 {
+    from + ((to - from) * progress)
 }
 
 impl FilterOp {

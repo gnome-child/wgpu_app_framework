@@ -17,6 +17,7 @@ pub enum Glyph<'a> {
 
 pub enum Shape<'a> {
     Quad(&'a paint::Quad),
+    Rule(&'a paint::Rule),
     Shadow(&'a paint::Shadow),
     Outline(&'a paint::Outline),
 }
@@ -27,6 +28,7 @@ pub fn item_batches(items: &[paint::Item]) -> Vec<ItemBatch<'_>> {
     for item in items {
         match item {
             paint::Item::Quad(quad) => push_shape(&mut batches, Shape::Quad(quad)),
+            paint::Item::Rule(rule) => push_shape(&mut batches, Shape::Rule(rule)),
             paint::Item::Text(text) => push_glyph(&mut batches, Glyph::Text(text)),
             paint::Item::TextViewport(text) => push_glyph(&mut batches, Glyph::TextViewport(text)),
             paint::Item::Icon(icon) => push_glyph(&mut batches, Glyph::Icon(icon)),

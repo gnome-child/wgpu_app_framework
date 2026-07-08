@@ -36,6 +36,6 @@ pub(super) fn paint(
         && let Some(caret) =
             text_surface::clipped_span_rect(rect, caret.x(), caret.y(), 1.0, caret.height())
     {
-        scene.push_quad(text_surface::caret_quad(caret, theme));
+        scene.push_rule(text_surface::caret_rule(caret, theme));
     }
 }

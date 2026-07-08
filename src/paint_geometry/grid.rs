@@ -65,19 +65,40 @@ impl Grid {
         )
     }
 
-    pub(crate) fn snap_fixed_width_rect(self, rect: rect::Rect, width_px: u32) -> rect::Rect {
-        let left = self.snap_position(rect.origin.x());
-        let top = self.snap_position(rect.origin.y());
-        let mut bottom = self.snap_position(rect.origin.y() + rect.area.height());
+    pub(crate) fn snap_vertical_rule_rect(self, rect: rect::Rect, width_px: u32) -> rect::Rect {
         let width = (width_px.max(1) as f32) / self.scale_factor;
+        let center = rect.origin.x() + (rect.area.width() / 2.0);
+        let left = self.snap_rule_start(center, width);
+        let mut top = self.snap_position(rect.origin.y());
+        let mut bottom = self.snap_position(rect.origin.y() + rect.area.height());
 
         if bottom <= top {
+            top = self.snap_position(rect.origin.y());
             bottom = top + self.logical_pixel;
         }
 
         rect::Rect::rounded(
             point::logical(left, top),
             area::logical(width, bottom - top),
+            rect.rounding,
+        )
+    }
+
+    pub(crate) fn snap_horizontal_rule_rect(self, rect: rect::Rect, height_px: u32) -> rect::Rect {
+        let height = (height_px.max(1) as f32) / self.scale_factor;
+        let center = rect.origin.y() + (rect.area.height() / 2.0);
+        let top = self.snap_rule_start(center, height);
+        let mut left = self.snap_position(rect.origin.x());
+        let mut right = self.snap_position(rect.origin.x() + rect.area.width());
+
+        if right <= left {
+            left = self.snap_position(rect.origin.x());
+            right = left + self.logical_pixel;
+        }
+
+        rect::Rect::rounded(
+            point::logical(left, top),
+            area::logical(right - left, height),
             rect.rounding,
         )
     }
@@ -93,6 +114,14 @@ impl Grid {
         let physical = position * self.scale_factor;
 
         (physical - round_ties_toward_zero(physical)).abs() <= 0.001
+    }
+
+    fn snap_rule_start(self, center: f32, thickness: f32) -> f32 {
+        let physical_start = round_ties_toward_zero(
+            (center * self.scale_factor) - ((thickness * self.scale_factor) / 2.0),
+        );
+
+        physical_start / self.scale_factor
     }
 
     fn snap_span_with_stable_distance(self, start: f32, distance: f32) -> (f32, f32) {

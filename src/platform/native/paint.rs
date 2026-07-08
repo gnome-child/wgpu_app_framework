@@ -18,6 +18,7 @@ pub(in crate::platform::native) fn to_paint_scene_at_scale(
     for primitive in source.primitives() {
         match primitive {
             scene::Primitive::Quad(quad) => scene.push_quad(to_paint_quad(quad, grid)),
+            scene::Primitive::Rule(rule) => scene.push_rule(to_paint_rule(rule, grid)),
             scene::Primitive::Text(text) => scene.push_text(to_paint_text(text, grid)),
             scene::Primitive::TextViewport(text) => {
                 scene.push_text_viewport(to_paint_text_viewport(text, grid));
@@ -46,6 +47,25 @@ fn to_paint_quad(quad: &scene::Quad, grid: paint_geometry::Grid) -> paint::Quad 
         style: to_paint_style(quad.style()),
         rasterization: to_paint_rasterization(quad.rasterization()),
         transform,
+    }
+}
+
+fn to_paint_rule(rule: &scene::Rule, grid: paint_geometry::Grid) -> paint::Rule {
+    let rect = paint_geometry::Rect::new(
+        paint_geometry::logical_point(rule.rect().x() as f32, rule.rect().y() as f32),
+        paint_geometry::logical_area(rule.rect().width() as f32, rule.rect().height() as f32),
+    );
+    let axis = to_paint_axis(rule.axis());
+    let rect = match axis {
+        paint::Axis::Horizontal => grid.snap_horizontal_rule_rect(rect, rule.thickness_px()),
+        paint::Axis::Vertical => grid.snap_vertical_rule_rect(rect, rule.thickness_px()),
+    };
+
+    paint::Rule {
+        axis,
+        rect,
+        brush: paint::Brush::solid(super::color::paint_color(rule.color())),
+        thickness_px: rule.thickness_px(),
     }
 }
 
@@ -268,6 +288,7 @@ fn to_paint_transform(transform: scene::Transform) -> paint::Transform {
         scale_x: transform.scale_x(),
         scale_y: transform.scale_y(),
         motion: to_paint_motion(transform.motion()),
+        scale_motion: transform.scale_motion().map(to_paint_scale_motion),
     }
 }
 
@@ -276,14 +297,7 @@ fn resolve_quad_transform(
     transform: paint::Transform,
     grid: paint_geometry::Grid,
 ) -> (paint_geometry::Rect, paint::Transform) {
-    if transform.motion == paint::Motion::Resting && !transform.is_identity() {
-        (
-            grid.snap_rect_with_stable_size(transform.transformed_rect(rect)),
-            paint::Transform::identity(),
-        )
-    } else {
-        (rect, transform)
-    }
+    transform.resolve_rect(rect, grid)
 }
 
 fn to_paint_motion(motion: scene::Motion) -> paint::Motion {
@@ -293,11 +307,27 @@ fn to_paint_motion(motion: scene::Motion) -> paint::Motion {
     }
 }
 
+fn to_paint_scale_motion(scale_motion: scene::ScaleMotion) -> paint::ScaleMotion {
+    paint::ScaleMotion {
+        from_x: scale_motion.from_x(),
+        from_y: scale_motion.from_y(),
+        to_x: scale_motion.to_x(),
+        to_y: scale_motion.to_y(),
+        progress: scale_motion.progress(),
+    }
+}
+
+fn to_paint_axis(axis: scene::Axis) -> paint::Axis {
+    match axis {
+        scene::Axis::Horizontal => paint::Axis::Horizontal,
+        scene::Axis::Vertical => paint::Axis::Vertical,
+    }
+}
+
 fn to_paint_snapping(snapping: scene::Snapping) -> paint::Snapping {
     match snapping {
         scene::Snapping::Disabled => paint::Snapping::Disabled,
         scene::Snapping::Rect => paint::Snapping::Rect,
-        scene::Snapping::FixedWidth { width_px } => paint::Snapping::FixedWidth { width_px },
     }
 }
 

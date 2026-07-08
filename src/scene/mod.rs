@@ -12,9 +12,9 @@ pub use material::{
 };
 pub use presentation::Presentation;
 pub use primitive::{
-    Brush, Clip, EdgeMode, Filter, FilterOp, Icon, LiquidFilter, Motion, Offset, Outline,
-    Primitive, Quad, Radius, Rasterization, Rounding, Shadow, Snapping, Stroke, Style, Text,
-    TextAlign, TextStyle, TextSurface, TextViewport, TextWrap, Transform,
+    Axis, Brush, Clip, EdgeMode, Filter, FilterOp, Icon, LiquidFilter, Motion, Offset, Outline,
+    Primitive, Quad, Radius, Rasterization, Rounding, Rule, ScaleMotion, Shadow, Snapping, Stroke,
+    Style, Text, TextAlign, TextStyle, TextSurface, TextViewport, TextWrap, Transform,
 };
 pub(crate) use visual::Visuals;
 pub(crate) use visual::{Scalar as VisualScalar, Target as TargetVisual};
@@ -107,6 +107,16 @@ impl Scene {
             .collect()
     }
 
+    pub fn rules(&self) -> Vec<&Rule> {
+        self.primitives
+            .iter()
+            .filter_map(|primitive| match primitive {
+                Primitive::Rule(rule) => Some(rule),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub fn texts(&self) -> Vec<&Text> {
         self.primitives
             .iter()
@@ -180,6 +190,12 @@ impl Scene {
     pub(super) fn push_quad(&mut self, quad: Quad) {
         if quad.rect().width() > 0 && quad.rect().height() > 0 {
             self.primitives.push(Primitive::Quad(quad));
+        }
+    }
+
+    pub(super) fn push_rule(&mut self, rule: Rule) {
+        if rule.rect().width() > 0 && rule.rect().height() > 0 && rule.thickness_px() > 0 {
+            self.primitives.push(Primitive::Rule(rule));
         }
     }
 

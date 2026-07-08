@@ -1143,13 +1143,8 @@ fn text_area_caret_visible(presentation: &scene::Presentation) -> bool {
         caret.height().ceil().max(0.0) as i32,
     );
 
-    presentation.scene().quads().into_iter().any(|quad| {
-        quad.rect() == expected
-            && quad.rasterization()
-                == scene::Rasterization::new(
-                    scene::Snapping::FixedWidth { width_px: 2 },
-                    scene::EdgeMode::Hard,
-                )
+    presentation.scene().rules().into_iter().any(|rule| {
+        rule.rect() == expected && rule.axis() == scene::Axis::Vertical && rule.thickness_px() == 2
     })
 }
 
@@ -1171,18 +1166,13 @@ fn assert_text_area_caret_rasterization(presentation: &scene::Presentation) {
         1,
         caret.height().ceil().max(0.0) as i32,
     );
-    let caret_quad = presentation
+    let caret_rule = presentation
         .scene()
-        .quads()
+        .rules()
         .into_iter()
-        .find(|quad| quad.rect() == expected)
-        .expect("text area caret should be painted as a quad");
+        .find(|rule| rule.rect() == expected)
+        .expect("text area caret should be painted as a vertical rule");
 
-    assert_eq!(
-        caret_quad.rasterization(),
-        scene::Rasterization::new(
-            scene::Snapping::FixedWidth { width_px: 2 },
-            scene::EdgeMode::Hard
-        )
-    );
+    assert_eq!(caret_rule.axis(), scene::Axis::Vertical);
+    assert_eq!(caret_rule.thickness_px(), 2);
 }

@@ -117,7 +117,12 @@ impl Animations {
             let value = transition.value_at(now);
             let is_animating = transition.is_animating_at(now);
             let scalar = if is_animating {
-                scene::VisualScalar::moving(value)
+                scene::VisualScalar::moving(
+                    value,
+                    transition.from(),
+                    transition.target(),
+                    transition.eased_progress_at(now),
+                )
             } else {
                 scene::VisualScalar::resting(value)
             };
@@ -418,6 +423,18 @@ impl VisualTransition {
 
     fn value_at(self, now: Instant) -> f32 {
         self.transition.value_at(now)
+    }
+
+    fn from(self) -> f32 {
+        self.transition.from()
+    }
+
+    fn target(self) -> f32 {
+        self.transition.target()
+    }
+
+    fn eased_progress_at(self, now: Instant) -> f32 {
+        self.transition.eased_progress_at(now)
     }
 
     fn is_animating_at(self, now: Instant) -> bool {

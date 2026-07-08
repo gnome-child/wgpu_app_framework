@@ -177,6 +177,7 @@ fn push_shape_vertices(
 fn analytic_shapes_for_shape(shape: &batch::Shape<'_>, scale_factor: f32) -> Vec<AnalyticShape> {
     match shape {
         batch::Shape::Quad(quad) => analytic_shapes_for_quad_at_scale(quad, scale_factor),
+        batch::Shape::Rule(rule) => analytic_shapes_for_rule_at_scale(rule, scale_factor),
         batch::Shape::Shadow(shadow) => analytic_shapes_for_shadow(shadow),
         batch::Shape::Outline(outline) => analytic_shapes_for_outline(outline),
     }
@@ -207,17 +208,12 @@ fn rasterized_quad_rect(quad: &paint::Quad, scale_factor: f32) -> Rect {
             );
             rect
         }
-        paint::Snapping::FixedWidth { width_px } => grid.snap_fixed_width_rect(rect, width_px),
     }
 }
 
 fn transformed_quad_rect(quad: &paint::Quad, grid: Grid) -> Rect {
-    let rect = quad.transform.transformed_rect(quad.rect);
-    if quad.transform.motion == paint::Motion::Resting && !quad.transform.is_identity() {
-        grid.snap_rect_with_stable_size(rect)
-    } else {
-        rect
-    }
+    let (rect, transform) = quad.transform.resolve_rect(quad.rect, grid);
+    transform.transformed_rect(rect)
 }
 
 fn analytic_shapes_for_quad_rect(quad: &paint::Quad, rect: Rect) -> Vec<AnalyticShape> {
@@ -249,6 +245,23 @@ fn analytic_shapes_for_quad_rect(quad: &paint::Quad, rect: Rect) -> Vec<Analytic
     }
 
     shapes
+}
+
+fn analytic_shapes_for_rule_at_scale(rule: &paint::Rule, scale_factor: f32) -> Vec<AnalyticShape> {
+    let rect = rasterized_rule_rect(rule, scale_factor);
+    let mut shape = fill_shape(rect, rule.brush);
+    shape.antialias = false;
+    shape.snap_outer = false;
+
+    vec![shape]
+}
+
+fn rasterized_rule_rect(rule: &paint::Rule, scale_factor: f32) -> Rect {
+    let grid = Grid::new(scale_factor);
+    match rule.axis {
+        paint::Axis::Horizontal => grid.snap_horizontal_rule_rect(rule.rect, rule.thickness_px),
+        paint::Axis::Vertical => grid.snap_vertical_rule_rect(rule.rect, rule.thickness_px),
+    }
 }
 
 fn analytic_shapes_for_shadow(shadow: &paint::Shadow) -> Vec<AnalyticShape> {
@@ -813,6 +826,68 @@ mod tests {
     }
 
     #[test]
+    fn moving_scale_endpoint_starts_at_snapped_rest_pose() {
+        let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
+        quad.rect = Rect::new(
+            paint_geometry::logical_point(10.0, 20.0),
+            paint_geometry::logical_area(40.0, 6.0),
+        );
+        quad.transform =
+            paint::Transform::scale_y_about(paint_geometry::logical_point(30.0, 23.0), 1.0)
+                .with_motion(paint::Motion::Moving)
+                .with_scale_motion(1.0, 1.0, 1.0, 1.5, 0.0);
+
+        let moving = analytic_shapes_for_quad_at_scale(&quad, 1.25)[0].outer_rect;
+        let snapped_start = Grid::new(1.25).snap_rect_with_stable_size(quad.rect);
+
+        assert_eq!(rect_bounds(moving), rect_bounds(snapped_start));
+    }
+
+    #[test]
+    fn moving_scale_endpoint_matches_resting_target_at_fractional_scale() {
+        let mut moving = quad(style(Some(solid(paint::Color::RED)), None, None));
+        moving.rect = Rect::new(
+            paint_geometry::logical_point(10.0, 20.0),
+            paint_geometry::logical_area(40.0, 6.0),
+        );
+        moving.transform =
+            paint::Transform::scale_y_about(paint_geometry::logical_point(30.0, 23.0), 1.5)
+                .with_motion(paint::Motion::Moving)
+                .with_scale_motion(1.0, 1.0, 1.0, 1.5, 1.0);
+        let mut resting = moving;
+        resting.transform =
+            paint::Transform::scale_y_about(paint_geometry::logical_point(30.0, 23.0), 1.5);
+
+        let moving_rect = analytic_shapes_for_quad_at_scale(&moving, 1.25)[0].outer_rect;
+        let resting_rect = analytic_shapes_for_quad_at_scale(&resting, 1.25)[0].outer_rect;
+
+        assert_eq!(rect_bounds(moving_rect), rect_bounds(resting_rect));
+        assert!(Grid::new(1.25).rect_is_aligned(moving_rect));
+    }
+
+    #[test]
+    fn moving_scale_endpoint_matches_resting_target_at_one_x() {
+        let mut moving = quad(style(Some(solid(paint::Color::RED)), None, None));
+        moving.rect = Rect::new(
+            paint_geometry::logical_point(10.0, 20.0),
+            paint_geometry::logical_area(40.0, 6.0),
+        );
+        moving.transform =
+            paint::Transform::scale_y_about(paint_geometry::logical_point(30.0, 23.0), 1.5)
+                .with_motion(paint::Motion::Moving)
+                .with_scale_motion(1.0, 1.0, 1.0, 1.5, 1.0);
+        let mut resting = moving;
+        resting.transform =
+            paint::Transform::scale_y_about(paint_geometry::logical_point(30.0, 23.0), 1.5);
+
+        let moving_rect = analytic_shapes_for_quad_at_scale(&moving, 1.0)[0].outer_rect;
+        let resting_rect = analytic_shapes_for_quad_at_scale(&resting, 1.0)[0].outer_rect;
+
+        assert_eq!(rect_bounds(moving_rect), rect_bounds(resting_rect));
+        assert!(Grid::new(1.0).rect_is_aligned(moving_rect));
+    }
+
+    #[test]
     fn resting_transformed_quad_snaps_to_aligned_bounds() {
         let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
         quad.rect = Rect::new(
@@ -929,36 +1004,57 @@ mod tests {
     }
 
     #[test]
-    fn fixed_width_snapping_forces_stable_quad_width_only_when_requested() {
+    fn vertical_rule_snapping_forces_stable_physical_width() {
         let scale_factor = 1.5;
         let rect = Rect::new(
             paint_geometry::logical_point(10.2, 20.3),
             paint_geometry::logical_area(7.7, 9.2),
         );
-        let mut snapped_quad = quad(style(Some(solid(paint::Color::RED)), None, None));
-        snapped_quad.rect = rect;
-        snapped_quad.rasterization.snapping = paint::Snapping::FixedWidth { width_px: 2 };
-        snapped_quad.rasterization.edge_mode = paint::EdgeMode::Hard;
+        let rule = paint::Rule {
+            axis: paint::Axis::Vertical,
+            rect,
+            brush: paint::Brush::solid(paint::Color::RED),
+            thickness_px: 2,
+        };
 
-        let snapped = analytic_shapes_for_quad_at_scale(&snapped_quad, scale_factor);
+        let snapped = analytic_shapes_for_rule_at_scale(&rule, scale_factor);
         let (left, top, right, bottom) = rect_bounds(snapped[0].outer_rect);
 
-        assert_approx_eq(
-            left * scale_factor,
-            (rect.origin.x() * scale_factor).round(),
-        );
+        let center = rect.origin.x() + (rect.area.width() / 2.0);
+        assert_approx_eq(left * scale_factor, ((center * scale_factor) - 1.0).round());
         assert_approx_eq(top * scale_factor, (rect.origin.y() * scale_factor).round());
         assert_approx_eq(
             bottom * scale_factor,
             ((rect.origin.y() + rect.area.height()) * scale_factor).round(),
         );
         assert_approx_eq((right - left) * scale_factor, 2.0);
+        assert!(!snapped[0].antialias);
+    }
 
-        let mut ordinary_quad = snapped_quad;
-        ordinary_quad.rasterization = paint::Rasterization::default();
-        let ordinary = analytic_shapes_for_quad_at_scale(&ordinary_quad, scale_factor);
+    #[test]
+    fn horizontal_rules_keep_equal_physical_thickness_across_positions() {
+        let first = paint::Rule {
+            axis: paint::Axis::Horizontal,
+            rect: Rect::new(
+                paint_geometry::logical_point(10.0, 20.0),
+                paint_geometry::logical_area(40.0, 1.0),
+            ),
+            brush: paint::Brush::solid(paint::Color::BLACK),
+            thickness_px: 1,
+        };
+        let mut second = first;
+        second.rect = Rect::new(
+            paint_geometry::logical_point(10.0, 21.0),
+            paint_geometry::logical_area(40.0, 1.0),
+        );
 
-        assert_eq!(ordinary[0].outer_rect, rect);
+        for scale_factor in [1.25, 2.0] {
+            let first_rect = rasterized_rule_rect(&first, scale_factor);
+            let second_rect = rasterized_rule_rect(&second, scale_factor);
+
+            assert_approx_eq(first_rect.area.height() * scale_factor, 1.0);
+            assert_approx_eq(second_rect.area.height() * scale_factor, 1.0);
+        }
     }
 
     #[test]

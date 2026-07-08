@@ -100,9 +100,12 @@ impl Transition<f32> {
         self.to
     }
 
+    pub(crate) fn from(self) -> f32 {
+        self.from
+    }
+
     pub(crate) fn value_at(self, now: Instant) -> f32 {
-        let progress = self.progress_at(now);
-        let eased = self.easing.sample(progress);
+        let eased = self.eased_progress_at(now);
 
         self.from + (self.to - self.from) * eased
     }
@@ -119,6 +122,10 @@ impl Transition<f32> {
 
     pub(crate) fn is_animating_at(self, now: Instant) -> bool {
         self.from != self.to && self.progress_at(now) < 1.0
+    }
+
+    pub(crate) fn eased_progress_at(self, now: Instant) -> f32 {
+        self.easing.sample(self.progress_at(now))
     }
 
     fn progress_at(self, now: Instant) -> f32 {

@@ -22,6 +22,9 @@ pub(crate) struct Target {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Scalar {
     value: f32,
+    from: f32,
+    target: f32,
+    progress: f32,
     motion: Motion,
 }
 
@@ -123,9 +126,12 @@ impl Target {
 }
 
 impl Scalar {
-    pub(crate) fn moving(value: f32) -> Self {
+    pub(crate) fn moving(value: f32, from: f32, target: f32, progress: f32) -> Self {
         Self {
             value,
+            from,
+            target,
+            progress,
             motion: Motion::Moving,
         }
     }
@@ -133,12 +139,27 @@ impl Scalar {
     pub(crate) fn resting(value: f32) -> Self {
         Self {
             value,
+            from: value,
+            target: value,
+            progress: 1.0,
             motion: Motion::Resting,
         }
     }
 
     pub(crate) fn value(self) -> f32 {
         self.value
+    }
+
+    pub(crate) fn from(self) -> f32 {
+        self.from
+    }
+
+    pub(crate) fn target(self) -> f32 {
+        self.target
+    }
+
+    pub(crate) fn progress(self) -> f32 {
+        self.progress
     }
 
     pub(crate) fn motion(self) -> Motion {
@@ -148,6 +169,9 @@ impl Scalar {
     fn sanitized_scale(self) -> Self {
         Self {
             value: sanitize_scale(self.value),
+            from: sanitize_scale(self.from),
+            target: sanitize_scale(self.target),
+            progress: sanitize_progress(self.progress),
             motion: self.motion,
         }
     }
@@ -190,6 +214,14 @@ impl Default for Scrollbar {
 fn sanitize_scale(scale: f32) -> f32 {
     if scale.is_finite() {
         scale.max(0.0)
+    } else {
+        1.0
+    }
+}
+
+fn sanitize_progress(progress: f32) -> f32 {
+    if progress.is_finite() {
+        progress.clamp(0.0, 1.0)
     } else {
         1.0
     }

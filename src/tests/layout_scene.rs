@@ -1247,10 +1247,10 @@ fn editable_caret_uses_text_input_caret_color() {
         .render_scene(window, size)
         .expect("focused text box should render");
 
-    assert!(rendered.scene().quads().iter().any(|quad| {
-        quad.fill() == scene::Color::rgb(0, 255, 0)
-            && quad.rasterization().snapping() == (scene::Snapping::FixedWidth { width_px: 2 })
-            && quad.rasterization().edge_mode() == scene::EdgeMode::Hard
+    assert!(rendered.scene().rules().iter().any(|rule| {
+        rule.color() == scene::Color::rgb(0, 255, 0)
+            && rule.axis() == scene::Axis::Vertical
+            && rule.thickness_px() == 2
     }));
 }
 
@@ -3356,8 +3356,11 @@ fn menu_popup_rows_use_row_layout_for_labels_shortcuts_and_separators() {
     );
     assert_eq!(separator_parts.separator.x(), separator.rect().x());
     assert_eq!(separator_parts.separator.width(), separator.rect().width());
-    assert!(rendered.scene().quads().iter().any(|quad| {
-        quad.rect() == separator_parts.separator && quad.fill() == theme.menu().separator
+    assert!(rendered.scene().rules().iter().any(|rule| {
+        rule.rect() == separator_parts.separator
+            && rule.color() == theme.menu().separator
+            && rule.axis() == scene::Axis::Horizontal
+            && rule.thickness_px() == 1
     }));
 }
 

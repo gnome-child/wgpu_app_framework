@@ -10,6 +10,7 @@ use super::material::{BackdropBlur, Luminosity, Noise, Refraction};
 #[derive(Debug, Clone, PartialEq)]
 pub enum Primitive {
     Quad(Quad),
+    Rule(Rule),
     Text(Text),
     TextViewport(TextViewport),
     Icon(Icon),
@@ -30,6 +31,20 @@ pub struct Quad {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rule {
+    axis: Axis,
+    rect: geometry::Rect,
+    color: Color,
+    thickness_px: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Axis {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transform {
     origin_x: f32,
     origin_y: f32,
@@ -38,12 +53,22 @@ pub struct Transform {
     scale_x: f32,
     scale_y: f32,
     motion: Motion,
+    scale_motion: Option<ScaleMotion>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Motion {
     Moving,
     Resting,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScaleMotion {
+    from_x: f32,
+    from_y: f32,
+    to_x: f32,
+    to_y: f32,
+    progress: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -189,7 +214,6 @@ pub struct Rasterization {
 pub enum Snapping {
     Disabled,
     Rect,
-    FixedWidth { width_px: u32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -289,6 +313,50 @@ impl Quad {
     }
 }
 
+impl Rule {
+    pub(in crate::scene) fn horizontal(
+        rect: geometry::Rect,
+        color: Color,
+        thickness_px: u32,
+    ) -> Self {
+        Self {
+            axis: Axis::Horizontal,
+            rect,
+            color,
+            thickness_px: thickness_px.max(1),
+        }
+    }
+
+    pub(in crate::scene) fn vertical(
+        rect: geometry::Rect,
+        color: Color,
+        thickness_px: u32,
+    ) -> Self {
+        Self {
+            axis: Axis::Vertical,
+            rect,
+            color,
+            thickness_px: thickness_px.max(1),
+        }
+    }
+
+    pub fn axis(&self) -> Axis {
+        self.axis
+    }
+
+    pub fn rect(&self) -> geometry::Rect {
+        self.rect
+    }
+
+    pub fn color(&self) -> Color {
+        self.color
+    }
+
+    pub fn thickness_px(&self) -> u32 {
+        self.thickness_px
+    }
+}
+
 impl Transform {
     pub const fn identity() -> Self {
         Self {
@@ -299,6 +367,7 @@ impl Transform {
             scale_x: 1.0,
             scale_y: 1.0,
             motion: Motion::Resting,
+            scale_motion: None,
         }
     }
 
@@ -332,6 +401,18 @@ impl Transform {
         self
     }
 
+    pub fn with_scale_motion(
+        mut self,
+        from_x: f32,
+        from_y: f32,
+        to_x: f32,
+        to_y: f32,
+        progress: f32,
+    ) -> Self {
+        self.scale_motion = Some(ScaleMotion::new(from_x, from_y, to_x, to_y, progress));
+        self
+    }
+
     pub const fn origin_x(self) -> f32 {
         self.origin_x
     }
@@ -359,6 +440,10 @@ impl Transform {
     pub const fn motion(self) -> Motion {
         self.motion
     }
+
+    pub const fn scale_motion(self) -> Option<ScaleMotion> {
+        self.scale_motion
+    }
 }
 
 impl Default for Transform {
@@ -369,6 +454,54 @@ impl Default for Transform {
 
 fn sanitized_transform_value(value: f32, fallback: f32) -> f32 {
     if value.is_finite() { value } else { fallback }
+}
+
+impl ScaleMotion {
+    fn new(from_x: f32, from_y: f32, to_x: f32, to_y: f32, progress: f32) -> Self {
+        Self {
+            from_x: sanitize_scale(from_x),
+            from_y: sanitize_scale(from_y),
+            to_x: sanitize_scale(to_x),
+            to_y: sanitize_scale(to_y),
+            progress: sanitize_progress(progress),
+        }
+    }
+
+    pub const fn from_x(self) -> f32 {
+        self.from_x
+    }
+
+    pub const fn from_y(self) -> f32 {
+        self.from_y
+    }
+
+    pub const fn to_x(self) -> f32 {
+        self.to_x
+    }
+
+    pub const fn to_y(self) -> f32 {
+        self.to_y
+    }
+
+    pub const fn progress(self) -> f32 {
+        self.progress
+    }
+}
+
+fn sanitize_scale(scale: f32) -> f32 {
+    if scale.is_finite() {
+        scale.max(0.0)
+    } else {
+        1.0
+    }
+}
+
+fn sanitize_progress(progress: f32) -> f32 {
+    if progress.is_finite() {
+        progress.clamp(0.0, 1.0)
+    } else {
+        1.0
+    }
 }
 
 impl Text {

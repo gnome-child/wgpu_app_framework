@@ -1072,20 +1072,15 @@ fn text_box_selection_and_caret_are_painted_as_widget_chrome() {
         1,
         caret.height().ceil().max(0.0) as i32,
     );
-    let caret_quad = caret_scene
+    let caret_rule = caret_scene
         .scene()
-        .quads()
+        .rules()
         .into_iter()
-        .find(|quad| quad.rect() == expected)
-        .expect("focused text box should paint the shaped field caret");
+        .find(|rule| rule.rect() == expected)
+        .expect("focused text box should paint the shaped field caret as a rule");
 
-    assert_eq!(
-        caret_quad.rasterization(),
-        scene::Rasterization::new(
-            scene::Snapping::FixedWidth { width_px: 2 },
-            scene::EdgeMode::Hard
-        )
-    );
+    assert_eq!(caret_rule.axis(), scene::Axis::Vertical);
+    assert_eq!(caret_rule.thickness_px(), 2);
 
     app.handle_input(
         window,
@@ -1518,13 +1513,8 @@ fn text_box_caret_visible(presentation: &scene::Presentation) -> bool {
         caret.height().ceil().max(0.0) as i32,
     );
 
-    presentation.scene().quads().into_iter().any(|quad| {
-        quad.rect() == expected
-            && quad.rasterization()
-                == scene::Rasterization::new(
-                    scene::Snapping::FixedWidth { width_px: 2 },
-                    scene::EdgeMode::Hard,
-                )
+    presentation.scene().rules().into_iter().any(|rule| {
+        rule.rect() == expected && rule.axis() == scene::Axis::Vertical && rule.thickness_px() == 2
     })
 }
 

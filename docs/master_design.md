@@ -137,8 +137,8 @@ not snap by rounding layout coordinates in integer logical space.
 Exact half-device-pixel ties round toward zero. This is a deliberate style
 choice for thin geometry: a 1 logical px line at 150% should stay 1 device px
 rather than becoming heavier. The same midpoint rule applies to edge positions
-and snapped distances; use `FixedWidth` when a primitive needs an exact
-physical-pixel width.
+and snapped distances. Use `Rule` when an axis-aligned UI hairline needs exact
+physical-pixel thickness.
 
 `text`
 
@@ -260,14 +260,22 @@ plateau rather than the base state. Paint call sites forward motion state from
 runtime visuals; they do not invent their own answer to whether a transition
 is still moving.
 
+Resting targets are chosen in snapped terms before motion begins. Moving
+presentation interpolates between snapped resting truths, so the final moving
+frame and the first resting frame describe the same paint-space pose. Runtime
+visuals may carry current value, target value, progress, and motion, but device
+scale and snapping remain owned by the layout-to-paint boundary.
+
 Renderer-local snapping is exception vocabulary, not a second source of truth.
 `Snapping::Rect` checks that incoming geometry was already snapped at the
-layout-to-paint boundary. `Snapping::FixedWidth` remains a real exception for
-hairlines such as text carets that must keep a fixed physical-pixel width.
-Explicit moving presentation remains continuous; do not add another
-primitive-local snap policy when the boundary snap should own the fact. A
-permanent unsnapped transform is not a default behavior; a future caller must
-earn and name that variant explicitly.
+layout-to-paint boundary. Axis-aligned UI hairlines are `Rule` primitives, not
+quads with special snapping. A rule snaps its span edges for closure and keeps
+its declared physical-pixel thickness because thickness is its meaning: menu
+separators are horizontal rules, text carets are vertical rules. Explicit
+moving presentation remains continuous; do not add another primitive-local snap
+policy when the boundary snap should own the fact. A permanent unsnapped
+transform is not a default behavior; a future caller must earn and name that
+variant explicitly.
 
 `theme`
 
