@@ -198,16 +198,14 @@ fn rasterized_quad_rect(quad: &paint::Quad, scale_factor: f32) -> Rect {
     let grid = Grid::new(scale_factor);
     let rect = transformed_quad_rect(quad, grid);
 
-    match quad.rasterization.snapping {
-        paint::Snapping::Disabled => rect,
-        paint::Snapping::Rect => {
-            debug_assert!(
-                grid.rect_is_aligned(rect),
-                "Snapping::Rect expects geometry snapped at the layout-to-paint boundary"
-            );
-            rect
-        }
+    if quad.transform.motion == paint::Motion::Resting {
+        debug_assert!(
+            grid.rect_is_aligned(rect),
+            "resting quad geometry must be snapped at the layout-to-paint boundary"
+        );
     }
+
+    rect
 }
 
 fn transformed_quad_rect(quad: &paint::Quad, grid: Grid) -> Rect {
@@ -951,13 +949,12 @@ mod tests {
     }
 
     #[test]
-    fn rect_snapping_mode_checks_boundary_aligned_geometry() {
+    fn resting_quad_geometry_checks_boundary_aligned_geometry() {
         let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
         quad.rect = Rect::new(
             paint::point::logical(10.4, 20.0),
             paint::area::logical(32.8, 11.2),
         );
-        quad.rasterization.snapping = paint::Snapping::Rect;
 
         let shapes = analytic_shapes_for_quad_at_scale(&quad, 1.25);
         let (left, top, right, bottom) = rect_bounds(shapes[0].outer_rect);
@@ -969,14 +966,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Snapping::Rect expects geometry snapped")]
-    fn rect_snapping_mode_rejects_unsnapped_geometry() {
+    #[should_panic(expected = "resting quad geometry must be snapped")]
+    fn resting_quad_geometry_rejects_unsnapped_geometry() {
         let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
         quad.rect = Rect::new(
             paint::point::logical(10.0, 20.0),
             paint::area::logical(33.0, 11.0),
         );
-        quad.rasterization.snapping = paint::Snapping::Rect;
 
         let _ = analytic_shapes_for_quad_at_scale(&quad, 1.25);
     }

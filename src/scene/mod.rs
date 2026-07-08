@@ -13,8 +13,8 @@ pub use material::{
 pub use presentation::Presentation;
 pub use primitive::{
     Axis, Brush, Clip, EdgeMode, Filter, FilterOp, Icon, LiquidFilter, Motion, Offset, Outline,
-    Primitive, Quad, Radius, Rasterization, Rounding, Rule, ScaleMotion, Shadow, Snapping, Stroke,
-    Style, Text, TextAlign, TextStyle, TextSurface, TextViewport, TextWrap, Transform,
+    Primitive, Quad, Radius, Rasterization, Rounding, Rule, ScaleMotion, Shadow, Stroke, Style,
+    Text, TextAlign, TextStyle, TextSurface, TextViewport, TextWrap, Transform,
 };
 pub(crate) use visual::Visuals;
 pub(crate) use visual::{Scalar as VisualScalar, Target as TargetVisual};

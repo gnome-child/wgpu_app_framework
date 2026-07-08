@@ -983,6 +983,79 @@ fn state_change_reasons_do_not_import_command_contracts() {
     assert_source_patterns_absent(&state_dir, &["crate::command".to_owned()]);
 }
 
+#[test]
+fn resting_geometry_snapping_has_no_primitive_mode_axis() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let scene_primitive = std::fs::read_to_string(src_dir.join("scene").join("primitive.rs"))
+        .expect("scene primitive module should read");
+    let scene_mod = std::fs::read_to_string(src_dir.join("scene").join("mod.rs"))
+        .expect("scene mod should read");
+    let paint_mod = std::fs::read_to_string(src_dir.join("paint").join("mod.rs"))
+        .expect("paint mod should read");
+
+    for source in [&scene_primitive, &scene_mod, &paint_mod] {
+        for pattern in [
+            "enum Snapping",
+            "Snapping::",
+            "pub use primitive::{ Snapping",
+        ] {
+            assert!(
+                !source.contains(pattern),
+                "quad snapping must be derived from motion/resting geometry, not a primitive mode: {pattern}"
+            );
+        }
+    }
+}
+
+#[test]
+fn text_origin_snapping_belongs_to_paint_grid() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let text_renderer = std::fs::read_to_string(src_dir.join("render").join("text_renderer.rs"))
+        .expect("text renderer should read");
+    let paint_grid = std::fs::read_to_string(src_dir.join("paint").join("grid.rs"))
+        .expect("paint grid should read");
+
+    assert!(
+        !text_renderer.contains("fn snap_text_origin"),
+        "text renderer must not keep a second text-origin snapper"
+    );
+    for pattern in ["fn snap_text_origin", "fn snap_centered_text_origin"] {
+        assert!(
+            paint_grid.contains(pattern),
+            "paint Grid must own text-origin snapping helper: {pattern}"
+        );
+    }
+}
+
+#[test]
+fn master_design_names_answer_patterns() {
+    let master = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("docs")
+            .join("master_design.md"),
+    )
+    .expect("master design should read");
+
+    assert!(
+        master.contains("## Answer Catalog"),
+        "master design must name answer-patterns, not only smells"
+    );
+    for pattern in [
+        "One Truth, One Owner",
+        "Witness Demotion",
+        "Axis Splitting",
+        "Structural Absence",
+        "Exceptions Become Citizens",
+        "Endpoints Are Truth",
+        "Findings Graduate Into Invariants",
+    ] {
+        assert!(
+            master.contains(pattern),
+            "master design Answer Catalog must include {pattern}"
+        );
+    }
+}
+
 fn assert_source_patterns_absent(path: &std::path::Path, patterns: &[String]) {
     for entry in std::fs::read_dir(path).expect("framework source directory should be readable") {
         let path = entry

@@ -269,16 +269,16 @@ frame and the first resting frame describe the same paint-space pose. Runtime
 visuals may carry current value, target value, progress, and motion, but device
 scale and snapping remain owned by the layout-to-paint boundary.
 
-Renderer-local snapping is exception vocabulary, not a second source of truth.
-`Snapping::Rect` checks that incoming geometry was already snapped at the
-layout-to-paint boundary. Axis-aligned UI hairlines are `Rule` primitives, not
-quads with special snapping. A rule snaps its span edges for closure and keeps
-its declared physical-pixel thickness because thickness is its meaning: menu
-separators are horizontal rules, text carets are vertical rules. Explicit
-moving presentation remains continuous; do not add another primitive-local snap
-policy when the boundary snap should own the fact. A permanent unsnapped
-transform is not a default behavior; a future caller must earn and name that
-variant explicitly.
+Renderer-local snapping is witness vocabulary, not a second source of truth.
+Resting quad geometry is asserted aligned during render preparation because it
+should already have been snapped at the layout-to-paint boundary. Axis-aligned
+UI hairlines are `Rule` primitives, not quads with special snapping. A rule
+snaps its span edges for closure and keeps its declared physical-pixel
+thickness because thickness is its meaning: menu separators are horizontal
+rules, text carets are vertical rules. Explicit moving presentation remains
+continuous; do not add another primitive-local snap policy when the boundary
+snap should own the fact. A permanent unsnapped transform is not a default
+behavior; a future caller must earn and name that variant explicitly.
 
 `theme`
 
@@ -592,6 +592,89 @@ availability, app behavior, or mutation policy.
 Temporary compatibility scaffolding starts to receive new features. Instead,
 finish the migration or keep the new behavior in the intended architecture.
 
+## Answer Catalog
+
+Use these as repair moves during design and review. They are companions to the
+smells above: a smell names what is wrong, while an answer names the shape of a
+good fix.
+
+`One Truth, One Owner`
+
+Fallacy: each subsystem may compute its own copy of a shared fact. Answer:
+move the fact to the lowest honest owner and make every other subsystem
+consume it. Layout owns viewport clips for paint, hit testing, and wheel
+targeting. Viewport geometry owns scrollbars, reveal, and scroll consumption.
+The paint `Grid` owns device-scale snapping.
+
+Enforce by deleting parallel computations. Add tests only where a duplicate
+has already returned or where the owner boundary is easy to regress.
+
+`Witness Demotion`
+
+Fallacy: a displaced mechanism should keep doing part of the old job. Answer:
+when a lower truth replaces a computation, the old mechanism either disappears
+or becomes a checker for the new truth. Render preparation may assert that
+resting geometry is aligned; it must not re-decide how layout-to-paint snapping
+works. Architecture tests may guard the deletion of retired modules and aliases.
+
+Enforce by asking of every survivor: is this a witness, or is it dead code?
+
+`Axis Splitting`
+
+Fallacy: one concept or word can straddle two independent questions. Answer:
+split the axes so each type, name, or field answers one question. Labels are
+visible text; ids are invisible identity. Commands are imperative requests;
+notifications are past-tense facts. Theme metrics affect measurement;
+appearance affects paint. Logical and physical paint areas stay distinct types.
+
+Enforce with type separation, module placement, and names that state the axis.
+Repeated words are not automatically wrong; they become naming debt when the
+meanings co-occur in one scope and force aliases or reader ambiguity. Current
+known overloaded terms include `Presentation`, `Frame`, and `Surface`; rename
+them only when a concrete import-scope collision proves the ambiguity.
+
+`Structural Absence`
+
+Fallacy: an invalid question can be answered with a default or ignored value.
+Answer: remove the slot entirely. Notifications do not have availability,
+history, registry specs, output, or failure channels. Rules do not pretend to
+be freeform quads with special dimensions. A concept that must not answer a
+question should lack the field, method, or trait item.
+
+Enforce by making the wrong question unrepresentable instead of documenting
+that a value should be ignored.
+
+`Exceptions Become Citizens`
+
+Fallacy: an exception list can grow without changing the concept. Answer:
+when exceptions become patterned, name the missing concept and move behavior
+there. Hairline quads became `Rule`; dialog-cancel commands became
+notifications. A growing exception list is often a concept announcing itself.
+
+Enforce by watching for enum variants, booleans, or special cases whose names
+describe patches rather than things.
+
+`Endpoints Are Truth`
+
+Fallacy: motion, reveal, or conversion can aim anywhere and be corrected after
+arrival. Answer: choose endpoints in the owning truth space before moving.
+Reveal computes from real viewport and descendant rects. Resting animation
+poses are snapped paint-space truths, and moving presentation interpolates
+between them. Boundary conversions happen once, at named seams.
+
+Enforce with endpoint tests: final moving frame equals first resting frame,
+already-visible reveal is a no-op, and settled scenes match static scenes.
+
+`Findings Graduate Into Invariants`
+
+Fallacy: a bug fix is complete when the symptom disappears. Answer: every
+important finding becomes a durable invariant through tests, architecture
+guards, or explicit doctrine. The test suite is accumulated case law for the
+framework's design.
+
+Enforce by pinning failures that have already escaped once, while avoiding
+architecture-test bureaucracy for unproven risks.
+
 ## Refactor Standard
 
 A refactor is successful only when it improves the truthfulness of the design.
@@ -634,12 +717,16 @@ Before merging a substantial change, answer these questions:
 
 - What concept did this change add, remove, or clarify?
 - Does the concept have a clear name?
+- Which fallacy is this change tempting us into?
+- Which answer-pattern does this change use?
 - Is the concept in the lowest honest layer?
 - Did any lower layer learn about a higher layer's reason for existence?
 - Did runtime orchestrate, or did it absorb domain behavior?
 - Did a bridge remain at the edge?
 - Did repeated logic move into a real concept instead of a helper bucket?
 - Did the type system rule out the bad state where practical?
+- If a displaced mechanism remains, is it a witness or dead code?
+- If a term is overloaded, do the meanings co-occur in one import scope?
 - Was the obsolete path deleted?
 - Is the boundary practiced by tests?
 

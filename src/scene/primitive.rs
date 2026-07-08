@@ -206,14 +206,7 @@ pub enum Radius {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rasterization {
-    snapping: Snapping,
     edge_mode: EdgeMode,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Snapping {
-    Disabled,
-    Rect,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1025,15 +1018,8 @@ impl Default for Rounding {
 }
 
 impl Rasterization {
-    pub const fn new(snapping: Snapping, edge_mode: EdgeMode) -> Self {
-        Self {
-            snapping,
-            edge_mode,
-        }
-    }
-
-    pub const fn snapping(self) -> Snapping {
-        self.snapping
+    pub const fn new(edge_mode: EdgeMode) -> Self {
+        Self { edge_mode }
     }
 
     pub const fn edge_mode(self) -> EdgeMode {
@@ -1044,7 +1030,6 @@ impl Rasterization {
 impl Default for Rasterization {
     fn default() -> Self {
         Self {
-            snapping: Snapping::Disabled,
             edge_mode: EdgeMode::Antialiased,
         }
     }

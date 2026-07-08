@@ -157,23 +157,15 @@ pub struct ScaleMotion {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rasterization {
-    pub snapping: Snapping,
     pub edge_mode: EdgeMode,
 }
 
 impl Default for Rasterization {
     fn default() -> Self {
         Self {
-            snapping: Snapping::Disabled,
             edge_mode: EdgeMode::Antialiased,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Snapping {
-    Disabled,
-    Rect,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

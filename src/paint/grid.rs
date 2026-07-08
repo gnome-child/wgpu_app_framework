@@ -32,6 +32,21 @@ impl Grid {
         round_ties_toward_zero(distance * self.scale_factor).max(1.0) / self.scale_factor
     }
 
+    pub(crate) fn snap_text_origin(self, origin: f32) -> f32 {
+        round_ties_toward_zero(origin * self.scale_factor)
+    }
+
+    pub(crate) fn snap_centered_text_origin(
+        self,
+        origin: f32,
+        extent: f32,
+        content_extent: f32,
+    ) -> f32 {
+        let inset = (extent - extent.min(content_extent)).max(0.0) * 0.5;
+
+        self.snap_text_origin(origin + inset)
+    }
+
     pub(crate) fn snap_rect(self, rect: rect::Rect) -> rect::Rect {
         let left = self.snap_position(rect.origin.x());
         let top = self.snap_position(rect.origin.y());
@@ -224,6 +239,20 @@ mod tests {
         let grid = Grid::new(1.5);
 
         assert_approx_eq(grid.snap_distance(0.1), 2.0 / 3.0);
+    }
+
+    #[test]
+    fn text_origin_snaps_through_device_space() {
+        let grid = Grid::new(1.25);
+
+        assert_approx_eq(grid.snap_text_origin(10.0), 12.0);
+    }
+
+    #[test]
+    fn centered_text_origin_snaps_after_centering() {
+        let grid = Grid::new(1.25);
+
+        assert_approx_eq(grid.snap_centered_text_origin(10.0, 22.0, 11.0), 19.0);
     }
 
     #[test]

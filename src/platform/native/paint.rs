@@ -264,7 +264,6 @@ fn to_paint_brush(brush: scene::Brush) -> paint::Brush {
 
 fn to_paint_rasterization(rasterization: scene::Rasterization) -> paint::Rasterization {
     paint::Rasterization {
-        snapping: to_paint_snapping(rasterization.snapping()),
         edge_mode: to_paint_edge_mode(rasterization.edge_mode()),
     }
 }
@@ -309,13 +308,6 @@ fn to_paint_axis(axis: scene::Axis) -> paint::Axis {
     match axis {
         scene::Axis::Horizontal => paint::Axis::Horizontal,
         scene::Axis::Vertical => paint::Axis::Vertical,
-    }
-}
-
-fn to_paint_snapping(snapping: scene::Snapping) -> paint::Snapping {
-    match snapping {
-        scene::Snapping::Disabled => paint::Snapping::Disabled,
-        scene::Snapping::Rect => paint::Snapping::Rect,
     }
 }
 

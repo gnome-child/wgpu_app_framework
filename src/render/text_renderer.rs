@@ -220,6 +220,7 @@ fn prepare_text(
     text: &paint::Text,
     scale_factor: f32,
 ) -> Option<PreparedText<'static>> {
+    let grid = paint::Grid::new(scale_factor);
     let width = text.rect.area.width().max(0.0);
     let height = text.rect.area.height().max(0.0);
     let prepared =
@@ -229,11 +230,8 @@ fn prepare_text(
     let clip_top = text.rect.origin.y() * scale_factor;
     let clip_right = clip_left + width * scale_factor;
     let clip_bottom = clip_top + height * scale_factor;
-    let left = snap_text_origin(clip_left);
-    let top = (text.rect.origin.y()
-        + (height - height.min(prepared.content_height)).max(0.0) * 0.5)
-        * scale_factor;
-    let top = snap_text_origin(top);
+    let left = grid.snap_text_origin(text.rect.origin.x());
+    let top = grid.snap_centered_text_origin(text.rect.origin.y(), height, prepared.content_height);
 
     Some(PreparedText {
         buffer: PreparedTextBuffer::Shared(prepared.buffer),
@@ -264,6 +262,7 @@ fn prepare_text_surface_in_bounds<'a>(
     bounds_rect: crate::paint::Rect,
     scale_factor: f32,
 ) -> Option<PreparedText<'a>> {
+    let grid = paint::Grid::new(scale_factor);
     let width = text.rect.area.width().max(0.0);
     let height = text.rect.area.height().max(0.0);
     if width <= 0.0 || height <= 0.0 {
@@ -274,8 +273,8 @@ fn prepare_text_surface_in_bounds<'a>(
     let clip_top = bounds_rect.origin.y() * scale_factor;
     let clip_right = clip_left + bounds_rect.area.width().max(0.0) * scale_factor;
     let clip_bottom = clip_top + bounds_rect.area.height().max(0.0) * scale_factor;
-    let left = snap_text_origin(text.rect.origin.x() * scale_factor);
-    let top = snap_text_origin(text.rect.origin.y() * scale_factor);
+    let left = grid.snap_text_origin(text.rect.origin.x());
+    let top = grid.snap_text_origin(text.rect.origin.y());
 
     Some(PreparedText {
         buffer: PreparedTextBuffer::Borrowed(text.buffer.borrow()),
@@ -290,10 +289,6 @@ fn prepare_text_surface_in_bounds<'a>(
         default_color: paint_color(text.default_color),
         stats: InlineStats::default(),
     })
-}
-
-fn snap_text_origin(position: f32) -> f32 {
-    position.round()
 }
 
 fn wrap(wrap: paint::TextWrap) -> glyphon::Wrap {
