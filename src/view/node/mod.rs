@@ -16,6 +16,7 @@ pub(crate) use role::Role;
 pub enum FloatingPlacement {
     Default,
     CenteredMaxEnvelope,
+    Offset { x: i32, y: i32 },
 }
 
 #[derive(Clone)]

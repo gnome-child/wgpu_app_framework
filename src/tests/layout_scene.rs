@@ -4374,6 +4374,38 @@ fn generic_floating_panel_uses_shared_chrome_before_content() {
 }
 
 #[test]
+fn floating_panel_offset_places_unanchored_overlay() {
+    let view = widget::view(|ui| {
+        ui.add(
+            widget::Element::new()
+                .overlay()
+                .width(view::Dimension::fixed(240))
+                .height(view::Dimension::fixed(160))
+                .children(|ui| {
+                    ui.add(
+                        widget::panel::Floating::new("tests.floating.offset")
+                            .offset(24, 18)
+                            .width(view::Dimension::fixed(120))
+                            .height(view::Dimension::fixed(60))
+                            .children(|ui| {
+                                ui.label("Offset");
+                            }),
+                    );
+                }),
+        );
+    });
+    let mut layout_engine = layout::Engine::new();
+    let layout = layout::Layout::compose(&view, geometry::Size::new(240, 160), &mut layout_engine);
+    let panel = layout
+        .find_role(view::Role::FloatingPanel)
+        .into_iter()
+        .next()
+        .expect("floating panel should be laid out");
+
+    assert_eq!(panel.rect(), geometry::Rect::new(24, 18, 120, 60));
+}
+
+#[test]
 fn generic_floating_panel_uses_stack_padding_and_gap_for_content() {
     let view = widget::view(|ui| {
         ui.add(

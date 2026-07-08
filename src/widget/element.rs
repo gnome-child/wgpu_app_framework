@@ -57,6 +57,14 @@ impl Element {
         self
     }
 
+    pub(in crate::widget) fn floating_placement(
+        mut self,
+        placement: view::FloatingPlacement,
+    ) -> Self {
+        self.node = self.node.with_floating_placement(placement);
+        self
+    }
+
     pub fn background(mut self, background: scene::Brush) -> Self {
         self.background = Some(background);
         self

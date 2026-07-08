@@ -42,6 +42,13 @@ impl Floating {
         self
     }
 
+    pub fn offset(mut self, x: i32, y: i32) -> Self {
+        self.panel = self
+            .panel
+            .floating_placement(view::FloatingPlacement::Offset { x, y });
+        self
+    }
+
     pub fn background(mut self, background: scene::Brush) -> Self {
         self.panel = self.panel.background(background);
         self
@@ -122,6 +129,11 @@ impl Panel {
 
     pub fn max_height(mut self, height: i32) -> Self {
         self.element = self.element.max_height(height);
+        self
+    }
+
+    fn floating_placement(mut self, placement: view::FloatingPlacement) -> Self {
+        self.element = self.element.floating_placement(placement);
         self
     }
 

@@ -9,6 +9,7 @@ use crate::render::silhouette::{self, PreparedSilhouette, edges, rect_data, roun
 
 const FILTER_WGSL: &str = include_str!("filter.wgsl");
 const LAYER_POOL_LIMIT: usize = 8;
+const SCRATCH_POOL_LIMIT: usize = 8;
 
 pub struct Renderer {
     blur_pipeline: wgpu::RenderPipeline,
@@ -25,6 +26,7 @@ pub struct Renderer {
     noise_sampler: wgpu::Sampler,
     textures: Option<Textures>,
     layer_pool: RefCell<Vec<Layer>>,
+    scratch_pool: RefCell<Vec<ScratchTextures>>,
     format: wgpu::TextureFormat,
 }
 
@@ -55,6 +57,22 @@ struct Texture {
     area: paint::area::Physical,
 }
 
+struct ScratchTextures {
+    ping: Texture,
+    pong: Texture,
+    area: paint::area::Physical,
+    logical_area: paint::area::Logical,
+}
+
+enum ScratchTargets<'a> {
+    Shared {
+        ping: &'a Texture,
+        pong: &'a Texture,
+        logical_area: paint::area::Logical,
+    },
+    Pooled(ScratchTextures),
+}
+
 pub(crate) struct LayerComposite<'a> {
     pub(crate) render_context: &'a render::Context,
     pub(crate) encoder: &'a mut wgpu::CommandEncoder,
@@ -82,12 +100,24 @@ impl<'a> TextureSource<'a> {
         logical_area: paint::area::Logical,
         sampling: paint::LayerSampling,
     ) -> Self {
+        debug_assert!(area.width() > 0 && area.height() > 0);
+        debug_assert!(logical_area.width() > 0.0 && logical_area.height() > 0.0);
         Self {
             view,
             area,
             logical_area,
             sampling,
         }
+    }
+
+    fn for_target_view(
+        view: &'a wgpu::TextureView,
+        target: Target,
+        sampling: paint::LayerSampling,
+    ) -> Self {
+        let area = target.physical_area.clamp_min(1);
+
+        Self::new(view, area, area.to_logical(target.scale_factor), sampling)
     }
 }
 
@@ -97,11 +127,65 @@ impl Texture {
         logical_area: paint::area::Logical,
         sampling: paint::LayerSampling,
     ) -> TextureSource<'_> {
+        debug_assert!(self.area.width() > 0 && self.area.height() > 0);
+        debug_assert!(logical_area.width() > 0.0 && logical_area.height() > 0.0);
         TextureSource {
             view: &self.view,
             area: self.area,
             logical_area,
             sampling,
+        }
+    }
+}
+
+impl ScratchTextures {
+    fn new(render_context: &render::Context, renderer: &Renderer, target: Target) -> Self {
+        let area = target.physical_area.clamp_min(1);
+
+        Self {
+            ping: renderer.create_texture(render_context, area, "Filter Scratch Ping Texture"),
+            pong: renderer.create_texture(render_context, area, "Filter Scratch Pong Texture"),
+            area,
+            logical_area: area.to_logical(target.scale_factor),
+        }
+    }
+
+    fn retarget(&mut self, target: Target) {
+        debug_assert_eq!(self.area, target.physical_area.clamp_min(1));
+        self.logical_area = self.area.to_logical(target.scale_factor);
+    }
+}
+
+impl<'a> ScratchTargets<'a> {
+    fn ping_view(&self) -> &wgpu::TextureView {
+        match self {
+            Self::Shared { ping, .. } => &ping.view,
+            Self::Pooled(scratch) => &scratch.ping.view,
+        }
+    }
+
+    fn pong_view(&self) -> &wgpu::TextureView {
+        match self {
+            Self::Shared { pong, .. } => &pong.view,
+            Self::Pooled(scratch) => &scratch.pong.view,
+        }
+    }
+
+    fn ping_source(&self, sampling: paint::LayerSampling) -> TextureSource<'_> {
+        match self {
+            Self::Shared {
+                ping, logical_area, ..
+            } => ping.source(*logical_area, sampling),
+            Self::Pooled(scratch) => scratch.ping.source(scratch.logical_area, sampling),
+        }
+    }
+
+    fn pong_source(&self, sampling: paint::LayerSampling) -> TextureSource<'_> {
+        match self {
+            Self::Shared {
+                pong, logical_area, ..
+            } => pong.source(*logical_area, sampling),
+            Self::Pooled(scratch) => scratch.pong.source(scratch.logical_area, sampling),
         }
     }
 }
@@ -555,6 +639,7 @@ impl Renderer {
             noise_sampler,
             textures: None,
             layer_pool: RefCell::new(Vec::new()),
+            scratch_pool: RefCell::new(Vec::new()),
             format,
         }
     }
@@ -607,6 +692,42 @@ impl Renderer {
         pool.push(layer);
     }
 
+    fn scratch_targets<'a>(
+        &'a self,
+        render_context: &render::Context,
+        target: Target,
+        textures: &'a Textures,
+    ) -> ScratchTargets<'a> {
+        let area = target.physical_area.clamp_min(1);
+        if area == textures.area && target.logical_area == textures.logical_area {
+            return ScratchTargets::Shared {
+                ping: &textures.ping,
+                pong: &textures.pong,
+                logical_area: textures.logical_area,
+            };
+        }
+
+        ScratchTargets::Pooled(self.take_scratch(render_context, target))
+    }
+
+    fn take_scratch(&self, render_context: &render::Context, target: Target) -> ScratchTextures {
+        let area = target.physical_area.clamp_min(1);
+        if let Some(mut scratch) = take_pooled_scratch(&mut self.scratch_pool.borrow_mut(), area) {
+            scratch.retarget(target);
+            return scratch;
+        }
+
+        ScratchTextures::new(render_context, self, target)
+    }
+
+    fn recycle_scratch(&self, scratch: ScratchTextures) {
+        let mut pool = self.scratch_pool.borrow_mut();
+        if pool.len() == SCRATCH_POOL_LIMIT {
+            pool.remove(0);
+        }
+        pool.push(scratch);
+    }
+
     pub fn clear_layer(&self, encoder: &mut wgpu::CommandEncoder, layer: &Layer) {
         clear_view(
             encoder,
@@ -623,322 +744,308 @@ impl Renderer {
         let Some(textures) = self.textures.as_ref() else {
             return;
         };
-        let mut source = pass.source;
-        let mut source_rect = pass.source_rect;
+        let scratch = self.scratch_targets(pass.render_context, pass.target, textures);
+        {
+            let mut source = pass.source;
+            let mut source_rect = pass.source_rect;
 
-        for op in pass.filter.ops {
-            match op {
-                paint::FilterOp::Blur { amount } => {
-                    if amount <= 0.0 {
-                        continue;
+            for op in pass.filter.ops {
+                match op {
+                    paint::FilterOp::Blur { amount } => {
+                        if amount <= 0.0 {
+                            continue;
+                        }
+
+                        let prepared = prepared.with_blur(amount, pass.target.scale_factor);
+                        self.blur_pass(BlurPass {
+                            render_context: pass.render_context,
+                            encoder: pass.encoder,
+                            source,
+                            output: scratch.ping_view(),
+                            target: pass.target,
+                            prepared,
+                            direction: [1.0, 0.0],
+                            source_rect,
+                        });
+                        self.blur_pass(BlurPass {
+                            render_context: pass.render_context,
+                            encoder: pass.encoder,
+                            source: scratch.ping_source(paint::LayerSampling::Filtered),
+                            output: scratch.pong_view(),
+                            target: pass.target,
+                            prepared,
+                            direction: [0.0, 1.0],
+                            source_rect: prepared.shape_rect,
+                        });
+                        self.composite_pass(CompositePass {
+                            render_context: pass.render_context,
+                            encoder: pass.encoder,
+                            source: scratch.pong_source(paint::LayerSampling::Filtered),
+                            output: pass.output,
+                            target: pass.target,
+                            prepared,
+                            source_rect: prepared.shape_rect,
+                            opacity: 1.0,
+                            scissor: pass.scissor,
+                            labels: PassLabels::new(
+                                "Filter Blur Composite Bind Group",
+                                "Filter Blur Composite Vertex Buffer",
+                                "Filter Blur Composite Pass",
+                            ),
+                        });
+                        source = TextureSource::for_target_view(
+                            pass.output,
+                            pass.target,
+                            paint::LayerSampling::PixelAligned,
+                        );
+                        source_rect = prepared.shape_rect;
                     }
+                    paint::FilterOp::BackdropBlur(blur) => {
+                        if blur.sigma <= 0.0 {
+                            continue;
+                        }
 
-                    let prepared = prepared.with_blur(amount, pass.target.scale_factor);
-                    self.blur_pass(BlurPass {
-                        render_context: pass.render_context,
-                        encoder: pass.encoder,
-                        source,
-                        output: &textures.ping.view,
-                        target: pass.target,
-                        prepared,
-                        direction: [1.0, 0.0],
-                        source_rect,
-                    });
-                    self.blur_pass(BlurPass {
-                        render_context: pass.render_context,
-                        encoder: pass.encoder,
-                        source: textures
-                            .ping
-                            .source(textures.logical_area, paint::LayerSampling::Filtered),
-                        output: &textures.pong.view,
-                        target: pass.target,
-                        prepared,
-                        direction: [0.0, 1.0],
-                        source_rect: prepared.shape_rect,
-                    });
-                    self.composite_pass(CompositePass {
-                        render_context: pass.render_context,
-                        encoder: pass.encoder,
-                        source: textures
-                            .pong
-                            .source(textures.logical_area, paint::LayerSampling::Filtered),
-                        output: pass.output,
-                        target: pass.target,
-                        prepared,
-                        source_rect: prepared.shape_rect,
-                        opacity: 1.0,
-                        scissor: pass.scissor,
-                        labels: PassLabels::new(
-                            "Filter Blur Composite Bind Group",
-                            "Filter Blur Composite Vertex Buffer",
-                            "Filter Blur Composite Pass",
-                        ),
-                    });
-                    source = TextureSource {
-                        view: pass.output,
-                        area: pass.target.physical_area.clamp_min(1),
-                        logical_area: pass.target.logical_area,
-                        sampling: paint::LayerSampling::PixelAligned,
-                    };
-                    source_rect = prepared.shape_rect;
-                }
-                paint::FilterOp::BackdropBlur(blur) => {
-                    if blur.sigma <= 0.0 {
-                        continue;
+                        let prepared =
+                            prepared.with_blur_sigma(blur.sigma, pass.target.scale_factor);
+                        self.blur_pass(BlurPass {
+                            render_context: pass.render_context,
+                            encoder: pass.encoder,
+                            source,
+                            output: scratch.ping_view(),
+                            target: pass.target,
+                            prepared,
+                            direction: [1.0, 0.0],
+                            source_rect,
+                        });
+                        self.blur_pass(BlurPass {
+                            render_context: pass.render_context,
+                            encoder: pass.encoder,
+                            source: scratch.ping_source(paint::LayerSampling::Filtered),
+                            output: scratch.pong_view(),
+                            target: pass.target,
+                            prepared,
+                            direction: [0.0, 1.0],
+                            source_rect: prepared.shape_rect,
+                        });
+                        self.composite_pass(CompositePass {
+                            render_context: pass.render_context,
+                            encoder: pass.encoder,
+                            source: scratch.pong_source(paint::LayerSampling::Filtered),
+                            output: pass.output,
+                            target: pass.target,
+                            prepared,
+                            source_rect: prepared.shape_rect,
+                            opacity: 1.0,
+                            scissor: pass.scissor,
+                            labels: PassLabels::new(
+                                "Filter Backdrop Blur Composite Bind Group",
+                                "Filter Backdrop Blur Composite Vertex Buffer",
+                                "Filter Backdrop Blur Composite Pass",
+                            ),
+                        });
+                        source = TextureSource::for_target_view(
+                            pass.output,
+                            pass.target,
+                            paint::LayerSampling::PixelAligned,
+                        );
+                        source_rect = prepared.shape_rect;
                     }
+                    paint::FilterOp::Liquid {
+                        depth,
+                        splay,
+                        feather,
+                        curve,
+                    } => {
+                        if liquid_is_identity(depth) {
+                            continue;
+                        }
 
-                    let prepared = prepared.with_blur_sigma(blur.sigma, pass.target.scale_factor);
-                    self.blur_pass(BlurPass {
-                        render_context: pass.render_context,
-                        encoder: pass.encoder,
-                        source,
-                        output: &textures.ping.view,
-                        target: pass.target,
-                        prepared,
-                        direction: [1.0, 0.0],
-                        source_rect,
-                    });
-                    self.blur_pass(BlurPass {
-                        render_context: pass.render_context,
-                        encoder: pass.encoder,
-                        source: textures
-                            .ping
-                            .source(textures.logical_area, paint::LayerSampling::Filtered),
-                        output: &textures.pong.view,
-                        target: pass.target,
-                        prepared,
-                        direction: [0.0, 1.0],
-                        source_rect: prepared.shape_rect,
-                    });
-                    self.composite_pass(CompositePass {
-                        render_context: pass.render_context,
-                        encoder: pass.encoder,
-                        source: textures
-                            .pong
-                            .source(textures.logical_area, paint::LayerSampling::Filtered),
-                        output: pass.output,
-                        target: pass.target,
-                        prepared,
-                        source_rect: prepared.shape_rect,
-                        opacity: 1.0,
-                        scissor: pass.scissor,
-                        labels: PassLabels::new(
-                            "Filter Backdrop Blur Composite Bind Group",
-                            "Filter Backdrop Blur Composite Vertex Buffer",
-                            "Filter Backdrop Blur Composite Pass",
-                        ),
-                    });
-                    source = TextureSource {
-                        view: pass.output,
-                        area: pass.target.physical_area.clamp_min(1),
-                        logical_area: pass.target.logical_area,
-                        sampling: paint::LayerSampling::PixelAligned,
-                    };
-                    source_rect = prepared.shape_rect;
-                }
-                paint::FilterOp::Liquid {
-                    depth,
-                    splay,
-                    feather,
-                    curve,
-                } => {
-                    if liquid_is_identity(depth) {
-                        continue;
+                        self.liquid_pass(LiquidPass {
+                            render_context: pass.render_context,
+                            encoder: pass.encoder,
+                            source: source.view,
+                            source_area: source.area,
+                            source_logical_area: source.logical_area,
+                            source_rect,
+                            source_sampling: source.sampling,
+                            output: scratch.ping_view(),
+                            target: pass.target,
+                            prepared,
+                            effect: liquid_effect(depth, splay, feather, curve),
+                            scissor: pass.scissor,
+                        });
+                        self.composite_pass(CompositePass {
+                            render_context: pass.render_context,
+                            encoder: pass.encoder,
+                            source: scratch.ping_source(paint::LayerSampling::Filtered),
+                            output: pass.output,
+                            target: pass.target,
+                            prepared,
+                            source_rect: prepared.shape_rect,
+                            opacity: 1.0,
+                            scissor: pass.scissor,
+                            labels: PassLabels::new(
+                                "Filter Liquid Composite Bind Group",
+                                "Filter Liquid Composite Vertex Buffer",
+                                "Filter Liquid Composite Pass",
+                            ),
+                        });
+                        source = TextureSource::for_target_view(
+                            pass.output,
+                            pass.target,
+                            paint::LayerSampling::PixelAligned,
+                        );
+                        source_rect = prepared.shape_rect;
                     }
+                    paint::FilterOp::Refraction(refraction) => {
+                        if refraction.displacement <= 0.0 {
+                            continue;
+                        }
 
-                    self.liquid_pass(LiquidPass {
-                        render_context: pass.render_context,
-                        encoder: pass.encoder,
-                        source: source.view,
-                        source_area: source.area,
-                        source_logical_area: source.logical_area,
-                        source_rect,
-                        source_sampling: source.sampling,
-                        output: &textures.ping.view,
-                        target: pass.target,
-                        prepared,
-                        effect: liquid_effect(depth, splay, feather, curve),
-                        scissor: pass.scissor,
-                    });
-                    self.composite_pass(CompositePass {
-                        render_context: pass.render_context,
-                        encoder: pass.encoder,
-                        source: textures
-                            .ping
-                            .source(textures.logical_area, paint::LayerSampling::Filtered),
-                        output: pass.output,
-                        target: pass.target,
-                        prepared,
-                        source_rect: prepared.shape_rect,
-                        opacity: 1.0,
-                        scissor: pass.scissor,
-                        labels: PassLabels::new(
-                            "Filter Liquid Composite Bind Group",
-                            "Filter Liquid Composite Vertex Buffer",
-                            "Filter Liquid Composite Pass",
-                        ),
-                    });
-                    source = TextureSource {
-                        view: pass.output,
-                        area: pass.target.physical_area.clamp_min(1),
-                        logical_area: pass.target.logical_area,
-                        sampling: paint::LayerSampling::PixelAligned,
-                    };
-                    source_rect = prepared.shape_rect;
-                }
-                paint::FilterOp::Refraction(refraction) => {
-                    if refraction.displacement <= 0.0 {
-                        continue;
+                        self.liquid_pass(LiquidPass {
+                            render_context: pass.render_context,
+                            encoder: pass.encoder,
+                            source: source.view,
+                            source_area: source.area,
+                            source_logical_area: source.logical_area,
+                            source_rect,
+                            source_sampling: source.sampling,
+                            output: scratch.ping_view(),
+                            target: pass.target,
+                            prepared,
+                            effect: refraction_effect(refraction),
+                            scissor: pass.scissor,
+                        });
+                        self.composite_pass(CompositePass {
+                            render_context: pass.render_context,
+                            encoder: pass.encoder,
+                            source: scratch.ping_source(paint::LayerSampling::Filtered),
+                            output: pass.output,
+                            target: pass.target,
+                            prepared,
+                            source_rect: prepared.shape_rect,
+                            opacity: 1.0,
+                            scissor: pass.scissor,
+                            labels: PassLabels::new(
+                                "Filter Refraction Composite Bind Group",
+                                "Filter Refraction Composite Vertex Buffer",
+                                "Filter Refraction Composite Pass",
+                            ),
+                        });
+                        source = TextureSource::for_target_view(
+                            pass.output,
+                            pass.target,
+                            paint::LayerSampling::PixelAligned,
+                        );
+                        source_rect = prepared.shape_rect;
                     }
+                    paint::FilterOp::Luminosity(luminosity) => {
+                        if luminosity.opacity <= 0.0 {
+                            continue;
+                        }
 
-                    self.liquid_pass(LiquidPass {
-                        render_context: pass.render_context,
-                        encoder: pass.encoder,
-                        source: source.view,
-                        source_area: source.area,
-                        source_logical_area: source.logical_area,
-                        source_rect,
-                        source_sampling: source.sampling,
-                        output: &textures.ping.view,
-                        target: pass.target,
-                        prepared,
-                        effect: refraction_effect(refraction),
-                        scissor: pass.scissor,
-                    });
-                    self.composite_pass(CompositePass {
-                        render_context: pass.render_context,
-                        encoder: pass.encoder,
-                        source: textures
-                            .ping
-                            .source(textures.logical_area, paint::LayerSampling::Filtered),
-                        output: pass.output,
-                        target: pass.target,
-                        prepared,
-                        source_rect: prepared.shape_rect,
-                        opacity: 1.0,
-                        scissor: pass.scissor,
-                        labels: PassLabels::new(
-                            "Filter Refraction Composite Bind Group",
-                            "Filter Refraction Composite Vertex Buffer",
-                            "Filter Refraction Composite Pass",
-                        ),
-                    });
-                    source = TextureSource {
-                        view: pass.output,
-                        area: pass.target.physical_area.clamp_min(1),
-                        logical_area: pass.target.logical_area,
-                        sampling: paint::LayerSampling::PixelAligned,
-                    };
-                    source_rect = prepared.shape_rect;
-                }
-                paint::FilterOp::Luminosity(luminosity) => {
-                    if luminosity.opacity <= 0.0 {
-                        continue;
+                        self.effect_pass(EffectPass {
+                            render_context: pass.render_context,
+                            encoder: pass.encoder,
+                            source: source.view,
+                            source_area: source.area,
+                            source_logical_area: source.logical_area,
+                            source_rect,
+                            source_sampling: source.sampling,
+                            output: scratch.ping_view(),
+                            target: pass.target,
+                            prepared,
+                            effect: [
+                                luminosity.color.r,
+                                luminosity.color.g,
+                                luminosity.color.b,
+                                luminosity.opacity,
+                            ],
+                            pipeline: &self.luminosity_pipeline,
+                            scissor: pass.scissor,
+                            labels: PassLabels::new(
+                                "Filter Luminosity Bind Group",
+                                "Filter Luminosity Vertex Buffer",
+                                "Filter Luminosity Pass",
+                            ),
+                        });
+                        self.composite_pass(CompositePass {
+                            render_context: pass.render_context,
+                            encoder: pass.encoder,
+                            source: scratch.ping_source(paint::LayerSampling::Filtered),
+                            output: pass.output,
+                            target: pass.target,
+                            prepared,
+                            source_rect: prepared.shape_rect,
+                            opacity: 1.0,
+                            scissor: pass.scissor,
+                            labels: PassLabels::new(
+                                "Filter Luminosity Composite Bind Group",
+                                "Filter Luminosity Composite Vertex Buffer",
+                                "Filter Luminosity Composite Pass",
+                            ),
+                        });
+                        source = TextureSource::for_target_view(
+                            pass.output,
+                            pass.target,
+                            paint::LayerSampling::PixelAligned,
+                        );
+                        source_rect = prepared.shape_rect;
                     }
+                    paint::FilterOp::Noise(noise) => {
+                        if noise.opacity <= 0.0 {
+                            continue;
+                        }
 
-                    self.effect_pass(EffectPass {
-                        render_context: pass.render_context,
-                        encoder: pass.encoder,
-                        source: source.view,
-                        source_area: source.area,
-                        source_logical_area: source.logical_area,
-                        source_rect,
-                        source_sampling: source.sampling,
-                        output: &textures.ping.view,
-                        target: pass.target,
-                        prepared,
-                        effect: [
-                            luminosity.color.r,
-                            luminosity.color.g,
-                            luminosity.color.b,
-                            luminosity.opacity,
-                        ],
-                        pipeline: &self.luminosity_pipeline,
-                        scissor: pass.scissor,
-                        labels: PassLabels::new(
-                            "Filter Luminosity Bind Group",
-                            "Filter Luminosity Vertex Buffer",
-                            "Filter Luminosity Pass",
-                        ),
-                    });
-                    self.composite_pass(CompositePass {
-                        render_context: pass.render_context,
-                        encoder: pass.encoder,
-                        source: textures
-                            .ping
-                            .source(textures.logical_area, paint::LayerSampling::Filtered),
-                        output: pass.output,
-                        target: pass.target,
-                        prepared,
-                        source_rect: prepared.shape_rect,
-                        opacity: 1.0,
-                        scissor: pass.scissor,
-                        labels: PassLabels::new(
-                            "Filter Luminosity Composite Bind Group",
-                            "Filter Luminosity Composite Vertex Buffer",
-                            "Filter Luminosity Composite Pass",
-                        ),
-                    });
-                    source = TextureSource {
-                        view: pass.output,
-                        area: pass.target.physical_area.clamp_min(1),
-                        logical_area: pass.target.logical_area,
-                        sampling: paint::LayerSampling::PixelAligned,
-                    };
-                    source_rect = prepared.shape_rect;
-                }
-                paint::FilterOp::Noise(noise) => {
-                    if noise.opacity <= 0.0 {
-                        continue;
+                        self.effect_pass(EffectPass {
+                            render_context: pass.render_context,
+                            encoder: pass.encoder,
+                            source: source.view,
+                            source_area: source.area,
+                            source_logical_area: source.logical_area,
+                            source_rect,
+                            source_sampling: source.sampling,
+                            output: scratch.ping_view(),
+                            target: pass.target,
+                            prepared,
+                            effect: [noise.opacity, 0.0, 0.0, 0.0],
+                            pipeline: &self.noise_pipeline,
+                            scissor: pass.scissor,
+                            labels: PassLabels::new(
+                                "Filter Noise Bind Group",
+                                "Filter Noise Vertex Buffer",
+                                "Filter Noise Pass",
+                            ),
+                        });
+                        self.composite_pass(CompositePass {
+                            render_context: pass.render_context,
+                            encoder: pass.encoder,
+                            source: scratch.ping_source(paint::LayerSampling::Filtered),
+                            output: pass.output,
+                            target: pass.target,
+                            prepared,
+                            source_rect: prepared.shape_rect,
+                            opacity: 1.0,
+                            scissor: pass.scissor,
+                            labels: PassLabels::new(
+                                "Filter Noise Composite Bind Group",
+                                "Filter Noise Composite Vertex Buffer",
+                                "Filter Noise Composite Pass",
+                            ),
+                        });
+                        source = TextureSource::for_target_view(
+                            pass.output,
+                            pass.target,
+                            paint::LayerSampling::PixelAligned,
+                        );
+                        source_rect = prepared.shape_rect;
                     }
-
-                    self.effect_pass(EffectPass {
-                        render_context: pass.render_context,
-                        encoder: pass.encoder,
-                        source: source.view,
-                        source_area: source.area,
-                        source_logical_area: source.logical_area,
-                        source_rect,
-                        source_sampling: source.sampling,
-                        output: &textures.ping.view,
-                        target: pass.target,
-                        prepared,
-                        effect: [noise.opacity, 0.0, 0.0, 0.0],
-                        pipeline: &self.noise_pipeline,
-                        scissor: pass.scissor,
-                        labels: PassLabels::new(
-                            "Filter Noise Bind Group",
-                            "Filter Noise Vertex Buffer",
-                            "Filter Noise Pass",
-                        ),
-                    });
-                    self.composite_pass(CompositePass {
-                        render_context: pass.render_context,
-                        encoder: pass.encoder,
-                        source: textures
-                            .ping
-                            .source(textures.logical_area, paint::LayerSampling::Filtered),
-                        output: pass.output,
-                        target: pass.target,
-                        prepared,
-                        source_rect: prepared.shape_rect,
-                        opacity: 1.0,
-                        scissor: pass.scissor,
-                        labels: PassLabels::new(
-                            "Filter Noise Composite Bind Group",
-                            "Filter Noise Composite Vertex Buffer",
-                            "Filter Noise Composite Pass",
-                        ),
-                    });
-                    source = TextureSource {
-                        view: pass.output,
-                        area: pass.target.physical_area.clamp_min(1),
-                        logical_area: pass.target.logical_area,
-                        sampling: paint::LayerSampling::PixelAligned,
-                    };
-                    source_rect = prepared.shape_rect;
                 }
             }
+        }
+
+        if let ScratchTargets::Pooled(scratch) = scratch {
+            self.recycle_scratch(scratch);
         }
     }
 
@@ -1400,6 +1507,14 @@ fn params_with_texture_area(input: ParamInput) -> Params {
 
 fn take_pooled_layer(pool: &mut Vec<Layer>, area: paint::area::Physical) -> Option<Layer> {
     let position = pool.iter().position(|layer| layer.area == area)?;
+    Some(pool.swap_remove(position))
+}
+
+fn take_pooled_scratch(
+    pool: &mut Vec<ScratchTextures>,
+    area: paint::area::Physical,
+) -> Option<ScratchTextures> {
+    let position = pool.iter().position(|scratch| scratch.area == area)?;
     Some(pool.swap_remove(position))
 }
 
@@ -2011,7 +2126,7 @@ mod tests {
     }
 
     #[test]
-    fn group_intermediate_params_keep_shared_texture_extent() {
+    fn first_backdrop_sample_can_use_global_texture_extent_for_local_target() {
         let prepared = prepare_filter(
             Rect::new(
                 paint::point::logical(0.0, 0.0),
@@ -2025,13 +2140,42 @@ mod tests {
             texture_area: paint::area::physical(1200, 900),
             texture_logical_area: paint::area::logical(800.0, 600.0),
             prepared,
+            source_rect: Rect::new(
+                paint::point::logical(240.0, 120.0),
+                paint::area::logical(160.0, 80.0),
+            ),
+            direction: [1.0, 0.0],
+            effect: [1.0, 0.0, 0.0, 0.0],
+            sampling: paint::LayerSampling::PixelAligned,
+        });
+
+        assert_eq!(params.texture_size, [1200.0, 900.0]);
+        assert_eq!(params.source_rect, [360.0, 180.0, 240.0, 120.0]);
+        assert_eq!(params.target_rect, [0.0, 0.0, 240.0, 120.0]);
+    }
+
+    #[test]
+    fn group_intermediate_params_use_target_local_texture_extent() {
+        let prepared = prepare_filter(
+            Rect::new(
+                paint::point::logical(0.0, 0.0),
+                paint::area::logical(160.0, 80.0),
+            ),
+            1.5,
+        )
+        .expect("filter should prepare");
+        let params = params_with_texture_area(ParamInput {
+            target_scale_factor: 1.5,
+            texture_area: paint::area::physical(240, 120),
+            texture_logical_area: paint::area::logical(160.0, 80.0),
+            prepared,
             source_rect: prepared.shape_rect,
             direction: [0.0, 1.0],
             effect: [1.0, 0.0, 0.0, 0.0],
             sampling: paint::LayerSampling::Filtered,
         });
 
-        assert_eq!(params.texture_size, [1200.0, 900.0]);
+        assert_eq!(params.texture_size, [240.0, 120.0]);
         assert_eq!(params.source_rect, [0.0, 0.0, 240.0, 120.0]);
         assert_eq!(params.target_rect, [0.0, 0.0, 240.0, 120.0]);
     }

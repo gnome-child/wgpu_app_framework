@@ -325,6 +325,12 @@ fn root_floating_panel_rect(
 
     match node.floating_placement() {
         view::FloatingPlacement::Default => Rect::new(root.x(), root.y(), width, height),
+        view::FloatingPlacement::Offset { x, y } => Rect::new(
+            root.x().saturating_add(x),
+            root.y().saturating_add(y),
+            width,
+            height,
+        ),
         view::FloatingPlacement::CenteredMaxEnvelope => {
             let envelope_height =
                 floating_panel_max_envelope_height_for_width(node, width, engine, theme, profile)
@@ -575,6 +581,15 @@ fn overlay_stack_placement(
             let width = resolved_width(child, content.width(), engine, theme, profile);
             let height =
                 resolved_height_for_width(child, width, content.height(), engine, theme, profile);
+            if let view::FloatingPlacement::Offset { x, y } = child.floating_placement() {
+                return Rect::new(
+                    content.x().saturating_add(x),
+                    content.y().saturating_add(y),
+                    width,
+                    height,
+                );
+            }
+
             let x = cross_axis_offset(
                 content.x(),
                 content.width(),

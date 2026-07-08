@@ -337,14 +337,17 @@ Group bounds are paint-space visual extents, not just the retained entry rect:
 they include shadows, filter spreads, blur radii, and other pixels the entry
 owns. The group source rect is local texture space while the destination rect
 is the global entry bounds; confusing those is a coordinate bug that can stretch
-or zoom the accumulated scene during fades. Shared intermediate textures report
-their actual texture extent; source rects select the sampled region and must not
-pretend a window-sized ping/pong target is entry-sized. Temporary group targets
-use the renderer alpha convention consistently: primitives draw into a
-transparent target, and the group composite samples and re-applies opacity as
-one image so text, rounded edges, shadows, and backdrop effects do not
-separate. Reduced motion and accessibility policy can set zero exit duration to
-skip ghost allocation entirely.
+or zoom the accumulated scene during fades. Backdrop source space and local
+output space are separate axes: the first backdrop sample may read from the
+global accumulated composition, but every intermediate filter scratch target
+after that is local to the current target. This is another `Axis Splitting`
+case: full-window composition is accumulated scene truth, while target-local
+ping/pong scratch is filter-chain workspace. Temporary group targets use the
+renderer alpha convention consistently: primitives draw into a transparent
+target, and the group composite samples and re-applies opacity as one image so
+text, rounded edges, shadows, and backdrop effects do not separate. Reduced
+motion and accessibility policy can set zero exit duration to skip ghost
+allocation entirely.
 
 `theme`
 

@@ -1,6 +1,6 @@
 use super::{
     State,
-    command::{SetToken, TogglePanel},
+    command::{SetToken, ToggleComparison, TogglePanel},
     state::AcrylicToken,
 };
 use wgpu_l3::{
@@ -10,6 +10,7 @@ use wgpu_l3::{
 };
 
 const PANEL_ID: interaction::Id = interaction::Id::new("glass_tuner.panel");
+const COMPARISON_ID: interaction::Id = interaction::Id::new("glass_tuner.promotion_comparison");
 
 pub const WINDOW_TITLE: &str = "wgpu_l3 Acrylic Tuner";
 pub const CANVAS_COLOR: scene::Color = scene::Color::rgb(17, 18, 20);
@@ -55,6 +56,11 @@ fn toolbar(state: &State) -> widget::Element {
                     .reserve_labels(["Hide panel", "Show panel"])
                     .trigger::<TogglePanel>(()),
             );
+            ui.button(
+                widget::Button::new("Compare fade")
+                    .reserve_labels(["Compare fade"])
+                    .trigger::<ToggleComparison>(()),
+            );
             ui.label(format!("Status: {}", state.last_status));
         })
 }
@@ -73,6 +79,9 @@ fn stage(state: &State) -> widget::Element {
             ui.add(color_bars());
             if state.panel_open {
                 ui.add(floating_panel(state));
+            }
+            if state.comparison_open {
+                ui.add(comparison_panel(state));
             }
         })
 }
@@ -109,8 +118,9 @@ fn color_bars() -> widget::Element {
 
 fn floating_panel(state: &State) -> widget::panel::Floating {
     widget::panel::Floating::new(PANEL_ID)
+        .offset(32, 18)
         .column()
-        .width(Dimension::fixed(620))
+        .width(Dimension::fixed(520))
         .height(Dimension::fixed(520))
         .children(|ui| {
             add_slider(ui, AcrylicToken::BlurSigma, state.blur_sigma, 0.0..=60.0);
@@ -134,6 +144,25 @@ fn floating_panel(state: &State) -> widget::panel::Floating {
             for line in state.toml_patch().lines() {
                 ui.label(line);
             }
+        })
+}
+
+fn comparison_panel(state: &State) -> widget::panel::Floating {
+    widget::panel::Floating::new(COMPARISON_ID)
+        .offset(588, 18)
+        .column()
+        .width(Dimension::fixed(340))
+        .height(Dimension::fixed(240))
+        .children(|ui| {
+            ui.label("Promotion comparison");
+            ui.label(format!("Blur sigma: {:.2}", state.blur_sigma));
+            ui.label(format!("Tint opacity: {:.2}", state.tint_opacity));
+            ui.label(format!(
+                "Luminosity opacity: {:.2}",
+                state.luminosity_opacity
+            ));
+            ui.label(format!("Noise opacity: {:.3}", state.noise_opacity));
+            ui.label(state.tint.hex());
         })
 }
 
