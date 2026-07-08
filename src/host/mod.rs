@@ -98,19 +98,29 @@ impl<M: State, E: Send + 'static> Host<M, E> {
         match event {
             Event::Started => Some(shell::Event::Started),
             Event::Window { window, event } => {
-                self.window(window)?;
+                if self.window(window).is_none() {
+                    log::debug!("dropping event for unknown host window: {window:?}");
+                    return None;
+                }
                 Some(event.into_shell_event(window))
             }
-            Event::FilePathSelected { window, path } => Some(shell::Event::FilePathSelected {
-                window: self.window(window)?.id(),
-                path,
-            }),
+            Event::FilePathSelected { window, path } => {
+                let Some(window) = self.window(window) else {
+                    log::warn!("dropping file dialog result for unknown host window: {window:?}");
+                    return None;
+                };
+                Some(shell::Event::FilePathSelected {
+                    window: window.id(),
+                    path,
+                })
+            }
             Event::Poll => Some(shell::Event::Poll),
         }
     }
 
     fn apply_work(&mut self, work: &shell::Work) {
         for closed in work.closed_windows() {
+            log::debug!("host removing closed window: {closed:?}");
             self.windows.retain(|entry| entry.id() != *closed);
             self.presentations
                 .retain(|presentation| presentation.window() != *closed);
@@ -122,10 +132,22 @@ impl<M: State, E: Send + 'static> Host<M, E> {
                 .iter_mut()
                 .find(|entry| entry.id() == window.id())
             {
+                log::debug!(
+                    "host updating window {:?}: title={:?}, size={:?}",
+                    window.id(),
+                    window.title(),
+                    window.size()
+                );
                 entry.update(window.title(), window.size());
                 continue;
             }
 
+            log::debug!(
+                "host tracking opened window {:?}: title={:?}, size={:?}",
+                window.id(),
+                window.title(),
+                window.size()
+            );
             self.windows
                 .push(Window::new(window.id(), window.title(), window.size()));
         }

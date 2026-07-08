@@ -13,22 +13,42 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         path: Option<PathBuf>,
     ) -> std::result::Result<input::Outcome, Error> {
         let Some(dialog) = self.session.take_file_dialog(window) else {
+            log::warn!(
+                "received file dialog result for window {:?} with no pending dialog",
+                window
+            );
             return Ok(input::Outcome::ignored());
         };
 
         match (dialog, path) {
-            (session::FileDialog::Open, Some(path)) => self.invoke_dialog_command(
-                window,
-                command::Trigger::<document::OpenPath>::command(path),
-            ),
+            (session::FileDialog::Open, Some(path)) => {
+                log::debug!(
+                    "open dialog selected path for window {:?}: {:?}",
+                    window,
+                    path
+                );
+                self.invoke_dialog_command(
+                    window,
+                    command::Trigger::<document::OpenPath>::command(path),
+                )
+            }
             (session::FileDialog::Open, None) => {
+                log::debug!("open dialog canceled for window {:?}", window);
                 self.notify_dialog::<document::OpenDialogCanceled>(window, ())
             }
-            (session::FileDialog::SaveAs, Some(path)) => self.invoke_dialog_command(
-                window,
-                command::Trigger::<document::SaveToPath>::command(path),
-            ),
+            (session::FileDialog::SaveAs, Some(path)) => {
+                log::debug!(
+                    "save-as dialog selected path for window {:?}: {:?}",
+                    window,
+                    path
+                );
+                self.invoke_dialog_command(
+                    window,
+                    command::Trigger::<document::SaveToPath>::command(path),
+                )
+            }
             (session::FileDialog::SaveAs, None) => {
+                log::debug!("save-as dialog canceled for window {:?}", window);
                 self.notify_dialog::<document::SaveDialogCanceled>(window, ())
             }
         }

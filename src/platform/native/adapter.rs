@@ -27,11 +27,12 @@ impl Backend for Native {
         _context: &mut Self::Context<'_>,
         window: app_window::Id,
     ) -> Result<(), Self::Error> {
-        let native_window = self
-            .windows
-            .remove(&window)
-            .ok_or(NativeError::MissingWindow { window })?;
+        let Some(native_window) = self.windows.remove(&window) else {
+            log::warn!("cannot close missing native window: {window:?}");
+            return Err(NativeError::MissingWindow { window });
+        };
         self.raw_windows.remove(&native_window.raw_id());
+        log::debug!("closed native window: {window:?}");
         Ok(())
     }
 

@@ -98,27 +98,36 @@ impl<E: Send + 'static> Inner<E> {
         let id = self.allocate_id();
         self.statuses.insert(id, Status::Pending);
         self.tasks.push_back(Entry { id, task });
+        log::debug!("queued task {id:?}");
         id
     }
 
     fn pop(&mut self) -> Option<(Id, Task<E>)> {
         while let Some(entry) = self.tasks.pop_front() {
             if self.status(entry.id) == Some(Status::Pending) {
+                log::debug!("running task {:?}", entry.id);
                 return Some((entry.id, entry.task));
             }
+            log::debug!(
+                "discarding queued task {:?} with status {:?}",
+                entry.id,
+                self.status(entry.id)
+            );
         }
 
         None
     }
 
     fn push_completion(&mut self, id: Id, event: E) {
+        log::debug!("queued task completion {id:?}");
         self.completions.push_back(Completion { id, event });
     }
 
     fn pop_completion(&mut self) -> Option<(Id, E)> {
-        self.completions
-            .pop_front()
-            .map(|completion| (completion.id, completion.event))
+        self.completions.pop_front().map(|completion| {
+            log::debug!("dispatching task completion {:?}", completion.id);
+            (completion.id, completion.event)
+        })
     }
 
     fn len(&self) -> usize {
@@ -133,6 +142,7 @@ impl<E: Send + 'static> Inner<E> {
     }
 
     fn clear(&mut self) {
+        let pending = self.len();
         for entry in &self.tasks {
             if self.status(entry.id) == Some(Status::Pending) {
                 self.statuses.insert(entry.id, Status::Canceled);
@@ -140,20 +150,30 @@ impl<E: Send + 'static> Inner<E> {
         }
         self.tasks.clear();
         self.completions.clear();
+        if pending > 0 {
+            log::debug!("cleared task queue; canceled {pending} pending tasks");
+        }
     }
 
     fn cancel(&mut self, id: Id) -> bool {
         if self.status(id) != Some(Status::Pending) {
+            log::debug!(
+                "ignored task cancel for {:?}; status={:?}",
+                id,
+                self.status(id)
+            );
             return false;
         }
 
         self.statuses.insert(id, Status::Canceled);
+        log::debug!("canceled task {id:?}");
         true
     }
 
     fn complete(&mut self, id: Id) {
         if self.status(id) == Some(Status::Pending) {
             self.statuses.insert(id, Status::Completed);
+            log::debug!("completed task {id:?}");
         }
     }
 

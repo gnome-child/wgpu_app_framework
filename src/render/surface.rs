@@ -31,6 +31,11 @@ impl Surface {
         render_context: &render::Context,
         target: impl Into<SurfaceTarget<'static>>,
     ) -> Result<Self> {
+        log::debug!(
+            "creating render surface: {}x{} physical",
+            area.width(),
+            area.height()
+        );
         let inner = render_context.instance().create_surface(target)?;
 
         let Some(mut config) = inner.get_default_config(
@@ -38,6 +43,11 @@ impl Surface {
             area.width().max(1),
             area.height().max(1),
         ) else {
+            log::error!(
+                "wgpu surface has no default configuration for {}x{}",
+                area.width().max(1),
+                area.height().max(1)
+            );
             return Err(Error::NoSurfaceConfiguration);
         };
 
@@ -54,6 +64,13 @@ impl Surface {
         .unwrap_or(config.present_mode);
 
         inner.configure(render_context.device(), &config);
+        log::debug!(
+            "configured render surface: {}x{}, format={:?}, present_mode={:?}",
+            config.width,
+            config.height,
+            config.format,
+            config.present_mode
+        );
 
         Ok(Self {
             inner,
@@ -69,6 +86,13 @@ impl Surface {
     pub fn resize(&mut self, render_context: &render::Context, area: paint::area::Physical) {
         let area = area.clamp_min(1);
 
+        log::debug!(
+            "resizing render surface: {}x{} -> {}x{}",
+            self.config.width,
+            self.config.height,
+            area.width(),
+            area.height()
+        );
         self.config.width = area.width();
         self.config.height = area.height();
 
@@ -83,17 +107,37 @@ impl Surface {
                 surface_texture,
             ))),
             Suboptimal(surface_texture) => {
+                log::debug!("acquired suboptimal surface texture; reconfiguring surface");
                 self.reconfigure(render_context);
                 Ok(render::FrameOutcome::Acquired(render::Frame::new(
                     surface_texture,
                 )))
             }
             Outdated => {
+                log::debug!(
+                    "surface texture is outdated; reconfiguring surface and skipping frame"
+                );
                 self.reconfigure(render_context);
                 Ok(render::FrameOutcome::Skipped)
             }
-            Timeout | Occluded | Validation => Ok(render::FrameOutcome::Skipped),
-            Lost => Err(Error::Lost),
+            Timeout => {
+                log::debug!("surface texture acquisition timed out; skipping frame");
+                Ok(render::FrameOutcome::Skipped)
+            }
+            Occluded => {
+                log::debug!("surface is occluded; skipping frame");
+                Ok(render::FrameOutcome::Skipped)
+            }
+            Validation => {
+                log::warn!(
+                    "surface texture acquisition returned validation status; skipping frame"
+                );
+                Ok(render::FrameOutcome::Skipped)
+            }
+            Lost => {
+                log::error!("surface was lost");
+                Err(Error::Lost)
+            }
         }
     }
 
@@ -126,6 +170,13 @@ impl Surface {
     }
 
     pub fn reconfigure(&self, render_context: &render::Context) {
+        log::debug!(
+            "reconfiguring render surface: {}x{}, format={:?}, present_mode={:?}",
+            self.config.width,
+            self.config.height,
+            self.config.format,
+            self.config.present_mode
+        );
         self.inner.configure(render_context.device(), &self.config);
     }
 }

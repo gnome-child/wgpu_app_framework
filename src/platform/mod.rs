@@ -128,10 +128,17 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
         work: &shell::Work,
     ) -> Result<(), B::Error> {
         for window in work.closed_windows() {
+            log::debug!("closing backend window: {window:?}");
             self.backend.close_window(context, *window)?;
         }
 
         for window in work.opened_windows() {
+            log::debug!(
+                "opening backend window {:?}: title={:?}, size={:?}",
+                window.id(),
+                window.title(),
+                window.size()
+            );
             self.backend
                 .open_window(context, &Window::from_shell(window))?;
         }
@@ -160,6 +167,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
                 continue;
             }
 
+            log::debug!("submitting backend request: {request:?}");
             self.backend.request(context, *request)?;
             self.active_requests.push(*request);
         }
@@ -181,6 +189,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             return Ok(());
         }
 
+        log::debug!("scheduling backend poll");
         self.backend.schedule_poll(context)?;
         self.poll_scheduled = true;
         Ok(())

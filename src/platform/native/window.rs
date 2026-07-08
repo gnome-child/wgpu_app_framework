@@ -110,6 +110,7 @@ impl Native {
 
     pub fn request_redraw(&self, window: app_window::Id) -> Result<(), NativeError> {
         let Some(window) = self.windows.get(&window) else {
+            log::warn!("redraw requested for missing native window: {window:?}");
             return Err(NativeError::MissingWindow { window });
         };
 

@@ -16,7 +16,10 @@ impl Native {
 
     pub(in crate::platform::native) fn request_once(&mut self, request: session::Request) {
         if !self.requests.contains(&request) {
+            log::debug!("queued native request: {request:?}");
             self.requests.push(request);
+        } else {
+            log::debug!("native request already queued: {request:?}");
         }
     }
 

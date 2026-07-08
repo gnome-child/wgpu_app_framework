@@ -9,7 +9,15 @@ impl System {
 
     fn clipboard(&mut self) -> Option<&mut arboard::Clipboard> {
         if self.clipboard.is_none() {
-            self.clipboard = arboard::Clipboard::new().ok();
+            match arboard::Clipboard::new() {
+                Ok(clipboard) => {
+                    log::debug!("connected to system clipboard");
+                    self.clipboard = Some(clipboard);
+                }
+                Err(error) => {
+                    log::warn!("system clipboard unavailable: {error}");
+                }
+            }
         }
 
         self.clipboard.as_mut()
@@ -19,13 +27,21 @@ impl System {
         match self.clipboard()?.get_text() {
             Ok(text) => Some((!text.is_empty()).then_some(text)),
             Err(arboard::Error::ContentNotAvailable) => Some(None),
-            Err(_) => None,
+            Err(error) => {
+                log::warn!("failed to read text from system clipboard: {error}");
+                None
+            }
         }
     }
 
     pub(super) fn write_text(&mut self, text: &str) {
-        if let Some(clipboard) = self.clipboard() {
-            let _ = clipboard.set_text(text.to_owned());
+        let Some(clipboard) = self.clipboard() else {
+            log::debug!("skipping clipboard write because system clipboard is unavailable");
+            return;
+        };
+
+        if let Err(error) = clipboard.set_text(text.to_owned()) {
+            log::warn!("failed to write text to system clipboard: {error}");
         }
     }
 }

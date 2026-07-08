@@ -151,6 +151,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .collect::<Vec<_>>();
 
         for window in due {
+            log::debug!("animation frame due for window {window:?}; requesting paint");
             self.session
                 .request_invalidation(window, response::Invalidation::Paint);
         }
@@ -260,6 +261,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             && let Some(layout) = self.cached_layout(window, size, theme)
         {
             if self.apply_active_descendant_reveals(window, &layout, theme) {
+                log::debug!(
+                    "paint-only scene render for window {:?} promoted to layout by reveal feedback",
+                    window
+                );
                 let layout = self.compose_layout_for_scene(window, size, theme, frame)?;
                 self.record_layout_diagnostics(window, &layout);
                 self.cache_layout(window, size, theme, &layout);
@@ -302,9 +307,11 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 
     pub(crate) fn present(&mut self, window: window::Id) -> Option<view::View> {
         if !self.session.contains(window) {
+            log::debug!("skipping present for unknown window {window:?}");
             return None;
         }
 
+        log::debug!("rebuilding view projection for window {window:?}");
         self.layout_cache.remove(&window);
         self.record_view_rebuild(window);
         let view = self.view.as_ref()?;
@@ -314,6 +321,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         }
         let mut focus = self.session.focused(window);
         if focus.is_some_and(|focus| focus.target_id().is_some() && !view.contains_focus(focus)) {
+            log::debug!("clearing stale focus before command resolution for window {window:?}");
             self.clear_focus(window);
             focus = None;
         }
@@ -340,6 +348,14 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             view.project_surfaces(interaction);
         }
         let (tree, changes) = self.composition.prepare(window, &view);
+        if !changes.is_empty() {
+            log::debug!(
+                "composition changed for window {:?}: removed={}, removed_elements={}",
+                window,
+                changes.removed().len(),
+                changes.removed_elements().len()
+            );
+        }
         let interaction_pruned = !changes.is_empty()
             && self.session.prune_removed_interaction(
                 window,
@@ -351,10 +367,18 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         } else {
             interaction
         };
+        if interaction_pruned {
+            log::debug!(
+                "pruned interaction state for removed composition nodes in window {window:?}"
+            );
+        }
         if let Some(interaction) = interaction.as_ref() {
             view.project_layout_interaction_retained(interaction, &tree);
         }
         if focus.is_some_and(|focus| !view.contains_enabled_focus_retained(&tree, focus)) {
+            log::debug!(
+                "clearing stale focus after composition reconciliation for window {window:?}"
+            );
             self.clear_focus(window);
             focus = None;
         }

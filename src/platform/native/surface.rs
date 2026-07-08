@@ -8,6 +8,7 @@ use crate::{geometry, shell, window as app_window};
 impl Native {
     pub(in crate::platform::native) fn ensure_context(&mut self) -> Result<(), NativeError> {
         if self.context.is_none() {
+            log::debug!("initializing native render context");
             self.context = Some(pollster::block_on(render::Context::new(
                 render_context_options(),
             ))?);
@@ -21,6 +22,7 @@ impl Native {
             return;
         }
 
+        log::debug!("initializing native renderer for surface format {format:?}");
         let context = self
             .context
             .as_ref()
@@ -34,6 +36,12 @@ impl Native {
         window: &Window,
     ) -> Result<NativeWindow, NativeError> {
         self.ensure_context()?;
+        log::debug!(
+            "opening native window {:?}: title={:?}, size={:?}",
+            window.id(),
+            window.title(),
+            window.size()
+        );
 
         let native_options = Options {
             title: window.title().to_owned(),
@@ -56,6 +64,14 @@ impl Native {
             render_context,
             handle.clone(),
         )?;
+        log::debug!(
+            "created native window {:?}: raw={:?}, inner={}x{}, scale={}",
+            window.id(),
+            handle.id(),
+            inner_size.width,
+            inner_size.height,
+            handle.scale_factor()
+        );
 
         Ok(NativeWindow::new(handle, canvas))
     }
@@ -96,10 +112,10 @@ impl Native {
             .renderer
             .as_mut()
             .expect("renderer should exist before presenting");
-        let native_window = self
-            .windows
-            .get_mut(&window)
-            .ok_or(NativeError::MissingWindow { window })?;
+        let native_window = self.windows.get_mut(&window).ok_or_else(|| {
+            log::error!("cannot present missing native window: {window:?}");
+            NativeError::MissingWindow { window }
+        })?;
         let scene = super::paint::to_paint_scene_at_scale(
             presentation.scene(),
             native_window.canvas().scale_factor(),
@@ -115,16 +131,23 @@ impl Native {
         window: app_window::Id,
     ) -> Result<wgpu::TextureFormat, NativeError> {
         self.ensure_context()?;
-        let native_window = self
-            .windows
-            .get_mut(&window)
-            .ok_or(NativeError::MissingWindow { window })?;
+        let native_window = self.windows.get_mut(&window).ok_or_else(|| {
+            log::error!("cannot sync surface for missing native window: {window:?}");
+            NativeError::MissingWindow { window }
+        })?;
         let area = native_window.inner_area().clamp_min(1);
         let scale_factor = native_window.scale_factor() as f32;
         let needs_resize = native_window.canvas().physical_area() != area
             || (native_window.canvas().scale_factor() - scale_factor).abs() > f32::EPSILON;
 
         if needs_resize {
+            log::debug!(
+                "syncing native surface {:?}: area={}x{}, scale={}",
+                window,
+                area.width(),
+                area.height(),
+                scale_factor
+            );
             let context = self
                 .context
                 .as_ref()

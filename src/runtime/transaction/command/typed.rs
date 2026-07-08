@@ -53,6 +53,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let observer_changed = match self.observe_response::<C>(&response, source) {
             Ok(changed) => changed,
             Err(error) => {
+                log::error!(
+                    "command observer failed for {} from {:?}: {error}",
+                    C::NAME,
+                    source
+                );
                 self.finish_transaction(
                     before,
                     history,
@@ -65,6 +70,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             }
         };
         if observer_changed {
+            log::debug!("command observer changed state for {}", C::NAME);
             response.mark_changed();
         }
         let changed = response.is_ok() && (command_changed || observer_changed);

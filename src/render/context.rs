@@ -29,6 +29,12 @@ pub struct Options {
 
 impl Context {
     pub async fn new(options: Options) -> render::Result<Self> {
+        log::debug!(
+            "creating wgpu context: backends={:?}, power_preference={:?}, fallback={}",
+            options.backends,
+            options.power_preference,
+            options.force_fallback_adapter
+        );
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: options.backends,
             flags: Default::default(),
@@ -37,16 +43,23 @@ impl Context {
             display: None,
         });
 
-        let adapter = instance
+        let adapter = match instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: options.power_preference,
                 compatible_surface: None,
                 force_fallback_adapter: options.force_fallback_adapter,
             })
             .await
-            .map_err(Error::from)?;
+        {
+            Ok(adapter) => adapter,
+            Err(error) => {
+                log::error!("failed to request wgpu adapter: {error}");
+                return Err(Error::from(error).into());
+            }
+        };
+        log::debug!("selected wgpu adapter: {:?}", adapter.get_info());
 
-        let (device, queue) = adapter
+        let (device, queue) = match adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some(options.device_label),
                 required_features: options.required_features,
@@ -56,7 +69,14 @@ impl Context {
                 trace: wgpu::Trace::Off,
             })
             .await
-            .map_err(Error::from)?;
+        {
+            Ok(device) => device,
+            Err(error) => {
+                log::error!("failed to request wgpu device: {error}");
+                return Err(Error::from(error).into());
+            }
+        };
+        log::debug!("created wgpu device: {}", options.device_label);
 
         Ok(Self {
             instance,

@@ -14,7 +14,13 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
         let requests = self.platform.backend_mut().take_requests();
 
         for request in requests {
+            log::debug!("opening native file dialog for request: {request:?}");
             let path = native_file_dialog(request.kind());
+            if let Some(path) = &path {
+                log::debug!("native file dialog selected path: {:?}", path);
+            } else {
+                log::debug!("native file dialog canceled for request: {request:?}");
+            }
             let event = file_dialog_selected(request, path);
             let mut context = NativeContext::new(event_loop);
             self.platform.handle_event_with(&mut context, event)?;

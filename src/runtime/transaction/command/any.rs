@@ -50,6 +50,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let mut response = match invoke(&self.registry, &mut chain, &mut cx) {
             Ok(Some(response)) => response,
             Ok(None) => {
+                log::debug!(
+                    "command invocation produced no target or command: {command_name} from {source:?}"
+                );
                 drop(chain);
                 drop(cx);
                 self.finish_transaction(
@@ -63,6 +66,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 return Ok(None);
             }
             Err(error) => {
+                log::warn!(
+                    "command invocation failed before dispatch: {command_name} from {source:?}: {error}"
+                );
                 drop(chain);
                 drop(cx);
                 self.finish_transaction(
@@ -84,6 +90,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let observer_changed = match self.observe_any_response(command_type, &response, source) {
             Ok(changed) => changed,
             Err(error) => {
+                log::error!("command observer failed for {command_name} from {source:?}: {error}");
                 self.finish_transaction(
                     before,
                     history,
@@ -96,6 +103,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             }
         };
         if observer_changed {
+            log::debug!("command observer changed state for {command_name}");
             response.mark_changed();
         }
         let changed = response.is_ok() && (command_changed || observer_changed);

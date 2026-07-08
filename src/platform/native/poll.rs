@@ -12,6 +12,7 @@ impl Native {
     }
 
     pub(in crate::platform::native) fn schedule_poll_request(&mut self) {
+        log::debug!("queued native poll request");
         self.poll_requested = true;
     }
 }

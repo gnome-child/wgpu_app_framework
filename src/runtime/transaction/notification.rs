@@ -27,6 +27,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let mut chain = self.responders.chain_for(&mut self.store, focus);
         let reaction = chain.notify::<N>(&payload, &mut cx);
         let changed = reaction.changed_state();
+        log::debug!(
+            "delivered notification {} from {:?}: changed={}, effect={:?}",
+            N::NAME,
+            source,
+            changed,
+            reaction.effect()
+        );
 
         drop(chain);
         drop(cx);

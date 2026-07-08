@@ -67,10 +67,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     fn apply_window_effect(&mut self, window: window::Id, effect: &response::Effect) {
         match effect {
             response::Effect::OpenFileDialog => {
+                log::debug!("requesting open file dialog for window {window:?}");
                 self.session
                     .request_file_dialog(window, session::FileDialog::Open);
             }
             response::Effect::SaveFileDialog => {
+                log::debug!("requesting save-as file dialog for window {window:?}");
                 self.session
                     .request_file_dialog(window, session::FileDialog::SaveAs);
             }
@@ -81,6 +83,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             }
             response::Effect::CloseFloatingPanel => {
                 if self.session.close_menu(window) {
+                    log::debug!("closed floating panel for window {window:?}");
                     self.session
                         .request_invalidation(window, response::Invalidation::Rebuild);
                 }
