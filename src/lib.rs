@@ -66,7 +66,7 @@ pub use scene::Scene;
 pub use session::Session;
 pub use shell::Shell;
 pub use state::State;
-pub use subject::{Path as SubjectPath, Segment as Subject};
+pub use subject::Segment as Subject;
 pub use target::Target;
 pub use task::Task;
 pub use theme::Theme;
