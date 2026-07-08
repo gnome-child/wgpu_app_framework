@@ -44,7 +44,6 @@ impl Viewport {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn from_logical_area(
         logical_area: crate::paint::area::Logical,
         scale_factor: f32,

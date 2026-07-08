@@ -130,6 +130,7 @@ impl Native {
             .present_timing
             .map(render::PresentTiming::acquire_wait)
             .unwrap_or_default();
+        let group_composites = report.stats.group_composites;
         if acquire_wait.as_millis() >= 8 {
             log::debug!(
                 "surface acquire wait for window {:?}: {}us",
@@ -138,11 +139,10 @@ impl Native {
             );
         }
 
-        Ok(diagnostics::RenderReport::new(
-            acquire_wait,
-            draw,
-            Instant::now(),
-        ))
+        Ok(
+            diagnostics::RenderReport::new(acquire_wait, draw, Instant::now())
+                .with_group_composites(group_composites),
+        )
     }
 
     fn sync_window_surface(

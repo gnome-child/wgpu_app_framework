@@ -46,7 +46,7 @@ pub fn view(state: &State, cx: ViewContext) -> View {
         let frame = &diagnostics.frame;
         let render = &diagnostics.render;
         let status = format!(
-            "File: {path} ({dirty}) | Wrap: {wrap}\nDocument: {} lines, {} bytes | Edits: {} | Status: {}\nText layout: paint {}, metrics {}, visible {}, shaped {}, segments {}+{}, overlays {}, highlight scans {}\nText caches: line {}/{}, render surfaces {}, render cache {}/{}, render source {} lines / {} bytes\nScroll: wheel {}, offsets {}, redraws {}, commits {}, text area viewports {}\nFrames: full {}, rebuilds {}, layout recomposes {}, layout reuses {}, text surfaces {}\nRender: frames {}, interval p95 {}us, acquire p95 {}us, draw p95 {}us, key->present p95 {}us, pending keys {}",
+            "File: {path} ({dirty}) | Wrap: {wrap}\nDocument: {} lines, {} bytes | Edits: {} | Status: {}\nText layout: paint {}, metrics {}, visible {}, shaped {}, segments {}+{}, overlays {}, highlight scans {}\nText caches: line {}/{}, render surfaces {}, render cache {}/{}, render source {} lines / {} bytes\nScroll: wheel {}, offsets {}, redraws {}, commits {}, text area viewports {}\nFrames: full {}, rebuilds {}, layout recomposes {}, layout reuses {}, text surfaces {}\nRender: frames {}, interval p95 {}us, acquire p95 {}us, draw p95 {}us, key->present p95 {}us, pending keys {}, groups {}",
             state.document.line_count(),
             state.document.len(),
             state.document.edit_count(),
@@ -82,6 +82,7 @@ pub fn view(state: &State, cx: ViewContext) -> View {
             render.draw_p95_us(),
             render.key_to_present_p95_us(),
             render.pending_key_to_present_samples(),
+            render.group_composites,
         );
         Some(
             widget::Panel::new()

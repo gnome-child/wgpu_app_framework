@@ -264,8 +264,10 @@ renderer adapter.
 
 Scene clips are paint primitives. Paint applies every resolved frame clip; it
 does not decide that a role or layer should ignore clipping. Filters inside
-clipped content must be covered by integration tests before being treated as a
-stable rendering contract.
+clipped or promoted content sample from the accumulated backdrop beneath the
+current layer, then write their result into the current local target. A filter
+inside a layer must not silently skip itself because it is no longer drawing
+directly to the main target.
 
 Scene is also the presentation-space boundary. The doctrine is: layout is
 snapped, presentation is continuous, and animation is presentation. Resting
@@ -318,12 +320,23 @@ receives a newer order and paints above its own fading ghost. Dismiss and
 immediate reopen may therefore show a non-interactive fading ghost behind a
 fresh live entry, which is intended.
 
-Overlay opacity is per-primitive in v1, not a true offscreen group composite.
-Alpha-bearing primitives and alpha-bearing filter ops can fade directly.
-Spatial backdrop effects such as blur and refraction are not alpha-fadeable
-without group compositing; they should not produce a lingering blur-only
-apparition during overlay fades. Reduced-motion and accessibility policy can
-set zero exit duration to skip ghost allocation entirely.
+Overlay opacity is group compositing, not per-primitive alpha. A fully opaque
+entry renders inline and costs no offscreen target. An entry whose opacity is
+between 0 and 1 is promoted into an offscreen group: render the entry's
+backdrop filters, panel chrome, text, icons, shadows, and rounded edges into a
+local transparent target, then composite that target back once with the group
+opacity. Opacity 0 skips rendering.
+
+Group bounds are paint-space visual extents, not just the retained entry rect:
+they include shadows, filter spreads, blur radii, and other pixels the entry
+owns. The group source rect is local texture space while the destination rect
+is the global entry bounds; confusing those is a coordinate bug that can stretch
+or zoom the accumulated scene during fades. Temporary group targets use the
+renderer alpha convention consistently: primitives draw into a transparent
+target, and the group composite samples and re-applies opacity as one image so
+text, rounded edges, shadows, and backdrop effects do not separate. Reduced
+motion and accessibility policy can set zero exit duration to skip ghost
+allocation entirely.
 
 `theme`
 

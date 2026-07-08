@@ -5,6 +5,7 @@ struct Params {
     effect: vec4<f32>,
     rect: vec4<f32>,
     source_rect: vec4<f32>,
+    target_rect: vec4<f32>,
     rounding: vec4<f32>,
 };
 
@@ -85,8 +86,13 @@ fn mirror_source_position(position: vec2<f32>) -> vec2<f32> {
     );
 }
 
-fn sample_mirrored_source(position: vec2<f32>) -> vec4<f32> {
-    let uv = mirror_source_position(position) / max(params.texture_size, vec2<f32>(1.0));
+fn source_position_for_target(position: vec2<f32>) -> vec2<f32> {
+    return params.source_rect.xy + (position - params.target_rect.xy);
+}
+
+fn sample_mirrored_source(target_position: vec2<f32>) -> vec4<f32> {
+    let source_position = source_position_for_target(target_position);
+    let uv = mirror_source_position(source_position) / max(params.texture_size, vec2<f32>(1.0));
 
     return textureSample(source_texture, source_sampler, uv);
 }
@@ -157,8 +163,9 @@ fn fs_composite(in: CompositeOut) -> @location(0) vec4<f32> {
     let uv = source_position / max(params.texture_size, vec2<f32>(1.0));
     let color = textureSample(source_texture, source_sampler, uv);
     let rgb = unpremultiply(color);
+    let opacity = clamp(params.effect.x, 0.0, 1.0);
 
-    return vec4<f32>(rgb, color.a * alpha);
+    return vec4<f32>(rgb, color.a * alpha * opacity);
 }
 
 @fragment
@@ -241,6 +248,7 @@ fn fs_composite_pixel(in: CompositeOut) -> @location(0) vec4<f32> {
     let texel = vec2<i32>(floor(clamp(source_position, vec2<f32>(0.0), max_position)));
     let color = textureLoad(source_texture, texel, 0);
     let rgb = unpremultiply(color);
+    let opacity = clamp(params.effect.x, 0.0, 1.0);
 
-    return vec4<f32>(rgb, color.a * alpha);
+    return vec4<f32>(rgb, color.a * alpha * opacity);
 }

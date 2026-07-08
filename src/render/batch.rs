@@ -6,6 +6,7 @@ pub enum ItemBatch<'a> {
     Glyphs(Vec<Glyph<'a>>),
     PushClip(&'a paint::Clip),
     PopClip,
+    Group(&'a paint::Group),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -37,6 +38,7 @@ pub fn item_batches(items: &[paint::Item]) -> Vec<ItemBatch<'_>> {
             paint::Item::Filter(filter) => batches.push(ItemBatch::Filter(filter)),
             paint::Item::Clip(clip) => batches.push(ItemBatch::PushClip(clip)),
             paint::Item::PopClip => batches.push(ItemBatch::PopClip),
+            paint::Item::Group(group) => batches.push(ItemBatch::Group(group)),
         }
     }
 
@@ -71,6 +73,7 @@ mod tests {
         Glyphs(usize),
         PushClip,
         PopClip,
+        Group,
     }
 
     fn solid_quad(x: f32) -> paint::Quad {
@@ -135,6 +138,7 @@ mod tests {
                 ItemBatch::Glyphs(glyphs) => Kind::Glyphs(glyphs.len()),
                 ItemBatch::PushClip(_) => Kind::PushClip,
                 ItemBatch::PopClip => Kind::PopClip,
+                ItemBatch::Group(_) => Kind::Group,
             })
             .collect()
     }
@@ -230,6 +234,28 @@ mod tests {
                 Kind::PopClip,
                 Kind::Shapes(1)
             ]
+        );
+    }
+
+    #[test]
+    fn group_batches_as_own_ordered_operation() {
+        let group = paint::Group {
+            bounds: Rect::new(
+                paint::point::logical(0.0, 0.0),
+                paint::area::logical(10.0, 10.0),
+            ),
+            opacity: 0.5,
+            items: vec![paint::Item::Quad(solid_quad(0.0))],
+        };
+        let items = vec![
+            paint::Item::Quad(solid_quad(0.0)),
+            paint::Item::Group(group),
+            paint::Item::Text(label(3.0)),
+        ];
+
+        assert_eq!(
+            kinds(&item_batches(&items)),
+            vec![Kind::Shapes(1), Kind::Group, Kind::Glyphs(1)]
         );
     }
 }

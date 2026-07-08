@@ -18,6 +18,7 @@ pub struct DrawStats {
     pub quad_vertices: usize,
     pub clip_batches: usize,
     pub filters: usize,
+    pub group_composites: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -41,6 +42,7 @@ enum RenderBatch {
     },
     PushClip(paint::Clip),
     PopClip,
+    Group(PreparedGroup),
 }
 
 struct PreparedScene {
@@ -48,10 +50,17 @@ struct PreparedScene {
     stats: DrawStats,
 }
 
+struct PreparedGroup {
+    bounds: Rect,
+    opacity: f32,
+    render_batches: Vec<RenderBatch>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct ClipFrame {
     clip: paint::Clip,
     layer_index: usize,
+    dirty: bool,
 }
 
 struct SceneEncoder<'a> {
@@ -59,14 +68,16 @@ struct SceneEncoder<'a> {
     quad_pipeline: &'a wgpu::RenderPipeline,
     filter_renderer: &'a render::filter::Renderer,
     text_renderer: &'a mut render::text_renderer::TextRenderer,
-    filter_target: render::filter::Target,
     output_target: render::filter::Target,
     encoder: &'a mut wgpu::CommandEncoder,
     base_view: &'a wgpu::TextureView,
+    backdrop_view: &'a wgpu::TextureView,
+    backdrop_target: render::filter::Target,
     clear_color: wgpu::Color,
     viewport: render::Viewport,
     layers: Vec<render::filter::Layer>,
     clip_stack: Vec<ClipFrame>,
+    base_dirty: bool,
     text_render_error: &'a mut Option<render::text_renderer::Error>,
 }
 
@@ -75,12 +86,19 @@ struct SceneEncoderInput<'a> {
     quad_pipeline: &'a wgpu::RenderPipeline,
     filter_renderer: &'a render::filter::Renderer,
     text_renderer: &'a mut render::text_renderer::TextRenderer,
-    filter_target: render::filter::Target,
     encoder: &'a mut wgpu::CommandEncoder,
     base_view: &'a wgpu::TextureView,
+    backdrop_view: &'a wgpu::TextureView,
+    backdrop_target: render::filter::Target,
     clear_color: wgpu::Color,
     viewport: render::Viewport,
+    base_dirty: bool,
     text_render_error: &'a mut Option<render::text_renderer::Error>,
+}
+
+struct FilterSource<'a> {
+    source: render::filter::TextureSource<'a>,
+    source_rect: Rect,
 }
 
 impl Renderer {
@@ -135,10 +153,7 @@ impl Renderer {
             .unwrap_or_else(|| canvas.color());
         let main_viewport = render::Viewport::from_canvas(canvas);
         let item_batches = item_batches(scene.items());
-        let scene_text_batches = item_batches
-            .iter()
-            .filter(|batch| matches!(batch, ItemBatch::Glyphs(_)))
-            .count();
+        let scene_text_batches = glyph_batch_count(&item_batches);
         let text_batch_count = scene_text_batches;
 
         if text_batch_count > 0 {
@@ -174,11 +189,13 @@ impl Renderer {
                 quad_pipeline,
                 filter_renderer,
                 text_renderer,
-                filter_target,
                 encoder,
                 base_view: composition_view,
+                backdrop_view: composition_view,
+                backdrop_target: render::filter::Target::from_viewport(main_viewport),
                 clear_color,
                 viewport: main_viewport,
+                base_dirty: true,
                 text_render_error: &mut text_render_error,
             });
             scene_encoder.encode(&prepared_scene.render_batches);
@@ -205,45 +222,36 @@ impl Renderer {
         &mut self,
         render_context: &render::Context,
         viewport: render::Viewport,
-        item_batches: &[ItemBatch<'_>],
+        item_batch_list: &[ItemBatch<'_>],
         text_renderer_index: &mut usize,
     ) -> render::Result<PreparedScene> {
-        let mut render_batches = Vec::with_capacity(item_batches.len());
+        let mut render_batches = Vec::with_capacity(item_batch_list.len());
         let mut stats = DrawStats {
-            render_batches: item_batches.len(),
-            glyph_batches: item_batches
+            render_batches: item_batch_list.len(),
+            glyph_batches: item_batch_list
                 .iter()
-                .filter(|batch| matches!(batch, ItemBatch::Glyphs(_)))
-                .count(),
-            text_surfaces: item_batches
-                .iter()
-                .filter_map(|batch| match batch {
-                    ItemBatch::Glyphs(glyphs) => Some(
-                        glyphs
-                            .iter()
-                            .map(|glyph| match glyph {
-                                crate::render::batch::Glyph::TextViewport(viewport) => {
-                                    viewport.surfaces.len()
-                                }
-                                _ => 0,
-                            })
-                            .sum::<usize>(),
-                    ),
-                    _ => None,
-                })
+                .map(glyph_batch_count_for_batch)
                 .sum(),
-            clip_batches: item_batches
+            text_surfaces: item_batch_list
+                .iter()
+                .map(text_surface_count_for_batch)
+                .sum(),
+            clip_batches: item_batch_list
                 .iter()
                 .filter(|batch| matches!(batch, ItemBatch::PushClip(_) | ItemBatch::PopClip))
                 .count(),
-            filters: item_batches
+            filters: item_batch_list
                 .iter()
                 .filter(|batch| matches!(batch, ItemBatch::Filter(_)))
+                .count(),
+            group_composites: item_batch_list
+                .iter()
+                .filter(|batch| matches!(batch, ItemBatch::Group(_)))
                 .count(),
             ..DrawStats::default()
         };
 
-        for batch in item_batches {
+        for batch in item_batch_list {
             match batch {
                 ItemBatch::Shapes(shapes) => {
                     if let Some(batch) =
@@ -261,6 +269,25 @@ impl Renderer {
                 }
                 ItemBatch::PopClip => {
                     render_batches.push(RenderBatch::PopClip);
+                }
+                ItemBatch::Group(group) => {
+                    let group_viewport = render::Viewport::from_logical_area(
+                        group.bounds.area,
+                        viewport.scale_factor(),
+                    );
+                    let group_batches = item_batches(&group.items);
+                    let prepared = self.prepare_scene_batches(
+                        render_context,
+                        group_viewport,
+                        &group_batches,
+                        text_renderer_index,
+                    )?;
+                    stats.add(prepared.stats);
+                    render_batches.push(RenderBatch::Group(PreparedGroup {
+                        bounds: group.bounds,
+                        opacity: group.opacity,
+                        render_batches: prepared.render_batches,
+                    }));
                 }
                 ItemBatch::Glyphs(glyphs) => {
                     let report = self.text_renderer.prepare_batch(
@@ -301,18 +328,8 @@ impl DrawStats {
         Self {
             scene_items: scene.items().len(),
             render_batches: batches.len(),
-            glyph_batches: batches
-                .iter()
-                .filter(|batch| matches!(batch, ItemBatch::Glyphs(_)))
-                .count(),
-            text_surfaces: scene
-                .items()
-                .iter()
-                .map(|item| match item {
-                    paint::Item::TextViewport(viewport) => viewport.surfaces.len(),
-                    _ => 0,
-                })
-                .sum(),
+            glyph_batches: batches.iter().map(glyph_batch_count_for_batch).sum(),
+            text_surfaces: scene.items().iter().map(text_surface_count_for_item).sum(),
             quad_vertices: 0,
             clip_batches: scene
                 .items()
@@ -323,6 +340,11 @@ impl DrawStats {
                 .items()
                 .iter()
                 .filter(|item| matches!(item, paint::Item::Filter(_)))
+                .count(),
+            group_composites: scene
+                .items()
+                .iter()
+                .filter(|item| matches!(item, paint::Item::Group(_)))
                 .count(),
             ..Self::default()
         }
@@ -342,6 +364,45 @@ impl DrawStats {
         self.quad_vertices += other.quad_vertices;
         self.clip_batches += other.clip_batches;
         self.filters += other.filters;
+        self.group_composites += other.group_composites;
+    }
+}
+
+fn glyph_batch_count(batches: &[ItemBatch<'_>]) -> usize {
+    batches.iter().map(glyph_batch_count_for_batch).sum()
+}
+
+fn glyph_batch_count_for_batch(batch: &ItemBatch<'_>) -> usize {
+    match batch {
+        ItemBatch::Glyphs(_) => 1,
+        ItemBatch::Group(group) => glyph_batch_count(&item_batches(&group.items)),
+        _ => 0,
+    }
+}
+
+fn text_surface_count_for_batch(batch: &ItemBatch<'_>) -> usize {
+    match batch {
+        ItemBatch::Glyphs(glyphs) => glyphs
+            .iter()
+            .map(|glyph| match glyph {
+                crate::render::batch::Glyph::TextViewport(viewport) => viewport.surfaces.len(),
+                _ => 0,
+            })
+            .sum(),
+        ItemBatch::Group(group) => item_batches(&group.items)
+            .iter()
+            .map(text_surface_count_for_batch)
+            .sum(),
+        _ => 0,
+    }
+}
+
+#[cfg(test)]
+fn text_surface_count_for_item(item: &paint::Item) -> usize {
+    match item {
+        paint::Item::TextViewport(viewport) => viewport.surfaces.len(),
+        paint::Item::Group(group) => group.items.iter().map(text_surface_count_for_item).sum(),
+        _ => 0,
     }
 }
 
@@ -380,14 +441,16 @@ impl<'a> SceneEncoder<'a> {
             quad_pipeline: input.quad_pipeline,
             filter_renderer: input.filter_renderer,
             text_renderer: input.text_renderer,
-            filter_target: input.filter_target,
             output_target: render::filter::Target::from_viewport(input.viewport),
             encoder: input.encoder,
             base_view: input.base_view,
+            backdrop_view: input.backdrop_view,
+            backdrop_target: input.backdrop_target,
             clear_color: input.clear_color,
             viewport: input.viewport,
             layers: Vec::new(),
             clip_stack: Vec::new(),
+            base_dirty: input.base_dirty,
             text_render_error: input.text_render_error,
         }
     }
@@ -403,11 +466,16 @@ impl<'a> SceneEncoder<'a> {
                 } => self.encode_text(*renderer_index, *viewport),
                 RenderBatch::PushClip(clip) => self.push_clip(*clip),
                 RenderBatch::PopClip => self.composite_clip_layer(),
+                RenderBatch::Group(group) => self.encode_group(group),
             }
         }
 
         while !self.clip_stack.is_empty() {
             self.composite_clip_layer();
+        }
+
+        for layer in self.layers.drain(..) {
+            self.filter_renderer.recycle_layer(layer);
         }
     }
 
@@ -423,26 +491,58 @@ impl<'a> SceneEncoder<'a> {
         else {
             return;
         };
-        let mut pass = begin_main_pass(self.encoder, target_view, self.clear_color, false);
-        pass.set_pipeline(self.quad_pipeline);
-        pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
-        pass.set_vertex_buffer(0, batch.vertex_buffer().slice(..));
-        pass.draw(0..batch.vertex_count(), 0..1);
+        {
+            let mut pass = begin_main_pass(self.encoder, target_view, self.clear_color, false);
+            pass.set_pipeline(self.quad_pipeline);
+            pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
+            pass.set_vertex_buffer(0, batch.vertex_buffer().slice(..));
+            pass.draw(0..batch.vertex_count(), 0..1);
+        }
+        self.mark_current_dirty();
     }
 
     fn encode_filter(&mut self, filter: &paint::Filter) {
-        if !self.clip_stack.is_empty() {
-            log::debug!("skipping filter draw inside clipped layer");
+        let Some(output) = current_target_view(self.base_view, &self.layers, &self.clip_stack)
+        else {
             return;
-        }
+        };
+        let source = if self.current_target_dirty() {
+            FilterSource {
+                source: render::filter::TextureSource::new(
+                    output,
+                    self.output_target.physical_area(),
+                    self.output_target.logical_area(),
+                    paint::LayerSampling::PixelAligned,
+                ),
+                source_rect: filter.rect,
+            }
+        } else {
+            FilterSource {
+                source: render::filter::TextureSource::new(
+                    self.backdrop_view,
+                    self.backdrop_target.physical_area(),
+                    self.backdrop_target.logical_area(),
+                    paint::LayerSampling::PixelAligned,
+                ),
+                source_rect: filter.source_rect.unwrap_or(filter.rect),
+            }
+        };
 
-        self.filter_renderer.draw(
-            self.render_context,
-            self.filter_target,
-            self.encoder,
-            filter.clone(),
-            None,
-        );
+        self.filter_renderer.draw(render::filter::FilterDraw {
+            render_context: self.render_context,
+            encoder: self.encoder,
+            target: self.output_target,
+            source: source.source,
+            output,
+            filter: filter.clone(),
+            source_rect: source.source_rect,
+            scissor: current_scissor(
+                &self.clip_stack,
+                self.viewport.physical_area(),
+                self.viewport.scale_factor(),
+            ),
+        });
+        self.mark_current_dirty();
     }
 
     fn encode_text(&mut self, renderer_index: usize, text_viewport: render::Viewport) {
@@ -457,16 +557,96 @@ impl<'a> SceneEncoder<'a> {
         else {
             return;
         };
-        let mut pass = begin_main_pass(self.encoder, target_view, self.clear_color, false);
-        pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
-        if let Err(error) = self.text_renderer.render(
-            self.render_context,
-            text_viewport,
-            renderer_index,
-            &mut pass,
-        ) {
-            *self.text_render_error = Some(error);
+        {
+            let mut pass = begin_main_pass(self.encoder, target_view, self.clear_color, false);
+            pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
+            if let Err(error) = self.text_renderer.render(
+                self.render_context,
+                text_viewport,
+                renderer_index,
+                &mut pass,
+            ) {
+                *self.text_render_error = Some(error);
+            }
         }
+        self.mark_current_dirty();
+    }
+
+    fn encode_group(&mut self, group: &PreparedGroup) {
+        if group.opacity <= 0.0 {
+            return;
+        }
+
+        if !self.clip_stack.is_empty() {
+            for batch in &group.render_batches {
+                match batch {
+                    RenderBatch::Shapes(batch) => self.encode_shapes(batch),
+                    RenderBatch::Filter(filter) => self.encode_filter(filter),
+                    RenderBatch::Text {
+                        renderer_index,
+                        viewport,
+                    } => self.encode_text(*renderer_index, *viewport),
+                    RenderBatch::PushClip(clip) => self.push_clip(*clip),
+                    RenderBatch::PopClip => self.composite_clip_layer(),
+                    RenderBatch::Group(group) => self.encode_group(group),
+                }
+            }
+            return;
+        }
+
+        let group_target = render::filter::Target::from_logical_area(
+            group.bounds.area,
+            self.viewport.scale_factor(),
+        );
+        let group_layer = self.filter_renderer.create_layer(
+            self.render_context,
+            group_target,
+            "Group Layer Texture",
+        );
+        self.filter_renderer.clear_layer(self.encoder, &group_layer);
+
+        {
+            let group_view = group_layer.view();
+            let mut group_encoder = SceneEncoder::new(SceneEncoderInput {
+                render_context: self.render_context,
+                quad_pipeline: self.quad_pipeline,
+                filter_renderer: self.filter_renderer,
+                text_renderer: self.text_renderer,
+                encoder: self.encoder,
+                base_view: group_view,
+                backdrop_view: self.base_view,
+                backdrop_target: self.output_target,
+                clear_color: wgpu::Color::TRANSPARENT,
+                viewport: render::Viewport::from_logical_area(
+                    group.bounds.area,
+                    self.viewport.scale_factor(),
+                ),
+                base_dirty: false,
+                text_render_error: self.text_render_error,
+            });
+            group_encoder.encode(&group.render_batches);
+        }
+
+        if let Some(output) = current_target_view(self.base_view, &self.layers, &self.clip_stack) {
+            self.filter_renderer
+                .composite_layer(render::filter::LayerComposite {
+                    render_context: self.render_context,
+                    encoder: self.encoder,
+                    source: &group_layer,
+                    output,
+                    target: self.output_target,
+                    clip: paint::Clip { rect: group.bounds },
+                    source_rect: Some(group_layer_source_rect(group.bounds)),
+                    scissor: current_scissor(
+                        &self.clip_stack,
+                        self.viewport.physical_area(),
+                        self.viewport.scale_factor(),
+                    ),
+                    opacity: group.opacity,
+                });
+            self.mark_current_dirty();
+        }
+        self.filter_renderer.recycle_layer(group_layer);
     }
 
     fn push_clip(&mut self, clip: paint::Clip) {
@@ -479,7 +659,11 @@ impl<'a> SceneEncoder<'a> {
         let layer_index = self.layers.len() - 1;
         self.filter_renderer
             .clear_layer(self.encoder, &self.layers[layer_index]);
-        self.clip_stack.push(ClipFrame { clip, layer_index });
+        self.clip_stack.push(ClipFrame {
+            clip,
+            layer_index,
+            dirty: false,
+        });
     }
 
     fn composite_clip_layer(&mut self) {
@@ -502,13 +686,35 @@ impl<'a> SceneEncoder<'a> {
                 output,
                 target: self.output_target,
                 clip: frame.clip,
+                source_rect: None,
                 scissor: clip_scissor(
                     frame.clip.rect,
                     self.viewport.physical_area(),
                     self.viewport.scale_factor(),
                 ),
+                opacity: 1.0,
             });
+        self.mark_current_dirty();
     }
+
+    fn current_target_dirty(&self) -> bool {
+        self.clip_stack
+            .last()
+            .map(|frame| frame.dirty)
+            .unwrap_or(self.base_dirty)
+    }
+
+    fn mark_current_dirty(&mut self) {
+        if let Some(frame) = self.clip_stack.last_mut() {
+            frame.dirty = true;
+        } else {
+            self.base_dirty = true;
+        }
+    }
+}
+
+fn group_layer_source_rect(bounds: Rect) -> Rect {
+    Rect::new(paint::point::logical(0.0, 0.0), bounds.area)
 }
 
 fn current_target_view<'a>(
@@ -618,6 +824,7 @@ mod tests {
         let clips = vec![
             ClipFrame {
                 layer_index: 0,
+                dirty: false,
                 clip: paint::Clip {
                     rect: Rect::rounded(
                         paint::point::logical(2.0, 2.0),
@@ -628,6 +835,7 @@ mod tests {
             },
             ClipFrame {
                 layer_index: 1,
+                dirty: false,
                 clip: paint::Clip {
                     rect: Rect::new(
                         paint::point::logical(10.0, 0.0),
@@ -650,6 +858,7 @@ mod tests {
         let mut clips = vec![
             ClipFrame {
                 layer_index: 0,
+                dirty: false,
                 clip: paint::Clip {
                     rect: Rect::rounded(
                         paint::point::logical(2.0, 2.0),
@@ -660,6 +869,7 @@ mod tests {
             },
             ClipFrame {
                 layer_index: 1,
+                dirty: false,
                 clip: paint::Clip {
                     rect: Rect::new(
                         paint::point::logical(10.0, 0.0),
@@ -741,15 +951,49 @@ mod tests {
             ),
         });
         scene.pop_clip();
+        scene.push_group(paint::Group {
+            bounds: Rect::new(
+                paint::point::logical(0.0, 0.0),
+                paint::area::logical(10.0, 10.0),
+            ),
+            opacity: 0.5,
+            items: vec![paint::Item::Quad(paint::Quad {
+                rect: Rect::new(
+                    paint::point::logical(0.0, 0.0),
+                    paint::area::logical(10.0, 10.0),
+                ),
+                rasterization: paint::Rasterization::default(),
+                transform: paint::Transform::identity(),
+                style: paint::Style {
+                    fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::BLACK))),
+                    stroke: None,
+                    tint: None,
+                },
+            })],
+        });
 
         let batches = item_batches(scene.items());
         let stats = DrawStats::from_scene(&scene, &batches);
 
-        assert_eq!(stats.scene_items, 6);
-        assert_eq!(stats.render_batches, 5);
+        assert_eq!(stats.scene_items, 7);
+        assert_eq!(stats.render_batches, 6);
         assert_eq!(stats.glyph_batches, 1);
         assert_eq!(stats.text_surfaces, 0);
         assert_eq!(stats.clip_batches, 2);
         assert_eq!(stats.filters, 1);
+        assert_eq!(stats.group_composites, 1);
+    }
+
+    #[test]
+    fn group_layer_source_rect_is_local_texture_space() {
+        let bounds = Rect::new(
+            paint::point::logical(240.0, 120.0),
+            paint::area::logical(160.0, 80.0),
+        );
+
+        let source = group_layer_source_rect(bounds);
+
+        assert_eq!(source.origin, paint::point::logical(0.0, 0.0));
+        assert_eq!(source.area, bounds.area);
     }
 }

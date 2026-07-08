@@ -12,9 +12,9 @@ pub use material::{
 };
 pub use presentation::Presentation;
 pub use primitive::{
-    Axis, Brush, Clip, EdgeMode, Filter, FilterOp, Icon, LiquidFilter, Motion, Offset, Outline,
-    Primitive, Quad, Radius, Rasterization, Rounding, Rule, ScaleMotion, Shadow, Stroke, Style,
-    Text, TextAlign, TextStyle, TextSurface, TextViewport, TextWrap, Transform,
+    Axis, Brush, Clip, EdgeMode, Filter, FilterOp, Group, Icon, LiquidFilter, Motion, Offset,
+    Outline, Primitive, Quad, Radius, Rasterization, Rounding, Rule, ScaleMotion, Shadow, Stroke,
+    Style, Text, TextAlign, TextStyle, TextSurface, TextViewport, TextWrap, Transform,
 };
 pub(crate) use visual::Visuals;
 pub(crate) use visual::{Scalar as VisualScalar, Target as TargetVisual};
@@ -114,106 +114,82 @@ impl Scene {
     }
 
     pub(crate) fn append_scene_with_opacity(&mut self, scene: &Scene, opacity: f32) {
-        for primitive in scene.primitives() {
-            if let Some(primitive) = primitive.with_opacity(opacity) {
-                self.primitives.push(primitive);
-            }
+        let opacity = opacity.clamp(0.0, 1.0);
+        if opacity <= 0.0 {
+            return;
+        }
+
+        if opacity >= 1.0 {
+            self.primitives.extend(scene.primitives().iter().cloned());
+        } else if let Some(group) = Group::new(scene.primitives().to_vec(), opacity) {
+            self.primitives.push(Primitive::Group(group));
         }
     }
 
     pub(crate) fn append_ghost_scene_with_opacity(&mut self, scene: &Scene, opacity: f32) {
-        for primitive in scene.primitives() {
-            if let Some(primitive) = primitive.with_ghost_opacity(opacity) {
-                self.primitives.push(primitive);
-            }
-        }
+        self.append_scene_with_opacity(scene, opacity);
     }
 
     pub fn quads(&self) -> Vec<&Quad> {
-        self.primitives
-            .iter()
-            .filter_map(|primitive| match primitive {
-                Primitive::Quad(quad) => Some(quad),
-                _ => None,
-            })
-            .collect()
+        let mut quads = Vec::new();
+        collect_quads(&self.primitives, &mut quads);
+        quads
     }
 
     pub fn rules(&self) -> Vec<&Rule> {
-        self.primitives
-            .iter()
-            .filter_map(|primitive| match primitive {
-                Primitive::Rule(rule) => Some(rule),
-                _ => None,
-            })
-            .collect()
+        let mut rules = Vec::new();
+        collect_rules(&self.primitives, &mut rules);
+        rules
     }
 
     pub fn texts(&self) -> Vec<&Text> {
-        self.primitives
-            .iter()
-            .filter_map(|primitive| match primitive {
-                Primitive::Text(text) => Some(text),
-                _ => None,
-            })
-            .collect()
+        let mut texts = Vec::new();
+        collect_texts(&self.primitives, &mut texts);
+        texts
     }
 
     pub fn text_viewports(&self) -> Vec<&TextViewport> {
-        self.primitives
-            .iter()
-            .filter_map(|primitive| match primitive {
-                Primitive::TextViewport(text) => Some(text),
-                _ => None,
-            })
-            .collect()
+        let mut text_viewports = Vec::new();
+        collect_text_viewports(&self.primitives, &mut text_viewports);
+        text_viewports
     }
 
     pub fn icons(&self) -> Vec<&Icon> {
-        self.primitives
-            .iter()
-            .filter_map(|primitive| match primitive {
-                Primitive::Icon(icon) => Some(icon),
-                _ => None,
-            })
-            .collect()
+        let mut icons = Vec::new();
+        collect_icons(&self.primitives, &mut icons);
+        icons
     }
 
     pub fn shadows(&self) -> Vec<&Shadow> {
-        self.primitives
-            .iter()
-            .filter_map(|primitive| match primitive {
-                Primitive::Shadow(shadow) => Some(shadow),
-                _ => None,
-            })
-            .collect()
+        let mut shadows = Vec::new();
+        collect_shadows(&self.primitives, &mut shadows);
+        shadows
     }
 
     pub fn filters(&self) -> Vec<&Filter> {
-        self.primitives
-            .iter()
-            .filter_map(|primitive| match primitive {
-                Primitive::Filter(filter) => Some(filter),
-                _ => None,
-            })
-            .collect()
+        let mut filters = Vec::new();
+        collect_filters(&self.primitives, &mut filters);
+        filters
     }
 
     pub fn outlines(&self) -> Vec<&Outline> {
-        self.primitives
-            .iter()
-            .filter_map(|primitive| match primitive {
-                Primitive::Outline(outline) => Some(outline),
-                _ => None,
-            })
-            .collect()
+        let mut outlines = Vec::new();
+        collect_outlines(&self.primitives, &mut outlines);
+        outlines
     }
 
     pub fn clips(&self) -> Vec<&Clip> {
+        let mut clips = Vec::new();
+        collect_clips(&self.primitives, &mut clips);
+        clips
+    }
+
+    #[cfg(test)]
+    pub(crate) fn groups(&self) -> Vec<&Group> {
         self.primitives
             .iter()
             .filter_map(|primitive| match primitive {
-                Primitive::Clip(clip) => Some(clip),
+                Primitive::Group(group) => Some(group),
                 _ => None,
             })
             .collect()
@@ -278,5 +254,144 @@ impl Scene {
         if outline.rect().width() > 0 && outline.rect().height() > 0 {
             self.primitives.push(Primitive::Outline(outline));
         }
+    }
+}
+
+fn collect_quads<'a>(primitives: &'a [Primitive], quads: &mut Vec<&'a Quad>) {
+    for primitive in primitives {
+        match primitive {
+            Primitive::Quad(quad) => quads.push(quad),
+            Primitive::Group(group) => collect_quads(group.primitives(), quads),
+            _ => {}
+        }
+    }
+}
+
+fn collect_rules<'a>(primitives: &'a [Primitive], rules: &mut Vec<&'a Rule>) {
+    for primitive in primitives {
+        match primitive {
+            Primitive::Rule(rule) => rules.push(rule),
+            Primitive::Group(group) => collect_rules(group.primitives(), rules),
+            _ => {}
+        }
+    }
+}
+
+fn collect_texts<'a>(primitives: &'a [Primitive], texts: &mut Vec<&'a Text>) {
+    for primitive in primitives {
+        match primitive {
+            Primitive::Text(text) => texts.push(text),
+            Primitive::Group(group) => collect_texts(group.primitives(), texts),
+            _ => {}
+        }
+    }
+}
+
+fn collect_text_viewports<'a>(
+    primitives: &'a [Primitive],
+    text_viewports: &mut Vec<&'a TextViewport>,
+) {
+    for primitive in primitives {
+        match primitive {
+            Primitive::TextViewport(text_viewport) => text_viewports.push(text_viewport),
+            Primitive::Group(group) => collect_text_viewports(group.primitives(), text_viewports),
+            _ => {}
+        }
+    }
+}
+
+fn collect_icons<'a>(primitives: &'a [Primitive], icons: &mut Vec<&'a Icon>) {
+    for primitive in primitives {
+        match primitive {
+            Primitive::Icon(icon) => icons.push(icon),
+            Primitive::Group(group) => collect_icons(group.primitives(), icons),
+            _ => {}
+        }
+    }
+}
+
+fn collect_shadows<'a>(primitives: &'a [Primitive], shadows: &mut Vec<&'a Shadow>) {
+    for primitive in primitives {
+        match primitive {
+            Primitive::Shadow(shadow) => shadows.push(shadow),
+            Primitive::Group(group) => collect_shadows(group.primitives(), shadows),
+            _ => {}
+        }
+    }
+}
+
+fn collect_filters<'a>(primitives: &'a [Primitive], filters: &mut Vec<&'a Filter>) {
+    for primitive in primitives {
+        match primitive {
+            Primitive::Filter(filter) => filters.push(filter),
+            Primitive::Group(group) => collect_filters(group.primitives(), filters),
+            _ => {}
+        }
+    }
+}
+
+fn collect_outlines<'a>(primitives: &'a [Primitive], outlines: &mut Vec<&'a Outline>) {
+    for primitive in primitives {
+        match primitive {
+            Primitive::Outline(outline) => outlines.push(outline),
+            Primitive::Group(group) => collect_outlines(group.primitives(), outlines),
+            _ => {}
+        }
+    }
+}
+
+fn collect_clips<'a>(primitives: &'a [Primitive], clips: &mut Vec<&'a Clip>) {
+    for primitive in primitives {
+        match primitive {
+            Primitive::Clip(clip) => clips.push(clip),
+            Primitive::Group(group) => collect_clips(group.primitives(), clips),
+            _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn simple_scene() -> Scene {
+        let mut scene = Scene::new(geometry::Size::new(100, 100));
+        scene.push_quad(Quad::new(
+            geometry::Rect::new(0, 0, 10, 10),
+            Color::rgb(255, 0, 0),
+        ));
+        scene
+    }
+
+    #[test]
+    fn opacity_one_overlay_appends_inline_primitives() {
+        let source = simple_scene();
+        let mut target = Scene::new(geometry::Size::new(100, 100));
+
+        target.append_scene_with_opacity(&source, 1.0);
+
+        assert_eq!(target.groups().len(), 0);
+        assert_eq!(target.quads().len(), 1);
+    }
+
+    #[test]
+    fn mid_opacity_overlay_promotes_to_group() {
+        let source = simple_scene();
+        let mut target = Scene::new(geometry::Size::new(100, 100));
+
+        target.append_scene_with_opacity(&source, 0.5);
+
+        assert!(
+            !target
+                .primitives()
+                .iter()
+                .any(|primitive| matches!(primitive, Primitive::Quad(_)))
+        );
+        let groups = target.groups();
+        let [group] = groups.as_slice() else {
+            panic!("expected one group");
+        };
+        assert_eq!(group.opacity(), 0.5);
+        assert_eq!(group.primitives().len(), 1);
     }
 }

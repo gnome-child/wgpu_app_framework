@@ -18,13 +18,4 @@ impl Color {
     pub fn channels(self) -> (u8, u8, u8, u8) {
         (self.r, self.g, self.b, self.a)
     }
-
-    pub(crate) fn with_opacity(self, opacity: f32) -> Self {
-        let opacity = opacity.clamp(0.0, 1.0);
-
-        Self {
-            a: ((self.a as f32) * opacity).round() as u8,
-            ..self
-        }
-    }
 }

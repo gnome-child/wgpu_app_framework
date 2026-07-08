@@ -75,6 +75,16 @@ impl Scene {
         }
     }
 
+    pub fn push_group(&mut self, group: Group) {
+        if group.opacity > 0.0
+            && group.bounds.area.width() > 0.0
+            && group.bounds.area.height() > 0.0
+            && !group.items.is_empty()
+        {
+            self.items.push(Item::Group(group));
+        }
+    }
+
     pub fn push_clip(&mut self, clip: Clip) {
         self.items.push(Item::Clip(clip));
     }
@@ -106,6 +116,7 @@ pub enum Item {
     Filter(Filter),
     Clip(Clip),
     PopClip,
+    Group(Group),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -271,12 +282,20 @@ pub struct Outline {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Filter {
     pub rect: Rect,
+    pub source_rect: Option<Rect>,
     pub ops: Vec<FilterOp>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Clip {
     pub rect: Rect,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Group {
+    pub bounds: Rect,
+    pub opacity: f32,
+    pub items: Vec<Item>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -343,8 +362,16 @@ impl Filter {
     pub fn stack(rect: Rect, ops: impl IntoIterator<Item = FilterOp>) -> Self {
         Self {
             rect,
+            source_rect: None,
             ops: ops.into_iter().map(FilterOp::clamped).collect(),
         }
+    }
+
+    fn translated_for_group(mut self, origin: point::Logical) -> Self {
+        let source_rect = self.source_rect.unwrap_or(self.rect);
+        self.rect = translate_rect(self.rect, -origin.x(), -origin.y());
+        self.source_rect = Some(source_rect);
+        self
     }
 }
 
@@ -824,6 +851,177 @@ impl Color {
     }
 }
 
+pub(crate) fn group_from_items(items: &[Item], opacity: f32, grid: Grid) -> Option<Group> {
+    let opacity = opacity.clamp(0.0, 1.0);
+    if opacity <= 0.0 {
+        return None;
+    }
+
+    let bounds = group_bounds(items, grid)?;
+    let items = translate_items_for_group(items, bounds.origin);
+    if items.is_empty() {
+        return None;
+    }
+
+    Some(Group {
+        bounds,
+        opacity,
+        items,
+    })
+}
+
+fn group_bounds(items: &[Item], grid: Grid) -> Option<Rect> {
+    items
+        .iter()
+        .filter_map(|item| item_bounds(item, grid))
+        .reduce(union_rect)
+        .map(|rect| grid.snap_rect(rect))
+}
+
+fn item_bounds(item: &Item, grid: Grid) -> Option<Rect> {
+    match item {
+        Item::Quad(quad) => Some(quad.transform.transformed_rect(quad.rect)),
+        Item::Rule(rule) => Some(rule.rect),
+        Item::Text(text) => Some(text.rect),
+        Item::TextViewport(text) => Some(text.rect),
+        Item::Icon(icon) => Some(icon.rect),
+        Item::Shadow(shadow) => {
+            let spread = shadow.spread.max(0.0);
+            let blur = shadow.blur.max(0.0) + grid.logical_pixel();
+            Some(expand_rect(
+                offset_rect(expand_rect(shadow.rect, spread), shadow.offset),
+                blur,
+            ))
+        }
+        Item::Outline(outline) => Some(expand_rect(
+            outline.rect,
+            outline.offset.max(0.0) + outline.width.max(0.0) + grid.logical_pixel(),
+        )),
+        Item::Filter(filter) => Some(filter.rect),
+        Item::Clip(_) | Item::PopClip => None,
+        Item::Group(group) => Some(group.bounds),
+    }
+}
+
+fn translate_items_for_group(items: &[Item], origin: point::Logical) -> Vec<Item> {
+    items
+        .iter()
+        .map(|item| translate_item_for_group(item, origin))
+        .collect()
+}
+
+fn translate_item_for_group(item: &Item, origin: point::Logical) -> Item {
+    let dx = -origin.x();
+    let dy = -origin.y();
+
+    match item {
+        Item::Quad(quad) => {
+            let mut quad = *quad;
+            quad.rect = translate_rect(quad.rect, dx, dy);
+            quad.transform.origin = point::logical(
+                quad.transform.origin.x() + dx,
+                quad.transform.origin.y() + dy,
+            );
+            Item::Quad(quad)
+        }
+        Item::Rule(rule) => {
+            let mut rule = *rule;
+            rule.rect = translate_rect(rule.rect, dx, dy);
+            Item::Rule(rule)
+        }
+        Item::Text(text) => {
+            let mut text = text.clone();
+            text.rect = translate_rect(text.rect, dx, dy);
+            Item::Text(text)
+        }
+        Item::TextViewport(text) => {
+            let mut text = text.clone();
+            text.rect = translate_rect(text.rect, dx, dy);
+            text.surfaces = text
+                .surfaces
+                .into_iter()
+                .map(|mut surface| {
+                    surface.rect = translate_rect(surface.rect, dx, dy);
+                    surface
+                })
+                .collect();
+            Item::TextViewport(text)
+        }
+        Item::Icon(icon) => {
+            let mut icon = *icon;
+            icon.rect = translate_rect(icon.rect, dx, dy);
+            Item::Icon(icon)
+        }
+        Item::Shadow(shadow) => {
+            let mut shadow = *shadow;
+            shadow.rect = translate_rect(shadow.rect, dx, dy);
+            Item::Shadow(shadow)
+        }
+        Item::Outline(outline) => {
+            let mut outline = *outline;
+            outline.rect = translate_rect(outline.rect, dx, dy);
+            Item::Outline(outline)
+        }
+        Item::Filter(filter) => Item::Filter(filter.clone().translated_for_group(origin)),
+        Item::Clip(clip) => {
+            let mut clip = *clip;
+            clip.rect = translate_rect(clip.rect, dx, dy);
+            Item::Clip(clip)
+        }
+        Item::PopClip => Item::PopClip,
+        Item::Group(group) => {
+            let mut group = group.clone();
+            group.bounds = translate_rect(group.bounds, dx, dy);
+            group.items = translate_items_for_group(&group.items, origin);
+            Item::Group(group)
+        }
+    }
+}
+
+fn union_rect(a: Rect, b: Rect) -> Rect {
+    let left = a.origin.x().min(b.origin.x());
+    let top = a.origin.y().min(b.origin.y());
+    let right = rect_right(a).max(rect_right(b));
+    let bottom = rect_bottom(a).max(rect_bottom(b));
+
+    Rect::new(
+        point::logical(left, top),
+        area::logical((right - left).max(0.0), (bottom - top).max(0.0)),
+    )
+}
+
+fn expand_rect(rect: Rect, amount: f32) -> Rect {
+    let amount = amount.max(0.0);
+    Rect::rounded(
+        point::logical(rect.origin.x() - amount, rect.origin.y() - amount),
+        area::logical(
+            rect.area.width() + amount * 2.0,
+            rect.area.height() + amount * 2.0,
+        ),
+        rect.rounding,
+    )
+}
+
+fn offset_rect(rect: Rect, offset: point::Logical) -> Rect {
+    translate_rect(rect, offset.x(), offset.y())
+}
+
+fn translate_rect(rect: Rect, dx: f32, dy: f32) -> Rect {
+    Rect::rounded(
+        point::logical(rect.origin.x() + dx, rect.origin.y() + dy),
+        rect.area,
+        rect.rounding,
+    )
+}
+
+fn rect_right(rect: Rect) -> f32 {
+    rect.origin.x() + rect.area.width()
+}
+
+fn rect_bottom(rect: Rect) -> f32 {
+    rect.origin.y() + rect.area.height()
+}
+
 #[cfg(test)]
 mod tests {
     use crate::icon;
@@ -1055,6 +1253,46 @@ mod tests {
             scene.items(),
             &[Item::Clip(clip), Item::Quad(quad), Item::PopClip]
         );
+    }
+
+    #[test]
+    fn group_bounds_include_shadow_blur_and_spread() {
+        let shadow = Shadow {
+            rect: Rect::new(point::logical(10.0, 20.0), area::logical(40.0, 30.0)),
+            brush: Brush::solid(Color::BLACK),
+            blur: 8.0,
+            spread: 2.0,
+            offset: point::logical(0.0, 4.0),
+        };
+        let group = group_from_items(&[Item::Shadow(shadow)], 0.5, Grid::new(1.0))
+            .expect("shadow should produce group bounds");
+
+        assert_eq!(
+            group.bounds,
+            Rect::new(point::logical(-1.0, 13.0), area::logical(62.0, 52.0))
+        );
+    }
+
+    #[test]
+    fn group_translation_preserves_filter_source_rect() {
+        let filter = Filter::stack(
+            Rect::new(point::logical(20.0, 30.0), area::logical(50.0, 40.0)),
+            [FilterOp::backdrop_blur(BackdropBlur {
+                sigma: 10.0,
+                edge_mode: BackdropEdgeMode::Mirror,
+            })],
+        );
+        let group = group_from_items(&[Item::Filter(filter.clone())], 0.5, Grid::new(1.0))
+            .expect("filter should produce group");
+        let [Item::Filter(local)] = group.items.as_slice() else {
+            panic!("expected translated filter");
+        };
+
+        assert_eq!(
+            local.rect,
+            Rect::new(point::logical(0.0, 0.0), area::logical(50.0, 40.0))
+        );
+        assert_eq!(local.source_rect, Some(filter.rect));
     }
 
     #[test]

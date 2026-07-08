@@ -31,10 +31,46 @@ pub(in crate::platform::native) fn to_paint_scene_at_scale(
             scene::Primitive::Outline(outline) => {
                 scene.push_outline(to_paint_outline(outline, grid));
             }
+            scene::Primitive::Group(group) => {
+                if let Some(group) = to_paint_group(group, grid) {
+                    scene.push_group(group);
+                }
+            }
         }
     }
 
     scene
+}
+
+fn push_paint_primitive(primitive: &scene::Primitive, scene: &mut paint::Scene, grid: paint::Grid) {
+    match primitive {
+        scene::Primitive::Quad(quad) => scene.push_quad(to_paint_quad(quad, grid)),
+        scene::Primitive::Rule(rule) => scene.push_rule(to_paint_rule(rule, grid)),
+        scene::Primitive::Text(text) => scene.push_text(to_paint_text(text, grid)),
+        scene::Primitive::TextViewport(text) => {
+            scene.push_text_viewport(to_paint_text_viewport(text, grid));
+        }
+        scene::Primitive::Icon(icon) => scene.push_icon(to_paint_icon(icon, grid)),
+        scene::Primitive::Shadow(shadow) => scene.push_shadow(to_paint_shadow(shadow, grid)),
+        scene::Primitive::Filter(filter) => scene.push_filter(to_paint_filter(filter, grid)),
+        scene::Primitive::Clip(clip) => scene.push_clip(to_paint_clip_at_scale(clip, grid)),
+        scene::Primitive::PopClip => scene.pop_clip(),
+        scene::Primitive::Outline(outline) => scene.push_outline(to_paint_outline(outline, grid)),
+        scene::Primitive::Group(group) => {
+            if let Some(group) = to_paint_group(group, grid) {
+                scene.push_group(group);
+            }
+        }
+    }
+}
+
+fn to_paint_group(group: &scene::Group, grid: paint::Grid) -> Option<paint::Group> {
+    let mut scene = paint::Scene::new();
+    for primitive in group.primitives() {
+        push_paint_primitive(primitive, &mut scene, grid);
+    }
+
+    paint::group_from_items(scene.items(), group.opacity(), grid)
 }
 
 fn to_paint_quad(quad: &scene::Quad, grid: paint::Grid) -> paint::Quad {

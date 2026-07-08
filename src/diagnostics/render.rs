@@ -10,6 +10,7 @@ const SAMPLE_LIMIT: usize = 128;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Render {
     pub frames_presented: usize,
+    pub group_composites: usize,
     intervals: Samples,
     acquire_wait: Samples,
     draw: Samples,
@@ -35,6 +36,7 @@ pub struct Report {
     acquire_wait: Duration,
     draw: Duration,
     presented_at: Instant,
+    group_composites: usize,
 }
 
 impl Render {
@@ -50,6 +52,7 @@ impl Render {
 
     pub(crate) fn record_present(&mut self, revision: state::Revision, report: Report) {
         self.frames_presented += 1;
+        self.group_composites = report.group_composites;
         if let Some(previous) = self.last_presented_at {
             self.intervals.record(duration_micros(
                 report.presented_at.saturating_duration_since(previous),
@@ -100,6 +103,7 @@ impl Default for Render {
     fn default() -> Self {
         Self {
             frames_presented: 0,
+            group_composites: 0,
             intervals: Samples::default(),
             acquire_wait: Samples::default(),
             draw: Samples::default(),
@@ -143,7 +147,13 @@ impl Report {
             acquire_wait,
             draw,
             presented_at,
+            group_composites: 0,
         }
+    }
+
+    pub fn with_group_composites(mut self, group_composites: usize) -> Self {
+        self.group_composites = group_composites;
+        self
     }
 
     pub fn acquire_wait(self) -> Duration {
