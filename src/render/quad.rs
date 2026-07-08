@@ -115,6 +115,7 @@ struct AnalyticShape {
     outer_rect: Rect,
     outer_rounding: [f32; 4],
     inner: Option<AnalyticInner>,
+    external_outline: Option<ExternalOutline>,
     brush: paint::Brush,
     blur: f32,
     antialias: bool,
@@ -133,6 +134,13 @@ enum AnalyticShapeKind {
 struct AnalyticInner {
     rect: Rect,
     rounding: [f32; 4],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ExternalOutline {
+    base_rect: Rect,
+    offset: f32,
+    width: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -384,13 +392,17 @@ fn prepare_internal_ring_shape(shape: AnalyticShape, grid: Grid) -> Option<Prepa
 }
 
 fn prepare_external_ring_shape(shape: AnalyticShape, grid: Grid) -> Option<PreparedShape> {
-    let inner = shape.inner?;
-    let width = grid.snap_distance(ring_width(shape)?);
-    let inner_rect = grid.snap_rect(inner.rect);
-    let outer_rect = expand_rect(inner_rect, width);
-    let inner_rounding = inner.rounding;
+    let outline = shape.external_outline?;
+    let outset = grid.snap_outset(outline.base_rect, outline.offset, outline.width);
+    let base_rounding = outline.base_rect.rounding.resolve(outset.base_rect.area);
+    let inner_rect = outset.inner_rect;
+    let outer_rect = outset.outer_rect;
+    let inner_rounding = silhouette::clamp_resolved_rounding(
+        expand_rounding(base_rounding, outset.offset),
+        inner_rect.area,
+    );
     let outer_rounding = silhouette::clamp_resolved_rounding(
-        expand_rounding(inner_rounding, width),
+        expand_rounding(base_rounding, outset.offset + outset.width),
         outer_rect.area,
     );
     let raster_rect = expand_rect(outer_rect, grid.logical_pixel());
@@ -441,6 +453,7 @@ fn fill_shape(rect: Rect, brush: paint::Brush) -> AnalyticShape {
         outer_rect: rect,
         outer_rounding: rect.rounding.resolve(rect.area),
         inner: None,
+        external_outline: None,
         brush,
         blur: 0.0,
         antialias: true,
@@ -467,6 +480,7 @@ fn internal_stroke_shape(rect: Rect, width: f32, brush: paint::Brush) -> Option<
             rect: inner_rect,
             rounding: shrink_rounding(outer_rounding, width),
         }),
+        external_outline: None,
         brush,
         blur: 0.0,
         antialias: true,
@@ -492,6 +506,7 @@ fn shadow_shape(shadow: &paint::Shadow) -> Option<AnalyticShape> {
             rect,
             rounding: base_rounding,
         }),
+        external_outline: None,
         brush: shadow.brush,
         blur: shadow.blur.max(0.0),
         antialias: true,
@@ -520,6 +535,11 @@ fn external_outline_shape(
         inner: Some(AnalyticInner {
             rect: inner_rect,
             rounding: expand_rounding(base_rounding, offset),
+        }),
+        external_outline: Some(ExternalOutline {
+            base_rect: rect,
+            offset,
+            width,
         }),
         brush,
         blur: 0.0,
@@ -691,6 +711,12 @@ mod tests {
 
     fn rect_bounds(rect: Rect) -> (f32, f32, f32, f32) {
         edges(rect)
+    }
+
+    fn physical_bounds(rect: Rect, scale: f32) -> (f32, f32, f32, f32) {
+        let (left, top, right, bottom) = edges(rect);
+
+        (left * scale, top * scale, right * scale, bottom * scale)
     }
 
     fn assert_approx_eq(actual: f32, expected: f32) {
@@ -1284,6 +1310,79 @@ mod tests {
                 paint::area::logical(46.0, 36.0)
             )
         );
+    }
+
+    #[test]
+    fn external_outline_preparation_keeps_relative_gaps_symmetric() {
+        let outline = paint::Outline {
+            rect: Rect::new(
+                paint::point::logical(10.0, 20.0),
+                paint::area::logical(80.0, 30.0),
+            ),
+            brush: paint::Brush::solid(paint::Color::RED),
+            width: 1.0,
+            offset: 2.0,
+        };
+
+        for scale in [1.0, 1.25, 1.5, 1.75, 2.0] {
+            let grid = Grid::new(scale);
+            let shape = analytic_shapes_for_outline(&outline)[0];
+            let prepared = prepared_shape(shape, scale);
+            let inner = prepared.inner.expect("outline should stay a ring");
+            let base = grid.snap_rect(outline.rect);
+            let (base_left, base_top, base_right, base_bottom) = physical_bounds(base, scale);
+            let (inner_left, inner_top, inner_right, inner_bottom) =
+                physical_bounds(inner.rect, scale);
+            let (outer_left, outer_top, outer_right, outer_bottom) =
+                physical_bounds(prepared.outer_rect, scale);
+            let gap = grid.snap_distance(outline.offset) * scale;
+            let width = grid.snap_distance(outline.width) * scale;
+
+            assert_approx_eq(base_left - inner_left, gap);
+            assert_approx_eq(base_top - inner_top, gap);
+            assert_approx_eq(inner_right - base_right, gap);
+            assert_approx_eq(inner_bottom - base_bottom, gap);
+            assert_approx_eq(inner_left - outer_left, width);
+            assert_approx_eq(inner_top - outer_top, width);
+            assert_approx_eq(outer_right - inner_right, width);
+            assert_approx_eq(outer_bottom - inner_bottom, width);
+            assert!(grid.rect_is_aligned(inner.rect));
+            assert!(grid.rect_is_aligned(prepared.outer_rect));
+        }
+    }
+
+    #[test]
+    fn external_outline_default_focus_values_are_centered_at_one_point_five_scale() {
+        let scale = 1.5;
+        let grid = Grid::new(scale);
+        let outline = paint::Outline {
+            rect: Rect::new(
+                paint::point::logical(10.0, 20.0),
+                paint::area::logical(80.0, 30.0),
+            ),
+            brush: paint::Brush::solid(paint::Color::RED),
+            width: 1.0,
+            offset: 2.0,
+        };
+        let prepared = prepared_shape(analytic_shapes_for_outline(&outline)[0], scale);
+        let inner = prepared.inner.expect("outline should stay a ring");
+        let base = grid.snap_rect(outline.rect);
+        let (base_left, base_top, base_right, base_bottom) = physical_bounds(base, scale);
+        let (inner_left, inner_top, inner_right, inner_bottom) = physical_bounds(inner.rect, scale);
+        let (outer_left, outer_top, outer_right, outer_bottom) =
+            physical_bounds(prepared.outer_rect, scale);
+
+        // 150% is the regression scale for offset=2 and width=1: offset snaps
+        // to a 3dp gap and width snaps to a 1dp ring. Snapping offset+width as
+        // one distance would hit a 4.5dp tie and shift the ring.
+        assert_approx_eq(base_left - inner_left, 3.0);
+        assert_approx_eq(base_top - inner_top, 3.0);
+        assert_approx_eq(inner_right - base_right, 3.0);
+        assert_approx_eq(inner_bottom - base_bottom, 3.0);
+        assert_approx_eq(inner_left - outer_left, 1.0);
+        assert_approx_eq(inner_top - outer_top, 1.0);
+        assert_approx_eq(outer_right - inner_right, 1.0);
+        assert_approx_eq(outer_bottom - inner_bottom, 1.0);
     }
 
     #[test]

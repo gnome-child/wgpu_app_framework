@@ -6,6 +6,15 @@ pub(crate) struct Grid {
     logical_pixel: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct SnappedOutset {
+    pub(crate) base_rect: rect::Rect,
+    pub(crate) inner_rect: rect::Rect,
+    pub(crate) outer_rect: rect::Rect,
+    pub(crate) offset: f32,
+    pub(crate) width: f32,
+}
+
 impl Grid {
     pub(crate) fn new(scale_factor: f32) -> Self {
         let scale_factor = scale_factor.max(0.0001);
@@ -78,6 +87,27 @@ impl Grid {
             area::logical(right - left, bottom - top),
             rect.rounding,
         )
+    }
+
+    pub(crate) fn snap_outset(
+        self,
+        base_rect: rect::Rect,
+        offset: f32,
+        width: f32,
+    ) -> SnappedOutset {
+        let base_rect = self.snap_rect(base_rect);
+        let offset = self.snap_distance(offset.max(0.0));
+        let width = self.snap_distance(width.max(0.0));
+        let inner_rect = outset_rect(base_rect, offset);
+        let outer_rect = outset_rect(base_rect, offset + width);
+
+        SnappedOutset {
+            base_rect,
+            inner_rect,
+            outer_rect,
+            offset,
+            width,
+        }
     }
 
     pub(crate) fn snap_vertical_rule_rect(self, rect: rect::Rect, width_px: u32) -> rect::Rect {
@@ -159,6 +189,17 @@ impl Grid {
     }
 }
 
+fn outset_rect(rect: rect::Rect, distance: f32) -> rect::Rect {
+    rect::Rect::rounded(
+        point::logical(rect.origin.x() - distance, rect.origin.y() - distance),
+        area::logical(
+            rect.area.width() + (distance * 2.0),
+            rect.area.height() + (distance * 2.0),
+        ),
+        rect.rounding,
+    )
+}
+
 fn round_ties_toward_zero(value: f32) -> f32 {
     let truncated = value.trunc();
     let fraction = (value - truncated).abs();
@@ -188,6 +229,17 @@ mod tests {
             (left - right).abs() <= 0.0001,
             "expected {left} to be approximately {right}"
         );
+    }
+
+    fn physical_edges(grid: Grid, rect: rect::Rect) -> (f32, f32, f32, f32) {
+        let scale = grid.scale_factor;
+
+        (
+            rect.origin.x() * scale,
+            rect.origin.y() * scale,
+            (rect.origin.x() + rect.area.width()) * scale,
+            (rect.origin.y() + rect.area.height()) * scale,
+        )
     }
 
     #[test]
@@ -285,5 +337,58 @@ mod tests {
         assert_approx_eq(second.area.height(), 9.0);
         assert!(grid.rect_is_aligned(first));
         assert!(grid.rect_is_aligned(second));
+    }
+
+    #[test]
+    fn outset_snaps_offset_and_width_independently_at_common_scales() {
+        let base = rect::Rect::new(point::logical(10.0, 20.0), area::logical(80.0, 30.0));
+
+        for scale in [1.0, 1.25, 1.5, 1.75, 2.0] {
+            let grid = Grid::new(scale);
+            let outset = grid.snap_outset(base, 2.0, 1.0);
+            let (base_left, base_top, base_right, base_bottom) =
+                physical_edges(grid, outset.base_rect);
+            let (inner_left, inner_top, inner_right, inner_bottom) =
+                physical_edges(grid, outset.inner_rect);
+            let (outer_left, outer_top, outer_right, outer_bottom) =
+                physical_edges(grid, outset.outer_rect);
+            let gap = outset.offset * scale;
+            let width = outset.width * scale;
+
+            assert_approx_eq(base_left - inner_left, gap);
+            assert_approx_eq(base_top - inner_top, gap);
+            assert_approx_eq(inner_right - base_right, gap);
+            assert_approx_eq(inner_bottom - base_bottom, gap);
+            assert_approx_eq(inner_left - outer_left, width);
+            assert_approx_eq(inner_top - outer_top, width);
+            assert_approx_eq(outer_right - inner_right, width);
+            assert_approx_eq(outer_bottom - inner_bottom, width);
+            assert!(grid.rect_is_aligned(outset.inner_rect));
+            assert!(grid.rect_is_aligned(outset.outer_rect));
+        }
+    }
+
+    #[test]
+    fn outset_at_one_point_five_keeps_focus_gap_centered() {
+        let grid = Grid::new(1.5);
+        let base = rect::Rect::new(point::logical(10.0, 20.0), area::logical(80.0, 30.0));
+        let outset = grid.snap_outset(base, 2.0, 1.0);
+        let (base_left, base_top, base_right, base_bottom) = physical_edges(grid, outset.base_rect);
+        let (inner_left, inner_top, inner_right, inner_bottom) =
+            physical_edges(grid, outset.inner_rect);
+        let (outer_left, outer_top, outer_right, outer_bottom) =
+            physical_edges(grid, outset.outer_rect);
+
+        // Regression scale: offset=2lp becomes a 3dp gap, while width=1lp
+        // becomes a 1dp ring. Snapping offset+width as one 4.5dp distance
+        // would reintroduce the asymmetric tie.
+        assert_approx_eq(base_left - inner_left, 3.0);
+        assert_approx_eq(base_top - inner_top, 3.0);
+        assert_approx_eq(inner_right - base_right, 3.0);
+        assert_approx_eq(inner_bottom - base_bottom, 3.0);
+        assert_approx_eq(inner_left - outer_left, 1.0);
+        assert_approx_eq(inner_top - outer_top, 1.0);
+        assert_approx_eq(outer_right - inner_right, 1.0);
+        assert_approx_eq(outer_bottom - inner_bottom, 1.0);
     }
 }

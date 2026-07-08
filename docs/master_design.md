@@ -142,6 +142,14 @@ rather than becoming heavier. The same midpoint rule applies to edge positions
 and snapped distances. Use `Rule` when an axis-aligned UI hairline needs exact
 physical-pixel thickness.
 
+Snapping has two decoration species. Positional boxes snap absolute edges for
+closure with neighboring boxes. Relative decorations snap the base first, then
+snap their own distances from that base for symmetry. External focus rings use
+this rule: snap the base rect, snap `offset`, snap `width`, then derive inner
+and outer ring edges. Do not snap `offset + width` as one expanded rect. The
+internal ring path already follows the same distance-first law by deriving its
+inset from a snapped base edge and a snapped width.
+
 `text`
 
 Owns document, buffer, edit, surface, layout, and unicode concepts. The text
@@ -633,6 +641,8 @@ split the axes so each type, name, or field answers one question. Labels are
 visible text; ids are invisible identity. Commands are imperative requests;
 notifications are past-tense facts. Theme metrics affect measurement;
 appearance affects paint. Logical and physical paint areas stay distinct types.
+Positional boxes and relative decorations use different snapping rules because
+closure and symmetry are different goals.
 
 Enforce with type separation, module placement, and names that state the axis.
 Repeated words are not automatically wrong; they become naming debt when the

@@ -338,8 +338,8 @@ fn into_paint_radius(radius: scene::Radius) -> paint::Radius {
 mod tests {
     use super::*;
     use crate::{
-        Command, Runtime, control_gallery, geometry, input, layout, theme::Theme, view, widget,
-        window,
+        Command, Runtime, control_gallery, geometry, input, layout, session, theme::Theme, view,
+        widget, window,
     };
     use std::time::{Duration, Instant};
 
@@ -358,6 +358,11 @@ mod tests {
     }
 
     impl crate::State for NativeSliderState {}
+
+    #[derive(Clone, Default)]
+    struct NativeTextBoxState;
+
+    impl crate::State for NativeTextBoxState {}
 
     #[test]
     fn text_box_surface_color_is_preserved_in_paint_viewport() {
@@ -653,6 +658,65 @@ mod tests {
         );
         assert_eq!(outline.width, theme.focus().width as f32);
         assert_eq!(outline.offset, theme.focus().offset);
+    }
+
+    #[test]
+    fn focused_text_box_outline_gaps_are_centered_at_fractional_scale() {
+        let focus = session::Focus::text("field");
+        let view_focus = focus.clone();
+        let mut app = Runtime::new(NativeTextBoxState)
+            .started(|cx| {
+                cx.open_window(window::Options::new("Native Text Box Focus"));
+            })
+            .view(move |_, _| {
+                widget::view(|ui| {
+                    ui.text_box(widget::TextBox::new("").focus(view_focus.clone()));
+                })
+            });
+
+        app.start();
+
+        let window = app.session().windows()[0].id();
+        let size = geometry::Size::new(240, 80);
+        app.present(window)
+            .expect("view should be presented before focus");
+        app.handle_input(window, input::Input::focus(focus))
+            .expect("text box focus should be handled");
+
+        let focused = app
+            .render_scene(window, size)
+            .expect("focused text box should render");
+        let paint = to_paint_scene_at_scale(focused.scene(), 1.5);
+        let expected_brush = paint::Brush::solid(super::super::color::paint_color(
+            Theme::default().focus().color,
+        ));
+        let outline = paint
+            .items()
+            .iter()
+            .find_map(|item| match item {
+                paint::Item::Outline(outline) if outline.brush == expected_brush => Some(outline),
+                _ => None,
+            })
+            .expect("focused text box should convert a focus outline");
+        let grid = paint::Grid::new(1.5);
+        let outset = grid.snap_outset(outline.rect, outline.offset, outline.width);
+        let scale = 1.5;
+        let left_gap = (outset.base_rect.origin.x() - outset.inner_rect.origin.x()) * scale;
+        let top_gap = (outset.base_rect.origin.y() - outset.inner_rect.origin.y()) * scale;
+        let right_gap = (outset.inner_rect.origin.x() + outset.inner_rect.area.width()
+            - outset.base_rect.origin.x()
+            - outset.base_rect.area.width())
+            * scale;
+        let bottom_gap = (outset.inner_rect.origin.y() + outset.inner_rect.area.height()
+            - outset.base_rect.origin.y()
+            - outset.base_rect.area.height())
+            * scale;
+
+        assert_approx_eq(left_gap, top_gap);
+        assert_approx_eq(left_gap, right_gap);
+        assert_approx_eq(left_gap, bottom_gap);
+        assert!(grid.rect_is_aligned(outset.inner_rect));
+        assert!(grid.rect_is_aligned(outset.outer_rect));
     }
 
     fn assert_approx_eq(actual: f32, expected: f32) {
