@@ -1,12 +1,12 @@
 use wgpu::util::DeviceExt;
 
 use crate::paint;
-use crate::paint_geometry::{self, Rect};
+use crate::paint_geometry::{self, Grid, Rect};
 use crate::render;
 use crate::render::batch;
 use crate::render::silhouette::{
-    self, PixelGeometry, PreparedSilhouette, clamped_width, edges, expand_rect, expand_rounding,
-    inset_rect, offset_rect, rect_data, rounding_data, shrink_rounding, union_rects,
+    self, PreparedSilhouette, clamped_width, edges, expand_rect, expand_rounding, inset_rect,
+    offset_rect, rect_data, rounding_data, shrink_rounding, union_rects,
 };
 
 const QUAD_WGSL: &str = include_str!("quad.wgsl");
@@ -162,7 +162,7 @@ fn push_shape_vertices(
     shape: &batch::Shape<'_>,
 ) {
     let canvas_area = viewport.logical_area();
-    let pixel_geometry = PixelGeometry::new(viewport.scale_factor());
+    let grid = Grid::new(viewport.scale_factor());
 
     if canvas_area.width() <= 0.0 || canvas_area.height() <= 0.0 {
         log::debug!("skipping shape draw for zero-size canvas");
@@ -170,7 +170,7 @@ fn push_shape_vertices(
     }
 
     for shape in analytic_shapes_for_shape(shape, viewport.scale_factor()) {
-        push_analytic_shape_vertices(buffer, canvas_area, pixel_geometry, shape);
+        push_analytic_shape_vertices(buffer, canvas_area, grid, shape);
     }
 }
 
@@ -195,21 +195,19 @@ fn analytic_shapes_for_quad_at_scale(quad: &paint::Quad, scale_factor: f32) -> V
 }
 
 fn rasterized_quad_rect(quad: &paint::Quad, scale_factor: f32) -> Rect {
-    let pixel_geometry = PixelGeometry::new(scale_factor);
+    let grid = Grid::new(scale_factor);
     let rect = quad.transform.transformed_rect(quad.rect);
 
     match quad.rasterization.snapping {
         paint::Snapping::Disabled => rect,
         paint::Snapping::Rect => {
             debug_assert!(
-                pixel_geometry.rect_is_aligned(rect),
+                grid.rect_is_aligned(rect),
                 "Snapping::Rect expects geometry snapped at the layout-to-paint boundary"
             );
             rect
         }
-        paint::Snapping::FixedWidth { width_px } => {
-            pixel_geometry.snap_fixed_width_rect(rect, width_px)
-        }
+        paint::Snapping::FixedWidth { width_px } => grid.snap_fixed_width_rect(rect, width_px),
     }
 }
 
@@ -257,7 +255,7 @@ fn analytic_shapes_for_outline(outline: &paint::Outline) -> Vec<AnalyticShape> {
 fn push_analytic_shape_vertices(
     buffer: &mut Vec<render::Vertex>,
     canvas_area: paint_geometry::LogicalArea,
-    pixel_geometry: PixelGeometry,
+    grid: Grid,
     shape: AnalyticShape,
 ) {
     let to_clip = |x: f32, y: f32| -> [f32; 2] {
@@ -271,7 +269,7 @@ fn push_analytic_shape_vertices(
         return;
     }
 
-    let Some(shape) = prepare_shape(shape, pixel_geometry) else {
+    let Some(shape) = prepare_shape(shape, grid) else {
         return;
     };
 
@@ -316,25 +314,18 @@ fn push_analytic_shape_vertices(
     push(x1, y0);
 }
 
-fn prepare_shape(shape: AnalyticShape, pixel_geometry: PixelGeometry) -> Option<PreparedShape> {
+fn prepare_shape(shape: AnalyticShape, grid: Grid) -> Option<PreparedShape> {
     match shape.kind {
-        AnalyticShapeKind::Fill => prepare_fill_shape(shape, pixel_geometry),
-        AnalyticShapeKind::InternalRing => prepare_internal_ring_shape(shape, pixel_geometry),
-        AnalyticShapeKind::ExternalRing => prepare_external_ring_shape(shape, pixel_geometry),
-        AnalyticShapeKind::Shadow => prepare_shadow_shape(shape, pixel_geometry),
+        AnalyticShapeKind::Fill => prepare_fill_shape(shape, grid),
+        AnalyticShapeKind::InternalRing => prepare_internal_ring_shape(shape, grid),
+        AnalyticShapeKind::ExternalRing => prepare_external_ring_shape(shape, grid),
+        AnalyticShapeKind::Shadow => prepare_shadow_shape(shape, grid),
     }
 }
 
-fn prepare_fill_shape(
-    shape: AnalyticShape,
-    pixel_geometry: PixelGeometry,
-) -> Option<PreparedShape> {
-    let silhouette = PreparedSilhouette::for_rect(
-        shape.outer_rect,
-        pixel_geometry,
-        shape.snap_outer,
-        shape.antialias,
-    )?;
+fn prepare_fill_shape(shape: AnalyticShape, grid: Grid) -> Option<PreparedShape> {
+    let silhouette =
+        PreparedSilhouette::for_rect(shape.outer_rect, grid, shape.snap_outer, shape.antialias)?;
 
     Some(PreparedShape {
         kind: shape.kind,
@@ -348,16 +339,12 @@ fn prepare_fill_shape(
     })
 }
 
-fn prepare_internal_ring_shape(
-    shape: AnalyticShape,
-    pixel_geometry: PixelGeometry,
-) -> Option<PreparedShape> {
-    let outer =
-        PreparedSilhouette::for_rect(shape.outer_rect, pixel_geometry, shape.snap_outer, true)?;
+fn prepare_internal_ring_shape(shape: AnalyticShape, grid: Grid) -> Option<PreparedShape> {
+    let outer = PreparedSilhouette::for_rect(shape.outer_rect, grid, shape.snap_outer, true)?;
     let outer_rect = outer.shape_rect;
-    let width = pixel_geometry.snap_distance(ring_width(shape)?);
+    let width = grid.snap_distance(ring_width(shape)?);
     let Some(inner_rect) = inset_rect(outer_rect, width) else {
-        return prepare_fill_shape(fill_shape(outer_rect, shape.brush), pixel_geometry);
+        return prepare_fill_shape(fill_shape(outer_rect, shape.brush), grid);
     };
     let outer_rounding = outer.rounding;
     let inner = AnalyticInner {
@@ -377,20 +364,17 @@ fn prepare_internal_ring_shape(
     })
 }
 
-fn prepare_external_ring_shape(
-    shape: AnalyticShape,
-    pixel_geometry: PixelGeometry,
-) -> Option<PreparedShape> {
+fn prepare_external_ring_shape(shape: AnalyticShape, grid: Grid) -> Option<PreparedShape> {
     let inner = shape.inner?;
-    let width = pixel_geometry.snap_distance(ring_width(shape)?);
-    let inner_rect = pixel_geometry.snap_rect(inner.rect);
+    let width = grid.snap_distance(ring_width(shape)?);
+    let inner_rect = grid.snap_rect(inner.rect);
     let outer_rect = expand_rect(inner_rect, width);
     let inner_rounding = inner.rounding;
     let outer_rounding = silhouette::clamp_resolved_rounding(
         expand_rounding(inner_rounding, width),
         outer_rect.area,
     );
-    let raster_rect = expand_rect(outer_rect, pixel_geometry.logical_pixel());
+    let raster_rect = expand_rect(outer_rect, grid.logical_pixel());
 
     Some(PreparedShape {
         kind: shape.kind,
@@ -407,17 +391,14 @@ fn prepare_external_ring_shape(
     })
 }
 
-fn prepare_shadow_shape(
-    shape: AnalyticShape,
-    pixel_geometry: PixelGeometry,
-) -> Option<PreparedShape> {
+fn prepare_shadow_shape(shape: AnalyticShape, grid: Grid) -> Option<PreparedShape> {
     let inner = shape.inner?;
-    let outer_rect = pixel_geometry.snap_rect(shape.outer_rect);
-    let inner_rect = pixel_geometry.snap_rect(inner.rect);
-    let blur = pixel_geometry.snap_distance(shape.blur);
+    let outer_rect = grid.snap_rect(shape.outer_rect);
+    let inner_rect = grid.snap_rect(inner.rect);
+    let blur = grid.snap_distance(shape.blur);
     let raster_rect = union_rects(
-        expand_rect(outer_rect, blur + pixel_geometry.logical_pixel()),
-        expand_rect(inner_rect, pixel_geometry.logical_pixel()),
+        expand_rect(outer_rect, blur + grid.logical_pixel()),
+        expand_rect(inner_rect, grid.logical_pixel()),
     );
 
     Some(PreparedShape {
@@ -573,8 +554,8 @@ pub(crate) fn prepared_fill_silhouette_for_test(
     scale_factor: f32,
 ) -> PreparedSilhouette {
     let shape = fill_shape(rect, paint::Brush::solid(paint::Color::BLACK));
-    let prepared = prepare_shape(shape, PixelGeometry::new(scale_factor))
-        .expect("fill silhouette should prepare");
+    let prepared =
+        prepare_shape(shape, Grid::new(scale_factor)).expect("fill silhouette should prepare");
 
     PreparedSilhouette::from_parts(prepared.outer_rect, prepared.raster_rect)
         .with_rounding(prepared.outer_rounding)
@@ -589,10 +570,10 @@ pub(crate) fn prepared_shadow_cutout_silhouette_for_test(
         .into_iter()
         .next()
         .expect("shadow should lower to shape");
-    let prepared = prepare_shape(shape, PixelGeometry::new(scale_factor))
-        .expect("shadow silhouette should prepare");
+    let prepared =
+        prepare_shape(shape, Grid::new(scale_factor)).expect("shadow silhouette should prepare");
     let inner = prepared.inner.expect("shadow should keep owner cutout");
-    let raster_rect = expand_rect(inner.rect, PixelGeometry::new(scale_factor).logical_pixel());
+    let raster_rect = expand_rect(inner.rect, Grid::new(scale_factor).logical_pixel());
 
     PreparedSilhouette::from_parts(inner.rect, raster_rect).with_rounding(inner.rounding)
 }
@@ -657,7 +638,7 @@ mod tests {
         push_analytic_shape_vertices(
             &mut vertices,
             paint_geometry::logical_area(100.0, 100.0),
-            PixelGeometry::new(1.0),
+            Grid::new(1.0),
             shape,
         );
 
@@ -665,7 +646,7 @@ mod tests {
     }
 
     fn prepared_shape(shape: AnalyticShape, scale_factor: f32) -> PreparedShape {
-        prepare_shape(shape, PixelGeometry::new(scale_factor)).expect("shape should prepare")
+        prepare_shape(shape, Grid::new(scale_factor)).expect("shape should prepare")
     }
 
     fn bounds(shapes: &[AnalyticShape]) -> (f32, f32, f32, f32) {
@@ -858,7 +839,7 @@ mod tests {
             paint_geometry::logical_point(10.2, 20.3),
             paint_geometry::logical_area(40.4, 30.8),
         );
-        let snapped = PixelGeometry::new(2.0).snap_rect(rect);
+        let snapped = Grid::new(2.0).snap_rect(rect);
 
         assert_eq!(rect_bounds(snapped), (10.0, 20.5, 50.5, 51.0));
     }
@@ -898,9 +879,9 @@ mod tests {
 
     #[test]
     fn positive_distances_snap_to_at_least_one_physical_pixel() {
-        assert_eq!(PixelGeometry::new(1.0).snap_distance(0.2), 1.0);
-        assert_eq!(PixelGeometry::new(2.0).snap_distance(0.2), 0.5);
-        assert_eq!(PixelGeometry::new(2.0).snap_distance(2.2), 2.0);
+        assert_eq!(Grid::new(1.0).snap_distance(0.2), 1.0);
+        assert_eq!(Grid::new(2.0).snap_distance(0.2), 0.5);
+        assert_eq!(Grid::new(2.0).snap_distance(2.2), 2.0);
     }
 
     #[test]

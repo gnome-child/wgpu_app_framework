@@ -1,4 +1,4 @@
-use crate::paint_geometry::{self, DeviceGrid, Rect};
+use crate::paint_geometry::{self, Grid, Rect};
 
 pub(crate) const WGSL: &str = r#"
 fn silhouette_corner_radius(point: vec2<f32>, rect: vec4<f32>, rounding: vec4<f32>) -> f32 {
@@ -76,26 +76,15 @@ pub(crate) struct PreparedSilhouette {
     pub(crate) rounding: [f32; 4],
 }
 
-pub(crate) type PixelGeometry = DeviceGrid;
-
 impl PreparedSilhouette {
-    pub(crate) fn for_rect(
-        rect: Rect,
-        pixel_geometry: PixelGeometry,
-        snap: bool,
-        antialias: bool,
-    ) -> Option<Self> {
+    pub(crate) fn for_rect(rect: Rect, grid: Grid, snap: bool, antialias: bool) -> Option<Self> {
         if rect.area.width() <= 0.0 || rect.area.height() <= 0.0 {
             return None;
         }
 
-        let shape_rect = if snap {
-            pixel_geometry.snap_rect(rect)
-        } else {
-            rect
-        };
+        let shape_rect = if snap { grid.snap_rect(rect) } else { rect };
         let raster_rect = if antialias {
-            expand_rect(shape_rect, pixel_geometry.logical_pixel())
+            expand_rect(shape_rect, grid.logical_pixel())
         } else {
             shape_rect
         };
@@ -104,7 +93,7 @@ impl PreparedSilhouette {
     }
 
     pub(crate) fn for_filter_rect(rect: Rect, scale_factor: f32) -> Option<Self> {
-        Self::for_rect(rect, PixelGeometry::new(scale_factor), true, true)
+        Self::for_rect(rect, Grid::new(scale_factor), true, true)
     }
 
     pub(crate) fn from_parts(shape_rect: Rect, raster_rect: Rect) -> Self {

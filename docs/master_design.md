@@ -134,6 +134,11 @@ device-pixel-aligned edge may be fractional in logical space at scale factors
 such as 125%. Boundary conversion multiplies by the active scale factor, rounds
 in device-pixel space, and divides back to floating logical coordinates. Do
 not snap by rounding layout coordinates in integer logical space.
+Exact half-device-pixel ties round toward zero. This is a deliberate style
+choice for thin geometry: a 1 logical px line at 150% should stay 1 device px
+rather than becoming heavier. The same midpoint rule applies to edge positions
+and snapped distances; use `FixedWidth` when a primitive needs an exact
+physical-pixel width.
 
 `text`
 

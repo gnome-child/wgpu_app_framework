@@ -1,12 +1,12 @@
 use super::{area, point, rect};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct DeviceGrid {
+pub(crate) struct Grid {
     scale_factor: f32,
     logical_pixel: f32,
 }
 
-impl DeviceGrid {
+impl Grid {
     pub(crate) fn new(scale_factor: f32) -> Self {
         let scale_factor = scale_factor.max(0.0001);
 
@@ -21,7 +21,7 @@ impl DeviceGrid {
     }
 
     pub(crate) fn snap_position(self, position: f32) -> f32 {
-        (position * self.scale_factor).round() / self.scale_factor
+        round_ties_toward_zero(position * self.scale_factor) / self.scale_factor
     }
 
     pub(crate) fn snap_distance(self, distance: f32) -> f32 {
@@ -29,7 +29,7 @@ impl DeviceGrid {
             return 0.0;
         }
 
-        (distance * self.scale_factor).round().max(1.0) / self.scale_factor
+        round_ties_toward_zero(distance * self.scale_factor).max(1.0) / self.scale_factor
     }
 
     pub(crate) fn snap_rect(self, rect: rect::Rect) -> rect::Rect {
@@ -80,7 +80,18 @@ impl DeviceGrid {
     fn position_is_aligned(self, position: f32) -> bool {
         let physical = position * self.scale_factor;
 
-        (physical - physical.round()).abs() <= 0.001
+        (physical - round_ties_toward_zero(physical)).abs() <= 0.001
+    }
+}
+
+fn round_ties_toward_zero(value: f32) -> f32 {
+    let truncated = value.trunc();
+    let fraction = (value - truncated).abs();
+
+    if fraction == 0.5 {
+        truncated
+    } else {
+        value.round()
     }
 }
 
@@ -106,15 +117,52 @@ mod tests {
 
     #[test]
     fn grid_snaps_to_fractional_logical_values_at_fractional_scale() {
-        let grid = DeviceGrid::new(1.25);
+        let grid = Grid::new(1.25);
         let rect = rect::Rect::new(point::logical(10.0, 20.0), area::logical(33.0, 11.0));
         let snapped = grid.snap_rect(rect);
         let (left, top, right, bottom) = bounds(snapped);
 
-        assert_approx_eq(left, 10.4);
+        // 10.0 * 1.25 = 12.5 device px, so the exact tie rounds toward zero.
+        assert_approx_eq(left, 9.6);
         assert_approx_eq(top, 20.0);
         assert_approx_eq(right, 43.2);
         assert_approx_eq(bottom, 31.2);
         assert!(grid.rect_is_aligned(snapped));
+    }
+
+    #[test]
+    fn positive_midpoint_positions_round_toward_zero() {
+        let grid = Grid::new(1.5);
+
+        assert_approx_eq(grid.snap_position(1.0), 2.0 / 3.0);
+    }
+
+    #[test]
+    fn negative_midpoint_positions_round_toward_zero() {
+        let grid = Grid::new(1.5);
+
+        assert_approx_eq(grid.snap_position(-1.0), -2.0 / 3.0);
+    }
+
+    #[test]
+    fn non_midpoint_positions_still_round_to_nearest() {
+        let grid = Grid::new(1.5);
+
+        assert_approx_eq(grid.snap_position(1.1), 4.0 / 3.0);
+        assert_approx_eq(grid.snap_position(-1.1), -4.0 / 3.0);
+    }
+
+    #[test]
+    fn positive_midpoint_distance_at_fractional_scale_stays_thin() {
+        let grid = Grid::new(1.5);
+
+        assert_approx_eq(grid.snap_distance(1.0), 2.0 / 3.0);
+    }
+
+    #[test]
+    fn tiny_positive_distances_snap_to_at_least_one_physical_pixel() {
+        let grid = Grid::new(1.5);
+
+        assert_approx_eq(grid.snap_distance(0.1), 2.0 / 3.0);
     }
 }

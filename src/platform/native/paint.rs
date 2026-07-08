@@ -11,7 +11,7 @@ pub(in crate::platform::native) fn to_paint_scene_at_scale(
     source: &scene::Scene,
     scale_factor: f32,
 ) -> paint::Scene {
-    let grid = paint_geometry::DeviceGrid::new(scale_factor);
+    let grid = paint_geometry::Grid::new(scale_factor);
     let mut scene = paint::Scene::new();
     scene.clear(super::color::paint_color(source.clear()));
 
@@ -36,7 +36,7 @@ pub(in crate::platform::native) fn to_paint_scene_at_scale(
     scene
 }
 
-fn to_paint_quad(quad: &scene::Quad, grid: paint_geometry::DeviceGrid) -> paint::Quad {
+fn to_paint_quad(quad: &scene::Quad, grid: paint_geometry::Grid) -> paint::Quad {
     paint::Quad {
         rect: into_paint_rounded_rect_at_scale(quad.rect(), quad.rounding(), grid),
         style: to_paint_style(quad.style()),
@@ -45,7 +45,7 @@ fn to_paint_quad(quad: &scene::Quad, grid: paint_geometry::DeviceGrid) -> paint:
     }
 }
 
-fn to_paint_text(text: &scene::Text, grid: paint_geometry::DeviceGrid) -> paint::Text {
+fn to_paint_text(text: &scene::Text, grid: paint_geometry::Grid) -> paint::Text {
     let mut block = text::document::Block::new(into_text_align(text.align()));
     block.push_run(text::document::Run::new(
         text.value().to_owned(),
@@ -65,7 +65,7 @@ fn to_paint_text(text: &scene::Text, grid: paint_geometry::DeviceGrid) -> paint:
 
 fn to_paint_text_viewport(
     text: &scene::TextViewport,
-    grid: paint_geometry::DeviceGrid,
+    grid: paint_geometry::Grid,
 ) -> paint::TextViewport {
     paint::TextViewport {
         rect: into_paint_rect_at_scale(text.rect(), grid),
@@ -79,7 +79,7 @@ fn to_paint_text_viewport(
 
 fn to_paint_text_surface(
     surface: &scene::TextSurface,
-    grid: paint_geometry::DeviceGrid,
+    grid: paint_geometry::Grid,
 ) -> paint::TextSurface {
     let (r, g, b, a) = surface.default_color().channels();
 
@@ -90,7 +90,7 @@ fn to_paint_text_surface(
     }
 }
 
-fn to_paint_icon(icon: &scene::Icon, grid: paint_geometry::DeviceGrid) -> paint::Icon {
+fn to_paint_icon(icon: &scene::Icon, grid: paint_geometry::Grid) -> paint::Icon {
     paint::Icon {
         rect: into_paint_rect_at_scale(icon.rect(), grid),
         icon: icon.icon(),
@@ -99,7 +99,7 @@ fn to_paint_icon(icon: &scene::Icon, grid: paint_geometry::DeviceGrid) -> paint:
     }
 }
 
-fn to_paint_shadow(shadow: &scene::Shadow, grid: paint_geometry::DeviceGrid) -> paint::Shadow {
+fn to_paint_shadow(shadow: &scene::Shadow, grid: paint_geometry::Grid) -> paint::Shadow {
     paint::Shadow {
         rect: into_paint_rounded_rect_at_scale(shadow.rect(), shadow.rounding(), grid),
         brush: paint::Brush::solid(super::color::paint_color(shadow.color())),
@@ -109,7 +109,7 @@ fn to_paint_shadow(shadow: &scene::Shadow, grid: paint_geometry::DeviceGrid) -> 
     }
 }
 
-fn to_paint_filter(filter: &scene::Filter, grid: paint_geometry::DeviceGrid) -> paint::Filter {
+fn to_paint_filter(filter: &scene::Filter, grid: paint_geometry::Grid) -> paint::Filter {
     paint::Filter::stack(
         into_paint_rounded_rect_at_scale(filter.rect(), filter.rounding(), grid),
         filter.ops().iter().copied().map(to_paint_filter_op),
@@ -160,16 +160,16 @@ fn to_paint_backdrop_edge_mode(edge_mode: scene::BackdropEdgeMode) -> paint::Bac
 
 #[cfg(test)]
 fn to_paint_clip(clip: &scene::Clip) -> paint::Clip {
-    to_paint_clip_at_scale(clip, paint_geometry::DeviceGrid::new(1.0))
+    to_paint_clip_at_scale(clip, paint_geometry::Grid::new(1.0))
 }
 
-fn to_paint_clip_at_scale(clip: &scene::Clip, grid: paint_geometry::DeviceGrid) -> paint::Clip {
+fn to_paint_clip_at_scale(clip: &scene::Clip, grid: paint_geometry::Grid) -> paint::Clip {
     paint::Clip {
         rect: into_paint_rounded_rect_at_scale(clip.rect(), clip.rounding(), grid),
     }
 }
 
-fn to_paint_outline(outline: &scene::Outline, grid: paint_geometry::DeviceGrid) -> paint::Outline {
+fn to_paint_outline(outline: &scene::Outline, grid: paint_geometry::Grid) -> paint::Outline {
     paint::Outline {
         rect: into_paint_rounded_rect_at_scale(outline.rect(), outline.rounding(), grid),
         brush: paint::Brush::solid(super::color::paint_color(outline.color())),
@@ -180,7 +180,7 @@ fn to_paint_outline(outline: &scene::Outline, grid: paint_geometry::DeviceGrid) 
 
 fn into_paint_rect_at_scale(
     rect: geometry::Rect,
-    grid: paint_geometry::DeviceGrid,
+    grid: paint_geometry::Grid,
 ) -> paint_geometry::Rect {
     grid.snap_rect(paint_geometry::Rect::new(
         paint_geometry::logical_point(rect.x() as f32, rect.y() as f32),
@@ -193,13 +193,13 @@ fn into_paint_rounded_rect(
     rect: geometry::Rect,
     rounding: scene::Rounding,
 ) -> paint_geometry::Rect {
-    into_paint_rounded_rect_at_scale(rect, rounding, paint_geometry::DeviceGrid::new(1.0))
+    into_paint_rounded_rect_at_scale(rect, rounding, paint_geometry::Grid::new(1.0))
 }
 
 fn into_paint_rounded_rect_at_scale(
     rect: geometry::Rect,
     rounding: scene::Rounding,
-    grid: paint_geometry::DeviceGrid,
+    grid: paint_geometry::Grid,
 ) -> paint_geometry::Rect {
     grid.snap_rect(paint_geometry::Rect::rounded(
         paint_geometry::logical_point(rect.x() as f32, rect.y() as f32),
@@ -421,10 +421,11 @@ mod tests {
     #[test]
     fn layout_to_paint_boundary_snaps_to_fractional_logical_device_grid() {
         let rect = geometry::Rect::new(10, 20, 33, 11);
-        let grid = paint_geometry::DeviceGrid::new(1.25);
+        let grid = paint_geometry::Grid::new(1.25);
         let paint = into_paint_rounded_rect_at_scale(rect, scene::Rounding::none(), grid);
 
-        assert_approx_eq(paint.origin.x(), 10.4);
+        // 10.0 * 1.25 = 12.5 device px, so the exact tie rounds toward zero.
+        assert_approx_eq(paint.origin.x(), 9.6);
         assert_approx_eq(paint.origin.y(), 20.0);
         assert_approx_eq(paint.origin.x() + paint.area.width(), 43.2);
         assert_approx_eq(paint.origin.y() + paint.area.height(), 31.2);
@@ -437,17 +438,17 @@ mod tests {
         let at_1x = into_paint_rounded_rect_at_scale(
             rect,
             scene::Rounding::none(),
-            paint_geometry::DeviceGrid::new(1.0),
+            paint_geometry::Grid::new(1.0),
         );
         let at_125 = into_paint_rounded_rect_at_scale(
             rect,
             scene::Rounding::none(),
-            paint_geometry::DeviceGrid::new(1.25),
+            paint_geometry::Grid::new(1.25),
         );
 
         assert_ne!(at_1x, at_125);
-        assert!(paint_geometry::DeviceGrid::new(1.0).rect_is_aligned(at_1x));
-        assert!(paint_geometry::DeviceGrid::new(1.25).rect_is_aligned(at_125));
+        assert!(paint_geometry::Grid::new(1.0).rect_is_aligned(at_1x));
+        assert!(paint_geometry::Grid::new(1.25).rect_is_aligned(at_125));
     }
 
     #[test]
