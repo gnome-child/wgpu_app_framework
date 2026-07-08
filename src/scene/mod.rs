@@ -19,11 +19,11 @@ pub use primitive::{
 pub(crate) use visual::Visuals;
 pub(crate) use visual::{Scalar as VisualScalar, Target as TargetVisual};
 
-use super::{geometry, layout, theme::Theme};
+use super::{geometry, layout, overlay, theme::Theme};
 
 const DEFAULT_CLEAR: Color = Color::rgb(17, 18, 20);
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Scene {
     size: geometry::Size,
     clear: Color,
@@ -56,17 +56,33 @@ impl Scene {
         Self::paint_with_clear_theme_and_visuals(layout, clear, theme, &Visuals::default())
     }
 
+    #[cfg(test)]
     pub(crate) fn paint_with_clear_theme_and_visuals(
         layout: &layout::Layout,
         clear: Color,
         theme: &Theme,
         visuals: &Visuals,
     ) -> Self {
-        let mut scene = Self::new_with_clear(layout.size(), clear);
+        let (mut scene, entries) =
+            Self::paint_parts_with_clear_theme_and_visuals(layout, clear, theme, visuals);
 
-        paint::paint_layout_with_theme(layout, &mut scene, theme, visuals);
+        for entry in entries {
+            scene.append_scene_with_opacity(entry.scene(), 1.0);
+        }
 
         scene
+    }
+
+    pub(crate) fn paint_parts_with_clear_theme_and_visuals(
+        layout: &layout::Layout,
+        clear: Color,
+        theme: &Theme,
+        visuals: &Visuals,
+    ) -> (Self, Vec<overlay::Draft>) {
+        let mut scene = Self::new_with_clear(layout.size(), clear);
+        let entries = paint::paint_layout_with_theme(layout, &mut scene, theme, visuals);
+
+        (scene, entries)
     }
 
     pub fn new(size: geometry::Size) -> Self {
@@ -95,6 +111,22 @@ impl Scene {
 
     pub fn is_empty(&self) -> bool {
         self.primitives.is_empty()
+    }
+
+    pub(crate) fn append_scene_with_opacity(&mut self, scene: &Scene, opacity: f32) {
+        for primitive in scene.primitives() {
+            if let Some(primitive) = primitive.with_opacity(opacity) {
+                self.primitives.push(primitive);
+            }
+        }
+    }
+
+    pub(crate) fn append_ghost_scene_with_opacity(&mut self, scene: &Scene, opacity: f32) {
+        for primitive in scene.primitives() {
+            if let Some(primitive) = primitive.with_ghost_opacity(opacity) {
+                self.primitives.push(primitive);
+            }
+        }
     }
 
     pub fn quads(&self) -> Vec<&Quad> {

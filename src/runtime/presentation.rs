@@ -167,8 +167,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         layout: &layout::Layout,
         now: Instant,
         visual_schedule: animation::Schedule,
+        overlay_schedule: animation::Schedule,
     ) {
-        let schedule = caret_animation_schedule(layout, now).merge(visual_schedule);
+        let schedule = caret_animation_schedule(layout, now)
+            .merge(visual_schedule)
+            .merge(overlay_schedule);
         if schedule == animation::Schedule::Idle {
             self.animation_schedules.remove(&window);
         } else {
@@ -427,6 +430,21 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         self.render_scene_at(window, size, Instant::now())
     }
 
+    #[cfg(test)]
+    pub(crate) fn render_scene_after_overlay_fade(
+        &mut self,
+        window: window::Id,
+        size: geometry::Size,
+    ) -> Option<scene::Presentation> {
+        let settled_at = Instant::now();
+        let enter =
+            std::time::Duration::from_millis(self.active_theme().overlay().enter_fade_ms + 1);
+        let started_at = settled_at.checked_sub(enter).unwrap_or(settled_at);
+
+        self.render_scene_at(window, size, started_at)?;
+        self.render_scene_at(window, size, settled_at)
+    }
+
     pub(crate) fn render_scene_at(
         &mut self,
         window: window::Id,
@@ -460,16 +478,36 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             &theme,
             now,
         );
-        self.update_animation_schedule(window, &layout, now, visual_update.schedule());
         let canvas_color = self.canvas_color(window);
-
-        Some(scene::Presentation::with_canvas_color_theme_and_visuals(
-            window,
-            revision,
-            layout,
+        let (mut scene, entries) = scene::Scene::paint_parts_with_clear_theme_and_visuals(
+            &layout,
             canvas_color,
             &theme,
             visual_update.visuals(),
+        );
+        let overlay_update = self
+            .overlays
+            .update_window(window, entries, theme.overlay(), now);
+        for layer in overlay_update.layers() {
+            match layer.kind() {
+                crate::overlay::LayerKind::Live => {
+                    scene.append_scene_with_opacity(layer.scene(), layer.opacity());
+                }
+                crate::overlay::LayerKind::Ghost => {
+                    scene.append_ghost_scene_with_opacity(layer.scene(), layer.opacity());
+                }
+            }
+        }
+        self.update_animation_schedule(
+            window,
+            &layout,
+            now,
+            visual_update.schedule(),
+            overlay_update.schedule(),
+        );
+
+        Some(scene::Presentation::with_scene(
+            window, revision, layout, scene,
         ))
     }
 
@@ -517,14 +555,35 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 &theme,
                 now,
             );
-            self.update_animation_schedule(window, &layout, now, visual_update.schedule());
-            rendered.push(scene::Presentation::with_canvas_color_theme_and_visuals(
-                window,
-                revision,
-                layout,
-                self.canvas_color(window),
+            let canvas_color = self.canvas_color(window);
+            let (mut scene, entries) = scene::Scene::paint_parts_with_clear_theme_and_visuals(
+                &layout,
+                canvas_color,
                 &theme,
                 visual_update.visuals(),
+            );
+            let overlay_update = self
+                .overlays
+                .update_window(window, entries, theme.overlay(), now);
+            for layer in overlay_update.layers() {
+                match layer.kind() {
+                    crate::overlay::LayerKind::Live => {
+                        scene.append_scene_with_opacity(layer.scene(), layer.opacity());
+                    }
+                    crate::overlay::LayerKind::Ghost => {
+                        scene.append_ghost_scene_with_opacity(layer.scene(), layer.opacity());
+                    }
+                }
+            }
+            self.update_animation_schedule(
+                window,
+                &layout,
+                now,
+                visual_update.schedule(),
+                overlay_update.schedule(),
+            );
+            rendered.push(scene::Presentation::with_scene(
+                window, revision, layout, scene,
             ));
         }
 

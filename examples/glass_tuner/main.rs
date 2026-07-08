@@ -22,6 +22,9 @@ fn smoke() -> Result<(), Box<dyn std::error::Error>> {
         .first()
         .ok_or_else(|| std::io::Error::other("glass tuner did not open a window"))?
         .id();
+    app.render_scene(window, glass_tuner::window_size())
+        .ok_or_else(|| std::io::Error::other("glass tuner did not render"))?;
+    std::thread::sleep(std::time::Duration::from_millis(100));
     let rendered = app
         .render_scene(window, glass_tuner::window_size())
         .ok_or_else(|| std::io::Error::other("glass tuner did not render"))?;

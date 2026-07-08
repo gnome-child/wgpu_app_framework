@@ -236,6 +236,43 @@ pub(crate) struct TextColor {
     a: f32,
 }
 
+impl Primitive {
+    pub(crate) fn with_opacity(&self, opacity: f32) -> Option<Self> {
+        let opacity = opacity.clamp(0.0, 1.0);
+        if opacity <= 0.0 {
+            return None;
+        }
+
+        Some(match self {
+            Self::Quad(quad) => Self::Quad(quad.with_opacity(opacity)),
+            Self::Rule(rule) => Self::Rule(rule.with_opacity(opacity)),
+            Self::Text(text) => Self::Text(text.clone().with_opacity(opacity)),
+            Self::TextViewport(viewport) => {
+                Self::TextViewport(viewport.clone().with_opacity(opacity))
+            }
+            Self::Icon(icon) => Self::Icon(icon.with_opacity(opacity)),
+            Self::Shadow(shadow) => Self::Shadow(shadow.with_opacity(opacity)),
+            Self::Filter(filter) => {
+                if filter.can_fade_with_opacity() || opacity >= 1.0 {
+                    Self::Filter(filter.clone().with_opacity(opacity))
+                } else {
+                    return None;
+                }
+            }
+            Self::Clip(clip) => Self::Clip(*clip),
+            Self::PopClip => Self::PopClip,
+            Self::Outline(outline) => Self::Outline(outline.with_opacity(opacity)),
+        })
+    }
+
+    pub(crate) fn with_ghost_opacity(&self, opacity: f32) -> Option<Self> {
+        match self {
+            Self::Filter(filter) if !filter.can_fade_with_opacity() => None,
+            _ => self.with_opacity(opacity),
+        }
+    }
+}
+
 impl Quad {
     pub(in crate::scene) fn new(rect: geometry::Rect, fill: Color) -> Self {
         Self {
@@ -304,6 +341,11 @@ impl Quad {
     pub fn transform(&self) -> Transform {
         self.transform
     }
+
+    fn with_opacity(mut self, opacity: f32) -> Self {
+        self.style = self.style.with_opacity(opacity);
+        self
+    }
 }
 
 impl Rule {
@@ -347,6 +389,11 @@ impl Rule {
 
     pub fn thickness_px(&self) -> u32 {
         self.thickness_px
+    }
+
+    fn with_opacity(mut self, opacity: f32) -> Self {
+        self.color = self.color.with_opacity(opacity);
+        self
     }
 }
 
@@ -547,6 +594,11 @@ impl Text {
     pub fn align(&self) -> TextAlign {
         self.align
     }
+
+    fn with_opacity(mut self, opacity: f32) -> Self {
+        self.color = self.color.with_opacity(opacity);
+        self
+    }
 }
 
 impl TextStyle {
@@ -581,6 +633,15 @@ impl TextViewport {
     pub fn surfaces(&self) -> &[TextSurface] {
         &self.surfaces
     }
+
+    fn with_opacity(mut self, opacity: f32) -> Self {
+        self.surfaces = self
+            .surfaces
+            .into_iter()
+            .map(|surface| surface.with_opacity(opacity))
+            .collect();
+        self
+    }
 }
 
 impl TextSurface {
@@ -606,6 +667,11 @@ impl TextSurface {
 
     pub(crate) fn default_color(&self) -> TextColor {
         self.default_color
+    }
+
+    fn with_opacity(mut self, opacity: f32) -> Self {
+        self.default_color = self.default_color.with_opacity(opacity);
+        self
     }
 }
 
@@ -661,6 +727,11 @@ impl Icon {
     pub fn size(&self) -> f32 {
         self.size
     }
+
+    fn with_opacity(mut self, opacity: f32) -> Self {
+        self.color = self.color.with_opacity(opacity);
+        self
+    }
 }
 
 impl Shadow {
@@ -709,6 +780,11 @@ impl Shadow {
     pub fn rounding(&self) -> Rounding {
         self.rounding
     }
+
+    fn with_opacity(mut self, opacity: f32) -> Self {
+        self.color = self.color.with_opacity(opacity);
+        self
+    }
 }
 
 impl Filter {
@@ -738,6 +814,19 @@ impl Filter {
 
     pub fn rounding(&self) -> Rounding {
         self.rounding
+    }
+
+    fn with_opacity(mut self, opacity: f32) -> Self {
+        self.ops = self
+            .ops
+            .into_iter()
+            .map(|op| op.with_opacity(opacity))
+            .collect();
+        self
+    }
+
+    fn can_fade_with_opacity(&self) -> bool {
+        self.ops.iter().all(FilterOp::can_fade_with_opacity)
     }
 }
 
@@ -793,6 +882,26 @@ impl FilterOp {
             Self::Noise(params) => Self::Noise(params.clamped()),
         }
     }
+
+    fn with_opacity(self, opacity: f32) -> Self {
+        let opacity = opacity.clamp(0.0, 1.0);
+
+        match self {
+            Self::Luminosity(luminosity) => Self::Luminosity(Luminosity::new(
+                luminosity.color(),
+                luminosity.opacity() * opacity,
+            )),
+            Self::Noise(noise) => Self::Noise(Noise::new(noise.opacity() * opacity)),
+            Self::Blur { .. }
+            | Self::BackdropBlur(_)
+            | Self::Liquid { .. }
+            | Self::Refraction(_) => self,
+        }
+    }
+
+    fn can_fade_with_opacity(&self) -> bool {
+        matches!(self, Self::Luminosity(_) | Self::Noise(_))
+    }
 }
 
 impl LiquidFilter {
@@ -839,6 +948,11 @@ impl TextColor {
 
     pub(crate) fn channels(self) -> (f32, f32, f32, f32) {
         (self.r, self.g, self.b, self.a)
+    }
+
+    fn with_opacity(mut self, opacity: f32) -> Self {
+        self.a *= opacity.clamp(0.0, 1.0);
+        self
     }
 }
 
@@ -887,6 +1001,11 @@ impl Outline {
     pub fn rounding(&self) -> Rounding {
         self.rounding
     }
+
+    fn with_opacity(mut self, opacity: f32) -> Self {
+        self.color = self.color.with_opacity(opacity);
+        self
+    }
 }
 
 impl Style {
@@ -930,6 +1049,13 @@ impl Style {
     pub const fn tint(self) -> Option<Brush> {
         self.tint
     }
+
+    fn with_opacity(mut self, opacity: f32) -> Self {
+        self.fill = self.fill.map(|fill| fill.with_opacity(opacity));
+        self.stroke = self.stroke.map(|stroke| stroke.with_opacity(opacity));
+        self.tint = self.tint.map(|tint| tint.with_opacity(opacity));
+        self
+    }
 }
 
 impl Stroke {
@@ -943,6 +1069,11 @@ impl Stroke {
 
     pub const fn width(self) -> f32 {
         self.width
+    }
+
+    fn with_opacity(mut self, opacity: f32) -> Self {
+        self.brush = self.brush.with_opacity(opacity);
+        self
     }
 }
 
@@ -959,6 +1090,16 @@ impl Brush {
         match self {
             Self::Solid(color) => color.channels().3 > 0,
             Self::LinearGradient { from, to } => from.channels().3 > 0 || to.channels().3 > 0,
+        }
+    }
+
+    fn with_opacity(self, opacity: f32) -> Self {
+        match self {
+            Self::Solid(color) => Self::Solid(color.with_opacity(opacity)),
+            Self::LinearGradient { from, to } => Self::LinearGradient {
+                from: from.with_opacity(opacity),
+                to: to.with_opacity(opacity),
+            },
         }
     }
 }

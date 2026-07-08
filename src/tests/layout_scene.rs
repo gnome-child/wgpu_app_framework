@@ -1325,7 +1325,7 @@ fn pointer_cursor_does_not_leak_through_palette_glass() {
     app.handle_input(window, input::Input::shortcut("Ctrl+Shift+P"))
         .expect("palette shortcut should open");
     let initial = app
-        .render_scene(window, size)
+        .render_scene_after_overlay_fade(window, size)
         .expect("open palette should render");
     let results = command_palette_results_frame(&initial);
     app.scroll_at(
@@ -1622,6 +1622,103 @@ fn command_palette_search_box_wins_over_clipped_results() {
 }
 
 #[test]
+fn dismissed_palette_ghost_is_paint_only() {
+    let mut app = command_palette_scroll_app();
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(640, 420);
+    app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
+        .expect("palette shortcut should open");
+    let opened = app
+        .render_scene_after_overlay_fade(window, size)
+        .expect("open palette should render");
+    let panel_rect = command_palette_panel_frame(&opened).rect();
+    let revision = app.revision();
+
+    let dismissed = app
+        .handle_input(window, Input::cancel())
+        .expect("escape should dismiss the palette");
+    assert!(dismissed.is_handled());
+    assert!(!dismissed.changed_state());
+    assert_eq!(app.revision(), revision);
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(interaction::Interaction::command_palette)
+            .is_none(),
+        "dismissal should remove the live palette immediately"
+    );
+
+    let ghost = app
+        .render_scene(window, size)
+        .expect("palette ghost should render after dismissal");
+    assert_eq!(app.revision(), revision);
+    assert!(
+        ghost
+            .layout()
+            .find_role(view::Role::FloatingPanel)
+            .into_iter()
+            .all(|frame| {
+                frame.target().and_then(interaction::Target::element_id)
+                    != Some(interaction::CommandPalette::panel_id())
+            }),
+        "ghosts must not remain in layout"
+    );
+    assert!(
+        ghost
+            .scene()
+            .texts()
+            .iter()
+            .any(|text| text.value() == "Palette One"),
+        "the departed palette should still be visible as a ghost"
+    );
+
+    if let Some(hit) = app.hit_test(window, size, frame_point_at(panel_rect)) {
+        assert_ne!(hit.frame().role(), view::Role::FloatingPanel);
+        assert!(
+            !hit.frame().is_palette_row(),
+            "ghost palette rows must not participate in hit testing"
+        );
+    }
+
+    let during_fade = app
+        .render_scene_at(
+            window,
+            size,
+            std::time::Instant::now()
+                + std::time::Duration::from_millis(Theme::default().overlay().exit_fade_ms / 2),
+        )
+        .expect("ghost fade frame should render");
+    assert_eq!(app.revision(), revision);
+    assert!(
+        during_fade
+            .scene()
+            .texts()
+            .iter()
+            .any(|text| text.value() == "Palette One")
+    );
+
+    let expired = app
+        .render_scene_at(
+            window,
+            size,
+            std::time::Instant::now()
+                + std::time::Duration::from_millis(Theme::default().overlay().exit_fade_ms + 1),
+        )
+        .expect("expired ghost frame should render");
+    assert_eq!(app.revision(), revision);
+    assert!(
+        expired
+            .scene()
+            .texts()
+            .iter()
+            .all(|text| text.value() != "Palette One"),
+        "ghost should be removed after the exit duration"
+    );
+}
+
+#[test]
 fn palette_results_scroll_id_is_not_painted() {
     let mut app = command_palette_scroll_app();
     app.start();
@@ -1631,7 +1728,7 @@ fn palette_results_scroll_id_is_not_painted() {
     app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
         .expect("palette shortcut should open");
     let rendered = app
-        .render_scene(window, size)
+        .render_scene_after_overlay_fade(window, size)
         .expect("open palette should render");
     let results = command_palette_results_frame(&rendered);
 
@@ -1660,7 +1757,7 @@ fn command_palette_section_headers_use_bold_caption_uppercase_presentation() {
     app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
         .expect("palette shortcut should open");
     let rendered = app
-        .render_scene(window, size)
+        .render_scene_after_overlay_fade(window, size)
         .expect("open palette should render");
     let theme = Theme::dark();
     let header = scene_text(rendered.scene(), "APPLICATION");
@@ -1707,7 +1804,7 @@ fn command_palette_rows_use_interface_shortcut_typography() {
     app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
         .expect("palette shortcut should open");
     let rendered = app
-        .render_scene(window, size)
+        .render_scene_after_overlay_fade(window, size)
         .expect("open palette should render");
     let command = scene_text(rendered.scene(), "Palette One");
     let row = rendered
@@ -1755,7 +1852,7 @@ fn command_palette_formats_shortcuts_with_active_keymap_profile() {
     app.handle_input(window, Input::shortcut("Primary+Shift+P"))
         .expect("mac palette shortcut should open");
     let rendered = app
-        .render_scene(window, size)
+        .render_scene_after_overlay_fade(window, size)
         .expect("open palette should render");
     let row = rendered
         .layout()
@@ -1805,10 +1902,10 @@ fn shortcut_display_style_changes_paint_and_measure_together() {
         .handle_input(text_window, Input::shortcut("Ctrl+Shift+P"))
         .expect("palette should open");
     let platform = platform_app
-        .render_scene(platform_window, size)
+        .render_scene_after_overlay_fade(platform_window, size)
         .expect("platform palette should render");
     let text = text_app
-        .render_scene(text_window, size)
+        .render_scene_after_overlay_fade(text_window, size)
         .expect("text palette should render");
     let platform_row = platform
         .layout()
@@ -1984,7 +2081,7 @@ fn arrow_selection_scrolls_palette_result_into_view() {
     }
 
     let rendered = app
-        .render_scene(window, size)
+        .render_scene_after_overlay_fade(window, size)
         .expect("palette should render after keyboard navigation");
     let results = command_palette_results_frame(&rendered);
     let selected = selected_palette_result_frame(&rendered);
@@ -2030,7 +2127,7 @@ fn palette_arrow_navigation_reaches_last_command() {
     }
 
     let rendered = app
-        .render_scene(window, size)
+        .render_scene_after_overlay_fade(window, size)
         .expect("palette should render after keyboard navigation");
     let results = command_palette_results_frame(&rendered);
     let selected = selected_palette_result_frame(&rendered);
@@ -2065,7 +2162,7 @@ fn palette_reveal_uses_selected_frame_rect() {
     }
 
     let rendered = app
-        .render_scene(window, size)
+        .render_scene_after_overlay_fade(window, size)
         .expect("palette should render after keyboard navigation");
     let results = command_palette_results_frame(&rendered);
     let selected = selected_palette_result_frame(&rendered);
@@ -3488,7 +3585,7 @@ fn open_menu_projects_menu_bar_state_without_popup_title_text() {
         .expect("menu action should be handled");
 
     let rendered = app
-        .render_scene(window, geometry::Size::new(800, 600))
+        .render_scene_after_overlay_fade(window, geometry::Size::new(800, 600))
         .expect("open file menu should render");
     assert_eq!(
         rendered
@@ -3594,7 +3691,7 @@ fn menu_popup_rows_use_row_layout_for_labels_shortcuts_and_separators() {
         .expect("menu action should be handled");
 
     let rendered = app
-        .render_scene(window, geometry::Size::new(800, 600))
+        .render_scene_after_overlay_fade(window, geometry::Size::new(800, 600))
         .expect("open file menu should render");
     let exit = rendered
         .layout()
@@ -3907,7 +4004,7 @@ fn menu_popup_rows_paint_hover_tint_from_pointer_projection() {
     app.pointer_up_at(window, size, file_point)
         .expect("file menu pointer up should open the menu");
     let opened = app
-        .render_scene(window, size)
+        .render_scene_after_overlay_fade(window, size)
         .expect("open file menu should render");
     let new_row = opened
         .layout()
@@ -3982,7 +4079,7 @@ fn checked_menu_popup_rows_do_not_paint_active_tint() {
         .expect("view menu action should open the menu");
 
     let opened = app
-        .render_scene(window, size)
+        .render_scene_after_overlay_fade(window, size)
         .expect("open view menu should render");
     let wrap = opened
         .layout()
@@ -4415,7 +4512,7 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
     let window = app.session().windows()[0].id();
     let size = glass_tuner::window_size();
     let initial = app
-        .render_scene(window, size)
+        .render_scene_after_overlay_fade(window, size)
         .expect("glass tuner should render");
     let panel = initial
         .layout()
@@ -4504,7 +4601,22 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
     let hidden = app
         .render_scene(window, size)
         .expect("hidden glass tuner should render");
-    assert!(hidden.scene().filters().is_empty());
+    assert!(
+        hidden
+            .layout()
+            .find_role(view::Role::FloatingPanel)
+            .is_empty(),
+        "hidden glass tuner should remove the live panel immediately"
+    );
+    let expired = app
+        .render_scene_at(
+            window,
+            size,
+            std::time::Instant::now()
+                + std::time::Duration::from_millis(Theme::default().overlay().exit_fade_ms + 1),
+        )
+        .expect("expired glass tuner ghost should render");
+    assert!(expired.scene().filters().is_empty());
 }
 
 fn assert_tint_quad(scene: &Scene, rect: geometry::Rect, color: scene::Color) {

@@ -21,6 +21,7 @@ pub struct Theme {
     slider: Slider,
     text_input: TextInput,
     floating_panel: FloatingPanel,
+    overlay: Overlay,
     viewport: Viewport,
     scrollbar: Scrollbar,
     command_palette: CommandPalette,
@@ -154,6 +155,12 @@ pub struct FloatingPanel {
     pub(crate) shadow_offset_y: f32,
     pub(crate) padding: i32,
     pub(crate) content_gap: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Overlay {
+    pub(crate) enter_fade_ms: u64,
+    pub(crate) exit_fade_ms: u64,
 }
 
 impl FloatingPanel {
@@ -316,6 +323,10 @@ impl Theme {
                 padding: 6,
                 content_gap: 6,
             },
+            overlay: Overlay {
+                enter_fade_ms: 90,
+                exit_fade_ms: 120,
+            },
             viewport: Viewport {
                 min_viewport_extent: 96,
                 reveal_margin: 0,
@@ -448,6 +459,10 @@ impl Theme {
                 padding: 6,
                 content_gap: 6,
             },
+            overlay: Overlay {
+                enter_fade_ms: 90,
+                exit_fade_ms: 120,
+            },
             viewport: Viewport {
                 min_viewport_extent: 96,
                 reveal_margin: 0,
@@ -544,6 +559,10 @@ impl Theme {
 
     pub fn floating_panel_mut(&mut self) -> &mut FloatingPanel {
         &mut self.floating_panel
+    }
+
+    pub(crate) fn overlay(&self) -> Overlay {
+        self.overlay
     }
 
     pub(crate) fn viewport(&self) -> &Viewport {

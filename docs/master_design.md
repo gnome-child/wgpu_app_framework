@@ -295,6 +295,36 @@ continuous; do not add another primitive-local snap policy when the boundary
 snap should own the fact. A permanent unsnapped transform is not a default
 behavior; a future caller must earn and name that variant explicitly.
 
+`overlay`
+
+Owns floating UI entries above the main scene. An overlay entry is live UI:
+it has retained identity, order, scene primitives, opacity, and input semantics
+through the normal layout and interaction systems. The v1 backend paints
+entries in-frame, but per-entry buckets are the contract boundary a later
+OS-window popup backend must implement.
+
+Overlay ghosts are paint-only afterlife. When a live entry is dismissed,
+runtime may retain its final scene bucket briefly as a `Ghost` for fade-out,
+but the ghost is not layout, hit testing, wheel targeting, cursor resolution,
+focus routing, dismissal containment, semantics, or command routing. Focus
+restoration and key routing update when the live entry is dismissed, not when
+the ghost expires. Ghost fade frames are presentation work and must not imply
+model revision changes.
+
+Ghosts capture scene primitives, not paint primitives, so DPI and scale changes
+during a fade still pass through the normal layout-to-paint boundary. Ghost
+paint order is the departed entry's original order; a freshly reopened entry
+receives a newer order and paints above its own fading ghost. Dismiss and
+immediate reopen may therefore show a non-interactive fading ghost behind a
+fresh live entry, which is intended.
+
+Overlay opacity is per-primitive in v1, not a true offscreen group composite.
+Alpha-bearing primitives and alpha-bearing filter ops can fade directly.
+Spatial backdrop effects such as blur and refraction are not alpha-fadeable
+without group compositing; they should not produce a lingering blur-only
+apparition during overlay fades. Reduced-motion and accessibility policy can
+set zero exit duration to skip ghost allocation entirely.
+
 `theme`
 
 Owns visual and metric tokens. Theme metrics may affect layout and measurement;

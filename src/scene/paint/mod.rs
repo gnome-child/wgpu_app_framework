@@ -6,7 +6,7 @@ mod text_surface;
 
 use crate::icon as icons;
 
-use super::super::{geometry, keymap, layout, theme::Theme, view};
+use super::super::{geometry, interaction, keymap, layout, overlay, theme::Theme, view};
 use super::{
     BackdropLayer, Brush, Clip, Filter, FilterOp, Icon, Material, Offset, Outline, Quad, Scene,
     Shadow, Style, SurfaceLayer, Text, TextAlign, TextStyle, TextWrap, Visuals,
@@ -24,8 +24,8 @@ pub(super) fn paint_layout_with_theme(
     scene: &mut Scene,
     theme: &Theme,
     visuals: &Visuals,
-) {
-    for layer in [Layer::Base, Layer::Chrome, Layer::Floating] {
+) -> Vec<overlay::Draft> {
+    for layer in [Layer::Base, Layer::Chrome] {
         let mut focus_overlays = Vec::new();
 
         for frame in layout
@@ -48,6 +48,73 @@ pub(super) fn paint_layout_with_theme(
             scene.push_outline(outline);
         }
     }
+
+    paint_overlay_entries(layout, scene.clear(), theme, visuals)
+}
+
+fn paint_overlay_entries(
+    layout: &layout::Layout,
+    clear: super::Color,
+    theme: &Theme,
+    visuals: &Visuals,
+) -> Vec<overlay::Draft> {
+    root_floating_panels(layout)
+        .into_iter()
+        .filter_map(|panel| {
+            let id = panel.target().and_then(interaction::Target::element_id)?;
+            let mut scene = Scene::new_with_clear(layout.size(), clear);
+            let mut focus_overlays = Vec::new();
+
+            for frame in layout
+                .frames()
+                .iter()
+                .filter(|frame| layer_for(frame) == Layer::Floating)
+                .filter(|frame| frame.node_id() == panel.node_id() || frame.is_descendant_of(panel))
+            {
+                paint_frame_with_clip(frame, &mut scene, theme, visuals, &mut focus_overlays);
+            }
+
+            for chrome in layout
+                .chrome()
+                .iter()
+                .filter(|chrome| chrome_belongs_to_panel(layout, chrome, panel))
+            {
+                paint_chrome(chrome, &mut scene, theme, visuals);
+            }
+
+            for outline in focus_overlays {
+                scene.push_outline(outline);
+            }
+
+            (!scene.is_empty()).then(|| overlay::Draft::new(id, scene))
+        })
+        .collect()
+}
+
+fn root_floating_panels(layout: &layout::Layout) -> Vec<&layout::Frame> {
+    layout
+        .frames()
+        .iter()
+        .filter(|frame| is_floating_panel_role(frame.role()))
+        .filter(|frame| {
+            !layout.frames().iter().any(|candidate| {
+                is_floating_panel_role(candidate.role()) && frame.is_descendant_of(candidate)
+            })
+        })
+        .collect()
+}
+
+fn chrome_belongs_to_panel(
+    layout: &layout::Layout,
+    chrome: &layout::Chrome,
+    panel: &layout::Frame,
+) -> bool {
+    layout
+        .frames()
+        .iter()
+        .rev()
+        .find(|frame| frame.target() == Some(chrome.scroll_target()))
+        .is_some_and(|frame| frame.node_id() == panel.node_id() || frame.is_descendant_of(panel))
 }
 
 fn paint_frame_with_clip(

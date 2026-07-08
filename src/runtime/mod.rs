@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use super::{
     clipboard::Clipboard,
-    command, composition, diagnostics, document, geometry, keymap, layout, responder, session,
+    command, composition, diagnostics, document, geometry, keymap, layout, overlay, responder,
+    session,
     state::{self, Store},
     task, theme,
     timeline::{self, Timeline},
@@ -66,6 +67,7 @@ pub struct Runtime<M: state::State, E: Send + 'static = (), V = ()> {
     started_ran: bool,
     animation_schedules: HashMap<window::Id, animation::Schedule>,
     visual_animations: visual::Animations,
+    overlays: overlay::Store,
     layout_cache: HashMap<window::Id, CachedLayout>,
 }
 
@@ -98,6 +100,7 @@ impl<M: state::State> Runtime<M> {
             started_ran: false,
             animation_schedules: HashMap::new(),
             visual_animations: visual::Animations::default(),
+            overlays: overlay::Store::new(),
             layout_cache: HashMap::new(),
         }
     }

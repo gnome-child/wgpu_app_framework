@@ -36,6 +36,7 @@ mod animation;
 mod composition;
 mod draft;
 mod layout;
+mod overlay;
 mod paint;
 mod render;
 

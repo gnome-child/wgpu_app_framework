@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::text as text_model;
 
 use super::{
-    Choice, CommandPalette, Control, FloatingPanel, Focus, Menu, Palette, Scrollbar,
+    Choice, CommandPalette, Control, FloatingPanel, Focus, Menu, Overlay, Palette, Scrollbar,
     ScrollbarAppearance, ScrollbarMetrics, ScrollbarPolicy, Shortcuts, Slider, Surfaces, Text,
     TextInput, Theme, TypeStyle, Typography, Variant, Viewport, keymap, scene,
 };
@@ -46,6 +46,7 @@ struct ThemePatch {
     text_input: Option<TextInputPatch>,
     #[serde(rename = "floating-panel")]
     floating_panel: Option<FloatingPanelPatch>,
+    overlay: Option<OverlayPatch>,
     viewport: Option<ViewportPatch>,
     scrollbar: Option<ScrollbarPatch>,
     #[serde(rename = "command-palette")]
@@ -196,6 +197,13 @@ struct FloatingPanelPatch {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
+struct OverlayPatch {
+    enter_fade_ms: Option<u64>,
+    exit_fade_ms: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
 struct ViewportPatch {
     min_viewport_extent: Option<i32>,
     reveal_margin: Option<i32>,
@@ -310,6 +318,7 @@ struct ThemeExport {
     slider: SliderExport,
     text_input: TextInputExport,
     floating_panel: FloatingPanelExport,
+    overlay: OverlayExport,
     viewport: ViewportExport,
     scrollbar: ScrollbarExport,
     command_palette: CommandPaletteExport,
@@ -426,6 +435,11 @@ struct FloatingPanelExport {
     content_gap: i32,
 }
 
+struct OverlayExport {
+    enter_fade_ms: u64,
+    exit_fade_ms: u64,
+}
+
 struct ViewportExport {
     min_viewport_extent: i32,
     reveal_margin: i32,
@@ -504,6 +518,9 @@ pub(super) fn theme_from_str(input: &str) -> Result<Theme, ThemeTomlError> {
     }
     if let Some(floating_panel) = patch.floating_panel {
         apply_floating_panel(&mut theme.floating_panel, floating_panel, &palette)?;
+    }
+    if let Some(overlay) = patch.overlay {
+        apply_overlay(&mut theme.overlay, overlay);
     }
     if let Some(viewport) = patch.viewport {
         apply_viewport(&mut theme.viewport, viewport);
@@ -849,6 +866,11 @@ fn apply_floating_panel(
     apply_i32(&mut floating_panel.padding, patch.padding);
     apply_i32(&mut floating_panel.content_gap, patch.content_gap);
     Ok(())
+}
+
+fn apply_overlay(overlay: &mut Overlay, patch: OverlayPatch) {
+    apply_u64(&mut overlay.enter_fade_ms, patch.enter_fade_ms);
+    apply_u64(&mut overlay.exit_fade_ms, patch.exit_fade_ms);
 }
 
 fn apply_viewport(viewport: &mut Viewport, patch: ViewportPatch) {
@@ -1349,6 +1371,10 @@ impl ThemeExport {
                 padding: theme.floating_panel.padding,
                 content_gap: theme.floating_panel.content_gap,
             },
+            overlay: OverlayExport {
+                enter_fade_ms: theme.overlay.enter_fade_ms,
+                exit_fade_ms: theme.overlay.exit_fade_ms,
+            },
             viewport: ViewportExport {
                 min_viewport_extent: theme.viewport.min_viewport_extent,
                 reveal_margin: theme.viewport.reveal_margin,
@@ -1537,6 +1563,11 @@ impl ThemeExport {
         );
         push_i32_field(&mut out, "padding", self.floating_panel.padding);
         push_i32_field(&mut out, "content-gap", self.floating_panel.content_gap);
+        push_blank_line(&mut out);
+
+        push_header(&mut out, "overlay");
+        push_u64_field(&mut out, "enter-fade-ms", self.overlay.enter_fade_ms);
+        push_u64_field(&mut out, "exit-fade-ms", self.overlay.exit_fade_ms);
         push_blank_line(&mut out);
 
         push_header(&mut out, "viewport");
@@ -1997,6 +2028,31 @@ mod tests {
         let serialized = theme
             .to_toml_string()
             .expect("theme should serialize to TOML");
+        let parsed = Theme::from_toml_str(&serialized).expect("theme should parse again");
+
+        assert_eq!(parsed, theme);
+    }
+
+    #[test]
+    fn overlay_fade_tokens_parse_and_round_trip() {
+        let theme = Theme::from_toml_str(
+            r##"
+            [overlay]
+            enter-fade-ms = 45
+            exit-fade-ms = 0
+            "##,
+        )
+        .expect("overlay theme should parse");
+
+        assert_eq!(theme.overlay().enter_fade_ms, 45);
+        assert_eq!(theme.overlay().exit_fade_ms, 0);
+
+        let serialized = theme
+            .to_toml_string()
+            .expect("theme should serialize to TOML");
+        assert!(serialized.contains("[overlay]\n"));
+        assert!(serialized.contains("enter-fade-ms = 45\n"));
+        assert!(serialized.contains("exit-fade-ms = 0\n"));
         let parsed = Theme::from_toml_str(&serialized).expect("theme should parse again");
 
         assert_eq!(parsed, theme);

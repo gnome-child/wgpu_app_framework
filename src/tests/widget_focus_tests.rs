@@ -86,7 +86,7 @@ fn focused_menu_opens_with_enter_and_tabs_within_popup() {
         Some("Controls")
     );
 
-    app.render_scene(window, size)
+    app.render_scene_after_overlay_fade(window, size)
         .expect("open menu should render popup before popup tab navigation");
     app.handle_input(
         window,
@@ -149,7 +149,7 @@ fn focused_menu_title_outline_paints_below_open_floating_menu() {
     .expect("enter should open focused menu");
 
     let presentation = app
-        .render_scene(window, size)
+        .render_scene_after_overlay_fade(window, size)
         .expect("open menu should render");
     let menu = find_frame(presentation.layout(), view::Role::Menu, Some("Controls"));
 
@@ -269,7 +269,7 @@ fn pointer_opened_menu_resolves_items_against_preserved_document_focus() {
         .expect("menu pointer up should open the menu");
 
     let opened = app
-        .render_scene(window, size)
+        .render_scene_after_overlay_fade(window, size)
         .expect("open edit menu should render");
     let copy = find_frame(opened.layout(), view::Role::Binding, Some("Copy"));
     assert!(
