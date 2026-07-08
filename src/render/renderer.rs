@@ -20,6 +20,12 @@ pub struct DrawStats {
     pub filters: usize,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct DrawReport {
+    pub(crate) stats: DrawStats,
+    pub(crate) present_timing: Option<render::PresentTiming>,
+}
+
 pub struct Renderer {
     quad_pipeline: wgpu::RenderPipeline,
     filter_renderer: render::filter::Renderer,
@@ -93,7 +99,7 @@ impl Renderer {
     ) -> render::Result<()> {
         let clear_color = canvas.color();
 
-        canvas.draw(render_context, |encoder, frame| {
+        let _ = canvas.draw(render_context, |encoder, frame| {
             let view = frame.create_view();
 
             let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -112,7 +118,9 @@ impl Renderer {
                 timestamp_writes: None,
                 multiview_mask: None,
             });
-        })
+        })?;
+
+        Ok(())
     }
 
     pub fn draw(
@@ -120,7 +128,7 @@ impl Renderer {
         render_context: &render::Context,
         canvas: &mut render::Canvas,
         scene: &paint::Scene,
-    ) -> render::Result<DrawStats> {
+    ) -> render::Result<DrawReport> {
         let clear_color = scene
             .clear_color()
             .map(render::color_to_wgpu)
@@ -155,7 +163,7 @@ impl Renderer {
         let text_renderer = &mut self.text_renderer;
         let mut text_render_error = None;
 
-        canvas.draw(render_context, |encoder, frame| {
+        let present_timing = canvas.draw(render_context, |encoder, frame| {
             let view = frame.create_view();
             filter_renderer.clear_composition(encoder, clear_color);
             let Some(composition_view) = filter_renderer.composition_view() else {
@@ -187,7 +195,10 @@ impl Renderer {
 
         self.text_renderer.trim();
 
-        Ok(stats)
+        Ok(DrawReport {
+            stats,
+            present_timing,
+        })
     }
 
     fn prepare_scene_batches(

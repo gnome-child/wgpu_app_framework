@@ -1,9 +1,11 @@
 mod frame;
+mod render;
 mod scroll;
 mod store;
 mod text;
 
 pub use frame::Frame;
+pub use render::{Render, Report as RenderReport};
 pub use scroll::Scroll;
 pub use text::Text;
 
@@ -14,4 +16,5 @@ pub struct Diagnostics {
     pub text: Text,
     pub scroll: Scroll,
     pub frame: Frame,
+    pub render: Render,
 }

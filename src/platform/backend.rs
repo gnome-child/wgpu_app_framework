@@ -1,4 +1,4 @@
-use super::super::{geometry, pointer, scene, session, shell, window};
+use super::super::{diagnostics, geometry, pointer, scene, session, shell, window};
 
 pub trait Backend {
     type Error;
@@ -20,7 +20,7 @@ pub trait Backend {
         &mut self,
         context: &mut Self::Context<'_>,
         presentation: &shell::Presentation,
-    ) -> Result<(), Self::Error>;
+    ) -> Result<diagnostics::RenderReport, Self::Error>;
 
     fn request(
         &mut self,

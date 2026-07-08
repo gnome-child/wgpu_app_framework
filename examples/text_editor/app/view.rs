@@ -44,8 +44,9 @@ pub fn view(state: &State, cx: ViewContext) -> View {
         let text_diagnostics = &diagnostics.text;
         let scroll = &diagnostics.scroll;
         let frame = &diagnostics.frame;
+        let render = &diagnostics.render;
         let status = format!(
-            "File: {path} ({dirty}) | Wrap: {wrap}\nDocument: {} lines, {} bytes | Edits: {} | Status: {}\nText layout: paint {}, metrics {}, visible {}, shaped {}, segments {}+{}, overlays {}, highlight scans {}\nText caches: line {}/{}, render surfaces {}, render cache {}/{}, render source {} lines / {} bytes\nScroll: wheel {}, offsets {}, redraws {}, commits {}, text area viewports {}\nFrames: full {}, rebuilds {}, layout recomposes {}, layout reuses {}, text surfaces {}",
+            "File: {path} ({dirty}) | Wrap: {wrap}\nDocument: {} lines, {} bytes | Edits: {} | Status: {}\nText layout: paint {}, metrics {}, visible {}, shaped {}, segments {}+{}, overlays {}, highlight scans {}\nText caches: line {}/{}, render surfaces {}, render cache {}/{}, render source {} lines / {} bytes\nScroll: wheel {}, offsets {}, redraws {}, commits {}, text area viewports {}\nFrames: full {}, rebuilds {}, layout recomposes {}, layout reuses {}, text surfaces {}\nRender: frames {}, interval p95 {}us, acquire p95 {}us, draw p95 {}us, key->present p95 {}us, pending keys {}",
             state.document.line_count(),
             state.document.len(),
             state.document.edit_count(),
@@ -75,6 +76,12 @@ pub fn view(state: &State, cx: ViewContext) -> View {
             frame.layout_recomposes,
             frame.layout_reuses,
             frame.text_area_render_surfaces,
+            render.frames_presented,
+            render.interval_p95_us(),
+            render.acquire_wait_p95_us(),
+            render.draw_p95_us(),
+            render.key_to_present_p95_us(),
+            render.pending_key_to_present_samples(),
         );
         Some(
             widget::Panel::new()

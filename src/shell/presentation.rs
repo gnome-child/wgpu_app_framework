@@ -1,8 +1,9 @@
-use crate::{geometry, layout, scene, window};
+use crate::{geometry, layout, scene, state, window};
 
 #[derive(Clone)]
 pub struct Presentation {
     window: window::Id,
+    revision: state::Revision,
     layout: layout::Layout,
     scene: scene::Scene,
 }
@@ -11,6 +12,7 @@ impl Presentation {
     pub(super) fn from_scene_presentation(presentation: scene::Presentation) -> Self {
         Self {
             window: presentation.window(),
+            revision: presentation.revision(),
             layout: presentation.layout().clone(),
             scene: presentation.scene().clone(),
         }
@@ -18,6 +20,10 @@ impl Presentation {
 
     pub fn window(&self) -> window::Id {
         self.window
+    }
+
+    pub fn revision(&self) -> state::Revision {
+        self.revision
     }
 
     pub fn size(&self) -> geometry::Size {

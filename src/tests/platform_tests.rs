@@ -568,6 +568,11 @@ fn platform_poll_scheduling_rearms_after_each_poll_event() {
         .poll()
         .expect("second poll should drain task queue");
     assert!(!platform.host().needs_poll());
+    assert_eq!(
+        platform.animation_schedule(),
+        crate::animation::Schedule::Idle,
+        "poll handling should not leave a sticky animation schedule"
+    );
 }
 
 #[test]
@@ -602,6 +607,16 @@ fn text_editor_platform_applies_host_work_to_backend() {
             && *size == text_editor::window_size()
             && *clear_color == text_editor::CANVAS_COLOR
     )));
+    let render = &platform
+        .host()
+        .shell()
+        .runtime()
+        .diagnostics(window)
+        .expect("diagnostics should exist")
+        .render;
+    assert_eq!(render.frames_presented, 1);
+    assert_eq!(render.acquire_wait_p95_us(), 10);
+    assert_eq!(render.draw_p95_us(), 20);
 
     platform
         .handle_event(host::Event::window(

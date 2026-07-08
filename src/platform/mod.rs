@@ -148,7 +148,12 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
         }
 
         for presentation in work.presentations() {
-            self.backend.present(context, presentation)?;
+            let report = self.backend.present(context, presentation)?;
+            self.host.shell_mut().runtime_mut().record_render_report(
+                presentation.window(),
+                presentation.revision(),
+                report,
+            );
         }
 
         self.sync_cursors(context, work.cursor_updates())?;

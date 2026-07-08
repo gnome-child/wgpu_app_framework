@@ -465,6 +465,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 
         Some(scene::Presentation::with_canvas_color_theme_and_visuals(
             window,
+            revision,
             layout,
             canvas_color,
             &theme,
@@ -519,6 +520,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             self.update_animation_schedule(window, &layout, now, visual_update.schedule());
             rendered.push(scene::Presentation::with_canvas_color_theme_and_visuals(
                 window,
+                revision,
                 layout,
                 self.canvas_color(window),
                 &theme,

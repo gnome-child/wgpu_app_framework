@@ -372,6 +372,11 @@ fn focused_text_area_caret_blinks_and_schedules_next_deadline() {
         .expect("diagnostics should exist")
         .frame
         .clone();
+    app.invalidate_due_animation_frames(epoch + Duration::from_millis(499));
+    assert!(
+        !app.session().windows()[0].redraw_requested(),
+        "caret blink should not request continuous frames before its deadline"
+    );
     app.invalidate_due_animation_frames(epoch + Duration::from_millis(500));
     assert_eq!(app.revision(), revision);
     assert!(app.session().windows()[0].redraw_requested());

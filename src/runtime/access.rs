@@ -88,6 +88,38 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         Some(self.diagnostics.get_mut(window))
     }
 
+    pub(crate) fn record_input_latency_sample(
+        &mut self,
+        window: window::Id,
+        started_at: std::time::Instant,
+    ) {
+        if !self.session.contains(window) {
+            return;
+        }
+
+        let revision = self.revision();
+        self.diagnostics
+            .get_mut(window)
+            .render
+            .record_input(revision, started_at);
+    }
+
+    pub(crate) fn record_render_report(
+        &mut self,
+        window: window::Id,
+        revision: state::Revision,
+        report: super::super::diagnostics::RenderReport,
+    ) {
+        if !self.session.contains(window) {
+            return;
+        }
+
+        self.diagnostics
+            .get_mut(window)
+            .render
+            .record_present(revision, report);
+    }
+
     pub(in crate::runtime) fn request_all_redraws(&mut self) {
         let windows = self
             .session

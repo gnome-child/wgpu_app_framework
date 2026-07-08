@@ -1,10 +1,10 @@
 use super::{
     Clipboard, Command, Context, Diagnostics, Document as TextDocument, Error, Host, Input,
     Platform, Response, Runtime, Scene, Session, Shell, State, Target, Task, Theme, Timeline, View,
-    clipboard, command, composition, context, control_gallery, document, draft, geometry,
-    glass_tuner, host, input, interaction, keymap, layout, notification, platform, pointer,
-    responder, response, runtime, scene, session, shell, state, subject, task, text_editor,
-    timeline, view, widget, window,
+    clipboard, command, composition, context, control_gallery, diagnostics, document, draft,
+    geometry, glass_tuner, host, input, interaction, keymap, layout, notification, platform,
+    pointer, responder, response, runtime, scene, session, shell, state, subject, task,
+    text_editor, timeline, view, widget, window,
 };
 use crate::interaction::Interaction;
 use crate::text;
@@ -12,6 +12,7 @@ use std::{
     cell::{Cell, RefCell},
     path::PathBuf,
     rc::Rc,
+    time::{Duration, Instant},
 };
 
 struct Save;
@@ -309,13 +310,17 @@ impl platform::Backend for FakeBackend {
         &mut self,
         _context: &mut Self::Context<'_>,
         presentation: &shell::Presentation,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<diagnostics::RenderReport, Self::Error> {
         self.events.push(BackendEvent::Present {
             window: presentation.window(),
             size: presentation.size(),
             clear_color: presentation.scene().clear(),
         });
-        Ok(())
+        Ok(diagnostics::RenderReport::new(
+            Duration::from_micros(10),
+            Duration::from_micros(20),
+            Instant::now(),
+        ))
     }
 
     fn request(

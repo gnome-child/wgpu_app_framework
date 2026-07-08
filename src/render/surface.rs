@@ -3,6 +3,7 @@ use wgpu::SurfaceTarget;
 use crate::paint;
 use crate::render;
 
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -23,6 +24,19 @@ pub struct Surface {
     inner: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     ready: bool,
+}
+
+const LOW_LATENCY_FRAME_LIMIT: u32 = 1;
+const PRESENT_MODE_PRIORITY: [wgpu::PresentMode; 4] = [
+    wgpu::PresentMode::Mailbox,
+    wgpu::PresentMode::Immediate,
+    wgpu::PresentMode::FifoRelaxed,
+    wgpu::PresentMode::Fifo,
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PresentTiming {
+    acquire_wait: Duration,
 }
 
 impl Surface {
@@ -53,23 +67,18 @@ impl Surface {
 
         let capabilities = inner.get_capabilities(render_context.adapter());
 
-        config.present_mode = [
-            wgpu::PresentMode::Mailbox,
-            wgpu::PresentMode::Immediate,
-            wgpu::PresentMode::FifoRelaxed,
-            wgpu::PresentMode::Fifo,
-        ]
-        .into_iter()
-        .find(|mode| capabilities.present_modes.contains(mode))
-        .unwrap_or(config.present_mode);
+        config.present_mode =
+            preferred_present_mode(&capabilities.present_modes, config.present_mode);
+        config.desired_maximum_frame_latency = LOW_LATENCY_FRAME_LIMIT;
 
         inner.configure(render_context.device(), &config);
         log::debug!(
-            "configured render surface: {}x{}, format={:?}, present_mode={:?}",
+            "configured render surface: {}x{}, format={:?}, present_mode={:?}, desired_frame_latency={}",
             config.width,
             config.height,
             config.format,
-            config.present_mode
+            config.present_mode,
+            config.desired_maximum_frame_latency
         );
 
         Ok(Self {
@@ -145,13 +154,15 @@ impl Surface {
         &mut self,
         render_context: &render::Context,
         encode: impl FnOnce(&mut wgpu::CommandEncoder, &render::Frame),
-    ) -> Result<()> {
+    ) -> Result<Option<PresentTiming>> {
+        let acquire_started = Instant::now();
         let outcome = self.acquire_frame(render_context)?;
+        let acquire_wait = acquire_started.elapsed();
 
         use render::FrameOutcome::*;
         let frame = match outcome {
             Acquired(frame) => frame,
-            Skipped => return Ok(()),
+            Skipped => return Ok(None),
         };
 
         let mut encoder =
@@ -166,7 +177,7 @@ impl Surface {
         frame.present();
         self.ready = true;
 
-        Ok(())
+        Ok(Some(PresentTiming { acquire_wait }))
     }
 
     pub fn reconfigure(&self, render_context: &render::Context) {
@@ -178,5 +189,41 @@ impl Surface {
             self.config.present_mode
         );
         self.inner.configure(render_context.device(), &self.config);
+    }
+}
+
+impl PresentTiming {
+    pub(crate) fn acquire_wait(self) -> Duration {
+        self.acquire_wait
+    }
+}
+
+fn preferred_present_mode(
+    supported: &[wgpu::PresentMode],
+    fallback: wgpu::PresentMode,
+) -> wgpu::PresentMode {
+    PRESENT_MODE_PRIORITY
+        .into_iter()
+        .find(|mode| supported.contains(mode))
+        .unwrap_or(fallback)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn surface_present_mode_priority_preserves_existing_order() {
+        let supported = [wgpu::PresentMode::Fifo, wgpu::PresentMode::Immediate];
+
+        assert_eq!(
+            preferred_present_mode(&supported, wgpu::PresentMode::Fifo),
+            wgpu::PresentMode::Immediate
+        );
+    }
+
+    #[test]
+    fn surface_frame_latency_defaults_to_low_latency_gui_value() {
+        assert_eq!(LOW_LATENCY_FRAME_LIMIT, 1);
     }
 }

@@ -1,6 +1,6 @@
 use super::super::{Backend, NativeError, Window};
 use super::{Native, NativeContext};
-use crate::{pointer, session, shell, window as app_window};
+use crate::{diagnostics, pointer, session, shell, window as app_window};
 
 impl Backend for Native {
     type Error = NativeError;
@@ -40,7 +40,7 @@ impl Backend for Native {
         &mut self,
         _context: &mut Self::Context<'_>,
         presentation: &shell::Presentation,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<diagnostics::RenderReport, Self::Error> {
         self.present_native(presentation)
     }
 

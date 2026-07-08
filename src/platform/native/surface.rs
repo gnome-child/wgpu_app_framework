@@ -1,4 +1,6 @@
-use crate::{paint, render};
+use std::time::Instant;
+
+use crate::{diagnostics, paint, render};
 
 use super::super::{NativeError, Window};
 use super::window::{InitialSize, Options, Window as NativeWindow};
@@ -99,7 +101,7 @@ impl Native {
     pub(in crate::platform::native) fn present_native(
         &mut self,
         presentation: &shell::Presentation,
-    ) -> Result<(), NativeError> {
+    ) -> Result<diagnostics::RenderReport, NativeError> {
         let window = presentation.window();
         let format = self.sync_window_surface(window)?;
         self.ensure_renderer(format);
@@ -121,9 +123,26 @@ impl Native {
             native_window.canvas().scale_factor(),
         );
 
-        renderer.draw(context, native_window.canvas_mut(), &scene)?;
+        let draw_started = Instant::now();
+        let report = renderer.draw(context, native_window.canvas_mut(), &scene)?;
+        let draw = draw_started.elapsed();
+        let acquire_wait = report
+            .present_timing
+            .map(render::PresentTiming::acquire_wait)
+            .unwrap_or_default();
+        if acquire_wait.as_millis() >= 8 {
+            log::debug!(
+                "surface acquire wait for window {:?}: {}us",
+                window,
+                acquire_wait.as_micros()
+            );
+        }
 
-        Ok(())
+        Ok(diagnostics::RenderReport::new(
+            acquire_wait,
+            draw,
+            Instant::now(),
+        ))
     }
 
     fn sync_window_surface(

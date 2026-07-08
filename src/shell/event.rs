@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Instant;
 
 use crate::text;
 
@@ -108,18 +109,30 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 modifiers,
                 text,
             } => {
-                self.handle_input(
+                let started_at = Instant::now();
+                let outcome = self.handle_input(
                     window,
                     input::Input::key_down_with_text(key, modifiers, text),
                 )?;
+                if outcome.is_handled() {
+                    self.runtime.record_input_latency_sample(window, started_at);
+                }
                 Ok(self.drain())
             }
             Event::TextCommitted { window, text } => {
-                self.handle_input(window, input::Input::text_commit(text))?;
+                let started_at = Instant::now();
+                let outcome = self.handle_input(window, input::Input::text_commit(text))?;
+                if outcome.is_handled() {
+                    self.runtime.record_input_latency_sample(window, started_at);
+                }
                 Ok(self.drain())
             }
             Event::TextPreedit { window, preedit } => {
-                self.handle_input(window, input::Input::text_preedit(preedit))?;
+                let started_at = Instant::now();
+                let outcome = self.handle_input(window, input::Input::text_preedit(preedit))?;
+                if outcome.is_handled() {
+                    self.runtime.record_input_latency_sample(window, started_at);
+                }
                 Ok(self.drain())
             }
             Event::FilePathSelected { window, path } => {
