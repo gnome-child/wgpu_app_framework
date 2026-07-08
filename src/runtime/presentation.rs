@@ -286,6 +286,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         work::Work::new(
             self.present_pending(),
             self.requests(),
+            self.session.take_cursor_updates(),
             self.pending_tasks(),
             self.pending_task_completions(),
             self.animation_schedule(),
@@ -299,6 +300,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         work::RenderWork::new(
             self.render_pending(size_for),
             self.requests(),
+            self.session.take_cursor_updates(),
             self.pending_tasks(),
             self.pending_task_completions(),
             self.animation_schedule(),

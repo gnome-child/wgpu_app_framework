@@ -1,6 +1,6 @@
 use super::super::{Backend, NativeError, Window};
 use super::{Native, NativeContext};
-use crate::{session, shell, window as app_window};
+use crate::{pointer, session, shell, window as app_window};
 
 impl Backend for Native {
     type Error = NativeError;
@@ -51,6 +51,15 @@ impl Backend for Native {
     ) -> Result<(), Self::Error> {
         self.request_once(request);
         Ok(())
+    }
+
+    fn set_cursor(
+        &mut self,
+        _context: &mut Self::Context<'_>,
+        window: app_window::Id,
+        cursor: pointer::Cursor,
+    ) -> Result<(), Self::Error> {
+        Native::set_cursor(self, window, cursor)
     }
 
     fn schedule_poll(&mut self, _context: &mut Self::Context<'_>) -> Result<(), Self::Error> {

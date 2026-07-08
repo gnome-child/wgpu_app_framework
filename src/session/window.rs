@@ -1,4 +1,4 @@
-use super::super::{geometry, interaction, response, scene, state, window as app_window};
+use super::super::{geometry, interaction, pointer, response, scene, state, window as app_window};
 use super::{FileDialog, Focus, Session, Snapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9,6 +9,8 @@ pub struct Window {
     pub(super) canvas_color: scene::Color,
     pub(super) invalidation: Option<response::Invalidation>,
     pub(super) presented_revision: Option<state::Revision>,
+    pub(super) cursor: pointer::Cursor,
+    pub(super) cursor_changed: bool,
     pub(super) focus: Option<Focus>,
     pub(super) menu_restore_focus: Option<Focus>,
     pub(super) file_dialog: Option<FileDialog>,
@@ -39,6 +41,8 @@ impl Window {
             canvas_color,
             invalidation: Some(response::Invalidation::Rebuild),
             presented_revision: None,
+            cursor: pointer::Cursor::Default,
+            cursor_changed: false,
             focus: None,
             menu_restore_focus: None,
             file_dialog: None,
@@ -54,6 +58,8 @@ impl Window {
             canvas_color: snapshot.canvas_color,
             invalidation: Some(response::Invalidation::Rebuild),
             presented_revision: None,
+            cursor: pointer::Cursor::Default,
+            cursor_changed: false,
             focus: snapshot.focus,
             menu_restore_focus: None,
             file_dialog: None,
@@ -87,6 +93,10 @@ impl Window {
 
     pub fn presented_revision(&self) -> Option<state::Revision> {
         self.presented_revision
+    }
+
+    pub fn cursor(&self) -> pointer::Cursor {
+        self.cursor
     }
 
     pub fn focus(&self) -> Option<Focus> {
@@ -199,6 +209,30 @@ impl Session {
         let changed = window.presented_revision != Some(revision);
         window.presented_revision = Some(revision);
         changed
+    }
+
+    pub(crate) fn set_cursor(&mut self, id: app_window::Id, cursor: pointer::Cursor) -> bool {
+        let Some(window) = self.window_mut(id) else {
+            return false;
+        };
+        let changed = window.cursor != cursor;
+        if changed {
+            window.cursor = cursor;
+            window.cursor_changed = true;
+        }
+        changed
+    }
+
+    pub(crate) fn take_cursor_updates(&mut self) -> Vec<pointer::Update> {
+        self.windows
+            .iter_mut()
+            .filter_map(|window| {
+                window.cursor_changed.then(|| {
+                    window.cursor_changed = false;
+                    pointer::Update::new(window.id, window.cursor)
+                })
+            })
+            .collect()
     }
 
     pub(crate) fn prune_removed_interaction(

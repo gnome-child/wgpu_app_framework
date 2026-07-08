@@ -37,6 +37,25 @@ palette_test_command!(PaletteTen, "palette.ten");
 palette_test_command!(PaletteEleven, "palette.eleven");
 palette_test_command!(PaletteTwelve, "palette.twelve");
 
+struct DisabledTextSubmit;
+
+impl Command for DisabledTextSubmit {
+    type Args = String;
+    type Output = ();
+
+    const NAME: &'static str = "test.disabled_text_submit";
+}
+
+impl Target<DisabledTextSubmit> for SourceState {
+    fn state(&self, _: &String, _: &Context) -> command::State {
+        command::State::disabled()
+    }
+
+    fn invoke(&mut self, _: String, _: &mut Context) -> Response<()> {
+        Response::changed(())
+    }
+}
+
 #[test]
 fn text_editor_view_composes_to_layout_without_runtime_mutation() {
     let mut app = text_editor::app(text_editor::State::default());
@@ -1141,6 +1160,292 @@ fn scrolled_out_content_is_not_interactive() {
         .expect("visible search box should be hit");
 
     assert_eq!(hit.frame().role(), view::Role::TextBox);
+}
+
+#[test]
+fn pointer_cursor_uses_text_for_editable_text_regions() {
+    let text_box_focus = session::Focus::text("cursor.box");
+    let text_area_focus = session::Focus::text("cursor.area");
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Cursor Text"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.column(|ui| {
+                    ui.text_box(widget::TextBox::new("field").focus(text_box_focus));
+                    ui.label("not editable");
+                    ui.text_area(widget::TextArea::new("short").focus(text_area_focus));
+                });
+            })
+        });
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(280, 180);
+    let rendered = app
+        .render_scene(window, size)
+        .expect("cursor test should render");
+    let text_box = rendered
+        .layout()
+        .find_role(view::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("text box should be laid out");
+    let label = rendered
+        .layout()
+        .find_role(view::Role::Label)
+        .into_iter()
+        .next()
+        .expect("label should be laid out");
+    let text_area = rendered
+        .layout()
+        .find_role(view::Role::TextArea)
+        .into_iter()
+        .next()
+        .expect("text area should be laid out");
+
+    assert_eq!(
+        cursor_after_move(&mut app, window, size, frame_point(text_box)),
+        Some(pointer::Cursor::Text)
+    );
+    assert_eq!(
+        cursor_after_move(&mut app, window, size, frame_point(label)),
+        Some(pointer::Cursor::Default)
+    );
+    assert_eq!(
+        cursor_after_move(&mut app, window, size, rect_bottom_point(text_area.rect())),
+        Some(pointer::Cursor::Text),
+        "text area tail space still places a caret"
+    );
+}
+
+#[test]
+fn pointer_cursor_uses_default_for_disabled_text_box() {
+    let focus = session::Focus::text("cursor.disabled");
+    let mut app = Runtime::new(SourceState::default())
+        .commands(|commands| {
+            commands.register::<DisabledTextSubmit>(command::Spec::new("Disabled Submit"));
+        })
+        .responders(|responders| {
+            responders.app().target::<DisabledTextSubmit>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Disabled Cursor"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.column(|ui| {
+                    ui.label("seed");
+                    ui.text_box(
+                        widget::TextBox::new("disabled")
+                            .focus(focus)
+                            .on_submit::<DisabledTextSubmit>(),
+                    );
+                });
+            })
+        });
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(280, 90);
+    let rendered = app
+        .render_scene(window, size)
+        .expect("disabled cursor test should render");
+    let label = rendered
+        .layout()
+        .find_role(view::Role::Label)
+        .into_iter()
+        .next()
+        .expect("label should be laid out");
+    let text_box = rendered
+        .layout()
+        .find_role(view::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("text box should be laid out");
+
+    assert_eq!(
+        cursor_after_move(&mut app, window, size, frame_point(label)),
+        None,
+        "initial default cursor should not produce an update"
+    );
+    assert_eq!(
+        cursor_after_move(&mut app, window, size, frame_point(text_box)),
+        None,
+        "disabled text field keeps the default cursor"
+    );
+}
+
+#[test]
+fn pointer_cursor_uses_default_for_text_area_scrollbar_chrome() {
+    let mut app = text_editor::app(text_editor::State {
+        document: TextDocument::from_multiline_text(
+            (0..80)
+                .map(|line| format!("line {line:02}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+        ..text_editor::State::default()
+    });
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = text_editor::window_size();
+    let rendered = app
+        .render_scene(window, size)
+        .expect("text editor should render");
+    let text_area = rendered
+        .layout()
+        .find_role(view::Role::TextArea)
+        .into_iter()
+        .next()
+        .expect("text area should be laid out");
+    let text_point = frame_point(text_area);
+    assert_eq!(
+        cursor_after_move(&mut app, window, size, text_point),
+        Some(pointer::Cursor::Text)
+    );
+
+    let track = first_scrollbar_track(rendered.layout());
+    assert_eq!(
+        cursor_after_move(&mut app, window, size, frame_point_at(track)),
+        Some(pointer::Cursor::Default),
+        "scrollbar chrome is not text editing"
+    );
+}
+
+#[test]
+fn pointer_cursor_does_not_leak_through_palette_glass() {
+    let mut app = command_palette_scroll_app();
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(360, 260);
+    app.handle_input(window, input::Input::shortcut("Ctrl+Shift+P"))
+        .expect("palette shortcut should open");
+    let initial = app
+        .render_scene(window, size)
+        .expect("open palette should render");
+    let results = command_palette_results_frame(&initial);
+    app.scroll_at(
+        window,
+        size,
+        frame_point_at(
+            results
+                .viewport()
+                .expect("results should expose viewport")
+                .rect(),
+        ),
+        interaction::ScrollDelta::vertical(84),
+    )
+    .expect("palette results should scroll");
+    let scrolled = app
+        .render_scene(window, size)
+        .expect("scrolled palette should render");
+    let query = scrolled
+        .layout()
+        .find_role(view::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("palette query should be laid out");
+    let point = rect_bottom_point(query.rect());
+
+    assert!(
+        scrolled.layout().frames().iter().any(|frame| {
+            frame.is_palette_row() && frame.rect().contains(point) && !frame.clip_contains(point)
+        }),
+        "a clipped palette row should geometrically overlap the query"
+    );
+    assert_eq!(
+        cursor_after_move(&mut app, window, size, point),
+        Some(pointer::Cursor::Text),
+        "cursor follows the visible query hit, not clipped rows behind it"
+    );
+}
+
+#[test]
+fn pointer_cursor_keeps_text_during_captured_text_drag() {
+    let mut app = text_editor::app(text_editor::State {
+        document: TextDocument::from_text("drag me"),
+        ..text_editor::State::default()
+    });
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = text_editor::window_size();
+    let rendered = app
+        .render_scene(window, size)
+        .expect("drag cursor test should render");
+    let text_area = rendered
+        .layout()
+        .find_role(view::Role::TextArea)
+        .into_iter()
+        .next()
+        .expect("text area should be laid out");
+    let point = frame_point(text_area);
+    app.pointer_down_at(window, size, point)
+        .expect("text pointer down should capture");
+    assert_eq!(
+        drain_cursor_updates(&mut app, window, size)
+            .last()
+            .map(|update| update.cursor()),
+        Some(pointer::Cursor::Text)
+    );
+
+    app.pointer_left_at(window)
+        .expect("pointer left should preserve text capture");
+    assert_eq!(
+        drain_cursor_updates(&mut app, window, size)
+            .last()
+            .map(|update| update.cursor()),
+        None,
+        "text cursor is already active while capture remains"
+    );
+
+    app.pointer_up_at(window, size, geometry::Point::new(1, 1))
+        .expect("pointer up should release capture");
+    assert_eq!(
+        drain_cursor_updates(&mut app, window, size)
+            .last()
+            .map(|update| update.cursor()),
+        Some(pointer::Cursor::Default)
+    );
+}
+
+#[test]
+fn cursor_updates_drain_without_redraw() {
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Cursor Work"));
+        })
+        .view(|_, _| {
+            widget::view(|ui| {
+                ui.label("plain");
+            })
+        });
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(160, 80);
+    app.render_scene(window, size)
+        .expect("initial scene should render");
+    assert!(!app.session().window(window).unwrap().redraw_requested());
+    assert!(app.set_pointer_cursor_for_test(window, pointer::Cursor::Text));
+
+    let work = app.drain_scenes(|id| {
+        assert_eq!(id, window);
+        size
+    });
+
+    assert!(work.presentations().is_empty());
+    assert_eq!(
+        work.cursor_updates()
+            .iter()
+            .map(|update| update.cursor())
+            .collect::<Vec<_>>(),
+        vec![pointer::Cursor::Text]
+    );
 }
 
 #[test]
@@ -4305,6 +4610,32 @@ fn rect_bottom_point(rect: geometry::Rect) -> geometry::Point {
         rect.x().saturating_add(rect.width() / 2),
         rect.bottom().saturating_sub(2),
     )
+}
+
+fn cursor_after_move<M: State, E: Send + 'static>(
+    app: &mut Runtime<M, E, View>,
+    window: window::Id,
+    size: geometry::Size,
+    point: geometry::Point,
+) -> Option<pointer::Cursor> {
+    app.pointer_move_at(window, size, point)
+        .expect("pointer move should be handled");
+    drain_cursor_updates(app, window, size)
+        .last()
+        .map(|update| update.cursor())
+}
+
+fn drain_cursor_updates<M: State, E: Send + 'static>(
+    app: &mut Runtime<M, E, View>,
+    window: window::Id,
+    size: geometry::Size,
+) -> Vec<pointer::Update> {
+    app.drain_scenes(|id| {
+        assert_eq!(id, window);
+        size
+    })
+    .cursor_updates()
+    .to_vec()
 }
 
 fn first_visible_text_area_surface_y(presentation: &scene::Presentation) -> f32 {

@@ -2,11 +2,13 @@
 use super::super::view;
 use super::super::{scene, session};
 use crate::animation;
+use crate::pointer;
 
 #[cfg(test)]
 pub(crate) struct Work {
     presentations: Vec<view::Presentation>,
     requests: Vec<session::Request>,
+    cursor_updates: Vec<pointer::Update>,
     pending_tasks: usize,
     task_completions: usize,
     animation_schedule: animation::Schedule,
@@ -15,6 +17,7 @@ pub(crate) struct Work {
 pub(crate) struct RenderWork {
     presentations: Vec<scene::Presentation>,
     requests: Vec<session::Request>,
+    cursor_updates: Vec<pointer::Update>,
     pending_tasks: usize,
     task_completions: usize,
     animation_schedule: animation::Schedule,
@@ -25,6 +28,7 @@ impl Work {
     pub(super) fn new(
         presentations: Vec<view::Presentation>,
         requests: Vec<session::Request>,
+        cursor_updates: Vec<pointer::Update>,
         pending_tasks: usize,
         task_completions: usize,
         animation_schedule: animation::Schedule,
@@ -32,6 +36,7 @@ impl Work {
         Self {
             presentations,
             requests,
+            cursor_updates,
             pending_tasks,
             task_completions,
             animation_schedule,
@@ -57,6 +62,7 @@ impl Work {
     pub(crate) fn is_empty(&self) -> bool {
         self.presentations.is_empty()
             && self.requests.is_empty()
+            && self.cursor_updates.is_empty()
             && self.pending_tasks == 0
             && self.task_completions == 0
             && self.animation_schedule == animation::Schedule::Idle
@@ -67,6 +73,7 @@ impl RenderWork {
     pub(super) fn new(
         presentations: Vec<scene::Presentation>,
         requests: Vec<session::Request>,
+        cursor_updates: Vec<pointer::Update>,
         pending_tasks: usize,
         task_completions: usize,
         animation_schedule: animation::Schedule,
@@ -74,6 +81,7 @@ impl RenderWork {
         Self {
             presentations,
             requests,
+            cursor_updates,
             pending_tasks,
             task_completions,
             animation_schedule,
@@ -86,6 +94,10 @@ impl RenderWork {
 
     pub(crate) fn requests(&self) -> &[session::Request] {
         &self.requests
+    }
+
+    pub(crate) fn cursor_updates(&self) -> &[pointer::Update] {
+        &self.cursor_updates
     }
 
     pub(crate) fn pending_tasks(&self) -> usize {
@@ -104,6 +116,7 @@ impl RenderWork {
     pub(crate) fn is_empty(&self) -> bool {
         self.presentations.is_empty()
             && self.requests.is_empty()
+            && self.cursor_updates.is_empty()
             && self.pending_tasks == 0
             && self.task_completions == 0
             && self.animation_schedule == animation::Schedule::Idle

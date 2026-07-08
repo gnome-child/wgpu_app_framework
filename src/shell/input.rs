@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{Error, geometry, input, interaction, state::State, view, window as app_window};
+use crate::{Error, geometry, input, interaction, state::State, window as app_window};
 
 use super::Shell;
 
@@ -58,8 +58,7 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
     }
 
     pub fn pointer_left(&mut self, window: app_window::Id) -> Result<input::Outcome, Error> {
-        self.runtime
-            .handle_view(window, view::Action::pointer_left())
+        self.runtime.pointer_left_at(window)
     }
 
     pub fn scroll(

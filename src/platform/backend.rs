@@ -1,4 +1,4 @@
-use super::super::{geometry, scene, session, shell, window};
+use super::super::{geometry, pointer, scene, session, shell, window};
 
 pub trait Backend {
     type Error;
@@ -27,6 +27,15 @@ pub trait Backend {
         context: &mut Self::Context<'_>,
         request: session::Request,
     ) -> Result<(), Self::Error>;
+
+    fn set_cursor(
+        &mut self,
+        _context: &mut Self::Context<'_>,
+        _window: window::Id,
+        _cursor: pointer::Cursor,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
 
     fn schedule_poll(&mut self, context: &mut Self::Context<'_>) -> Result<(), Self::Error>;
 }

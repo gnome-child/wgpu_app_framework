@@ -227,6 +227,13 @@ presentation-space hit acquisition. When that caller exists, pointer hits
 should follow the visible presentation position, while keyboard focus, reveal,
 caret geometry, and scroll remain layout-space concepts.
 
+The OS pointer cursor is a promise about what a click would do. Editable text
+surfaces use the text cursor only where a click can place or drag a caret or
+selection; painted labels, menu rows, buttons, palette rows, chrome, and
+disabled fields keep the default cursor. Cursor resolution consumes the same
+clip-aware hit truth as pointer clicks, wheel targeting, and paint, so hidden
+or occluded text must not leak an I-beam through overlays.
+
 Viewport reveal is rect-shaped. A reveal request names a viewport and layout
 resolves the actual descendant frame rect after composition. The operation is
 minimal displacement: a fully visible rect does not scroll, a rect below or

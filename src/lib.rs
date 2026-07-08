@@ -14,6 +14,7 @@ pub mod interaction;
 pub mod keymap;
 pub mod notification;
 pub mod platform;
+pub mod pointer;
 pub mod responder;
 pub mod response;
 pub mod runtime;

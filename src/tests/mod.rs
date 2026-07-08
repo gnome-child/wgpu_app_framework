@@ -2,9 +2,9 @@ use super::{
     Clipboard, Command, Context, Diagnostics, Document as TextDocument, Error, Host, Input,
     Platform, Response, Runtime, Scene, Session, Shell, State, Target, Task, Theme, Timeline, View,
     clipboard, command, composition, context, control_gallery, document, draft, geometry,
-    glass_tuner, host, input, interaction, keymap, layout, notification, platform, responder,
-    response, runtime, scene, session, shell, state, subject, task, text_editor, timeline, view,
-    widget, window,
+    glass_tuner, host, input, interaction, keymap, layout, notification, platform, pointer,
+    responder, response, runtime, scene, session, shell, state, subject, task, text_editor,
+    timeline, view, widget, window,
 };
 use crate::interaction::Interaction;
 use crate::text;
@@ -265,6 +265,10 @@ enum BackendEvent {
         window: window::Id,
         kind: session::RequestKind,
     },
+    SetCursor {
+        window: window::Id,
+        cursor: pointer::Cursor,
+    },
     Poll,
 }
 
@@ -323,6 +327,16 @@ impl platform::Backend for FakeBackend {
             window: request.window(),
             kind: request.kind(),
         });
+        Ok(())
+    }
+
+    fn set_cursor(
+        &mut self,
+        _context: &mut Self::Context<'_>,
+        window: window::Id,
+        cursor: pointer::Cursor,
+    ) -> Result<(), Self::Error> {
+        self.events.push(BackendEvent::SetCursor { window, cursor });
         Ok(())
     }
 

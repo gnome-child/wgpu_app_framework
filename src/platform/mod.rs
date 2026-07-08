@@ -1,4 +1,4 @@
-use super::{host, session, shell, state::State};
+use super::{host, pointer, session, shell, state::State};
 use crate::animation;
 
 mod backend;
@@ -21,6 +21,7 @@ pub struct Platform<M: State, E: Send + 'static = (), B = ()> {
     host: host::Host<M, E>,
     backend: B,
     active_requests: Vec<session::Request>,
+    active_cursors: Vec<pointer::Update>,
     poll_scheduled: bool,
     animation_schedule: animation::Schedule,
 }
@@ -35,6 +36,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             host,
             backend,
             active_requests: Vec::new(),
+            active_cursors: Vec::new(),
             poll_scheduled: false,
             animation_schedule: animation::Schedule::Idle,
         }
@@ -131,6 +133,8 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             log::debug!("closing backend window: {window:?}");
             self.backend.close_window(context, *window)?;
         }
+        self.active_cursors
+            .retain(|update| !work.closed_windows().contains(&update.window()));
 
         for window in work.opened_windows() {
             log::debug!(
@@ -147,6 +151,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             self.backend.present(context, presentation)?;
         }
 
+        self.sync_cursors(context, work.cursor_updates())?;
         self.sync_requests(context, work.requests())?;
         self.sync_poll(context, work.needs_poll())?;
         self.animation_schedule = work.animation_schedule();
@@ -170,6 +175,33 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             log::debug!("submitting backend request: {request:?}");
             self.backend.request(context, *request)?;
             self.active_requests.push(*request);
+        }
+
+        Ok(())
+    }
+
+    fn sync_cursors(
+        &mut self,
+        context: &mut B::Context<'_>,
+        updates: &[pointer::Update],
+    ) -> Result<(), B::Error> {
+        for update in updates {
+            if self.active_cursors.iter().any(|active| {
+                active.window() == update.window() && active.cursor() == update.cursor()
+            }) {
+                continue;
+            }
+
+            log::debug!(
+                "setting backend cursor for window {:?}: {:?}",
+                update.window(),
+                update.cursor()
+            );
+            self.backend
+                .set_cursor(context, update.window(), update.cursor())?;
+            self.active_cursors
+                .retain(|active| active.window() != update.window());
+            self.active_cursors.push(*update);
         }
 
         Ok(())

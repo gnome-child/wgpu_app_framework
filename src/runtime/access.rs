@@ -1,5 +1,7 @@
 #[cfg(test)]
 use super::super::composition;
+#[cfg(test)]
+use super::super::pointer;
 use super::super::{
     clipboard::Clipboard,
     diagnostics::Diagnostics,
@@ -42,6 +44,15 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 
     pub fn clear_redraw_request(&mut self, window: window::Id) -> bool {
         self.session.clear_redraw_request(window)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_pointer_cursor_for_test(
+        &mut self,
+        window: window::Id,
+        cursor: pointer::Cursor,
+    ) -> bool {
+        self.session.set_cursor(window, cursor)
     }
 
     pub fn clipboard(&self) -> &Clipboard {

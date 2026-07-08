@@ -620,6 +620,96 @@ fn text_editor_platform_applies_host_work_to_backend() {
 }
 
 #[test]
+fn platform_applies_and_deduplicates_pointer_cursor_updates() {
+    let focus = session::Focus::text("platform.cursor");
+    let runtime = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Cursor Platform"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.column(|ui| {
+                    ui.text_box(widget::TextBox::new("field").focus(focus));
+                    ui.label("plain");
+                });
+            })
+        });
+    let mut platform = Platform::new(Shell::new(runtime), FakeBackend::default());
+
+    platform.start().expect("platform should start");
+    let window = platform.host().windows()[0].id();
+    let presentation = platform
+        .host()
+        .presentation(window)
+        .expect("platform should retain a presentation");
+    let text_box = presentation
+        .layout()
+        .find_role(view::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("text box should be laid out");
+    let label = presentation
+        .layout()
+        .find_role(view::Role::Label)
+        .into_iter()
+        .next()
+        .expect("label should be laid out");
+    let text_point = frame_point(text_box);
+    let label_point = frame_point(label);
+
+    platform.backend_mut().events.clear();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::PointerMoved { point: text_point },
+        ))
+        .expect("text cursor move should be handled");
+    assert_eq!(
+        platform
+            .backend()
+            .events()
+            .iter()
+            .filter(|event| matches!(event, BackendEvent::SetCursor { .. }))
+            .cloned()
+            .collect::<Vec<_>>(),
+        vec![BackendEvent::SetCursor {
+            window,
+            cursor: pointer::Cursor::Text,
+        }]
+    );
+
+    platform.backend_mut().events.clear();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::PointerMoved { point: text_point },
+        ))
+        .expect("duplicate text cursor move should be handled");
+    assert!(
+        platform
+            .backend()
+            .events()
+            .iter()
+            .all(|event| !matches!(event, BackendEvent::SetCursor { .. })),
+        "same cursor should be deduped"
+    );
+
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::PointerMoved { point: label_point },
+        ))
+        .expect("default cursor move should be handled");
+    assert!(platform.backend().events().iter().any(|event| matches!(
+        event,
+        BackendEvent::SetCursor {
+            window: event_window,
+            cursor: pointer::Cursor::Default,
+        } if *event_window == window
+    )));
+}
+
+#[test]
 fn text_editor_platform_deduplicates_dialogs_and_poll_scheduling() {
     let path = temp_text_path("text_editor_platform_save.txt");
     let _ = std::fs::remove_file(&path);

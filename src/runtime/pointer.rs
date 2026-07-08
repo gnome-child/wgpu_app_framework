@@ -1,5 +1,6 @@
 use super::super::{
-    error::Error, geometry, input, interaction, layout, response, session, state, view, window,
+    error::Error, geometry, input, interaction, layout, pointer, response, session, state, view,
+    window,
 };
 use super::Runtime;
 impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
@@ -20,7 +21,11 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 
         let target = self
             .hit_test(window, size, point)
+            .inspect(|hit| self.set_cursor_for_hit(window, Some(hit)))
             .and_then(|hit| hit.target().cloned());
+        if target.is_none() {
+            self.set_pointer_cursor(window, pointer::Cursor::Default);
+        }
 
         self.handle_view(window, view::Action::pointer_move(target))
     }
@@ -32,8 +37,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         point: geometry::Point,
     ) -> std::result::Result<input::Outcome, Error> {
         let Some(hit) = self.hit_test(window, size, point) else {
+            self.set_pointer_cursor(window, pointer::Cursor::Default);
             return self.clear_pointer_focus(window);
         };
+        self.set_cursor_for_hit(window, Some(&hit));
         let Some(target) = hit.target().cloned() else {
             return self.clear_pointer_focus(window);
         };
@@ -103,6 +110,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         point: geometry::Point,
     ) -> std::result::Result<input::Outcome, Error> {
         let hit = self.hit_test(window, size, point);
+        self.set_cursor_for_hit(window, hit.as_ref());
         let target = hit.as_ref().and_then(|hit| hit.target().cloned());
         let action = hit.as_ref().and_then(|hit| {
             (!hit.is_chrome()
@@ -138,6 +146,22 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             self.keymap,
         );
         let hit = layout.hit_test(point);
+        let captured_text = self
+            .session
+            .interaction(window)
+            .and_then(|interaction| {
+                interaction
+                    .pointer()
+                    .capture()
+                    .map(|capture| capture.target())
+                    .or_else(|| interaction.pointer().pressed())
+            })
+            .is_some_and(is_text_target);
+        if captured_text {
+            self.set_pointer_cursor(window, pointer::Cursor::Text);
+        } else {
+            self.set_cursor_for_hit(window, hit.as_ref());
+        }
         let hovered = hit.as_ref().and_then(|hit| hit.target().cloned());
         let active = self.session.interaction(window).and_then(|interaction| {
             interaction
@@ -170,6 +194,27 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         }
 
         Ok(outcome)
+    }
+
+    pub fn pointer_left_at(
+        &mut self,
+        window: window::Id,
+    ) -> std::result::Result<input::Outcome, Error> {
+        let text_capture = self
+            .session
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().capture())
+            .is_some_and(|capture| is_text_target(capture.target()));
+        self.set_pointer_cursor(
+            window,
+            if text_capture {
+                pointer::Cursor::Text
+            } else {
+                pointer::Cursor::Default
+            },
+        );
+
+        self.handle_view(window, view::Action::pointer_left())
     }
 
     pub fn scroll_at(
@@ -273,6 +318,32 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             outcome.effect().clone().then(response::Effect::Rebuild),
         )
     }
+}
+
+impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
+    fn set_cursor_for_hit(&mut self, window: window::Id, hit: Option<&layout::Hit>) {
+        let cursor = hit
+            .filter(|hit| hit_promises_text_edit(hit))
+            .map_or(pointer::Cursor::Default, |_| pointer::Cursor::Text);
+        self.set_pointer_cursor(window, cursor);
+    }
+
+    fn set_pointer_cursor(&mut self, window: window::Id, cursor: pointer::Cursor) {
+        self.session.set_cursor(window, cursor);
+    }
+}
+
+fn hit_promises_text_edit(hit: &layout::Hit) -> bool {
+    !hit.is_chrome()
+        && hit.frame().is_enabled()
+        && matches!(
+            hit.frame().role(),
+            view::Role::TextArea | view::Role::TextBox
+        )
+}
+
+fn is_text_target(target: &interaction::Target) -> bool {
+    target.kind() == interaction::Kind::TextArea
 }
 
 fn text_pointer_down_action(frame: &layout::Frame, target: interaction::Target) -> view::Action {

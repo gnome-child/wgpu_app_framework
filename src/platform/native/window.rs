@@ -1,9 +1,12 @@
 use super::{Native, NativeError};
 use crate::window as app_window;
-use crate::{paint, render};
+use crate::{paint, pointer, render};
 use std::sync::Arc;
 use winit::dpi::LogicalSize;
-use winit::{event_loop::ActiveEventLoop, window::WindowAttributes};
+use winit::{
+    event_loop::ActiveEventLoop,
+    window::{CursorIcon, WindowAttributes},
+};
 
 pub(in crate::platform::native) type Handle = Arc<winit::window::Window>;
 
@@ -73,6 +76,14 @@ impl Window {
         self.handle.set_ime_allowed(allowed);
     }
 
+    pub fn set_cursor(&self, cursor: pointer::Cursor) {
+        let icon = match cursor {
+            pointer::Cursor::Default => CursorIcon::Default,
+            pointer::Cursor::Text => CursorIcon::Text,
+        };
+        self.handle.set_cursor(icon);
+    }
+
     pub fn canvas(&self) -> &render::Canvas {
         &self.canvas
     }
@@ -115,6 +126,20 @@ impl Native {
         };
 
         window.request_redraw();
+        Ok(())
+    }
+
+    pub fn set_cursor(
+        &self,
+        window: app_window::Id,
+        cursor: pointer::Cursor,
+    ) -> Result<(), NativeError> {
+        let Some(window) = self.windows.get(&window) else {
+            log::warn!("cursor update requested for missing native window: {window:?}");
+            return Err(NativeError::MissingWindow { window });
+        };
+
+        window.set_cursor(cursor);
         Ok(())
     }
 

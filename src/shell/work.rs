@@ -1,5 +1,5 @@
 use crate::animation;
-use crate::{runtime, session, window};
+use crate::{pointer, runtime, session, window};
 
 use super::{Presentation, Window};
 
@@ -8,6 +8,7 @@ pub struct Work {
     closed_windows: Vec<window::Id>,
     presentations: Vec<Presentation>,
     requests: Vec<session::Request>,
+    cursor_updates: Vec<pointer::Update>,
     pending_tasks: usize,
     task_completions: usize,
     animation_schedule: animation::Schedule,
@@ -34,6 +35,7 @@ impl Work {
                 .map(Presentation::from_scene_presentation)
                 .collect(),
             requests: work.requests().to_vec(),
+            cursor_updates: work.cursor_updates().to_vec(),
             pending_tasks: work.pending_tasks(),
             task_completions: work.task_completions(),
             animation_schedule: work.animation_schedule(),
@@ -54,6 +56,10 @@ impl Work {
 
     pub fn requests(&self) -> &[session::Request] {
         &self.requests
+    }
+
+    pub fn cursor_updates(&self) -> &[pointer::Update] {
+        &self.cursor_updates
     }
 
     pub fn pending_tasks(&self) -> usize {
@@ -77,6 +83,7 @@ impl Work {
             && self.closed_windows.is_empty()
             && self.presentations.is_empty()
             && self.requests.is_empty()
+            && self.cursor_updates.is_empty()
             && self.pending_tasks == 0
             && self.task_completions == 0
             && self.animation_schedule == animation::Schedule::Idle
