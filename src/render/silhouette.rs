@@ -1,4 +1,4 @@
-use crate::paint_geometry::{self, Rect};
+use crate::paint_geometry::{self, DeviceGrid, Rect};
 
 pub(crate) const WGSL: &str = r#"
 fn silhouette_corner_radius(point: vec2<f32>, rect: vec4<f32>, rounding: vec4<f32>) -> f32 {
@@ -76,78 +76,7 @@ pub(crate) struct PreparedSilhouette {
     pub(crate) rounding: [f32; 4],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct PixelGeometry {
-    scale_factor: f32,
-    logical_pixel: f32,
-}
-
-impl PixelGeometry {
-    pub(crate) fn new(scale_factor: f32) -> Self {
-        let scale_factor = scale_factor.max(0.0001);
-
-        Self {
-            scale_factor,
-            logical_pixel: 1.0 / scale_factor,
-        }
-    }
-
-    pub(crate) fn logical_pixel(self) -> f32 {
-        self.logical_pixel
-    }
-
-    pub(crate) fn snap_distance(self, distance: f32) -> f32 {
-        if distance <= 0.0 {
-            return 0.0;
-        }
-
-        (distance * self.scale_factor).round().max(1.0) / self.scale_factor
-    }
-
-    pub(crate) fn snap_rect(self, rect: Rect) -> Rect {
-        let (left, top, right, bottom) = edges(rect);
-        let left = self.snap_position(left);
-        let top = self.snap_position(top);
-        let mut right = self.snap_position(right);
-        let mut bottom = self.snap_position(bottom);
-
-        if right <= left {
-            right = left + self.logical_pixel;
-        }
-
-        if bottom <= top {
-            bottom = top + self.logical_pixel;
-        }
-
-        Rect::rounded(
-            paint_geometry::logical_point(left, top),
-            paint_geometry::logical_area(right - left, bottom - top),
-            rect.rounding,
-        )
-    }
-
-    pub(crate) fn snap_fixed_width_rect(self, rect: Rect, width_px: u32) -> Rect {
-        let (left, top, _, bottom) = edges(rect);
-        let left = self.snap_position(left);
-        let top = self.snap_position(top);
-        let mut bottom = self.snap_position(bottom);
-        let width = (width_px.max(1) as f32) / self.scale_factor;
-
-        if bottom <= top {
-            bottom = top + self.logical_pixel;
-        }
-
-        Rect::rounded(
-            paint_geometry::logical_point(left, top),
-            paint_geometry::logical_area(width, bottom - top),
-            rect.rounding,
-        )
-    }
-
-    fn snap_position(self, position: f32) -> f32 {
-        (position * self.scale_factor).round() / self.scale_factor
-    }
-}
+pub(crate) type PixelGeometry = DeviceGrid;
 
 impl PreparedSilhouette {
     pub(crate) fn for_rect(

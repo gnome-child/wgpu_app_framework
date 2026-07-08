@@ -200,7 +200,13 @@ fn rasterized_quad_rect(quad: &paint::Quad, scale_factor: f32) -> Rect {
 
     match quad.rasterization.snapping {
         paint::Snapping::Disabled => rect,
-        paint::Snapping::Rect => pixel_geometry.snap_rect(rect),
+        paint::Snapping::Rect => {
+            debug_assert!(
+                pixel_geometry.rect_is_aligned(rect),
+                "Snapping::Rect expects geometry snapped at the layout-to-paint boundary"
+            );
+            rect
+        }
         paint::Snapping::FixedWidth { width_px } => {
             pixel_geometry.snap_fixed_width_rect(rect, width_px)
         }
@@ -210,14 +216,13 @@ fn rasterized_quad_rect(quad: &paint::Quad, scale_factor: f32) -> Rect {
 fn analytic_shapes_for_quad_rect(quad: &paint::Quad, rect: Rect) -> Vec<AnalyticShape> {
     let mut shapes = Vec::new();
     let antialias = quad.rasterization.edge_mode == paint::EdgeMode::Antialiased;
-    let snap_outer = quad.rasterization.snapping != paint::Snapping::Disabled;
 
     if let Some(fill) = quad.style.fill {
         match fill {
             paint::Fill::Brush(brush) => {
                 let mut shape = fill_shape(rect, brush);
                 shape.antialias = antialias;
-                shape.snap_outer = snap_outer;
+                shape.snap_outer = false;
                 shapes.push(shape);
             }
         }
@@ -226,13 +231,13 @@ fn analytic_shapes_for_quad_rect(quad: &paint::Quad, rect: Rect) -> Vec<Analytic
     if let Some(stroke) = quad.style.stroke
         && let Some(mut shape) = internal_stroke_shape(rect, stroke.width, stroke.brush)
     {
-        shape.snap_outer = snap_outer;
+        shape.snap_outer = false;
         shapes.push(shape);
     }
 
     if let Some(brush) = quad.style.tint {
         let mut shape = fill_shape(rect, brush);
-        shape.snap_outer = snap_outer;
+        shape.snap_outer = false;
         shapes.push(shape);
     }
 
@@ -814,6 +819,37 @@ mod tests {
             rect_bounds(prepared.outer_rect),
             (10.0, 19.9375, 50.0, 24.0625)
         );
+    }
+
+    #[test]
+    fn rect_snapping_mode_checks_boundary_aligned_geometry() {
+        let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
+        quad.rect = Rect::new(
+            paint_geometry::logical_point(10.4, 20.0),
+            paint_geometry::logical_area(32.8, 11.2),
+        );
+        quad.rasterization.snapping = paint::Snapping::Rect;
+
+        let shapes = analytic_shapes_for_quad_at_scale(&quad, 1.25);
+        let (left, top, right, bottom) = rect_bounds(shapes[0].outer_rect);
+
+        assert_approx_eq(left, 10.4);
+        assert_approx_eq(top, 20.0);
+        assert_approx_eq(right, 43.2);
+        assert_approx_eq(bottom, 31.2);
+    }
+
+    #[test]
+    #[should_panic(expected = "Snapping::Rect expects geometry snapped")]
+    fn rect_snapping_mode_rejects_unsnapped_geometry() {
+        let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
+        quad.rect = Rect::new(
+            paint_geometry::logical_point(10.0, 20.0),
+            paint_geometry::logical_area(33.0, 11.0),
+        );
+        quad.rasterization.snapping = paint::Snapping::Rect;
+
+        let _ = analytic_shapes_for_quad_at_scale(&quad, 1.25);
     }
 
     #[test]

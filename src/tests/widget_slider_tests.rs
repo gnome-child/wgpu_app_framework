@@ -302,6 +302,12 @@ fn slider_hover_animates_track_transform_without_tint_or_layout_shift() {
         .expect("idle slider should render");
     assert_approx_eq_f32(track_scale_y(idle.scene(), track), 1.0);
     assert_eq!(app.animation_schedule(), crate::animation::Schedule::Idle);
+    assert_eq!(idle.scene().clear(), initial.scene().clear());
+    assert_eq!(
+        idle.scene().primitives(),
+        initial.scene().primitives(),
+        "settled presentation animation should land on the static scene"
+    );
 }
 
 #[test]

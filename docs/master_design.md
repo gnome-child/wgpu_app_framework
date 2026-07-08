@@ -128,6 +128,13 @@ renderer. It may support text and GPU preparation internals, but it is not
 public framework geometry and should not leak into widget, view, layout, or app
 APIs.
 
+The layout-to-paint boundary is a geometry boundary. Layout frames use integer
+logical coordinates. Paint geometry uses floating logical coordinates because a
+device-pixel-aligned edge may be fractional in logical space at scale factors
+such as 125%. Boundary conversion multiplies by the active scale factor, rounds
+in device-pixel space, and divides back to floating logical coordinates. Do
+not snap by rounding layout coordinates in integer logical space.
+
 `text`
 
 Owns document, buffer, edit, surface, layout, and unicode concepts. The text
@@ -206,6 +213,13 @@ hits still respect the owner's inherited ancestor clip. Rounded panel corners
 remain rectangular for both paint clipping and hit testing until rounded clip
 support exists.
 
+Hit testing v1 reads layout truth. At fractional scale, painted device-snapped
+edges and integer layout hit edges may differ by less than one device pixel;
+that tolerance is accepted until a real spatial-presentation animation needs
+presentation-space hit acquisition. When that caller exists, pointer hits
+should follow the visible presentation position, while keyboard focus, reveal,
+caret geometry, and scroll remain layout-space concepts.
+
 Viewport reveal is rect-shaped. A reveal request names a viewport and layout
 resolves the actual descendant frame rect after composition. The operation is
 minimal displacement: a fully visible rect does not scroll, a rect below or
@@ -229,6 +243,20 @@ Scene clips are paint primitives. Paint applies every resolved frame clip; it
 does not decide that a role or layer should ignore clipping. Filters inside
 clipped content must be covered by integration tests before being treated as a
 stable rendering contract.
+
+Scene is also the presentation-space boundary. The doctrine is: layout is
+snapped, presentation is continuous, and animation is presentation. Resting
+layout geometry is snapped once when integer layout rects become floating
+paint rects at the active device scale. Presentation transforms may then move
+or scale that snapped geometry continuously, and a settled animation must land
+back on the same scene geometry as the static state.
+
+Renderer-local snapping is exception vocabulary, not a second source of truth.
+`Snapping::Rect` checks that incoming geometry was already snapped at the
+layout-to-paint boundary. `Snapping::FixedWidth` remains a real exception for
+hairlines such as text carets that must keep a fixed physical-pixel width.
+Explicit unsnapped/presentation motion remains continuous; do not add another
+primitive-local snap policy when the boundary snap should own the fact.
 
 `theme`
 
@@ -383,6 +411,9 @@ invalidation runs the full view projection and composition reconciliation path.
 Own the boundary with the operating system, window system, GPU, renderer,
 clipboard, dialogs, and native event loop. Renderer dependencies belong at this
 edge unless a lower rendering vocabulary is explicitly being defined.
+Native paint adapters carry the window scale factor into layout-to-paint
+conversion so monitor moves and fractional DPI changes re-snap the same layout
+truth to the new device grid.
 
 ### Public API Rule
 
