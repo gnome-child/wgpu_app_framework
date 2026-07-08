@@ -1,6 +1,6 @@
 use wgpu::SurfaceTarget;
 
-use crate::paint_geometry;
+use crate::paint;
 use crate::render;
 
 use thiserror::Error;
@@ -27,7 +27,7 @@ pub struct Surface {
 
 impl Surface {
     pub fn new(
-        area: paint_geometry::PhysicalArea,
+        area: paint::area::Physical,
         render_context: &render::Context,
         target: impl Into<SurfaceTarget<'static>>,
     ) -> Result<Self> {
@@ -66,7 +66,7 @@ impl Surface {
         &self.config
     }
 
-    pub fn resize(&mut self, render_context: &render::Context, area: paint_geometry::PhysicalArea) {
+    pub fn resize(&mut self, render_context: &render::Context, area: paint::area::Physical) {
         let area = area.clamp_min(1);
 
         self.config.width = area.width();

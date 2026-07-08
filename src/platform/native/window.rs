@@ -1,6 +1,6 @@
 use super::{Native, NativeError};
 use crate::window as app_window;
-use crate::{paint_geometry, render};
+use crate::{paint, render};
 use std::sync::Arc;
 use winit::dpi::LogicalSize;
 use winit::{event_loop::ActiveEventLoop, window::WindowAttributes};
@@ -18,7 +18,7 @@ pub(in crate::platform::native) struct Options {
 }
 
 pub(in crate::platform::native) enum InitialSize {
-    Logical(paint_geometry::LogicalArea),
+    Logical(paint::area::Logical),
 }
 
 impl Window {
@@ -54,8 +54,8 @@ impl Window {
         self.handle.request_redraw();
     }
 
-    pub fn inner_area(&self) -> paint_geometry::PhysicalArea {
-        paint_geometry::physical_area(
+    pub fn inner_area(&self) -> paint::area::Physical {
+        paint::area::physical(
             self.handle.inner_size().width,
             self.handle.inner_size().height,
         )
@@ -84,7 +84,7 @@ impl Window {
     pub fn resize(
         &mut self,
         render_context: &render::Context,
-        area: paint_geometry::PhysicalArea,
+        area: paint::area::Physical,
         scale_factor: f32,
     ) {
         self.canvas.resize(render_context, area, scale_factor);

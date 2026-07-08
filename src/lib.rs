@@ -36,7 +36,6 @@ mod composition;
 mod draft;
 mod layout;
 mod paint;
-mod paint_geometry;
 mod render;
 
 #[cfg(test)]

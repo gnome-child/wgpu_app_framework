@@ -123,13 +123,15 @@ questions owned by higher layers.
 Owns spatial facts: points, rects, sizes, areas. It should not know about
 widgets, commands, layout policy, scenes, windows, or renderers.
 
-Renderer-space paint geometry is a private adapter vocabulary below the native
-renderer. It may support text and GPU preparation internals, but it is not
-public framework geometry and should not leak into widget, view, layout, or app
-APIs.
+Paint-space geometry belongs to the private `paint` module. It is the f32,
+device-grid-aware vocabulary used by text layout, paint conversion, and GPU
+preparation internals; it is not public framework geometry and should not leak
+into widget, view, layout, or app APIs. `paint::area::Logical` and
+`paint::area::Physical` remain distinct types so DPI unit safety stays enforced
+by the compiler.
 
 The layout-to-paint boundary is a geometry boundary. Layout frames use integer
-logical coordinates. Paint geometry uses floating logical coordinates because a
+logical coordinates. Paint uses floating logical coordinates because a
 device-pixel-aligned edge may be fractional in logical space at scale factors
 such as 125%. Boundary conversion multiplies by the active scale factor, rounds
 in device-pixel space, and divides back to floating logical coordinates. Do
@@ -239,8 +241,9 @@ Owns paint primitives and visual presentation data. Scene answers "what should
 be drawn?" It should not know the application model, command registry,
 interaction routing, or renderer internals.
 
-The renderer may lower scene primitives into a private paint vocabulary for GPU
-batching. That vocabulary is not a second public scene API; apps and framework
+The renderer may lower scene primitives into the private `paint` vocabulary for
+GPU batching. `paint` is the flattened display-list seam between retained scene
+and backend rendering. It is not a second public scene API; apps and framework
 features should speak in `scene` terms unless they are inside the native
 renderer adapter.
 

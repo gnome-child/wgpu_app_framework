@@ -17,14 +17,14 @@ use super::{
     output::{TextAreaSurface, TextFieldLayout, TextFieldPaintLayout},
     system,
 };
-use crate::paint_geometry;
+use crate::paint;
 
 impl Engine {
     pub fn text_field_layout_for_field(
         &mut self,
         field: &Field,
         style: Style,
-        area: paint_geometry::LogicalArea,
+        area: paint::area::Logical,
         state: ViewState,
     ) -> TextFieldLayout {
         self.text_field_layout_for_field_at(field, style, area, state, Instant::now())
@@ -35,7 +35,7 @@ impl Engine {
         buffer: &Buffer,
         edit_state: State,
         style: Style,
-        area: paint_geometry::LogicalArea,
+        area: paint::area::Logical,
         state: ViewState,
         now: Instant,
     ) -> TextFieldLayout {
@@ -48,7 +48,7 @@ impl Engine {
         buffer: &Buffer,
         edit_state: State,
         style: Style,
-        area: paint_geometry::LogicalArea,
+        area: paint::area::Logical,
         state: ViewState,
         now: Instant,
     ) -> TextFieldPaintLayout {
@@ -112,7 +112,7 @@ impl Engine {
         &mut self,
         field: &Field,
         style: Style,
-        area: paint_geometry::LogicalArea,
+        area: paint::area::Logical,
         state: ViewState,
     ) -> TextFieldPaintLayout {
         self.text_field_paint_layout_for_field_at(field, style, area, state, Instant::now())
@@ -122,7 +122,7 @@ impl Engine {
         &mut self,
         field: &Field,
         style: Style,
-        area: paint_geometry::LogicalArea,
+        area: paint::area::Logical,
         state: ViewState,
         now: Instant,
     ) -> TextFieldPaintLayout {
@@ -146,7 +146,7 @@ impl Engine {
         &mut self,
         field: &Field,
         style: Style,
-        area: paint_geometry::LogicalArea,
+        area: paint::area::Logical,
         state: ViewState,
         now: Instant,
     ) -> TextFieldLayout {
@@ -171,8 +171,8 @@ impl Engine {
         buffer: &Buffer,
         edit_state: State,
         style: Style,
-        area: paint_geometry::LogicalArea,
-        position: paint_geometry::LogicalPoint,
+        area: paint::area::Logical,
+        position: paint::point::Logical,
         state: ViewState,
     ) -> Option<Position> {
         let projection = PreeditProjection::new(buffer, edit_state, &state);
@@ -190,8 +190,8 @@ impl Engine {
         &mut self,
         field: &Field,
         style: Style,
-        area: paint_geometry::LogicalArea,
-        position: paint_geometry::LogicalPoint,
+        area: paint::area::Logical,
+        position: paint::point::Logical,
         state: ViewState,
     ) -> Option<Position> {
         let projection = FieldProjection::new(field);
@@ -211,7 +211,7 @@ impl Engine {
         &mut self,
         field: &Field,
         style: Style,
-        area: paint_geometry::LogicalArea,
+        area: paint::area::Logical,
         state: ViewState,
     ) -> Option<Caret> {
         if !field.paints_caret() {
@@ -227,7 +227,7 @@ impl Engine {
         buffer: &Buffer,
         edit_state: State,
         style: Style,
-        area: paint_geometry::LogicalArea,
+        area: paint::area::Logical,
         state: ViewState,
     ) -> ViewState {
         let projection = PreeditProjection::new(buffer, edit_state, &state);
@@ -253,7 +253,7 @@ impl Engine {
         &mut self,
         field: &Field,
         style: Style,
-        area: paint_geometry::LogicalArea,
+        area: paint::area::Logical,
         state: ViewState,
     ) -> ViewState {
         let projection = FieldProjection::new(field);
@@ -270,7 +270,7 @@ impl Engine {
         &mut self,
         buffer: &Buffer,
         style: Style,
-        area: paint_geometry::LogicalArea,
+        area: paint::area::Logical,
     ) -> (glyphon::Buffer, f32) {
         let font_size = style.size().max(1.0);
         let line_height = font_size * 1.25;

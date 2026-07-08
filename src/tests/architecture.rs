@@ -50,7 +50,7 @@ fn renderer_dependencies_stay_in_native_platform() {
         src_dir.join("platform").join("native"),
         src_dir.join("render"),
         src_dir.join("paint"),
-        src_dir.join("paint_geometry"),
+        src_dir.join("text"),
     ];
     let renderer_modules = ["paint", "render"];
 
@@ -71,7 +71,7 @@ fn renderer_paint_vocabulary_stays_private() {
         "renderer-facing paint vocabulary should not be public framework API"
     );
     assert!(
-        !lib.contains("pub mod paint_geometry;"),
+        !lib.contains(&format!("pub mod {};", old_paint_space_module())),
         "renderer-space geometry should not be public framework API"
     );
 }
@@ -124,38 +124,89 @@ fn renderer_adapter_helpers_stay_crate_private() {
 }
 
 #[test]
-fn paint_geometry_stays_below_text_and_native_rendering() {
+fn paint_stays_below_text_and_native_rendering() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let allowed_roots = [
-        src_dir.join("paint_geometry"),
+        src_dir.join("paint"),
         src_dir.join("paint"),
         src_dir.join("render"),
         src_dir.join("platform").join("native"),
         src_dir.join("text"),
     ];
 
-    assert_imports_only_under_any(&src_dir, &allowed_roots, &["paint_geometry"]);
+    assert_imports_only_under_any(&src_dir, &allowed_roots, &["paint"]);
 }
 
 #[test]
-fn paint_geometry_file_modules_stay_private() {
-    let paint_geometry_mod = std::fs::read_to_string(
+fn paint_file_modules_stay_private() {
+    let paint_mod = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src")
-            .join("paint_geometry")
+            .join("paint")
             .join("mod.rs"),
     )
     .expect("paint geometry module should read");
 
-    for module in ["area", "point", "rect"] {
+    for module in ["area", "point"] {
+        let pattern = format!("pub(crate) mod {module};");
+        assert!(
+            paint_mod.contains(&pattern),
+            "unit-distinguished paint module should be crate-visible: {pattern}"
+        );
+        assert!(
+            !paint_mod.contains(&format!("pub mod {module};")),
+            "paint file module should not become public API: pub mod {module};"
+        );
+    }
+
+    for module in ["grid", "rect"] {
         for visibility in ["pub mod", "pub(crate) mod"] {
             let pattern = format!("{visibility} {module};");
             assert!(
-                !paint_geometry_mod.contains(&pattern),
-                "paint geometry file module should stay behind the facade: {pattern}"
+                !paint_mod.contains(&pattern),
+                "single-concept paint module should stay behind root re-exports: {pattern}"
             );
         }
     }
+
+    for alias in [
+        "Area",
+        "Point",
+        "LogicalArea",
+        "PhysicalArea",
+        "LogicalPoint",
+    ] {
+        assert!(
+            !paint_mod.contains(&format!("use area::{{{alias}"))
+                && !paint_mod.contains(&format!("use point::{{{alias}"))
+                && !paint_mod.contains(&format!(" as {alias}")),
+            "paint should not reintroduce compound or unit-erasing root alias {alias}"
+        );
+    }
+}
+
+#[test]
+fn old_paint_space_root_module_is_extinct() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let lib = std::fs::read_to_string(src_dir.join("lib.rs")).expect("crate root should read");
+    let old_module = old_paint_space_module();
+
+    assert!(
+        !src_dir.join(old_module).exists(),
+        "old paint-space root module should be folded into paint"
+    );
+    assert!(
+        !lib.contains(&format!("mod {old_module};")),
+        "crate root should not keep the old paint-space module"
+    );
+    assert_source_patterns_absent(
+        &src_dir,
+        &[format!("crate::{old_module}"), format!("{old_module}::")],
+    );
+}
+
+fn old_paint_space_module() -> &'static str {
+    concat!("paint_", "geometry")
 }
 
 #[test]

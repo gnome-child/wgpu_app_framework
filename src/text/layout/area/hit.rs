@@ -11,15 +11,15 @@ use super::super::{
     output::{TextAreaPaintLayout, TextAreaSurface},
     text_area::DisplaySegment as TextAreaDisplaySegment,
 };
-use crate::paint_geometry;
+use crate::paint;
 
 impl Engine {
     pub fn text_area_position_at_for_area(
         &mut self,
         area_model: &Area,
         style: Style,
-        viewport: paint_geometry::LogicalArea,
-        position: paint_geometry::LogicalPoint,
+        viewport: paint::area::Logical,
+        position: paint::point::Logical,
         state: ViewState,
     ) -> Option<Position> {
         let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), &state);
@@ -42,7 +42,7 @@ impl Engine {
     pub fn text_area_position_at_for_paint_layout(
         &mut self,
         area_model: &Area,
-        position: paint_geometry::LogicalPoint,
+        position: paint::point::Logical,
         state: ViewState,
         observed_layout: &TextAreaPaintLayout,
     ) -> Option<Position> {
@@ -58,7 +58,7 @@ impl Engine {
     pub fn text_area_position_at_for_observed_surfaces(
         &mut self,
         area_model: &Area,
-        position: paint_geometry::LogicalPoint,
+        position: paint::point::Logical,
         state: ViewState,
         scroll_x: f32,
         observed_surfaces: &[TextAreaSurface],
@@ -75,7 +75,7 @@ impl Engine {
     fn text_area_position_at_for_segments(
         &mut self,
         segments: &[TextAreaDisplaySegment],
-        position: paint_geometry::LogicalPoint,
+        position: paint::point::Logical,
         scroll_x: f32,
         text_len: usize,
     ) -> Option<Position> {
@@ -118,7 +118,7 @@ impl Engine {
     fn text_area_position_at_for_surfaces(
         &mut self,
         surfaces: &[TextAreaSurface],
-        position: paint_geometry::LogicalPoint,
+        position: paint::point::Logical,
         scroll_x: f32,
         text_len: usize,
     ) -> Option<Position> {

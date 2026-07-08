@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::paint_geometry::{self, Rect};
+use crate::paint::{self, Rect};
 
 const TEXT_FIELD_CARET_BLINK_INTERVAL: Duration = Duration::from_millis(500);
 
@@ -13,8 +13,8 @@ use super::Area;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Viewport {
-    area: paint_geometry::LogicalArea,
-    scroll: paint_geometry::LogicalPoint,
+    area: paint::area::Logical,
+    scroll: paint::point::Logical,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,8 +44,8 @@ pub struct ScrollAnchor {
 #[derive(Debug, Clone, Copy)]
 pub struct ObservedArea<'a> {
     viewport: Rect,
-    scroll: paint_geometry::LogicalPoint,
-    content_area: paint_geometry::LogicalArea,
+    scroll: paint::point::Logical,
+    content_area: paint::area::Logical,
     interaction_surfaces: &'a [TextAreaSurface],
 }
 
@@ -56,18 +56,18 @@ const SELECTION_DRAG_AUTOSCROLL_MIN_STEP: f32 = 2.0;
 const SELECTION_DRAG_AUTOSCROLL_MAX_STEP: f32 = 36.0;
 
 impl Viewport {
-    pub fn new(area: paint_geometry::LogicalArea, scroll: paint_geometry::LogicalPoint) -> Self {
+    pub fn new(area: paint::area::Logical, scroll: paint::point::Logical) -> Self {
         Self {
             area,
-            scroll: paint_geometry::logical_point(scroll.x().max(0.0), scroll.y().max(0.0)),
+            scroll: paint::point::logical(scroll.x().max(0.0), scroll.y().max(0.0)),
         }
     }
 
-    pub fn area(self) -> paint_geometry::LogicalArea {
+    pub fn area(self) -> paint::area::Logical {
         self.area
     }
 
-    pub fn scroll(self) -> paint_geometry::LogicalPoint {
+    pub fn scroll(self) -> paint::point::Logical {
         self.scroll
     }
 
@@ -122,8 +122,8 @@ impl ScrollAnchor {
 impl<'a> ObservedArea<'a> {
     pub fn new(
         viewport: Rect,
-        scroll: paint_geometry::LogicalPoint,
-        content_area: paint_geometry::LogicalArea,
+        scroll: paint::point::Logical,
+        content_area: paint::area::Logical,
         interaction_surfaces: &'a [TextAreaSurface],
     ) -> Self {
         Self {
@@ -138,11 +138,11 @@ impl<'a> ObservedArea<'a> {
         self.viewport
     }
 
-    pub fn scroll(self) -> paint_geometry::LogicalPoint {
+    pub fn scroll(self) -> paint::point::Logical {
         self.scroll
     }
 
-    pub fn content_area(self) -> paint_geometry::LogicalArea {
+    pub fn content_area(self) -> paint::area::Logical {
         self.content_area
     }
 
@@ -150,11 +150,8 @@ impl<'a> ObservedArea<'a> {
         self.interaction_surfaces
     }
 
-    pub fn local_position(
-        self,
-        position: paint_geometry::LogicalPoint,
-    ) -> paint_geometry::LogicalPoint {
-        paint_geometry::logical_point(
+    pub fn local_position(self, position: paint::point::Logical) -> paint::point::Logical {
+        paint::point::logical(
             position.x() - self.viewport.origin.x(),
             position.y() - self.viewport.origin.y(),
         )
@@ -164,8 +161,8 @@ impl<'a> ObservedArea<'a> {
 impl View {
     pub fn selection_drag_autoscroll_offset(
         observed: ObservedArea<'_>,
-        position: paint_geometry::LogicalPoint,
-    ) -> Option<paint_geometry::LogicalPoint> {
+        position: paint::point::Logical,
+    ) -> Option<paint::point::Logical> {
         let viewport = observed.viewport();
         let current = observed.scroll();
         let top = viewport.origin.y();
@@ -187,7 +184,7 @@ impl View {
             current.y() + step
         };
         let max_y = (observed.content_area().height() - viewport.area.height()).max(0.0);
-        let next = paint_geometry::logical_point(current.x(), next_y.clamp(0.0, max_y));
+        let next = paint::point::logical(current.x(), next_y.clamp(0.0, max_y));
 
         (next != current).then_some(next)
     }
@@ -197,7 +194,7 @@ impl View {
         area_model: &Area,
         state: ViewState,
         observed: ObservedArea<'_>,
-        position: paint_geometry::LogicalPoint,
+        position: paint::point::Logical,
     ) -> Option<Position> {
         if observed.interaction_surfaces().is_empty() {
             return None;

@@ -1,4 +1,4 @@
-use crate::paint_geometry::{self, Grid, Rect};
+use crate::paint::{self, Grid, Rect};
 
 pub(crate) const WGSL: &str = r#"
 fn silhouette_corner_radius(point: vec2<f32>, rect: vec4<f32>, rounding: vec4<f32>) -> f32 {
@@ -124,24 +124,24 @@ pub(crate) fn inset_rect(rect: Rect, inset: f32) -> Option<Rect> {
     }
 
     Some(Rect::new(
-        paint_geometry::logical_point(rect.origin.x() + inset, rect.origin.y() + inset),
-        paint_geometry::logical_area(width, height),
+        paint::point::logical(rect.origin.x() + inset, rect.origin.y() + inset),
+        paint::area::logical(width, height),
     ))
 }
 
 pub(crate) fn expand_rect(rect: Rect, amount: f32) -> Rect {
     Rect::new(
-        paint_geometry::logical_point(rect.origin.x() - amount, rect.origin.y() - amount),
-        paint_geometry::logical_area(
+        paint::point::logical(rect.origin.x() - amount, rect.origin.y() - amount),
+        paint::area::logical(
             rect.area.width() + amount * 2.0,
             rect.area.height() + amount * 2.0,
         ),
     )
 }
 
-pub(crate) fn offset_rect(rect: Rect, offset: paint_geometry::LogicalPoint) -> Rect {
+pub(crate) fn offset_rect(rect: Rect, offset: paint::point::Logical) -> Rect {
     Rect::rounded(
-        paint_geometry::logical_point(rect.origin.x() + offset.x(), rect.origin.y() + offset.y()),
+        paint::point::logical(rect.origin.x() + offset.x(), rect.origin.y() + offset.y()),
         rect.area,
         rect.rounding,
     )
@@ -156,8 +156,8 @@ pub(crate) fn union_rects(a: Rect, b: Rect) -> Rect {
     let bottom = a_bottom.max(b_bottom);
 
     Rect::new(
-        paint_geometry::logical_point(left, top),
-        paint_geometry::logical_area(right - left, bottom - top),
+        paint::point::logical(left, top),
+        paint::area::logical(right - left, bottom - top),
     )
 }
 
@@ -179,10 +179,7 @@ pub(crate) fn shrink_rounding(rounding: [f32; 4], amount: f32) -> [f32; 4] {
     ]
 }
 
-pub(crate) fn clamp_resolved_rounding(
-    rounding: [f32; 4],
-    area: paint_geometry::LogicalArea,
-) -> [f32; 4] {
+pub(crate) fn clamp_resolved_rounding(rounding: [f32; 4], area: paint::area::Logical) -> [f32; 4] {
     let width = area.width().max(0.0);
     let height = area.height().max(0.0);
     let scale = 1.0_f32
@@ -248,18 +245,18 @@ fn edge_scale(edge: f32, radius_sum: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::paint_geometry;
+    use crate::paint;
+    use crate::render;
     use crate::render::{filter, quad};
-    use crate::{paint, render};
 
     use super::*;
 
     #[test]
     fn fixed_rounding_is_clamped_to_snapped_shape_area() {
         let rect = Rect::rounded(
-            paint_geometry::logical_point(10.2, 20.3),
-            paint_geometry::logical_area(9.6, 4.2),
-            paint_geometry::Rounding::fixed(10.0),
+            paint::point::logical(10.2, 20.3),
+            paint::area::logical(9.6, 4.2),
+            paint::Rounding::fixed(10.0),
         );
         let prepared =
             PreparedSilhouette::for_filter_rect(rect, 2.0).expect("silhouette should prepare");
@@ -271,9 +268,9 @@ mod tests {
     #[test]
     fn relative_rounding_resolves_after_snap() {
         let rect = Rect::rounded(
-            paint_geometry::logical_point(10.2, 20.3),
-            paint_geometry::logical_area(40.4, 30.8),
-            paint_geometry::Rounding::relative(1.0),
+            paint::point::logical(10.2, 20.3),
+            paint::area::logical(40.4, 30.8),
+            paint::Rounding::relative(1.0),
         );
         let prepared =
             PreparedSilhouette::for_filter_rect(rect, 2.0).expect("silhouette should prepare");
@@ -295,13 +292,10 @@ mod tests {
 
     #[test]
     fn quad_filter_and_clip_silhouettes_share_snapped_panel_edge() {
-        for rounding in [
-            paint_geometry::Rounding::fixed(10.0),
-            paint_geometry::Rounding::relative(1.0),
-        ] {
+        for rounding in [paint::Rounding::fixed(10.0), paint::Rounding::relative(1.0)] {
             let rect = Rect::rounded(
-                paint_geometry::logical_point(10.2, 20.3),
-                paint_geometry::logical_area(40.4, 30.8),
+                paint::point::logical(10.2, 20.3),
+                paint::area::logical(40.4, 30.8),
                 rounding,
             );
 
@@ -321,9 +315,9 @@ mod tests {
     #[test]
     fn small_fixed_radius_silhouettes_clamp_identically() {
         let rect = Rect::rounded(
-            paint_geometry::logical_point(10.2, 20.3),
-            paint_geometry::logical_area(9.6, 4.2),
-            paint_geometry::Rounding::fixed(10.0),
+            paint::point::logical(10.2, 20.3),
+            paint::area::logical(9.6, 4.2),
+            paint::Rounding::fixed(10.0),
         );
 
         for scale_factor in [1.0, 2.0] {
@@ -334,7 +328,7 @@ mod tests {
             assert_eq!(quad, filter);
             assert_eq!(
                 quad.rounding,
-                paint_geometry::Rounding::fixed(10.0).resolve(quad.shape_rect.area)
+                paint::Rounding::fixed(10.0).resolve(quad.shape_rect.area)
             );
         }
     }
@@ -342,16 +336,16 @@ mod tests {
     #[test]
     fn shadow_cutout_uses_same_silhouette_as_owner_fill() {
         let rect = Rect::rounded(
-            paint_geometry::logical_point(10.2, 20.3),
-            paint_geometry::logical_area(40.4, 30.8),
-            paint_geometry::Rounding::relative(1.0),
+            paint::point::logical(10.2, 20.3),
+            paint::area::logical(40.4, 30.8),
+            paint::Rounding::relative(1.0),
         );
         let shadow = paint::Shadow {
             rect,
             brush: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.35)),
             blur: 18.0,
             spread: 2.0,
-            offset: paint_geometry::logical_point(0.0, 6.0),
+            offset: paint::point::logical(0.0, 6.0),
         };
 
         for scale_factor in [1.0, 2.0] {

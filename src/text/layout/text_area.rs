@@ -13,7 +13,7 @@ use super::constants::{
 };
 use super::key::{StyleKey, finite_bits};
 use super::output::TextAreaSurface;
-use crate::paint_geometry;
+use crate::paint;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Observation {
@@ -171,7 +171,7 @@ pub(super) fn render_line_window(
 pub(super) fn surface_for_segment(
     segment: &DisplaySegment,
     style: Style,
-    viewport: paint_geometry::LogicalArea,
+    viewport: paint::area::Logical,
     state: &ViewState,
 ) -> TextAreaSurface {
     TextAreaSurface {

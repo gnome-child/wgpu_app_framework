@@ -261,7 +261,7 @@ fn prepare_text_viewport<'a>(
 
 fn prepare_text_surface_in_bounds<'a>(
     text: &'a paint::TextSurface,
-    bounds_rect: crate::paint_geometry::Rect,
+    bounds_rect: crate::paint::Rect,
     scale_factor: f32,
 ) -> Option<PreparedText<'a>> {
     let width = text.rect.area.width().max(0.0);
@@ -354,17 +354,17 @@ fn paint_color(color: paint::Color) -> glyphon::Color {
 
 #[cfg(test)]
 mod tests {
-    use crate::paint_geometry::{self, Rect};
+    use crate::paint::{self, Rect};
     use crate::text::document::{Align, Block, Run, Style, Weight};
-    use crate::{icon, paint, text};
+    use crate::{icon, text};
 
     use super::*;
 
     fn centered_text(document: text::document::Document, height: f32) -> paint::Text {
         paint::Text {
             rect: Rect::new(
-                paint_geometry::logical_point(4.0, 7.0),
-                paint_geometry::logical_area(240.0, height),
+                paint::point::logical(4.0, 7.0),
+                paint::area::logical(240.0, height),
             ),
             document,
             wrap: paint::TextWrap::None,
@@ -390,8 +390,8 @@ mod tests {
 
         paint::Text {
             rect: Rect::new(
-                paint_geometry::logical_point(origin_x, 0.0),
-                paint_geometry::logical_area(160.0, 22.0),
+                paint::point::logical(origin_x, 0.0),
+                paint::area::logical(160.0, 22.0),
             ),
             document: text::document::Document::from_block(block),
             wrap: paint::TextWrap::None,
@@ -404,7 +404,7 @@ mod tests {
         text_layout::measure_document_with_glyphon(
             &mut font_system,
             document,
-            text::layout::Measure::bounded(paint_geometry::logical_area(240.0, 1_000.0)),
+            text::layout::Measure::bounded(paint::area::logical(240.0, 1_000.0)),
         )
         .height()
     }
@@ -489,7 +489,7 @@ mod tests {
         let mut cache = InlineCache::new();
         let first = label_text("Command", text::Color::BLACK, 12.0, Weight::Normal, 0.0);
         let mut second = first.clone();
-        second.rect.area = paint_geometry::logical_area(180.0, 22.0);
+        second.rect.area = paint::area::logical(180.0, 22.0);
 
         let _ = prepare_text(&mut font_system, &mut cache, &first, 1.0)
             .expect("first label should prepare");
@@ -519,8 +519,8 @@ mod tests {
         ));
         let rich = paint::Text {
             rect: Rect::new(
-                paint_geometry::logical_point(0.0, 0.0),
-                paint_geometry::logical_area(160.0, 22.0),
+                paint::point::logical(0.0, 0.0),
+                paint::area::logical(160.0, 22.0),
             ),
             document: text::document::Document::from_block(block),
             wrap: paint::TextWrap::None,
@@ -544,8 +544,8 @@ mod tests {
         let icon = icon::Icon::phosphor(icon::Id::new("command"));
         let red = paint::Icon {
             rect: Rect::new(
-                paint_geometry::logical_point(0.0, 0.0),
-                paint_geometry::logical_area(18.0, 18.0),
+                paint::point::logical(0.0, 0.0),
+                paint::area::logical(18.0, 18.0),
             ),
             icon,
             color: paint::Color::RED,

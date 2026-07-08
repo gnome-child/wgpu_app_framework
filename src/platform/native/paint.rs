@@ -1,4 +1,4 @@
-use crate::{paint, paint_geometry, text};
+use crate::{paint, text};
 
 use crate::{geometry, scene};
 
@@ -11,7 +11,7 @@ pub(in crate::platform::native) fn to_paint_scene_at_scale(
     source: &scene::Scene,
     scale_factor: f32,
 ) -> paint::Scene {
-    let grid = paint_geometry::Grid::new(scale_factor);
+    let grid = paint::Grid::new(scale_factor);
     let mut scene = paint::Scene::new();
     scene.clear(super::color::paint_color(source.clear()));
 
@@ -37,7 +37,7 @@ pub(in crate::platform::native) fn to_paint_scene_at_scale(
     scene
 }
 
-fn to_paint_quad(quad: &scene::Quad, grid: paint_geometry::Grid) -> paint::Quad {
+fn to_paint_quad(quad: &scene::Quad, grid: paint::Grid) -> paint::Quad {
     let rect = into_paint_rounded_rect_at_scale(quad.rect(), quad.rounding(), grid);
     let transform = to_paint_transform(quad.transform());
     let (rect, transform) = resolve_quad_transform(rect, transform, grid);
@@ -50,10 +50,10 @@ fn to_paint_quad(quad: &scene::Quad, grid: paint_geometry::Grid) -> paint::Quad 
     }
 }
 
-fn to_paint_rule(rule: &scene::Rule, grid: paint_geometry::Grid) -> paint::Rule {
-    let rect = paint_geometry::Rect::new(
-        paint_geometry::logical_point(rule.rect().x() as f32, rule.rect().y() as f32),
-        paint_geometry::logical_area(rule.rect().width() as f32, rule.rect().height() as f32),
+fn to_paint_rule(rule: &scene::Rule, grid: paint::Grid) -> paint::Rule {
+    let rect = paint::Rect::new(
+        paint::point::logical(rule.rect().x() as f32, rule.rect().y() as f32),
+        paint::area::logical(rule.rect().width() as f32, rule.rect().height() as f32),
     );
     let axis = to_paint_axis(rule.axis());
     let rect = match axis {
@@ -69,7 +69,7 @@ fn to_paint_rule(rule: &scene::Rule, grid: paint_geometry::Grid) -> paint::Rule 
     }
 }
 
-fn to_paint_text(text: &scene::Text, grid: paint_geometry::Grid) -> paint::Text {
+fn to_paint_text(text: &scene::Text, grid: paint::Grid) -> paint::Text {
     let mut block = text::document::Block::new(into_text_align(text.align()));
     block.push_run(text::document::Run::new(
         text.value().to_owned(),
@@ -87,10 +87,7 @@ fn to_paint_text(text: &scene::Text, grid: paint_geometry::Grid) -> paint::Text 
     }
 }
 
-fn to_paint_text_viewport(
-    text: &scene::TextViewport,
-    grid: paint_geometry::Grid,
-) -> paint::TextViewport {
+fn to_paint_text_viewport(text: &scene::TextViewport, grid: paint::Grid) -> paint::TextViewport {
     paint::TextViewport {
         rect: into_paint_rect_at_scale(text.rect(), grid),
         surfaces: text
@@ -101,10 +98,7 @@ fn to_paint_text_viewport(
     }
 }
 
-fn to_paint_text_surface(
-    surface: &scene::TextSurface,
-    grid: paint_geometry::Grid,
-) -> paint::TextSurface {
+fn to_paint_text_surface(surface: &scene::TextSurface, grid: paint::Grid) -> paint::TextSurface {
     let (r, g, b, a) = surface.default_color().channels();
 
     paint::TextSurface {
@@ -114,7 +108,7 @@ fn to_paint_text_surface(
     }
 }
 
-fn to_paint_icon(icon: &scene::Icon, grid: paint_geometry::Grid) -> paint::Icon {
+fn to_paint_icon(icon: &scene::Icon, grid: paint::Grid) -> paint::Icon {
     paint::Icon {
         rect: into_paint_rect_at_scale(icon.rect(), grid),
         icon: icon.icon(),
@@ -123,17 +117,17 @@ fn to_paint_icon(icon: &scene::Icon, grid: paint_geometry::Grid) -> paint::Icon 
     }
 }
 
-fn to_paint_shadow(shadow: &scene::Shadow, grid: paint_geometry::Grid) -> paint::Shadow {
+fn to_paint_shadow(shadow: &scene::Shadow, grid: paint::Grid) -> paint::Shadow {
     paint::Shadow {
         rect: into_paint_rounded_rect_at_scale(shadow.rect(), shadow.rounding(), grid),
         brush: paint::Brush::solid(super::color::paint_color(shadow.color())),
         blur: shadow.blur(),
         spread: shadow.spread(),
-        offset: paint_geometry::logical_point(shadow.offset().x(), shadow.offset().y()),
+        offset: paint::point::logical(shadow.offset().x(), shadow.offset().y()),
     }
 }
 
-fn to_paint_filter(filter: &scene::Filter, grid: paint_geometry::Grid) -> paint::Filter {
+fn to_paint_filter(filter: &scene::Filter, grid: paint::Grid) -> paint::Filter {
     paint::Filter::stack(
         into_paint_rounded_rect_at_scale(filter.rect(), filter.rounding(), grid),
         filter.ops().iter().copied().map(to_paint_filter_op),
@@ -184,16 +178,16 @@ fn to_paint_backdrop_edge_mode(edge_mode: scene::BackdropEdgeMode) -> paint::Bac
 
 #[cfg(test)]
 fn to_paint_clip(clip: &scene::Clip) -> paint::Clip {
-    to_paint_clip_at_scale(clip, paint_geometry::Grid::new(1.0))
+    to_paint_clip_at_scale(clip, paint::Grid::new(1.0))
 }
 
-fn to_paint_clip_at_scale(clip: &scene::Clip, grid: paint_geometry::Grid) -> paint::Clip {
+fn to_paint_clip_at_scale(clip: &scene::Clip, grid: paint::Grid) -> paint::Clip {
     paint::Clip {
         rect: into_paint_rounded_rect_at_scale(clip.rect(), clip.rounding(), grid),
     }
 }
 
-fn to_paint_outline(outline: &scene::Outline, grid: paint_geometry::Grid) -> paint::Outline {
+fn to_paint_outline(outline: &scene::Outline, grid: paint::Grid) -> paint::Outline {
     paint::Outline {
         rect: into_paint_rounded_rect_at_scale(outline.rect(), outline.rounding(), grid),
         brush: paint::Brush::solid(super::color::paint_color(outline.color())),
@@ -202,32 +196,26 @@ fn to_paint_outline(outline: &scene::Outline, grid: paint_geometry::Grid) -> pai
     }
 }
 
-fn into_paint_rect_at_scale(
-    rect: geometry::Rect,
-    grid: paint_geometry::Grid,
-) -> paint_geometry::Rect {
-    grid.snap_rect(paint_geometry::Rect::new(
-        paint_geometry::logical_point(rect.x() as f32, rect.y() as f32),
-        paint_geometry::logical_area(rect.width() as f32, rect.height() as f32),
+fn into_paint_rect_at_scale(rect: geometry::Rect, grid: paint::Grid) -> paint::Rect {
+    grid.snap_rect(paint::Rect::new(
+        paint::point::logical(rect.x() as f32, rect.y() as f32),
+        paint::area::logical(rect.width() as f32, rect.height() as f32),
     ))
 }
 
 #[cfg(test)]
-fn into_paint_rounded_rect(
-    rect: geometry::Rect,
-    rounding: scene::Rounding,
-) -> paint_geometry::Rect {
-    into_paint_rounded_rect_at_scale(rect, rounding, paint_geometry::Grid::new(1.0))
+fn into_paint_rounded_rect(rect: geometry::Rect, rounding: scene::Rounding) -> paint::Rect {
+    into_paint_rounded_rect_at_scale(rect, rounding, paint::Grid::new(1.0))
 }
 
 fn into_paint_rounded_rect_at_scale(
     rect: geometry::Rect,
     rounding: scene::Rounding,
-    grid: paint_geometry::Grid,
-) -> paint_geometry::Rect {
-    grid.snap_rect(paint_geometry::Rect::rounded(
-        paint_geometry::logical_point(rect.x() as f32, rect.y() as f32),
-        paint_geometry::logical_area(rect.width() as f32, rect.height() as f32),
+    grid: paint::Grid,
+) -> paint::Rect {
+    grid.snap_rect(paint::Rect::rounded(
+        paint::point::logical(rect.x() as f32, rect.y() as f32),
+        paint::area::logical(rect.width() as f32, rect.height() as f32),
         into_paint_rounding(rounding),
     ))
 }
@@ -283,8 +271,8 @@ fn to_paint_rasterization(rasterization: scene::Rasterization) -> paint::Rasteri
 
 fn to_paint_transform(transform: scene::Transform) -> paint::Transform {
     paint::Transform {
-        origin: paint_geometry::logical_point(transform.origin_x(), transform.origin_y()),
-        translate: paint_geometry::logical_point(transform.translate_x(), transform.translate_y()),
+        origin: paint::point::logical(transform.origin_x(), transform.origin_y()),
+        translate: paint::point::logical(transform.translate_x(), transform.translate_y()),
         scale_x: transform.scale_x(),
         scale_y: transform.scale_y(),
         motion: to_paint_motion(transform.motion()),
@@ -293,10 +281,10 @@ fn to_paint_transform(transform: scene::Transform) -> paint::Transform {
 }
 
 fn resolve_quad_transform(
-    rect: paint_geometry::Rect,
+    rect: paint::Rect,
     transform: paint::Transform,
-    grid: paint_geometry::Grid,
-) -> (paint_geometry::Rect, paint::Transform) {
+    grid: paint::Grid,
+) -> (paint::Rect, paint::Transform) {
     transform.resolve_rect(rect, grid)
 }
 
@@ -338,8 +326,8 @@ fn to_paint_edge_mode(edge_mode: scene::EdgeMode) -> paint::EdgeMode {
     }
 }
 
-fn into_paint_rounding(rounding: scene::Rounding) -> paint_geometry::Rounding {
-    paint_geometry::Rounding::new(
+fn into_paint_rounding(rounding: scene::Rounding) -> paint::Rounding {
+    paint::Rounding::new(
         into_paint_radius(rounding.top_left()),
         into_paint_radius(rounding.top_right()),
         into_paint_radius(rounding.bottom_right()),
@@ -347,10 +335,10 @@ fn into_paint_rounding(rounding: scene::Rounding) -> paint_geometry::Rounding {
     )
 }
 
-fn into_paint_radius(radius: scene::Radius) -> paint_geometry::Radius {
+fn into_paint_radius(radius: scene::Radius) -> paint::Radius {
     match radius {
-        scene::Radius::Relative(value) => paint_geometry::Radius::relative(value),
-        scene::Radius::Fixed(value) => paint_geometry::Radius::fixed(value),
+        scene::Radius::Relative(value) => paint::Radius::relative(value),
+        scene::Radius::Fixed(value) => paint::Radius::fixed(value),
     }
 }
 
@@ -461,10 +449,7 @@ mod tests {
                 [paint::FilterOp::Noise(noise)] if noise.opacity == 0.022
             )
         }));
-        assert_eq!(
-            blur_filter.rect.rounding,
-            paint_geometry::Rounding::fixed(10.0)
-        );
+        assert_eq!(blur_filter.rect.rounding, paint::Rounding::fixed(10.0));
 
         let material = paint
             .items()
@@ -498,7 +483,7 @@ mod tests {
     #[test]
     fn layout_to_paint_boundary_snaps_to_fractional_logical_device_grid() {
         let rect = geometry::Rect::new(10, 20, 33, 11);
-        let grid = paint_geometry::Grid::new(1.25);
+        let grid = paint::Grid::new(1.25);
         let paint = into_paint_rounded_rect_at_scale(rect, scene::Rounding::none(), grid);
 
         // 10.0 * 1.25 = 12.5 device px, so the exact tie rounds toward zero.
@@ -512,20 +497,14 @@ mod tests {
     #[test]
     fn scale_change_resnaps_layout_boundary_truth() {
         let rect = geometry::Rect::new(10, 20, 33, 11);
-        let at_1x = into_paint_rounded_rect_at_scale(
-            rect,
-            scene::Rounding::none(),
-            paint_geometry::Grid::new(1.0),
-        );
-        let at_125 = into_paint_rounded_rect_at_scale(
-            rect,
-            scene::Rounding::none(),
-            paint_geometry::Grid::new(1.25),
-        );
+        let at_1x =
+            into_paint_rounded_rect_at_scale(rect, scene::Rounding::none(), paint::Grid::new(1.0));
+        let at_125 =
+            into_paint_rounded_rect_at_scale(rect, scene::Rounding::none(), paint::Grid::new(1.25));
 
         assert_ne!(at_1x, at_125);
-        assert!(paint_geometry::Grid::new(1.0).rect_is_aligned(at_1x));
-        assert!(paint_geometry::Grid::new(1.25).rect_is_aligned(at_125));
+        assert!(paint::Grid::new(1.0).rect_is_aligned(at_1x));
+        assert!(paint::Grid::new(1.25).rect_is_aligned(at_125));
     }
 
     #[test]
@@ -570,8 +549,8 @@ mod tests {
         let transform = scene::Transform::scale_about(12.0, 18.0, 1.25, 1.5);
         let paint = to_paint_transform(transform);
 
-        assert_eq!(paint.origin, paint_geometry::logical_point(12.0, 18.0));
-        assert_eq!(paint.translate, paint_geometry::logical_point(0.0, 0.0));
+        assert_eq!(paint.origin, paint::point::logical(12.0, 18.0));
+        assert_eq!(paint.translate, paint::point::logical(0.0, 0.0));
         assert_eq!(paint.scale_x, 1.25);
         assert_eq!(paint.scale_y, 1.5);
         assert_eq!(paint.motion, paint::Motion::Resting);
@@ -635,7 +614,7 @@ mod tests {
             .expect("slider track should convert to a native paint quad");
 
         assert!(track_quad.transform.is_identity());
-        assert!(paint_geometry::Grid::new(1.0).rect_is_aligned(track_quad.rect));
+        assert!(paint::Grid::new(1.0).rect_is_aligned(track_quad.rect));
     }
 
     #[test]
