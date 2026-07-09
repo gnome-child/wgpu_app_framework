@@ -7,6 +7,7 @@ struct Params {
     source_rect: vec4<f32>,
     target_rect: vec4<f32>,
     rounding: vec4<f32>,
+    alpha_mode: vec4<f32>,
 };
 
 @group(0) @binding(0) var source_texture: texture_2d<f32>;
@@ -101,6 +102,16 @@ fn unpremultiply(color: vec4<f32>) -> vec3<f32> {
     return select(color.rgb / max(color.a, 0.0001), vec3<f32>(0.0), color.a <= 0.0001);
 }
 
+fn filter_alpha(source_alpha: f32, shape_alpha: f32, opacity: f32) -> f32 {
+    let coverage = shape_alpha * opacity;
+
+    if params.alpha_mode.x >= 0.5 {
+        return coverage;
+    }
+
+    return source_alpha * coverage;
+}
+
 fn source_position_for_local(local_position: vec2<f32>) -> vec2<f32> {
     return params.source_rect.xy
         + (local_position - params.rect.xy) * params.source_scale;
@@ -172,7 +183,7 @@ fn fs_composite(in: CompositeOut) -> @location(0) vec4<f32> {
     let rgb = unpremultiply(color);
     let opacity = clamp(params.effect.x, 0.0, 1.0);
 
-    return vec4<f32>(rgb, color.a * alpha * opacity);
+    return vec4<f32>(rgb, filter_alpha(color.a, alpha, opacity));
 }
 
 @fragment
@@ -200,7 +211,7 @@ fn fs_liquid(in: CompositeOut) -> @location(0) vec4<f32> {
     let color = textureSample(source_texture, source_sampler, uv);
     let rgb = unpremultiply(color);
 
-    return vec4<f32>(rgb, color.a * alpha);
+    return vec4<f32>(rgb, filter_alpha(color.a, alpha, 1.0));
 }
 
 @fragment
@@ -220,7 +231,7 @@ fn fs_luminosity(in: CompositeOut) -> @location(0) vec4<f32> {
     let target_luma = dot(target_color, weights);
     let adjusted = clamp(rgb + (target_luma - source_luma) * opacity, vec3<f32>(0.0), vec3<f32>(1.0));
 
-    return vec4<f32>(adjusted, color.a * alpha);
+    return vec4<f32>(adjusted, filter_alpha(color.a, alpha, 1.0));
 }
 
 @fragment
@@ -238,7 +249,7 @@ fn fs_noise(in: CompositeOut) -> @location(0) vec4<f32> {
     let noise = textureSample(noise_texture, noise_sampler, noise_uv);
     let adjusted = mix(rgb, noise.rgb, opacity * noise.a);
 
-    return vec4<f32>(adjusted, color.a * alpha);
+    return vec4<f32>(adjusted, filter_alpha(color.a, alpha, 1.0));
 }
 
 @fragment
@@ -257,5 +268,5 @@ fn fs_composite_pixel(in: CompositeOut) -> @location(0) vec4<f32> {
     let rgb = unpremultiply(color);
     let opacity = clamp(params.effect.x, 0.0, 1.0);
 
-    return vec4<f32>(rgb, color.a * alpha * opacity);
+    return vec4<f32>(rgb, filter_alpha(color.a, alpha, opacity));
 }

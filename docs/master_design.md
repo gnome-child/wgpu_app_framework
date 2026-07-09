@@ -345,12 +345,17 @@ case: full-window composition is accumulated scene truth, while target-local
 ping/pong scratch is filter-chain workspace. Material anchoring is a separate
 axis again: backdrop filters sample source space, while surface effects such as
 noise use panel-local material space so grain rides with the glass instead of
-the world. Temporary group targets use the renderer alpha convention
-consistently: primitives draw into a transparent target, and the group
-composite samples and re-applies opacity as one image so text, rounded edges,
-shadows, and backdrop effects do not separate. Reduced motion and
-accessibility policy can set zero exit duration to skip ghost allocation
-entirely.
+the world. Local target dirtiness is also a separate axis from backdrop truth:
+inside a promoted group, a prior local primitive such as a shadow does not make
+the local transparent target the backdrop for glass. Backdrop operators sample
+the accumulated parent scene; local surface operators sample the material built
+inside the target so far. Material coverage is the panel shape, not sampled
+source alpha; source alpha belongs to layer and group composite-back. Temporary
+group targets use the renderer alpha convention consistently: primitives draw
+into a transparent target, and the group composite samples and re-applies
+opacity as one image so text, rounded edges, shadows, and backdrop effects do
+not separate. Reduced motion and accessibility policy can set zero exit
+duration to skip ghost allocation entirely.
 
 `theme`
 

@@ -224,6 +224,7 @@ struct LiquidPass<'a> {
     target: Target,
     prepared: PreparedFilter,
     effect: [f32; 4],
+    alpha_mode: AlphaMode,
     scissor: Option<render::Scissor>,
 }
 
@@ -239,6 +240,7 @@ struct EffectPass<'a> {
     target: Target,
     prepared: PreparedFilter,
     effect: [f32; 4],
+    alpha_mode: AlphaMode,
     pipeline: &'a wgpu::RenderPipeline,
     scissor: Option<render::Scissor>,
     labels: PassLabels,
@@ -253,8 +255,24 @@ struct CompositePass<'a> {
     prepared: PreparedFilter,
     source_rect: Rect,
     opacity: f32,
+    alpha_mode: AlphaMode,
     scissor: Option<render::Scissor>,
     labels: PassLabels,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AlphaMode {
+    Source,
+    Shape,
+}
+
+impl AlphaMode {
+    fn shader_value(self) -> f32 {
+        match self {
+            Self::Source => 0.0,
+            Self::Shape => 1.0,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -286,6 +304,7 @@ struct ParamInput {
     source_rect: Rect,
     direction: [f32; 2],
     effect: [f32; 4],
+    alpha_mode: AlphaMode,
     sampling: paint::LayerSampling,
 }
 
@@ -300,6 +319,7 @@ struct Params {
     source_rect: [f32; 4],
     target_rect: [f32; 4],
     rounding: [f32; 4],
+    alpha_mode: [f32; 4],
 }
 
 #[repr(C)]
@@ -786,6 +806,7 @@ impl Renderer {
                             prepared,
                             source_rect: prepared.shape_rect,
                             opacity: 1.0,
+                            alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
                             labels: PassLabels::new(
                                 "Filter Blur Composite Bind Group",
@@ -836,6 +857,7 @@ impl Renderer {
                             prepared,
                             source_rect: prepared.shape_rect,
                             opacity: 1.0,
+                            alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
                             labels: PassLabels::new(
                                 "Filter Backdrop Blur Composite Bind Group",
@@ -872,6 +894,7 @@ impl Renderer {
                             target: pass.target,
                             prepared,
                             effect: liquid_effect(depth, splay, feather, curve),
+                            alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
                         });
                         self.composite_pass(CompositePass {
@@ -883,6 +906,7 @@ impl Renderer {
                             prepared,
                             source_rect: prepared.shape_rect,
                             opacity: 1.0,
+                            alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
                             labels: PassLabels::new(
                                 "Filter Liquid Composite Bind Group",
@@ -914,6 +938,7 @@ impl Renderer {
                             target: pass.target,
                             prepared,
                             effect: refraction_effect(refraction),
+                            alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
                         });
                         self.composite_pass(CompositePass {
@@ -925,6 +950,7 @@ impl Renderer {
                             prepared,
                             source_rect: prepared.shape_rect,
                             opacity: 1.0,
+                            alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
                             labels: PassLabels::new(
                                 "Filter Refraction Composite Bind Group",
@@ -961,6 +987,7 @@ impl Renderer {
                                 luminosity.color.b,
                                 luminosity.opacity,
                             ],
+                            alpha_mode: AlphaMode::Shape,
                             pipeline: &self.luminosity_pipeline,
                             scissor: pass.scissor,
                             labels: PassLabels::new(
@@ -978,6 +1005,7 @@ impl Renderer {
                             prepared,
                             source_rect: prepared.shape_rect,
                             opacity: 1.0,
+                            alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
                             labels: PassLabels::new(
                                 "Filter Luminosity Composite Bind Group",
@@ -1009,6 +1037,7 @@ impl Renderer {
                             target: pass.target,
                             prepared,
                             effect: [noise.opacity, 0.0, 0.0, 0.0],
+                            alpha_mode: AlphaMode::Shape,
                             pipeline: &self.noise_pipeline,
                             scissor: pass.scissor,
                             labels: PassLabels::new(
@@ -1026,6 +1055,7 @@ impl Renderer {
                             prepared,
                             source_rect: prepared.shape_rect,
                             opacity: 1.0,
+                            alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
                             labels: PassLabels::new(
                                 "Filter Noise Composite Bind Group",
@@ -1066,6 +1096,7 @@ impl Renderer {
             prepared,
             source_rect,
             opacity: pass.opacity,
+            alpha_mode: AlphaMode::Source,
             scissor: pass.scissor,
             labels: PassLabels {
                 bind_group: "Layer Composite Bind Group",
@@ -1110,6 +1141,7 @@ impl Renderer {
                 target.physical_area.height() as f32,
             ],
             rounding: [0.0; 4],
+            alpha_mode: [AlphaMode::Source.shader_value(), 0.0, 0.0, 0.0],
         };
         let bind_group = self.bind_group(
             render_context,
@@ -1204,6 +1236,7 @@ impl Renderer {
             source_rect: pass.source_rect,
             direction: pass.direction,
             effect: [pass.prepared.blur_sigma_px, 0.0, 0.0, 0.0],
+            alpha_mode: AlphaMode::Source,
             sampling: pass.source.sampling,
         });
         let bind_group = self.bind_group(
@@ -1244,6 +1277,7 @@ impl Renderer {
             source_rect: pass.source_rect,
             direction: [0.0, 0.0],
             effect: pass.effect,
+            alpha_mode: pass.alpha_mode,
             sampling: pass.source_sampling,
         });
         let bind_group = self.bind_group(
@@ -1302,6 +1336,7 @@ impl Renderer {
             source_rect: pass.source_rect,
             direction: [0.0, 0.0],
             effect: pass.effect,
+            alpha_mode: pass.alpha_mode,
             sampling: pass.source_sampling,
         });
         let bind_group = self.bind_group(
@@ -1360,6 +1395,7 @@ impl Renderer {
             source_rect: pass.source_rect,
             direction: [0.0, 0.0],
             effect: [pass.opacity.clamp(0.0, 1.0), 0.0, 0.0, 0.0],
+            alpha_mode: pass.alpha_mode,
             sampling: pass.source.sampling,
         });
         let bind_group = self.bind_group(
@@ -1502,6 +1538,7 @@ fn params_with_texture_area(input: ParamInput) -> Params {
         source_rect: source_rect_data,
         target_rect: physical_rect_data(input.prepared.shape_rect, input.target_scale_factor),
         rounding: rounding_data(input.prepared.rounding),
+        alpha_mode: [input.alpha_mode.shader_value(), 0.0, 0.0, 0.0],
     }
 }
 
@@ -2106,6 +2143,42 @@ mod tests {
     }
 
     #[test]
+    fn alpha_mode_params_encode_shape_and_source_modes() {
+        let prepared = prepare_filter(
+            Rect::new(
+                paint::point::logical(0.0, 0.0),
+                paint::area::logical(160.0, 80.0),
+            ),
+            1.0,
+        )
+        .expect("filter should prepare");
+        let input = |alpha_mode| ParamInput {
+            target_scale_factor: 1.0,
+            texture_area: paint::area::physical(160, 80),
+            texture_logical_area: paint::area::logical(160.0, 80.0),
+            prepared,
+            source_rect: prepared.shape_rect,
+            direction: [0.0, 0.0],
+            effect: [1.0, 0.0, 0.0, 0.0],
+            alpha_mode,
+            sampling: paint::LayerSampling::Filtered,
+        };
+
+        let source = params_with_texture_area(input(AlphaMode::Source));
+        let shape = params_with_texture_area(input(AlphaMode::Shape));
+
+        assert_eq!(source.alpha_mode, [0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(shape.alpha_mode, [1.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn filter_shader_uses_named_alpha_mode_helper() {
+        assert!(FILTER_WGSL.contains("alpha_mode: vec4<f32>"));
+        assert!(FILTER_WGSL.contains("fn filter_alpha"));
+        assert!(FILTER_WGSL.contains("params.alpha_mode.x"));
+    }
+
+    #[test]
     fn blur_intermediate_source_rect_is_local_after_first_pass() {
         let local_filter_rect = Rect::new(
             paint::point::logical(0.0, 0.0),
@@ -2160,6 +2233,7 @@ mod tests {
             ),
             direction: [1.0, 0.0],
             effect: [1.0, 0.0, 0.0, 0.0],
+            alpha_mode: AlphaMode::Shape,
             sampling: paint::LayerSampling::PixelAligned,
         });
 
@@ -2186,6 +2260,7 @@ mod tests {
             source_rect: prepared.shape_rect,
             direction: [0.0, 1.0],
             effect: [1.0, 0.0, 0.0, 0.0],
+            alpha_mode: AlphaMode::Shape,
             sampling: paint::LayerSampling::Filtered,
         });
 
@@ -2216,6 +2291,7 @@ mod tests {
             source_rect: inline_prepared.shape_rect,
             direction: [0.0, 0.0],
             effect: [1.0, 0.0, 0.0, 0.0],
+            alpha_mode: AlphaMode::Shape,
             sampling: paint::LayerSampling::PixelAligned,
         });
         let promoted_params = params_with_texture_area(ParamInput {
@@ -2226,6 +2302,7 @@ mod tests {
             source_rect: inline_prepared.shape_rect,
             direction: [0.0, 0.0],
             effect: [1.0, 0.0, 0.0, 0.0],
+            alpha_mode: AlphaMode::Shape,
             sampling: paint::LayerSampling::PixelAligned,
         });
 
@@ -2253,6 +2330,7 @@ mod tests {
             source_rect: prepared.shape_rect,
             direction: [0.0, 0.0],
             effect: [1.0, 0.0, 0.0, 0.0],
+            alpha_mode: AlphaMode::Shape,
             sampling: paint::LayerSampling::PixelAligned,
         });
         let params_b = params_with_texture_area(ParamInput {
@@ -2266,6 +2344,7 @@ mod tests {
             ),
             direction: [0.0, 0.0],
             effect: [1.0, 0.0, 0.0, 0.0],
+            alpha_mode: AlphaMode::Shape,
             sampling: paint::LayerSampling::PixelAligned,
         });
 
@@ -2294,6 +2373,7 @@ mod tests {
             source_rect: prepared.shape_rect,
             direction: [0.0, 0.0],
             effect: [1.0, 0.0, 0.0, 0.0],
+            alpha_mode: AlphaMode::Shape,
             sampling: paint::LayerSampling::PixelAligned,
         });
 

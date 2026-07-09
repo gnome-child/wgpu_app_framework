@@ -75,6 +75,7 @@ struct SceneEncoder<'a> {
     layers: Vec<render::filter::Layer>,
     clip_stack: Vec<ClipFrame>,
     base_dirty: bool,
+    inside_group: bool,
     text_render_error: &'a mut Option<render::text_renderer::Error>,
 }
 
@@ -90,11 +91,31 @@ struct SceneEncoderInput<'a> {
     clear_color: wgpu::Color,
     viewport: render::Viewport,
     base_dirty: bool,
+    inside_group: bool,
     text_render_error: &'a mut Option<render::text_renderer::Error>,
 }
 
 struct FilterSource<'a> {
     source: render::filter::TextureSource<'a>,
+    source_rect: Rect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilterSourceKind {
+    Backdrop,
+    Local,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilterSourceChoice {
+    Backdrop,
+    CurrentTarget,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct FilterSourceDecision {
+    kind: FilterSourceKind,
+    choice: FilterSourceChoice,
     source_rect: Rect,
 }
 
@@ -193,6 +214,7 @@ impl Renderer {
                 clear_color,
                 viewport: main_viewport,
                 base_dirty: true,
+                inside_group: false,
                 text_render_error: &mut text_render_error,
             });
             scene_encoder.encode(&prepared_scene.render_batches);
@@ -447,6 +469,7 @@ impl<'a> SceneEncoder<'a> {
             layers: Vec::new(),
             clip_stack: Vec::new(),
             base_dirty: input.base_dirty,
+            inside_group: input.inside_group,
             text_render_error: input.text_render_error,
         }
     }
@@ -499,7 +522,18 @@ impl<'a> SceneEncoder<'a> {
         else {
             return;
         };
-        let source = if self.current_target_dirty() {
+        let dirty = self.current_target_dirty();
+        let decision = filter_source_decision(self.inside_group, dirty, filter);
+        log::debug!(
+            target: "wgpu_l3::render::filter_source",
+            "filter source kind={:?} group={} dirty={} choice={:?} source_rect={:?}",
+            decision.kind,
+            self.inside_group,
+            dirty,
+            decision.choice,
+            decision.source_rect,
+        );
+        let source = if decision.choice == FilterSourceChoice::CurrentTarget {
             FilterSource {
                 source: render::filter::TextureSource::new(
                     output,
@@ -507,7 +541,7 @@ impl<'a> SceneEncoder<'a> {
                     self.output_target.logical_area(),
                     paint::LayerSampling::PixelAligned,
                 ),
-                source_rect: filter.rect,
+                source_rect: decision.source_rect,
             }
         } else {
             FilterSource {
@@ -517,7 +551,7 @@ impl<'a> SceneEncoder<'a> {
                     self.backdrop_target.logical_area(),
                     paint::LayerSampling::PixelAligned,
                 ),
-                source_rect: filter.source_rect.unwrap_or(filter.rect),
+                source_rect: decision.source_rect,
             }
         };
 
@@ -607,6 +641,7 @@ impl<'a> SceneEncoder<'a> {
                     self.viewport.scale_factor(),
                 ),
                 base_dirty: false,
+                inside_group: true,
                 text_render_error: self.text_render_error,
             });
             group_encoder.encode(&group.render_batches);
@@ -702,6 +737,49 @@ fn group_layer_source_rect(bounds: Rect) -> Rect {
     Rect::new(paint::point::logical(0.0, 0.0), bounds.area)
 }
 
+fn filter_source_decision(
+    inside_group: bool,
+    current_target_dirty: bool,
+    filter: &paint::Filter,
+) -> FilterSourceDecision {
+    let kind = filter_source_kind(filter);
+    let choice = if inside_group && kind == FilterSourceKind::Backdrop {
+        FilterSourceChoice::Backdrop
+    } else if current_target_dirty {
+        FilterSourceChoice::CurrentTarget
+    } else {
+        FilterSourceChoice::Backdrop
+    };
+    let source_rect = match choice {
+        FilterSourceChoice::Backdrop => filter.source_rect.unwrap_or(filter.rect),
+        FilterSourceChoice::CurrentTarget => filter.rect,
+    };
+
+    FilterSourceDecision {
+        kind,
+        choice,
+        source_rect,
+    }
+}
+
+fn filter_source_kind(filter: &paint::Filter) -> FilterSourceKind {
+    filter
+        .ops
+        .first()
+        .map(first_filter_op_source_kind)
+        .unwrap_or(FilterSourceKind::Local)
+}
+
+fn first_filter_op_source_kind(op: &paint::FilterOp) -> FilterSourceKind {
+    match op {
+        paint::FilterOp::BackdropBlur(_)
+        | paint::FilterOp::Liquid { .. }
+        | paint::FilterOp::Refraction(_)
+        | paint::FilterOp::Luminosity(_) => FilterSourceKind::Backdrop,
+        paint::FilterOp::Blur { .. } | paint::FilterOp::Noise(_) => FilterSourceKind::Local,
+    }
+}
+
 fn current_target_view<'a>(
     base_view: &'a wgpu::TextureView,
     layers: &'a [render::filter::Layer],
@@ -785,6 +863,53 @@ mod tests {
     use crate::text;
 
     use super::*;
+
+    fn filter_rect() -> Rect {
+        Rect::new(
+            paint::point::logical(0.0, 0.0),
+            paint::area::logical(100.0, 40.0),
+        )
+    }
+
+    fn global_rect() -> Rect {
+        Rect::new(
+            paint::point::logical(240.0, 120.0),
+            paint::area::logical(100.0, 40.0),
+        )
+    }
+
+    fn backdrop_blur_filter() -> paint::Filter {
+        let mut filter = paint::Filter::stack(
+            filter_rect(),
+            [paint::FilterOp::backdrop_blur(paint::BackdropBlur {
+                sigma: 20.0,
+                edge_mode: paint::BackdropEdgeMode::Mirror,
+            })],
+        );
+        filter.source_rect = Some(global_rect());
+        filter
+    }
+
+    fn luminosity_filter() -> paint::Filter {
+        let mut filter = paint::Filter::stack(
+            filter_rect(),
+            [paint::FilterOp::luminosity(paint::Luminosity {
+                color: paint::Color::BLACK,
+                opacity: 0.8,
+            })],
+        );
+        filter.source_rect = Some(global_rect());
+        filter
+    }
+
+    fn noise_filter() -> paint::Filter {
+        let mut filter = paint::Filter::stack(
+            filter_rect(),
+            [paint::FilterOp::noise(paint::Noise { opacity: 0.05 })],
+        );
+        filter.source_rect = Some(global_rect());
+        filter
+    }
 
     #[test]
     fn clip_scissor_converts_logical_rect_to_physical_pixels() {
@@ -991,5 +1116,90 @@ mod tests {
 
         assert_eq!(source.origin, paint::point::logical(0.0, 0.0));
         assert_eq!(source.area, bounds.area);
+    }
+
+    #[test]
+    fn group_backdrop_blur_after_local_shape_chooses_parent_backdrop() {
+        let filter = backdrop_blur_filter();
+
+        let decision = filter_source_decision(true, true, &filter);
+
+        assert_eq!(decision.kind, FilterSourceKind::Backdrop);
+        assert_eq!(decision.choice, FilterSourceChoice::Backdrop);
+        assert_eq!(decision.source_rect, global_rect());
+    }
+
+    #[test]
+    fn group_luminosity_after_local_shape_chooses_parent_backdrop() {
+        let filter = luminosity_filter();
+
+        let decision = filter_source_decision(true, true, &filter);
+
+        assert_eq!(decision.kind, FilterSourceKind::Backdrop);
+        assert_eq!(decision.choice, FilterSourceChoice::Backdrop);
+        assert_eq!(decision.source_rect, global_rect());
+    }
+
+    #[test]
+    fn group_noise_after_local_content_chooses_current_target() {
+        let filter = noise_filter();
+
+        let decision = filter_source_decision(true, true, &filter);
+
+        assert_eq!(decision.kind, FilterSourceKind::Local);
+        assert_eq!(decision.choice, FilterSourceChoice::CurrentTarget);
+        assert_eq!(decision.source_rect, filter_rect());
+    }
+
+    #[test]
+    fn inline_dirty_backdrop_filter_still_chooses_current_target() {
+        let filter = backdrop_blur_filter();
+
+        let decision = filter_source_decision(false, true, &filter);
+
+        assert_eq!(decision.kind, FilterSourceKind::Backdrop);
+        assert_eq!(decision.choice, FilterSourceChoice::CurrentTarget);
+        assert_eq!(decision.source_rect, filter_rect());
+    }
+
+    #[test]
+    fn group_clean_local_filter_can_start_from_parent_backdrop() {
+        let filter = noise_filter();
+
+        let decision = filter_source_decision(true, false, &filter);
+
+        assert_eq!(decision.kind, FilterSourceKind::Local);
+        assert_eq!(decision.choice, FilterSourceChoice::Backdrop);
+        assert_eq!(decision.source_rect, global_rect());
+    }
+
+    #[test]
+    fn multi_op_filter_source_kind_comes_from_first_op() {
+        let backdrop_first = paint::Filter::stack(
+            filter_rect(),
+            [
+                paint::FilterOp::backdrop_blur(paint::BackdropBlur {
+                    sigma: 20.0,
+                    edge_mode: paint::BackdropEdgeMode::Mirror,
+                }),
+                paint::FilterOp::noise(paint::Noise { opacity: 0.05 }),
+            ],
+        );
+        let local_first = paint::Filter::stack(
+            filter_rect(),
+            [
+                paint::FilterOp::noise(paint::Noise { opacity: 0.05 }),
+                paint::FilterOp::luminosity(paint::Luminosity {
+                    color: paint::Color::BLACK,
+                    opacity: 0.8,
+                }),
+            ],
+        );
+
+        assert_eq!(
+            filter_source_kind(&backdrop_first),
+            FilterSourceKind::Backdrop
+        );
+        assert_eq!(filter_source_kind(&local_first), FilterSourceKind::Local);
     }
 }
