@@ -49,11 +49,11 @@ pub(super) fn create_texture(render_context: &render::Context) -> Texture {
 }
 
 #[cfg(test)]
-pub(super) fn texture_size() -> u32 {
+fn texture_size() -> u32 {
     TEXTURE_SIZE
 }
 
-pub(super) fn bytes() -> Vec<u8> {
+fn bytes() -> Vec<u8> {
     let size = TEXTURE_SIZE as usize;
     let mut bytes = Vec::with_capacity(size * size * 4);
 
@@ -67,7 +67,7 @@ pub(super) fn bytes() -> Vec<u8> {
     bytes
 }
 
-pub(super) fn texel(x: u32, y: u32) -> u8 {
+fn texel(x: u32, y: u32) -> u8 {
     let hash = hash_texel(x, y);
     let centered = hash as i16 - 128;
     let value = 128 + centered * 35 / 100;
