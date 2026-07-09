@@ -1,6 +1,6 @@
 use crate::paint;
 
-pub enum ItemBatch<'a> {
+pub(in crate::render) enum ItemBatch<'a> {
     Shapes(Vec<Shape<'a>>),
     Pane(&'a paint::Pane),
     Glyphs(Vec<Glyph<'a>>),
@@ -10,20 +10,20 @@ pub enum ItemBatch<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum Glyph<'a> {
+pub(in crate::render) enum Glyph<'a> {
     Text(&'a paint::Text),
     TextViewport(&'a paint::TextViewport),
     Icon(&'a paint::Icon),
 }
 
-pub enum Shape<'a> {
+pub(in crate::render) enum Shape<'a> {
     Quad(&'a paint::Quad),
     Rule(&'a paint::Rule),
     Shadow(&'a paint::Shadow),
     Outline(&'a paint::Outline),
 }
 
-pub fn item_batches(items: &[paint::Item]) -> Vec<ItemBatch<'_>> {
+pub(in crate::render) fn item_batches(items: &[paint::Item]) -> Vec<ItemBatch<'_>> {
     let mut batches = Vec::new();
 
     for item in items {
