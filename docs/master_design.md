@@ -349,40 +349,47 @@ Group bounds are paint-space visual extents, not just the retained entry rect:
 they include shadows, filter spreads, blur radii, and other pixels the entry
 owns. The group source rect is local texture space while the destination rect
 is the global entry bounds; confusing those is a coordinate bug that can stretch
-or zoom the accumulated scene during fades. Backdrop source space and local
-output space are separate axes: the first backdrop sample may read from the
-global accumulated composition, but every intermediate filter scratch target
-after that is local to the current target. This is another `Axis Splitting`
-case: full-window composition is accumulated scene truth, while target-local
-ping/pong scratch is filter-chain workspace. Material anchoring is a separate
-axis again: backdrop material layers sample source space, while surface layers
-such as noise use panel-local material space so grain rides with the glass
-instead of the world. Material and filter pass parameters derive from one
-context authority that owns the backdrop source, local source, target scratch,
-and global-to-local mapping; individual passes must not re-thread bare source
-and target rects as independent truths. A material/filter chain has one world;
-a pass that derives source, target, or coverage from outside the context is a
-migration bug. Local target dirtiness is also a separate axis from backdrop
-truth: inside a promoted group, a prior local primitive such as a shadow does
-not make the local transparent target the backdrop for glass. Backdrop layers
-sample the accumulated parent scene; local surface layers sample the material
-built inside the target so far. Material coverage is the panel shape, not
-sampled source alpha; source alpha belongs to layer and group composite-back.
-Shape-mode material filters use source RGB independently from source alpha so a
-transparent group target cannot erase backdrop blur, luminosity, or other glass
-material. Backdrop blur also needs target-local scratch padding for the kernel
-reach; group bounds reserve that spread before the filter chain writes into
-local ping/pong textures. Temporary group targets use the renderer alpha
-convention consistently: primitives draw into a transparent target, and the
-group composite samples and re-applies opacity as one image so text, rounded
-edges, shadows, and backdrop effects do not separate. A full
-premultiplied-alpha/group-blend audit is scheduled follow-up work, not an
-optional maybe, because group compositing has now exposed multiple
-alpha-convention seams. Local blur is future work on the same filter-chain
-context seam, but it must wait for that audit because blurring transparent local
-content under straight alpha creates dark halos. Reduced motion and
-accessibility policy can set zero exit duration to skip ghost allocation
-entirely.
+or zoom the accumulated scene during fades.
+
+Backdrop source space and local output space are separate axes. The first
+backdrop sample may read from the global accumulated composition, but every
+intermediate filter scratch target after that is local to the current target.
+This is another `Axis Splitting` case: full-window composition is accumulated
+scene truth, while target-local ping/pong scratch is filter-chain workspace.
+Material anchoring is a separate axis again: backdrop material layers sample
+source space, while surface layers such as noise use panel-local material space
+so grain rides with the glass instead of the world.
+
+Material and filter pass parameters derive from one context authority that owns
+the backdrop source, local source, target scratch, and global-to-local mapping;
+individual passes must not re-thread bare source and target rects as independent
+truths. A material/filter chain has one world; a pass that derives source,
+target, or coverage from outside the context is a migration bug.
+
+Local target dirtiness is also a separate axis from backdrop truth: inside a
+promoted group, a prior local primitive such as a shadow does not make the local
+transparent target the backdrop for glass. Backdrop layers sample the
+accumulated parent scene; local surface layers sample the material built inside
+the target so far.
+
+Material coverage is the panel shape, not sampled source alpha; source alpha
+belongs to layer and group composite-back. Shape-mode material filters use
+source RGB independently from source alpha so a transparent group target cannot
+erase backdrop blur, luminosity, or other glass material.
+
+Backdrop blur needs target-local scratch padding for the kernel reach; group
+bounds reserve that spread before the filter chain writes into local ping/pong
+textures. Temporary group targets use the renderer alpha convention
+consistently: primitives draw into a transparent target, and the group composite
+samples and re-applies opacity as one image so text, rounded edges, shadows, and
+backdrop effects do not separate. A full premultiplied-alpha/group-blend audit
+is scheduled follow-up work, not an optional maybe, because group compositing has
+now exposed multiple alpha-convention seams. Local blur is future work on the
+same filter-chain context seam, but it must wait for that audit because blurring
+transparent local content under straight alpha creates dark halos.
+
+Reduced motion and accessibility policy can set zero exit duration to skip
+ghost allocation entirely.
 
 `theme`
 
