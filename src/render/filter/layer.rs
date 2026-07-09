@@ -1,3 +1,4 @@
+use super::geometry::{prepare_clip, source_rect_for_prepared_destination};
 use super::*;
 
 impl Renderer {

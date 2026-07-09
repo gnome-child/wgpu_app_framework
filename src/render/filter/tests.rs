@@ -1,5 +1,8 @@
 use super::effects::liquid_depth_displacement;
-use super::geometry::{blur_kernel_radius_px, blur_radius_px, blur_sigma_px};
+use super::geometry::{
+    blur_kernel_radius_px, blur_radius_px, blur_sigma_px, prepare_clip,
+    source_rect_for_prepared_destination,
+};
 use super::params::{
     noise_material_position_data, physical_rect_data, physical_source_rect_data, source_scale_data,
     source_step_data, with_texture_area as params_with_texture_area,

@@ -24,9 +24,7 @@ pub(crate) use chain::FilterSource;
 pub(crate) use draw::FilterDraw;
 use effects::{liquid_effect, liquid_is_identity, refraction_effect};
 pub(crate) use encode::shader_source;
-use geometry::{
-    PreparedFilter, prepare_clip, prepare_filter, source_rect_for_prepared_destination,
-};
+use geometry::{PreparedFilter, prepare_filter};
 #[cfg(test)]
 pub(crate) use geometry::{prepared_clip_silhouette_for_test, prepared_filter_silhouette_for_test};
 use params::{AlphaMode, ParamInput, Params};
