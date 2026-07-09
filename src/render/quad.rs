@@ -10,22 +10,22 @@ use crate::render::silhouette::{
 
 const QUAD_WGSL: &str = include_str!("quad.wgsl");
 
-pub struct Batch {
+pub(in crate::render) struct Batch {
     vertex_buffer: wgpu::Buffer,
     vertex_count: u32,
 }
 
 impl Batch {
-    pub fn vertex_buffer(&self) -> &wgpu::Buffer {
+    pub(in crate::render) fn vertex_buffer(&self) -> &wgpu::Buffer {
         &self.vertex_buffer
     }
 
-    pub fn vertex_count(&self) -> u32 {
+    pub(in crate::render) fn vertex_count(&self) -> u32 {
         self.vertex_count
     }
 }
 
-pub fn pipeline(
+pub(in crate::render) fn pipeline(
     render_context: &render::Context,
     format: wgpu::TextureFormat,
 ) -> wgpu::RenderPipeline {
@@ -79,7 +79,7 @@ pub(in crate::render) fn shader_source() -> String {
     silhouette::wgsl_module_source(QUAD_WGSL)
 }
 
-pub fn prepare_batch(
+pub(in crate::render) fn prepare_batch(
     render_context: &render::Context,
     viewport: render::Viewport,
     shapes: &[batch::Shape<'_>],
@@ -594,7 +594,7 @@ fn brush_data(brush: paint::Brush) -> PreparedBrush {
 }
 
 #[cfg(test)]
-pub(crate) fn prepared_fill_silhouette_for_test(
+pub(in crate::render) fn prepared_fill_silhouette_for_test(
     rect: Rect,
     scale_factor: f32,
 ) -> PreparedSilhouette {
@@ -607,7 +607,7 @@ pub(crate) fn prepared_fill_silhouette_for_test(
 }
 
 #[cfg(test)]
-pub(crate) fn prepared_shadow_cutout_silhouette_for_test(
+pub(in crate::render) fn prepared_shadow_cutout_silhouette_for_test(
     shadow: paint::Shadow,
     scale_factor: f32,
 ) -> PreparedSilhouette {
