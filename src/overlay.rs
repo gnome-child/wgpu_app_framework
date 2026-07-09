@@ -16,7 +16,6 @@ pub(crate) struct Draft {
 
 #[derive(Debug, Clone)]
 struct Entry {
-    #[allow(dead_code)]
     id: interaction::Id,
     order: u64,
     scene: scene::Scene,
@@ -172,14 +171,14 @@ impl Ghost {
     }
 
     #[cfg(test)]
-    pub(crate) fn id(&self) -> interaction::Id {
+    fn id(&self) -> interaction::Id {
         self.id
     }
 }
 
 impl Layer {
     #[cfg(test)]
-    pub(crate) fn id(&self) -> interaction::Id {
+    fn id(&self) -> interaction::Id {
         self.id
     }
 
@@ -334,7 +333,7 @@ impl Store {
     }
 
     #[cfg(test)]
-    pub(crate) fn ghost_count(&self, window: window::Id) -> usize {
+    fn ghost_count(&self, window: window::Id) -> usize {
         self.windows
             .get(&window)
             .map(|state| state.ghosts.len())
@@ -342,7 +341,7 @@ impl Store {
     }
 
     #[cfg(test)]
-    pub(crate) fn ghost_ids(&self, window: window::Id) -> Vec<interaction::Id> {
+    fn ghost_ids(&self, window: window::Id) -> Vec<interaction::Id> {
         self.windows
             .get(&window)
             .map(|state| state.ghosts.iter().map(Ghost::id).collect())
