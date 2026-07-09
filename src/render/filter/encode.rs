@@ -2,7 +2,7 @@ use crate::paint;
 use crate::render;
 
 use super::params::{self, AlphaMode, ParamInput, Params};
-use super::pass::{BlurPass, CompositePass, EffectPass, LiquidPass, composite_vertices};
+use super::pass::{BlurPass, CompositePass, EffectPass, RefractionPass, composite_vertices};
 use super::shader;
 use super::state::Renderer;
 use wgpu::util::DeviceExt;
@@ -59,7 +59,7 @@ impl Renderer {
         render_pass.draw(0..3, 0..1);
     }
 
-    pub(super) fn liquid_pass(&self, pass: LiquidPass<'_>) {
+    pub(super) fn refraction_pass(&self, pass: RefractionPass<'_>) {
         let params = self.params_with_texture_area(ParamInput {
             target_scale_factor: pass.target.scale_factor,
             texture_area: pass.source_area,
@@ -76,19 +76,19 @@ impl Renderer {
             pass.source,
             params,
             pass.source_sampling,
-            "Filter Liquid Bind Group",
+            "Filter Refraction Bind Group",
         );
         let vertices = composite_vertices(pass.target.logical_area, pass.prepared);
         let vertex_buffer =
             pass.render_context
                 .device()
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Filter Liquid Vertex Buffer"),
+                    label: Some("Filter Refraction Vertex Buffer"),
                     contents: bytemuck::cast_slice(&vertices),
                     usage: wgpu::BufferUsages::VERTEX,
                 });
         let mut render_pass = pass.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Filter Liquid Pass"),
+            label: Some("Filter Refraction Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: pass.output,
                 resolve_target: None,
@@ -104,7 +104,7 @@ impl Renderer {
             multiview_mask: None,
         });
 
-        render_pass.set_pipeline(&self.liquid_pipeline);
+        render_pass.set_pipeline(&self.refraction_pipeline);
         render_pass.set_bind_group(0, &bind_group, &[]);
         render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
         if let Some(scissor) = pass.scissor {

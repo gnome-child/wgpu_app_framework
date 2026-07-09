@@ -21,7 +21,7 @@ pub(super) struct BlurPass<'a> {
     pub(super) labels: BlurLabels,
 }
 
-pub(super) struct LiquidPass<'a> {
+pub(super) struct RefractionPass<'a> {
     pub(super) render_context: &'a render::Context,
     pub(super) encoder: &'a mut wgpu::CommandEncoder,
     pub(super) source: &'a wgpu::TextureView,

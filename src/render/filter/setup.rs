@@ -130,11 +130,11 @@ impl Renderer {
                     multiview_mask: None,
                     cache: None,
                 });
-        let liquid_pipeline =
+        let refraction_pipeline =
             render_context
                 .device()
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("Filter Liquid Pipeline"),
+                    label: Some("Filter Refraction Pipeline"),
                     layout: Some(&pipeline_layout),
                     vertex: wgpu::VertexState {
                         module: &shader,
@@ -147,7 +147,7 @@ impl Renderer {
                     multisample: wgpu::MultisampleState::default(),
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
-                        entry_point: Some("fs_liquid"),
+                        entry_point: Some("fs_refraction"),
                         targets: &[Some(wgpu::ColorTargetState {
                             format,
                             blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -307,7 +307,7 @@ impl Renderer {
 
         Self {
             blur_pipeline,
-            liquid_pipeline,
+            refraction_pipeline,
             luminosity_pipeline,
             noise_pipeline,
             blit_pipeline,

@@ -195,7 +195,7 @@ fn fs_composite(in: CompositeOut) -> @location(0) vec4<f32> {
 }
 
 @fragment
-fn fs_liquid(in: CompositeOut) -> @location(0) vec4<f32> {
+fn fs_refraction(in: CompositeOut) -> @location(0) vec4<f32> {
     let sdf = rounded_rect_sdf(in.local_position, in.rect, in.rounding);
     let alpha = rounded_rect_coverage(sdf);
 

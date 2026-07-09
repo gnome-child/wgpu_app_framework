@@ -41,7 +41,7 @@ mod tests {
 
         for fragment in [
             "fs_composite",
-            "fs_liquid",
+            "fs_refraction",
             "fs_luminosity",
             "fs_noise",
             "fs_composite_pixel",

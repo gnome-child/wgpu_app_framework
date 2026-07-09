@@ -5,7 +5,7 @@ use super::storage::{ScratchTextures, Texture, Textures};
 
 pub(crate) struct Renderer {
     pub(super) blur_pipeline: wgpu::RenderPipeline,
-    pub(super) liquid_pipeline: wgpu::RenderPipeline,
+    pub(super) refraction_pipeline: wgpu::RenderPipeline,
     pub(super) luminosity_pipeline: wgpu::RenderPipeline,
     pub(super) noise_pipeline: wgpu::RenderPipeline,
     pub(super) blit_pipeline: wgpu::RenderPipeline,

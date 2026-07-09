@@ -5,7 +5,7 @@ use super::chain::{FilterChainContext, FilterSource};
 use super::effects::refraction_effect;
 use super::geometry::prepare_filter;
 use super::params::AlphaMode;
-use super::pass::{BlurLabels, BlurPass, CompositePass, EffectPass, LiquidPass, PassLabels};
+use super::pass::{BlurLabels, BlurPass, CompositePass, EffectPass, PassLabels, RefractionPass};
 use super::state::Renderer;
 use super::storage::ScratchTargets;
 use super::target::Target;
@@ -169,7 +169,7 @@ impl Renderer {
                         }
 
                         let sample = chain.current_sample();
-                        self.liquid_pass(LiquidPass {
+                        self.refraction_pass(RefractionPass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
                             source: sample.texture.view,
