@@ -1174,6 +1174,35 @@ fn paint_display_list_no_longer_routes_generic_filter_items() {
     );
 }
 
+#[test]
+fn compositor_diagnostics_are_documented_debug_targets() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let source_root = root.join("src");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+    let filter = std::fs::read_to_string(source_root.join("render").join("filter.rs"))
+        .expect("filter renderer source should read");
+    let renderer = std::fs::read_to_string(source_root.join("render").join("renderer.rs"))
+        .expect("renderer source should read");
+    let presentation = std::fs::read_to_string(source_root.join("runtime").join("presentation.rs"))
+        .expect("presentation source should read");
+
+    for target in [
+        "wgpu_l3::render::filter_params",
+        "wgpu_l3::render::material",
+        "wgpu_l3::overlay::fade",
+    ] {
+        assert!(
+            master.contains(target),
+            "diagnostic target {target} must be documented"
+        );
+    }
+
+    assert_debug_log_target(&filter, "wgpu_l3::render::filter_params");
+    assert_debug_log_target(&renderer, "wgpu_l3::render::material");
+    assert_debug_log_target(&presentation, "wgpu_l3::overlay::fade");
+}
+
 fn assert_source_patterns_absent(path: &std::path::Path, patterns: &[String]) {
     for entry in std::fs::read_dir(path).expect("framework source directory should be readable") {
         let path = entry
@@ -1197,6 +1226,27 @@ fn assert_source_patterns_absent(path: &std::path::Path, patterns: &[String]) {
             );
         }
     }
+}
+
+fn assert_debug_log_target(source: &str, target: &str) {
+    let source = source
+        .split("#[cfg(test)]\nmod tests")
+        .next()
+        .unwrap_or(source);
+    let mut found = false;
+    for (index, _) in source.match_indices(target) {
+        found = true;
+        let start = index.saturating_sub(200);
+        let context = &source[start..index];
+        assert!(
+            context.contains("log::debug!"),
+            "diagnostic target {target} must be emitted through log::debug!"
+        );
+    }
+    assert!(
+        found,
+        "diagnostic target {target} must have an implementation site"
+    );
 }
 
 fn assert_imports_only_under_any(
