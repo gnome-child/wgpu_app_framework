@@ -556,6 +556,19 @@ render work (presented frames, frame-interval p95, surface-acquire p95, draw
 p95, `key->present` p95, pending key samples, promoted group composites, and
 retained filter layer/scratch pool entries).
 
+The instrument map is:
+
+| Surface | Owner | Signals |
+| --- | --- | --- |
+| `Text layout` | `text::layout`, `text::edit` | paint calls, metric calls, visible and shaped lines, overscan segments, overlay and highlight work |
+| `Text caches` | text layout caches | line hits/misses, render-surface calls, render-cache hits/misses, render source lines and bytes |
+| `Scroll` | interaction and text viewport services | wheel events, offset changes, redraw requests, committed frame scrolls, text area viewport work |
+| `Frames` | runtime presentation | full redraws, view rebuilds, layout recomposes/reuses, text surfaces |
+| `Render` | native renderer and `diagnostics::Render` | frames, interval/acquire/draw p95, `key->present` p95, pending key samples, promoted groups, filter pool sizes |
+| `wgpu_l3::render::filter_params` | filter encoder | filter pass uniforms and source/target rects |
+| `wgpu_l3::render::material` | pane material path | pane source/target facts and material layer sequence |
+| `wgpu_l3::overlay::fade` | overlay runtime | entry opacity, schedule, frame number, and demotion timing |
+
 Render latency samples are revision-tagged: a key/input sample records only
 when the presented frame revision includes the state change it produced.
 `key->present` means input-to-present-call, not input-to-glass.
