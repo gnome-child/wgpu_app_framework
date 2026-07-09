@@ -131,7 +131,7 @@ impl Samples {
     }
 
     #[cfg(test)]
-    pub fn len(&self) -> usize {
+    fn len(&self) -> usize {
         self.values.len()
     }
 
