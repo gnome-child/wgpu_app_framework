@@ -286,10 +286,10 @@ pub struct Outline {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Filter {
-    pub rect: Rect,
-    pub source_rect: Option<Rect>,
-    pub ops: Vec<FilterOp>,
+pub(crate) struct Filter {
+    pub(crate) rect: Rect,
+    pub(crate) source_rect: Option<Rect>,
+    pub(crate) ops: Vec<FilterOp>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -305,7 +305,7 @@ pub struct Group {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum FilterOp {
+pub(crate) enum FilterOp {
     Blur { amount: f32 },
     BackdropBlur(BackdropBlur),
     Refraction(Refraction),
