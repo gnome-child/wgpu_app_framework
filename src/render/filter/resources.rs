@@ -14,7 +14,11 @@ const LAYER_POOL_LIMIT: usize = 8;
 const SCRATCH_POOL_LIMIT: usize = 8;
 
 impl Renderer {
-    pub fn prepare(&mut self, render_context: &render::Context, canvas: &render::Canvas) -> Target {
+    pub(crate) fn prepare(
+        &mut self,
+        render_context: &render::Context,
+        canvas: &render::Canvas,
+    ) -> Target {
         let target = Target::new(canvas);
         self.ensure_textures(
             render_context,
@@ -24,18 +28,22 @@ impl Renderer {
         target
     }
 
-    pub fn composition_view(&self) -> Option<&wgpu::TextureView> {
+    pub(crate) fn composition_view(&self) -> Option<&wgpu::TextureView> {
         Some(&self.textures.as_ref()?.composition.view)
     }
 
-    pub fn clear_composition(&self, encoder: &mut wgpu::CommandEncoder, clear_color: wgpu::Color) {
+    pub(crate) fn clear_composition(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        clear_color: wgpu::Color,
+    ) {
         let Some(view) = self.composition_view() else {
             return;
         };
         clear_view(encoder, view, clear_color, "Composition Clear Pass");
     }
 
-    pub fn create_layer(
+    pub(crate) fn create_layer(
         &self,
         render_context: &render::Context,
         target: Target,
@@ -106,7 +114,7 @@ impl Renderer {
         self.scratch_pool.borrow().len()
     }
 
-    pub fn clear_layer(&self, encoder: &mut wgpu::CommandEncoder, layer: &Layer) {
+    pub(crate) fn clear_layer(&self, encoder: &mut wgpu::CommandEncoder, layer: &Layer) {
         clear_view(
             encoder,
             layer.view(),
@@ -115,7 +123,7 @@ impl Renderer {
         );
     }
 
-    pub fn blit_to_view(
+    pub(crate) fn blit_to_view(
         &self,
         render_context: &render::Context,
         encoder: &mut wgpu::CommandEncoder,
