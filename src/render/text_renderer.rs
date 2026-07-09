@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use thiserror::Error;
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub(in crate::render) type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -19,7 +19,7 @@ pub enum Error {
     Render(#[from] glyphon::RenderError),
 }
 
-pub struct TextRenderer {
+pub(in crate::render) struct TextRenderer {
     cache: glyphon::Cache,
     atlas: glyphon::TextAtlas,
     renderers: Vec<glyphon::TextRenderer>,
@@ -44,13 +44,16 @@ enum PreparedTextBuffer<'a> {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct TextBatchReport {
-    pub has_text: bool,
-    pub stats: InlineStats,
+pub(in crate::render) struct TextBatchReport {
+    pub(in crate::render) has_text: bool,
+    pub(in crate::render) stats: InlineStats,
 }
 
 impl TextRenderer {
-    pub fn new(render_context: &render::Context, format: wgpu::TextureFormat) -> Self {
+    pub(in crate::render) fn new(
+        render_context: &render::Context,
+        format: wgpu::TextureFormat,
+    ) -> Self {
         let cache = glyphon::Cache::new(render_context.device());
         let atlas = glyphon::TextAtlas::new(
             render_context.device(),
@@ -70,11 +73,15 @@ impl TextRenderer {
         }
     }
 
-    pub fn prepare_frame(&mut self, render_context: &render::Context, batch_count: usize) {
+    pub(in crate::render) fn prepare_frame(
+        &mut self,
+        render_context: &render::Context,
+        batch_count: usize,
+    ) {
         self.ensure_renderers(batch_count, render_context);
     }
 
-    pub fn prepare_batch(
+    pub(in crate::render) fn prepare_batch(
         &mut self,
         render_context: &render::Context,
         viewport: render::Viewport,
@@ -175,13 +182,17 @@ impl TextRenderer {
         })
     }
 
-    pub fn render(&mut self, renderer_index: usize, pass: &mut wgpu::RenderPass<'_>) -> Result<()> {
+    pub(in crate::render) fn render(
+        &mut self,
+        renderer_index: usize,
+        pass: &mut wgpu::RenderPass<'_>,
+    ) -> Result<()> {
         self.renderers[renderer_index]
             .render(&self.atlas, &self.viewports[renderer_index], pass)
             .map_err(Error::from)
     }
 
-    pub fn trim(&mut self) {
+    pub(in crate::render) fn trim(&mut self) {
         self.atlas.trim();
     }
 

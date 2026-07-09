@@ -1033,10 +1033,10 @@ fn glyphon_viewports_are_owned_per_text_batch() {
     let text_renderer = std::fs::read_to_string(src_dir.join("render").join("text_renderer.rs"))
         .expect("text renderer should read");
     let render_start = text_renderer
-        .find("pub fn render(")
+        .find("fn render(")
         .expect("text renderer should expose render method");
     let trim_start = text_renderer[render_start..]
-        .find("pub fn trim(")
+        .find("fn trim(")
         .map(|offset| render_start + offset)
         .expect("text renderer render method should be followed by trim");
     let render_body = &text_renderer[render_start..trim_start];
