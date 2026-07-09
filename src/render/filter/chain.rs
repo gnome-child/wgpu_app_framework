@@ -4,7 +4,7 @@ use super::geometry::PreparedFilter;
 use super::{Target, TextureSource};
 
 #[derive(Clone, Copy)]
-pub(crate) enum FilterSource<'a> {
+pub(in crate::render) enum FilterSource<'a> {
     Backdrop {
         texture: TextureSource<'a>,
         global_rect: Rect,

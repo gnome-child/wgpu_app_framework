@@ -10,18 +10,18 @@ use super::state::Renderer;
 use super::storage::ScratchTargets;
 use super::target::Target;
 
-pub(crate) struct FilterDraw<'a> {
-    pub(crate) render_context: &'a render::Context,
-    pub(crate) encoder: &'a mut wgpu::CommandEncoder,
-    pub(crate) target: Target,
-    pub(crate) source: FilterSource<'a>,
-    pub(crate) output: &'a wgpu::TextureView,
-    pub(crate) filter: paint::Filter,
-    pub(crate) scissor: Option<render::Scissor>,
+pub(in crate::render) struct FilterDraw<'a> {
+    pub(in crate::render) render_context: &'a render::Context,
+    pub(in crate::render) encoder: &'a mut wgpu::CommandEncoder,
+    pub(in crate::render) target: Target,
+    pub(in crate::render) source: FilterSource<'a>,
+    pub(in crate::render) output: &'a wgpu::TextureView,
+    pub(in crate::render) filter: paint::Filter,
+    pub(in crate::render) scissor: Option<render::Scissor>,
 }
 
 impl Renderer {
-    pub(crate) fn draw(&self, pass: FilterDraw<'_>) {
+    pub(in crate::render) fn draw(&self, pass: FilterDraw<'_>) {
         let Some(prepared) = prepare_filter(pass.filter.rect, pass.target.scale_factor) else {
             return;
         };

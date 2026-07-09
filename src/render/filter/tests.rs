@@ -388,10 +388,10 @@ fn composite_pass_logs_coverage_and_alpha_params() {
 fn filter_op_composites_use_context_output() {
     let source = filter_module_source();
     let draw_body = source
-        .split("pub(crate) fn draw")
+        .split("pub(in crate::render) fn draw")
         .nth(1)
         .expect("draw function should exist")
-        .split("pub(crate) fn composite_layer")
+        .split("pub(in crate::render) fn composite_layer")
         .next()
         .expect("draw body should precede layer composite");
 

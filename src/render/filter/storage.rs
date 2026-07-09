@@ -2,7 +2,7 @@ use crate::{paint, render};
 
 use super::{Renderer, Target, TextureSource};
 
-pub(crate) struct Layer {
+pub(in crate::render) struct Layer {
     pub(super) texture: Texture,
     pub(super) area: paint::area::Physical,
     pub(super) logical_area: paint::area::Logical,
@@ -38,16 +38,16 @@ pub(super) enum ScratchTargets<'a> {
     Pooled(ScratchTextures),
 }
 
-pub(crate) struct LayerComposite<'a> {
-    pub(crate) render_context: &'a render::Context,
-    pub(crate) encoder: &'a mut wgpu::CommandEncoder,
-    pub(crate) source: &'a Layer,
-    pub(crate) output: &'a wgpu::TextureView,
-    pub(crate) target: Target,
-    pub(crate) clip: paint::Clip,
-    pub(crate) source_rect: Option<paint::Rect>,
-    pub(crate) scissor: Option<render::Scissor>,
-    pub(crate) opacity: f32,
+pub(in crate::render) struct LayerComposite<'a> {
+    pub(in crate::render) render_context: &'a render::Context,
+    pub(in crate::render) encoder: &'a mut wgpu::CommandEncoder,
+    pub(in crate::render) source: &'a Layer,
+    pub(in crate::render) output: &'a wgpu::TextureView,
+    pub(in crate::render) target: Target,
+    pub(in crate::render) clip: paint::Clip,
+    pub(in crate::render) source_rect: Option<paint::Rect>,
+    pub(in crate::render) scissor: Option<render::Scissor>,
+    pub(in crate::render) opacity: f32,
 }
 
 impl Texture {
@@ -124,7 +124,7 @@ impl<'a> ScratchTargets<'a> {
 }
 
 impl Layer {
-    pub(crate) fn view(&self) -> &wgpu::TextureView {
+    pub(in crate::render) fn view(&self) -> &wgpu::TextureView {
         &self.texture.view
     }
 

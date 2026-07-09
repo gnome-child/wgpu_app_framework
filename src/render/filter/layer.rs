@@ -7,7 +7,7 @@ use super::state::Renderer;
 use super::storage::LayerComposite;
 
 impl Renderer {
-    pub(crate) fn composite_layer(&self, pass: LayerComposite<'_>) {
+    pub(in crate::render) fn composite_layer(&self, pass: LayerComposite<'_>) {
         let Some(prepared) = prepare_clip(pass.clip.rect, pass.target.scale_factor) else {
             return;
         };

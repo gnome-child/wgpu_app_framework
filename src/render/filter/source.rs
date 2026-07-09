@@ -3,7 +3,7 @@ use crate::paint;
 use super::Target;
 
 #[derive(Clone, Copy)]
-pub(crate) struct TextureSource<'a> {
+pub(in crate::render) struct TextureSource<'a> {
     pub(in crate::render::filter) view: &'a wgpu::TextureView,
     pub(in crate::render::filter) area: paint::area::Physical,
     pub(in crate::render::filter) logical_area: paint::area::Logical,
@@ -11,7 +11,7 @@ pub(crate) struct TextureSource<'a> {
 }
 
 impl<'a> TextureSource<'a> {
-    pub(crate) fn new(
+    pub(in crate::render) fn new(
         view: &'a wgpu::TextureView,
         area: paint::area::Physical,
         logical_area: paint::area::Logical,

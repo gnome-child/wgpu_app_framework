@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use super::Layer;
 use super::storage::{ScratchTextures, Texture, Textures};
 
-pub(crate) struct Renderer {
+pub(in crate::render) struct Renderer {
     pub(super) blur_pipeline: wgpu::RenderPipeline,
     pub(super) refraction_pipeline: wgpu::RenderPipeline,
     pub(super) luminosity_pipeline: wgpu::RenderPipeline,

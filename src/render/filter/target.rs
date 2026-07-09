@@ -1,7 +1,7 @@
 use crate::{paint, render};
 
 #[derive(Debug, Clone, Copy)]
-pub struct Target {
+pub(in crate::render) struct Target {
     pub(super) physical_area: paint::area::Physical,
     pub(super) logical_area: paint::area::Logical,
     pub(super) scale_factor: f32,
