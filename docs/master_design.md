@@ -532,6 +532,34 @@ window layout when size and theme still match; layout invalidation refreshes
 transient projection and recomposes without rebuilding the view; rebuild
 invalidation runs the full view projection and composition reconciliation path.
 
+`diagnostics`
+
+Owns framework-visible counters and sample windows that turn performance and
+interaction reports into numbers. Diagnostics are not behavior inputs; they are
+instrumentation read by tools, tests, and debug panels.
+
+The text editor debug panel is the current full instrument panel. It shows text
+layout work (paint calls, metric calls, visible and shaped logical lines,
+layout plus overscan segments, interaction surfaces, highlight scans), text
+caches (line hits/misses, render-surface calls and cache hits/misses, render
+source lines and bytes), scroll work (wheel events, offset changes, redraw
+requests, committed frame scrolls, text area viewports), frame work (full
+redraws, view rebuilds, layout recomposes and reuses, text surfaces), and
+render work (presented frames, frame-interval p95, surface-acquire p95, draw
+p95, `key->present` p95, pending key samples, promoted group composites).
+
+Render latency samples are revision-tagged: a key/input sample records only
+when the presented frame revision includes the state change it produced.
+`key->present` means input-to-present-call, not input-to-glass.
+
+Compositor investigations use narrow debug log targets and must stay quiet
+under the example default `RUST_LOG=info`. Current targeted debug channels are
+`wgpu_l3::render::filter_params` for filter pass uniforms,
+`wgpu_l3::render::material` for pane material source/target facts, and
+`wgpu_l3::overlay::fade` for overlay opacity, schedule, and demotion timing.
+Use targeted `RUST_LOG=wgpu_l3::render::material=debug` style filters for
+diagnosis instead of raising the whole app to debug.
+
 `platform`, `host`, and native/render adapters
 
 Own the boundary with the operating system, window system, GPU, renderer,
