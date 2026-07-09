@@ -206,7 +206,11 @@ fn percentile(values: &VecDeque<u128>, percentile: usize) -> u128 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::time::{Duration, Instant};
+
+    use crate::state;
+
+    use super::{Render, Report, SAMPLE_LIMIT, Samples};
 
     #[test]
     fn samples_are_capped_and_report_p95() {
