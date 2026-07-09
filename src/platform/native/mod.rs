@@ -13,6 +13,7 @@ mod poll;
 mod popup;
 mod request;
 mod surface;
+mod sys;
 mod window;
 
 pub use context::NativeContext;
@@ -22,7 +23,7 @@ pub struct Native {
     context: Option<render::Context>,
     renderer: Option<render::Renderer>,
     windows: HashMap<app_window::Id, window::Window>,
-    popups: HashMap<PopupKey, window::Window>,
+    popups: HashMap<PopupKey, PopupWindow>,
     raw_windows: HashMap<winit::window::WindowId, app_window::Id>,
     raw_popups: HashMap<winit::window::WindowId, PopupKey>,
     requests: Vec<session::Request>,
@@ -35,9 +36,55 @@ struct PopupKey {
     id: interaction::Id,
 }
 
+struct PopupWindow {
+    window: window::Window,
+    geometry: PopupGeometryState,
+    visible: bool,
+}
+
+#[derive(Debug, Default)]
+struct PopupGeometryState {
+    applied: Option<PopupGeometry>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PopupGeometry {
+    x: i32,
+    y: i32,
+    width: f32,
+    height: f32,
+    scale_factor_bits: u64,
+}
+
 impl PopupKey {
     fn new(parent: app_window::Id, id: interaction::Id) -> Self {
         Self { parent, id }
+    }
+}
+
+impl PopupWindow {
+    fn new(window: window::Window) -> Self {
+        Self {
+            window,
+            geometry: PopupGeometryState::default(),
+            visible: false,
+        }
+    }
+}
+
+impl PopupGeometryState {
+    fn needs_apply(&self, desired: PopupGeometry) -> bool {
+        self.applied != Some(desired)
+    }
+
+    fn mark_applied(&mut self, geometry: PopupGeometry) {
+        self.applied = Some(geometry);
+    }
+}
+
+impl PopupGeometry {
+    fn logical_area(self) -> crate::paint::area::Logical {
+        crate::paint::area::logical(self.width, self.height)
     }
 }
 
@@ -67,5 +114,50 @@ impl Native {
 impl Default for Native {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PopupGeometry, PopupGeometryState};
+
+    fn geometry(x: i32, y: i32, scale: f64) -> PopupGeometry {
+        PopupGeometry {
+            x,
+            y,
+            width: 240.0,
+            height: 180.0,
+            scale_factor_bits: scale.to_bits(),
+        }
+    }
+
+    #[test]
+    fn popup_geometry_state_skips_unchanged_redraws() {
+        let mut state = PopupGeometryState::default();
+        let desired = geometry(10, 20, 1.0);
+
+        assert!(state.needs_apply(desired));
+        state.mark_applied(desired);
+
+        assert!(
+            !state.needs_apply(desired),
+            "fade/redraw frames with unchanged geometry must be draw-only"
+        );
+    }
+
+    #[test]
+    fn popup_geometry_state_reapplies_real_geometry_changes() {
+        let mut state = PopupGeometryState::default();
+        let desired = geometry(10, 20, 1.0);
+        state.mark_applied(desired);
+
+        assert!(
+            state.needs_apply(geometry(11, 20, 1.0)),
+            "parent move or anchor change must reconfigure popup position"
+        );
+        assert!(
+            state.needs_apply(geometry(10, 20, 1.5)),
+            "popup monitor scale changes must reconfigure popup size"
+        );
     }
 }

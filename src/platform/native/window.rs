@@ -2,7 +2,7 @@ use super::{Native, NativeError};
 use crate::window as app_window;
 use crate::{paint, pointer, render};
 use std::sync::Arc;
-use winit::dpi::{LogicalSize, PhysicalPosition};
+use winit::dpi::LogicalSize;
 use winit::{
     event_loop::ActiveEventLoop,
     window::{CursorIcon, WindowAttributes},
@@ -46,7 +46,12 @@ impl Window {
             }
         }
 
-        Ok(Arc::new(event_loop.create_window(window_attributes)?))
+        let handle = Arc::new(event_loop.create_window(window_attributes)?);
+        if options.kind == app_window::Kind::Popup {
+            super::sys::enforce_popup_style(&handle);
+        }
+
+        Ok(handle)
     }
 
     pub fn new(handle: Handle, canvas: render::Canvas) -> Self {
@@ -76,14 +81,12 @@ impl Window {
         self.handle.set_visible(visible);
     }
 
-    pub fn set_outer_position(&self, x: i32, y: i32) {
-        self.handle.set_outer_position(PhysicalPosition::new(x, y));
+    pub fn set_popup_visibility(&self, visible: bool) {
+        super::sys::set_popup_visible(&self.handle, visible);
     }
 
-    pub fn request_inner_area(&self, area: paint::area::Logical) {
-        let _ = self
-            .handle
-            .request_inner_size(LogicalSize::new(area.width() as f64, area.height() as f64));
+    pub fn configure_popup_bounds(&self, x: i32, y: i32, area: paint::area::Logical) {
+        super::sys::configure_popup_bounds(&self.handle, x, y, area);
     }
 
     pub fn handle(&self) -> Handle {

@@ -40,7 +40,7 @@ impl Backend for Native {
             .collect::<Vec<_>>();
         for key in stale {
             if let Some(popup) = self.popups.remove(&key) {
-                self.raw_popups.remove(&popup.raw_id());
+                self.raw_popups.remove(&popup.window.raw_id());
             }
         }
         log::debug!("closed native window: {window:?}");

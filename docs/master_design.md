@@ -316,13 +316,26 @@ window focus and command routing remain authoritative. Unsupported platforms
 fall back to `InFrame`. Wayland is fallback-only in v1 because arbitrary global
 popup placement is not a portable winit capability.
 
-Native popup windows are transient shell surfaces: undecorated, transparent,
+Native popup windows are popup shell surfaces: undecorated, transparent,
 initially hidden until positioned and sized, absent from taskbar/dock-style
-shell presence where the platform allows it, and dismissed rather than glued to
-their parent when the parent moves, resizes, minimizes, loses focus, or the
-overlay session closes. Mixed-DPI correctness is per-window: a native popup
+shell presence where the platform allows it, and invisible to framework
+app/session window state. Mixed-DPI correctness is per-window: a native popup
 uses the popup window's own scale factor for paint conversion, not the parent
 window's scale.
+
+Popup shell semantics belong to `window::Kind::Popup`, not ad hoc overlay
+call sites. A popup is owned by its parent where the platform supports
+ownership, is non-activating after creation as well as during creation, and is
+shown or positioned through no-activate paths when the platform exposes them.
+Popup geometry is event-driven: creation, anchor/bounds changes, parent
+movement, parent resize, and scale changes may configure position or size, but
+opacity/fade redraws are draw-only. Parent close/minimize/focus-loss may close
+or suspend popup entries through overlay policy, not by turning the popup into
+a framework application window. Per-frame popup repositioning is forbidden.
+Native diagnostics may report desired, applied, and observed shell geometry,
+but window-manager disagreement must not create a correction loop. Some tiling
+window managers may still need user ignore rules; the framework's duty is to
+emit correct popup/tool-window signals before documenting that limitation.
 
 Intent is portable; realization is native. `Material::Glass` means "glasslike
 panel material," but an in-frame backend realizes it by sampling the parent

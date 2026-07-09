@@ -5,7 +5,7 @@ use crate::{geometry, overlay, paint, render, window as app_window};
 
 use super::surface::native_logical_area;
 use super::window::{InitialSize, Options, Window as NativeWindow};
-use super::{Native, NativeContext, NativeError, PopupKey};
+use super::{Native, NativeContext, NativeError, PopupGeometry, PopupKey, PopupWindow};
 
 impl Native {
     pub(in crate::platform::native) fn overlay_capabilities() -> overlay::Capabilities {
@@ -60,11 +60,11 @@ impl Native {
             .expect("popup should exist before presenting");
         let scene = super::paint::to_paint_scene_at_scale(
             presentation.scene(),
-            popup.canvas().scale_factor(),
+            popup.window.canvas().scale_factor(),
         );
 
         let draw_started = Instant::now();
-        let report = renderer.draw(render_context, popup.canvas_mut(), &scene)?;
+        let report = renderer.draw(render_context, popup.window.canvas_mut(), &scene)?;
         let draw = draw_started.elapsed();
         let acquire_wait = report
             .present_timing
@@ -79,7 +79,16 @@ impl Native {
             report.stats.group_composites
         );
 
-        popup.set_visibility(true);
+        if !popup.visible {
+            popup.window.set_popup_visibility(true);
+            popup.visible = true;
+            log::debug!(
+                target: "wgpu_l3::native_popup",
+                "showed native popup {:?} for parent {:?}",
+                presentation.id(),
+                presentation.parent()
+            );
+        }
 
         Ok(())
     }
@@ -132,6 +141,7 @@ impl Native {
         )?;
         let popup = NativeWindow::new(handle, canvas);
         log::debug!(
+            target: "wgpu_l3::native_popup",
             "created native popup {:?} for parent {:?}: raw={:?}, size={:?}, scale={}",
             presentation.id(),
             presentation.parent(),
@@ -141,7 +151,7 @@ impl Native {
         );
 
         self.raw_popups.insert(popup.raw_id(), key);
-        self.popups.insert(key, popup);
+        self.popups.insert(key, PopupWindow::new(popup));
 
         Ok(())
     }
@@ -170,12 +180,44 @@ impl Native {
 
         let popup = self
             .popups
-            .get(&key)
+            .get_mut(&key)
             .expect("popup should exist before configuring");
-        popup.set_outer_position(x, y);
-        popup.request_inner_area(native_logical_area(geometry::LogicalArea::from_size(
+        let area = native_logical_area(geometry::LogicalArea::from_size(
             presentation.scene().size(),
-        )));
+        ));
+        let desired = PopupGeometry {
+            x,
+            y,
+            width: area.width(),
+            height: area.height(),
+            scale_factor_bits: popup.window.scale_factor().to_bits(),
+        };
+        let observed_position = popup.window.handle().outer_position().ok();
+        let observed_area = popup.window.inner_area();
+
+        if !popup.geometry.needs_apply(desired) {
+            log::trace!(
+                target: "wgpu_l3::native_popup",
+                "skipped native popup geometry {:?}: desired={desired:?}, observed_position={observed_position:?}, observed_area={}x{}",
+                key.id,
+                observed_area.width(),
+                observed_area.height()
+            );
+            return Ok(());
+        }
+
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "applying native popup geometry {:?}: desired={desired:?}, prior={:?}, observed_position={observed_position:?}, observed_area={}x{}",
+            key.id,
+            popup.geometry.applied,
+            observed_area.width(),
+            observed_area.height()
+        );
+        popup
+            .window
+            .configure_popup_bounds(desired.x, desired.y, desired.logical_area());
+        popup.geometry.mark_applied(desired);
 
         Ok(())
     }
@@ -186,13 +228,14 @@ impl Native {
             .popups
             .get_mut(&key)
             .expect("popup should exist before syncing surface");
-        let area = popup.inner_area().clamp_min(1);
-        let scale_factor = popup.scale_factor() as f32;
-        let needs_resize = popup.canvas().physical_area() != area
-            || (popup.canvas().scale_factor() - scale_factor).abs() > f32::EPSILON;
+        let area = popup.window.inner_area().clamp_min(1);
+        let scale_factor = popup.window.scale_factor() as f32;
+        let needs_resize = popup.window.canvas().physical_area() != area
+            || (popup.window.canvas().scale_factor() - scale_factor).abs() > f32::EPSILON;
 
         if needs_resize {
             log::debug!(
+                target: "wgpu_l3::native_popup",
                 "syncing native popup {:?}: area={}x{}, scale={}",
                 key.id,
                 area.width(),
@@ -203,10 +246,10 @@ impl Native {
                 .context
                 .as_ref()
                 .expect("render context should exist before resizing popup");
-            popup.resize(context, area, scale_factor);
+            popup.window.resize(context, area, scale_factor);
         }
 
-        Ok(popup.canvas().surface().config().format)
+        Ok(popup.window.canvas().surface().config().format)
     }
 
     fn close_stale_popups(&mut self, active: &HashSet<PopupKey>) {
@@ -218,8 +261,9 @@ impl Native {
             .collect::<Vec<_>>();
         for key in stale {
             if let Some(popup) = self.popups.remove(&key) {
-                self.raw_popups.remove(&popup.raw_id());
+                self.raw_popups.remove(&popup.window.raw_id());
                 log::debug!(
+                    target: "wgpu_l3::native_popup",
                     "closed stale native popup {:?} for parent {:?}",
                     key.id,
                     key.parent
