@@ -112,6 +112,13 @@ fn sample_source_for_local(local_position: vec2<f32>) -> vec4<f32> {
     return textureSample(source_texture, source_sampler, uv);
 }
 
+fn material_position_for_local(local_position: vec2<f32>) -> vec2<f32> {
+    let logical_size = max(params.rect.zw, vec2<f32>(0.0001));
+    let physical_size = max(params.target_rect.zw, vec2<f32>(1.0));
+
+    return (local_position - params.rect.xy) * (physical_size / logical_size);
+}
+
 @fragment
 fn fs_blur(in: FullscreenOut) -> @location(0) vec4<f32> {
     let direction = params.direction_radius.xy;
@@ -227,7 +234,7 @@ fn fs_noise(in: CompositeOut) -> @location(0) vec4<f32> {
     let color = sample_source_for_local(in.local_position);
     let rgb = unpremultiply(color);
     let opacity = clamp(params.effect.x, 0.0, 1.0);
-    let noise_uv = source_position_for_local(in.local_position) / vec2<f32>(128.0);
+    let noise_uv = material_position_for_local(in.local_position) / vec2<f32>(128.0);
     let noise = textureSample(noise_texture, noise_sampler, noise_uv);
     let adjusted = mix(rgb, noise.rgb, opacity * noise.a);
 

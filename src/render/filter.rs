@@ -1774,6 +1774,20 @@ fn source_step_data(
     }
 }
 
+#[cfg(test)]
+fn noise_material_position_data(local_position: [f32; 2], params: Params) -> [f32; 2] {
+    let logical_size = [params.rect[2].max(0.0001), params.rect[3].max(0.0001)];
+    let physical_size = [
+        params.target_rect[2].max(1.0),
+        params.target_rect[3].max(1.0),
+    ];
+
+    [
+        (local_position[0] - params.rect[0]) * (physical_size[0] / logical_size[0]),
+        (local_position[1] - params.rect[1]) * (physical_size[1] / logical_size[1]),
+    ]
+}
+
 fn create_noise_texture(render_context: &render::Context) -> Texture {
     let extent = wgpu::Extent3d {
         width: Renderer::NOISE_TEXTURE_SIZE,
@@ -2178,6 +2192,131 @@ mod tests {
         assert_eq!(params.texture_size, [240.0, 120.0]);
         assert_eq!(params.source_rect, [0.0, 0.0, 240.0, 120.0]);
         assert_eq!(params.target_rect, [0.0, 0.0, 240.0, 120.0]);
+    }
+
+    #[test]
+    fn noise_material_coordinates_are_panel_local_across_group_translation() {
+        let scale = 1.5;
+        let inline_rect = Rect::new(
+            paint::point::logical(240.0, 120.0),
+            paint::area::logical(160.0, 80.0),
+        );
+        let promoted_rect = Rect::new(
+            paint::point::logical(0.0, 0.0),
+            paint::area::logical(160.0, 80.0),
+        );
+        let inline_prepared = prepare_filter(inline_rect, scale).expect("filter should prepare");
+        let promoted_prepared =
+            prepare_filter(promoted_rect, scale).expect("filter should prepare");
+        let inline_params = params_with_texture_area(ParamInput {
+            target_scale_factor: scale,
+            texture_area: paint::area::physical(1200, 900),
+            texture_logical_area: paint::area::logical(800.0, 600.0),
+            prepared: inline_prepared,
+            source_rect: inline_prepared.shape_rect,
+            direction: [0.0, 0.0],
+            effect: [1.0, 0.0, 0.0, 0.0],
+            sampling: paint::LayerSampling::PixelAligned,
+        });
+        let promoted_params = params_with_texture_area(ParamInput {
+            target_scale_factor: scale,
+            texture_area: paint::area::physical(1200, 900),
+            texture_logical_area: paint::area::logical(800.0, 600.0),
+            prepared: promoted_prepared,
+            source_rect: inline_prepared.shape_rect,
+            direction: [0.0, 0.0],
+            effect: [1.0, 0.0, 0.0, 0.0],
+            sampling: paint::LayerSampling::PixelAligned,
+        });
+
+        assert_eq!(
+            noise_material_position_data([264.0, 138.0], inline_params),
+            noise_material_position_data([24.0, 18.0], promoted_params)
+        );
+    }
+
+    #[test]
+    fn noise_material_coordinates_ignore_source_rect() {
+        let prepared = prepare_filter(
+            Rect::new(
+                paint::point::logical(0.0, 0.0),
+                paint::area::logical(160.0, 80.0),
+            ),
+            1.25,
+        )
+        .expect("filter should prepare");
+        let params_a = params_with_texture_area(ParamInput {
+            target_scale_factor: 1.25,
+            texture_area: paint::area::physical(1000, 750),
+            texture_logical_area: paint::area::logical(800.0, 600.0),
+            prepared,
+            source_rect: prepared.shape_rect,
+            direction: [0.0, 0.0],
+            effect: [1.0, 0.0, 0.0, 0.0],
+            sampling: paint::LayerSampling::PixelAligned,
+        });
+        let params_b = params_with_texture_area(ParamInput {
+            target_scale_factor: 1.25,
+            texture_area: paint::area::physical(1000, 750),
+            texture_logical_area: paint::area::logical(800.0, 600.0),
+            prepared,
+            source_rect: Rect::new(
+                paint::point::logical(300.0, 150.0),
+                paint::area::logical(160.0, 80.0),
+            ),
+            direction: [0.0, 0.0],
+            effect: [1.0, 0.0, 0.0, 0.0],
+            sampling: paint::LayerSampling::PixelAligned,
+        });
+
+        assert_ne!(params_a.source_rect, params_b.source_rect);
+        assert_eq!(
+            noise_material_position_data([32.0, 24.0], params_a),
+            noise_material_position_data([32.0, 24.0], params_b)
+        );
+    }
+
+    #[test]
+    fn noise_material_coordinates_use_target_physical_scale() {
+        let prepared = prepare_filter(
+            Rect::new(
+                paint::point::logical(0.0, 0.0),
+                paint::area::logical(80.0, 40.0),
+            ),
+            1.25,
+        )
+        .expect("filter should prepare");
+        let params = params_with_texture_area(ParamInput {
+            target_scale_factor: 1.25,
+            texture_area: paint::area::physical(100, 50),
+            texture_logical_area: paint::area::logical(80.0, 40.0),
+            prepared,
+            source_rect: prepared.shape_rect,
+            direction: [0.0, 0.0],
+            effect: [1.0, 0.0, 0.0, 0.0],
+            sampling: paint::LayerSampling::PixelAligned,
+        });
+
+        assert_eq!(
+            noise_material_position_data([16.0, 8.0], params),
+            [20.0, 10.0]
+        );
+    }
+
+    #[test]
+    fn noise_shader_uses_material_local_coordinates() {
+        let noise_body = FILTER_WGSL
+            .split("fn fs_noise")
+            .nth(1)
+            .expect("noise fragment should exist")
+            .split("fn fs_composite_pixel")
+            .next()
+            .expect("noise fragment should precede pixel composite");
+
+        assert!(noise_body.contains("material_position_for_local"));
+        assert!(
+            !noise_body.contains("source_position_for_local(in.local_position) / vec2<f32>(128.0)")
+        );
     }
 
     #[test]
