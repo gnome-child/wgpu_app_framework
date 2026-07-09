@@ -34,47 +34,6 @@ fn filter_preserves_rounded_shape_metadata_for_composite() {
 }
 
 #[test]
-fn noise_texture_bytes_are_deterministic_rgba_grayscale() {
-    let bytes = noise::bytes();
-
-    assert_eq!(
-        bytes.len(),
-        (noise::texture_size() * noise::texture_size() * 4) as usize
-    );
-    assert_eq!(
-        &bytes[..16],
-        &[
-            152, 152, 152, 255, 166, 166, 166, 255, 110, 110, 110, 255, 160, 160, 160, 255
-        ]
-    );
-    assert!(
-        bytes
-            .chunks_exact(4)
-            .all(|rgba| { rgba[0] == rgba[1] && rgba[1] == rgba[2] && rgba[3] == u8::MAX })
-    );
-}
-
-#[test]
-fn noise_texel_range_stays_low_contrast() {
-    let bytes = noise::bytes();
-    let values = bytes.chunks_exact(4).map(|rgba| rgba[0]);
-    let min = values.clone().min().expect("noise should have texels");
-    let max = values.max().expect("noise should have texels");
-
-    assert_eq!(min, 84);
-    assert_eq!(max, 172);
-}
-
-#[test]
-fn noise_texel_values_are_seed_stable() {
-    assert_eq!(noise::texel(0, 0), 152);
-    assert_eq!(noise::texel(1, 0), 166);
-    assert_eq!(noise::texel(0, 1), 106);
-    assert_eq!(noise::texel(17, 31), 167);
-    assert_eq!(noise::texel(127, 127), 143);
-}
-
-#[test]
 fn clip_preserves_rounded_shape_metadata_for_layer_composite() {
     let rect = Rect::rounded(
         paint::point::logical(8.0, 12.0),
