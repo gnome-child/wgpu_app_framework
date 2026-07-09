@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use wgpu::util::DeviceExt;
 
-use crate::paint::{self, Rect};
+use crate::paint;
 use crate::render;
 
 mod chain;
@@ -13,6 +13,7 @@ mod params;
 mod pass;
 mod shader;
 mod source;
+mod storage;
 mod target;
 
 use chain::FilterChainContext;
@@ -33,8 +34,15 @@ use pass::{
     composite_vertices,
 };
 pub(crate) use source::TextureSource;
+pub use storage::Layer;
+pub(crate) use storage::LayerComposite;
+use storage::{
+    ScratchTargets, ScratchTextures, Texture, Textures, take_pooled_layer, take_pooled_scratch,
+};
 pub use target::Target;
 
+#[cfg(test)]
+use crate::paint::Rect;
 #[cfg(test)]
 use crate::render::silhouette::edges;
 #[cfg(test)]
@@ -63,123 +71,6 @@ pub struct Renderer {
     layer_pool: RefCell<Vec<Layer>>,
     scratch_pool: RefCell<Vec<ScratchTextures>>,
     format: wgpu::TextureFormat,
-}
-
-pub struct Layer {
-    texture: Texture,
-    area: paint::area::Physical,
-    logical_area: paint::area::Logical,
-}
-
-struct Textures {
-    area: paint::area::Physical,
-    logical_area: paint::area::Logical,
-    composition: Texture,
-    ping: Texture,
-    pong: Texture,
-}
-
-struct Texture {
-    _inner: wgpu::Texture,
-    view: wgpu::TextureView,
-    area: paint::area::Physical,
-}
-
-struct ScratchTextures {
-    ping: Texture,
-    pong: Texture,
-    area: paint::area::Physical,
-    logical_area: paint::area::Logical,
-}
-
-enum ScratchTargets<'a> {
-    Shared {
-        ping: &'a Texture,
-        pong: &'a Texture,
-        logical_area: paint::area::Logical,
-    },
-    Pooled(ScratchTextures),
-}
-
-pub(crate) struct LayerComposite<'a> {
-    pub(crate) render_context: &'a render::Context,
-    pub(crate) encoder: &'a mut wgpu::CommandEncoder,
-    pub(crate) source: &'a Layer,
-    pub(crate) output: &'a wgpu::TextureView,
-    pub(crate) target: Target,
-    pub(crate) clip: paint::Clip,
-    pub(crate) source_rect: Option<Rect>,
-    pub(crate) scissor: Option<render::Scissor>,
-    pub(crate) opacity: f32,
-}
-
-impl Texture {
-    fn source(
-        &self,
-        logical_area: paint::area::Logical,
-        sampling: paint::LayerSampling,
-    ) -> TextureSource<'_> {
-        debug_assert!(self.area.width() > 0 && self.area.height() > 0);
-        debug_assert!(logical_area.width() > 0.0 && logical_area.height() > 0.0);
-        TextureSource {
-            view: &self.view,
-            area: self.area,
-            logical_area,
-            sampling,
-        }
-    }
-}
-
-impl ScratchTextures {
-    fn new(render_context: &render::Context, renderer: &Renderer, target: Target) -> Self {
-        let area = target.physical_area.clamp_min(1);
-
-        Self {
-            ping: renderer.create_texture(render_context, area, "Filter Scratch Ping Texture"),
-            pong: renderer.create_texture(render_context, area, "Filter Scratch Pong Texture"),
-            area,
-            logical_area: area.to_logical(target.scale_factor),
-        }
-    }
-
-    fn retarget(&mut self, target: Target) {
-        debug_assert_eq!(self.area, target.physical_area.clamp_min(1));
-        self.logical_area = self.area.to_logical(target.scale_factor);
-    }
-}
-
-impl<'a> ScratchTargets<'a> {
-    fn ping_view(&self) -> &wgpu::TextureView {
-        match self {
-            Self::Shared { ping, .. } => &ping.view,
-            Self::Pooled(scratch) => &scratch.ping.view,
-        }
-    }
-
-    fn pong_view(&self) -> &wgpu::TextureView {
-        match self {
-            Self::Shared { pong, .. } => &pong.view,
-            Self::Pooled(scratch) => &scratch.pong.view,
-        }
-    }
-
-    fn ping_source(&self, sampling: paint::LayerSampling) -> TextureSource<'_> {
-        match self {
-            Self::Shared {
-                ping, logical_area, ..
-            } => ping.source(*logical_area, sampling),
-            Self::Pooled(scratch) => scratch.ping.source(scratch.logical_area, sampling),
-        }
-    }
-
-    fn pong_source(&self, sampling: paint::LayerSampling) -> TextureSource<'_> {
-        match self {
-            Self::Shared {
-                pong, logical_area, ..
-            } => pong.source(*logical_area, sampling),
-            Self::Pooled(scratch) => scratch.pong.source(scratch.logical_area, sampling),
-        }
-    }
 }
 
 pub(crate) struct FilterDraw<'a> {
@@ -1407,37 +1298,8 @@ impl Renderer {
     }
 }
 
-fn take_pooled_layer(pool: &mut Vec<Layer>, area: paint::area::Physical) -> Option<Layer> {
-    let position = pool.iter().position(|layer| layer.area == area)?;
-    Some(pool.swap_remove(position))
-}
-
-fn take_pooled_scratch(
-    pool: &mut Vec<ScratchTextures>,
-    area: paint::area::Physical,
-) -> Option<ScratchTextures> {
-    let position = pool.iter().position(|scratch| scratch.area == area)?;
-    Some(pool.swap_remove(position))
-}
-
 pub(crate) fn shader_source() -> String {
     shader::module_source()
-}
-
-impl Layer {
-    pub fn view(&self) -> &wgpu::TextureView {
-        &self.texture.view
-    }
-
-    fn source(&self, sampling: paint::LayerSampling) -> TextureSource<'_> {
-        debug_assert_eq!(self.texture.area, self.area);
-        TextureSource {
-            view: self.view(),
-            area: self.area,
-            logical_area: self.logical_area,
-            sampling,
-        }
-    }
 }
 
 fn clear_view(
