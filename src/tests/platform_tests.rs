@@ -871,16 +871,57 @@ fn menu_dropdown_uses_native_popup_work_when_backend_supports_it() {
             id: _,
             size,
             clear_color,
+            backdrop_sampling_panes,
         } if *parent == window
             && size.width() > 0
             && size.height() > 0
             && *clear_color == scene::Color::rgba(0, 0, 0, 0)
+            && *backdrop_sampling_panes == 0
     )));
     assert_eq!(
         platform.host().shell().runtime().session().windows()[0].kind(),
         window::Kind::Application,
         "native popups do not become framework windows"
     );
+}
+
+#[test]
+fn command_palette_uses_native_popup_work_when_backend_supports_it() {
+    let mut platform = Platform::new(
+        text_editor::shell(text_editor::State::default()),
+        FakeBackend::default().with_native_popups(),
+    );
+
+    platform.start().expect("platform should start host");
+
+    let window = platform.host().windows()[0].id();
+    platform.backend_mut().events.clear();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::KeyDown {
+                key: input::Key::Character('p'),
+                modifiers: input::Modifiers::new(true, true, false, false),
+                text: None,
+            },
+        ))
+        .expect("palette shortcut should open command palette");
+
+    assert!(platform.backend().events().iter().any(|event| matches!(
+        event,
+        BackendEvent::PresentPopup {
+            parent,
+            id,
+            size,
+            clear_color,
+            backdrop_sampling_panes,
+        } if *parent == window
+            && *id == interaction::CommandPalette::panel_id()
+            && size.width() > 0
+            && size.height() > 0
+            && *clear_color == scene::Color::rgba(0, 0, 0, 0)
+            && *backdrop_sampling_panes == 0
+    )));
 }
 
 #[test]

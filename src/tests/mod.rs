@@ -270,6 +270,7 @@ enum BackendEvent {
         id: interaction::Id,
         size: geometry::Size,
         clear_color: scene::Color,
+        backdrop_sampling_panes: usize,
     },
     FileDialog {
         window: window::Id,
@@ -366,6 +367,7 @@ impl platform::Backend for FakeBackend {
                 id: presentation.id(),
                 size: presentation.scene().size(),
                 clear_color: presentation.scene().clear(),
+                backdrop_sampling_panes: backdrop_sampling_pane_count(presentation.scene()),
             });
         }
         Ok(())
@@ -840,6 +842,17 @@ fn rect_contains(bounds: geometry::Rect, rect: geometry::Rect) -> bool {
         && rect.y() >= bounds.y()
         && rect.x().saturating_add(rect.width()) <= bounds.x().saturating_add(bounds.width())
         && rect.y().saturating_add(rect.height()) <= bounds.y().saturating_add(bounds.height())
+}
+
+fn backdrop_sampling_pane_count(scene: &scene::Scene) -> usize {
+    scene
+        .panes()
+        .into_iter()
+        .filter(|pane| match pane.material() {
+            scene::Material::Glass(glass) => !glass.backdrop_layers().is_empty(),
+            scene::Material::Solid(_) => false,
+        })
+        .count()
 }
 
 fn assert_near(actual: f64, expected: f64) {

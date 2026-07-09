@@ -169,14 +169,6 @@ impl Node {
         self
     }
 
-    pub(crate) fn with_overlay_realization(
-        mut self,
-        realization: crate::overlay::MaterialRealization,
-    ) -> Self {
-        self.overlay_realization = realization;
-        self
-    }
-
     pub(crate) fn with_force_overlay_group(mut self, force: bool) -> Self {
         self.force_overlay_group = force;
         self
@@ -243,7 +235,6 @@ impl Node {
             axis: None,
             style: Style::default(),
             floating_placement: FloatingPlacement::Default,
-            overlay_realization: crate::overlay::MaterialRealization::AllowsNativeFallback,
             force_overlay_group: false,
             subject: None,
             label: None,

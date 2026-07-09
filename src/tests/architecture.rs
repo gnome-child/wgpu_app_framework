@@ -1230,22 +1230,29 @@ fn compositor_diagnostics_are_documented_debug_targets() {
 
 #[test]
 fn overlay_backend_selection_is_not_a_paint_id_exception() {
-    let scene_paint = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("scene")
-            .join("paint")
-            .join("mod.rs"),
-    )
-    .expect("scene paint source should read");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scene_paint =
+        std::fs::read_to_string(root.join("src").join("scene").join("paint").join("mod.rs"))
+            .expect("scene paint source should read");
+    let command_palette =
+        std::fs::read_to_string(root.join("src").join("view").join("command_palette.rs"))
+            .expect("command palette source should read");
+    let overlay = std::fs::read_to_string(root.join("src").join("overlay.rs"))
+        .expect("overlay source should read");
 
     assert!(
         !scene_paint.contains("CommandPalette::panel_id"),
-        "command palette backend choice must derive from overlay material realization, not a paint-layer id exception"
+        "command palette backend choice must not be a paint-layer id exception"
     );
     assert!(
-        scene_paint.contains("material_realization("),
-        "paint should forward retained overlay material realization into overlay backend resolution"
+        !scene_paint.contains("material_realization(")
+            && !command_palette.contains("with_overlay_realization"),
+        "material realization must not veto the shared floating-panel backend path"
+    );
+    assert!(
+        !overlay.contains("RequiresParentCompositionBackdrop")
+            && !overlay.contains("native_backdrop_materials_supported"),
+        "overlay backend resolution should depend on popup capability, not parent-composition backdrop requirements"
     );
 }
 

@@ -360,12 +360,13 @@ the v1 native popup backend realizes it as the non-backdrop opaque/tinted body.
 Theme/config should express portable intent and platform-scoped realization
 choices, never a flat optional cluster of OS-specific fields.
 
-Overlay backend choice follows material realization requirements rather than
-panel identities. A pane that requires parent-composition backdrop sampling
-uses `InFrame` until the native backend can realize that material natively;
-native-safe panes may prefer `NativePopup`. This keeps command-palette glass
-in frame today without a command-palette id exception in paint, and gives OS
-backdrop support an explicit seam to satisfy later.
+Overlay backend choice follows window capability, not material identity. A
+floating panel that prefers `NativePopup` uses it whenever the platform probe
+supports native popup windows; unsupported platforms fall back to `InFrame`.
+Material realization is backend-local: in-frame panes may sample parent
+composition, while v1 native popup panes use their non-backdrop body until OS
+backdrop realization exists. All floating panels therefore follow the same
+backend path, with material differences handled below the backend seam.
 
 Overlay ghosts are paint-only afterlife. When a live entry is dismissed,
 runtime may retain its final scene bucket briefly as a `Ghost` for fade-out,
