@@ -1,8 +1,14 @@
+use crate::paint;
+use crate::render;
+
 use super::encode::clear_view;
+use super::params::{AlphaMode, Params};
+use super::state::Renderer;
 use super::storage::{
-    ScratchTargets, ScratchTextures, Texture, Textures, take_pooled_layer, take_pooled_scratch,
+    Layer, ScratchTargets, ScratchTextures, Texture, Textures, take_pooled_layer,
+    take_pooled_scratch,
 };
-use super::*;
+use super::target::Target;
 
 const LAYER_POOL_LIMIT: usize = 8;
 const SCRATCH_POOL_LIMIT: usize = 8;
