@@ -8,7 +8,10 @@ use super::pass::CompositeVertex;
 use super::state::Renderer;
 
 impl Renderer {
-    pub fn new(render_context: &render::Context, format: wgpu::TextureFormat) -> Self {
+    pub(in crate::render) fn new(
+        render_context: &render::Context,
+        format: wgpu::TextureFormat,
+    ) -> Self {
         let shader_source = shader_source();
         let shader = render_context
             .device()

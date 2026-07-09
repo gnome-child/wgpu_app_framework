@@ -14,7 +14,7 @@ const LAYER_POOL_LIMIT: usize = 8;
 const SCRATCH_POOL_LIMIT: usize = 8;
 
 impl Renderer {
-    pub(crate) fn prepare(
+    pub(in crate::render) fn prepare(
         &mut self,
         render_context: &render::Context,
         canvas: &render::Canvas,
@@ -28,11 +28,11 @@ impl Renderer {
         target
     }
 
-    pub(crate) fn composition_view(&self) -> Option<&wgpu::TextureView> {
+    pub(in crate::render) fn composition_view(&self) -> Option<&wgpu::TextureView> {
         Some(&self.textures.as_ref()?.composition.view)
     }
 
-    pub(crate) fn clear_composition(
+    pub(in crate::render) fn clear_composition(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         clear_color: wgpu::Color,
@@ -43,7 +43,7 @@ impl Renderer {
         clear_view(encoder, view, clear_color, "Composition Clear Pass");
     }
 
-    pub(crate) fn create_layer(
+    pub(in crate::render) fn create_layer(
         &self,
         render_context: &render::Context,
         target: Target,
@@ -62,7 +62,7 @@ impl Renderer {
         }
     }
 
-    pub fn recycle_layer(&self, layer: Layer) {
+    pub(in crate::render) fn recycle_layer(&self, layer: Layer) {
         let mut pool = self.layer_pool.borrow_mut();
         if pool.len() == LAYER_POOL_LIMIT {
             pool.remove(0);
@@ -70,7 +70,7 @@ impl Renderer {
         pool.push(layer);
     }
 
-    pub(crate) fn layer_pool_entries(&self) -> usize {
+    pub(in crate::render) fn layer_pool_entries(&self) -> usize {
         self.layer_pool.borrow().len()
     }
 
@@ -110,11 +110,11 @@ impl Renderer {
         pool.push(scratch);
     }
 
-    pub(crate) fn scratch_pool_entries(&self) -> usize {
+    pub(in crate::render) fn scratch_pool_entries(&self) -> usize {
         self.scratch_pool.borrow().len()
     }
 
-    pub(crate) fn clear_layer(&self, encoder: &mut wgpu::CommandEncoder, layer: &Layer) {
+    pub(in crate::render) fn clear_layer(&self, encoder: &mut wgpu::CommandEncoder, layer: &Layer) {
         clear_view(
             encoder,
             layer.view(),
@@ -123,7 +123,7 @@ impl Renderer {
         );
     }
 
-    pub(crate) fn blit_to_view(
+    pub(in crate::render) fn blit_to_view(
         &self,
         render_context: &render::Context,
         encoder: &mut wgpu::CommandEncoder,
