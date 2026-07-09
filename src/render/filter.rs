@@ -1516,6 +1516,19 @@ impl Renderer {
             alpha_mode: pass.alpha_mode,
             sampling: pass.source.sampling,
         });
+        log::debug!(
+            target: "wgpu_l3::render::filter_params",
+            "{} source_rect={:?} target_rect={:?} coverage_rect={:?} texture_size={:?} target_area={:?} alpha_mode={:?} alpha_flags={:?} opacity={:.4}",
+            pass.labels.pass,
+            params.source_rect,
+            params.target_rect,
+            params.rect,
+            params.texture_size,
+            pass.target.physical_area,
+            pass.alpha_mode,
+            params.alpha_mode,
+            pass.opacity,
+        );
         let bind_group = self.bind_group(
             pass.render_context,
             pass.source.view,
@@ -2507,6 +2520,20 @@ mod tests {
         ] {
             assert!(source.contains(label), "missing blur pass label {label}");
         }
+    }
+
+    #[test]
+    fn composite_pass_logs_coverage_and_alpha_params() {
+        let source = std::fs::read_to_string(file!()).expect("filter source should be readable");
+        let log = source
+            .split("target: \"wgpu_l3::render::filter_params\"")
+            .find(|entry| entry.contains("coverage_rect") && entry.contains("alpha_flags"))
+            .expect("composite pass should log coverage and alpha params");
+
+        assert!(log.contains("source_rect"));
+        assert!(log.contains("target_rect"));
+        assert!(log.contains("texture_size"));
+        assert!(log.contains("target_area"));
     }
 
     #[test]
