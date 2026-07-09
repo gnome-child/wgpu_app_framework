@@ -1,3 +1,4 @@
+use super::geometry::prepare_filter;
 use super::*;
 
 pub(crate) struct FilterDraw<'a> {

@@ -1,6 +1,6 @@
 use super::effects::liquid_depth_displacement;
 use super::geometry::{
-    blur_kernel_radius_px, blur_radius_px, blur_sigma_px, prepare_clip,
+    blur_kernel_radius_px, blur_radius_px, blur_sigma_px, prepare_clip, prepare_filter,
     source_rect_for_prepared_destination,
 };
 use super::params::{
