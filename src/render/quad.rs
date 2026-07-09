@@ -209,7 +209,13 @@ fn rasterized_quad_rect(quad: &paint::Quad, scale_factor: f32) -> Rect {
     if quad.transform.motion == paint::Motion::Resting {
         debug_assert!(
             grid.rect_is_aligned(rect),
-            "resting quad geometry must be snapped at the layout-to-paint boundary"
+            "resting quad geometry must be snapped at the layout-to-paint boundary: rect=({}, {}, {}, {}) scale={} transform={:?}",
+            rect.origin.x(),
+            rect.origin.y(),
+            rect.area.width(),
+            rect.area.height(),
+            scale_factor,
+            quad.transform
         );
     }
 
