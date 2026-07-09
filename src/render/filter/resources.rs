@@ -2,6 +2,9 @@ use super::encode::clear_view;
 use super::storage::{ScratchTextures, Texture};
 use super::*;
 
+const LAYER_POOL_LIMIT: usize = 8;
+const SCRATCH_POOL_LIMIT: usize = 8;
+
 impl Renderer {
     pub fn prepare(&mut self, render_context: &render::Context, canvas: &render::Canvas) -> Target {
         let target = Target::new(canvas);

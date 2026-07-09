@@ -38,8 +38,5 @@ pub(crate) use storage::LayerComposite;
 use storage::{ScratchTargets, Textures, take_pooled_layer, take_pooled_scratch};
 pub(crate) use target::Target;
 
-const LAYER_POOL_LIMIT: usize = 8;
-const SCRATCH_POOL_LIMIT: usize = 8;
-
 #[cfg(test)]
 mod tests;
