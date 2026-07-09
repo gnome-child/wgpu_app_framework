@@ -676,7 +676,7 @@ impl FilterOp {
         Self::Noise(params.clamped())
     }
 
-    pub fn clamped(self) -> Self {
+    fn clamped(self) -> Self {
         match self {
             Self::Blur { amount } => Self::blur(amount),
             Self::BackdropBlur(params) => Self::backdrop_blur(params),
@@ -688,7 +688,7 @@ impl FilterOp {
 }
 
 impl BackdropBlur {
-    pub fn clamped(self) -> Self {
+    fn clamped(self) -> Self {
         Self {
             sigma: self.sigma.max(0.0),
             edge_mode: self.edge_mode,
@@ -699,7 +699,7 @@ impl BackdropBlur {
 impl Refraction {
     const MAX_DISPLACEMENT: f32 = 4.0;
 
-    pub fn clamped(self) -> Self {
+    fn clamped(self) -> Self {
         Self {
             displacement: self.displacement.clamp(0.0, Self::MAX_DISPLACEMENT),
             splay: self.splay.max(0.0),
@@ -710,7 +710,7 @@ impl Refraction {
 }
 
 impl Luminosity {
-    pub fn clamped(self) -> Self {
+    fn clamped(self) -> Self {
         Self {
             color: self.color,
             opacity: self.opacity.clamp(0.0, 1.0),
@@ -719,7 +719,7 @@ impl Luminosity {
 }
 
 impl Noise {
-    pub fn clamped(self) -> Self {
+    fn clamped(self) -> Self {
         Self {
             opacity: self.opacity.clamp(0.0, 1.0),
         }
