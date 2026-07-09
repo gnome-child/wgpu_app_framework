@@ -5,7 +5,7 @@ use std::{
 
 use crate::{animation, interaction, scene, theme, window};
 
-pub(crate) const DEFAULT_GHOST_LIMIT: usize = 8;
+const DEFAULT_GHOST_LIMIT: usize = 8;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Draft {
@@ -15,7 +15,7 @@ pub(crate) struct Draft {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Entry {
+struct Entry {
     #[allow(dead_code)]
     id: interaction::Id,
     order: u64,
@@ -29,7 +29,7 @@ pub(crate) struct Entry {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Ghost {
+struct Ghost {
     id: interaction::Id,
     original_order: u64,
     scene: scene::Scene,
