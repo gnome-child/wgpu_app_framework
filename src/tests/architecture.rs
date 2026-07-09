@@ -1208,6 +1208,47 @@ fn compositor_diagnostics_are_documented_debug_targets() {
     assert_debug_log_target(&presentation, "wgpu_l3::overlay::fade");
 }
 
+#[test]
+fn filter_texture_pools_are_capped_and_reported() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let filter = std::fs::read_to_string(root.join("render").join("filter.rs"))
+        .expect("filter renderer source should read");
+    let renderer = std::fs::read_to_string(root.join("render").join("renderer.rs"))
+        .expect("renderer source should read");
+    let diagnostics = std::fs::read_to_string(root.join("diagnostics").join("render.rs"))
+        .expect("render diagnostics source should read");
+
+    for (constant, entries, field) in [
+        (
+            "LAYER_POOL_LIMIT",
+            "layer_pool_entries()",
+            "filter_layer_pool_entries",
+        ),
+        (
+            "SCRATCH_POOL_LIMIT",
+            "scratch_pool_entries()",
+            "filter_scratch_pool_entries",
+        ),
+    ] {
+        assert!(
+            filter.contains(&format!("const {constant}: usize = 8;")),
+            "filter texture pool {constant} must keep an explicit retention cap"
+        );
+        assert!(
+            filter.contains(&format!("pool.len() == {constant}")),
+            "filter texture pool {constant} must drop entries at its cap"
+        );
+        assert!(
+            renderer.contains(entries),
+            "renderer stats must read {entries} for filter texture pool diagnostics"
+        );
+        assert!(
+            diagnostics.contains(field),
+            "render diagnostics must expose {field}"
+        );
+    }
+}
+
 fn assert_source_patterns_absent(path: &std::path::Path, patterns: &[String]) {
     for entry in std::fs::read_dir(path).expect("framework source directory should be readable") {
         let path = entry
