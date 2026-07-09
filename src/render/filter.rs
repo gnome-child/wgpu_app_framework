@@ -1,23 +1,29 @@
-use bytemuck::{Pod, Zeroable};
 use std::cell::RefCell;
 
 use wgpu::util::DeviceExt;
 
 use crate::paint::{self, Rect};
 use crate::render;
-use crate::render::silhouette::{PreparedSilhouette, edges, rect_data, rounding_data};
+use crate::render::silhouette::PreparedSilhouette;
 
 mod chain;
 mod noise;
 mod params;
+mod pass;
 mod shader;
 mod target;
 
+use chain::FilterChainContext;
 pub(crate) use chain::FilterSource;
-use chain::{FilterChainContext, FilterSourceSpace};
 use params::{AlphaMode, ParamInput, Params};
+use pass::{
+    BlurLabels, BlurPass, CompositePass, CompositeVertex, EffectPass, LiquidPass, PassLabels,
+    composite_vertices,
+};
 pub use target::Target;
 
+#[cfg(test)]
+use crate::render::silhouette::edges;
 #[cfg(test)]
 use params::{
     noise_material_position_data, physical_rect_data, physical_source_rect_data, source_scale_data,
@@ -207,109 +213,6 @@ pub(crate) struct FilterDraw<'a> {
     pub(crate) output: &'a wgpu::TextureView,
     pub(crate) filter: paint::Filter,
     pub(crate) scissor: Option<render::Scissor>,
-}
-
-struct BlurPass<'a> {
-    render_context: &'a render::Context,
-    encoder: &'a mut wgpu::CommandEncoder,
-    output: &'a wgpu::TextureView,
-    target: Target,
-    prepared: PreparedFilter,
-    direction: [f32; 2],
-    source: TextureSource<'a>,
-    source_rect: Rect,
-    source_space: FilterSourceSpace,
-    labels: BlurLabels,
-}
-
-struct LiquidPass<'a> {
-    render_context: &'a render::Context,
-    encoder: &'a mut wgpu::CommandEncoder,
-    source: &'a wgpu::TextureView,
-    source_area: paint::area::Physical,
-    source_logical_area: paint::area::Logical,
-    source_rect: Rect,
-    source_sampling: paint::LayerSampling,
-    output: &'a wgpu::TextureView,
-    target: Target,
-    prepared: PreparedFilter,
-    effect: [f32; 4],
-    alpha_mode: AlphaMode,
-    scissor: Option<render::Scissor>,
-}
-
-struct EffectPass<'a> {
-    render_context: &'a render::Context,
-    encoder: &'a mut wgpu::CommandEncoder,
-    source: &'a wgpu::TextureView,
-    source_area: paint::area::Physical,
-    source_logical_area: paint::area::Logical,
-    source_rect: Rect,
-    source_sampling: paint::LayerSampling,
-    output: &'a wgpu::TextureView,
-    target: Target,
-    prepared: PreparedFilter,
-    effect: [f32; 4],
-    alpha_mode: AlphaMode,
-    pipeline: &'a wgpu::RenderPipeline,
-    scissor: Option<render::Scissor>,
-    labels: PassLabels,
-}
-
-struct CompositePass<'a> {
-    render_context: &'a render::Context,
-    encoder: &'a mut wgpu::CommandEncoder,
-    source: TextureSource<'a>,
-    output: &'a wgpu::TextureView,
-    target: Target,
-    prepared: PreparedFilter,
-    source_rect: Rect,
-    opacity: f32,
-    alpha_mode: AlphaMode,
-    scissor: Option<render::Scissor>,
-    labels: PassLabels,
-}
-
-#[derive(Clone, Copy)]
-struct PassLabels {
-    bind_group: &'static str,
-    vertex_buffer: &'static str,
-    pass: &'static str,
-}
-
-#[derive(Clone, Copy)]
-struct BlurLabels {
-    bind_group: &'static str,
-    pass: &'static str,
-}
-
-impl BlurLabels {
-    const fn new(bind_group: &'static str, pass: &'static str) -> Self {
-        Self { bind_group, pass }
-    }
-}
-
-impl PassLabels {
-    const fn new(
-        bind_group: &'static str,
-        vertex_buffer: &'static str,
-        pass: &'static str,
-    ) -> Self {
-        Self {
-            bind_group,
-            vertex_buffer,
-            pass,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct CompositeVertex {
-    position: [f32; 2],
-    local_position: [f32; 2],
-    rect: [f32; 4],
-    rounding: [f32; 4],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1564,23 +1467,6 @@ impl Layer {
     }
 }
 
-impl CompositeVertex {
-    fn layout() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
-            0 => Float32x2,
-            1 => Float32x2,
-            2 => Float32x4,
-            3 => Float32x4
-        ];
-
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &ATTRIBUTES,
-        }
-    }
-}
-
 impl PreparedFilter {
     fn with_blur(mut self, blur_amount: f32, scale_factor: f32) -> Self {
         let blur_amount = blur_amount.clamp(0.0, 1.0);
@@ -1673,36 +1559,6 @@ fn refraction_effect(refraction: paint::Refraction) -> [f32; 4] {
 
 fn liquid_is_identity(depth: f32) -> bool {
     depth <= 0.0
-}
-
-fn composite_vertices(
-    canvas_area: paint::area::Logical,
-    prepared: PreparedFilter,
-) -> [CompositeVertex; 6] {
-    let to_clip = |x: f32, y: f32| -> [f32; 2] {
-        [
-            (x / canvas_area.width()) * 2.0 - 1.0,
-            1.0 - (y / canvas_area.height()) * 2.0,
-        ]
-    };
-    let (x0, y0, x1, y1) = edges(prepared.raster_rect);
-    let rect = rect_data(prepared.shape_rect);
-    let rounding = rounding_data(prepared.rounding);
-    let vertex = |x: f32, y: f32| CompositeVertex {
-        position: to_clip(x, y),
-        local_position: [x, y],
-        rect,
-        rounding,
-    };
-
-    [
-        vertex(x0, y0),
-        vertex(x0, y1),
-        vertex(x1, y1),
-        vertex(x0, y0),
-        vertex(x1, y1),
-        vertex(x1, y0),
-    ]
 }
 
 fn clear_view(
