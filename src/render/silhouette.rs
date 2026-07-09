@@ -1,6 +1,6 @@
 use crate::paint::{self, Grid, Rect};
 
-pub(crate) const WGSL: &str = r#"
+pub(in crate::render) const WGSL: &str = r#"
 fn silhouette_corner_radius(point: vec2<f32>, rect: vec4<f32>, rounding: vec4<f32>) -> f32 {
     let center = rect.xy + rect.zw * 0.5;
 
@@ -70,14 +70,19 @@ fn rounded_rect_normal(point: vec2<f32>, rect: vec4<f32>, rounding: vec4<f32>) -
 "#;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct PreparedSilhouette {
-    pub(crate) raster_rect: Rect,
-    pub(crate) shape_rect: Rect,
-    pub(crate) rounding: [f32; 4],
+pub(in crate::render) struct PreparedSilhouette {
+    pub(in crate::render) raster_rect: Rect,
+    pub(in crate::render) shape_rect: Rect,
+    pub(in crate::render) rounding: [f32; 4],
 }
 
 impl PreparedSilhouette {
-    pub(crate) fn for_rect(rect: Rect, grid: Grid, snap: bool, antialias: bool) -> Option<Self> {
+    pub(in crate::render) fn for_rect(
+        rect: Rect,
+        grid: Grid,
+        snap: bool,
+        antialias: bool,
+    ) -> Option<Self> {
         if rect.area.width() <= 0.0 || rect.area.height() <= 0.0 {
             return None;
         }
@@ -92,11 +97,11 @@ impl PreparedSilhouette {
         Some(Self::from_parts(shape_rect, raster_rect))
     }
 
-    pub(crate) fn for_filter_rect(rect: Rect, scale_factor: f32) -> Option<Self> {
+    pub(in crate::render) fn for_filter_rect(rect: Rect, scale_factor: f32) -> Option<Self> {
         Self::for_rect(rect, Grid::new(scale_factor), true, true)
     }
 
-    pub(crate) fn from_parts(shape_rect: Rect, raster_rect: Rect) -> Self {
+    pub(in crate::render) fn from_parts(shape_rect: Rect, raster_rect: Rect) -> Self {
         Self {
             raster_rect,
             shape_rect,
@@ -105,17 +110,17 @@ impl PreparedSilhouette {
     }
 
     #[cfg(test)]
-    pub(crate) fn with_rounding(mut self, rounding: [f32; 4]) -> Self {
+    pub(in crate::render) fn with_rounding(mut self, rounding: [f32; 4]) -> Self {
         self.rounding = clamp_resolved_rounding(rounding, self.shape_rect.area);
         self
     }
 }
 
-pub(crate) fn wgsl_module_source(body: &str) -> String {
+pub(in crate::render) fn wgsl_module_source(body: &str) -> String {
     format!("{WGSL}\n{body}")
 }
 
-pub(crate) fn inset_rect(rect: Rect, inset: f32) -> Option<Rect> {
+pub(in crate::render) fn inset_rect(rect: Rect, inset: f32) -> Option<Rect> {
     let width = rect.area.width() - inset * 2.0;
     let height = rect.area.height() - inset * 2.0;
 
@@ -129,7 +134,7 @@ pub(crate) fn inset_rect(rect: Rect, inset: f32) -> Option<Rect> {
     ))
 }
 
-pub(crate) fn expand_rect(rect: Rect, amount: f32) -> Rect {
+pub(in crate::render) fn expand_rect(rect: Rect, amount: f32) -> Rect {
     Rect::new(
         paint::point::logical(rect.origin.x() - amount, rect.origin.y() - amount),
         paint::area::logical(
@@ -139,7 +144,7 @@ pub(crate) fn expand_rect(rect: Rect, amount: f32) -> Rect {
     )
 }
 
-pub(crate) fn offset_rect(rect: Rect, offset: paint::point::Logical) -> Rect {
+pub(in crate::render) fn offset_rect(rect: Rect, offset: paint::point::Logical) -> Rect {
     Rect::rounded(
         paint::point::logical(rect.origin.x() + offset.x(), rect.origin.y() + offset.y()),
         rect.area,
@@ -147,7 +152,7 @@ pub(crate) fn offset_rect(rect: Rect, offset: paint::point::Logical) -> Rect {
     )
 }
 
-pub(crate) fn union_rects(a: Rect, b: Rect) -> Rect {
+pub(in crate::render) fn union_rects(a: Rect, b: Rect) -> Rect {
     let (a_left, a_top, a_right, a_bottom) = edges(a);
     let (b_left, b_top, b_right, b_bottom) = edges(b);
     let left = a_left.min(b_left);
@@ -161,7 +166,7 @@ pub(crate) fn union_rects(a: Rect, b: Rect) -> Rect {
     )
 }
 
-pub(crate) fn expand_rounding(rounding: [f32; 4], amount: f32) -> [f32; 4] {
+pub(in crate::render) fn expand_rounding(rounding: [f32; 4], amount: f32) -> [f32; 4] {
     [
         expand_corner_radius(rounding[0], amount),
         expand_corner_radius(rounding[1], amount),
@@ -170,7 +175,7 @@ pub(crate) fn expand_rounding(rounding: [f32; 4], amount: f32) -> [f32; 4] {
     ]
 }
 
-pub(crate) fn shrink_rounding(rounding: [f32; 4], amount: f32) -> [f32; 4] {
+pub(in crate::render) fn shrink_rounding(rounding: [f32; 4], amount: f32) -> [f32; 4] {
     [
         (rounding[0] - amount).max(0.0),
         (rounding[1] - amount).max(0.0),
@@ -179,7 +184,10 @@ pub(crate) fn shrink_rounding(rounding: [f32; 4], amount: f32) -> [f32; 4] {
     ]
 }
 
-pub(crate) fn clamp_resolved_rounding(rounding: [f32; 4], area: paint::area::Logical) -> [f32; 4] {
+pub(in crate::render) fn clamp_resolved_rounding(
+    rounding: [f32; 4],
+    area: paint::area::Logical,
+) -> [f32; 4] {
     let width = area.width().max(0.0);
     let height = area.height().max(0.0);
     let scale = 1.0_f32
@@ -200,21 +208,21 @@ pub(crate) fn clamp_resolved_rounding(rounding: [f32; 4], area: paint::area::Log
     ]
 }
 
-pub(crate) fn clamped_width(rect: Rect, width: f32) -> f32 {
+pub(in crate::render) fn clamped_width(rect: Rect, width: f32) -> f32 {
     width
         .max(0.0)
         .min(rect.area.width() / 2.0)
         .min(rect.area.height() / 2.0)
 }
 
-pub(crate) fn edges(rect: Rect) -> (f32, f32, f32, f32) {
+pub(in crate::render) fn edges(rect: Rect) -> (f32, f32, f32, f32) {
     let x0 = rect.origin.x();
     let y0 = rect.origin.y();
 
     (x0, y0, x0 + rect.area.width(), y0 + rect.area.height())
 }
 
-pub(crate) fn rect_data(rect: Rect) -> [f32; 4] {
+pub(in crate::render) fn rect_data(rect: Rect) -> [f32; 4] {
     [
         rect.origin.x(),
         rect.origin.y(),
@@ -223,7 +231,7 @@ pub(crate) fn rect_data(rect: Rect) -> [f32; 4] {
     ]
 }
 
-pub(crate) fn rounding_data(rounding: [f32; 4]) -> [f32; 4] {
+pub(in crate::render) fn rounding_data(rounding: [f32; 4]) -> [f32; 4] {
     rounding
 }
 
