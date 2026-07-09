@@ -22,7 +22,7 @@ pub struct Render {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Samples {
+struct Samples {
     values: VecDeque<u128>,
     limit: usize,
 }
