@@ -12,6 +12,7 @@ mod noise;
 mod params;
 mod pass;
 mod shader;
+mod source;
 mod target;
 
 use chain::FilterChainContext;
@@ -31,6 +32,7 @@ use pass::{
     BlurLabels, BlurPass, CompositePass, CompositeVertex, EffectPass, LiquidPass, PassLabels,
     composite_vertices,
 };
+pub(crate) use source::TextureSource;
 pub use target::Target;
 
 #[cfg(test)]
@@ -109,42 +111,6 @@ pub(crate) struct LayerComposite<'a> {
     pub(crate) source_rect: Option<Rect>,
     pub(crate) scissor: Option<render::Scissor>,
     pub(crate) opacity: f32,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct TextureSource<'a> {
-    view: &'a wgpu::TextureView,
-    area: paint::area::Physical,
-    logical_area: paint::area::Logical,
-    sampling: paint::LayerSampling,
-}
-
-impl<'a> TextureSource<'a> {
-    pub(crate) fn new(
-        view: &'a wgpu::TextureView,
-        area: paint::area::Physical,
-        logical_area: paint::area::Logical,
-        sampling: paint::LayerSampling,
-    ) -> Self {
-        debug_assert!(area.width() > 0 && area.height() > 0);
-        debug_assert!(logical_area.width() > 0.0 && logical_area.height() > 0.0);
-        Self {
-            view,
-            area,
-            logical_area,
-            sampling,
-        }
-    }
-
-    fn for_target_view(
-        view: &'a wgpu::TextureView,
-        target: Target,
-        sampling: paint::LayerSampling,
-    ) -> Self {
-        let area = target.physical_area.clamp_min(1);
-
-        Self::new(view, area, area.to_logical(target.scale_factor), sampling)
-    }
 }
 
 impl Texture {
