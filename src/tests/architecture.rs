@@ -1115,6 +1115,65 @@ fn glass_material_carrier_is_pane_not_surface() {
     assert!(master.contains("A material is a visual recipe; a pane is shaped material."));
 }
 
+#[test]
+fn scene_no_longer_exposes_generic_filter_primitives() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let scene_mod =
+        std::fs::read_to_string(root.join("scene").join("mod.rs")).expect("scene mod should read");
+    let scene_primitive = std::fs::read_to_string(root.join("scene").join("primitive.rs"))
+        .expect("scene primitive source should read");
+    let native_paint =
+        std::fs::read_to_string(root.join("platform").join("native").join("paint.rs"))
+            .expect("native paint source should read");
+
+    for source in [&scene_mod, &scene_primitive, &native_paint] {
+        assert!(
+            !source.contains("Primitive::Filter"),
+            "scene-level filter primitive must not return after Pane"
+        );
+        assert!(
+            !source.contains("scene::Filter"),
+            "native paint must not carry a scene filter bridge after Pane"
+        );
+        assert!(
+            !source.contains("FilterOp"),
+            "scene-level filter ops must not return after Pane"
+        );
+    }
+}
+
+#[test]
+fn paint_display_list_no_longer_routes_generic_filter_items() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let paint = std::fs::read_to_string(root.join("paint").join("mod.rs"))
+        .expect("paint source should read");
+    let batch = std::fs::read_to_string(root.join("render").join("batch.rs"))
+        .expect("render batch source should read");
+    let renderer = std::fs::read_to_string(root.join("render").join("renderer.rs"))
+        .expect("renderer source should read");
+
+    assert!(
+        !paint.contains("Item::Filter"),
+        "paint display list should not route generic filters after Pane"
+    );
+    assert!(
+        !batch.contains("ItemBatch::Filter"),
+        "render batching should not carry generic filter batches after Pane"
+    );
+    assert!(
+        !renderer.contains("RenderBatch::Filter"),
+        "renderer should not dispatch generic filter batches after Pane"
+    );
+    assert!(
+        !renderer.contains("fn encode_filter"),
+        "filter encoding should be owned by Pane/material paths after Pane"
+    );
+    assert!(
+        !renderer.contains("filter_source_decision"),
+        "old display-list filter source decision helper should not return"
+    );
+}
+
 fn assert_source_patterns_absent(path: &std::path::Path, patterns: &[String]) {
     for entry in std::fs::read_dir(path).expect("framework source directory should be readable") {
         let path = entry

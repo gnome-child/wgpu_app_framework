@@ -4631,7 +4631,7 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
                 + std::time::Duration::from_millis(Theme::default().overlay().exit_fade_ms + 1),
         )
         .expect("expired glass tuner ghost should render");
-    assert!(expired.scene().filters().is_empty());
+    assert!(expired.scene().panes().is_empty());
 }
 
 #[test]

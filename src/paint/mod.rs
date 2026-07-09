@@ -74,15 +74,6 @@ impl Scene {
         self.items.push(Item::Outline(outline));
     }
 
-    pub fn push_filter(&mut self, filter: Filter) {
-        if filter.rect.area.width() > 0.0
-            && filter.rect.area.height() > 0.0
-            && !filter.ops.is_empty()
-        {
-            self.items.push(Item::Filter(filter));
-        }
-    }
-
     pub fn push_group(&mut self, group: Group) {
         if group.opacity > 0.0
             && group.bounds.area.width() > 0.0
@@ -122,7 +113,6 @@ pub enum Item {
     Shadow(Shadow),
     Pane(Pane),
     Outline(Outline),
-    Filter(Filter),
     Clip(Clip),
     PopClip,
     Group(Group),
@@ -490,24 +480,12 @@ impl Pane {
 }
 
 impl Filter {
-    #[cfg(test)]
-    pub fn blur(rect: Rect, amount: f32) -> Self {
-        Self::stack(rect, [FilterOp::blur(amount)])
-    }
-
     pub fn stack(rect: Rect, ops: impl IntoIterator<Item = FilterOp>) -> Self {
         Self {
             rect,
             source_rect: None,
             ops: ops.into_iter().map(FilterOp::clamped).collect(),
         }
-    }
-
-    fn translated_for_group(mut self, origin: point::Logical) -> Self {
-        let source_rect = self.source_rect.unwrap_or(self.rect);
-        self.rect = translate_rect(self.rect, -origin.x(), -origin.y());
-        self.source_rect = Some(source_rect);
-        self
     }
 }
 
@@ -1052,7 +1030,6 @@ fn item_bounds(item: &Item, grid: Grid) -> Option<Rect> {
             outline.offset.max(0.0) + outline.width.max(0.0) + grid.logical_pixel(),
         )),
         Item::Pane(pane) => Some(expand_rect(pane.rect, pane_outset(pane, grid))),
-        Item::Filter(filter) => Some(expand_rect(filter.rect, filter_outset(filter, grid))),
         Item::Clip(_) | Item::PopClip => None,
         Item::Group(group) => Some(group.bounds),
     }
@@ -1075,14 +1052,6 @@ fn pane_outset(pane: &Pane, grid: Grid) -> f32 {
             })
             .fold(0.0, f32::max),
     }
-}
-
-fn filter_outset(filter: &Filter, grid: Grid) -> f32 {
-    filter
-        .ops
-        .iter()
-        .map(|op| filter_op_outset(*op, grid))
-        .fold(0.0, f32::max)
 }
 
 fn filter_op_outset(op: FilterOp, grid: Grid) -> f32 {
@@ -1154,7 +1123,6 @@ fn translate_item_for_group(item: &Item, origin: point::Logical, grid: Grid) -> 
             Item::Outline(outline)
         }
         Item::Pane(pane) => Item::Pane(pane.clone().translated_for_group(origin)),
-        Item::Filter(filter) => Item::Filter(filter.clone().translated_for_group(origin)),
         Item::Clip(clip) => {
             let mut clip = *clip;
             clip.rect = translate_rect(clip.rect, dx, dy);
@@ -1275,10 +1243,6 @@ mod tests {
             spread: 1.0,
             offset: point::logical(0.0, 4.0),
         };
-        let filter = Filter::blur(
-            Rect::new(point::logical(1.72, 0.0), area::logical(10.0, 10.0)),
-            0.5,
-        );
         let clip = Clip {
             rect: Rect::new(point::logical(1.73, 0.0), area::logical(10.0, 10.0)),
         };
@@ -1301,7 +1265,6 @@ mod tests {
         scene.push_icon(icon);
         scene.push_text(text.clone());
         scene.push_shadow(shadow);
-        scene.push_filter(filter.clone());
         scene.push_clip(clip);
         scene.push_outline(outline);
         scene.pop_clip();
@@ -1314,7 +1277,6 @@ mod tests {
                 Item::Icon(icon),
                 Item::Text(text),
                 Item::Shadow(shadow),
-                Item::Filter(filter),
                 Item::Clip(clip),
                 Item::Outline(outline),
                 Item::PopClip,
@@ -1341,58 +1303,6 @@ mod tests {
         scene.push_shadow(shadow);
 
         assert_eq!(scene.items(), &[Item::Shadow(shadow)]);
-    }
-
-    #[test]
-    fn filter_item_is_stored() {
-        let mut scene = Scene::new();
-        let filter = Filter::stack(
-            Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
-            [
-                FilterOp::Blur { amount: 0.5 },
-                FilterOp::Liquid {
-                    depth: 0.2,
-                    splay: 2.0,
-                    feather: 18.0,
-                    curve: 2.0,
-                },
-            ],
-        );
-
-        scene.push_filter(filter.clone());
-
-        assert_eq!(scene.items(), &[Item::Filter(filter)]);
-    }
-
-    #[test]
-    fn filter_preserves_rounded_rect_shape() {
-        let mut scene = Scene::new();
-        let filter = Filter::blur(
-            Rect::rounded(
-                point::logical(0.0, 0.0),
-                area::logical(20.0, 10.0),
-                paint::Rounding::relative(1.0),
-            ),
-            0.5,
-        );
-
-        scene.push_filter(filter.clone());
-
-        assert_eq!(scene.items(), &[Item::Filter(filter)]);
-    }
-
-    #[test]
-    fn empty_and_zero_size_filters_are_skipped() {
-        let mut scene = Scene::new();
-        let rect = Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0));
-
-        scene.push_filter(Filter::stack(rect, []));
-        scene.push_filter(Filter::blur(
-            Rect::new(point::logical(0.0, 0.0), area::logical(0.0, 10.0)),
-            0.5,
-        ));
-
-        assert!(scene.items().is_empty());
     }
 
     #[test]
@@ -1501,28 +1411,6 @@ mod tests {
     }
 
     #[test]
-    fn group_translation_preserves_filter_source_rect() {
-        let filter = Filter::stack(
-            Rect::new(point::logical(20.0, 30.0), area::logical(50.0, 40.0)),
-            [FilterOp::backdrop_blur(BackdropBlur {
-                sigma: 10.0,
-                edge_mode: BackdropEdgeMode::Mirror,
-            })],
-        );
-        let group = group_from_items(&[Item::Filter(filter.clone())], 0.5, Grid::new(1.0))
-            .expect("filter should produce group");
-        let [Item::Filter(local)] = group.items.as_slice() else {
-            panic!("expected translated filter");
-        };
-
-        assert_eq!(
-            local.rect,
-            Rect::new(point::logical(30.0, 30.0), area::logical(50.0, 40.0))
-        );
-        assert_eq!(local.source_rect, Some(filter.rect));
-    }
-
-    #[test]
     fn group_translation_preserves_pane_source_rect() {
         let pane = Pane::new(
             Rect::new(point::logical(20.0, 30.0), area::logical(50.0, 40.0)),
@@ -1579,28 +1467,6 @@ mod tests {
     }
 
     #[test]
-    fn group_bounds_include_backdrop_blur_kernel_spread() {
-        let filter = Filter::stack(
-            Rect::new(point::logical(20.0, 30.0), area::logical(50.0, 40.0)),
-            [FilterOp::backdrop_blur(BackdropBlur {
-                sigma: 44.55,
-                edge_mode: BackdropEdgeMode::Mirror,
-            })],
-        );
-
-        for scale in [1.0, 1.5] {
-            let group = group_from_items(&[Item::Filter(filter.clone())], 0.5, Grid::new(scale))
-                .expect("filter should produce group bounds");
-
-            assert_eq!(
-                group.bounds,
-                Rect::new(point::logical(-114.0, -104.0), area::logical(318.0, 308.0)),
-                "scale {scale} should reserve the high-sigma blur kernel"
-            );
-        }
-    }
-
-    #[test]
     fn group_bounds_include_pane_backdrop_blur_kernel_spread() {
         let pane = Pane::new(
             Rect::new(point::logical(20.0, 30.0), area::logical(50.0, 40.0)),
@@ -1624,21 +1490,6 @@ mod tests {
                 "scale {scale} should reserve the pane blur kernel"
             );
         }
-    }
-
-    #[test]
-    fn group_bounds_include_normalized_blur_spread() {
-        let filter = Filter::blur(
-            Rect::new(point::logical(20.0, 30.0), area::logical(50.0, 40.0)),
-            0.5,
-        );
-        let group = group_from_items(&[Item::Filter(filter)], 0.5, Grid::new(1.0))
-            .expect("filter should produce group bounds");
-
-        assert_eq!(
-            group.bounds,
-            Rect::new(point::logical(-108.0, -98.0), area::logical(306.0, 296.0))
-        );
     }
 
     #[test]

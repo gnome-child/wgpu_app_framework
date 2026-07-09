@@ -12,9 +12,9 @@ pub use material::{
 };
 pub use presentation::Presentation;
 pub use primitive::{
-    Axis, Brush, Clip, EdgeMode, Filter, FilterOp, Group, Icon, LiquidFilter, Motion, Offset,
-    Outline, Pane, Primitive, Quad, Radius, Rasterization, Rounding, Rule, ScaleMotion, Shadow,
-    Stroke, Style, Text, TextAlign, TextStyle, TextSurface, TextViewport, TextWrap, Transform,
+    Axis, Brush, Clip, EdgeMode, Group, Icon, Motion, Offset, Outline, Pane, Primitive, Quad,
+    Radius, Rasterization, Rounding, Rule, ScaleMotion, Shadow, Stroke, Style, Text, TextAlign,
+    TextStyle, TextSurface, TextViewport, TextWrap, Transform,
 };
 pub(crate) use visual::Visuals;
 pub(crate) use visual::{Scalar as VisualScalar, Target as TargetVisual};
@@ -180,12 +180,6 @@ impl Scene {
         shadows
     }
 
-    pub fn filters(&self) -> Vec<&Filter> {
-        let mut filters = Vec::new();
-        collect_filters(&self.primitives, &mut filters);
-        filters
-    }
-
     pub fn panes(&self) -> Vec<&Pane> {
         let mut panes = Vec::new();
         collect_panes(&self.primitives, &mut panes);
@@ -257,13 +251,6 @@ impl Scene {
     pub(super) fn push_pane(&mut self, pane: Pane) {
         if pane.rect().width() > 0 && pane.rect().height() > 0 {
             self.primitives.push(Primitive::Pane(pane));
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(super) fn push_filter(&mut self, filter: Filter) {
-        if filter.rect().width() > 0 && filter.rect().height() > 0 && !filter.ops().is_empty() {
-            self.primitives.push(Primitive::Filter(filter));
         }
     }
 
@@ -342,16 +329,6 @@ fn collect_shadows<'a>(primitives: &'a [Primitive], shadows: &mut Vec<&'a Shadow
         match primitive {
             Primitive::Shadow(shadow) => shadows.push(shadow),
             Primitive::Group(group) => collect_shadows(group.primitives(), shadows),
-            _ => {}
-        }
-    }
-}
-
-fn collect_filters<'a>(primitives: &'a [Primitive], filters: &mut Vec<&'a Filter>) {
-    for primitive in primitives {
-        match primitive {
-            Primitive::Filter(filter) => filters.push(filter),
-            Primitive::Group(group) => collect_filters(group.primitives(), filters),
             _ => {}
         }
     }

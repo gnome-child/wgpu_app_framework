@@ -5,7 +5,7 @@ use crate::text as text_model;
 
 use super::super::geometry;
 use super::Color;
-use super::material::{BackdropBlur, Luminosity, Material, Noise, Refraction};
+use super::material::Material;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Primitive {
@@ -16,7 +16,6 @@ pub enum Primitive {
     Icon(Icon),
     Shadow(Shadow),
     Pane(Pane),
-    Filter(Filter),
     Clip(Clip),
     PopClip,
     Outline(Outline),
@@ -118,38 +117,6 @@ pub struct Pane {
     rect: geometry::Rect,
     rounding: Rounding,
     material: Material,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Filter {
-    rect: geometry::Rect,
-    ops: Vec<FilterOp>,
-    rounding: Rounding,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum FilterOp {
-    Blur {
-        amount: f32,
-    },
-    BackdropBlur(BackdropBlur),
-    Liquid {
-        depth: f32,
-        splay: f32,
-        feather: f32,
-        curve: f32,
-    },
-    Refraction(Refraction),
-    Luminosity(Luminosity),
-    Noise(Noise),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct LiquidFilter {
-    pub(crate) depth: f32,
-    pub(crate) splay: f32,
-    pub(crate) feather: f32,
-    pub(crate) curve: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -780,103 +747,6 @@ impl Pane {
 
     pub fn material(&self) -> &Material {
         &self.material
-    }
-}
-
-impl Filter {
-    #[allow(dead_code)]
-    pub(in crate::scene) fn stack(
-        rect: geometry::Rect,
-        ops: impl IntoIterator<Item = FilterOp>,
-    ) -> Self {
-        Self {
-            rect,
-            ops: ops.into_iter().map(FilterOp::clamped).collect(),
-            rounding: Rounding::none(),
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(in crate::scene) fn with_rounding(mut self, rounding: Rounding) -> Self {
-        self.rounding = rounding;
-        self
-    }
-
-    pub fn rect(&self) -> geometry::Rect {
-        self.rect
-    }
-
-    pub fn ops(&self) -> &[FilterOp] {
-        &self.ops
-    }
-
-    pub fn rounding(&self) -> Rounding {
-        self.rounding
-    }
-}
-
-impl FilterOp {
-    pub const fn blur(amount: f32) -> Self {
-        Self::Blur { amount }
-    }
-
-    pub const fn backdrop_blur(params: BackdropBlur) -> Self {
-        Self::BackdropBlur(params)
-    }
-
-    pub const fn liquid(params: LiquidFilter) -> Self {
-        Self::Liquid {
-            depth: params.depth,
-            splay: params.splay,
-            feather: params.feather,
-            curve: params.curve,
-        }
-    }
-
-    pub const fn refraction(params: Refraction) -> Self {
-        Self::Refraction(params)
-    }
-
-    pub const fn luminosity(params: Luminosity) -> Self {
-        Self::Luminosity(params)
-    }
-
-    pub const fn noise(params: Noise) -> Self {
-        Self::Noise(params)
-    }
-
-    pub fn clamped(self) -> Self {
-        match self {
-            Self::Blur { amount } => Self::Blur {
-                amount: amount.clamp(0.0, 1.0),
-            },
-            Self::BackdropBlur(params) => Self::BackdropBlur(params.clamped()),
-            Self::Liquid {
-                depth,
-                splay,
-                feather,
-                curve,
-            } => Self::Liquid {
-                depth: depth.clamp(0.0, 1.0),
-                splay: splay.max(0.0),
-                feather: feather.max(0.0),
-                curve: curve.max(0.1),
-            },
-            Self::Refraction(params) => Self::Refraction(params.clamped()),
-            Self::Luminosity(params) => Self::Luminosity(params.clamped()),
-            Self::Noise(params) => Self::Noise(params.clamped()),
-        }
-    }
-}
-
-impl LiquidFilter {
-    pub const fn new(depth: f32, splay: f32, feather: f32, curve: f32) -> Self {
-        Self {
-            depth,
-            splay,
-            feather,
-            curve,
-        }
     }
 }
 

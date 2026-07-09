@@ -3,7 +3,6 @@ use crate::paint;
 pub enum ItemBatch<'a> {
     Shapes(Vec<Shape<'a>>),
     Pane(&'a paint::Pane),
-    Filter(&'a paint::Filter),
     Glyphs(Vec<Glyph<'a>>),
     PushClip(&'a paint::Clip),
     PopClip,
@@ -37,7 +36,6 @@ pub fn item_batches(items: &[paint::Item]) -> Vec<ItemBatch<'_>> {
             paint::Item::Shadow(shadow) => push_shape(&mut batches, Shape::Shadow(shadow)),
             paint::Item::Outline(outline) => push_shape(&mut batches, Shape::Outline(outline)),
             paint::Item::Pane(pane) => batches.push(ItemBatch::Pane(pane)),
-            paint::Item::Filter(filter) => batches.push(ItemBatch::Filter(filter)),
             paint::Item::Clip(clip) => batches.push(ItemBatch::PushClip(clip)),
             paint::Item::PopClip => batches.push(ItemBatch::PopClip),
             paint::Item::Group(group) => batches.push(ItemBatch::Group(group)),
@@ -72,7 +70,6 @@ mod tests {
     enum Kind {
         Shapes(usize),
         Pane,
-        Filter,
         Glyphs(usize),
         PushClip,
         PopClip,
@@ -138,7 +135,6 @@ mod tests {
             .map(|batch| match batch {
                 ItemBatch::Shapes(shapes) => Kind::Shapes(shapes.len()),
                 ItemBatch::Pane(_) => Kind::Pane,
-                ItemBatch::Filter(_) => Kind::Filter,
                 ItemBatch::Glyphs(glyphs) => Kind::Glyphs(glyphs.len()),
                 ItemBatch::PushClip(_) => Kind::PushClip,
                 ItemBatch::PopClip => Kind::PopClip,
@@ -172,45 +168,6 @@ mod tests {
         ];
 
         assert_eq!(kinds(&item_batches(&items)), vec![Kind::Glyphs(3)]);
-    }
-
-    #[test]
-    fn filter_batches_as_own_ordered_operation() {
-        let items = vec![paint::Item::Filter(paint::Filter::blur(
-            Rect::new(
-                paint::point::logical(0.0, 0.0),
-                paint::area::logical(10.0, 10.0),
-            ),
-            0.5,
-        ))];
-
-        assert_eq!(kinds(&item_batches(&items)), vec![Kind::Filter]);
-    }
-
-    #[test]
-    fn filter_splits_shape_batches_to_preserve_order() {
-        let items = vec![
-            paint::Item::Quad(solid_quad(0.0)),
-            paint::Item::Filter(paint::Filter::blur(
-                Rect::new(
-                    paint::point::logical(1.0, 0.0),
-                    paint::area::logical(10.0, 10.0),
-                ),
-                0.5,
-            )),
-            paint::Item::Quad(solid_quad(2.0)),
-            paint::Item::Text(label(3.0)),
-        ];
-
-        assert_eq!(
-            kinds(&item_batches(&items)),
-            vec![
-                Kind::Shapes(1),
-                Kind::Filter,
-                Kind::Shapes(1),
-                Kind::Glyphs(1)
-            ]
-        );
     }
 
     #[test]

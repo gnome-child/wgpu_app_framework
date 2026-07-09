@@ -26,7 +26,6 @@ pub(in crate::platform::native) fn to_paint_scene_at_scale(
             scene::Primitive::Icon(icon) => scene.push_icon(to_paint_icon(icon, grid)),
             scene::Primitive::Shadow(shadow) => scene.push_shadow(to_paint_shadow(shadow, grid)),
             scene::Primitive::Pane(pane) => scene.push_pane(to_paint_pane(pane, grid)),
-            scene::Primitive::Filter(filter) => scene.push_filter(to_paint_filter(filter, grid)),
             scene::Primitive::Clip(clip) => scene.push_clip(to_paint_clip_at_scale(clip, grid)),
             scene::Primitive::PopClip => scene.pop_clip(),
             scene::Primitive::Outline(outline) => {
@@ -54,7 +53,6 @@ fn push_paint_primitive(primitive: &scene::Primitive, scene: &mut paint::Scene, 
         scene::Primitive::Icon(icon) => scene.push_icon(to_paint_icon(icon, grid)),
         scene::Primitive::Shadow(shadow) => scene.push_shadow(to_paint_shadow(shadow, grid)),
         scene::Primitive::Pane(pane) => scene.push_pane(to_paint_pane(pane, grid)),
-        scene::Primitive::Filter(filter) => scene.push_filter(to_paint_filter(filter, grid)),
         scene::Primitive::Clip(clip) => scene.push_clip(to_paint_clip_at_scale(clip, grid)),
         scene::Primitive::PopClip => scene.pop_clip(),
         scene::Primitive::Outline(outline) => scene.push_outline(to_paint_outline(outline, grid)),
@@ -227,49 +225,6 @@ fn to_paint_surface_layer(layer: scene::SurfaceLayer) -> paint::SurfaceLayer {
             opacity,
         },
         scene::SurfaceLayer::Noise(noise) => paint::SurfaceLayer::Noise(paint::Noise {
-            opacity: noise.opacity(),
-        }),
-    }
-}
-
-fn to_paint_filter(filter: &scene::Filter, grid: paint::Grid) -> paint::Filter {
-    paint::Filter::stack(
-        into_paint_rounded_rect_at_scale(filter.rect(), filter.rounding(), grid),
-        filter.ops().iter().copied().map(to_paint_filter_op),
-    )
-}
-
-fn to_paint_filter_op(op: scene::FilterOp) -> paint::FilterOp {
-    match op {
-        scene::FilterOp::Blur { amount } => paint::FilterOp::blur(amount),
-        scene::FilterOp::BackdropBlur(blur) => {
-            paint::FilterOp::backdrop_blur(paint::BackdropBlur {
-                sigma: blur.sigma(),
-                edge_mode: to_paint_backdrop_edge_mode(blur.edge_mode()),
-            })
-        }
-        scene::FilterOp::Liquid {
-            depth,
-            splay,
-            feather,
-            curve,
-        } => paint::FilterOp::liquid(paint::LiquidFilter {
-            depth,
-            splay,
-            feather,
-            curve,
-        }),
-        scene::FilterOp::Refraction(refraction) => paint::FilterOp::refraction(paint::Refraction {
-            displacement: refraction.displacement(),
-            splay: refraction.splay(),
-            feather: refraction.feather(),
-            curve: refraction.curve(),
-        }),
-        scene::FilterOp::Luminosity(luminosity) => paint::FilterOp::luminosity(paint::Luminosity {
-            color: super::color::paint_color(luminosity.color()),
-            opacity: luminosity.opacity(),
-        }),
-        scene::FilterOp::Noise(noise) => paint::FilterOp::noise(paint::Noise {
             opacity: noise.opacity(),
         }),
     }

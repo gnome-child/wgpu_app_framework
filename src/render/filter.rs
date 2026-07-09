@@ -2479,24 +2479,24 @@ mod tests {
 
     #[test]
     fn promoted_blur_first_pass_samples_global_and_writes_local() {
-        let filter = paint::Filter::stack(
+        let pane = paint::Pane::new(
             Rect::new(
                 paint::point::logical(20.0, 30.0),
                 paint::area::logical(50.0, 40.0),
             ),
-            [paint::FilterOp::backdrop_blur(paint::BackdropBlur {
-                sigma: 44.55,
-                edge_mode: paint::BackdropEdgeMode::Mirror,
-            })],
+            paint::Material::Glass(paint::Glass {
+                fallback: paint::Brush::solid(paint::Color::BLACK),
+                backdrop_layers: vec![paint::BackdropLayer::Blur(paint::BackdropBlur {
+                    sigma: 44.55,
+                    edge_mode: paint::BackdropEdgeMode::Mirror,
+                })],
+                surface_layers: Vec::new(),
+            }),
         );
-        let group = paint::group_from_items(
-            &[paint::Item::Filter(filter.clone())],
-            0.5,
-            paint::Grid::new(1.5),
-        )
-        .expect("filter should produce group");
-        let [paint::Item::Filter(local)] = group.items.as_slice() else {
-            panic!("expected translated filter");
+        let group = paint::group_from_items(&[paint::Item::Pane(pane)], 0.5, paint::Grid::new(1.5))
+            .expect("pane should produce group");
+        let [paint::Item::Pane(local)] = group.items.as_slice() else {
+            panic!("expected translated pane");
         };
         let prepared = prepare_filter(local.rect, 1.5)
             .expect("filter should prepare")
@@ -2508,7 +2508,7 @@ mod tests {
             prepared,
             source_rect: local
                 .source_rect
-                .expect("group filter keeps global source rect"),
+                .expect("group pane keeps global source rect"),
             direction: [1.0, 0.0],
             effect: [prepared.blur_sigma_px, 0.0, 0.0, 0.0],
             alpha_mode: AlphaMode::Source,
@@ -2522,26 +2522,30 @@ mod tests {
 
     #[test]
     fn high_sigma_blur_write_rect_fits_in_inflated_group_target() {
-        let filter = paint::Filter::stack(
+        let pane = paint::Pane::new(
             Rect::new(
                 paint::point::logical(20.0, 30.0),
                 paint::area::logical(50.0, 40.0),
             ),
-            [paint::FilterOp::backdrop_blur(paint::BackdropBlur {
-                sigma: 44.55,
-                edge_mode: paint::BackdropEdgeMode::Mirror,
-            })],
+            paint::Material::Glass(paint::Glass {
+                fallback: paint::Brush::solid(paint::Color::BLACK),
+                backdrop_layers: vec![paint::BackdropLayer::Blur(paint::BackdropBlur {
+                    sigma: 44.55,
+                    edge_mode: paint::BackdropEdgeMode::Mirror,
+                })],
+                surface_layers: Vec::new(),
+            }),
         );
 
         for scale in [1.0, 1.5] {
             let group = paint::group_from_items(
-                &[paint::Item::Filter(filter.clone())],
+                &[paint::Item::Pane(pane.clone())],
                 0.5,
                 paint::Grid::new(scale),
             )
-            .expect("filter should produce group");
-            let [paint::Item::Filter(local)] = group.items.as_slice() else {
-                panic!("expected translated filter");
+            .expect("pane should produce group");
+            let [paint::Item::Pane(local)] = group.items.as_slice() else {
+                panic!("expected translated pane");
             };
             let prepared = prepare_filter(local.rect, scale)
                 .expect("filter should prepare")
