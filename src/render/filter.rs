@@ -35,7 +35,6 @@ pub(crate) use source::TextureSource;
 pub(crate) use state::Renderer;
 pub(crate) use storage::Layer;
 pub(crate) use storage::LayerComposite;
-use storage::{ScratchTargets, Textures, take_pooled_layer, take_pooled_scratch};
 pub(crate) use target::Target;
 
 #[cfg(test)]

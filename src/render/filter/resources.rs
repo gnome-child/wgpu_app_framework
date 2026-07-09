@@ -1,5 +1,7 @@
 use super::encode::clear_view;
-use super::storage::{ScratchTextures, Texture};
+use super::storage::{
+    ScratchTargets, ScratchTextures, Texture, Textures, take_pooled_layer, take_pooled_scratch,
+};
 use super::*;
 
 const LAYER_POOL_LIMIT: usize = 8;

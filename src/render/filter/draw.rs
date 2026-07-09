@@ -1,4 +1,5 @@
 use super::geometry::prepare_filter;
+use super::storage::ScratchTargets;
 use super::*;
 
 pub(crate) struct FilterDraw<'a> {
