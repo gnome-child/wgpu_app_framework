@@ -324,8 +324,8 @@ impl Theme {
                 content_gap: 6,
             },
             overlay: Overlay {
-                enter_fade_ms: 90,
-                exit_fade_ms: 120,
+                enter_fade_ms: 80,
+                exit_fade_ms: 80,
             },
             viewport: Viewport {
                 min_viewport_extent: 96,
