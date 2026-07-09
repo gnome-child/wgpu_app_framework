@@ -49,6 +49,7 @@ impl Window {
         let handle = Arc::new(event_loop.create_window(window_attributes)?);
         if options.kind == app_window::Kind::Popup {
             super::sys::enforce_popup_style(&handle);
+            super::sys::install_popup_subclass(&handle);
         }
 
         Ok(handle)
@@ -83,6 +84,10 @@ impl Window {
 
     pub fn set_popup_visibility(&self, visible: bool) {
         super::sys::set_popup_visible(&self.handle, visible);
+    }
+
+    pub fn remove_popup_subclass(&self) {
+        super::sys::remove_popup_subclass(&self.handle);
     }
 
     pub fn configure_popup_bounds(&self, x: i32, y: i32, area: paint::area::Logical) {

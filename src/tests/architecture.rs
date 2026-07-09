@@ -1271,6 +1271,96 @@ fn native_popup_positioning_anchors_to_parent_client_origin() {
 }
 
 #[test]
+fn windows_native_popup_clicks_do_not_activate() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let manifest =
+        std::fs::read_to_string(root.join("Cargo.toml")).expect("cargo manifest should read");
+    let sys_mod = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("sys")
+            .join("mod.rs"),
+    )
+    .expect("native sys module should read");
+    let windows = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("sys")
+            .join("windows.rs"),
+    )
+    .expect("windows native sys source should read");
+    let native_window = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("window.rs"),
+    )
+    .expect("native window source should read");
+    let native_mod = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("mod.rs"),
+    )
+    .expect("native module source should read");
+    let popup = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("popup.rs"),
+    )
+    .expect("native popup source should read");
+    let adapter = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("adapter.rs"),
+    )
+    .expect("native adapter source should read");
+
+    assert!(
+        manifest.contains("\"Win32_UI_Shell\""),
+        "popup subclass APIs must be enabled through the Windows Shell bindings"
+    );
+    assert!(windows.contains("SetWindowSubclass"));
+    assert!(windows.contains("DefSubclassProc"));
+    assert!(windows.contains("RemoveWindowSubclass"));
+    assert!(windows.contains("WM_MOUSEACTIVATE"));
+    assert!(
+        windows.contains("return MA_NOACTIVATE as LRESULT"),
+        "mouse activation must be answered without activating the popup"
+    );
+    assert!(
+        !windows.contains("MA_NOACTIVATEANDEAT"),
+        "native menus must receive the click that was prevented from activating"
+    );
+    assert!(windows.contains("WS_EX_NOACTIVATE"));
+    assert!(windows.contains("WS_EX_TOOLWINDOW"));
+    assert!(windows.contains("WS_EX_APPWINDOW"));
+    assert!(windows.contains("SWP_FRAMECHANGED"));
+    assert!(windows.contains("SWP_NOACTIVATE"));
+    assert!(
+        sys_mod.contains("install_popup_subclass") && sys_mod.contains("remove_popup_subclass"),
+        "subclass lifecycle must stay behind the native sys seam"
+    );
+    assert!(
+        native_window.contains("install_popup_subclass"),
+        "popup creation must install the mouse-activation interceptor"
+    );
+    assert!(
+        native_mod.contains("impl Drop for PopupWindow")
+            && native_mod.contains("remove_popup_subclass"),
+        "popup drop must remove the subclass before the HWND is released"
+    );
+    assert!(
+        popup.contains("self.popups.remove(&key)") && adapter.contains("self.popups.remove(&key)"),
+        "stale popup and parent-close cleanup must drive PopupWindow drop"
+    );
+}
+
+#[test]
 fn filter_texture_pools_are_capped_and_reported() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let filter = [

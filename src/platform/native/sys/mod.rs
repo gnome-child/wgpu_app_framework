@@ -13,6 +13,26 @@ pub(in crate::platform::native) fn enforce_popup_style(window: &winit::window::W
     }
 }
 
+pub(in crate::platform::native) fn install_popup_subclass(window: &winit::window::Window) {
+    #[cfg(target_os = "windows")]
+    windows::install_popup_subclass(window);
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+    }
+}
+
+pub(in crate::platform::native) fn remove_popup_subclass(window: &winit::window::Window) {
+    #[cfg(target_os = "windows")]
+    windows::remove_popup_subclass(window);
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+    }
+}
+
 pub(in crate::platform::native) fn configure_popup_bounds(
     window: &winit::window::Window,
     x: i32,

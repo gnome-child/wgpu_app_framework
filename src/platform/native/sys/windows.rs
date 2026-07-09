@@ -1,12 +1,16 @@
 use crate::paint;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-use windows_sys::Win32::Foundation::HWND;
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GetWindowLongPtrW, HWND_TOPMOST, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos,
-    ShowWindow, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    GWL_EXSTYLE, GetWindowLongPtrW, HWND_TOPMOST, MA_NOACTIVATE, SW_HIDE, SW_SHOWNOACTIVATE,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER,
+    SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_MOUSEACTIVATE, WS_EX_APPWINDOW,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
+
+const POPUP_SUBCLASS_ID: usize = 1;
 
 pub(super) fn enforce_popup_style(window: &winit::window::Window) {
     let Some(hwnd) = hwnd(window) else {
@@ -20,6 +24,15 @@ pub(super) fn enforce_popup_style(window: &winit::window::Window) {
             & !(WS_EX_APPWINDOW as isize);
         if desired != current {
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, desired);
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+            );
             log::debug!(
                 target: "wgpu_l3::native_popup",
                 "enforced popup exstyle: {current:#x} -> {desired:#x}"
@@ -29,6 +42,36 @@ pub(super) fn enforce_popup_style(window: &winit::window::Window) {
                 target: "wgpu_l3::native_popup",
                 "popup exstyle already enforced: {current:#x}"
             );
+        }
+    }
+}
+
+pub(super) fn install_popup_subclass(window: &winit::window::Window) {
+    let Some(hwnd) = hwnd(window) else {
+        log::warn!(target: "wgpu_l3::native_popup", "cannot install popup subclass without HWND");
+        return;
+    };
+
+    unsafe {
+        if SetWindowSubclass(hwnd, Some(popup_subclass_proc), POPUP_SUBCLASS_ID, 0) == 0 {
+            log::warn!(target: "wgpu_l3::native_popup", "failed to install popup subclass");
+        } else {
+            log::debug!(target: "wgpu_l3::native_popup", "installed popup subclass");
+        }
+    }
+}
+
+pub(super) fn remove_popup_subclass(window: &winit::window::Window) {
+    let Some(hwnd) = hwnd(window) else {
+        log::warn!(target: "wgpu_l3::native_popup", "cannot remove popup subclass without HWND");
+        return;
+    };
+
+    unsafe {
+        if RemoveWindowSubclass(hwnd, Some(popup_subclass_proc), POPUP_SUBCLASS_ID) == 0 {
+            log::trace!(target: "wgpu_l3::native_popup", "popup subclass was not installed or already removed");
+        } else {
+            log::debug!(target: "wgpu_l3::native_popup", "removed popup subclass");
         }
     }
 }
@@ -89,4 +132,19 @@ fn hwnd(window: &winit::window::Window) -> Option<HWND> {
         RawWindowHandle::Win32(handle) => Some(handle.hwnd.get() as HWND),
         _ => None,
     }
+}
+
+unsafe extern "system" fn popup_subclass_proc(
+    hwnd: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _subclass_id: usize,
+    _ref_data: usize,
+) -> LRESULT {
+    if message == WM_MOUSEACTIVATE {
+        return MA_NOACTIVATE as LRESULT;
+    }
+
+    unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
 }

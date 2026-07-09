@@ -82,6 +82,12 @@ impl PopupWindow {
     }
 }
 
+impl Drop for PopupWindow {
+    fn drop(&mut self) {
+        self.window.remove_popup_subclass();
+    }
+}
+
 impl PopupEventTarget {
     pub(in crate::platform) fn parent(self) -> app_window::Id {
         self.parent

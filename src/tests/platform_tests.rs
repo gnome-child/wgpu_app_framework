@@ -420,6 +420,43 @@ fn popup_window_event_adapter_forwards_non_left_buttons() {
 }
 
 #[test]
+fn popup_window_focused_events_do_not_change_framework_focus_truth() {
+    use winit::{
+        dpi::PhysicalPosition,
+        event::{DeviceId, WindowEvent as WinitWindowEvent},
+    };
+
+    let parent = window::Id::new(9);
+    let bounds = geometry::Rect::new(40, 12, 200, 120);
+    let mut events = platform::Events::new();
+    events
+        .popup_window_event(
+            parent,
+            bounds,
+            1.0,
+            &WinitWindowEvent::CursorMoved {
+                device_id: DeviceId::dummy(),
+                position: PhysicalPosition::new(5.0, 6.0),
+            },
+        )
+        .expect("popup cursor move should establish parent pointer");
+
+    for focused in [true, false] {
+        assert!(
+            events
+                .popup_window_event(parent, bounds, 1.0, &WinitWindowEvent::Focused(focused))
+                .is_none(),
+            "popup focused({focused}) must not become a framework window event"
+        );
+        assert_eq!(
+            events.pointer(parent),
+            geometry::Point::new(45, 18),
+            "popup focus notifications must not disturb parent pointer/session truth"
+        );
+    }
+}
+
+#[test]
 fn native_platform_backend_exposes_runner_state_without_starting_wgpu() {
     fn assert_backend<B: platform::Backend>() {}
 
