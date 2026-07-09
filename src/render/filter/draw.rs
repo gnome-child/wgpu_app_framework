@@ -2,7 +2,7 @@ use crate::paint;
 use crate::render;
 
 use super::chain::{FilterChainContext, FilterSource};
-use super::effects::{liquid_effect, liquid_is_identity, refraction_effect};
+use super::effects::refraction_effect;
 use super::geometry::prepare_filter;
 use super::params::AlphaMode;
 use super::pass::{BlurLabels, BlurPass, CompositePass, EffectPass, LiquidPass, PassLabels};
@@ -159,54 +159,6 @@ impl Renderer {
                                 "Filter Backdrop Blur Composite Bind Group",
                                 "Filter Backdrop Blur Composite Vertex Buffer",
                                 "Filter Backdrop Blur Composite Pass",
-                            ),
-                        });
-                        chain.mark_output_as_current();
-                    }
-                    paint::FilterOp::Liquid {
-                        depth,
-                        splay,
-                        feather,
-                        curve,
-                    } => {
-                        if liquid_is_identity(depth) {
-                            continue;
-                        }
-
-                        let sample = chain.current_sample();
-                        self.liquid_pass(LiquidPass {
-                            render_context: pass.render_context,
-                            encoder: pass.encoder,
-                            source: sample.texture.view,
-                            source_area: sample.texture.area,
-                            source_logical_area: sample.texture.logical_area,
-                            source_rect: sample.rect,
-                            source_sampling: sample.texture.sampling,
-                            output: scratch.ping_view(),
-                            target: chain.target(),
-                            prepared: chain.base_prepared(),
-                            effect: liquid_effect(depth, splay, feather, curve),
-                            alpha_mode: AlphaMode::Shape,
-                            scissor: pass.scissor,
-                        });
-                        let intermediate = chain.local_intermediate(
-                            scratch.ping_source(paint::LayerSampling::Filtered),
-                        );
-                        self.composite_pass(CompositePass {
-                            render_context: pass.render_context,
-                            encoder: pass.encoder,
-                            source: intermediate.texture,
-                            output: chain.output(),
-                            target: chain.target(),
-                            prepared: chain.base_prepared(),
-                            source_rect: intermediate.rect,
-                            opacity: 1.0,
-                            alpha_mode: AlphaMode::Shape,
-                            scissor: pass.scissor,
-                            labels: PassLabels::new(
-                                "Filter Liquid Composite Bind Group",
-                                "Filter Liquid Composite Vertex Buffer",
-                                "Filter Liquid Composite Pass",
                             ),
                         });
                         chain.mark_output_as_current();

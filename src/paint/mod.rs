@@ -306,16 +306,8 @@ pub struct Group {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FilterOp {
-    Blur {
-        amount: f32,
-    },
+    Blur { amount: f32 },
     BackdropBlur(BackdropBlur),
-    Liquid {
-        depth: f32,
-        splay: f32,
-        feather: f32,
-        curve: f32,
-    },
     Refraction(Refraction),
     Luminosity(Luminosity),
     Noise(Noise),
@@ -330,14 +322,6 @@ pub struct BackdropBlur {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackdropEdgeMode {
     Mirror,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct LiquidFilter {
-    pub depth: f32,
-    pub splay: f32,
-    pub feather: f32,
-    pub curve: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -680,15 +664,6 @@ impl FilterOp {
         Self::BackdropBlur(params.clamped())
     }
 
-    pub fn liquid(params: LiquidFilter) -> Self {
-        Self::Liquid {
-            depth: params.depth.clamp(0.0, 1.0),
-            splay: params.splay.max(0.0),
-            feather: params.feather.max(0.0),
-            curve: params.curve.max(0.1),
-        }
-    }
-
     pub fn refraction(params: Refraction) -> Self {
         Self::Refraction(params.clamped())
     }
@@ -705,17 +680,6 @@ impl FilterOp {
         match self {
             Self::Blur { amount } => Self::blur(amount),
             Self::BackdropBlur(params) => Self::backdrop_blur(params),
-            Self::Liquid {
-                depth,
-                splay,
-                feather,
-                curve,
-            } => Self::liquid(LiquidFilter {
-                depth,
-                splay,
-                feather,
-                curve,
-            }),
             Self::Refraction(params) => Self::refraction(params),
             Self::Luminosity(params) => Self::luminosity(params),
             Self::Noise(params) => Self::noise(params),
@@ -1296,20 +1260,6 @@ mod tests {
     #[test]
     fn filter_ops_clamp_parameters() {
         assert_eq!(FilterOp::blur(2.0), FilterOp::Blur { amount: 1.0 });
-        assert_eq!(
-            FilterOp::liquid(LiquidFilter {
-                depth: 2.0,
-                splay: -2.0,
-                feather: -4.0,
-                curve: 0.0,
-            }),
-            FilterOp::Liquid {
-                depth: 1.0,
-                splay: 0.0,
-                feather: 0.0,
-                curve: 0.1,
-            }
-        );
     }
 
     #[test]

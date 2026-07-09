@@ -1,4 +1,3 @@
-use super::effects::{liquid_depth_displacement, liquid_effect, liquid_is_identity};
 use super::geometry::{
     blur_kernel_radius_px, blur_radius_px, blur_sigma_px, prepare_clip, prepare_filter,
     source_rect_for_prepared_destination,
@@ -595,27 +594,6 @@ fn blur_sigma_maps_to_dip_kernel_radius() {
     assert_eq!(blur_kernel_radius_px(-1.0, 1.0), 0.0);
     assert_eq!(blur_kernel_radius_px(30.0, 1.0), 90.0);
     assert_eq!(blur_kernel_radius_px(30.0, 2.0), 180.0);
-}
-
-#[test]
-fn normalized_liquid_depth_maps_to_logical_cap() {
-    assert_eq!(liquid_depth_displacement(-1.0), 0.0);
-    assert_eq!(liquid_depth_displacement(0.5), 24.0);
-    assert_eq!(liquid_depth_displacement(1.0), 48.0);
-    assert_eq!(liquid_depth_displacement(2.0), 48.0);
-}
-
-#[test]
-fn liquid_effect_clamps_and_preserves_shape_parameters() {
-    assert_eq!(liquid_effect(0.5, 2.0, 18.0, 2.0), [24.0, 2.0, 18.0, 2.0]);
-    assert_eq!(liquid_effect(2.0, -1.0, -4.0, 0.0), [48.0, 0.0, 0.0, 0.1]);
-}
-
-#[test]
-fn zero_depth_liquid_is_identity() {
-    assert!(liquid_is_identity(0.0));
-    assert!(liquid_is_identity(-1.0));
-    assert!(!liquid_is_identity(0.01));
 }
 
 fn assert_edges_close(left: (f32, f32, f32, f32), right: (f32, f32, f32, f32)) {

@@ -1161,6 +1161,10 @@ fn paint_display_list_no_longer_routes_generic_filter_items() {
         "pane material bounds should not rewrap material layers as generic filter ops"
     );
     assert!(
+        !paint.contains("LiquidFilter") && !paint.contains("FilterOp::Liquid"),
+        "old generic liquid filter op should not return after Pane"
+    );
+    assert!(
         !batch.contains("ItemBatch::Filter"),
         "render batching should not carry generic filter batches after Pane"
     );
