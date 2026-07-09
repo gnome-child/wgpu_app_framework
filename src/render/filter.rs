@@ -8,6 +8,7 @@ mod draw;
 mod effects;
 mod encode;
 mod geometry;
+mod layer;
 mod noise;
 mod params;
 mod pass;
