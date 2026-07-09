@@ -345,7 +345,10 @@ case: full-window composition is accumulated scene truth, while target-local
 ping/pong scratch is filter-chain workspace. Material anchoring is a separate
 axis again: backdrop filters sample source space, while surface effects such as
 noise use panel-local material space so grain rides with the glass instead of
-the world. Local target dirtiness is also a separate axis from backdrop truth:
+the world. Filter pass parameters derive from one filter-chain context that owns
+the backdrop source, local source, target scratch, and global-to-local mapping;
+individual passes must not re-thread bare source and target rects as independent
+truths. Local target dirtiness is also a separate axis from backdrop truth:
 inside a promoted group, a prior local primitive such as a shadow does not make
 the local transparent target the backdrop for glass. Backdrop operators sample
 the accumulated parent scene; local surface operators sample the material built
@@ -361,8 +364,11 @@ group composite samples and re-applies opacity as one image so text, rounded
 edges, shadows, and backdrop effects do not separate. A full
 premultiplied-alpha/group-blend audit is scheduled follow-up work, not an
 optional maybe, because group compositing has now exposed multiple
-alpha-convention seams. Reduced motion and accessibility policy can set zero
-exit duration to skip ghost allocation entirely.
+alpha-convention seams. Local blur is future work on the same filter-chain
+context seam, but it must wait for that audit because blurring transparent local
+content under straight alpha creates dark halos. Reduced motion and
+accessibility policy can set zero exit duration to skip ghost allocation
+entirely.
 
 `theme`
 

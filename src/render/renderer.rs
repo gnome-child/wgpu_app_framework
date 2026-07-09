@@ -95,11 +95,6 @@ struct SceneEncoderInput<'a> {
     text_render_error: &'a mut Option<render::text_renderer::Error>,
 }
 
-struct FilterSource<'a> {
-    source: render::filter::TextureSource<'a>,
-    source_rect: Rect,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FilterSourceKind {
     Backdrop,
@@ -534,24 +529,24 @@ impl<'a> SceneEncoder<'a> {
             decision.source_rect,
         );
         let source = if decision.choice == FilterSourceChoice::CurrentTarget {
-            FilterSource {
-                source: render::filter::TextureSource::new(
+            render::filter::FilterSource::Local {
+                texture: render::filter::TextureSource::new(
                     output,
                     self.output_target.physical_area(),
                     self.output_target.logical_area(),
                     paint::LayerSampling::PixelAligned,
                 ),
-                source_rect: decision.source_rect,
+                local_rect: decision.source_rect,
             }
         } else {
-            FilterSource {
-                source: render::filter::TextureSource::new(
+            render::filter::FilterSource::Backdrop {
+                texture: render::filter::TextureSource::new(
                     self.backdrop_view,
                     self.backdrop_target.physical_area(),
                     self.backdrop_target.logical_area(),
                     paint::LayerSampling::PixelAligned,
                 ),
-                source_rect: decision.source_rect,
+                global_rect: decision.source_rect,
             }
         };
 
@@ -559,10 +554,9 @@ impl<'a> SceneEncoder<'a> {
             render_context: self.render_context,
             encoder: self.encoder,
             target: self.output_target,
-            source: source.source,
+            source,
             output,
             filter: filter.clone(),
-            source_rect: source.source_rect,
             scissor: current_scissor(
                 &self.clip_stack,
                 self.viewport.physical_area(),

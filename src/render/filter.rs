@@ -138,6 +138,71 @@ impl Texture {
     }
 }
 
+impl<'a> FilterSource<'a> {
+    fn sample(self) -> FilterSample<'a> {
+        match self {
+            Self::Backdrop {
+                texture,
+                global_rect,
+            } => FilterSample {
+                texture,
+                rect: global_rect,
+                space: FilterSourceSpace::Backdrop,
+            },
+            Self::Local {
+                texture,
+                local_rect,
+            } => FilterSample {
+                texture,
+                rect: local_rect,
+                space: FilterSourceSpace::Local,
+            },
+        }
+    }
+}
+
+impl<'a> FilterChainContext<'a> {
+    fn new(
+        target: Target,
+        output: &'a wgpu::TextureView,
+        prepared: PreparedFilter,
+        source: FilterSource<'a>,
+    ) -> Self {
+        let sample = source.sample();
+
+        Self {
+            target,
+            output,
+            prepared,
+            current_source: sample.texture,
+            current_rect: sample.rect,
+            current_space: sample.space,
+        }
+    }
+
+    fn current_sample(&self) -> FilterSample<'a> {
+        FilterSample {
+            texture: self.current_source,
+            rect: self.current_rect,
+            space: self.current_space,
+        }
+    }
+
+    fn local_rect(&self) -> Rect {
+        self.prepared.shape_rect
+    }
+
+    fn mark_output_as_current(&mut self) {
+        self.current_source = TextureSource::for_target_view(
+            self.output,
+            self.target,
+            paint::LayerSampling::PixelAligned,
+        );
+        self.current_rect = self.local_rect();
+        self.current_space = FilterSourceSpace::Local;
+    }
+}
+
 impl ScratchTextures {
     fn new(render_context: &render::Context, renderer: &Renderer, target: Target) -> Self {
         let area = target.physical_area.clamp_min(1);
@@ -194,11 +259,44 @@ pub(crate) struct FilterDraw<'a> {
     pub(crate) render_context: &'a render::Context,
     pub(crate) encoder: &'a mut wgpu::CommandEncoder,
     pub(crate) target: Target,
-    pub(crate) source: TextureSource<'a>,
+    pub(crate) source: FilterSource<'a>,
     pub(crate) output: &'a wgpu::TextureView,
     pub(crate) filter: paint::Filter,
-    pub(crate) source_rect: Rect,
     pub(crate) scissor: Option<render::Scissor>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum FilterSource<'a> {
+    Backdrop {
+        texture: TextureSource<'a>,
+        global_rect: Rect,
+    },
+    Local {
+        texture: TextureSource<'a>,
+        local_rect: Rect,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FilterSourceSpace {
+    Backdrop,
+    Local,
+}
+
+#[derive(Clone, Copy)]
+struct FilterSample<'a> {
+    texture: TextureSource<'a>,
+    rect: Rect,
+    space: FilterSourceSpace,
+}
+
+struct FilterChainContext<'a> {
+    target: Target,
+    output: &'a wgpu::TextureView,
+    prepared: PreparedFilter,
+    current_source: TextureSource<'a>,
+    current_rect: Rect,
+    current_space: FilterSourceSpace,
 }
 
 struct BlurPass<'a> {
@@ -210,6 +308,8 @@ struct BlurPass<'a> {
     direction: [f32; 2],
     source: TextureSource<'a>,
     source_rect: Rect,
+    source_space: FilterSourceSpace,
+    labels: BlurLabels,
 }
 
 struct LiquidPass<'a> {
@@ -280,6 +380,18 @@ struct PassLabels {
     bind_group: &'static str,
     vertex_buffer: &'static str,
     pass: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct BlurLabels {
+    bind_group: &'static str,
+    pass: &'static str,
+}
+
+impl BlurLabels {
+    const fn new(bind_group: &'static str, pass: &'static str) -> Self {
+        Self { bind_group, pass }
+    }
 }
 
 impl PassLabels {
@@ -765,8 +877,8 @@ impl Renderer {
         };
         let scratch = self.scratch_targets(pass.render_context, pass.target, textures);
         {
-            let mut source = pass.source;
-            let mut source_rect = pass.source_rect;
+            let mut chain =
+                FilterChainContext::new(pass.target, pass.output, prepared, pass.source);
 
             for op in pass.filter.ops {
                 match op {
@@ -775,35 +887,46 @@ impl Renderer {
                             continue;
                         }
 
-                        let prepared = prepared.with_blur(amount, pass.target.scale_factor);
+                        let prepared = chain.prepared.with_blur(amount, chain.target.scale_factor);
+                        let sample = chain.current_sample();
                         self.blur_pass(BlurPass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
-                            source,
+                            source: sample.texture,
                             output: scratch.ping_view(),
-                            target: pass.target,
+                            target: chain.target,
                             prepared,
                             direction: [1.0, 0.0],
-                            source_rect,
+                            source_rect: sample.rect,
+                            source_space: sample.space,
+                            labels: BlurLabels::new(
+                                "Filter Blur Horizontal Bind Group",
+                                "Filter Blur Horizontal Pass",
+                            ),
                         });
                         self.blur_pass(BlurPass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
                             source: scratch.ping_source(paint::LayerSampling::Filtered),
                             output: scratch.pong_view(),
-                            target: pass.target,
+                            target: chain.target,
                             prepared,
                             direction: [0.0, 1.0],
-                            source_rect: prepared.shape_rect,
+                            source_rect: chain.local_rect(),
+                            source_space: FilterSourceSpace::Local,
+                            labels: BlurLabels::new(
+                                "Filter Blur Vertical Bind Group",
+                                "Filter Blur Vertical Pass",
+                            ),
                         });
                         self.composite_pass(CompositePass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
                             source: scratch.pong_source(paint::LayerSampling::Filtered),
                             output: pass.output,
-                            target: pass.target,
+                            target: chain.target,
                             prepared,
-                            source_rect: prepared.shape_rect,
+                            source_rect: chain.local_rect(),
                             opacity: 1.0,
                             alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
@@ -813,48 +936,55 @@ impl Renderer {
                                 "Filter Blur Composite Pass",
                             ),
                         });
-                        source = TextureSource::for_target_view(
-                            pass.output,
-                            pass.target,
-                            paint::LayerSampling::PixelAligned,
-                        );
-                        source_rect = prepared.shape_rect;
+                        chain.mark_output_as_current();
                     }
                     paint::FilterOp::BackdropBlur(blur) => {
                         if blur.sigma <= 0.0 {
                             continue;
                         }
 
-                        let prepared =
-                            prepared.with_blur_sigma(blur.sigma, pass.target.scale_factor);
+                        let prepared = chain
+                            .prepared
+                            .with_blur_sigma(blur.sigma, chain.target.scale_factor);
+                        let sample = chain.current_sample();
                         self.blur_pass(BlurPass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
-                            source,
+                            source: sample.texture,
                             output: scratch.ping_view(),
-                            target: pass.target,
+                            target: chain.target,
                             prepared,
                             direction: [1.0, 0.0],
-                            source_rect,
+                            source_rect: sample.rect,
+                            source_space: sample.space,
+                            labels: BlurLabels::new(
+                                "Filter Backdrop Blur Horizontal Bind Group",
+                                "Filter Backdrop Blur Horizontal Pass",
+                            ),
                         });
                         self.blur_pass(BlurPass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
                             source: scratch.ping_source(paint::LayerSampling::Filtered),
                             output: scratch.pong_view(),
-                            target: pass.target,
+                            target: chain.target,
                             prepared,
                             direction: [0.0, 1.0],
-                            source_rect: prepared.shape_rect,
+                            source_rect: chain.local_rect(),
+                            source_space: FilterSourceSpace::Local,
+                            labels: BlurLabels::new(
+                                "Filter Backdrop Blur Vertical Bind Group",
+                                "Filter Backdrop Blur Vertical Pass",
+                            ),
                         });
                         self.composite_pass(CompositePass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
                             source: scratch.pong_source(paint::LayerSampling::Filtered),
                             output: pass.output,
-                            target: pass.target,
+                            target: chain.target,
                             prepared,
-                            source_rect: prepared.shape_rect,
+                            source_rect: chain.local_rect(),
                             opacity: 1.0,
                             alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
@@ -864,12 +994,7 @@ impl Renderer {
                                 "Filter Backdrop Blur Composite Pass",
                             ),
                         });
-                        source = TextureSource::for_target_view(
-                            pass.output,
-                            pass.target,
-                            paint::LayerSampling::PixelAligned,
-                        );
-                        source_rect = prepared.shape_rect;
+                        chain.mark_output_as_current();
                     }
                     paint::FilterOp::Liquid {
                         depth,
@@ -881,17 +1006,18 @@ impl Renderer {
                             continue;
                         }
 
+                        let sample = chain.current_sample();
                         self.liquid_pass(LiquidPass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
-                            source: source.view,
-                            source_area: source.area,
-                            source_logical_area: source.logical_area,
-                            source_rect,
-                            source_sampling: source.sampling,
+                            source: sample.texture.view,
+                            source_area: sample.texture.area,
+                            source_logical_area: sample.texture.logical_area,
+                            source_rect: sample.rect,
+                            source_sampling: sample.texture.sampling,
                             output: scratch.ping_view(),
-                            target: pass.target,
-                            prepared,
+                            target: chain.target,
+                            prepared: chain.prepared,
                             effect: liquid_effect(depth, splay, feather, curve),
                             alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
@@ -901,9 +1027,9 @@ impl Renderer {
                             encoder: pass.encoder,
                             source: scratch.ping_source(paint::LayerSampling::Filtered),
                             output: pass.output,
-                            target: pass.target,
-                            prepared,
-                            source_rect: prepared.shape_rect,
+                            target: chain.target,
+                            prepared: chain.prepared,
+                            source_rect: chain.local_rect(),
                             opacity: 1.0,
                             alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
@@ -913,29 +1039,25 @@ impl Renderer {
                                 "Filter Liquid Composite Pass",
                             ),
                         });
-                        source = TextureSource::for_target_view(
-                            pass.output,
-                            pass.target,
-                            paint::LayerSampling::PixelAligned,
-                        );
-                        source_rect = prepared.shape_rect;
+                        chain.mark_output_as_current();
                     }
                     paint::FilterOp::Refraction(refraction) => {
                         if refraction.displacement <= 0.0 {
                             continue;
                         }
 
+                        let sample = chain.current_sample();
                         self.liquid_pass(LiquidPass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
-                            source: source.view,
-                            source_area: source.area,
-                            source_logical_area: source.logical_area,
-                            source_rect,
-                            source_sampling: source.sampling,
+                            source: sample.texture.view,
+                            source_area: sample.texture.area,
+                            source_logical_area: sample.texture.logical_area,
+                            source_rect: sample.rect,
+                            source_sampling: sample.texture.sampling,
                             output: scratch.ping_view(),
-                            target: pass.target,
-                            prepared,
+                            target: chain.target,
+                            prepared: chain.prepared,
                             effect: refraction_effect(refraction),
                             alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
@@ -945,9 +1067,9 @@ impl Renderer {
                             encoder: pass.encoder,
                             source: scratch.ping_source(paint::LayerSampling::Filtered),
                             output: pass.output,
-                            target: pass.target,
-                            prepared,
-                            source_rect: prepared.shape_rect,
+                            target: chain.target,
+                            prepared: chain.prepared,
+                            source_rect: chain.local_rect(),
                             opacity: 1.0,
                             alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
@@ -957,29 +1079,25 @@ impl Renderer {
                                 "Filter Refraction Composite Pass",
                             ),
                         });
-                        source = TextureSource::for_target_view(
-                            pass.output,
-                            pass.target,
-                            paint::LayerSampling::PixelAligned,
-                        );
-                        source_rect = prepared.shape_rect;
+                        chain.mark_output_as_current();
                     }
                     paint::FilterOp::Luminosity(luminosity) => {
                         if luminosity.opacity <= 0.0 {
                             continue;
                         }
 
+                        let sample = chain.current_sample();
                         self.effect_pass(EffectPass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
-                            source: source.view,
-                            source_area: source.area,
-                            source_logical_area: source.logical_area,
-                            source_rect,
-                            source_sampling: source.sampling,
+                            source: sample.texture.view,
+                            source_area: sample.texture.area,
+                            source_logical_area: sample.texture.logical_area,
+                            source_rect: sample.rect,
+                            source_sampling: sample.texture.sampling,
                             output: scratch.ping_view(),
-                            target: pass.target,
-                            prepared,
+                            target: chain.target,
+                            prepared: chain.prepared,
                             effect: [
                                 luminosity.color.r,
                                 luminosity.color.g,
@@ -1000,9 +1118,9 @@ impl Renderer {
                             encoder: pass.encoder,
                             source: scratch.ping_source(paint::LayerSampling::Filtered),
                             output: pass.output,
-                            target: pass.target,
-                            prepared,
-                            source_rect: prepared.shape_rect,
+                            target: chain.target,
+                            prepared: chain.prepared,
+                            source_rect: chain.local_rect(),
                             opacity: 1.0,
                             alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
@@ -1012,29 +1130,25 @@ impl Renderer {
                                 "Filter Luminosity Composite Pass",
                             ),
                         });
-                        source = TextureSource::for_target_view(
-                            pass.output,
-                            pass.target,
-                            paint::LayerSampling::PixelAligned,
-                        );
-                        source_rect = prepared.shape_rect;
+                        chain.mark_output_as_current();
                     }
                     paint::FilterOp::Noise(noise) => {
                         if noise.opacity <= 0.0 {
                             continue;
                         }
 
+                        let sample = chain.current_sample();
                         self.effect_pass(EffectPass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
-                            source: source.view,
-                            source_area: source.area,
-                            source_logical_area: source.logical_area,
-                            source_rect,
-                            source_sampling: source.sampling,
+                            source: sample.texture.view,
+                            source_area: sample.texture.area,
+                            source_logical_area: sample.texture.logical_area,
+                            source_rect: sample.rect,
+                            source_sampling: sample.texture.sampling,
                             output: scratch.ping_view(),
-                            target: pass.target,
-                            prepared,
+                            target: chain.target,
+                            prepared: chain.prepared,
                             effect: [noise.opacity, 0.0, 0.0, 0.0],
                             alpha_mode: AlphaMode::Shape,
                             pipeline: &self.noise_pipeline,
@@ -1050,9 +1164,9 @@ impl Renderer {
                             encoder: pass.encoder,
                             source: scratch.ping_source(paint::LayerSampling::Filtered),
                             output: pass.output,
-                            target: pass.target,
-                            prepared,
-                            source_rect: prepared.shape_rect,
+                            target: chain.target,
+                            prepared: chain.prepared,
+                            source_rect: chain.local_rect(),
                             opacity: 1.0,
                             alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
@@ -1062,12 +1176,7 @@ impl Renderer {
                                 "Filter Noise Composite Pass",
                             ),
                         });
-                        source = TextureSource::for_target_view(
-                            pass.output,
-                            pass.target,
-                            paint::LayerSampling::PixelAligned,
-                        );
-                        source_rect = prepared.shape_rect;
+                        chain.mark_output_as_current();
                     }
                 }
             }
@@ -1238,15 +1347,25 @@ impl Renderer {
             alpha_mode: AlphaMode::Source,
             sampling: pass.source.sampling,
         });
+        log::debug!(
+            target: "wgpu_l3::render::filter_params",
+            "{} source={:?} source_rect={:?} target_rect={:?} texture_size={:?} target_area={:?}",
+            pass.labels.pass,
+            pass.source_space,
+            params.source_rect,
+            params.target_rect,
+            params.texture_size,
+            pass.target.physical_area,
+        );
         let bind_group = self.bind_group(
             pass.render_context,
             pass.source.view,
             params,
             pass.source.sampling,
-            "Filter Blur Bind Group",
+            pass.labels.bind_group,
         );
         let mut render_pass = pass.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Filter Blur Pass"),
+            label: Some(pass.labels.pass),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: pass.output,
                 resolve_target: None,
@@ -2373,6 +2492,20 @@ mod tests {
                 rect_fits_in_area(prepared.raster_rect, group.bounds.area),
                 "scale {scale} should keep the blur write rect inside target-local scratch"
             );
+        }
+    }
+
+    #[test]
+    fn blur_pass_labels_distinguish_horizontal_and_vertical_stages() {
+        let source = std::fs::read_to_string(file!()).expect("filter source should be readable");
+
+        for label in [
+            "Filter Backdrop Blur Horizontal Pass",
+            "Filter Backdrop Blur Vertical Pass",
+            "Filter Blur Horizontal Pass",
+            "Filter Blur Vertical Pass",
+        ] {
+            assert!(source.contains(label), "missing blur pass label {label}");
         }
     }
 
