@@ -636,6 +636,7 @@ fn filter_module_source() -> String {
     [
         include_str!("../filter.rs"),
         include_str!("draw.rs"),
+        include_str!("layer.rs"),
         include_str!("encode.rs"),
     ]
     .join("\n")
