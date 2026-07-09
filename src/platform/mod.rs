@@ -107,6 +107,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
     }
 
     pub fn drain_with(&mut self, context: &mut B::Context<'_>) -> Result<(), Error<B::Error>> {
+        self.sync_overlay_capabilities();
         let work = self.host.drain();
         self.apply_work(context, &work).map_err(Error::Backend)
     }
@@ -120,6 +121,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             self.poll_scheduled = false;
         }
 
+        self.sync_overlay_capabilities();
         let work = self.host.handle_event(event).map_err(Error::Framework)?;
         self.apply_work(context, &work).map_err(Error::Backend)
     }
@@ -155,6 +157,8 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
                 report,
             );
         }
+        self.backend
+            .present_overlay_popups(context, work.popup_presentations())?;
 
         self.sync_cursors(context, work.cursor_updates())?;
         self.sync_requests(context, work.requests())?;
@@ -162,6 +166,14 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
         self.animation_schedule = work.animation_schedule();
 
         Ok(())
+    }
+
+    fn sync_overlay_capabilities(&mut self) {
+        let capabilities = self.backend.overlay_capabilities();
+        self.host
+            .shell_mut()
+            .runtime_mut()
+            .set_overlay_capabilities(capabilities);
     }
 
     fn sync_requests(

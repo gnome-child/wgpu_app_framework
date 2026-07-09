@@ -2,7 +2,7 @@ use super::{Native, NativeError};
 use crate::window as app_window;
 use crate::{paint, pointer, render};
 use std::sync::Arc;
-use winit::dpi::LogicalSize;
+use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::{
     event_loop::ActiveEventLoop,
     window::{CursorIcon, WindowAttributes},
@@ -18,6 +18,8 @@ pub(in crate::platform::native) struct Window {
 pub(in crate::platform::native) struct Options {
     pub title: String,
     pub inner_size: InitialSize,
+    pub kind: app_window::Kind,
+    pub owner: Option<Handle>,
 }
 
 pub(in crate::platform::native) enum InitialSize {
@@ -32,6 +34,8 @@ impl Window {
         let mut window_attributes = WindowAttributes::default()
             .with_title(options.title)
             .with_visible(false);
+        window_attributes =
+            configure_base_attributes(window_attributes, options.kind, options.owner.as_deref());
 
         match options.inner_size {
             InitialSize::Logical(inner_area) => {
@@ -72,6 +76,20 @@ impl Window {
         self.handle.set_visible(visible);
     }
 
+    pub fn set_outer_position(&self, x: i32, y: i32) {
+        self.handle.set_outer_position(PhysicalPosition::new(x, y));
+    }
+
+    pub fn request_inner_area(&self, area: paint::area::Logical) {
+        let _ = self
+            .handle
+            .request_inner_size(LogicalSize::new(area.width() as f64, area.height() as f64));
+    }
+
+    pub fn handle(&self) -> Handle {
+        Arc::clone(&self.handle)
+    }
+
     pub fn set_ime_allowed(&self, allowed: bool) {
         self.handle.set_ime_allowed(allowed);
     }
@@ -100,6 +118,90 @@ impl Window {
     ) {
         self.canvas.resize(render_context, area, scale_factor);
     }
+}
+
+fn configure_base_attributes(
+    attributes: WindowAttributes,
+    kind: app_window::Kind,
+    owner: Option<&winit::window::Window>,
+) -> WindowAttributes {
+    match kind {
+        app_window::Kind::Application => attributes,
+        app_window::Kind::Popup => popup_attributes(attributes, owner),
+    }
+}
+
+fn popup_attributes(
+    attributes: WindowAttributes,
+    owner: Option<&winit::window::Window>,
+) -> WindowAttributes {
+    let attributes = attributes
+        .with_decorations(false)
+        .with_transparent(true)
+        .with_blur(false)
+        .with_window_level(winit::window::WindowLevel::AlwaysOnTop)
+        .with_active(false);
+
+    configure_platform_popup_attributes(attributes, owner)
+}
+
+#[cfg(target_os = "windows")]
+fn configure_platform_popup_attributes(
+    attributes: WindowAttributes,
+    owner: Option<&winit::window::Window>,
+) -> WindowAttributes {
+    use winit::platform::windows::WindowAttributesExtWindows;
+    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    let mut attributes = attributes
+        .with_skip_taskbar(true)
+        .with_undecorated_shadow(false);
+
+    if let Some(owner) = owner {
+        if let Ok(handle) = owner.window_handle() {
+            if let RawWindowHandle::Win32(handle) = handle.as_raw() {
+                attributes = attributes.with_owner_window(handle.hwnd.get());
+            }
+        }
+    }
+
+    attributes
+}
+
+#[cfg(target_os = "macos")]
+fn configure_platform_popup_attributes(
+    attributes: WindowAttributes,
+    _owner: Option<&winit::window::Window>,
+) -> WindowAttributes {
+    use winit::platform::macos::WindowAttributesExtMacOS;
+
+    attributes
+        .with_accepts_first_mouse(true)
+        .with_has_shadow(false)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn configure_platform_popup_attributes(
+    attributes: WindowAttributes,
+    _owner: Option<&winit::window::Window>,
+) -> WindowAttributes {
+    use winit::platform::x11::{WindowAttributesExtX11, WindowType};
+
+    attributes
+        .with_override_redirect(true)
+        .with_x11_window_type(vec![WindowType::PopupMenu])
+}
+
+#[cfg(not(any(
+    target_os = "windows",
+    target_os = "macos",
+    all(unix, not(target_os = "macos"))
+)))]
+fn configure_platform_popup_attributes(
+    attributes: WindowAttributes,
+    _owner: Option<&winit::window::Window>,
+) -> WindowAttributes {
+    attributes
 }
 
 impl Native {

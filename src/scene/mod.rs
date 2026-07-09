@@ -144,6 +144,22 @@ impl Scene {
         self.append_scene_with_opacity(&ghost, opacity);
     }
 
+    pub(crate) fn popup_scene_without_backdrop_sampling(&self, bounds: geometry::Rect) -> Self {
+        let dx = -bounds.x();
+        let dy = -bounds.y();
+        let mut scene = Self::new_with_clear(
+            geometry::Size::new(bounds.width(), bounds.height()),
+            Color::rgba(0, 0, 0, 0),
+        );
+        scene.primitives = self
+            .primitives
+            .iter()
+            .map(ghost_primitive)
+            .map(|primitive| primitive.translated(dx, dy))
+            .collect();
+        scene
+    }
+
     pub fn quads(&self) -> Vec<&Quad> {
         let mut quads = Vec::new();
         collect_quads(&self.primitives, &mut quads);
@@ -471,6 +487,28 @@ mod tests {
         assert!(
             !glass.surface_layers().is_empty(),
             "ghost panes keep paint-only surface layers"
+        );
+    }
+
+    #[test]
+    fn popup_scene_translates_and_removes_backdrop_sampling() {
+        let source = glass_pane_scene();
+
+        let popup = source.popup_scene_without_backdrop_sampling(geometry::Rect::new(4, 6, 40, 24));
+
+        assert_eq!(popup.size(), geometry::Size::new(40, 24));
+        assert_eq!(popup.clear(), Color::rgba(0, 0, 0, 0));
+        let panes = popup.panes();
+        let [pane] = panes.as_slice() else {
+            panic!("popup should keep one pane");
+        };
+        assert_eq!(pane.rect(), geometry::Rect::new(0, 0, 40, 24));
+        let Material::Glass(glass) = pane.material() else {
+            panic!("popup pane should keep glass body");
+        };
+        assert!(
+            glass.backdrop_layers().is_empty(),
+            "native popup panes must not sample desktop backdrop"
         );
     }
 }

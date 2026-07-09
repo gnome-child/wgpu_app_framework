@@ -1,4 +1,4 @@
-use super::super::{diagnostics, geometry, pointer, scene, session, shell, window};
+use super::super::{diagnostics, geometry, overlay, pointer, scene, session, shell, window};
 
 pub trait Backend {
     type Error;
@@ -21,6 +21,20 @@ pub trait Backend {
         context: &mut Self::Context<'_>,
         presentation: &shell::Presentation,
     ) -> Result<diagnostics::RenderReport, Self::Error>;
+
+    #[allow(private_interfaces)]
+    fn overlay_capabilities(&self) -> overlay::Capabilities {
+        overlay::Capabilities::default()
+    }
+
+    #[allow(private_interfaces)]
+    fn present_overlay_popups(
+        &mut self,
+        _context: &mut Self::Context<'_>,
+        _presentations: &[overlay::PopupPresentation],
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
 
     fn request(
         &mut self,
@@ -46,6 +60,7 @@ pub struct Window {
     title: String,
     size: geometry::Size,
     canvas_color: scene::Color,
+    kind: window::Kind,
 }
 
 impl Window {
@@ -55,6 +70,7 @@ impl Window {
             title: window.title().to_owned(),
             size: window.size(),
             canvas_color: window.canvas_color(),
+            kind: window.kind(),
         }
     }
 
@@ -72,5 +88,9 @@ impl Window {
 
     pub fn canvas_color(&self) -> scene::Color {
         self.canvas_color
+    }
+
+    pub fn kind(&self) -> window::Kind {
+        self.kind
     }
 }

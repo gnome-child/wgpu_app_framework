@@ -81,6 +81,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             animation_schedules: self.animation_schedules,
             visual_animations: self.visual_animations,
             overlays: self.overlays,
+            overlay_capabilities: self.overlay_capabilities,
             layout_cache: self.layout_cache,
         }
     }
@@ -112,6 +113,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             animation_schedules: self.animation_schedules,
             visual_animations: self.visual_animations,
             overlays: self.overlays,
+            overlay_capabilities: self.overlay_capabilities,
             layout_cache: self.layout_cache,
         }
     }

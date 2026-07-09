@@ -68,6 +68,7 @@ pub struct Runtime<M: state::State, E: Send + 'static = (), V = ()> {
     animation_schedules: HashMap<window::Id, animation::Schedule>,
     visual_animations: visual::Animations,
     overlays: overlay::Store,
+    overlay_capabilities: overlay::Capabilities,
     layout_cache: HashMap<window::Id, CachedLayout>,
 }
 
@@ -101,6 +102,7 @@ impl<M: state::State> Runtime<M> {
             animation_schedules: HashMap::new(),
             visual_animations: visual::Animations::default(),
             overlays: overlay::Store::new(),
+            overlay_capabilities: overlay::Capabilities::default(),
             layout_cache: HashMap::new(),
         }
     }
@@ -131,5 +133,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .as_ref()
             .map(|theme| theme(self.store.model()))
             .unwrap_or_default()
+    }
+
+    pub(crate) fn set_overlay_capabilities(&mut self, capabilities: overlay::Capabilities) {
+        self.overlay_capabilities = capabilities;
     }
 }

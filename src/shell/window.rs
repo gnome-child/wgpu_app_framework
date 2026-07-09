@@ -8,6 +8,7 @@ pub struct Window {
     title: String,
     size: geometry::Size,
     canvas_color: scene::Color,
+    kind: app_window::Kind,
 }
 
 impl Window {
@@ -16,12 +17,14 @@ impl Window {
         title: impl Into<String>,
         size: geometry::Size,
         canvas_color: scene::Color,
+        kind: app_window::Kind,
     ) -> Self {
         Self {
             id,
             title: title.into(),
             size,
             canvas_color,
+            kind,
         }
     }
 
@@ -41,13 +44,23 @@ impl Window {
         self.canvas_color
     }
 
+    pub fn kind(&self) -> app_window::Kind {
+        self.kind
+    }
+
     pub(super) fn set_size(&mut self, size: geometry::Size) {
         self.size = size;
     }
 
-    pub(super) fn update(&mut self, title: String, canvas_color: scene::Color) {
+    pub(super) fn update(
+        &mut self,
+        title: String,
+        canvas_color: scene::Color,
+        kind: app_window::Kind,
+    ) {
         self.title = title;
         self.canvas_color = canvas_color;
+        self.kind = kind;
     }
 }
 
@@ -85,6 +98,7 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                     window.title().to_owned(),
                     window.inner_size(),
                     window.canvas_color(),
+                    window.kind(),
                 )
             })
             .collect::<Vec<_>>();
@@ -93,20 +107,20 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
         self.windows.retain(|entry| {
             let retained = windows
                 .iter()
-                .any(|(window, _, _, _)| *window == entry.id());
+                .any(|(window, _, _, _, _)| *window == entry.id());
             if !retained {
                 changes.closed.push(entry.id());
             }
             retained
         });
 
-        for (window, title, inner_size, canvas_color) in windows {
+        for (window, title, inner_size, canvas_color, kind) in windows {
             if let Some(entry) = self.windows.iter_mut().find(|entry| entry.id() == window) {
-                entry.update(title, canvas_color);
+                entry.update(title, canvas_color, kind);
                 continue;
             }
 
-            let entry = Window::new(window, title, inner_size, canvas_color);
+            let entry = Window::new(window, title, inner_size, canvas_color, kind);
             changes.opened.push(entry.clone());
             self.windows.push(entry);
         }

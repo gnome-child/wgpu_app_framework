@@ -300,8 +300,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         &mut self,
         size_for: impl FnMut(window::Id) -> geometry::Size,
     ) -> work::RenderWork {
+        let (presentations, popup_presentations) = self.render_pending(size_for);
         work::RenderWork::new(
-            self.render_pending(size_for),
+            presentations,
+            popup_presentations,
             self.requests(),
             self.session.take_cursor_updates(),
             self.pending_tasks(),
@@ -485,9 +487,13 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             &theme,
             visual_update.visuals(),
         );
-        let overlay_update = self
-            .overlays
-            .update_window(window, entries, theme.overlay(), now);
+        let overlay_update = self.overlays.update_window(
+            window,
+            entries,
+            theme.overlay(),
+            crate::overlay::Capabilities::in_frame_only(),
+            now,
+        );
         for layer in overlay_update.layers() {
             log_overlay_layer_application(layer, overlay_update.schedule());
             match layer.kind() {
@@ -512,10 +518,13 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         ))
     }
 
-    pub fn render_pending(
+    pub(crate) fn render_pending(
         &mut self,
         mut size_for: impl FnMut(window::Id) -> geometry::Size,
-    ) -> Vec<scene::Presentation> {
+    ) -> (
+        Vec<scene::Presentation>,
+        Vec<crate::overlay::PopupPresentation>,
+    ) {
         let revision = self.revision();
         let windows = self
             .session
@@ -533,6 +542,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             })
             .collect::<Vec<_>>();
         let mut rendered = Vec::with_capacity(windows.len());
+        let mut popup_presentations = Vec::new();
         let theme = self.active_theme();
         let now = Instant::now();
 
@@ -563,14 +573,23 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 &theme,
                 visual_update.visuals(),
             );
-            let overlay_update = self
-                .overlays
-                .update_window(window, entries, theme.overlay(), now);
+            let overlay_update = self.overlays.update_window(
+                window,
+                entries,
+                theme.overlay(),
+                self.overlay_capabilities,
+                now,
+            );
             for layer in overlay_update.layers() {
                 log_overlay_layer_application(layer, overlay_update.schedule());
                 match layer.kind() {
                     crate::overlay::LayerKind::Live => {
-                        append_overlay_layer(&mut scene, layer);
+                        append_or_present_overlay_layer(
+                            window,
+                            &mut scene,
+                            layer,
+                            &mut popup_presentations,
+                        );
                     }
                     crate::overlay::LayerKind::Ghost => {
                         scene.append_ghost_scene_with_opacity(layer.scene(), layer.opacity());
@@ -589,7 +608,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             ));
         }
 
-        rendered
+        (rendered, popup_presentations)
     }
 
     pub(crate) fn hit_test(
@@ -650,6 +669,35 @@ fn append_overlay_layer(scene: &mut scene::Scene, layer: &crate::overlay::Layer)
         scene.append_scene_with_forced_group(layer.scene(), layer.opacity());
     } else {
         scene.append_scene_with_opacity(layer.scene(), layer.opacity());
+    }
+}
+
+fn append_or_present_overlay_layer(
+    window: window::Id,
+    scene: &mut scene::Scene,
+    layer: &crate::overlay::Layer,
+    popup_presentations: &mut Vec<crate::overlay::PopupPresentation>,
+) {
+    match layer.backend() {
+        crate::overlay::Backend::InFrame => append_overlay_layer(scene, layer),
+        crate::overlay::Backend::NativePopup => {
+            let local = layer
+                .scene()
+                .popup_scene_without_backdrop_sampling(layer.bounds());
+            let mut popup_scene =
+                scene::Scene::new_with_clear(local.size(), scene::Color::rgba(0, 0, 0, 0));
+            if layer.force_group_at_full_opacity() {
+                popup_scene.append_scene_with_forced_group(&local, layer.opacity());
+            } else {
+                popup_scene.append_scene_with_opacity(&local, layer.opacity());
+            }
+            popup_presentations.push(crate::overlay::PopupPresentation::new(
+                window,
+                layer.id(),
+                layer.bounds(),
+                popup_scene,
+            ));
+        }
     }
 }
 

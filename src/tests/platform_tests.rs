@@ -592,10 +592,12 @@ fn text_editor_platform_applies_host_work_to_backend() {
             title,
             size,
             canvas_color,
+            kind,
         }) if *id == window
             && title == text_editor::WINDOW_TITLE
             && *size == text_editor::window_size()
             && *canvas_color == text_editor::CANVAS_COLOR
+            && *kind == window::Kind::Application
     ));
     assert!(platform.backend().events().iter().any(|event| matches!(
         event,
@@ -631,6 +633,60 @@ fn text_editor_platform_applies_host_work_to_backend() {
             .events()
             .iter()
             .any(|event| { matches!(event, BackendEvent::CloseWindow { id } if *id == window) })
+    );
+}
+
+#[test]
+fn menu_dropdown_uses_native_popup_work_when_backend_supports_it() {
+    let mut platform = Platform::new(
+        text_editor::shell(text_editor::State::default()),
+        FakeBackend::default().with_native_popups(),
+    );
+
+    platform.start().expect("platform should start host");
+
+    let window = platform.host().windows()[0].id();
+    let presentation = platform
+        .host()
+        .presentation(window)
+        .expect("initial presentation should exist");
+    let file = presentation
+        .layout()
+        .find_role(view::Role::Menu)
+        .into_iter()
+        .find(|frame| frame.label_text() == Some("File"))
+        .expect("file menu should be laid out");
+    let point = frame_point(file);
+
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::PointerDown { point },
+        ))
+        .expect("pointer down should be handled");
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::PointerUp { point },
+        ))
+        .expect("pointer up should open menu");
+
+    assert!(platform.backend().events().iter().any(|event| matches!(
+        event,
+        BackendEvent::PresentPopup {
+            parent,
+            id: _,
+            size,
+            clear_color,
+        } if *parent == window
+            && size.width() > 0
+            && size.height() > 0
+            && *clear_color == scene::Color::rgba(0, 0, 0, 0)
+    )));
+    assert_eq!(
+        platform.host().shell().runtime().session().windows()[0].kind(),
+        window::Kind::Application,
+        "native popups do not become framework windows"
     );
 }
 

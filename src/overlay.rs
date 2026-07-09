@@ -3,14 +3,16 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{animation, interaction, scene, theme, window};
+use crate::{animation, geometry, interaction, scene, theme, window};
 
 const DEFAULT_GHOST_LIMIT: usize = 8;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Draft {
     id: interaction::Id,
+    bounds: geometry::Rect,
     scene: scene::Scene,
+    preference: Preference,
     force_group_at_full_opacity: bool,
 }
 
@@ -18,7 +20,9 @@ pub(crate) struct Draft {
 struct Entry {
     id: interaction::Id,
     order: u64,
+    bounds: geometry::Rect,
     scene: scene::Scene,
+    backend: Backend,
     opacity: f32,
     state: State,
     elapsed: Duration,
@@ -48,9 +52,11 @@ pub(crate) struct Layer {
     #[allow(dead_code)]
     id: interaction::Id,
     order: u64,
+    bounds: geometry::Rect,
     scene: scene::Scene,
     opacity: f32,
     kind: LayerKind,
+    backend: Backend,
     state: Option<State>,
     elapsed: Option<Duration>,
     force_group_at_full_opacity: bool,
@@ -64,10 +70,35 @@ pub(crate) enum LayerKind {
     Ghost,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Preference {
+    InFrame,
+    NativePopup,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Backend {
+    InFrame,
+    NativePopup,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Capabilities {
+    native_popups: bool,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Update {
     layers: Vec<Layer>,
     schedule: animation::Schedule,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PopupPresentation {
+    parent: window::Id,
+    id: interaction::Id,
+    bounds: geometry::Rect,
+    scene: scene::Scene,
 }
 
 #[derive(Debug)]
@@ -94,12 +125,19 @@ struct Live {
 }
 
 impl Draft {
-    pub(crate) fn new(id: interaction::Id, scene: scene::Scene) -> Self {
+    pub(crate) fn new(id: interaction::Id, bounds: geometry::Rect, scene: scene::Scene) -> Self {
         Self {
             id,
+            bounds,
             scene,
+            preference: Preference::InFrame,
             force_group_at_full_opacity: false,
         }
+    }
+
+    pub(crate) fn prefer(mut self, preference: Preference) -> Self {
+        self.preference = preference;
+        self
     }
 
     pub(crate) fn force_group_at_full_opacity(mut self, force: bool) -> Self {
@@ -122,9 +160,11 @@ impl Entry {
         Layer {
             id: self.id,
             order: self.order,
+            bounds: self.bounds,
             scene: self.scene.clone(),
             opacity: self.opacity,
             kind: LayerKind::Live,
+            backend: self.backend,
             state: Some(self.state),
             elapsed: Some(self.elapsed),
             force_group_at_full_opacity: self.force_group_at_full_opacity,
@@ -143,9 +183,11 @@ impl Ghost {
         Some(Layer {
             id: self.id,
             order: self.original_order,
+            bounds: geometry::Rect::from_size(self.scene.size()),
             scene: self.scene.clone(),
             opacity: self.opacity_at(now),
             kind: LayerKind::Ghost,
+            backend: Backend::InFrame,
             state: None,
             elapsed: Some(now.saturating_duration_since(self.started_at)),
             force_group_at_full_opacity: false,
@@ -177,13 +219,16 @@ impl Ghost {
 }
 
 impl Layer {
-    #[cfg(test)]
-    fn id(&self) -> interaction::Id {
+    pub(crate) fn scene(&self) -> &scene::Scene {
+        &self.scene
+    }
+
+    pub(crate) fn id(&self) -> interaction::Id {
         self.id
     }
 
-    pub(crate) fn scene(&self) -> &scene::Scene {
-        &self.scene
+    pub(crate) fn bounds(&self) -> geometry::Rect {
+        self.bounds
     }
 
     pub(crate) fn opacity(&self) -> f32 {
@@ -192,6 +237,10 @@ impl Layer {
 
     pub(crate) fn kind(&self) -> LayerKind {
         self.kind
+    }
+
+    pub(crate) fn backend(&self) -> Backend {
+        self.backend
     }
 
     pub(crate) fn state(&self) -> Option<State> {
@@ -215,6 +264,38 @@ impl Layer {
     }
 }
 
+impl Capabilities {
+    pub(crate) fn in_frame_only() -> Self {
+        Self {
+            native_popups: false,
+        }
+    }
+
+    pub(crate) fn with_native_popups() -> Self {
+        Self {
+            native_popups: true,
+        }
+    }
+
+    pub(crate) fn native_popups_supported(self) -> bool {
+        self.native_popups
+    }
+}
+
+impl Default for Capabilities {
+    fn default() -> Self {
+        Self::in_frame_only()
+    }
+}
+
+pub(crate) fn resolve_backend(preference: Preference, capabilities: Capabilities) -> Backend {
+    match preference {
+        Preference::InFrame => Backend::InFrame,
+        Preference::NativePopup if capabilities.native_popups_supported() => Backend::NativePopup,
+        Preference::NativePopup => Backend::InFrame,
+    }
+}
+
 impl Update {
     fn new(layers: Vec<Layer>, schedule: animation::Schedule) -> Self {
         Self { layers, schedule }
@@ -226,6 +307,38 @@ impl Update {
 
     pub(crate) fn schedule(&self) -> animation::Schedule {
         self.schedule
+    }
+}
+
+impl PopupPresentation {
+    pub(crate) fn new(
+        parent: window::Id,
+        id: interaction::Id,
+        bounds: geometry::Rect,
+        scene: scene::Scene,
+    ) -> Self {
+        Self {
+            parent,
+            id,
+            bounds,
+            scene,
+        }
+    }
+
+    pub(crate) fn parent(&self) -> window::Id {
+        self.parent
+    }
+
+    pub(crate) fn id(&self) -> interaction::Id {
+        self.id
+    }
+
+    pub(crate) fn bounds(&self) -> geometry::Rect {
+        self.bounds
+    }
+
+    pub(crate) fn scene(&self) -> &scene::Scene {
+        &self.scene
     }
 }
 
@@ -242,6 +355,7 @@ impl Store {
         window: window::Id,
         drafts: Vec<Draft>,
         overlay: theme::Overlay,
+        capabilities: Capabilities,
         now: Instant,
     ) -> Update {
         let state = self.windows.entry(window).or_default();
@@ -285,6 +399,7 @@ impl Store {
                     state.next_order = state.next_order.saturating_add(1);
                     (order, now, false)
                 });
+            let backend = resolve_backend(draft.preference, capabilities);
             let (opacity, entering) = live_opacity(appeared_at, overlay.enter_fade_ms, now);
             let state_kind = if entering {
                 State::Entering
@@ -303,7 +418,9 @@ impl Store {
             entries.push(Entry {
                 id: draft.id,
                 order,
+                bounds: draft.bounds,
                 scene: draft.scene,
+                backend,
                 opacity,
                 state: state_kind,
                 elapsed: now.saturating_duration_since(appeared_at),
@@ -387,12 +504,27 @@ mod tests {
     fn draft(id: &'static str) -> Draft {
         Draft::new(
             interaction::Id::new(id),
+            geometry::Rect::new(10, 20, 100, 40),
             scene::Scene::new(geometry::Size::new(100, 40)),
         )
     }
 
+    fn update(
+        store: &mut Store,
+        window: window::Id,
+        drafts: Vec<Draft>,
+        overlay: theme::Overlay,
+        now: Instant,
+    ) -> Update {
+        store.update_window(window, drafts, overlay, Capabilities::default(), now)
+    }
+
     fn force_group_draft(id: &'static str) -> Draft {
         draft(id).force_group_at_full_opacity(true)
+    }
+
+    fn popup_draft(id: &'static str) -> Draft {
+        draft(id).prefer(Preference::NativePopup)
     }
 
     fn assert_close(actual: f32, expected: f32) {
@@ -403,19 +535,71 @@ mod tests {
     }
 
     #[test]
+    fn native_popup_preference_falls_back_when_unsupported() {
+        let mut store = Store::new();
+        let window = window::Id::new(21);
+        let update = store.update_window(
+            window,
+            vec![popup_draft("menu")],
+            overlay_theme(0, 0),
+            Capabilities::in_frame_only(),
+            Instant::now(),
+        );
+
+        assert_eq!(update.layers[0].backend(), Backend::InFrame);
+    }
+
+    #[test]
+    fn native_popup_preference_uses_native_when_supported() {
+        let mut store = Store::new();
+        let window = window::Id::new(22);
+        let update = store.update_window(
+            window,
+            vec![popup_draft("menu")],
+            overlay_theme(0, 0),
+            Capabilities::with_native_popups(),
+            Instant::now(),
+        );
+
+        assert_eq!(update.layers[0].backend(), Backend::NativePopup);
+    }
+
+    #[test]
+    fn in_frame_preference_stays_in_frame_when_native_is_supported() {
+        let mut store = Store::new();
+        let window = window::Id::new(23);
+        let update = store.update_window(
+            window,
+            vec![draft("command_palette")],
+            overlay_theme(0, 0),
+            Capabilities::with_native_popups(),
+            Instant::now(),
+        );
+
+        assert_eq!(update.layers[0].backend(), Backend::InFrame);
+    }
+
+    #[test]
     fn live_entry_fades_in_and_settles() {
         let mut store = Store::new();
         let window = window::Id::new(1);
         let now = Instant::now();
 
-        let first = store.update_window(window, vec![draft("menu")], overlay_theme(90, 120), now);
+        let first = update(
+            &mut store,
+            window,
+            vec![draft("menu")],
+            overlay_theme(90, 120),
+            now,
+        );
         assert_eq!(first.layers.len(), 1);
         assert_eq!(first.layers[0].id(), interaction::Id::new("menu"));
         assert_eq!(first.layers[0].kind, LayerKind::Live);
         assert_eq!(first.layers[0].opacity, 0.0);
         assert_eq!(first.schedule, animation::Schedule::NextFrame);
 
-        let settled = store.update_window(
+        let settled = update(
+            &mut store,
             window,
             vec![draft("menu")],
             overlay_theme(90, 120),
@@ -432,20 +616,23 @@ mod tests {
         let now = Instant::now();
         let theme = overlay_theme(5_000, 120);
 
-        store.update_window(window, vec![draft("menu")], theme, now);
-        let late = store.update_window(
+        update(&mut store, window, vec![draft("menu")], theme, now);
+        let late = update(
+            &mut store,
             window,
             vec![draft("menu")],
             theme,
             now + Duration::from_millis(4_000),
         );
-        let tail = store.update_window(
+        let tail = update(
+            &mut store,
             window,
             vec![draft("menu")],
             theme,
             now + Duration::from_millis(4_999),
         );
-        let settled = store.update_window(
+        let settled = update(
+            &mut store,
             window,
             vec![draft("menu")],
             theme,
@@ -466,7 +653,8 @@ mod tests {
         assert_eq!(settled.schedule, animation::Schedule::Idle);
         assert!(settled.layers[0].demotion_marker);
 
-        let later = store.update_window(
+        let later = update(
+            &mut store,
             window,
             vec![draft("menu")],
             theme,
@@ -481,7 +669,8 @@ mod tests {
         let window = window::Id::new(12);
         let now = Instant::now();
 
-        let update = store.update_window(
+        let update = update(
+            &mut store,
             window,
             vec![force_group_draft("comparison")],
             overlay_theme(0, 120),
@@ -500,8 +689,15 @@ mod tests {
         let window = window::Id::new(2);
         let now = Instant::now();
 
-        store.update_window(window, vec![draft("palette")], overlay_theme(0, 120), now);
-        let fading = store.update_window(
+        update(
+            &mut store,
+            window,
+            vec![draft("palette")],
+            overlay_theme(0, 120),
+            now,
+        );
+        let fading = update(
+            &mut store,
             window,
             Vec::new(),
             overlay_theme(0, 120),
@@ -515,7 +711,8 @@ mod tests {
         assert_eq!(fading.layers[0].opacity, 1.0);
         assert_eq!(fading.schedule, animation::Schedule::NextFrame);
 
-        let mid_fade = store.update_window(
+        let mid_fade = update(
+            &mut store,
             window,
             Vec::new(),
             overlay_theme(0, 120),
@@ -523,7 +720,8 @@ mod tests {
         );
         assert!(mid_fade.layers[0].opacity > 0.0 && mid_fade.layers[0].opacity < 1.0);
 
-        let expired = store.update_window(
+        let expired = update(
+            &mut store,
             window,
             Vec::new(),
             overlay_theme(0, 120),
@@ -540,8 +738,15 @@ mod tests {
         let window = window::Id::new(3);
         let now = Instant::now();
 
-        store.update_window(window, vec![draft("menu")], overlay_theme(0, 0), now);
-        let removed = store.update_window(
+        update(
+            &mut store,
+            window,
+            vec![draft("menu")],
+            overlay_theme(0, 0),
+            now,
+        );
+        let removed = update(
+            &mut store,
             window,
             Vec::new(),
             overlay_theme(0, 0),
@@ -559,14 +764,22 @@ mod tests {
         let window = window::Id::new(4);
         let now = Instant::now();
 
-        store.update_window(window, vec![draft("menu")], overlay_theme(0, 120), now);
-        store.update_window(
+        update(
+            &mut store,
+            window,
+            vec![draft("menu")],
+            overlay_theme(0, 120),
+            now,
+        );
+        update(
+            &mut store,
             window,
             Vec::new(),
             overlay_theme(0, 120),
             now + Duration::from_millis(1),
         );
-        let reopened = store.update_window(
+        let reopened = update(
+            &mut store,
             window,
             vec![draft("menu")],
             overlay_theme(0, 120),
@@ -601,8 +814,15 @@ mod tests {
                 _ => "entry.9",
             };
             let at = now + Duration::from_millis(index);
-            store.update_window(window, vec![draft(id)], overlay_theme(0, 1_000), at);
-            store.update_window(
+            update(
+                &mut store,
+                window,
+                vec![draft(id)],
+                overlay_theme(0, 1_000),
+                at,
+            );
+            update(
+                &mut store,
                 window,
                 Vec::new(),
                 overlay_theme(0, 1_000),

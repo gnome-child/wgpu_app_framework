@@ -2,7 +2,7 @@ mod id;
 mod options;
 
 pub use id::Id;
-pub use options::Options;
+pub use options::{Kind, Options};
 
 use super::scene;
 

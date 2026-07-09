@@ -1,11 +1,18 @@
 use super::{DEFAULT_CANVAS_COLOR, DEFAULT_HEIGHT, DEFAULT_TITLE, DEFAULT_WIDTH};
 use crate::{geometry, scene};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Application,
+    Popup,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Options {
     title: String,
     inner_size: geometry::Size,
     canvas_color: scene::Color,
+    kind: Kind,
 }
 
 impl Options {
@@ -14,6 +21,7 @@ impl Options {
             title: title.into(),
             inner_size: Self::default_inner_size(),
             canvas_color: Self::default_canvas_color(),
+            kind: Kind::Application,
         }
     }
 
@@ -35,6 +43,11 @@ impl Options {
         self
     }
 
+    pub fn with_kind(mut self, kind: Kind) -> Self {
+        self.kind = kind;
+        self
+    }
+
     pub fn title(&self) -> &str {
         &self.title
     }
@@ -47,8 +60,12 @@ impl Options {
         self.canvas_color
     }
 
-    pub(crate) fn into_parts(self) -> (String, geometry::Size, scene::Color) {
-        (self.title, self.inner_size, self.canvas_color)
+    pub fn kind(&self) -> Kind {
+        self.kind
+    }
+
+    pub(crate) fn into_parts(self) -> (String, geometry::Size, scene::Color, Kind) {
+        (self.title, self.inner_size, self.canvas_color, self.kind)
     }
 }
 

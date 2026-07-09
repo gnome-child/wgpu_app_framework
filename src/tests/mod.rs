@@ -2,8 +2,8 @@ use super::{
     Clipboard, Command, Context, Diagnostics, Document as TextDocument, Error, Host, Input,
     Platform, Response, Runtime, Scene, Session, Shell, State, Target, Task, Theme, Timeline, View,
     clipboard, command, composition, context, control_gallery, diagnostics, document, draft,
-    geometry, glass_tuner, host, input, interaction, keymap, layout, notification, platform,
-    pointer, responder, response, runtime, scene, session, shell, state, subject, task,
+    geometry, glass_tuner, host, input, interaction, keymap, layout, notification, overlay,
+    platform, pointer, responder, response, runtime, scene, session, shell, state, subject, task,
     text_editor, timeline, view, widget, window,
 };
 use crate::interaction::Interaction;
@@ -244,6 +244,7 @@ struct EditorPersistence {
 #[derive(Default)]
 struct FakeBackend {
     events: Vec<BackendEvent>,
+    native_popups: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -253,12 +254,19 @@ enum BackendEvent {
         title: String,
         size: geometry::Size,
         canvas_color: scene::Color,
+        kind: window::Kind,
     },
     CloseWindow {
         id: window::Id,
     },
     Present {
         window: window::Id,
+        size: geometry::Size,
+        clear_color: scene::Color,
+    },
+    PresentPopup {
+        parent: window::Id,
+        id: interaction::Id,
         size: geometry::Size,
         clear_color: scene::Color,
     },
@@ -277,6 +285,11 @@ impl FakeBackend {
     fn events(&self) -> &[BackendEvent] {
         &self.events
     }
+
+    fn with_native_popups(mut self) -> Self {
+        self.native_popups = true;
+        self
+    }
 }
 
 impl platform::Backend for FakeBackend {
@@ -293,6 +306,7 @@ impl platform::Backend for FakeBackend {
             title: window.title().to_owned(),
             size: window.size(),
             canvas_color: window.canvas_color(),
+            kind: window.kind(),
         });
         Ok(())
     }
@@ -321,6 +335,30 @@ impl platform::Backend for FakeBackend {
             Duration::from_micros(20),
             Instant::now(),
         ))
+    }
+
+    fn overlay_capabilities(&self) -> overlay::Capabilities {
+        if self.native_popups {
+            overlay::Capabilities::with_native_popups()
+        } else {
+            overlay::Capabilities::in_frame_only()
+        }
+    }
+
+    fn present_overlay_popups(
+        &mut self,
+        _context: &mut Self::Context<'_>,
+        presentations: &[overlay::PopupPresentation],
+    ) -> Result<(), Self::Error> {
+        for presentation in presentations {
+            self.events.push(BackendEvent::PresentPopup {
+                parent: presentation.parent(),
+                id: presentation.id(),
+                size: presentation.scene().size(),
+                clear_color: presentation.scene().clear(),
+            });
+        }
+        Ok(())
     }
 
     fn request(

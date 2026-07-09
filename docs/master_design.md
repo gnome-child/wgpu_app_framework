@@ -307,9 +307,30 @@ behavior; a future caller must earn and name that variant explicitly.
 
 Owns floating UI entries above the main scene. An overlay entry is live UI:
 it has retained identity, order, scene primitives, opacity, and input semantics
-through the normal layout and interaction systems. The v1 backend paints
-entries in-frame, but per-entry buckets are the contract boundary a later
-OS-window popup backend must implement.
+through the normal layout and interaction systems. Per-entry buckets are the
+contract boundary for overlay backends: `InFrame` paints the entry inside the
+parent scene, while `NativePopup` paints the same entry bucket into a separate
+OS popup window when the backend capability probe supports it. Native popup is
+a backend realization, not a framework window in app/session state; parent
+window focus and command routing remain authoritative. Unsupported platforms
+fall back to `InFrame`. Wayland is fallback-only in v1 because arbitrary global
+popup placement is not a portable winit capability.
+
+Native popup windows are transient shell surfaces: undecorated, transparent,
+initially hidden until positioned and sized, absent from taskbar/dock-style
+shell presence where the platform allows it, and dismissed rather than glued to
+their parent when the parent moves, resizes, minimizes, loses focus, or the
+overlay session closes. Mixed-DPI correctness is per-window: a native popup
+uses the popup window's own scale factor for paint conversion, not the parent
+window's scale.
+
+Intent is portable; realization is native. `Material::Glass` means "glasslike
+panel material," but an in-frame backend realizes it by sampling the parent
+composition, a future OS-window backend may realize it with platform effects
+such as Windows acrylic/Mica or AppKit semantic visual-effect materials, and
+the v1 native popup backend realizes it as the non-backdrop opaque/tinted body.
+Theme/config should express portable intent and platform-scoped realization
+choices, never a flat optional cluster of OS-specific fields.
 
 Overlay ghosts are paint-only afterlife. When a live entry is dismissed,
 runtime may retain its final scene bucket briefly as a `Ghost` for fade-out,

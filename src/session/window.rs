@@ -7,6 +7,7 @@ pub struct Window {
     pub(super) title: String,
     pub(super) inner_size: geometry::Size,
     pub(super) canvas_color: scene::Color,
+    pub(super) kind: app_window::Kind,
     pub(super) invalidation: Option<response::Invalidation>,
     pub(super) presented_revision: Option<state::Revision>,
     pub(super) cursor: pointer::Cursor,
@@ -23,6 +24,7 @@ pub struct WindowSnapshot {
     pub(super) title: String,
     pub(super) inner_size: geometry::Size,
     pub(super) canvas_color: scene::Color,
+    pub(super) kind: app_window::Kind,
     pub(super) focus: Option<Focus>,
 }
 
@@ -32,6 +34,7 @@ impl Window {
         title: String,
         inner_size: geometry::Size,
         canvas_color: scene::Color,
+        kind: app_window::Kind,
         draft_limit: usize,
     ) -> Self {
         Self {
@@ -39,6 +42,7 @@ impl Window {
             title,
             inner_size,
             canvas_color,
+            kind,
             invalidation: Some(response::Invalidation::Rebuild),
             presented_revision: None,
             cursor: pointer::Cursor::Default,
@@ -56,6 +60,7 @@ impl Window {
             title: snapshot.title,
             inner_size: snapshot.inner_size,
             canvas_color: snapshot.canvas_color,
+            kind: snapshot.kind,
             invalidation: Some(response::Invalidation::Rebuild),
             presented_revision: None,
             cursor: pointer::Cursor::Default,
@@ -81,6 +86,10 @@ impl Window {
 
     pub fn canvas_color(&self) -> scene::Color {
         self.canvas_color
+    }
+
+    pub fn kind(&self) -> app_window::Kind {
+        self.kind
     }
 
     pub fn redraw_requested(&self) -> bool {
@@ -115,6 +124,7 @@ impl WindowSnapshot {
             title: title.into(),
             inner_size: app_window::Options::default_inner_size(),
             canvas_color: app_window::Options::default_canvas_color(),
+            kind: app_window::Kind::Application,
             focus,
         }
     }
@@ -125,6 +135,7 @@ impl WindowSnapshot {
             title: window.title.clone(),
             inner_size: window.inner_size,
             canvas_color: window.canvas_color,
+            kind: window.kind,
             focus: window.focus,
         }
     }
@@ -145,6 +156,10 @@ impl WindowSnapshot {
         self.canvas_color
     }
 
+    pub fn kind(&self) -> app_window::Kind {
+        self.kind
+    }
+
     pub fn focus(&self) -> Option<Focus> {
         self.focus
     }
@@ -152,7 +167,7 @@ impl WindowSnapshot {
 
 impl Session {
     pub fn open_window(&mut self, options: app_window::Options) -> app_window::Id {
-        let (title, inner_size, canvas_color) = options.into_parts();
+        let (title, inner_size, canvas_color, kind) = options.into_parts();
         let id = app_window::Id::new(self.next_window_id);
         self.next_window_id += 1;
         self.windows.push(Window::new(
@@ -160,6 +175,7 @@ impl Session {
             title,
             inner_size,
             canvas_color,
+            kind,
             self.draft_limit,
         ));
 

@@ -50,6 +50,8 @@ impl Native {
             inner_size: InitialSize::Logical(native_logical_area(
                 geometry::LogicalArea::from_size(window.size()),
             )),
+            kind: window.kind(),
+            owner: None,
         };
         let handle = NativeWindow::open(native_options, context.event_loop())?;
         let render_context = self
@@ -148,7 +150,7 @@ impl Native {
         )
     }
 
-    fn sync_window_surface(
+    pub(in crate::platform::native) fn sync_window_surface(
         &mut self,
         window: app_window::Id,
     ) -> Result<wgpu::TextureFormat, NativeError> {
@@ -192,6 +194,8 @@ fn render_context_options() -> render::ContextOptions {
     }
 }
 
-fn native_logical_area(area: geometry::LogicalArea) -> paint::area::Logical {
+pub(in crate::platform::native) fn native_logical_area(
+    area: geometry::LogicalArea,
+) -> paint::area::Logical {
     paint::area::logical(area.width(), area.height())
 }

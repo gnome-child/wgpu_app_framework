@@ -218,6 +218,33 @@ pub(crate) struct TextColor {
     a: f32,
 }
 
+impl Primitive {
+    pub(crate) fn translated(&self, dx: i32, dy: i32) -> Self {
+        match self {
+            Self::Quad(quad) => Self::Quad(quad.translated(dx, dy)),
+            Self::Rule(rule) => Self::Rule(rule.translated(dx, dy)),
+            Self::Text(text) => Self::Text(text.translated(dx, dy)),
+            Self::TextViewport(viewport) => Self::TextViewport(viewport.translated(dx, dy)),
+            Self::Icon(icon) => Self::Icon(icon.translated(dx, dy)),
+            Self::Shadow(shadow) => Self::Shadow(shadow.translated(dx, dy)),
+            Self::Pane(pane) => Self::Pane(pane.translated(dx, dy)),
+            Self::Clip(clip) => Self::Clip(clip.translated(dx, dy)),
+            Self::PopClip => Self::PopClip,
+            Self::Outline(outline) => Self::Outline(outline.translated(dx, dy)),
+            Self::Group(group) => Self::Group(group.translated(dx, dy)),
+        }
+    }
+}
+
+fn translate_rect(rect: geometry::Rect, dx: i32, dy: i32) -> geometry::Rect {
+    geometry::Rect::new(
+        rect.x().saturating_add(dx),
+        rect.y().saturating_add(dy),
+        rect.width(),
+        rect.height(),
+    )
+}
+
 impl Group {
     pub(crate) fn new(primitives: Vec<Primitive>, opacity: f32) -> Option<Self> {
         let opacity = opacity.clamp(0.0, 1.0);
@@ -237,6 +264,17 @@ impl Group {
 
     pub(crate) fn opacity(&self) -> f32 {
         self.opacity
+    }
+
+    pub(crate) fn translated(&self, dx: i32, dy: i32) -> Self {
+        Self {
+            primitives: self
+                .primitives
+                .iter()
+                .map(|primitive| primitive.translated(dx, dy))
+                .collect(),
+            opacity: self.opacity,
+        }
     }
 }
 
@@ -308,6 +346,14 @@ impl Quad {
     pub fn transform(&self) -> Transform {
         self.transform
     }
+
+    pub(crate) fn translated(&self, dx: i32, dy: i32) -> Self {
+        Self {
+            rect: translate_rect(self.rect, dx, dy),
+            transform: self.transform.translated(dx, dy),
+            ..*self
+        }
+    }
 }
 
 impl Rule {
@@ -351,6 +397,13 @@ impl Rule {
 
     pub fn thickness_px(&self) -> u32 {
         self.thickness_px
+    }
+
+    pub(crate) fn translated(&self, dx: i32, dy: i32) -> Self {
+        Self {
+            rect: translate_rect(self.rect, dx, dy),
+            ..*self
+        }
     }
 }
 
@@ -440,6 +493,12 @@ impl Transform {
 
     pub const fn scale_motion(self) -> Option<ScaleMotion> {
         self.scale_motion
+    }
+
+    pub(crate) fn translated(mut self, dx: i32, dy: i32) -> Self {
+        self.origin_x += dx as f32;
+        self.origin_y += dy as f32;
+        self
     }
 }
 
@@ -551,6 +610,17 @@ impl Text {
     pub fn align(&self) -> TextAlign {
         self.align
     }
+
+    pub(crate) fn translated(&self, dx: i32, dy: i32) -> Self {
+        Self {
+            rect: translate_rect(self.rect, dx, dy),
+            value: self.value.clone(),
+            color: self.color,
+            style: self.style,
+            wrap: self.wrap,
+            align: self.align,
+        }
+    }
 }
 
 impl TextStyle {
@@ -585,6 +655,17 @@ impl TextViewport {
     pub fn surfaces(&self) -> &[TextSurface] {
         &self.surfaces
     }
+
+    pub(crate) fn translated(&self, dx: i32, dy: i32) -> Self {
+        Self {
+            rect: translate_rect(self.rect, dx, dy),
+            surfaces: self
+                .surfaces
+                .iter()
+                .map(|surface| surface.translated(dx, dy))
+                .collect(),
+        }
+    }
 }
 
 impl TextSurface {
@@ -611,6 +692,14 @@ impl TextSurface {
     pub(crate) fn default_color(&self) -> TextColor {
         self.default_color
     }
+
+    pub(crate) fn translated(&self, dx: i32, dy: i32) -> Self {
+        Self {
+            rect: translate_rect(self.rect, dx, dy),
+            buffer: Rc::clone(&self.buffer),
+            default_color: self.default_color,
+        }
+    }
 }
 
 impl Clip {
@@ -632,6 +721,13 @@ impl Clip {
 
     pub fn rounding(self) -> Rounding {
         self.rounding
+    }
+
+    pub(crate) fn translated(&self, dx: i32, dy: i32) -> Self {
+        Self {
+            rect: translate_rect(self.rect, dx, dy),
+            rounding: self.rounding,
+        }
     }
 }
 
@@ -664,6 +760,15 @@ impl Icon {
 
     pub fn size(&self) -> f32 {
         self.size
+    }
+
+    pub(crate) fn translated(&self, dx: i32, dy: i32) -> Self {
+        Self {
+            rect: translate_rect(self.rect, dx, dy),
+            icon: self.icon,
+            color: self.color,
+            size: self.size,
+        }
     }
 }
 
@@ -713,6 +818,17 @@ impl Shadow {
     pub fn rounding(&self) -> Rounding {
         self.rounding
     }
+
+    pub(crate) fn translated(&self, dx: i32, dy: i32) -> Self {
+        Self {
+            rect: translate_rect(self.rect, dx, dy),
+            color: self.color,
+            blur: self.blur,
+            spread: self.spread,
+            offset: self.offset,
+            rounding: self.rounding,
+        }
+    }
 }
 
 impl Pane {
@@ -747,6 +863,14 @@ impl Pane {
 
     pub fn material(&self) -> &Material {
         &self.material
+    }
+
+    pub(crate) fn translated(&self, dx: i32, dy: i32) -> Self {
+        Self {
+            rect: translate_rect(self.rect, dx, dy),
+            rounding: self.rounding,
+            material: self.material.clone(),
+        }
     }
 }
 
@@ -830,6 +954,16 @@ impl Outline {
 
     pub fn rounding(&self) -> Rounding {
         self.rounding
+    }
+
+    pub(crate) fn translated(&self, dx: i32, dy: i32) -> Self {
+        Self {
+            rect: translate_rect(self.rect, dx, dy),
+            color: self.color,
+            width: self.width,
+            offset: self.offset,
+            rounding: self.rounding,
+        }
     }
 }
 
