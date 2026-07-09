@@ -277,20 +277,7 @@ fn group_intermediate_params_use_target_local_texture_extent() {
 
 #[test]
 fn promoted_blur_first_pass_samples_global_and_writes_local() {
-    let pane = paint::Pane::new(
-        Rect::new(
-            paint::point::logical(20.0, 30.0),
-            paint::area::logical(50.0, 40.0),
-        ),
-        paint::Material::Glass(paint::Glass {
-            fallback: paint::Brush::solid(paint::Color::BLACK),
-            backdrop_layers: vec![paint::BackdropLayer::Blur(paint::BackdropBlur {
-                sigma: 44.55,
-                edge_mode: paint::BackdropEdgeMode::Mirror,
-            })],
-            surface_layers: Vec::new(),
-        }),
-    );
+    let pane = high_sigma_blur_pane();
     let group = paint::group_from_items(&[paint::Item::Pane(pane)], 0.5, paint::Grid::new(1.5))
         .expect("pane should produce group");
     let [paint::Item::Pane(local)] = group.items.as_slice() else {
@@ -320,20 +307,7 @@ fn promoted_blur_first_pass_samples_global_and_writes_local() {
 
 #[test]
 fn high_sigma_blur_write_rect_fits_in_inflated_group_target() {
-    let pane = paint::Pane::new(
-        Rect::new(
-            paint::point::logical(20.0, 30.0),
-            paint::area::logical(50.0, 40.0),
-        ),
-        paint::Material::Glass(paint::Glass {
-            fallback: paint::Brush::solid(paint::Color::BLACK),
-            backdrop_layers: vec![paint::BackdropLayer::Blur(paint::BackdropBlur {
-                sigma: 44.55,
-                edge_mode: paint::BackdropEdgeMode::Mirror,
-            })],
-            surface_layers: Vec::new(),
-        }),
-    );
+    let pane = high_sigma_blur_pane();
 
     for scale in [1.0, 1.5] {
         let group = paint::group_from_items(
@@ -610,6 +584,23 @@ fn rect_fits_in_area(rect: Rect, area: paint::area::Logical) -> bool {
         && top >= -EPSILON
         && right <= area.width() + EPSILON
         && bottom <= area.height() + EPSILON
+}
+
+fn high_sigma_blur_pane() -> paint::Pane {
+    paint::Pane::new(
+        Rect::new(
+            paint::point::logical(20.0, 30.0),
+            paint::area::logical(50.0, 40.0),
+        ),
+        paint::Material::Glass(paint::Glass {
+            fallback: paint::Brush::solid(paint::Color::BLACK),
+            backdrop_layers: vec![paint::BackdropLayer::Blur(paint::BackdropBlur {
+                sigma: 44.55,
+                edge_mode: paint::BackdropEdgeMode::Mirror,
+            })],
+            surface_layers: Vec::new(),
+        }),
+    )
 }
 
 fn filter_module_source() -> String {
