@@ -21,15 +21,11 @@ mod target;
 use chain::FilterChainContext;
 pub(crate) use chain::FilterSource;
 pub(crate) use draw::FilterDraw;
-#[cfg(test)]
-use effects::liquid_depth_displacement;
 use effects::{liquid_effect, liquid_is_identity, refraction_effect};
 pub(crate) use encode::shader_source;
 use geometry::{
     PreparedFilter, prepare_clip, prepare_filter, source_rect_for_prepared_destination,
 };
-#[cfg(test)]
-use geometry::{blur_kernel_radius_px, blur_radius_px, blur_sigma_px};
 #[cfg(test)]
 pub(crate) use geometry::{prepared_clip_silhouette_for_test, prepared_filter_silhouette_for_test};
 use params::{AlphaMode, ParamInput, Params};
@@ -44,16 +40,6 @@ use storage::{
     ScratchTargets, ScratchTextures, Texture, Textures, take_pooled_layer, take_pooled_scratch,
 };
 pub use target::Target;
-
-#[cfg(test)]
-use crate::paint::Rect;
-#[cfg(test)]
-use crate::render::silhouette::edges;
-#[cfg(test)]
-use params::{
-    noise_material_position_data, physical_rect_data, physical_source_rect_data, source_scale_data,
-    source_step_data, with_texture_area as params_with_texture_area,
-};
 
 const LAYER_POOL_LIMIT: usize = 8;
 const SCRATCH_POOL_LIMIT: usize = 8;

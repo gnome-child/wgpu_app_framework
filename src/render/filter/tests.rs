@@ -1,4 +1,13 @@
+use super::effects::liquid_depth_displacement;
+use super::geometry::{blur_kernel_radius_px, blur_radius_px, blur_sigma_px};
+use super::params::{
+    noise_material_position_data, physical_rect_data, physical_source_rect_data, source_scale_data,
+    source_step_data, with_texture_area as params_with_texture_area,
+};
 use super::*;
+
+use crate::paint::Rect;
+use crate::render::silhouette::edges;
 
 #[test]
 fn filter_shape_snaps_and_raster_bounds_expand_by_one_physical_pixel() {
