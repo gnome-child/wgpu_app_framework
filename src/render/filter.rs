@@ -4,9 +4,9 @@ use wgpu::util::DeviceExt;
 
 use crate::paint::{self, Rect};
 use crate::render;
-use crate::render::silhouette::PreparedSilhouette;
 
 mod chain;
+mod geometry;
 mod noise;
 mod params;
 mod pass;
@@ -15,6 +15,13 @@ mod target;
 
 use chain::FilterChainContext;
 pub(crate) use chain::FilterSource;
+use geometry::{
+    PreparedFilter, prepare_clip, prepare_filter, source_rect_for_prepared_destination,
+};
+#[cfg(test)]
+use geometry::{blur_kernel_radius_px, blur_radius_px, blur_sigma_px};
+#[cfg(test)]
+pub(crate) use geometry::{prepared_clip_silhouette_for_test, prepared_filter_silhouette_for_test};
 use params::{AlphaMode, ParamInput, Params};
 use pass::{
     BlurLabels, BlurPass, CompositePass, CompositeVertex, EffectPass, LiquidPass, PassLabels,
@@ -213,16 +220,6 @@ pub(crate) struct FilterDraw<'a> {
     pub(crate) output: &'a wgpu::TextureView,
     pub(crate) filter: paint::Filter,
     pub(crate) scissor: Option<render::Scissor>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct PreparedFilter {
-    raster_rect: Rect,
-    shape_rect: Rect,
-    rounding: [f32; 4],
-    blur_amount: f32,
-    blur_sigma_px: f32,
-    blur_radius_px: f32,
 }
 
 impl Renderer {
@@ -1467,74 +1464,6 @@ impl Layer {
     }
 }
 
-impl PreparedFilter {
-    fn with_blur(mut self, blur_amount: f32, scale_factor: f32) -> Self {
-        let blur_amount = blur_amount.clamp(0.0, 1.0);
-
-        self.blur_amount = blur_amount;
-        self.blur_radius_px = blur_radius_px(blur_amount, scale_factor);
-        self.blur_sigma_px = self.blur_radius_px * 0.42;
-        self
-    }
-
-    fn with_blur_sigma(mut self, blur_sigma: f32, scale_factor: f32) -> Self {
-        let blur_sigma = blur_sigma.max(0.0);
-
-        self.blur_amount = 0.0;
-        self.blur_sigma_px = blur_sigma_px(blur_sigma, scale_factor);
-        self.blur_radius_px = blur_kernel_radius_px(blur_sigma, scale_factor);
-        self
-    }
-}
-
-fn prepare_filter(rect: Rect, scale_factor: f32) -> Option<PreparedFilter> {
-    prepare_clip(rect, scale_factor)
-}
-
-fn prepare_clip(rect: Rect, scale_factor: f32) -> Option<PreparedFilter> {
-    let silhouette = PreparedSilhouette::for_filter_rect(rect, scale_factor)?;
-
-    Some(PreparedFilter {
-        raster_rect: silhouette.raster_rect,
-        shape_rect: silhouette.shape_rect,
-        rounding: silhouette.rounding,
-        blur_amount: 0.0,
-        blur_sigma_px: 0.0,
-        blur_radius_px: 0.0,
-    })
-}
-
-fn source_rect_for_prepared_destination(
-    destination: Rect,
-    prepared: PreparedFilter,
-    source: Rect,
-) -> Rect {
-    let origin_delta = paint::point::logical(
-        prepared.shape_rect.origin.x() - destination.origin.x(),
-        prepared.shape_rect.origin.y() - destination.origin.y(),
-    );
-
-    Rect::new(
-        paint::point::logical(
-            source.origin.x() + origin_delta.x(),
-            source.origin.y() + origin_delta.y(),
-        ),
-        prepared.shape_rect.area,
-    )
-}
-
-fn blur_radius_px(amount: f32, scale_factor: f32) -> f32 {
-    paint::filter_blur_radius_px(amount, scale_factor)
-}
-
-fn blur_sigma_px(sigma: f32, scale_factor: f32) -> f32 {
-    paint::filter_blur_sigma_px(sigma, scale_factor)
-}
-
-fn blur_kernel_radius_px(sigma: f32, scale_factor: f32) -> f32 {
-    paint::filter_blur_kernel_radius_px(sigma, scale_factor)
-}
-
 fn liquid_depth_displacement(depth: f32) -> f32 {
     depth.clamp(0.0, 1.0) * Renderer::MAX_LIQUID_REFRACTION
 }
@@ -1583,32 +1512,6 @@ fn clear_view(
         timestamp_writes: None,
         multiview_mask: None,
     });
-}
-
-#[cfg(test)]
-pub(crate) fn prepared_filter_silhouette_for_test(
-    rect: Rect,
-    scale_factor: f32,
-) -> Option<PreparedSilhouette> {
-    let prepared = prepare_filter(rect, scale_factor)?;
-
-    Some(
-        PreparedSilhouette::from_parts(prepared.shape_rect, prepared.raster_rect)
-            .with_rounding(prepared.rounding),
-    )
-}
-
-#[cfg(test)]
-pub(crate) fn prepared_clip_silhouette_for_test(
-    rect: Rect,
-    scale_factor: f32,
-) -> Option<PreparedSilhouette> {
-    let prepared = prepare_clip(rect, scale_factor)?;
-
-    Some(
-        PreparedSilhouette::from_parts(prepared.shape_rect, prepared.raster_rect)
-            .with_rounding(prepared.rounding),
-    )
 }
 
 #[cfg(test)]
