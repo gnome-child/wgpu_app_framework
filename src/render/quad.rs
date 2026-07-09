@@ -192,7 +192,7 @@ fn analytic_shapes_for_shape(shape: &batch::Shape<'_>, scale_factor: f32) -> Vec
 
 #[cfg(test)]
 fn analytic_shapes_for_quad(quad: &paint::Quad) -> Vec<AnalyticShape> {
-    let rect = quad.transform.transformed_rect(quad.rect);
+    let rect = quad.transform().transformed_rect(quad.rect());
     analytic_shapes_for_quad_rect(quad, rect)
 }
 
@@ -206,7 +206,7 @@ fn rasterized_quad_rect(quad: &paint::Quad, scale_factor: f32) -> Rect {
     let grid = Grid::new(scale_factor);
     let rect = transformed_quad_rect(quad, grid);
 
-    if quad.transform.motion == paint::Motion::Resting {
+    if quad.transform().motion == paint::Motion::Resting {
         debug_assert!(
             grid.rect_is_aligned(rect),
             "resting quad geometry must be snapped at the layout-to-paint boundary: rect=({}, {}, {}, {}) scale={} transform={:?}",
@@ -215,7 +215,7 @@ fn rasterized_quad_rect(quad: &paint::Quad, scale_factor: f32) -> Rect {
             rect.area.width(),
             rect.area.height(),
             scale_factor,
-            quad.transform
+            quad.transform()
         );
     }
 
@@ -223,15 +223,15 @@ fn rasterized_quad_rect(quad: &paint::Quad, scale_factor: f32) -> Rect {
 }
 
 fn transformed_quad_rect(quad: &paint::Quad, grid: Grid) -> Rect {
-    let (rect, transform) = quad.transform.resolve_rect(quad.rect, grid);
+    let (rect, transform) = quad.transform().resolve_rect(quad.rect(), grid);
     transform.transformed_rect(rect)
 }
 
 fn analytic_shapes_for_quad_rect(quad: &paint::Quad, rect: Rect) -> Vec<AnalyticShape> {
     let mut shapes = Vec::new();
-    let antialias = quad.rasterization.edge_mode == paint::EdgeMode::Antialiased;
+    let antialias = quad.rasterization().edge_mode == paint::EdgeMode::Antialiased;
 
-    if let Some(fill) = quad.style.fill {
+    if let Some(fill) = quad.style().fill {
         match fill {
             paint::Fill::Brush(brush) => {
                 let mut shape = fill_shape(rect, brush);
@@ -242,14 +242,14 @@ fn analytic_shapes_for_quad_rect(quad: &paint::Quad, rect: Rect) -> Vec<Analytic
         }
     }
 
-    if let Some(stroke) = quad.style.stroke
+    if let Some(stroke) = quad.style().stroke
         && let Some(mut shape) = internal_stroke_shape(rect, stroke.width, stroke.brush)
     {
         shape.snap_outer = false;
         shapes.push(shape);
     }
 
-    if let Some(brush) = quad.style.tint {
+    if let Some(brush) = quad.style().tint {
         let mut shape = fill_shape(rect, brush);
         shape.snap_outer = false;
         shapes.push(shape);
@@ -637,12 +637,12 @@ mod tests {
     }
 
     fn quad(style: paint::Style) -> paint::Quad {
-        paint::Quad {
-            rect: rect(),
+        paint::Quad::unchecked_for_test(
+            rect(),
             style,
-            rasterization: paint::Rasterization::default(),
-            transform: paint::Transform::identity(),
-        }
+            paint::Rasterization::default(),
+            paint::Transform::identity(),
+        )
     }
 
     fn style(
@@ -803,7 +803,10 @@ mod tests {
     #[test]
     fn transformed_quad_lowers_to_transformed_analytic_bounds() {
         let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
-        quad.transform = paint::Transform::scale_y_about(paint::point::logical(30.0, 35.0), 1.5);
+        quad.set_transform_for_test(paint::Transform::scale_y_about(
+            paint::point::logical(30.0, 35.0),
+            1.5,
+        ));
         let shapes = analytic_shapes_for_quad(&quad);
 
         assert_eq!(shapes.len(), 1);
@@ -832,13 +835,14 @@ mod tests {
     #[test]
     fn moving_transformed_quad_preserves_subpixel_bounds() {
         let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
-        quad.rect = Rect::new(
+        quad.set_rect_for_test(Rect::new(
             paint::point::logical(10.0, 20.0),
             paint::area::logical(40.0, 4.0),
-        );
-        quad.transform =
+        ));
+        quad.set_transform_for_test(
             paint::Transform::scale_y_about(paint::point::logical(30.0, 22.0), 1.03125)
-                .with_motion(paint::Motion::Moving);
+                .with_motion(paint::Motion::Moving),
+        );
 
         let shapes = analytic_shapes_for_quad_at_scale(&quad, 1.0);
         let prepared = prepared_shape(shapes[0], 1.0);
@@ -856,16 +860,19 @@ mod tests {
     #[test]
     fn moving_scale_endpoint_starts_at_snapped_rest_pose() {
         let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
-        quad.rect = Rect::new(
+        let rect = Rect::new(
             paint::point::logical(10.0, 20.0),
             paint::area::logical(40.0, 6.0),
         );
-        quad.transform = paint::Transform::scale_y_about(paint::point::logical(30.0, 23.0), 1.0)
-            .with_motion(paint::Motion::Moving)
-            .with_scale_motion(1.0, 1.0, 1.0, 1.5, 0.0);
+        quad.set_rect_for_test(rect);
+        quad.set_transform_for_test(
+            paint::Transform::scale_y_about(paint::point::logical(30.0, 23.0), 1.0)
+                .with_motion(paint::Motion::Moving)
+                .with_scale_motion(1.0, 1.0, 1.0, 1.5, 0.0),
+        );
 
         let moving = analytic_shapes_for_quad_at_scale(&quad, 1.25)[0].outer_rect;
-        let snapped_start = Grid::new(1.25).snap_rect_with_stable_size(quad.rect);
+        let snapped_start = Grid::new(1.25).snap_rect_with_stable_size(rect);
 
         assert_eq!(rect_bounds(moving), rect_bounds(snapped_start));
     }
@@ -873,15 +880,20 @@ mod tests {
     #[test]
     fn moving_scale_endpoint_matches_resting_target_at_fractional_scale() {
         let mut moving = quad(style(Some(solid(paint::Color::RED)), None, None));
-        moving.rect = Rect::new(
+        moving.set_rect_for_test(Rect::new(
             paint::point::logical(10.0, 20.0),
             paint::area::logical(40.0, 6.0),
+        ));
+        moving.set_transform_for_test(
+            paint::Transform::scale_y_about(paint::point::logical(30.0, 23.0), 1.5)
+                .with_motion(paint::Motion::Moving)
+                .with_scale_motion(1.0, 1.0, 1.0, 1.5, 1.0),
         );
-        moving.transform = paint::Transform::scale_y_about(paint::point::logical(30.0, 23.0), 1.5)
-            .with_motion(paint::Motion::Moving)
-            .with_scale_motion(1.0, 1.0, 1.0, 1.5, 1.0);
         let mut resting = moving;
-        resting.transform = paint::Transform::scale_y_about(paint::point::logical(30.0, 23.0), 1.5);
+        resting.set_transform_for_test(paint::Transform::scale_y_about(
+            paint::point::logical(30.0, 23.0),
+            1.5,
+        ));
 
         let moving_rect = analytic_shapes_for_quad_at_scale(&moving, 1.25)[0].outer_rect;
         let resting_rect = analytic_shapes_for_quad_at_scale(&resting, 1.25)[0].outer_rect;
@@ -893,15 +905,20 @@ mod tests {
     #[test]
     fn moving_scale_endpoint_matches_resting_target_at_one_x() {
         let mut moving = quad(style(Some(solid(paint::Color::RED)), None, None));
-        moving.rect = Rect::new(
+        moving.set_rect_for_test(Rect::new(
             paint::point::logical(10.0, 20.0),
             paint::area::logical(40.0, 6.0),
+        ));
+        moving.set_transform_for_test(
+            paint::Transform::scale_y_about(paint::point::logical(30.0, 23.0), 1.5)
+                .with_motion(paint::Motion::Moving)
+                .with_scale_motion(1.0, 1.0, 1.0, 1.5, 1.0),
         );
-        moving.transform = paint::Transform::scale_y_about(paint::point::logical(30.0, 23.0), 1.5)
-            .with_motion(paint::Motion::Moving)
-            .with_scale_motion(1.0, 1.0, 1.0, 1.5, 1.0);
         let mut resting = moving;
-        resting.transform = paint::Transform::scale_y_about(paint::point::logical(30.0, 23.0), 1.5);
+        resting.set_transform_for_test(paint::Transform::scale_y_about(
+            paint::point::logical(30.0, 23.0),
+            1.5,
+        ));
 
         let moving_rect = analytic_shapes_for_quad_at_scale(&moving, 1.0)[0].outer_rect;
         let resting_rect = analytic_shapes_for_quad_at_scale(&resting, 1.0)[0].outer_rect;
@@ -913,11 +930,14 @@ mod tests {
     #[test]
     fn resting_transformed_quad_snaps_to_aligned_bounds() {
         let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
-        quad.rect = Rect::new(
+        quad.set_rect_for_test(Rect::new(
             paint::point::logical(10.0, 20.0),
             paint::area::logical(40.0, 6.0),
-        );
-        quad.transform = paint::Transform::scale_y_about(paint::point::logical(30.0, 23.0), 1.5);
+        ));
+        quad.set_transform_for_test(paint::Transform::scale_y_about(
+            paint::point::logical(30.0, 23.0),
+            1.5,
+        ));
 
         let shapes = analytic_shapes_for_quad_at_scale(&quad, 1.0);
         let (left, top, right, bottom) = rect_bounds(shapes[0].outer_rect);
@@ -929,18 +949,24 @@ mod tests {
     #[test]
     fn resting_scale_snaps_to_stable_size_across_origins() {
         let mut first = quad(style(Some(solid(paint::Color::RED)), None, None));
-        first.rect = Rect::new(
+        first.set_rect_for_test(Rect::new(
             paint::point::logical(10.0, 20.0),
             paint::area::logical(40.0, 6.0),
-        );
-        first.transform = paint::Transform::scale_y_about(paint::point::logical(30.0, 23.0), 1.5);
+        ));
+        first.set_transform_for_test(paint::Transform::scale_y_about(
+            paint::point::logical(30.0, 23.0),
+            1.5,
+        ));
 
         let mut second = first;
-        second.rect = Rect::new(
+        second.set_rect_for_test(Rect::new(
             paint::point::logical(10.0, 21.0),
             paint::area::logical(40.0, 6.0),
-        );
-        second.transform = paint::Transform::scale_y_about(paint::point::logical(30.0, 24.0), 1.5);
+        ));
+        second.set_transform_for_test(paint::Transform::scale_y_about(
+            paint::point::logical(30.0, 24.0),
+            1.5,
+        ));
 
         let first_rect = analytic_shapes_for_quad_at_scale(&first, 1.0)[0].outer_rect;
         let second_rect = analytic_shapes_for_quad_at_scale(&second, 1.0)[0].outer_rect;
@@ -958,15 +984,17 @@ mod tests {
             Some(stroke(2.0)),
             None,
         ));
-        moving.rect = Rect::rounded(
+        moving.set_rect_for_test(Rect::rounded(
             paint::point::logical(10.0, 20.0),
             paint::area::logical(40.0, 6.0),
             paint::Rounding::relative(1.0),
+        ));
+        moving.set_transform_for_test(
+            paint::Transform::scale_y_about(paint::point::logical(30.0, 23.0), 1.5)
+                .with_motion(paint::Motion::Moving),
         );
-        moving.transform = paint::Transform::scale_y_about(paint::point::logical(30.0, 23.0), 1.5)
-            .with_motion(paint::Motion::Moving);
         let mut resting = moving;
-        resting.transform = resting.transform.with_motion(paint::Motion::Resting);
+        resting.set_transform_for_test(resting.transform().with_motion(paint::Motion::Resting));
 
         let moving_shapes = analytic_shapes_for_quad_at_scale(&moving, 1.0);
         let resting_shapes = analytic_shapes_for_quad_at_scale(&resting, 1.0);
@@ -983,10 +1011,10 @@ mod tests {
     #[test]
     fn resting_quad_geometry_checks_boundary_aligned_geometry() {
         let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
-        quad.rect = Rect::new(
+        quad.set_rect_for_test(Rect::new(
             paint::point::logical(10.4, 20.0),
             paint::area::logical(32.8, 11.2),
-        );
+        ));
 
         let shapes = analytic_shapes_for_quad_at_scale(&quad, 1.25);
         let (left, top, right, bottom) = rect_bounds(shapes[0].outer_rect);
@@ -1001,12 +1029,32 @@ mod tests {
     #[should_panic(expected = "resting quad geometry must be snapped")]
     fn resting_quad_geometry_rejects_unsnapped_geometry() {
         let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
-        quad.rect = Rect::new(
+        quad.set_rect_for_test(Rect::new(
             paint::point::logical(10.0, 20.0),
             paint::area::logical(33.0, 11.0),
-        );
+        ));
 
         let _ = analytic_shapes_for_quad_at_scale(&quad, 1.25);
+    }
+
+    #[test]
+    fn moving_baked_scale_geometry_does_not_trip_resting_alignment_witness() {
+        let mut quad = quad(style(Some(solid(paint::Color::RED)), None, None));
+        quad.set_rect_for_test(Rect::new(
+            paint::point::logical(192.0, 123.08172),
+            paint::area::logical(369.59998, 4.236557),
+        ));
+        quad.set_transform_for_test(
+            paint::Transform::identity().with_motion(paint::Motion::Moving),
+        );
+
+        let shapes = analytic_shapes_for_quad_at_scale(&quad, 1.25);
+
+        assert_eq!(shapes.len(), 1);
+        assert_eq!(
+            rect_bounds(shapes[0].outer_rect),
+            (192.0, 123.08172, 561.6, 127.318275)
+        );
     }
 
     #[test]
@@ -1204,8 +1252,8 @@ mod tests {
         let shape = analytic_shapes_for_quad(&quad)[0];
         let prepared = prepared_shape(shape, 1.0);
 
-        assert_eq!(shape.outer_rect, quad.rect);
-        assert_eq!(prepared.outer_rect, quad.rect);
+        assert_eq!(shape.outer_rect, quad.rect());
+        assert_eq!(prepared.outer_rect, quad.rect());
         assert_eq!(rect_bounds(prepared.raster_rect), (9.0, 19.0, 51.0, 51.0));
     }
 
@@ -1393,21 +1441,21 @@ mod tests {
 
     #[test]
     fn rounded_fill_lowers_to_one_analytic_shape() {
-        let quad = paint::Quad {
-            rect: Rect::rounded(
+        let quad = paint::Quad::unchecked_for_test(
+            Rect::rounded(
                 paint::point::logical(10.0, 20.0),
                 paint::area::logical(40.0, 40.0),
                 crate::paint::Rounding::relative(1.0),
             ),
-            style: style(Some(solid(paint::Color::RED)), None, None),
-            rasterization: paint::Rasterization::default(),
-            transform: paint::Transform::identity(),
-        };
+            style(Some(solid(paint::Color::RED)), None, None),
+            paint::Rasterization::default(),
+            paint::Transform::identity(),
+        );
         let shapes = analytic_shapes_for_quad(&quad);
 
         assert_eq!(shapes.len(), 1);
         assert_eq!(vertex_count_for_shape(shapes[0]), 6);
-        assert_eq!(bounds(&shapes), edges(quad.rect));
+        assert_eq!(bounds(&shapes), edges(quad.rect()));
         assert_eq!(shapes[0].outer_rounding[0], 20.0);
     }
 
@@ -1419,16 +1467,16 @@ mod tests {
             crate::paint::Rounding::relative(1.0),
         );
         let fill = fill_shape(rect, paint::Brush::solid(paint::Color::RED));
-        let quad = paint::Quad {
+        let quad = paint::Quad::unchecked_for_test(
             rect,
-            style: style(
+            style(
                 None,
                 None,
                 Some(paint::Brush::solid(paint::Color::rgba(1.0, 1.0, 1.0, 0.25))),
             ),
-            rasterization: paint::Rasterization::default(),
-            transform: paint::Transform::identity(),
-        };
+            paint::Rasterization::default(),
+            paint::Transform::identity(),
+        );
         let shapes = analytic_shapes_for_quad(&quad);
 
         assert_eq!(shapes.len(), 1);
@@ -1439,21 +1487,21 @@ mod tests {
 
     #[test]
     fn rounded_internal_stroke_stays_inside_rect_bounds() {
-        let quad = paint::Quad {
-            rect: Rect::rounded(
+        let quad = paint::Quad::unchecked_for_test(
+            Rect::rounded(
                 paint::point::logical(10.0, 20.0),
                 paint::area::logical(80.0, 30.0),
                 crate::paint::Rounding::relative(1.0),
             ),
-            style: style(None, Some(stroke(4.0)), None),
-            rasterization: paint::Rasterization::default(),
-            transform: paint::Transform::identity(),
-        };
+            style(None, Some(stroke(4.0)), None),
+            paint::Rasterization::default(),
+            paint::Transform::identity(),
+        );
         let shapes = analytic_shapes_for_quad(&quad);
         let inner = shapes[0].inner.expect("stroke should be a ring");
 
         assert_eq!(shapes.len(), 1);
-        assert_eq!(bounds(&shapes), edges(quad.rect));
+        assert_eq!(bounds(&shapes), edges(quad.rect()));
         assert_eq!(
             inner.rect,
             Rect::new(

@@ -8,8 +8,8 @@ use crate::icon as icons;
 
 use super::super::{geometry, interaction, keymap, layout, overlay, theme::Theme, view};
 use super::{
-    BackdropLayer, Brush, Clip, Filter, FilterOp, Icon, Material, Offset, Outline, Quad, Scene,
-    Shadow, Style, SurfaceLayer, Text, TextAlign, TextStyle, TextWrap, Visuals,
+    Brush, Clip, Icon, Material, Offset, Outline, Pane, Quad, Scene, Shadow, Style, Text,
+    TextAlign, TextStyle, TextWrap, Visuals,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -148,7 +148,6 @@ fn paint_frame(
 ) {
     if is_floating_panel_role(frame.role()) {
         paint_floating_panel_shadow(frame, scene, theme);
-        paint_floating_panel_filter(frame, scene, theme);
     }
 
     let rounding = role_rounding(frame, theme);
@@ -409,63 +408,15 @@ fn paint_floating_panel_shadow(frame: &layout::Frame, scene: &mut Scene, theme: 
     );
 }
 
-fn paint_floating_panel_filter(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
-    let panel = theme.floating_panel();
-    let Material::Glass(glass) = &panel.material else {
-        return;
-    };
-
-    for layer in glass.backdrop_layers() {
-        let op = match *layer {
-            BackdropLayer::Blur(blur) => FilterOp::backdrop_blur(blur),
-            BackdropLayer::Refraction(refraction) => FilterOp::refraction(refraction),
-            BackdropLayer::Luminosity(luminosity) => FilterOp::luminosity(luminosity),
-        };
-        scene.push_filter(
-            Filter::stack(frame.rect(), [op]).with_rounding(role_rounding(frame, theme)),
-        );
-    }
-}
-
 fn paint_floating_panel_material(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     let panel = theme.floating_panel();
     match &panel.material {
         Material::Solid(brush) => {
             paint_brush_quad(scene, frame.rect(), *brush, role_rounding(frame, theme))
         }
-        Material::Glass(glass) => {
-            for layer in glass.surface_layers() {
-                match *layer {
-                    SurfaceLayer::Tint { brush, opacity } => {
-                        paint_brush_quad(
-                            scene,
-                            frame.rect(),
-                            brush_with_opacity(brush, opacity),
-                            role_rounding(frame, theme),
-                        );
-                    }
-                    SurfaceLayer::Noise(noise) => {
-                        if noise.opacity() <= 0.0 {
-                            continue;
-                        }
-                        scene.push_filter(
-                            Filter::stack(frame.rect(), [FilterOp::noise(noise)])
-                                .with_rounding(role_rounding(frame, theme)),
-                        );
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn brush_with_opacity(brush: Brush, opacity: f32) -> Brush {
-    let opacity = opacity.clamp(0.0, 1.0);
-    match brush {
-        Brush::Solid(color) => Brush::solid(color_with_opacity(color, opacity)),
-        Brush::LinearGradient { from, to } => Brush::linear_gradient(
-            color_with_opacity(from, opacity),
-            color_with_opacity(to, opacity),
+        Material::Glass(_) => scene.push_pane(
+            Pane::new(frame.rect(), panel.material.clone())
+                .with_rounding(role_rounding(frame, theme)),
         ),
     }
 }

@@ -5,7 +5,7 @@ use crate::text as text_model;
 
 use super::super::geometry;
 use super::Color;
-use super::material::{BackdropBlur, Luminosity, Noise, Refraction};
+use super::material::{BackdropBlur, Luminosity, Material, Noise, Refraction};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Primitive {
@@ -15,6 +15,7 @@ pub enum Primitive {
     TextViewport(TextViewport),
     Icon(Icon),
     Shadow(Shadow),
+    Pane(Pane),
     Filter(Filter),
     Clip(Clip),
     PopClip,
@@ -110,6 +111,13 @@ pub struct Shadow {
     spread: f32,
     offset: Offset,
     rounding: Rounding,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pane {
+    rect: geometry::Rect,
+    rounding: Rounding,
+    material: Material,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -740,7 +748,43 @@ impl Shadow {
     }
 }
 
+impl Pane {
+    pub(in crate::scene) fn new(rect: geometry::Rect, material: Material) -> Self {
+        Self {
+            rect,
+            rounding: Rounding::none(),
+            material,
+        }
+    }
+
+    pub(in crate::scene) fn with_rounding(mut self, rounding: Rounding) -> Self {
+        self.rounding = rounding;
+        self
+    }
+
+    pub(crate) fn without_backdrop_sampling(&self) -> Self {
+        Self {
+            rect: self.rect,
+            rounding: self.rounding,
+            material: self.material.without_backdrop_sampling(),
+        }
+    }
+
+    pub fn rect(&self) -> geometry::Rect {
+        self.rect
+    }
+
+    pub fn rounding(&self) -> Rounding {
+        self.rounding
+    }
+
+    pub fn material(&self) -> &Material {
+        &self.material
+    }
+}
+
 impl Filter {
+    #[allow(dead_code)]
     pub(in crate::scene) fn stack(
         rect: geometry::Rect,
         ops: impl IntoIterator<Item = FilterOp>,
@@ -752,6 +796,7 @@ impl Filter {
         }
     }
 
+    #[allow(dead_code)]
     pub(in crate::scene) fn with_rounding(mut self, rounding: Rounding) -> Self {
         self.rounding = rounding;
         self

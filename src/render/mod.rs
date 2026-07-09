@@ -12,6 +12,7 @@ mod canvas;
 mod context;
 mod filter;
 mod frame;
+mod material;
 mod primitive;
 mod quad;
 mod renderer;

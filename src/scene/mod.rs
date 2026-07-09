@@ -13,8 +13,8 @@ pub use material::{
 pub use presentation::Presentation;
 pub use primitive::{
     Axis, Brush, Clip, EdgeMode, Filter, FilterOp, Group, Icon, LiquidFilter, Motion, Offset,
-    Outline, Primitive, Quad, Radius, Rasterization, Rounding, Rule, ScaleMotion, Shadow, Stroke,
-    Style, Text, TextAlign, TextStyle, TextSurface, TextViewport, TextWrap, Transform,
+    Outline, Pane, Primitive, Quad, Radius, Rasterization, Rounding, Rule, ScaleMotion, Shadow,
+    Stroke, Style, Text, TextAlign, TextStyle, TextSurface, TextViewport, TextWrap, Transform,
 };
 pub(crate) use visual::Visuals;
 pub(crate) use visual::{Scalar as VisualScalar, Target as TargetVisual};
@@ -135,7 +135,13 @@ impl Scene {
     }
 
     pub(crate) fn append_ghost_scene_with_opacity(&mut self, scene: &Scene, opacity: f32) {
-        self.append_scene_with_opacity(scene, opacity);
+        let mut ghost = scene.clone();
+        ghost.primitives = ghost
+            .primitives
+            .iter()
+            .map(ghost_primitive)
+            .collect::<Vec<_>>();
+        self.append_scene_with_opacity(&ghost, opacity);
     }
 
     pub fn quads(&self) -> Vec<&Quad> {
@@ -178,6 +184,12 @@ impl Scene {
         let mut filters = Vec::new();
         collect_filters(&self.primitives, &mut filters);
         filters
+    }
+
+    pub fn panes(&self) -> Vec<&Pane> {
+        let mut panes = Vec::new();
+        collect_panes(&self.primitives, &mut panes);
+        panes
     }
 
     pub fn outlines(&self) -> Vec<&Outline> {
@@ -242,6 +254,13 @@ impl Scene {
         }
     }
 
+    pub(super) fn push_pane(&mut self, pane: Pane) {
+        if pane.rect().width() > 0 && pane.rect().height() > 0 {
+            self.primitives.push(Primitive::Pane(pane));
+        }
+    }
+
+    #[allow(dead_code)]
     pub(super) fn push_filter(&mut self, filter: Filter) {
         if filter.rect().width() > 0 && filter.rect().height() > 0 && !filter.ops().is_empty() {
             self.primitives.push(Primitive::Filter(filter));
@@ -338,6 +357,16 @@ fn collect_filters<'a>(primitives: &'a [Primitive], filters: &mut Vec<&'a Filter
     }
 }
 
+fn collect_panes<'a>(primitives: &'a [Primitive], panes: &mut Vec<&'a Pane>) {
+    for primitive in primitives {
+        match primitive {
+            Primitive::Pane(pane) => panes.push(pane),
+            Primitive::Group(group) => collect_panes(group.primitives(), panes),
+            _ => {}
+        }
+    }
+}
+
 fn collect_outlines<'a>(primitives: &'a [Primitive], outlines: &mut Vec<&'a Outline>) {
     for primitive in primitives {
         match primitive {
@@ -358,6 +387,19 @@ fn collect_clips<'a>(primitives: &'a [Primitive], clips: &mut Vec<&'a Clip>) {
     }
 }
 
+fn ghost_primitive(primitive: &Primitive) -> Primitive {
+    match primitive {
+        Primitive::Pane(pane) => Primitive::Pane(pane.without_backdrop_sampling()),
+        Primitive::Group(group) => {
+            let primitives = group.primitives().iter().map(ghost_primitive).collect();
+            Primitive::Group(
+                Group::new(primitives, group.opacity()).expect("existing group is visible"),
+            )
+        }
+        _ => primitive.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,6 +410,18 @@ mod tests {
             geometry::Rect::new(0, 0, 10, 10),
             Color::rgb(255, 0, 0),
         ));
+        scene
+    }
+
+    fn glass_pane_scene() -> Scene {
+        let mut scene = Scene::new(geometry::Size::new(100, 100));
+        scene.push_pane(
+            Pane::new(
+                geometry::Rect::new(4, 6, 40, 24),
+                Material::glass(Glass::panel_dark()),
+            )
+            .with_rounding(Rounding::fixed(8.0)),
+        );
         scene
     }
 
@@ -417,5 +471,29 @@ mod tests {
         };
         assert_eq!(group.opacity(), 1.0);
         assert_eq!(group.primitives().len(), 1);
+    }
+
+    #[test]
+    fn ghost_overlay_downgrades_panes_to_non_backdrop_material() {
+        let source = glass_pane_scene();
+        let mut target = Scene::new(geometry::Size::new(100, 100));
+
+        target.append_ghost_scene_with_opacity(&source, 0.5);
+
+        let panes = target.panes();
+        let [pane] = panes.as_slice() else {
+            panic!("ghost should keep one pane");
+        };
+        let Material::Glass(glass) = pane.material() else {
+            panic!("ghost pane should keep glass body");
+        };
+        assert!(
+            glass.backdrop_layers().is_empty(),
+            "ghost panes must not backdrop-sample"
+        );
+        assert!(
+            !glass.surface_layers().is_empty(),
+            "ghost panes keep paint-only surface layers"
+        );
     }
 }

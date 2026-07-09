@@ -25,6 +25,7 @@ pub(in crate::platform::native) fn to_paint_scene_at_scale(
             }
             scene::Primitive::Icon(icon) => scene.push_icon(to_paint_icon(icon, grid)),
             scene::Primitive::Shadow(shadow) => scene.push_shadow(to_paint_shadow(shadow, grid)),
+            scene::Primitive::Pane(pane) => scene.push_pane(to_paint_pane(pane, grid)),
             scene::Primitive::Filter(filter) => scene.push_filter(to_paint_filter(filter, grid)),
             scene::Primitive::Clip(clip) => scene.push_clip(to_paint_clip_at_scale(clip, grid)),
             scene::Primitive::PopClip => scene.pop_clip(),
@@ -52,6 +53,7 @@ fn push_paint_primitive(primitive: &scene::Primitive, scene: &mut paint::Scene, 
         }
         scene::Primitive::Icon(icon) => scene.push_icon(to_paint_icon(icon, grid)),
         scene::Primitive::Shadow(shadow) => scene.push_shadow(to_paint_shadow(shadow, grid)),
+        scene::Primitive::Pane(pane) => scene.push_pane(to_paint_pane(pane, grid)),
         scene::Primitive::Filter(filter) => scene.push_filter(to_paint_filter(filter, grid)),
         scene::Primitive::Clip(clip) => scene.push_clip(to_paint_clip_at_scale(clip, grid)),
         scene::Primitive::PopClip => scene.pop_clip(),
@@ -76,14 +78,14 @@ fn to_paint_group(group: &scene::Group, grid: paint::Grid) -> Option<paint::Grou
 fn to_paint_quad(quad: &scene::Quad, grid: paint::Grid) -> paint::Quad {
     let rect = into_paint_rounded_rect_at_scale(quad.rect(), quad.rounding(), grid);
     let transform = to_paint_transform(quad.transform());
-    let (rect, transform) = resolve_quad_transform(rect, transform, grid);
 
-    paint::Quad {
+    paint::Quad::resolved_for_grid(
         rect,
-        style: to_paint_style(quad.style()),
-        rasterization: to_paint_rasterization(quad.rasterization()),
+        to_paint_style(quad.style()),
+        to_paint_rasterization(quad.rasterization()),
         transform,
-    }
+        grid,
+    )
 }
 
 fn to_paint_rule(rule: &scene::Rule, grid: paint::Grid) -> paint::Rule {
@@ -160,6 +162,73 @@ fn to_paint_shadow(shadow: &scene::Shadow, grid: paint::Grid) -> paint::Shadow {
         blur: shadow.blur(),
         spread: shadow.spread(),
         offset: paint::point::logical(shadow.offset().x(), shadow.offset().y()),
+    }
+}
+
+fn to_paint_pane(pane: &scene::Pane, grid: paint::Grid) -> paint::Pane {
+    paint::Pane::new(
+        into_paint_rounded_rect_at_scale(pane.rect(), pane.rounding(), grid),
+        to_paint_material(pane.material()),
+    )
+}
+
+fn to_paint_material(material: &scene::Material) -> paint::Material {
+    match material {
+        scene::Material::Solid(brush) => paint::Material::Solid(to_paint_brush(*brush)),
+        scene::Material::Glass(glass) => paint::Material::Glass(to_paint_glass(glass)),
+    }
+}
+
+fn to_paint_glass(glass: &scene::Glass) -> paint::Glass {
+    paint::Glass {
+        fallback: to_paint_brush(glass.fallback()),
+        backdrop_layers: glass
+            .backdrop_layers()
+            .iter()
+            .copied()
+            .map(to_paint_backdrop_layer)
+            .collect(),
+        surface_layers: glass
+            .surface_layers()
+            .iter()
+            .copied()
+            .map(to_paint_surface_layer)
+            .collect(),
+    }
+}
+
+fn to_paint_backdrop_layer(layer: scene::BackdropLayer) -> paint::BackdropLayer {
+    match layer {
+        scene::BackdropLayer::Blur(blur) => paint::BackdropLayer::Blur(paint::BackdropBlur {
+            sigma: blur.sigma(),
+            edge_mode: to_paint_backdrop_edge_mode(blur.edge_mode()),
+        }),
+        scene::BackdropLayer::Refraction(refraction) => {
+            paint::BackdropLayer::Refraction(paint::Refraction {
+                displacement: refraction.displacement(),
+                splay: refraction.splay(),
+                feather: refraction.feather(),
+                curve: refraction.curve(),
+            })
+        }
+        scene::BackdropLayer::Luminosity(luminosity) => {
+            paint::BackdropLayer::Luminosity(paint::Luminosity {
+                color: super::color::paint_color(luminosity.color()),
+                opacity: luminosity.opacity(),
+            })
+        }
+    }
+}
+
+fn to_paint_surface_layer(layer: scene::SurfaceLayer) -> paint::SurfaceLayer {
+    match layer {
+        scene::SurfaceLayer::Tint { brush, opacity } => paint::SurfaceLayer::Tint {
+            brush: to_paint_brush(brush),
+            opacity,
+        },
+        scene::SurfaceLayer::Noise(noise) => paint::SurfaceLayer::Noise(paint::Noise {
+            opacity: noise.opacity(),
+        }),
     }
 }
 
@@ -315,14 +384,6 @@ fn to_paint_transform(transform: scene::Transform) -> paint::Transform {
     }
 }
 
-fn resolve_quad_transform(
-    rect: paint::Rect,
-    transform: paint::Transform,
-    grid: paint::Grid,
-) -> (paint::Rect, paint::Transform) {
-    transform.resolve_rect(rect, grid)
-}
-
 fn to_paint_motion(motion: scene::Motion) -> paint::Motion {
     match motion {
         scene::Motion::Moving => paint::Motion::Moving,
@@ -374,8 +435,8 @@ fn into_paint_radius(radius: scene::Radius) -> paint::Radius {
 mod tests {
     use super::*;
     use crate::{
-        Command, Runtime, control_gallery, geometry, input, layout, session, theme::Theme, view,
-        widget, window,
+        Command, Runtime, command, context::Context, control_gallery, geometry, glass_tuner, input,
+        layout, response::Response, session, target::Target, theme::Theme, view, widget, window,
     };
     use std::time::{Duration, Instant};
 
@@ -394,6 +455,17 @@ mod tests {
     }
 
     impl crate::State for NativeSliderState {}
+
+    impl Target<NativeSetLevel> for NativeSliderState {
+        fn state(&self, _: &f64, _: &Context) -> command::State {
+            command::State::enabled()
+        }
+
+        fn invoke(&mut self, value: f64, _: &mut Context) -> Response<()> {
+            self.value = value;
+            Response::changed(())
+        }
+    }
 
     #[derive(Clone, Default)]
     struct NativeTextBoxState;
@@ -451,54 +523,38 @@ mod tests {
         );
         let source_scene = scene::Scene::paint_with_theme(&layout, &theme);
         let paint = to_paint_scene(&source_scene);
-        let filters: Vec<_> = paint
-            .items()
-            .iter()
-            .filter_map(|item| match item {
-                paint::Item::Filter(filter) => Some(filter),
-                _ => None,
-            })
-            .collect();
-        let blur_filter = filters
-            .iter()
-            .copied()
-            .find(|filter| {
-                matches!(
-                    filter.ops.as_slice(),
-                    [paint::FilterOp::BackdropBlur(blur)] if blur.sigma == 44.55
-                )
-            })
-            .expect("popup should convert to native blur filter");
-        assert!(filters.iter().any(|filter| {
-            matches!(
-                filter.ops.as_slice(),
-                [paint::FilterOp::Luminosity(luminosity)]
-                    if luminosity.opacity == 0.92
-            )
-        }));
-        assert!(filters.iter().any(|filter| {
-            matches!(
-                filter.ops.as_slice(),
-                [paint::FilterOp::Noise(noise)] if noise.opacity == 0.022
-            )
-        }));
-        assert_eq!(blur_filter.rect.rounding, paint::Rounding::fixed(10.0));
-
-        let material = paint
+        let pane = paint
             .items()
             .iter()
             .find_map(|item| match item {
-                paint::Item::Quad(quad) if quad.rect == blur_filter.rect => Some(quad),
+                paint::Item::Pane(pane) => Some(pane),
                 _ => None,
             })
-            .expect("popup material should convert to native quad");
-
-        assert_eq!(
-            material.style.fill,
-            Some(paint::Fill::Brush(paint::Brush::solid(
-                super::super::color::paint_color(scene::Color::rgba(28, 28, 30, 224)),
-            )))
-        );
+            .expect("popup should convert to native pane");
+        assert_eq!(pane.rect.rounding, paint::Rounding::fixed(10.0));
+        let paint::Material::Glass(glass) = &pane.material else {
+            panic!("popup pane should carry glass material");
+        };
+        assert!(glass.backdrop_layers.iter().any(|layer| {
+            matches!(layer, paint::BackdropLayer::Blur(blur) if blur.sigma == 44.55)
+        }));
+        assert!(glass.backdrop_layers.iter().any(|layer| {
+            matches!(
+                layer,
+                paint::BackdropLayer::Luminosity(luminosity) if luminosity.opacity == 0.92
+            )
+        }));
+        assert!(glass.surface_layers.iter().any(|layer| {
+            matches!(layer, paint::SurfaceLayer::Noise(noise) if noise.opacity == 0.022)
+        }));
+        assert!(glass.surface_layers.iter().any(|layer| {
+            matches!(
+                layer,
+                paint::SurfaceLayer::Tint { brush, opacity }
+                    if *brush == paint::Brush::solid(super::super::color::paint_color(scene::Color::rgb(28, 28, 30)))
+                        && *opacity == 0.88
+            )
+        }));
     }
 
     #[test]
@@ -595,6 +651,9 @@ mod tests {
             .commands(|commands| {
                 commands.register::<NativeSetLevel>(crate::command::Spec::new("Set Level"));
             })
+            .responders(|responders| {
+                responders.app().target::<NativeSetLevel>();
+            })
             .started(|cx| {
                 cx.open_window(window::Options::new("Native Slider"));
             })
@@ -630,24 +689,180 @@ mod tests {
         let settled = app
             .render_scene_at(window, size, start + Duration::from_millis(180))
             .expect("settled slider should render");
-        let paint = to_paint_scene_at_scale(settled.scene(), 1.0);
         let track_color = super::super::color::paint_color(theme.slider().track);
-        let track_quad = paint
-            .items()
-            .iter()
-            .find_map(|item| match item {
-                paint::Item::Quad(quad)
-                    if quad.style.fill
-                        == Some(paint::Fill::Brush(paint::Brush::solid(track_color))) =>
-                {
-                    Some(quad)
-                }
-                _ => None,
-            })
+        for scale in [1.0, 1.25, 1.5] {
+            let grid = paint::Grid::new(scale);
+            let expected_track =
+                into_paint_rounded_rect_at_scale(track, scene::Rounding::relative(1.0), grid);
+            let paint = to_paint_scene_at_scale(settled.scene(), scale);
+            let track_quad = find_slider_track_quad_by_fill(
+                paint.items(),
+                paint::Fill::Brush(paint::Brush::solid(track_color)),
+                expected_track,
+            )
             .expect("slider track should convert to a native paint quad");
 
-        assert!(track_quad.transform.is_identity());
-        assert!(paint::Grid::new(1.0).rect_is_aligned(track_quad.rect));
+            assert!(
+                track_quad.transform().is_identity(),
+                "settled track should bake to identity at scale {scale}"
+            );
+            assert!(
+                grid.rect_is_aligned(track_quad.rect()),
+                "settled track should be aligned at scale {scale}: {:?}",
+                track_quad.rect()
+            );
+            assert_no_unaligned_resting_quads(&paint, scale);
+        }
+    }
+
+    #[test]
+    fn mid_hover_slider_transform_remains_moving_at_fractional_scale() {
+        let mut app = Runtime::new(NativeSliderState { value: 5.0 })
+            .commands(|commands| {
+                commands.register::<NativeSetLevel>(crate::command::Spec::new("Set Level"));
+            })
+            .responders(|responders| {
+                responders.app().target::<NativeSetLevel>();
+            })
+            .started(|cx| {
+                cx.open_window(window::Options::new("Native Slider"));
+            })
+            .view(|state, _| {
+                widget::view(|ui| {
+                    ui.slider(
+                        widget::Slider::new("Level", state.value, 0.0..=10.0)
+                            .on_change::<NativeSetLevel>(),
+                    );
+                })
+            });
+
+        app.start();
+
+        let window = app.session().windows()[0].id();
+        let size = geometry::Size::new(240, 80);
+        let theme = Theme::default();
+        let start = Instant::now();
+        let initial = app
+            .render_scene_at(window, size, start)
+            .expect("slider should render");
+        let slider = initial
+            .layout()
+            .find_role(view::Role::Slider)
+            .into_iter()
+            .next()
+            .expect("slider should be laid out");
+        let track = layout::slider_track_rect(slider.rect(), slider.label_width(), &theme);
+        let hover = geometry::Point::new(track.x() + track.width() / 2, track.y() + 1);
+
+        app.pointer_move_at(window, size, hover)
+            .expect("hovering the slider should be handled");
+        app.render_scene_at(window, size, start)
+            .expect("hovered slider should start transition");
+        let mid = app
+            .render_scene_at(window, size, start + Duration::from_millis(90))
+            .expect("mid-animation slider should render");
+        let scale = 1.25;
+        let grid = paint::Grid::new(scale);
+        let expected_track =
+            into_paint_rounded_rect_at_scale(track, scene::Rounding::relative(1.0), grid);
+        let paint = to_paint_scene_at_scale(mid.scene(), scale);
+        let track_quad = find_slider_track_quad_by_fill(
+            paint.items(),
+            paint::Fill::Brush(paint::Brush::solid(super::super::color::paint_color(
+                theme.slider().track,
+            ))),
+            expected_track,
+        )
+        .expect("slider track should convert to a native paint quad");
+
+        assert_eq!(track_quad.transform().motion, paint::Motion::Moving);
+        assert!(track_quad.transform().is_identity());
+        assert_no_unaligned_resting_quads(&paint, scale);
+    }
+
+    #[test]
+    fn glass_tuner_promoted_panel_has_no_resting_unaligned_quads_at_fractional_scale() {
+        let mut app = glass_tuner::app(glass_tuner::State::default());
+
+        app.start();
+
+        let window = app.session().windows()[0].id();
+        let size = glass_tuner::window_size();
+        let start = Instant::now();
+        let initial = app
+            .render_scene_at(window, size, start)
+            .expect("glass tuner should render");
+        let slider = initial
+            .layout()
+            .find_role(view::Role::Slider)
+            .into_iter()
+            .next()
+            .expect("glass tuner should lay out acrylic sliders");
+        let track =
+            layout::slider_track_rect(slider.rect(), slider.label_width(), &Theme::default());
+        let hover = geometry::Point::new(track.x() + track.width() / 2, track.y() + 1);
+
+        app.pointer_move_at(window, size, hover)
+            .expect("hovering a glass tuner slider should be handled");
+        app.render_scene_at(window, size, start)
+            .expect("hovered glass tuner should start transition");
+        let mid = app
+            .render_scene_at(window, size, start + Duration::from_millis(90))
+            .expect("mid-animation glass tuner should render");
+        let paint = to_paint_scene_at_scale(mid.scene(), 1.25);
+
+        assert_no_unaligned_resting_quads(&paint, 1.25);
+    }
+
+    fn find_slider_track_quad_by_fill(
+        items: &[paint::Item],
+        fill: paint::Fill,
+        expected_track: paint::Rect,
+    ) -> Option<&paint::Quad> {
+        items.iter().find_map(|item| match item {
+            paint::Item::Quad(quad)
+                if quad.style().fill == Some(fill)
+                    && approximately_equal(quad.rect().origin.x(), expected_track.origin.x())
+                    && approximately_equal(
+                        quad.rect().area.width(),
+                        expected_track.area.width(),
+                    )
+                    && quad.rect().area.height() <= 10.0 =>
+            {
+                Some(quad)
+            }
+            paint::Item::Group(group) => {
+                find_slider_track_quad_by_fill(&group.items, fill, expected_track)
+            }
+            _ => None,
+        })
+    }
+
+    fn approximately_equal(left: f32, right: f32) -> bool {
+        (left - right).abs() <= 0.001
+    }
+
+    fn assert_no_unaligned_resting_quads(scene: &paint::Scene, scale: f32) {
+        assert_no_unaligned_resting_quads_in_items(scene.items(), scale);
+    }
+
+    fn assert_no_unaligned_resting_quads_in_items(items: &[paint::Item], scale: f32) {
+        let grid = paint::Grid::new(scale);
+        for item in items {
+            match item {
+                paint::Item::Quad(quad) if quad.transform().motion == paint::Motion::Resting => {
+                    assert!(
+                        grid.rect_is_aligned(quad.rect()),
+                        "resting quad should be aligned at scale {scale}: {:?}",
+                        quad
+                    );
+                }
+                paint::Item::Group(group) => {
+                    assert_no_unaligned_resting_quads_in_items(&group.items, scale);
+                }
+                _ => {}
+            }
+        }
     }
 
     #[test]

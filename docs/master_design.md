@@ -317,7 +317,9 @@ but the ghost is not layout, hit testing, wheel targeting, cursor resolution,
 focus routing, dismissal containment, semantics, or command routing. Focus
 restoration and key routing update when the live entry is dismissed, not when
 the ghost expires. Ghost fade frames are presentation work and must not imply
-model revision changes.
+model revision changes. If a ghost contains a material pane, the pane is
+downgraded to paint-only material layers; ghosts keep body, tint, and grain,
+but they do not backdrop-sample the world.
 
 Ghosts capture scene primitives, not paint primitives, so DPI and scale changes
 during a fade still pass through the normal layout-to-paint boundary. Ghost
@@ -328,10 +330,19 @@ fresh live entry, which is intended.
 
 Overlay opacity is group compositing, not per-primitive alpha. A fully opaque
 entry renders inline and costs no offscreen target. An entry whose opacity is
-between 0 and 1 is promoted into an offscreen group: render the entry's
-backdrop filters, panel chrome, text, icons, shadows, and rounded edges into a
-local transparent target, then composite that target back once with the group
-opacity. Opacity 0 skips rendering.
+between 0 and 1 is promoted into an offscreen group: render the entry's panes,
+panel chrome, text, icons, shadows, and rounded edges into a local transparent
+target, then composite that target back once with the group opacity. Opacity 0
+skips rendering.
+
+A material is a visual recipe; a pane is shaped material. Glass is a UI
+material operation, not a list of unrelated blur, luminosity, tint, and noise
+draw items that happen to agree. `scene::Pane` and `paint::Pane` carry the
+pane rect, rounding, and material recipe until render, where one material
+context owns backdrop color, local material state, shape coverage, scratch, and
+group opacity. Generic filter chains remain available for non-material image
+operations and future local blur, but floating-panel glass does not flatten
+into generic filter primitives.
 
 Group bounds are paint-space visual extents, not just the retained entry rect:
 they include shadows, filter spreads, blur radii, and other pixels the entry
@@ -343,19 +354,19 @@ global accumulated composition, but every intermediate filter scratch target
 after that is local to the current target. This is another `Axis Splitting`
 case: full-window composition is accumulated scene truth, while target-local
 ping/pong scratch is filter-chain workspace. Material anchoring is a separate
-axis again: backdrop filters sample source space, while surface effects such as
-noise use panel-local material space so grain rides with the glass instead of
-the world. Filter pass parameters derive from one filter-chain context that owns
-the backdrop source, local source, target scratch, and global-to-local mapping;
-individual passes must not re-thread bare source and target rects as independent
-truths. A filter chain has one world; a pass that derives source, target, or
-coverage from outside the context is a migration bug. Local target dirtiness is
-also a separate axis from backdrop truth: inside a promoted group, a prior local
-primitive such as a shadow does not make the local transparent target the
-backdrop for glass. Backdrop operators sample the accumulated parent scene;
-local surface operators sample the material built inside the target so far.
-Material coverage is the panel shape, not sampled source alpha; source alpha
-belongs to layer and group composite-back.
+axis again: backdrop material layers sample source space, while surface layers
+such as noise use panel-local material space so grain rides with the glass
+instead of the world. Material and filter pass parameters derive from one
+context authority that owns the backdrop source, local source, target scratch,
+and global-to-local mapping; individual passes must not re-thread bare source
+and target rects as independent truths. A material/filter chain has one world;
+a pass that derives source, target, or coverage from outside the context is a
+migration bug. Local target dirtiness is also a separate axis from backdrop
+truth: inside a promoted group, a prior local primitive such as a shadow does
+not make the local transparent target the backdrop for glass. Backdrop layers
+sample the accumulated parent scene; local surface layers sample the material
+built inside the target so far. Material coverage is the panel shape, not
+sampled source alpha; source alpha belongs to layer and group composite-back.
 Shape-mode material filters use source RGB independently from source alpha so a
 transparent group target cannot erase backdrop blur, luminosity, or other glass
 material. Backdrop blur also needs target-local scratch padding for the kernel
@@ -720,6 +731,9 @@ notifications are past-tense facts. Theme metrics affect measurement;
 appearance affects paint. Logical and physical paint areas stay distinct types.
 Positional boxes and relative decorations use different snapping rules because
 closure and symmetry are different goals.
+Backdrop color, local material, shape coverage, and group opacity are separate
+axes owned by the pane material context, not one filter alpha channel or dirty
+flag.
 
 Enforce with type separation, module placement, and names that state the axis.
 Repeated words are not automatically wrong; they become naming debt when the
@@ -743,7 +757,10 @@ that a value should be ignored.
 Fallacy: an exception list can grow without changing the concept. Answer:
 when exceptions become patterned, name the missing concept and move behavior
 there. Hairline quads became `Rule`; dialog-cancel commands became
-notifications. A growing exception list is often a concept announcing itself.
+notifications. Glass-panel filter stacks became `Pane` plus `Material`, because
+blur, luminosity, tint, and noise are layers of one shaped material, not
+unrelated primitives. A growing exception list is often a concept announcing
+itself.
 
 Enforce by watching for enum variants, booleans, or special cases whose names
 describe patches rather than things.

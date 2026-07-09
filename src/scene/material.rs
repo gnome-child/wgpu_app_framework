@@ -65,6 +65,13 @@ impl Material {
     pub const fn glass(glass: Glass) -> Self {
         Self::Glass(glass)
     }
+
+    pub(crate) fn without_backdrop_sampling(&self) -> Self {
+        match self {
+            Self::Solid(brush) => Self::Solid(*brush),
+            Self::Glass(glass) => Self::Glass(glass.without_backdrop_layers()),
+        }
+    }
 }
 
 impl Glass {
@@ -112,6 +119,14 @@ impl Glass {
 
     pub fn surface_layers(&self) -> &[SurfaceLayer] {
         &self.surface_layers
+    }
+
+    pub(crate) fn without_backdrop_layers(&self) -> Self {
+        Self {
+            fallback: self.fallback,
+            backdrop_layers: Vec::new(),
+            surface_layers: self.surface_layers.clone(),
+        }
     }
 
     pub fn blur(&self) -> Option<BackdropBlur> {

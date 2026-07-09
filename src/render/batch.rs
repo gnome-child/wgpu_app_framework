@@ -2,6 +2,7 @@ use crate::paint;
 
 pub enum ItemBatch<'a> {
     Shapes(Vec<Shape<'a>>),
+    Pane(&'a paint::Pane),
     Filter(&'a paint::Filter),
     Glyphs(Vec<Glyph<'a>>),
     PushClip(&'a paint::Clip),
@@ -35,6 +36,7 @@ pub fn item_batches(items: &[paint::Item]) -> Vec<ItemBatch<'_>> {
             paint::Item::Icon(icon) => push_glyph(&mut batches, Glyph::Icon(icon)),
             paint::Item::Shadow(shadow) => push_shape(&mut batches, Shape::Shadow(shadow)),
             paint::Item::Outline(outline) => push_shape(&mut batches, Shape::Outline(outline)),
+            paint::Item::Pane(pane) => batches.push(ItemBatch::Pane(pane)),
             paint::Item::Filter(filter) => batches.push(ItemBatch::Filter(filter)),
             paint::Item::Clip(clip) => batches.push(ItemBatch::PushClip(clip)),
             paint::Item::PopClip => batches.push(ItemBatch::PopClip),
@@ -69,6 +71,7 @@ mod tests {
     #[derive(Debug, PartialEq, Eq)]
     enum Kind {
         Shapes(usize),
+        Pane,
         Filter,
         Glyphs(usize),
         PushClip,
@@ -77,19 +80,19 @@ mod tests {
     }
 
     fn solid_quad(x: f32) -> paint::Quad {
-        paint::Quad {
-            rect: Rect::new(
+        paint::Quad::unchecked_for_test(
+            Rect::new(
                 paint::point::logical(x, 0.0),
                 paint::area::logical(10.0, 10.0),
             ),
-            rasterization: paint::Rasterization::default(),
-            transform: paint::Transform::identity(),
-            style: paint::Style {
+            paint::Style {
                 fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::RED))),
                 stroke: None,
                 tint: None,
             },
-        }
+            paint::Rasterization::default(),
+            paint::Transform::identity(),
+        )
     }
 
     fn label(x: f32) -> paint::Text {
@@ -134,6 +137,7 @@ mod tests {
             .iter()
             .map(|batch| match batch {
                 ItemBatch::Shapes(shapes) => Kind::Shapes(shapes.len()),
+                ItemBatch::Pane(_) => Kind::Pane,
                 ItemBatch::Filter(_) => Kind::Filter,
                 ItemBatch::Glyphs(glyphs) => Kind::Glyphs(glyphs.len()),
                 ItemBatch::PushClip(_) => Kind::PushClip,
@@ -206,6 +210,34 @@ mod tests {
                 Kind::Shapes(1),
                 Kind::Glyphs(1)
             ]
+        );
+    }
+
+    #[test]
+    fn pane_batches_as_own_ordered_material_operation() {
+        let pane = paint::Pane::new(
+            Rect::new(
+                paint::point::logical(1.0, 0.0),
+                paint::area::logical(10.0, 10.0),
+            ),
+            paint::Material::Glass(paint::Glass {
+                fallback: paint::Brush::solid(paint::Color::BLACK),
+                backdrop_layers: vec![paint::BackdropLayer::Blur(paint::BackdropBlur {
+                    sigma: 10.0,
+                    edge_mode: paint::BackdropEdgeMode::Mirror,
+                })],
+                surface_layers: Vec::new(),
+            }),
+        );
+        let items = vec![
+            paint::Item::Quad(solid_quad(0.0)),
+            paint::Item::Pane(pane),
+            paint::Item::Quad(solid_quad(2.0)),
+        ];
+
+        assert_eq!(
+            kinds(&item_batches(&items)),
+            vec![Kind::Shapes(1), Kind::Pane, Kind::Shapes(1)]
         );
     }
 

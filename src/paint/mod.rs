@@ -64,6 +64,12 @@ impl Scene {
         self.items.push(Item::Shadow(shadow));
     }
 
+    pub fn push_pane(&mut self, pane: Pane) {
+        if pane.rect.area.width() > 0.0 && pane.rect.area.height() > 0.0 {
+            self.items.push(Item::Pane(pane));
+        }
+    }
+
     pub fn push_outline(&mut self, outline: Outline) {
         self.items.push(Item::Outline(outline));
     }
@@ -114,6 +120,7 @@ pub enum Item {
     TextViewport(TextViewport),
     Icon(Icon),
     Shadow(Shadow),
+    Pane(Pane),
     Outline(Outline),
     Filter(Filter),
     Clip(Clip),
@@ -123,10 +130,10 @@ pub enum Item {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Quad {
-    pub rect: Rect,
-    pub style: Style,
-    pub rasterization: Rasterization,
-    pub transform: Transform,
+    rect: Rect,
+    style: Style,
+    rasterization: Rasterization,
+    transform: Transform,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -273,6 +280,13 @@ pub struct Shadow {
     pub offset: point::Logical,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pane {
+    pub rect: Rect,
+    pub source_rect: Option<Rect>,
+    pub material: Material,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Outline {
     pub rect: Rect,
@@ -353,6 +367,126 @@ pub struct Luminosity {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Noise {
     pub opacity: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Material {
+    Solid(Brush),
+    Glass(Glass),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Glass {
+    pub fallback: Brush,
+    pub backdrop_layers: Vec<BackdropLayer>,
+    pub surface_layers: Vec<SurfaceLayer>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BackdropLayer {
+    Blur(BackdropBlur),
+    Refraction(Refraction),
+    Luminosity(Luminosity),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SurfaceLayer {
+    Tint { brush: Brush, opacity: f32 },
+    Noise(Noise),
+}
+
+impl Quad {
+    pub(crate) fn resolved_for_grid(
+        rect: Rect,
+        style: Style,
+        rasterization: Rasterization,
+        transform: Transform,
+        grid: Grid,
+    ) -> Self {
+        let (mut rect, transform) = transform.resolve_rect(rect, grid);
+        if transform.motion == Motion::Resting {
+            rect = grid.snap_rect(rect);
+        }
+
+        Self {
+            rect,
+            style,
+            rasterization,
+            transform,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn unchecked_for_test(
+        rect: Rect,
+        style: Style,
+        rasterization: Rasterization,
+        transform: Transform,
+    ) -> Self {
+        Self {
+            rect,
+            style,
+            rasterization,
+            transform,
+        }
+    }
+
+    pub(crate) fn rect(&self) -> Rect {
+        self.rect
+    }
+
+    pub(crate) fn style(&self) -> Style {
+        self.style
+    }
+
+    pub(crate) fn rasterization(&self) -> Rasterization {
+        self.rasterization
+    }
+
+    pub(crate) fn transform(&self) -> Transform {
+        self.transform
+    }
+
+    fn bounds(self) -> Rect {
+        self.transform.transformed_rect(self.rect)
+    }
+
+    fn translated_for_group(self, origin: point::Logical, grid: Grid) -> Self {
+        let dx = -origin.x();
+        let dy = -origin.y();
+        let rect = translate_rect(self.rect, dx, dy);
+        let mut transform = self.transform;
+        transform.origin = point::logical(transform.origin.x() + dx, transform.origin.y() + dy);
+
+        Self::resolved_for_grid(rect, self.style, self.rasterization, transform, grid)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_rect_for_test(&mut self, rect: Rect) {
+        self.rect = rect;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_transform_for_test(&mut self, transform: Transform) {
+        self.transform = transform;
+    }
+}
+
+impl Pane {
+    pub fn new(rect: Rect, material: Material) -> Self {
+        Self {
+            rect,
+            source_rect: None,
+            material,
+        }
+    }
+
+    fn translated_for_group(mut self, origin: point::Logical) -> Self {
+        let source_rect = self.source_rect.unwrap_or(self.rect);
+        self.rect = translate_rect(self.rect, -origin.x(), -origin.y());
+        self.source_rect = Some(source_rect);
+        self
+    }
 }
 
 impl Filter {
@@ -473,7 +607,10 @@ impl Transform {
         {
             return (
                 self.scaled_motion_rect(rect, scale_motion, grid),
-                Self::identity(),
+                Self {
+                    motion: Motion::Moving,
+                    ..Self::identity()
+                },
             );
         }
 
@@ -875,7 +1012,7 @@ pub(crate) fn group_from_items(items: &[Item], opacity: f32, grid: Grid) -> Opti
     }
 
     let bounds = group_bounds(items, grid)?;
-    let items = translate_items_for_group(items, bounds.origin);
+    let items = translate_items_for_group(items, bounds.origin, grid);
     if items.is_empty() {
         return None;
     }
@@ -897,7 +1034,7 @@ fn group_bounds(items: &[Item], grid: Grid) -> Option<Rect> {
 
 fn item_bounds(item: &Item, grid: Grid) -> Option<Rect> {
     match item {
-        Item::Quad(quad) => Some(quad.transform.transformed_rect(quad.rect)),
+        Item::Quad(quad) => Some(quad.bounds()),
         Item::Rule(rule) => Some(rule.rect),
         Item::Text(text) => Some(text.rect),
         Item::TextViewport(text) => Some(text.rect),
@@ -914,9 +1051,29 @@ fn item_bounds(item: &Item, grid: Grid) -> Option<Rect> {
             outline.rect,
             outline.offset.max(0.0) + outline.width.max(0.0) + grid.logical_pixel(),
         )),
+        Item::Pane(pane) => Some(expand_rect(pane.rect, pane_outset(pane, grid))),
         Item::Filter(filter) => Some(expand_rect(filter.rect, filter_outset(filter, grid))),
         Item::Clip(_) | Item::PopClip => None,
         Item::Group(group) => Some(group.bounds),
+    }
+}
+
+fn pane_outset(pane: &Pane, grid: Grid) -> f32 {
+    match &pane.material {
+        Material::Solid(_) => 0.0,
+        Material::Glass(glass) => glass
+            .backdrop_layers
+            .iter()
+            .map(|layer| match *layer {
+                BackdropLayer::Blur(blur) => filter_op_outset(FilterOp::BackdropBlur(blur), grid),
+                BackdropLayer::Refraction(refraction) => {
+                    filter_op_outset(FilterOp::Refraction(refraction), grid)
+                }
+                BackdropLayer::Luminosity(luminosity) => {
+                    filter_op_outset(FilterOp::Luminosity(luminosity), grid)
+                }
+            })
+            .fold(0.0, f32::max),
     }
 }
 
@@ -945,27 +1102,19 @@ fn filter_op_outset(op: FilterOp, grid: Grid) -> f32 {
     }
 }
 
-fn translate_items_for_group(items: &[Item], origin: point::Logical) -> Vec<Item> {
+fn translate_items_for_group(items: &[Item], origin: point::Logical, grid: Grid) -> Vec<Item> {
     items
         .iter()
-        .map(|item| translate_item_for_group(item, origin))
+        .map(|item| translate_item_for_group(item, origin, grid))
         .collect()
 }
 
-fn translate_item_for_group(item: &Item, origin: point::Logical) -> Item {
+fn translate_item_for_group(item: &Item, origin: point::Logical, grid: Grid) -> Item {
     let dx = -origin.x();
     let dy = -origin.y();
 
     match item {
-        Item::Quad(quad) => {
-            let mut quad = *quad;
-            quad.rect = translate_rect(quad.rect, dx, dy);
-            quad.transform.origin = point::logical(
-                quad.transform.origin.x() + dx,
-                quad.transform.origin.y() + dy,
-            );
-            Item::Quad(quad)
-        }
+        Item::Quad(quad) => Item::Quad(quad.translated_for_group(origin, grid)),
         Item::Rule(rule) => {
             let mut rule = *rule;
             rule.rect = translate_rect(rule.rect, dx, dy);
@@ -1004,6 +1153,7 @@ fn translate_item_for_group(item: &Item, origin: point::Logical) -> Item {
             outline.rect = translate_rect(outline.rect, dx, dy);
             Item::Outline(outline)
         }
+        Item::Pane(pane) => Item::Pane(pane.clone().translated_for_group(origin)),
         Item::Filter(filter) => Item::Filter(filter.clone().translated_for_group(origin)),
         Item::Clip(clip) => {
             let mut clip = *clip;
@@ -1014,7 +1164,7 @@ fn translate_item_for_group(item: &Item, origin: point::Logical) -> Item {
         Item::Group(group) => {
             let mut group = group.clone();
             group.bounds = translate_rect(group.bounds, dx, dy);
-            group.items = translate_items_for_group(&group.items, origin);
+            group.items = translate_items_for_group(&group.items, origin, grid);
             Item::Group(group)
         }
     }
@@ -1276,6 +1426,41 @@ mod tests {
     }
 
     #[test]
+    fn moving_scale_motion_resolves_to_moving_subpixel_geometry_at_fractional_scale() {
+        let grid = Grid::new(1.25);
+        let rect = Rect::new(point::logical(10.0, 20.0), area::logical(40.0, 4.0));
+        let transform = Transform::scale_y_about(point::logical(30.0, 22.0), 1.5)
+            .with_motion(Motion::Moving)
+            .with_scale_motion(1.0, 1.0, 1.0, 1.5, 0.5);
+
+        let (resolved, resolved_transform) = transform.resolve_rect(rect, grid);
+
+        assert_eq!(resolved_transform.motion, Motion::Moving);
+        assert!(resolved_transform.is_identity());
+        assert_eq!(resolved_transform.scale_motion, None);
+        assert!(!grid.rect_is_aligned(resolved));
+    }
+
+    #[test]
+    fn quad_constructor_snaps_resting_identity_rects_to_grid() {
+        let grid = Grid::new(1.25);
+        let quad = Quad::resolved_for_grid(
+            Rect::new(point::logical(10.0, 20.0), area::logical(33.0, 11.0)),
+            Style {
+                fill: Some(Fill::Brush(Brush::solid(Color::RED))),
+                stroke: None,
+                tint: None,
+            },
+            Rasterization::default(),
+            Transform::identity(),
+            grid,
+        );
+
+        assert!(quad.transform().is_identity());
+        assert!(grid.rect_is_aligned(quad.rect()));
+    }
+
+    #[test]
     fn clip_commands_preserve_order_and_shape() {
         let mut scene = Scene::new();
         let clip = Clip {
@@ -1338,6 +1523,62 @@ mod tests {
     }
 
     #[test]
+    fn group_translation_preserves_pane_source_rect() {
+        let pane = Pane::new(
+            Rect::new(point::logical(20.0, 30.0), area::logical(50.0, 40.0)),
+            Material::Glass(Glass {
+                fallback: Brush::solid(Color::BLACK),
+                backdrop_layers: vec![BackdropLayer::Blur(BackdropBlur {
+                    sigma: 10.0,
+                    edge_mode: BackdropEdgeMode::Mirror,
+                })],
+                surface_layers: vec![SurfaceLayer::Noise(Noise { opacity: 0.1 })],
+            }),
+        );
+        let group = group_from_items(&[Item::Pane(pane.clone())], 0.5, Grid::new(1.0))
+            .expect("pane should produce group");
+        let [Item::Pane(local)] = group.items.as_slice() else {
+            panic!("expected translated pane");
+        };
+
+        assert_eq!(
+            local.rect,
+            Rect::new(point::logical(30.0, 30.0), area::logical(50.0, 40.0))
+        );
+        assert_eq!(local.source_rect, Some(pane.rect));
+    }
+
+    #[test]
+    fn group_translation_preserves_moving_quad_motion_at_fractional_scale() {
+        let grid = Grid::new(1.25);
+        let rect = Rect::new(point::logical(10.0, 20.0), area::logical(40.0, 4.0));
+        let transform = Transform::scale_y_about(point::logical(30.0, 22.0), 1.5)
+            .with_motion(Motion::Moving)
+            .with_scale_motion(1.0, 1.0, 1.0, 1.5, 0.5);
+        let quad = Quad::resolved_for_grid(
+            rect,
+            Style {
+                fill: Some(Fill::Brush(Brush::solid(Color::RED))),
+                stroke: None,
+                tint: None,
+            },
+            Rasterization::default(),
+            transform,
+            grid,
+        );
+
+        let group = group_from_items(&[Item::Quad(quad)], 0.5, grid)
+            .expect("moving quad should produce a group");
+        let [Item::Quad(local)] = group.items.as_slice() else {
+            panic!("expected translated quad");
+        };
+
+        assert_eq!(local.transform().motion, Motion::Moving);
+        assert_eq!(local.transform().scale_motion, None);
+        assert!(!grid.rect_is_aligned(local.rect()));
+    }
+
+    #[test]
     fn group_bounds_include_backdrop_blur_kernel_spread() {
         let filter = Filter::stack(
             Rect::new(point::logical(20.0, 30.0), area::logical(50.0, 40.0)),
@@ -1355,6 +1596,32 @@ mod tests {
                 group.bounds,
                 Rect::new(point::logical(-114.0, -104.0), area::logical(318.0, 308.0)),
                 "scale {scale} should reserve the high-sigma blur kernel"
+            );
+        }
+    }
+
+    #[test]
+    fn group_bounds_include_pane_backdrop_blur_kernel_spread() {
+        let pane = Pane::new(
+            Rect::new(point::logical(20.0, 30.0), area::logical(50.0, 40.0)),
+            Material::Glass(Glass {
+                fallback: Brush::solid(Color::BLACK),
+                backdrop_layers: vec![BackdropLayer::Blur(BackdropBlur {
+                    sigma: 44.55,
+                    edge_mode: BackdropEdgeMode::Mirror,
+                })],
+                surface_layers: Vec::new(),
+            }),
+        );
+
+        for scale in [1.0, 1.5] {
+            let group = group_from_items(&[Item::Pane(pane.clone())], 0.5, Grid::new(scale))
+                .expect("pane should produce group bounds");
+
+            assert_eq!(
+                group.bounds,
+                Rect::new(point::logical(-114.0, -104.0), area::logical(318.0, 308.0)),
+                "scale {scale} should reserve the pane blur kernel"
             );
         }
     }

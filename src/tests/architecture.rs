@@ -1088,6 +1088,33 @@ fn master_design_names_answer_patterns() {
     }
 }
 
+#[test]
+fn glass_material_carrier_is_pane_not_surface() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let scene_primitive = std::fs::read_to_string(root.join("scene").join("primitive.rs"))
+        .expect("scene primitive source should read");
+    let paint = std::fs::read_to_string(root.join("paint").join("mod.rs"))
+        .expect("paint source should read");
+    let master = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("docs")
+            .join("master_design.md"),
+    )
+    .expect("master design should read");
+
+    assert!(scene_primitive.contains("pub struct Pane"));
+    assert!(paint.contains("pub struct Pane"));
+    assert!(
+        !scene_primitive.contains("MaterialSurface") && !paint.contains("MaterialSurface"),
+        "material carrier must not reintroduce a compound Surface name"
+    );
+    assert!(
+        !scene_primitive.contains("pub struct Surface") && !paint.contains("pub struct Surface"),
+        "Pane, not Surface, names shaped material"
+    );
+    assert!(master.contains("A material is a visual recipe; a pane is shaped material."));
+}
+
 fn assert_source_patterns_absent(path: &std::path::Path, patterns: &[String]) {
     for entry in std::fs::read_dir(path).expect("framework source directory should be readable") {
         let path = entry

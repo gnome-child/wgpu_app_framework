@@ -35,6 +35,7 @@ pub struct Renderer {
 
 enum RenderBatch {
     Shapes(render::quad::Batch),
+    Pane(paint::Pane),
     Filter(paint::Filter),
     Text { renderer_index: usize },
     PushClip(paint::Clip),
@@ -278,6 +279,9 @@ impl Renderer {
                 ItemBatch::Filter(filter) => {
                     render_batches.push(RenderBatch::Filter((*filter).clone()));
                 }
+                ItemBatch::Pane(pane) => {
+                    render_batches.push(RenderBatch::Pane((*pane).clone()));
+                }
                 ItemBatch::PushClip(clip) => {
                     render_batches.push(RenderBatch::PushClip(**clip));
                 }
@@ -473,6 +477,7 @@ impl<'a> SceneEncoder<'a> {
         for batch in render_batches {
             match batch {
                 RenderBatch::Shapes(batch) => self.encode_shapes(batch),
+                RenderBatch::Pane(pane) => self.encode_pane(pane),
                 RenderBatch::Filter(filter) => self.encode_filter(filter),
                 RenderBatch::Text { renderer_index } => self.encode_text(*renderer_index),
                 RenderBatch::PushClip(clip) => self.push_clip(*clip),
@@ -566,6 +571,144 @@ impl<'a> SceneEncoder<'a> {
         self.mark_current_dirty();
     }
 
+    fn encode_pane(&mut self, pane: &paint::Pane) {
+        let Some(scissor) = current_scissor(
+            &self.clip_stack,
+            self.viewport.physical_area(),
+            self.viewport.scale_factor(),
+        ) else {
+            return;
+        };
+
+        match &pane.material {
+            paint::Material::Solid(brush) => {
+                self.encode_pane_brush(pane.rect, *brush, scissor);
+            }
+            paint::Material::Glass(glass) => {
+                log::debug!(
+                    target: "wgpu_l3::render::material",
+                    "pane glass rect={:?} source_rect={:?} group={} target_area={:?} opacity_context=entry layers={:?}",
+                    pane.rect,
+                    pane.source_rect,
+                    self.inside_group,
+                    self.output_target.physical_area(),
+                    render::material::layer_sequence(glass),
+                );
+
+                if glass.backdrop_layers.is_empty() {
+                    self.encode_pane_brush(pane.rect, glass.fallback, scissor);
+                } else {
+                    let filter = render::material::backdrop_filter(pane, glass);
+                    if !filter.ops.is_empty() {
+                        let Some(output) =
+                            current_target_view(self.base_view, &self.layers, &self.clip_stack)
+                        else {
+                            return;
+                        };
+                        let source = render::material::backdrop_source(
+                            self.inside_group,
+                            self.current_target_dirty(),
+                            pane,
+                            output,
+                            self.output_target,
+                            self.backdrop_view,
+                            self.backdrop_target,
+                        );
+                        self.filter_renderer.draw(render::filter::FilterDraw {
+                            render_context: self.render_context,
+                            encoder: self.encoder,
+                            target: self.output_target,
+                            source,
+                            output,
+                            filter,
+                            scissor: Some(scissor),
+                        });
+                        self.mark_current_dirty();
+                    }
+                }
+
+                for layer in &glass.surface_layers {
+                    match *layer {
+                        paint::SurfaceLayer::Tint { brush, opacity } => {
+                            self.encode_pane_brush(
+                                pane.rect,
+                                render::material::brush_with_opacity(brush, opacity),
+                                scissor,
+                            );
+                        }
+                        paint::SurfaceLayer::Noise(noise) => {
+                            if noise.opacity <= 0.0 {
+                                continue;
+                            }
+
+                            let Some(output) =
+                                current_target_view(self.base_view, &self.layers, &self.clip_stack)
+                            else {
+                                return;
+                            };
+                            let filter =
+                                paint::Filter::stack(pane.rect, [paint::FilterOp::noise(noise)]);
+                            self.filter_renderer.draw(render::filter::FilterDraw {
+                                render_context: self.render_context,
+                                encoder: self.encoder,
+                                target: self.output_target,
+                                source: render::filter::FilterSource::Local {
+                                    texture: render::filter::TextureSource::new(
+                                        output,
+                                        self.output_target.physical_area(),
+                                        self.output_target.logical_area(),
+                                        paint::LayerSampling::PixelAligned,
+                                    ),
+                                    local_rect: pane.rect,
+                                },
+                                output,
+                                filter,
+                                scissor: Some(scissor),
+                            });
+                            self.mark_current_dirty();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn encode_pane_brush(&mut self, rect: Rect, brush: paint::Brush, scissor: render::Scissor) {
+        if !brush.is_visible() {
+            return;
+        }
+
+        let grid = paint::Grid::new(self.viewport.scale_factor());
+        let quad = paint::Quad::resolved_for_grid(
+            rect,
+            paint::Style {
+                fill: Some(paint::Fill::Brush(brush)),
+                stroke: None,
+                tint: None,
+            },
+            paint::Rasterization::default(),
+            paint::Transform::identity(),
+            grid,
+        );
+        let shapes = [render::batch::Shape::Quad(&quad)];
+        let Some(batch) = render::quad::prepare_batch(self.render_context, self.viewport, &shapes)
+        else {
+            return;
+        };
+        let Some(target_view) = current_target_view(self.base_view, &self.layers, &self.clip_stack)
+        else {
+            return;
+        };
+        {
+            let mut pass = begin_main_pass(self.encoder, target_view, self.clear_color, false);
+            pass.set_pipeline(self.quad_pipeline);
+            pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
+            pass.set_vertex_buffer(0, batch.vertex_buffer().slice(..));
+            pass.draw(0..batch.vertex_count(), 0..1);
+        }
+        self.mark_current_dirty();
+    }
+
     fn encode_text(&mut self, renderer_index: usize) {
         let Some(scissor) = current_scissor(
             &self.clip_stack,
@@ -597,6 +740,7 @@ impl<'a> SceneEncoder<'a> {
             for batch in &group.render_batches {
                 match batch {
                     RenderBatch::Shapes(batch) => self.encode_shapes(batch),
+                    RenderBatch::Pane(pane) => self.encode_pane(pane),
                     RenderBatch::Filter(filter) => self.encode_filter(filter),
                     RenderBatch::Text { renderer_index } => self.encode_text(*renderer_index),
                     RenderBatch::PushClip(clip) => self.push_clip(*clip),
@@ -1010,19 +1154,19 @@ mod tests {
     #[test]
     fn draw_stats_summarize_scene_and_batches() {
         let mut scene = paint::Scene::new();
-        scene.push_quad(paint::Quad {
-            rect: Rect::new(
+        scene.push_quad(paint::Quad::unchecked_for_test(
+            Rect::new(
                 paint::point::logical(0.0, 0.0),
                 paint::area::logical(10.0, 10.0),
             ),
-            rasterization: paint::Rasterization::default(),
-            transform: paint::Transform::identity(),
-            style: paint::Style {
+            paint::Style {
                 fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::BLACK))),
                 stroke: None,
                 tint: None,
             },
-        });
+            paint::Rasterization::default(),
+            paint::Transform::identity(),
+        ));
         scene.push_text(paint::Text {
             rect: Rect::new(
                 paint::point::logical(0.0, 0.0),
@@ -1062,19 +1206,19 @@ mod tests {
             ),
             opacity: 0.5,
             items: vec![
-                paint::Item::Quad(paint::Quad {
-                    rect: Rect::new(
+                paint::Item::Quad(paint::Quad::unchecked_for_test(
+                    Rect::new(
                         paint::point::logical(0.0, 0.0),
                         paint::area::logical(10.0, 10.0),
                     ),
-                    rasterization: paint::Rasterization::default(),
-                    transform: paint::Transform::identity(),
-                    style: paint::Style {
+                    paint::Style {
                         fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::BLACK))),
                         stroke: None,
                         tint: None,
                     },
-                }),
+                    paint::Rasterization::default(),
+                    paint::Transform::identity(),
+                )),
                 paint::Item::Text(paint::Text {
                     rect: Rect::new(
                         paint::point::logical(0.0, 0.0),

@@ -3515,33 +3515,32 @@ fn theme_toml_tokens_drive_layout_and_scene_primitives() {
             .iter()
             .any(|text| text.value() == "Run" && text.color() == scene::Color::rgb(68, 85, 102))
     );
-    assert!(scene.filters().iter().any(|filter| {
-        filter.rect() == popup.rect()
-            && matches!(
-                filter.ops(),
-                [scene::FilterOp::BackdropBlur(blur)] if blur.sigma() == 24.0
-            )
-            && filter.rounding() == scene::Rounding::fixed(13.0)
+    let pane = scene_pane_at(&scene, popup.rect()).expect("popup should paint one glass pane");
+    assert_eq!(pane.rounding(), scene::Rounding::fixed(13.0));
+    let scene::Material::Glass(glass) = pane.material() else {
+        panic!("popup pane should carry glass material");
+    };
+    assert!(glass.backdrop_layers().iter().any(|layer| {
+        matches!(layer, scene::BackdropLayer::Blur(blur) if blur.sigma() == 24.0)
     }));
-    assert!(scene.filters().iter().any(|filter| {
-        filter.rect() == popup.rect()
-            && matches!(
-                filter.ops(),
-                [scene::FilterOp::Refraction(refraction)] if refraction.displacement() == 3.0
-                    && refraction.splay() == 1.5
-                    && refraction.feather() == 12.0
-                    && refraction.curve() == 2.5
-            )
-            && filter.rounding() == scene::Rounding::fixed(13.0)
+    assert!(glass.backdrop_layers().iter().any(|layer| {
+        matches!(
+            layer,
+            scene::BackdropLayer::Refraction(refraction) if refraction.displacement() == 3.0
+                && refraction.splay() == 1.5
+                && refraction.feather() == 12.0
+                && refraction.curve() == 2.5
+        )
     }));
-    assert!(scene.quads().iter().any(|quad| {
-        quad.rect() == popup.rect()
-            && quad.style().fill()
-                == Some(scene::Brush::linear_gradient(
+    assert!(glass.surface_layers().iter().any(|layer| {
+        matches!(
+            layer,
+            scene::SurfaceLayer::Tint { brush, opacity }
+                if *brush == scene::Brush::linear_gradient(
                     scene::Color::rgba(34, 51, 68, 136),
                     scene::Color::rgba(51, 68, 85, 153),
-                ))
-            && quad.rounding() == scene::Rounding::fixed(13.0)
+                ) && *opacity == 1.0
+        )
     }));
 }
 
@@ -4200,36 +4199,25 @@ fn scene_preserves_popup_paint_order_after_base_content() {
             )
         })
         .expect("popup shadow should be painted");
-    let popup_filter = scene
+    let popup_pane = scene
         .primitives()
         .iter()
         .position(|primitive| {
             matches!(
                 primitive,
-                scene::Primitive::Filter(filter)
-                    if filter.rect() == popup.rect()
+                scene::Primitive::Pane(pane)
+                    if pane.rect() == popup.rect()
                         && matches!(
-                            filter.ops(),
-                            [scene::FilterOp::BackdropBlur(blur)] if blur.sigma() == 44.55
+                            pane.material(),
+                            scene::Material::Glass(glass)
+                                if glass.backdrop_layers().iter().any(|layer| {
+                                    matches!(layer, scene::BackdropLayer::Blur(blur) if blur.sigma() == 44.55)
+                                })
                         )
-                        && filter.rounding() == theme.floating_panel().rounding
+                        && pane.rounding() == theme.floating_panel().rounding
             )
         })
-        .expect("popup filter should be painted");
-    let popup_material = scene
-        .primitives()
-        .iter()
-        .position(|primitive| {
-            matches!(
-                primitive,
-                scene::Primitive::Quad(quad)
-                    if quad.rect() == popup.rect()
-                        && quad.style().fill()
-                            == Some(scene::Brush::solid(scene::Color::rgba(28, 28, 30, 224)))
-                        && quad.rounding() == theme.floating_panel().rounding
-            )
-        })
-        .expect("popup material fill should be painted");
+        .expect("popup pane should be painted");
     let file_menu_text = scene
         .primitives()
         .iter()
@@ -4287,10 +4275,9 @@ fn scene_preserves_popup_paint_order_after_base_content() {
         })
         .expect("popup exit shortcut key text should be painted");
 
-    assert!(popup_shadow < popup_filter);
-    assert!(popup_filter < popup_material);
-    assert!(popup_material < open_command_text);
-    assert!(popup_material < open_command_clip);
+    assert!(popup_shadow < popup_pane);
+    assert!(popup_pane < open_command_text);
+    assert!(popup_pane < open_command_clip);
     assert!(open_command_clip < open_command_text);
     assert!(open_command_text < open_command_pop_clip);
     assert!(file_menu_text < open_command_text);
@@ -4337,26 +4324,16 @@ fn generic_floating_panel_uses_shared_chrome_before_content() {
             )
         })
         .expect("floating panel shadow should paint");
-    let filter = scene
+    let pane = scene
         .primitives()
         .iter()
         .position(|primitive| {
             matches!(
                 primitive,
-                scene::Primitive::Filter(filter) if filter.rect() == panel.rect()
+                scene::Primitive::Pane(pane) if pane.rect() == panel.rect()
             )
         })
-        .expect("floating panel filter should paint");
-    let material = scene
-        .primitives()
-        .iter()
-        .position(|primitive| {
-            matches!(
-                primitive,
-                scene::Primitive::Quad(quad) if quad.rect() == panel.rect()
-            )
-        })
-        .expect("floating panel material should paint");
+        .expect("floating panel pane should paint");
     let content = scene
         .primitives()
         .iter()
@@ -4368,9 +4345,8 @@ fn generic_floating_panel_uses_shared_chrome_before_content() {
         })
         .expect("floating panel content should paint");
 
-    assert!(shadow < filter);
-    assert!(filter < material);
-    assert!(material < content);
+    assert!(shadow < pane);
+    assert!(pane < content);
 }
 
 #[test]
@@ -4527,12 +4503,7 @@ fn overlay_layout_paints_styled_backgrounds_under_floating_panel() {
             quad.fill() == bar && quad.rect() == geometry::Rect::new(0, 0, 200, 120)
         })
     );
-    assert!(
-        scene
-            .filters()
-            .iter()
-            .any(|filter| filter.rect() == panel.rect())
-    );
+    assert!(scene.panes().iter().any(|pane| pane.rect() == panel.rect()));
 }
 
 #[test]
@@ -4552,21 +4523,21 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
         .into_iter()
         .next()
         .expect("glass tuner floating panel should be laid out");
-    let default_blur = initial
-        .scene()
-        .filters()
-        .into_iter()
-        .find(|filter| filter.rect() == panel.rect())
-        .and_then(|filter| filter.ops().first().copied())
-        .expect("glass tuner panel should paint a blur filter");
-
-    assert_eq!(
-        default_blur,
-        scene::FilterOp::BackdropBlur(scene::BackdropBlur::new(44.55))
-    );
-    assert!(initial.scene().quads().iter().any(|quad| {
-        quad.rect() == panel.rect()
-            && quad.style().fill() == Some(scene::Brush::solid(scene::Color::rgba(28, 28, 30, 224)))
+    let default_pane = scene_pane_at(initial.scene(), panel.rect())
+        .expect("glass tuner panel should paint a pane");
+    let scene::Material::Glass(default_glass) = default_pane.material() else {
+        panic!("glass tuner pane should carry glass material");
+    };
+    assert!(default_glass.backdrop_layers().iter().any(|layer| {
+        matches!(layer, scene::BackdropLayer::Blur(blur) if *blur == scene::BackdropBlur::new(44.55))
+    }));
+    assert!(default_glass.surface_layers().iter().any(|layer| {
+        matches!(
+            layer,
+            scene::SurfaceLayer::Tint { brush, opacity }
+                if *brush == scene::Brush::solid(scene::Color::rgb(28, 28, 30))
+                    && *opacity == 0.88
+        )
     }));
     assert!(initial.scene().texts().iter().any(|text| {
         text.value().contains("blur-sigma = 44.55")
@@ -4596,9 +4567,21 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
     let rendered = app
         .render_scene(window, size)
         .expect("glass tuner should render after acrylic tuning");
-    assert!(rendered.scene().quads().iter().any(|quad| {
-        quad.rect() == panel.rect()
-            && quad.style().fill() == Some(scene::Brush::solid(scene::Color::rgba(80, 28, 30, 224)))
+    let tuned_pane =
+        scene_pane_at(rendered.scene(), panel.rect()).expect("tuned panel should paint a pane");
+    let scene::Material::Glass(tuned_glass) = tuned_pane.material() else {
+        panic!("tuned panel pane should carry glass material");
+    };
+    assert!(tuned_glass.surface_layers().iter().any(|layer| {
+        matches!(
+            layer,
+            scene::SurfaceLayer::Tint { brush, opacity }
+                if *brush == scene::Brush::solid(scene::Color::rgb(80, 28, 30))
+                    && *opacity == 0.88
+        )
+    }));
+    assert!(tuned_glass.surface_layers().iter().any(|layer| {
+        matches!(layer, scene::SurfaceLayer::Noise(noise) if noise.opacity() == 0.04)
     }));
     assert!(rendered.scene().texts().iter().any(|text| {
         text.value().contains("tint = \"#501c1e\"")
@@ -5073,6 +5056,10 @@ fn scene_text_in_rect<'a>(
         .into_iter()
         .find(|text| text.value() == value && rect_contains(bounds, text.rect()))
         .expect("scene text should exist inside bounds")
+}
+
+fn scene_pane_at(scene: &Scene, rect: geometry::Rect) -> Option<&scene::Pane> {
+    scene.panes().into_iter().find(|pane| pane.rect() == rect)
 }
 
 fn scene_icon_in_rect<'a>(scene: &'a Scene, icon: &str, bounds: geometry::Rect) -> &'a scene::Icon {
