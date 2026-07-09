@@ -546,7 +546,8 @@ source lines and bytes), scroll work (wheel events, offset changes, redraw
 requests, committed frame scrolls, text area viewports), frame work (full
 redraws, view rebuilds, layout recomposes and reuses, text surfaces), and
 render work (presented frames, frame-interval p95, surface-acquire p95, draw
-p95, `key->present` p95, pending key samples, promoted group composites).
+p95, `key->present` p95, pending key samples, promoted group composites, and
+retained filter layer/scratch pool entries).
 
 Render latency samples are revision-tagged: a key/input sample records only
 when the presented frame revision includes the state change it produced.

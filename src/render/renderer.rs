@@ -18,6 +18,8 @@ pub struct DrawStats {
     pub quad_vertices: usize,
     pub clip_batches: usize,
     pub group_composites: usize,
+    pub filter_layer_pool_entries: usize,
+    pub filter_scratch_pool_entries: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -205,6 +207,8 @@ impl Renderer {
         }
 
         self.text_renderer.trim();
+        stats.filter_layer_pool_entries = self.filter_renderer.layer_pool_entries();
+        stats.filter_scratch_pool_entries = self.filter_renderer.scratch_pool_entries();
 
         Ok(DrawReport {
             stats,
@@ -348,6 +352,8 @@ impl DrawStats {
         self.quad_vertices += other.quad_vertices;
         self.clip_batches += other.clip_batches;
         self.group_composites += other.group_composites;
+        self.filter_layer_pool_entries += other.filter_layer_pool_entries;
+        self.filter_scratch_pool_entries += other.filter_scratch_pool_entries;
     }
 }
 

@@ -11,6 +11,8 @@ const SAMPLE_LIMIT: usize = 128;
 pub struct Render {
     pub frames_presented: usize,
     pub group_composites: usize,
+    pub filter_layer_pool_entries: usize,
+    pub filter_scratch_pool_entries: usize,
     intervals: Samples,
     acquire_wait: Samples,
     draw: Samples,
@@ -37,6 +39,8 @@ pub struct Report {
     draw: Duration,
     presented_at: Instant,
     group_composites: usize,
+    filter_layer_pool_entries: usize,
+    filter_scratch_pool_entries: usize,
 }
 
 impl Render {
@@ -53,6 +57,8 @@ impl Render {
     pub(crate) fn record_present(&mut self, revision: state::Revision, report: Report) {
         self.frames_presented += 1;
         self.group_composites = report.group_composites;
+        self.filter_layer_pool_entries = report.filter_layer_pool_entries;
+        self.filter_scratch_pool_entries = report.filter_scratch_pool_entries;
         if let Some(previous) = self.last_presented_at {
             self.intervals.record(duration_micros(
                 report.presented_at.saturating_duration_since(previous),
@@ -104,6 +110,8 @@ impl Default for Render {
         Self {
             frames_presented: 0,
             group_composites: 0,
+            filter_layer_pool_entries: 0,
+            filter_scratch_pool_entries: 0,
             intervals: Samples::default(),
             acquire_wait: Samples::default(),
             draw: Samples::default(),
@@ -148,11 +156,23 @@ impl Report {
             draw,
             presented_at,
             group_composites: 0,
+            filter_layer_pool_entries: 0,
+            filter_scratch_pool_entries: 0,
         }
     }
 
     pub fn with_group_composites(mut self, group_composites: usize) -> Self {
         self.group_composites = group_composites;
+        self
+    }
+
+    pub fn with_filter_pool_entries(
+        mut self,
+        layer_entries: usize,
+        scratch_entries: usize,
+    ) -> Self {
+        self.filter_layer_pool_entries = layer_entries;
+        self.filter_scratch_pool_entries = scratch_entries;
         self
     }
 
@@ -234,5 +254,31 @@ mod tests {
         );
         assert_eq!(render.pending_key_to_present_samples(), 0);
         assert_eq!(render.key_to_present_p95_us(), 2_000);
+    }
+
+    #[test]
+    fn render_report_records_filter_pool_entries() {
+        #[derive(Clone)]
+        struct Model;
+
+        impl state::State for Model {}
+
+        let store = state::Store::new(Model);
+        let mut render = Render::default();
+
+        render.record_present(
+            store.revision(),
+            Report::new(
+                Duration::from_micros(5),
+                Duration::from_micros(10),
+                Instant::now(),
+            )
+            .with_group_composites(2)
+            .with_filter_pool_entries(3, 4),
+        );
+
+        assert_eq!(render.group_composites, 2);
+        assert_eq!(render.filter_layer_pool_entries, 3);
+        assert_eq!(render.filter_scratch_pool_entries, 4);
     }
 }

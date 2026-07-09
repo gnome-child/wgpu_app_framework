@@ -590,6 +590,10 @@ impl Renderer {
         pool.push(layer);
     }
 
+    pub(crate) fn layer_pool_entries(&self) -> usize {
+        self.layer_pool.borrow().len()
+    }
+
     fn scratch_targets<'a>(
         &'a self,
         render_context: &render::Context,
@@ -624,6 +628,10 @@ impl Renderer {
             pool.remove(0);
         }
         pool.push(scratch);
+    }
+
+    pub(crate) fn scratch_pool_entries(&self) -> usize {
+        self.scratch_pool.borrow().len()
     }
 
     pub fn clear_layer(&self, encoder: &mut wgpu::CommandEncoder, layer: &Layer) {

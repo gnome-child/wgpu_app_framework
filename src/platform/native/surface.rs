@@ -131,6 +131,8 @@ impl Native {
             .map(render::PresentTiming::acquire_wait)
             .unwrap_or_default();
         let group_composites = report.stats.group_composites;
+        let filter_layer_pool_entries = report.stats.filter_layer_pool_entries;
+        let filter_scratch_pool_entries = report.stats.filter_scratch_pool_entries;
         if acquire_wait.as_millis() >= 8 {
             log::debug!(
                 "surface acquire wait for window {:?}: {}us",
@@ -141,7 +143,8 @@ impl Native {
 
         Ok(
             diagnostics::RenderReport::new(acquire_wait, draw, Instant::now())
-                .with_group_composites(group_composites),
+                .with_group_composites(group_composites)
+                .with_filter_pool_entries(filter_layer_pool_entries, filter_scratch_pool_entries),
         )
     }
 
