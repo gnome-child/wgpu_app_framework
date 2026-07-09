@@ -1157,6 +1157,10 @@ fn paint_display_list_no_longer_routes_generic_filter_items() {
         "paint display list should not route generic filters after Pane"
     );
     assert!(
+        !paint.contains("filter_op_outset"),
+        "pane material bounds should not rewrap material layers as generic filter ops"
+    );
+    assert!(
         !batch.contains("ItemBatch::Filter"),
         "render batching should not carry generic filter batches after Pane"
     );

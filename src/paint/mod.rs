@@ -1041,33 +1041,21 @@ fn pane_outset(pane: &Pane, grid: Grid) -> f32 {
         Material::Glass(glass) => glass
             .backdrop_layers
             .iter()
-            .map(|layer| match *layer {
-                BackdropLayer::Blur(blur) => filter_op_outset(FilterOp::BackdropBlur(blur), grid),
-                BackdropLayer::Refraction(refraction) => {
-                    filter_op_outset(FilterOp::Refraction(refraction), grid)
-                }
-                BackdropLayer::Luminosity(luminosity) => {
-                    filter_op_outset(FilterOp::Luminosity(luminosity), grid)
-                }
-            })
+            .map(|layer| backdrop_layer_outset(*layer, grid))
             .fold(0.0, f32::max),
     }
 }
 
-fn filter_op_outset(op: FilterOp, grid: Grid) -> f32 {
+fn backdrop_layer_outset(layer: BackdropLayer, grid: Grid) -> f32 {
     let scale_factor = grid.scale_factor();
-    match op {
-        FilterOp::Blur { amount } => filter_blur_radius_px(amount, scale_factor) / scale_factor,
-        FilterOp::BackdropBlur(blur) => {
+    match layer {
+        BackdropLayer::Blur(blur) => {
             filter_blur_kernel_radius_px(blur.sigma, scale_factor) / scale_factor
         }
-        // Liquid/refraction displace the source sample but still write inside
+        // Refraction displaces the source sample but still writes inside
         // the shaped filter rect. Grow this when a future op owns pixels
         // outside its rect instead of only sampling from outside it.
-        FilterOp::Liquid { .. }
-        | FilterOp::Refraction(_)
-        | FilterOp::Luminosity(_)
-        | FilterOp::Noise(_) => 0.0,
+        BackdropLayer::Refraction(_) | BackdropLayer::Luminosity(_) => 0.0,
     }
 }
 
