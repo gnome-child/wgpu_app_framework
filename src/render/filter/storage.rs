@@ -2,7 +2,7 @@ use crate::{paint, render};
 
 use super::{Renderer, Target, TextureSource};
 
-pub struct Layer {
+pub(crate) struct Layer {
     pub(super) texture: Texture,
     pub(super) area: paint::area::Physical,
     pub(super) logical_area: paint::area::Logical,
@@ -124,7 +124,7 @@ impl<'a> ScratchTargets<'a> {
 }
 
 impl Layer {
-    pub fn view(&self) -> &wgpu::TextureView {
+    pub(crate) fn view(&self) -> &wgpu::TextureView {
         &self.texture.view
     }
 
