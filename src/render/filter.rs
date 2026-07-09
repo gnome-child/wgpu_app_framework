@@ -6,6 +6,7 @@ use crate::paint::{self, Rect};
 use crate::render;
 
 mod chain;
+mod effects;
 mod geometry;
 mod noise;
 mod params;
@@ -15,6 +16,9 @@ mod target;
 
 use chain::FilterChainContext;
 pub(crate) use chain::FilterSource;
+#[cfg(test)]
+use effects::liquid_depth_displacement;
+use effects::{liquid_effect, liquid_is_identity, refraction_effect};
 use geometry::{
     PreparedFilter, prepare_clip, prepare_filter, source_rect_for_prepared_destination,
 };
@@ -223,8 +227,6 @@ pub(crate) struct FilterDraw<'a> {
 }
 
 impl Renderer {
-    const MAX_LIQUID_REFRACTION: f32 = 48.0;
-
     pub fn new(render_context: &render::Context, format: wgpu::TextureFormat) -> Self {
         let shader_source = shader_source();
         let shader = render_context
@@ -1470,32 +1472,6 @@ impl Layer {
             sampling,
         }
     }
-}
-
-fn liquid_depth_displacement(depth: f32) -> f32 {
-    depth.clamp(0.0, 1.0) * Renderer::MAX_LIQUID_REFRACTION
-}
-
-fn liquid_effect(depth: f32, splay: f32, feather: f32, curve: f32) -> [f32; 4] {
-    [
-        liquid_depth_displacement(depth),
-        splay.max(0.0),
-        feather.max(0.0),
-        curve.max(0.1),
-    ]
-}
-
-fn refraction_effect(refraction: paint::Refraction) -> [f32; 4] {
-    [
-        refraction.displacement.clamp(0.0, 4.0),
-        refraction.splay.max(0.0),
-        refraction.feather.max(0.0),
-        refraction.curve.max(0.1),
-    ]
-}
-
-fn liquid_is_identity(depth: f32) -> bool {
-    depth <= 0.0
 }
 
 fn clear_view(
