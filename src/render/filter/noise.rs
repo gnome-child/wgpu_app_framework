@@ -53,7 +53,6 @@ pub(super) fn texture_size() -> u32 {
     TEXTURE_SIZE
 }
 
-#[cfg(test)]
 pub(super) fn bytes() -> Vec<u8> {
     let size = TEXTURE_SIZE as usize;
     let mut bytes = Vec::with_capacity(size * size * 4);
@@ -68,32 +67,7 @@ pub(super) fn bytes() -> Vec<u8> {
     bytes
 }
 
-#[cfg(not(test))]
-fn bytes() -> Vec<u8> {
-    let size = TEXTURE_SIZE as usize;
-    let mut bytes = Vec::with_capacity(size * size * 4);
-
-    for y in 0..TEXTURE_SIZE {
-        for x in 0..TEXTURE_SIZE {
-            let value = texel(x, y);
-            bytes.extend_from_slice(&[value, value, value, u8::MAX]);
-        }
-    }
-
-    bytes
-}
-
-#[cfg(test)]
 pub(super) fn texel(x: u32, y: u32) -> u8 {
-    texel_value(x, y)
-}
-
-#[cfg(not(test))]
-fn texel(x: u32, y: u32) -> u8 {
-    texel_value(x, y)
-}
-
-fn texel_value(x: u32, y: u32) -> u8 {
     let hash = hash_texel(x, y);
     let centered = hash as i16 - 128;
     let value = 128 + centered * 35 / 100;
