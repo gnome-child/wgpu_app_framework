@@ -1,4 +1,10 @@
-use super::*;
+use crate::paint;
+use crate::render;
+
+use super::params::{self, AlphaMode, ParamInput, Params};
+use super::pass::{BlurPass, CompositePass, EffectPass, LiquidPass, composite_vertices};
+use super::shader;
+use super::state::Renderer;
 use wgpu::util::DeviceExt;
 
 impl Renderer {
