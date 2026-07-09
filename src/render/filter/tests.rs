@@ -725,5 +725,10 @@ fn rect_fits_in_area(rect: Rect, area: paint::area::Logical) -> bool {
 }
 
 fn filter_module_source() -> String {
-    [include_str!("../filter.rs"), include_str!("draw.rs")].join("\n")
+    [
+        include_str!("../filter.rs"),
+        include_str!("draw.rs"),
+        include_str!("encode.rs"),
+    ]
+    .join("\n")
 }

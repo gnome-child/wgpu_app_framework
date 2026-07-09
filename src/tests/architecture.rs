@@ -1180,8 +1180,13 @@ fn compositor_diagnostics_are_documented_debug_targets() {
     let source_root = root.join("src");
     let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
         .expect("master design should read");
-    let filter = std::fs::read_to_string(source_root.join("render").join("filter.rs"))
-        .expect("filter renderer source should read");
+    let filter = [
+        std::fs::read_to_string(source_root.join("render").join("filter").join("encode.rs"))
+            .expect("filter encoder source should read"),
+        std::fs::read_to_string(source_root.join("render").join("filter.rs"))
+            .expect("filter renderer source should read"),
+    ]
+    .join("\n");
     let renderer = std::fs::read_to_string(source_root.join("render").join("renderer.rs"))
         .expect("renderer source should read");
     let presentation = std::fs::read_to_string(source_root.join("runtime").join("presentation.rs"))
