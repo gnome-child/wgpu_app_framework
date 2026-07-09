@@ -1,7 +1,10 @@
 use crate::paint;
 use crate::render;
 
-pub(crate) fn backdrop_filter(pane: &paint::Pane, glass: &paint::Glass) -> paint::Filter {
+pub(in crate::render) fn backdrop_filter(
+    pane: &paint::Pane,
+    glass: &paint::Glass,
+) -> paint::Filter {
     let mut filter = paint::Filter::stack(
         pane.rect,
         glass.backdrop_layers.iter().copied().map(backdrop_layer_op),
@@ -10,7 +13,7 @@ pub(crate) fn backdrop_filter(pane: &paint::Pane, glass: &paint::Glass) -> paint
     filter
 }
 
-pub(crate) fn backdrop_source<'a>(
+pub(in crate::render) fn backdrop_source<'a>(
     inside_group: bool,
     current_target_dirty: bool,
     pane: &paint::Pane,
@@ -55,7 +58,7 @@ pub(crate) fn backdrop_source<'a>(
     }
 }
 
-pub(crate) fn layer_sequence(glass: &paint::Glass) -> Vec<&'static str> {
+pub(in crate::render) fn layer_sequence(glass: &paint::Glass) -> Vec<&'static str> {
     let mut layers = Vec::new();
     for layer in &glass.backdrop_layers {
         layers.push(match layer {
@@ -73,7 +76,7 @@ pub(crate) fn layer_sequence(glass: &paint::Glass) -> Vec<&'static str> {
     layers
 }
 
-pub(crate) fn brush_with_opacity(brush: paint::Brush, opacity: f32) -> paint::Brush {
+pub(in crate::render) fn brush_with_opacity(brush: paint::Brush, opacity: f32) -> paint::Brush {
     let opacity = opacity.clamp(0.0, 1.0);
     match brush {
         paint::Brush::Solid(color) => paint::Brush::solid(color_with_opacity(color, opacity)),
