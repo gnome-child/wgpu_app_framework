@@ -1,5 +1,10 @@
+use crate::paint;
+
 use super::geometry::{prepare_clip, source_rect_for_prepared_destination};
-use super::*;
+use super::params::AlphaMode;
+use super::pass::{CompositePass, PassLabels};
+use super::state::Renderer;
+use super::storage::LayerComposite;
 
 impl Renderer {
     pub(crate) fn composite_layer(&self, pass: LayerComposite<'_>) {
