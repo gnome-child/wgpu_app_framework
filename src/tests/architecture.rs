@@ -1211,8 +1211,13 @@ fn compositor_diagnostics_are_documented_debug_targets() {
 #[test]
 fn filter_texture_pools_are_capped_and_reported() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let filter = std::fs::read_to_string(root.join("render").join("filter.rs"))
-        .expect("filter renderer source should read");
+    let filter = [
+        std::fs::read_to_string(root.join("render").join("filter.rs"))
+            .expect("filter renderer source should read"),
+        std::fs::read_to_string(root.join("render").join("filter").join("resources.rs"))
+            .expect("filter resources source should read"),
+    ]
+    .join("\n");
     let renderer = std::fs::read_to_string(root.join("render").join("renderer.rs"))
         .expect("renderer source should read");
     let diagnostics = std::fs::read_to_string(root.join("diagnostics").join("render.rs"))
