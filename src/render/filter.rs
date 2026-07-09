@@ -15,17 +15,19 @@ mod state;
 mod storage;
 mod target;
 
-pub(crate) use chain::FilterSource;
-pub(crate) use draw::FilterDraw;
+pub(in crate::render) use chain::FilterSource;
+pub(in crate::render) use draw::FilterDraw;
 #[cfg(test)]
-pub(crate) use encode::shader_source;
+pub(in crate::render) use encode::shader_source;
 #[cfg(test)]
-pub(crate) use geometry::{prepared_clip_silhouette_for_test, prepared_filter_silhouette_for_test};
-pub(crate) use source::TextureSource;
-pub(crate) use state::Renderer;
-pub(crate) use storage::Layer;
-pub(crate) use storage::LayerComposite;
-pub(crate) use target::Target;
+pub(in crate::render) use geometry::{
+    prepared_clip_silhouette_for_test, prepared_filter_silhouette_for_test,
+};
+pub(in crate::render) use source::TextureSource;
+pub(in crate::render) use state::Renderer;
+pub(in crate::render) use storage::Layer;
+pub(in crate::render) use storage::LayerComposite;
+pub(in crate::render) use target::Target;
 
 #[cfg(test)]
 mod tests;
