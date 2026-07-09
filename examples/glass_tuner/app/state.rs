@@ -4,6 +4,7 @@ use wgpu_l3::{scene, theme::Theme};
 pub struct State {
     pub panel_open: bool,
     pub comparison_open: bool,
+    pub force_promoted: bool,
     pub blur_sigma: f64,
     pub tint: Rgb,
     pub tint_opacity: f64,
@@ -89,6 +90,7 @@ impl Default for State {
         Self {
             panel_open: true,
             comparison_open: false,
+            force_promoted: false,
             blur_sigma: 44.55,
             tint: Rgb::new(28, 28, 30),
             tint_opacity: 0.88,

@@ -86,7 +86,10 @@ fn paint_overlay_entries(
                 scene.push_outline(outline);
             }
 
-            (!scene.is_empty()).then(|| overlay::Draft::new(id, scene))
+            (!scene.is_empty()).then(|| {
+                overlay::Draft::new(id, scene)
+                    .force_group_at_full_opacity(panel.force_overlay_group())
+            })
         })
         .collect()
 }

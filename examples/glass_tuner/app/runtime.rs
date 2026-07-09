@@ -1,6 +1,6 @@
 use super::{
     State,
-    command::{SetToken, ToggleComparison, TogglePanel},
+    command::{SetToken, ToggleComparison, ToggleForcePromoted, TogglePanel},
     view,
     view::{CANVAS_COLOR, WINDOW_TITLE, window_size},
 };
@@ -14,6 +14,7 @@ pub fn app(state: State) -> Runtime<State, (), View> {
             commands
                 .register::<TogglePanel>(command::Spec::new("Toggle panel"))
                 .register::<ToggleComparison>(command::Spec::new("Toggle comparison"))
+                .register::<ToggleForcePromoted>(command::Spec::new("Toggle forced promotion"))
                 .register::<SetToken>(command::Spec::new("Set acrylic token"));
         })
         .responders(|responders| {
@@ -21,6 +22,7 @@ pub fn app(state: State) -> Runtime<State, (), View> {
                 .app()
                 .target::<TogglePanel>()
                 .target::<ToggleComparison>()
+                .target::<ToggleForcePromoted>()
                 .target::<SetToken>();
         })
         .started(|cx| {

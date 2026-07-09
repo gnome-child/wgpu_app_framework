@@ -5,7 +5,7 @@ mod target;
 mod view;
 
 #[cfg(test)]
-pub use command::{SetToken, TogglePanel};
+pub use command::{SetToken, ToggleComparison, ToggleForcePromoted, TogglePanel};
 pub use runtime::app;
 #[cfg(not(test))]
 pub use runtime::run;

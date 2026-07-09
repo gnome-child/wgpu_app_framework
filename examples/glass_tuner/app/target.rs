@@ -1,6 +1,6 @@
 use super::{
     State,
-    command::{SetToken, ToggleComparison, TogglePanel},
+    command::{SetToken, ToggleComparison, ToggleForcePromoted, TogglePanel},
     state::AcrylicToken,
 };
 use wgpu_l3::{Context, Response, Target, command};
@@ -43,6 +43,22 @@ impl Target<ToggleComparison> for State {
             "promotion comparison shown".to_owned()
         } else {
             "promotion comparison hidden".to_owned()
+        };
+        Response::changed(())
+    }
+}
+
+impl Target<ToggleForcePromoted> for State {
+    fn state(&self, _: &(), _: &Context) -> command::State {
+        command::State::enabled().checked(self.force_promoted)
+    }
+
+    fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
+        self.force_promoted = !self.force_promoted;
+        self.last_status = if self.force_promoted {
+            "forced promotion enabled".to_owned()
+        } else {
+            "forced promotion disabled".to_owned()
         };
         Response::changed(())
     }

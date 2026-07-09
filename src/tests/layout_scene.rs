@@ -4651,6 +4651,43 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
     assert!(expired.scene().filters().is_empty());
 }
 
+#[test]
+fn glass_tuner_force_promoted_comparison_renders_group_at_rest() {
+    let mut app = glass_tuner::app(glass_tuner::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = glass_tuner::window_size();
+    let initial = app
+        .render_scene_after_overlay_fade(window, size)
+        .expect("glass tuner should render");
+    assert_eq!(top_level_group_count(initial.scene()), 0);
+
+    app.invoke(app.trigger::<glass_tuner::ToggleComparison>(()))
+        .output
+        .expect("toggle comparison should succeed");
+    app.invoke(app.trigger::<glass_tuner::ToggleForcePromoted>(()))
+        .output
+        .expect("toggle forced promotion should succeed");
+    let forced = app
+        .render_scene_after_overlay_fade(window, size)
+        .expect("forced comparison should render");
+
+    assert!(
+        top_level_group_count(forced.scene()) >= 1,
+        "forced full-opacity comparison overlay should stay on the group path"
+    );
+}
+
+fn top_level_group_count(scene: &Scene) -> usize {
+    scene
+        .primitives()
+        .iter()
+        .filter(|primitive| matches!(primitive, scene::Primitive::Group(_)))
+        .count()
+}
+
 fn assert_tint_quad(scene: &Scene, rect: geometry::Rect, color: scene::Color) {
     assert!(
         scene.quads().iter().any(|quad| {

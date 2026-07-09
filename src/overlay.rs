@@ -11,6 +11,7 @@ pub(crate) const DEFAULT_GHOST_LIMIT: usize = 8;
 pub(crate) struct Draft {
     id: interaction::Id,
     scene: scene::Scene,
+    force_group_at_full_opacity: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -21,6 +22,10 @@ pub(crate) struct Entry {
     scene: scene::Scene,
     opacity: f32,
     state: State,
+    elapsed: Duration,
+    force_group_at_full_opacity: bool,
+    demotion_marker: bool,
+    frame_number: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +52,11 @@ pub(crate) struct Layer {
     scene: scene::Scene,
     opacity: f32,
     kind: LayerKind,
+    state: Option<State>,
+    elapsed: Option<Duration>,
+    force_group_at_full_opacity: bool,
+    demotion_marker: bool,
+    frame_number: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +82,7 @@ struct WindowState {
     live: Vec<Live>,
     ghosts: Vec<Ghost>,
     next_order: u64,
+    frame_number: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -80,11 +91,21 @@ struct Live {
     order: u64,
     scene: scene::Scene,
     appeared_at: Instant,
+    demotion_logged: bool,
 }
 
 impl Draft {
     pub(crate) fn new(id: interaction::Id, scene: scene::Scene) -> Self {
-        Self { id, scene }
+        Self {
+            id,
+            scene,
+            force_group_at_full_opacity: false,
+        }
+    }
+
+    pub(crate) fn force_group_at_full_opacity(mut self, force: bool) -> Self {
+        self.force_group_at_full_opacity = force;
+        self
     }
 
     pub(crate) fn id(&self) -> interaction::Id {
@@ -105,12 +126,17 @@ impl Entry {
             scene: self.scene.clone(),
             opacity: self.opacity,
             kind: LayerKind::Live,
+            state: Some(self.state),
+            elapsed: Some(self.elapsed),
+            force_group_at_full_opacity: self.force_group_at_full_opacity,
+            demotion_marker: self.demotion_marker,
+            frame_number: self.frame_number,
         }
     }
 }
 
 impl Ghost {
-    fn layer_at(&self, now: Instant) -> Option<Layer> {
+    fn layer_at(&self, now: Instant, frame_number: u64) -> Option<Layer> {
         if self.expired_at(now) {
             return None;
         }
@@ -121,6 +147,11 @@ impl Ghost {
             scene: self.scene.clone(),
             opacity: self.opacity_at(now),
             kind: LayerKind::Ghost,
+            state: None,
+            elapsed: Some(now.saturating_duration_since(self.started_at)),
+            force_group_at_full_opacity: false,
+            demotion_marker: false,
+            frame_number,
         })
     }
 
@@ -163,6 +194,26 @@ impl Layer {
     pub(crate) fn kind(&self) -> LayerKind {
         self.kind
     }
+
+    pub(crate) fn state(&self) -> Option<State> {
+        self.state
+    }
+
+    pub(crate) fn elapsed(&self) -> Option<Duration> {
+        self.elapsed
+    }
+
+    pub(crate) fn force_group_at_full_opacity(&self) -> bool {
+        self.force_group_at_full_opacity
+    }
+
+    pub(crate) fn demotion_marker(&self) -> bool {
+        self.demotion_marker
+    }
+
+    pub(crate) fn frame_number(&self) -> u64 {
+        self.frame_number
+    }
 }
 
 impl Update {
@@ -195,6 +246,8 @@ impl Store {
         now: Instant,
     ) -> Update {
         let state = self.windows.entry(window).or_default();
+        state.frame_number = state.frame_number.saturating_add(1);
+        let frame_number = state.frame_number;
         let previous_live = std::mem::take(&mut state.live);
         let mut previous_by_id = previous_live
             .into_iter()
@@ -225,13 +278,13 @@ impl Store {
 
         let mut entries = Vec::with_capacity(drafts.len());
         for draft in drafts {
-            let (order, appeared_at) = previous_by_id
+            let (order, appeared_at, demotion_logged) = previous_by_id
                 .remove(&draft.id)
-                .map(|live| (live.order, live.appeared_at))
+                .map(|live| (live.order, live.appeared_at, live.demotion_logged))
                 .unwrap_or_else(|| {
                     let order = state.next_order;
                     state.next_order = state.next_order.saturating_add(1);
-                    (order, now)
+                    (order, now, false)
                 });
             let (opacity, entering) = live_opacity(appeared_at, overlay.enter_fade_ms, now);
             let state_kind = if entering {
@@ -239,11 +292,13 @@ impl Store {
             } else {
                 State::Live
             };
+            let demotion_marker = !entering && !demotion_logged && overlay.enter_fade_ms > 0;
             let live = Live {
                 id: draft.id,
                 order,
                 scene: draft.scene.clone(),
                 appeared_at,
+                demotion_logged: demotion_logged || demotion_marker,
             };
             state.live.push(live);
             entries.push(Entry {
@@ -252,13 +307,17 @@ impl Store {
                 scene: draft.scene,
                 opacity,
                 state: state_kind,
+                elapsed: now.saturating_duration_since(appeared_at),
+                force_group_at_full_opacity: draft.force_group_at_full_opacity,
+                demotion_marker,
+                frame_number,
             });
         }
 
         let mut layers = state
             .ghosts
             .iter()
-            .filter_map(|ghost| ghost.layer_at(now))
+            .filter_map(|ghost| ghost.layer_at(now, frame_number))
             .chain(entries.iter().map(Entry::layer))
             .collect::<Vec<_>>();
         layers.sort_by_key(|layer| layer.order);
@@ -306,7 +365,10 @@ fn live_opacity(appeared_at: Instant, duration_ms: u64, now: Instant) -> (f32, b
     let progress =
         now.saturating_duration_since(appeared_at).as_secs_f32() / duration.as_secs_f32();
     let entering = progress < 1.0;
-    let opacity = animation::Easing::EaseOutCubic.sample(progress.clamp(0.0, 1.0));
+    let mut opacity = animation::Easing::EaseOutCubic.sample(progress.clamp(0.0, 1.0));
+    if entering {
+        opacity = opacity.min(f32::from_bits(1.0_f32.to_bits() - 1));
+    }
 
     (opacity, entering)
 }
@@ -330,6 +392,17 @@ mod tests {
         )
     }
 
+    fn force_group_draft(id: &'static str) -> Draft {
+        draft(id).force_group_at_full_opacity(true)
+    }
+
+    fn assert_close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 0.0001,
+            "expected {actual} to be close to {expected}"
+        );
+    }
+
     #[test]
     fn live_entry_fades_in_and_settles() {
         let mut store = Store::new();
@@ -351,6 +424,75 @@ mod tests {
         );
         assert_eq!(settled.layers[0].opacity, 1.0);
         assert_eq!(settled.schedule, animation::Schedule::Idle);
+    }
+
+    #[test]
+    fn long_live_entry_fade_samples_tail_without_early_completion() {
+        let mut store = Store::new();
+        let window = window::Id::new(11);
+        let now = Instant::now();
+        let theme = overlay_theme(5_000, 120);
+
+        store.update_window(window, vec![draft("menu")], theme, now);
+        let late = store.update_window(
+            window,
+            vec![draft("menu")],
+            theme,
+            now + Duration::from_millis(4_000),
+        );
+        let tail = store.update_window(
+            window,
+            vec![draft("menu")],
+            theme,
+            now + Duration::from_millis(4_999),
+        );
+        let settled = store.update_window(
+            window,
+            vec![draft("menu")],
+            theme,
+            now + Duration::from_millis(5_000),
+        );
+
+        assert_close(
+            late.layers[0].opacity,
+            animation::Easing::EaseOutCubic.sample(0.8),
+        );
+        assert_eq!(late.layers[0].state, Some(State::Entering));
+        assert_eq!(late.schedule, animation::Schedule::NextFrame);
+        assert!(tail.layers[0].opacity < 1.0);
+        assert_eq!(tail.layers[0].state, Some(State::Entering));
+        assert_eq!(tail.schedule, animation::Schedule::NextFrame);
+        assert_eq!(settled.layers[0].opacity, 1.0);
+        assert_eq!(settled.layers[0].state, Some(State::Live));
+        assert_eq!(settled.schedule, animation::Schedule::Idle);
+        assert!(settled.layers[0].demotion_marker);
+
+        let later = store.update_window(
+            window,
+            vec![draft("menu")],
+            theme,
+            now + Duration::from_millis(5_001),
+        );
+        assert!(!later.layers[0].demotion_marker);
+    }
+
+    #[test]
+    fn force_group_flag_survives_to_live_layer_at_full_opacity() {
+        let mut store = Store::new();
+        let window = window::Id::new(12);
+        let now = Instant::now();
+
+        let update = store.update_window(
+            window,
+            vec![force_group_draft("comparison")],
+            overlay_theme(0, 120),
+            now,
+        );
+
+        assert_eq!(update.layers.len(), 1);
+        assert_eq!(update.layers[0].opacity, 1.0);
+        assert_eq!(update.layers[0].kind, LayerKind::Live);
+        assert!(update.layers[0].force_group_at_full_opacity);
     }
 
     #[test]

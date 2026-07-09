@@ -26,6 +26,7 @@ pub struct Node {
     axis: Option<Axis>,
     style: Style,
     floating_placement: FloatingPlacement,
+    force_overlay_group: bool,
     subject: Option<subject::Segment>,
     label: Option<String>,
     binding: Option<Binding>,

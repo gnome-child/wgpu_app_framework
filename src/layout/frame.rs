@@ -55,6 +55,7 @@ pub(crate) struct Frame {
     focused: bool,
     focus_visible: bool,
     selected: bool,
+    force_overlay_group: bool,
     floating_layer: bool,
     background: Option<scene::Brush>,
     clip: Option<Clip>,
@@ -170,6 +171,7 @@ impl Frame {
             focused: node.is_focused(),
             focus_visible: node.focus_visible(),
             selected: node.is_selected(),
+            force_overlay_group: node.force_overlay_group(),
             floating_layer,
             background: node.style().background(),
             clip,
@@ -253,6 +255,10 @@ impl Frame {
 
     pub(crate) fn is_selected(&self) -> bool {
         self.selected
+    }
+
+    pub(crate) fn force_overlay_group(&self) -> bool {
+        self.force_overlay_group
     }
 
     pub(crate) fn is_floating_layer(&self) -> bool {

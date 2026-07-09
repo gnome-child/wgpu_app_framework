@@ -49,6 +49,11 @@ impl Floating {
         self
     }
 
+    pub fn diagnostic_force_promoted_at_full_opacity(mut self, force: bool) -> Self {
+        self.panel = self.panel.force_overlay_group(force);
+        self
+    }
+
     pub fn background(mut self, background: scene::Brush) -> Self {
         self.panel = self.panel.background(background);
         self
@@ -134,6 +139,11 @@ impl Panel {
 
     fn floating_placement(mut self, placement: view::FloatingPlacement) -> Self {
         self.element = self.element.floating_placement(placement);
+        self
+    }
+
+    fn force_overlay_group(mut self, force: bool) -> Self {
+        self.element = self.element.force_overlay_group(force);
         self
     }
 

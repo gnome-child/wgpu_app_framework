@@ -3,6 +3,7 @@ use wgpu_l3::command::Command;
 
 pub struct TogglePanel;
 pub struct ToggleComparison;
+pub struct ToggleForcePromoted;
 pub struct SetToken;
 
 impl Command for TogglePanel {
@@ -24,4 +25,11 @@ impl Command for ToggleComparison {
     type Output = ();
 
     const NAME: &'static str = "glass_tuner.toggle_promotion_comparison";
+}
+
+impl Command for ToggleForcePromoted {
+    type Args = ();
+    type Output = ();
+
+    const NAME: &'static str = "glass_tuner.toggle_force_promoted";
 }

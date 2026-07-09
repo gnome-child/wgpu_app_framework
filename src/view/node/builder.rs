@@ -169,6 +169,11 @@ impl Node {
         self
     }
 
+    pub(crate) fn with_force_overlay_group(mut self, force: bool) -> Self {
+        self.force_overlay_group = force;
+        self
+    }
+
     pub(crate) fn with_subject(mut self, subject: subject::Segment) -> Self {
         self.subject = Some(subject);
         self
@@ -230,6 +235,7 @@ impl Node {
             axis: None,
             style: Style::default(),
             floating_placement: FloatingPlacement::Default,
+            force_overlay_group: false,
             subject: None,
             label: None,
             binding: None,

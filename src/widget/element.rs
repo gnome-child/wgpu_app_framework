@@ -65,6 +65,11 @@ impl Element {
         self
     }
 
+    pub(in crate::widget) fn force_overlay_group(mut self, force: bool) -> Self {
+        self.node = self.node.with_force_overlay_group(force);
+        self
+    }
+
     pub fn background(mut self, background: scene::Brush) -> Self {
         self.background = Some(background);
         self

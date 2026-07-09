@@ -1,6 +1,6 @@
 use super::{
     State,
-    command::{SetToken, ToggleComparison, TogglePanel},
+    command::{SetToken, ToggleComparison, ToggleForcePromoted, TogglePanel},
     state::AcrylicToken,
 };
 use wgpu_l3::{
@@ -60,6 +60,11 @@ fn toolbar(state: &State) -> widget::Element {
                 widget::Button::new("Compare fade")
                     .reserve_labels(["Compare fade"])
                     .trigger::<ToggleComparison>(()),
+            );
+            ui.button(
+                widget::Button::new("Force promote")
+                    .reserve_labels(["Force promote"])
+                    .trigger::<ToggleForcePromoted>(()),
             );
             ui.label(format!("Status: {}", state.last_status));
         })
@@ -150,6 +155,7 @@ fn floating_panel(state: &State) -> widget::panel::Floating {
 fn comparison_panel(state: &State) -> widget::panel::Floating {
     widget::panel::Floating::new(COMPARISON_ID)
         .offset(588, 18)
+        .diagnostic_force_promoted_at_full_opacity(state.force_promoted)
         .column()
         .width(Dimension::fixed(340))
         .height(Dimension::fixed(240))
@@ -162,6 +168,7 @@ fn comparison_panel(state: &State) -> widget::panel::Floating {
                 state.luminosity_opacity
             ));
             ui.label(format!("Noise opacity: {:.3}", state.noise_opacity));
+            ui.label(format!("Forced group: {}", state.force_promoted));
             ui.label(state.tint.hex());
         })
 }

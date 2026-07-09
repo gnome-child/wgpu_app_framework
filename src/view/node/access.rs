@@ -23,6 +23,10 @@ impl Node {
         self.floating_placement
     }
 
+    pub(crate) fn force_overlay_group(&self) -> bool {
+        self.force_overlay_group
+    }
+
     pub fn subject(&self) -> Option<&subject::Segment> {
         self.subject.as_ref()
     }

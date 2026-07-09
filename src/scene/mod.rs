@@ -114,12 +114,20 @@ impl Scene {
     }
 
     pub(crate) fn append_scene_with_opacity(&mut self, scene: &Scene, opacity: f32) {
+        self.append_scene_with_opacity_mode(scene, opacity, false);
+    }
+
+    pub(crate) fn append_scene_with_forced_group(&mut self, scene: &Scene, opacity: f32) {
+        self.append_scene_with_opacity_mode(scene, opacity, true);
+    }
+
+    fn append_scene_with_opacity_mode(&mut self, scene: &Scene, opacity: f32, force_group: bool) {
         let opacity = opacity.clamp(0.0, 1.0);
         if opacity <= 0.0 {
             return;
         }
 
-        if opacity >= 1.0 {
+        if opacity >= 1.0 && !force_group {
             self.primitives.extend(scene.primitives().iter().cloned());
         } else if let Some(group) = Group::new(scene.primitives().to_vec(), opacity) {
             self.primitives.push(Primitive::Group(group));
@@ -392,6 +400,22 @@ mod tests {
             panic!("expected one group");
         };
         assert_eq!(group.opacity(), 0.5);
+        assert_eq!(group.primitives().len(), 1);
+    }
+
+    #[test]
+    fn forced_opacity_one_overlay_promotes_to_group() {
+        let source = simple_scene();
+        let mut target = Scene::new(geometry::Size::new(100, 100));
+
+        target.append_scene_with_forced_group(&source, 1.0);
+
+        assert_eq!(target.quads().len(), 1);
+        let groups = target.groups();
+        let [group] = groups.as_slice() else {
+            panic!("expected one group");
+        };
+        assert_eq!(group.opacity(), 1.0);
         assert_eq!(group.primitives().len(), 1);
     }
 }

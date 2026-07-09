@@ -489,9 +489,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .overlays
             .update_window(window, entries, theme.overlay(), now);
         for layer in overlay_update.layers() {
+            log_overlay_layer_application(layer, overlay_update.schedule());
             match layer.kind() {
                 crate::overlay::LayerKind::Live => {
-                    scene.append_scene_with_opacity(layer.scene(), layer.opacity());
+                    append_overlay_layer(&mut scene, layer);
                 }
                 crate::overlay::LayerKind::Ghost => {
                     scene.append_ghost_scene_with_opacity(layer.scene(), layer.opacity());
@@ -566,9 +567,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 .overlays
                 .update_window(window, entries, theme.overlay(), now);
             for layer in overlay_update.layers() {
+                log_overlay_layer_application(layer, overlay_update.schedule());
                 match layer.kind() {
                     crate::overlay::LayerKind::Live => {
-                        scene.append_scene_with_opacity(layer.scene(), layer.opacity());
+                        append_overlay_layer(&mut scene, layer);
                     }
                     crate::overlay::LayerKind::Ghost => {
                         scene.append_ghost_scene_with_opacity(layer.scene(), layer.opacity());
@@ -641,6 +643,49 @@ fn caret_animation_schedule(layout: &layout::Layout, now: Instant) -> animation:
         .filter_map(|frame| focused_text_caret_deadline(frame, now))
         .map(animation::Schedule::At)
         .fold(animation::Schedule::Idle, animation::Schedule::merge)
+}
+
+fn append_overlay_layer(scene: &mut scene::Scene, layer: &crate::overlay::Layer) {
+    if layer.force_group_at_full_opacity() {
+        scene.append_scene_with_forced_group(layer.scene(), layer.opacity());
+    } else {
+        scene.append_scene_with_opacity(layer.scene(), layer.opacity());
+    }
+}
+
+fn log_overlay_layer_application(layer: &crate::overlay::Layer, schedule: animation::Schedule) {
+    if layer.kind() != crate::overlay::LayerKind::Live {
+        return;
+    }
+
+    let Some(state) = layer.state() else {
+        return;
+    };
+    let elapsed_ms = layer
+        .elapsed()
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or(0);
+    log::debug!(
+        target: "wgpu_l3::overlay::fade",
+        "overlay fade frame={} elapsed_ms={} sampled_alpha={:.6} applied_alpha={:.6} state={:?} schedule={:?} force_group={} demotion={}",
+        layer.frame_number(),
+        elapsed_ms,
+        layer.opacity(),
+        layer.opacity(),
+        state,
+        schedule,
+        layer.force_group_at_full_opacity(),
+        layer.demotion_marker(),
+    );
+    if layer.demotion_marker() {
+        log::debug!(
+            target: "wgpu_l3::overlay::fade",
+            "overlay fade demotion frame={} elapsed_ms={} alpha={:.6}",
+            layer.frame_number(),
+            elapsed_ms,
+            layer.opacity(),
+        );
+    }
 }
 
 fn focused_text_caret_deadline(frame: &layout::Frame, now: Instant) -> Option<Instant> {
