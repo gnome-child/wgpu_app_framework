@@ -387,13 +387,11 @@ fn composite_pass_logs_coverage_and_alpha_params() {
 #[test]
 fn filter_op_composites_use_context_output() {
     let source = filter_module_source();
-    let draw_body = source
-        .split("pub(in crate::render) fn draw")
-        .nth(1)
-        .expect("draw function should exist")
-        .split("pub(in crate::render) fn composite_layer")
-        .next()
-        .expect("draw body should precede layer composite");
+    let draw_body = source_between(
+        &source,
+        "fn draw(&self, pass: FilterDraw",
+        "fn composite_layer(&self, pass: LayerComposite",
+    );
 
     assert!(
         !draw_body.contains("output: pass.output"),
@@ -622,4 +620,14 @@ fn filter_module_source() -> String {
         include_str!("encode.rs"),
     ]
     .join("\n")
+}
+
+fn source_between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+    source
+        .split(start)
+        .nth(1)
+        .unwrap_or_else(|| panic!("source should contain {start}"))
+        .split(end)
+        .next()
+        .unwrap_or_else(|| panic!("{start} should precede {end}"))
 }
