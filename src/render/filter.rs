@@ -35,12 +35,12 @@ use pass::{
     composite_vertices,
 };
 pub(crate) use source::TextureSource;
-pub use storage::Layer;
+pub(crate) use storage::Layer;
 pub(crate) use storage::LayerComposite;
 use storage::{
     ScratchTargets, ScratchTextures, Texture, Textures, take_pooled_layer, take_pooled_scratch,
 };
-pub use target::Target;
+pub(crate) use target::Target;
 
 const LAYER_POOL_LIMIT: usize = 8;
 const SCRATCH_POOL_LIMIT: usize = 8;
