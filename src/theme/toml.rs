@@ -2362,14 +2362,14 @@ mod tests {
         let unknown_material_recipe = Theme::from_toml_str(
             r##"
             [floating-panel]
-            material = { kind = "glass", recipe = "liquid-glass" }
+            material = { kind = "glass", recipe = "missing-glass" }
             "##,
         )
         .expect_err("unknown material recipes should fail");
         assert!(matches!(
             unknown_material_recipe,
             ThemeTomlError::UnknownMaterialRecipe { field, name }
-                if field == "floating-panel.material" && name == "liquid-glass"
+                if field == "floating-panel.material" && name == "missing-glass"
         ));
 
         let misspelled_material_field = Theme::from_toml_str(
@@ -2395,7 +2395,7 @@ mod tests {
         let old_filter_array = Theme::from_toml_str(
             r##"
             [floating-panel]
-            filters = [{ kind = "liquid", depth = 0.2, splay = 2.0, feather = 18.0, curve = 2.0 }]
+            filters = [{ kind = "legacy", amount = 0.2 }]
             "##,
         )
         .expect_err("old filter arrays should fail");
