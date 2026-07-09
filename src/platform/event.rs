@@ -7,7 +7,7 @@ use winit::{
     keyboard::{Key as WinitKey, ModifiersState, NamedKey},
 };
 
-use super::super::{geometry, host, input, interaction, window};
+use super::super::{geometry, host, input, interaction, pointer, window};
 
 pub struct Events {
     modifiers: input::Modifiers,
@@ -85,19 +85,16 @@ impl Events {
                 host::WindowEvent::PointerMoved { point }
             }
             WinitWindowEvent::CursorLeft { .. } => host::WindowEvent::PointerLeft,
-            WinitWindowEvent::MouseInput {
-                state,
-                button: MouseButton::Left,
-                ..
-            } => match state {
+            WinitWindowEvent::MouseInput { state, button, .. } => match state {
                 ElementState::Pressed => host::WindowEvent::PointerDown {
                     point: self.pointer(window),
+                    button: pointer_button(*button),
                 },
                 ElementState::Released => host::WindowEvent::PointerUp {
                     point: self.pointer(window),
+                    button: pointer_button(*button),
                 },
             },
-            WinitWindowEvent::MouseInput { .. } => return None,
             WinitWindowEvent::MouseWheel { delta, .. } => host::WindowEvent::Scrolled {
                 point: self.pointer(window),
                 delta: scroll_delta(*delta, scale_factor),
@@ -131,6 +128,41 @@ impl Events {
         };
 
         Some(host::Event::window(window, event))
+    }
+
+    pub fn popup_window_event(
+        &mut self,
+        parent: window::Id,
+        bounds: geometry::Rect,
+        popup_scale_factor: f64,
+        event: &WinitWindowEvent,
+    ) -> Option<host::Event> {
+        let event = match event {
+            WinitWindowEvent::CursorMoved { position, .. } => {
+                let point = popup_point_from_physical(*position, popup_scale_factor, bounds);
+                self.window_state(parent).pointer = point;
+                host::WindowEvent::PointerMoved { point }
+            }
+            WinitWindowEvent::CursorLeft { .. } => host::WindowEvent::PointerLeft,
+            WinitWindowEvent::MouseInput { state, button, .. } => match state {
+                ElementState::Pressed => host::WindowEvent::PointerDown {
+                    point: self.pointer(parent),
+                    button: pointer_button(*button),
+                },
+                ElementState::Released => host::WindowEvent::PointerUp {
+                    point: self.pointer(parent),
+                    button: pointer_button(*button),
+                },
+            },
+            WinitWindowEvent::MouseWheel { delta, .. } => host::WindowEvent::Scrolled {
+                point: self.pointer(parent),
+                delta: scroll_delta(*delta, popup_scale_factor),
+            },
+            WinitWindowEvent::RedrawRequested => host::WindowEvent::RedrawRequested,
+            _ => return None,
+        };
+
+        Some(host::Event::window(parent, event))
     }
 
     fn window_state(&mut self, window: window::Id) -> &mut WindowEvents {
@@ -205,6 +237,18 @@ pub fn point_from_physical(position: PhysicalPosition<f64>, scale_factor: f64) -
     )
 }
 
+pub fn popup_point_from_physical(
+    position: PhysicalPosition<f64>,
+    scale_factor: f64,
+    bounds: geometry::Rect,
+) -> geometry::Point {
+    let local = point_from_physical(position, scale_factor);
+    geometry::Point::new(
+        bounds.x().saturating_add(local.x()),
+        bounds.y().saturating_add(local.y()),
+    )
+}
+
 pub fn scroll_delta(delta: MouseScrollDelta, scale_factor: f64) -> interaction::ScrollDelta {
     const LINE_SCROLL_LOGICAL_PIXELS: f64 = 28.0;
 
@@ -220,6 +264,17 @@ pub fn scroll_delta(delta: MouseScrollDelta, scale_factor: f64) -> interaction::
                 logical_i32(-position.y / scale_factor),
             )
         }
+    }
+}
+
+pub fn pointer_button(button: MouseButton) -> pointer::Button {
+    match button {
+        MouseButton::Left => pointer::Button::Primary,
+        MouseButton::Right => pointer::Button::Secondary,
+        MouseButton::Middle => pointer::Button::Middle,
+        MouseButton::Back => pointer::Button::Back,
+        MouseButton::Forward => pointer::Button::Forward,
+        MouseButton::Other(value) => pointer::Button::Other(value),
     }
 }
 

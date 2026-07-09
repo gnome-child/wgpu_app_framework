@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{Error, geometry, input, interaction, state::State, window as app_window};
+use crate::{Error, geometry, input, interaction, pointer, state::State, window as app_window};
 
 use super::Shell;
 
@@ -37,7 +37,12 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
         &mut self,
         window: app_window::Id,
         point: geometry::Point,
+        button: pointer::Button,
     ) -> Result<input::Outcome, Error> {
+        if button != pointer::Button::Primary {
+            return Ok(input::Outcome::ignored());
+        }
+
         let Some(size) = self.window_size(window) else {
             return Ok(input::Outcome::ignored());
         };
@@ -49,7 +54,12 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
         &mut self,
         window: app_window::Id,
         point: geometry::Point,
+        button: pointer::Button,
     ) -> Result<input::Outcome, Error> {
+        if button != pointer::Button::Primary {
+            return Ok(input::Outcome::ignored());
+        }
+
         let Some(size) = self.window_size(window) else {
             return Ok(input::Outcome::ignored());
         };

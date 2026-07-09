@@ -87,13 +87,9 @@ fn paint_overlay_entries(
             }
 
             (!scene.is_empty()).then(|| {
-                let preference = if id == interaction::CommandPalette::panel_id() {
-                    overlay::Preference::InFrame
-                } else {
-                    overlay::Preference::NativePopup
-                };
                 overlay::Draft::new(id, panel.rect(), scene)
-                    .prefer(preference)
+                    .prefer(overlay::Preference::NativePopup)
+                    .material_realization(panel.overlay_realization())
                     .force_group_at_full_opacity(panel.force_overlay_group())
             })
         })

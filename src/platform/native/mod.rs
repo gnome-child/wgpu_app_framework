@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{interaction, render};
+use crate::{geometry, interaction, render};
 
 use super::super::{session, window as app_window};
 
@@ -38,8 +38,17 @@ struct PopupKey {
 
 struct PopupWindow {
     window: window::Window,
+    bounds: geometry::Rect,
     geometry: PopupGeometryState,
     visible: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(in crate::platform) struct PopupEventTarget {
+    parent: app_window::Id,
+    id: interaction::Id,
+    bounds: geometry::Rect,
+    scale_factor: f64,
 }
 
 #[derive(Debug, Default)]
@@ -66,9 +75,28 @@ impl PopupWindow {
     fn new(window: window::Window) -> Self {
         Self {
             window,
+            bounds: geometry::Rect::new(0, 0, 0, 0),
             geometry: PopupGeometryState::default(),
             visible: false,
         }
+    }
+}
+
+impl PopupEventTarget {
+    pub(in crate::platform) fn parent(self) -> app_window::Id {
+        self.parent
+    }
+
+    pub(in crate::platform) fn id(self) -> interaction::Id {
+        self.id
+    }
+
+    pub(in crate::platform) fn bounds(self) -> geometry::Rect {
+        self.bounds
+    }
+
+    pub(in crate::platform) fn scale_factor(self) -> f64 {
+        self.scale_factor
     }
 }
 

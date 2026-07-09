@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use crate::text;
 
-use crate::{Error, geometry, input, interaction, state::State, window};
+use crate::{Error, geometry, input, interaction, pointer, state::State, window};
 
 use super::{Shell, Work};
 
@@ -26,10 +26,12 @@ pub enum Event {
     PointerDown {
         window: window::Id,
         point: geometry::Point,
+        button: pointer::Button,
     },
     PointerUp {
         window: window::Id,
         point: geometry::Point,
+        button: pointer::Button,
     },
     PointerLeft {
         window: window::Id,
@@ -83,12 +85,20 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 self.pointer_move(window, point)?;
                 Ok(self.drain())
             }
-            Event::PointerDown { window, point } => {
-                self.pointer_down(window, point)?;
+            Event::PointerDown {
+                window,
+                point,
+                button,
+            } => {
+                self.pointer_down(window, point, button)?;
                 Ok(self.drain())
             }
-            Event::PointerUp { window, point } => {
-                self.pointer_up(window, point)?;
+            Event::PointerUp {
+                window,
+                point,
+                button,
+            } => {
+                self.pointer_up(window, point, button)?;
                 Ok(self.drain())
             }
             Event::PointerLeft { window } => {

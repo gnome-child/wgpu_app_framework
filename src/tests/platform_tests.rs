@@ -98,25 +98,35 @@ fn platform_events_translate_winit_window_events_to_host_events() {
         .expect("left press should map");
     match pressed {
         host::Event::Window {
-            event: host::WindowEvent::PointerDown { point },
+            event: host::WindowEvent::PointerDown { point, button },
             ..
-        } => assert_eq!(point, geometry::Point::new(11, 16)),
+        } => {
+            assert_eq!(point, geometry::Point::new(11, 16));
+            assert_eq!(button, pointer::Button::Primary);
+        }
         _ => panic!("expected pointer down event"),
     }
 
-    assert!(
-        events
-            .window_event(
-                window,
-                &WinitWindowEvent::MouseInput {
-                    device_id: DeviceId::dummy(),
-                    state: ElementState::Pressed,
-                    button: MouseButton::Right,
-                },
-            )
-            .is_none(),
-        "secondary buttons are not modeled by the host yet"
-    );
+    let secondary = events
+        .window_event(
+            window,
+            &WinitWindowEvent::MouseInput {
+                device_id: DeviceId::dummy(),
+                state: ElementState::Pressed,
+                button: MouseButton::Right,
+            },
+        )
+        .expect("secondary press should map");
+    match secondary {
+        host::Event::Window {
+            event: host::WindowEvent::PointerDown { point, button },
+            ..
+        } => {
+            assert_eq!(point, geometry::Point::new(11, 16));
+            assert_eq!(button, pointer::Button::Secondary);
+        }
+        _ => panic!("expected secondary pointer down event"),
+    }
 
     let scrolled = events
         .window_event(
@@ -255,10 +265,11 @@ fn platform_events_keep_pointer_and_scale_per_window() {
     match second_press {
         host::Event::Window {
             window: event_window,
-            event: host::WindowEvent::PointerDown { point },
+            event: host::WindowEvent::PointerDown { point, button },
         } => {
             assert_eq!(event_window, second);
             assert_eq!(point, geometry::Point::new(0, 0));
+            assert_eq!(button, pointer::Button::Primary);
         }
         _ => panic!("expected second pointer down event"),
     }
@@ -267,6 +278,145 @@ fn platform_events_keep_pointer_and_scale_per_window() {
     assert_eq!(events.pointer(second), geometry::Point::new(0, 0));
     assert_eq!(events.scale_factor(first), 2.0);
     assert_eq!(events.scale_factor(second), 1.0);
+}
+
+#[test]
+fn popup_window_events_map_to_parent_overlay_coordinates() {
+    use winit::{
+        dpi::PhysicalPosition,
+        event::{
+            DeviceId, ElementState, MouseButton, MouseScrollDelta, TouchPhase,
+            WindowEvent as WinitWindowEvent,
+        },
+    };
+
+    let parent = window::Id::new(7);
+    let bounds = geometry::Rect::new(100, 50, 300, 200);
+    let mut events = platform::Events::new().with_scale_factor(1.0);
+
+    let moved = events
+        .popup_window_event(
+            parent,
+            bounds,
+            1.5,
+            &WinitWindowEvent::CursorMoved {
+                device_id: DeviceId::dummy(),
+                position: PhysicalPosition::new(15.0, 30.0),
+            },
+        )
+        .expect("popup cursor move should map into parent coordinates");
+    match moved {
+        host::Event::Window {
+            window: event_window,
+            event: host::WindowEvent::PointerMoved { point },
+        } => {
+            assert_eq!(event_window, parent);
+            assert_eq!(point, geometry::Point::new(110, 70));
+        }
+        _ => panic!("expected parent pointer move event"),
+    }
+    assert_eq!(events.pointer(parent), geometry::Point::new(110, 70));
+
+    let pressed = events
+        .popup_window_event(
+            parent,
+            bounds,
+            1.5,
+            &WinitWindowEvent::MouseInput {
+                device_id: DeviceId::dummy(),
+                state: ElementState::Pressed,
+                button: MouseButton::Right,
+            },
+        )
+        .expect("popup secondary press should be forwarded");
+    match pressed {
+        host::Event::Window {
+            window: event_window,
+            event: host::WindowEvent::PointerDown { point, button },
+        } => {
+            assert_eq!(event_window, parent);
+            assert_eq!(point, geometry::Point::new(110, 70));
+            assert_eq!(button, pointer::Button::Secondary);
+        }
+        _ => panic!("expected parent pointer down event"),
+    }
+
+    let scrolled = events
+        .popup_window_event(
+            parent,
+            bounds,
+            1.5,
+            &WinitWindowEvent::MouseWheel {
+                device_id: DeviceId::dummy(),
+                delta: MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, -30.0)),
+                phase: TouchPhase::Moved,
+            },
+        )
+        .expect("popup wheel should map through popup scale");
+    match scrolled {
+        host::Event::Window {
+            window: event_window,
+            event: host::WindowEvent::Scrolled { point, delta },
+        } => {
+            assert_eq!(event_window, parent);
+            assert_eq!(point, geometry::Point::new(110, 70));
+            assert_eq!(delta, interaction::ScrollDelta::new(0, 20));
+        }
+        _ => panic!("expected parent scroll event"),
+    }
+}
+
+#[test]
+fn popup_window_event_adapter_forwards_non_left_buttons() {
+    use winit::{
+        dpi::PhysicalPosition,
+        event::{DeviceId, ElementState, MouseButton, WindowEvent as WinitWindowEvent},
+    };
+
+    let parent = window::Id::new(8);
+    let bounds = geometry::Rect::new(40, 12, 200, 120);
+    let mut events = platform::Events::new();
+    events
+        .popup_window_event(
+            parent,
+            bounds,
+            2.0,
+            &WinitWindowEvent::CursorMoved {
+                device_id: DeviceId::dummy(),
+                position: PhysicalPosition::new(20.0, 10.0),
+            },
+        )
+        .expect("popup cursor move should establish pointer position");
+
+    for (mouse, expected) in [
+        (MouseButton::Middle, pointer::Button::Middle),
+        (MouseButton::Back, pointer::Button::Back),
+        (MouseButton::Forward, pointer::Button::Forward),
+        (MouseButton::Other(9), pointer::Button::Other(9)),
+    ] {
+        let event = events
+            .popup_window_event(
+                parent,
+                bounds,
+                2.0,
+                &WinitWindowEvent::MouseInput {
+                    device_id: DeviceId::dummy(),
+                    state: ElementState::Pressed,
+                    button: mouse,
+                },
+            )
+            .expect("popup mouse button should be forwarded");
+        match event {
+            host::Event::Window {
+                event: host::WindowEvent::PointerDown { point, button },
+                ..
+            } => {
+                assert_eq!(point, geometry::Point::new(50, 17));
+                assert_eq!(button, expected);
+            }
+            _ => panic!("expected pointer down event"),
+        }
+    }
 }
 
 #[test]
@@ -661,13 +811,19 @@ fn menu_dropdown_uses_native_popup_work_when_backend_supports_it() {
     platform
         .handle_event(host::Event::window(
             window,
-            host::WindowEvent::PointerDown { point },
+            host::WindowEvent::PointerDown {
+                point,
+                button: pointer::Button::Primary,
+            },
         ))
         .expect("pointer down should be handled");
     platform
         .handle_event(host::Event::window(
             window,
-            host::WindowEvent::PointerUp { point },
+            host::WindowEvent::PointerUp {
+                point,
+                button: pointer::Button::Primary,
+            },
         ))
         .expect("pointer up should open menu");
 

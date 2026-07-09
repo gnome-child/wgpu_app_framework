@@ -58,7 +58,10 @@ fn host_window_event_mapper_routes_common_window_events() {
 
     host.handle_event(host::Event::window(
         window,
-        host::WindowEvent::PointerDown { point },
+        host::WindowEvent::PointerDown {
+            point,
+            button: pointer::Button::Primary,
+        },
     ))
     .expect("pointer down should focus and capture text area");
 
@@ -116,7 +119,10 @@ fn host_window_event_mapper_routes_common_window_events() {
 
     host.handle_event(host::Event::window(
         window,
-        host::WindowEvent::PointerUp { point },
+        host::WindowEvent::PointerUp {
+            point,
+            button: pointer::Button::Primary,
+        },
     ))
     .expect("pointer up should release capture");
     host.handle_event(host::Event::window(window, host::WindowEvent::PointerLeft))

@@ -32,8 +32,19 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
         raw_window: winit::window::WindowId,
         event: &WinitWindowEvent,
     ) -> Option<host::Event> {
-        let window = self.platform.backend().window_for_raw(raw_window)?;
-        self.events.window_event(window, event)
+        if let Some(window) = self.platform.backend().window_for_raw(raw_window) {
+            return self.events.window_event(window, event);
+        }
+
+        let popup = self.platform.backend().popup_for_raw(raw_window)?;
+        log::trace!(
+            target: "wgpu_l3::native_popup",
+            "routing popup event {:?} for parent {:?}",
+            popup.id(),
+            popup.parent()
+        );
+        self.events
+            .popup_window_event(popup.parent(), popup.bounds(), popup.scale_factor(), event)
     }
 
     pub(in crate::platform::runner) fn sync_native_event_state(&mut self) {

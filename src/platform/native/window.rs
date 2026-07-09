@@ -216,6 +216,20 @@ impl Native {
         self.raw_windows.get(&raw).copied()
     }
 
+    pub(in crate::platform) fn popup_for_raw(
+        &self,
+        raw: winit::window::WindowId,
+    ) -> Option<super::PopupEventTarget> {
+        let key = self.raw_popups.get(&raw).copied()?;
+        let popup = self.popups.get(&key)?;
+        Some(super::PopupEventTarget {
+            parent: key.parent,
+            id: key.id,
+            bounds: popup.bounds,
+            scale_factor: popup.window.scale_factor(),
+        })
+    }
+
     pub fn scale_factor(&self, window: app_window::Id) -> Option<f64> {
         self.windows.get(&window).map(Window::scale_factor)
     }

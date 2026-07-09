@@ -1,6 +1,6 @@
 use super::super::interaction;
 use super::{binding::Binding, control::Control, style::Style};
-use crate::subject;
+use crate::{overlay, subject};
 
 mod access;
 mod action;
@@ -26,6 +26,7 @@ pub struct Node {
     axis: Option<Axis>,
     style: Style,
     floating_placement: FloatingPlacement,
+    overlay_realization: overlay::MaterialRealization,
     force_overlay_group: bool,
     subject: Option<subject::Segment>,
     label: Option<String>,

@@ -1199,11 +1199,18 @@ fn compositor_diagnostics_are_documented_debug_targets() {
         .expect("renderer source should read");
     let presentation = std::fs::read_to_string(source_root.join("runtime").join("presentation.rs"))
         .expect("presentation source should read");
+    let overlay = std::fs::read_to_string(source_root.join("overlay.rs"))
+        .expect("overlay source should read");
+    let native_popup =
+        std::fs::read_to_string(source_root.join("platform").join("native").join("popup.rs"))
+            .expect("native popup source should read");
 
     for target in [
         "wgpu_l3::render::filter_params",
         "wgpu_l3::render::material",
         "wgpu_l3::overlay::fade",
+        "wgpu_l3::overlay::backend",
+        "wgpu_l3::native_popup",
     ] {
         assert!(
             master.contains(target),
@@ -1214,6 +1221,53 @@ fn compositor_diagnostics_are_documented_debug_targets() {
     assert_debug_log_target(&filter, "wgpu_l3::render::filter_params");
     assert_debug_log_target(&renderer, "wgpu_l3::render::material");
     assert_debug_log_target(&presentation, "wgpu_l3::overlay::fade");
+    assert_debug_log_target(&overlay, "wgpu_l3::overlay::backend");
+    assert!(
+        native_popup.contains("wgpu_l3::native_popup"),
+        "native popup diagnostics must have an implementation site"
+    );
+}
+
+#[test]
+fn overlay_backend_selection_is_not_a_paint_id_exception() {
+    let scene_paint = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("scene")
+            .join("paint")
+            .join("mod.rs"),
+    )
+    .expect("scene paint source should read");
+
+    assert!(
+        !scene_paint.contains("CommandPalette::panel_id"),
+        "command palette backend choice must derive from overlay material realization, not a paint-layer id exception"
+    );
+    assert!(
+        scene_paint.contains("material_realization("),
+        "paint should forward retained overlay material realization into overlay backend resolution"
+    );
+}
+
+#[test]
+fn native_popup_positioning_anchors_to_parent_client_origin() {
+    let popup = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("platform")
+            .join("native")
+            .join("popup.rs"),
+    )
+    .expect("native popup source should read");
+
+    assert!(
+        popup.contains(".inner_position()"),
+        "native popup position must anchor to the parent client-area origin"
+    );
+    assert!(
+        popup.contains("falling back to outer origin"),
+        "outer-position fallback must stay explicit and logged"
+    );
 }
 
 #[test]

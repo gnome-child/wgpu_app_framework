@@ -7,6 +7,17 @@ pub enum Cursor {
     Text,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Button {
+    #[default]
+    Primary,
+    Secondary,
+    Middle,
+    Back,
+    Forward,
+    Other(u16),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Update {
     window: window::Id,

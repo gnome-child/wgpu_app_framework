@@ -139,6 +139,36 @@ fn pointer_down_outside_menu_surface_closes_open_menu() {
 }
 
 #[test]
+fn parent_pointer_left_does_not_close_open_menu() {
+    let mut app = text_editor::app(text_editor::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(800, 600);
+    let initial = app
+        .render_scene(window, size)
+        .expect("text editor should render");
+    let file = labeled_frame(initial.layout(), view::Role::Menu, "File");
+
+    app.pointer_down_at(window, size, frame_point(file))
+        .expect("file menu pointer down should be handled");
+    app.pointer_up_at(window, size, frame_point(file))
+        .expect("file menu pointer up should open the menu");
+
+    app.pointer_left_at(window)
+        .expect("parent pointer leave should be handled");
+
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.open_menu())
+            .map(|menu| menu.label()),
+        Some("File")
+    );
+}
+
+#[test]
 fn menu_command_activation_closes_framework_owned_menu_state() {
     let mut app = text_editor::app(text_editor::State::default());
 

@@ -227,10 +227,18 @@ fn shell_routes_coordinate_input_and_task_completions() {
     let _ = shell.drain();
 
     shell
-        .pointer_down(window, geometry::Point::new(10, 10))
+        .pointer_down(
+            window,
+            geometry::Point::new(10, 10),
+            pointer::Button::Primary,
+        )
         .expect("pointer down should be routed");
     shell
-        .pointer_up(window, geometry::Point::new(10, 10))
+        .pointer_up(
+            window,
+            geometry::Point::new(10, 10),
+            pointer::Button::Primary,
+        )
         .expect("pointer up should be routed");
 
     assert_eq!(
@@ -403,7 +411,11 @@ fn text_editor_shell_event_surface_drives_save_flow() {
     let point = geometry::Point::new(text_area.rect().x() + 4, text_area.rect().y() + 4);
 
     shell
-        .handle_event(shell::Event::PointerDown { window, point })
+        .handle_event(shell::Event::PointerDown {
+            window,
+            point,
+            button: pointer::Button::Primary,
+        })
         .expect("pointer down event should focus the text area");
     shell
         .handle_event(shell::Event::TextCommitted {
@@ -550,7 +562,10 @@ fn text_editor_host_adapter_consumes_shell_work_end_to_end() {
 
     host.handle_event(host::Event::window(
         window,
-        host::WindowEvent::PointerDown { point },
+        host::WindowEvent::PointerDown {
+            point,
+            button: pointer::Button::Primary,
+        },
     ))
     .expect("pointer down should focus text area");
     host.handle_event(host::Event::window(

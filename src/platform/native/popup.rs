@@ -165,10 +165,24 @@ impl Native {
         let Some(parent) = self.windows.get(&parent_id) else {
             return Err(NativeError::MissingWindow { window: parent_id });
         };
-        let parent_origin = parent
-            .handle()
-            .outer_position()
-            .unwrap_or_else(|_| winit::dpi::PhysicalPosition::new(0, 0));
+        let parent_origin = parent.handle().inner_position().unwrap_or_else(|error| {
+            log::warn!(
+                target: "wgpu_l3::native_popup",
+                "cannot read parent client origin for popup {:?}: {error}; falling back to outer origin",
+                presentation.id()
+            );
+            parent
+                .handle()
+                .outer_position()
+                .unwrap_or_else(|fallback_error| {
+                    log::warn!(
+                        target: "wgpu_l3::native_popup",
+                        "cannot read parent outer origin for popup {:?}: {fallback_error}; using screen origin",
+                        presentation.id()
+                    );
+                    winit::dpi::PhysicalPosition::new(0, 0)
+                })
+        });
         let parent_scale = parent.scale_factor();
         let bounds = presentation.bounds();
         let x = parent_origin
@@ -182,6 +196,7 @@ impl Native {
             .popups
             .get_mut(&key)
             .expect("popup should exist before configuring");
+        popup.bounds = bounds;
         let area = native_logical_area(geometry::LogicalArea::from_size(
             presentation.scene().size(),
         ));

@@ -321,7 +321,10 @@ initially hidden until positioned and sized, absent from taskbar/dock-style
 shell presence where the platform allows it, and invisible to framework
 app/session window state. Mixed-DPI correctness is per-window: a native popup
 uses the popup window's own scale factor for paint conversion, not the parent
-window's scale.
+window's scale. Overlay bounds are parent client-area coordinates, so native
+popup placement anchors to the parent window's client-area screen origin
+(`inner_position`) and only falls back to outer window origin when the platform
+cannot report the client origin.
 
 Popup shell semantics belong to `window::Kind::Popup`, not ad hoc overlay
 call sites. A popup is owned by its parent where the platform supports
@@ -337,6 +340,15 @@ but window-manager disagreement must not create a correction loop. Some tiling
 window managers may still need user ignore rules; the framework's duty is to
 emit correct popup/tool-window signals before documenting that limitation.
 
+Native popup input is a coordinate adapter into the parent interaction truth,
+not a second interaction model. Pointer movement, buttons, and wheel events
+from a popup window are converted from popup-local physical coordinates to the
+parent window's logical overlay coordinates by using the popup window scale
+factor and the entry bounds. The parent window remains authoritative for focus,
+commands, keyboard routing, diagnostics, and session state. Pointer cursor
+application currently targets framework windows; popup-hosted text fields will
+need the cursor side effect to target the physical window under the pointer.
+
 Intent is portable; realization is native. `Material::Glass` means "glasslike
 panel material," but an in-frame backend realizes it by sampling the parent
 composition, a future OS-window backend may realize it with platform effects
@@ -344,6 +356,13 @@ such as Windows acrylic/Mica or AppKit semantic visual-effect materials, and
 the v1 native popup backend realizes it as the non-backdrop opaque/tinted body.
 Theme/config should express portable intent and platform-scoped realization
 choices, never a flat optional cluster of OS-specific fields.
+
+Overlay backend choice follows material realization requirements rather than
+panel identities. A pane that requires parent-composition backdrop sampling
+uses `InFrame` until the native backend can realize that material natively;
+native-safe panes may prefer `NativePopup`. This keeps command-palette glass
+in frame today without a command-palette id exception in paint, and gives OS
+backdrop support an explicit seam to satisfy later.
 
 Overlay ghosts are paint-only afterlife. When a live entry is dismissed,
 runtime may retain its final scene bucket briefly as a `Ghost` for fade-out,
@@ -604,6 +623,8 @@ The instrument map is:
 | `wgpu_l3::render::filter_params` | filter encoder | filter pass uniforms and source/target rects |
 | `wgpu_l3::render::material` | pane material path | pane source/target facts and material layer sequence |
 | `wgpu_l3::overlay::fade` | overlay runtime | entry opacity, schedule, frame number, and demotion timing |
+| `wgpu_l3::overlay::backend` | overlay runtime | entry material realization, backend preference, resolved backend, and fallback capability flags |
+| `wgpu_l3::native_popup` | native platform | popup shell style, geometry, routing, and native-window lifecycle decisions |
 
 Render latency samples are revision-tagged: a key/input sample records only
 when the presented frame revision includes the state change it produced.
@@ -614,6 +635,8 @@ under the example default `RUST_LOG=info`. Current targeted debug channels are
 `wgpu_l3::render::filter_params` for filter pass uniforms,
 `wgpu_l3::render::material` for pane material source/target facts, and
 `wgpu_l3::overlay::fade` for overlay opacity, schedule, and demotion timing.
+Native popup and backend-choice questions use `wgpu_l3::native_popup` and
+`wgpu_l3::overlay::backend`.
 Use targeted `RUST_LOG=wgpu_l3::render::material=debug` style filters for
 diagnosis instead of raising the whole app to debug.
 

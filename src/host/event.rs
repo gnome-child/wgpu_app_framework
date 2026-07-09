@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::text;
 
-use super::super::{geometry, input, interaction, shell, window};
+use super::super::{geometry, input, interaction, pointer, shell, window};
 
 pub enum Event {
     Started,
@@ -28,9 +28,11 @@ pub enum WindowEvent {
     },
     PointerDown {
         point: geometry::Point,
+        button: pointer::Button,
     },
     PointerUp {
         point: geometry::Point,
+        button: pointer::Button,
     },
     PointerLeft,
     Scrolled {
@@ -63,8 +65,16 @@ impl WindowEvent {
             Self::RedrawRequested => shell::Event::RedrawRequested { window },
             Self::CloseRequested => shell::Event::CloseRequested { window },
             Self::PointerMoved { point } => shell::Event::PointerMoved { window, point },
-            Self::PointerDown { point } => shell::Event::PointerDown { window, point },
-            Self::PointerUp { point } => shell::Event::PointerUp { window, point },
+            Self::PointerDown { point, button } => shell::Event::PointerDown {
+                window,
+                point,
+                button,
+            },
+            Self::PointerUp { point, button } => shell::Event::PointerUp {
+                window,
+                point,
+                button,
+            },
             Self::PointerLeft => shell::Event::PointerLeft { window },
             Self::Scrolled { point, delta } => shell::Event::Scrolled {
                 window,

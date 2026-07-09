@@ -23,6 +23,10 @@ impl Node {
         self.floating_placement
     }
 
+    pub(crate) fn overlay_realization(&self) -> crate::overlay::MaterialRealization {
+        self.overlay_realization
+    }
+
     pub(crate) fn force_overlay_group(&self) -> bool {
         self.force_overlay_group
     }

@@ -13,6 +13,7 @@ pub(crate) struct Draft {
     bounds: geometry::Rect,
     scene: scene::Scene,
     preference: Preference,
+    material_realization: MaterialRealization,
     force_group_at_full_opacity: bool,
 }
 
@@ -83,8 +84,15 @@ pub(crate) enum Backend {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MaterialRealization {
+    AllowsNativeFallback,
+    RequiresParentCompositionBackdrop,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Capabilities {
     native_popups: bool,
+    native_backdrop_materials: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -131,12 +139,18 @@ impl Draft {
             bounds,
             scene,
             preference: Preference::InFrame,
+            material_realization: MaterialRealization::AllowsNativeFallback,
             force_group_at_full_opacity: false,
         }
     }
 
     pub(crate) fn prefer(mut self, preference: Preference) -> Self {
         self.preference = preference;
+        self
+    }
+
+    pub(crate) fn material_realization(mut self, realization: MaterialRealization) -> Self {
+        self.material_realization = realization;
         self
     }
 
@@ -268,17 +282,23 @@ impl Capabilities {
     pub(crate) fn in_frame_only() -> Self {
         Self {
             native_popups: false,
+            native_backdrop_materials: false,
         }
     }
 
     pub(crate) fn with_native_popups() -> Self {
         Self {
             native_popups: true,
+            native_backdrop_materials: false,
         }
     }
 
     pub(crate) fn native_popups_supported(self) -> bool {
         self.native_popups
+    }
+
+    pub(crate) fn native_backdrop_materials_supported(self) -> bool {
+        self.native_backdrop_materials
     }
 }
 
@@ -288,9 +308,19 @@ impl Default for Capabilities {
     }
 }
 
-pub(crate) fn resolve_backend(preference: Preference, capabilities: Capabilities) -> Backend {
+pub(crate) fn resolve_backend(
+    preference: Preference,
+    material_realization: MaterialRealization,
+    capabilities: Capabilities,
+) -> Backend {
     match preference {
         Preference::InFrame => Backend::InFrame,
+        Preference::NativePopup
+            if material_realization == MaterialRealization::RequiresParentCompositionBackdrop
+                && !capabilities.native_backdrop_materials_supported() =>
+        {
+            Backend::InFrame
+        }
         Preference::NativePopup if capabilities.native_popups_supported() => Backend::NativePopup,
         Preference::NativePopup => Backend::InFrame,
     }
@@ -399,7 +429,18 @@ impl Store {
                     state.next_order = state.next_order.saturating_add(1);
                     (order, now, false)
                 });
-            let backend = resolve_backend(draft.preference, capabilities);
+            let backend =
+                resolve_backend(draft.preference, draft.material_realization, capabilities);
+            log::debug!(
+                target: "wgpu_l3::overlay::backend",
+                "resolved overlay backend id={:?} realization={:?} preference={:?} backend={:?} native_popups={} native_backdrop_materials={}",
+                draft.id,
+                draft.material_realization,
+                draft.preference,
+                backend,
+                capabilities.native_popups_supported(),
+                capabilities.native_backdrop_materials_supported()
+            );
             let (opacity, entering) = live_opacity(appeared_at, overlay.enter_fade_ms, now);
             let state_kind = if entering {
                 State::Entering
@@ -562,6 +603,24 @@ mod tests {
         );
 
         assert_eq!(update.layers[0].backend(), Backend::NativePopup);
+    }
+
+    #[test]
+    fn parent_composition_backdrop_requirement_uses_in_frame_fallback() {
+        let mut store = Store::new();
+        let window = window::Id::new(24);
+        let update = store.update_window(
+            window,
+            vec![
+                popup_draft("command_palette")
+                    .material_realization(MaterialRealization::RequiresParentCompositionBackdrop),
+            ],
+            overlay_theme(0, 0),
+            Capabilities::with_native_popups(),
+            Instant::now(),
+        );
+
+        assert_eq!(update.layers[0].backend(), Backend::InFrame);
     }
 
     #[test]
