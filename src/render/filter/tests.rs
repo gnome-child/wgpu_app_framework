@@ -724,6 +724,6 @@ fn rect_fits_in_area(rect: Rect, area: paint::area::Logical) -> bool {
         && bottom <= area.height() + EPSILON
 }
 
-fn filter_module_source() -> &'static str {
-    include_str!("../filter.rs")
+fn filter_module_source() -> String {
+    [include_str!("../filter.rs"), include_str!("draw.rs")].join("\n")
 }
