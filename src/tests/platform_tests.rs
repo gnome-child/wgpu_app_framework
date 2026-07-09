@@ -847,6 +847,85 @@ fn menu_dropdown_uses_native_popup_work_when_backend_supports_it() {
 }
 
 #[test]
+fn popup_pointer_motion_without_presentation_does_not_close_native_popups() {
+    let mut platform = Platform::new(
+        text_editor::shell(text_editor::State::default()),
+        FakeBackend::default().with_native_popups(),
+    );
+
+    platform.start().expect("platform should start host");
+
+    let window = platform.host().windows()[0].id();
+    let presentation = platform
+        .host()
+        .presentation(window)
+        .expect("initial presentation should exist");
+    let file = presentation
+        .layout()
+        .find_role(view::Role::Menu)
+        .into_iter()
+        .find(|frame| frame.label_text() == Some("File"))
+        .expect("file menu should be laid out");
+    let point = frame_point(file);
+
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::PointerDown {
+                point,
+                button: pointer::Button::Primary,
+            },
+        ))
+        .expect("pointer down should be handled");
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::PointerUp {
+                point,
+                button: pointer::Button::Primary,
+            },
+        ))
+        .expect("pointer up should open menu");
+    assert!(
+        platform
+            .backend()
+            .popup_sync_counts()
+            .iter()
+            .any(|count| *count > 0),
+        "opening the menu should present a native popup"
+    );
+
+    let row_point = {
+        let presentation = platform
+            .host()
+            .presentation(window)
+            .expect("open menu presentation should exist");
+        let row = presentation
+            .layout()
+            .frames()
+            .iter()
+            .find(|frame| frame.is_menu_row())
+            .expect("open menu should lay out a row");
+        frame_point(row)
+    };
+    platform.backend_mut().clear_popup_sync_counts();
+
+    for _ in 0..3 {
+        platform
+            .handle_event(host::Event::window(
+                window,
+                host::WindowEvent::PointerMoved { point: row_point },
+            ))
+            .expect("popup pointer move should route through parent session");
+    }
+
+    assert!(
+        !platform.backend().popup_sync_counts().contains(&0),
+        "non-presentational pointer work must not authoritatively close native popups"
+    );
+}
+
+#[test]
 fn platform_applies_and_deduplicates_pointer_cursor_updates() {
     let focus = session::Focus::text("platform.cursor");
     let runtime = Runtime::new(SourceState::default())

@@ -7,7 +7,7 @@ pub struct Work {
     opened_windows: Vec<Window>,
     closed_windows: Vec<window::Id>,
     presentations: Vec<Presentation>,
-    popup_presentations: Vec<overlay::PopupPresentation>,
+    popup_presentations: Option<Vec<overlay::PopupPresentation>>,
     requests: Vec<session::Request>,
     cursor_updates: Vec<pointer::Update>,
     pending_tasks: usize,
@@ -35,7 +35,7 @@ impl Work {
                 .cloned()
                 .map(Presentation::from_scene_presentation)
                 .collect(),
-            popup_presentations: work.popup_presentations().to_vec(),
+            popup_presentations: work.popup_presentations().map(<[_]>::to_vec),
             requests: work.requests().to_vec(),
             cursor_updates: work.cursor_updates().to_vec(),
             pending_tasks: work.pending_tasks(),
@@ -56,8 +56,8 @@ impl Work {
         &self.presentations
     }
 
-    pub(crate) fn popup_presentations(&self) -> &[overlay::PopupPresentation] {
-        &self.popup_presentations
+    pub(crate) fn popup_presentations(&self) -> Option<&[overlay::PopupPresentation]> {
+        self.popup_presentations.as_deref()
     }
 
     pub fn requests(&self) -> &[session::Request] {
@@ -88,7 +88,7 @@ impl Work {
         self.opened_windows.is_empty()
             && self.closed_windows.is_empty()
             && self.presentations.is_empty()
-            && self.popup_presentations.is_empty()
+            && self.popup_presentations.is_none()
             && self.requests.is_empty()
             && self.cursor_updates.is_empty()
             && self.pending_tasks == 0

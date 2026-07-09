@@ -244,6 +244,7 @@ struct EditorPersistence {
 #[derive(Default)]
 struct FakeBackend {
     events: Vec<BackendEvent>,
+    popup_sync_counts: Vec<usize>,
     native_popups: bool,
 }
 
@@ -284,6 +285,14 @@ enum BackendEvent {
 impl FakeBackend {
     fn events(&self) -> &[BackendEvent] {
         &self.events
+    }
+
+    fn popup_sync_counts(&self) -> &[usize] {
+        &self.popup_sync_counts
+    }
+
+    fn clear_popup_sync_counts(&mut self) {
+        self.popup_sync_counts.clear();
     }
 
     fn with_native_popups(mut self) -> Self {
@@ -350,6 +359,7 @@ impl platform::Backend for FakeBackend {
         _context: &mut Self::Context<'_>,
         presentations: &[overlay::PopupPresentation],
     ) -> Result<(), Self::Error> {
+        self.popup_sync_counts.push(presentations.len());
         for presentation in presentations {
             self.events.push(BackendEvent::PresentPopup {
                 parent: presentation.parent(),

@@ -17,7 +17,7 @@ pub(crate) struct Work {
 
 pub(crate) struct RenderWork {
     presentations: Vec<scene::Presentation>,
-    popup_presentations: Vec<overlay::PopupPresentation>,
+    popup_presentations: Option<Vec<overlay::PopupPresentation>>,
     requests: Vec<session::Request>,
     cursor_updates: Vec<pointer::Update>,
     pending_tasks: usize,
@@ -74,7 +74,7 @@ impl Work {
 impl RenderWork {
     pub(super) fn new(
         presentations: Vec<scene::Presentation>,
-        popup_presentations: Vec<overlay::PopupPresentation>,
+        popup_presentations: Option<Vec<overlay::PopupPresentation>>,
         requests: Vec<session::Request>,
         cursor_updates: Vec<pointer::Update>,
         pending_tasks: usize,
@@ -96,8 +96,8 @@ impl RenderWork {
         &self.presentations
     }
 
-    pub(crate) fn popup_presentations(&self) -> &[overlay::PopupPresentation] {
-        &self.popup_presentations
+    pub(crate) fn popup_presentations(&self) -> Option<&[overlay::PopupPresentation]> {
+        self.popup_presentations.as_deref()
     }
 
     pub(crate) fn requests(&self) -> &[session::Request] {
@@ -123,7 +123,7 @@ impl RenderWork {
     #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.presentations.is_empty()
-            && self.popup_presentations.is_empty()
+            && self.popup_presentations.is_none()
             && self.requests.is_empty()
             && self.cursor_updates.is_empty()
             && self.pending_tasks == 0

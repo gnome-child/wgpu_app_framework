@@ -523,7 +523,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         mut size_for: impl FnMut(window::Id) -> geometry::Size,
     ) -> (
         Vec<scene::Presentation>,
-        Vec<crate::overlay::PopupPresentation>,
+        Option<Vec<crate::overlay::PopupPresentation>>,
     ) {
         let revision = self.revision();
         let windows = self
@@ -607,6 +607,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 window, revision, layout, scene,
             ));
         }
+
+        let popup_presentations = (!rendered.is_empty()).then_some(popup_presentations);
 
         (rendered, popup_presentations)
     }

@@ -157,8 +157,10 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
                 report,
             );
         }
-        self.backend
-            .present_overlay_popups(context, work.popup_presentations())?;
+        if let Some(popup_presentations) = work.popup_presentations() {
+            self.backend
+                .present_overlay_popups(context, popup_presentations)?;
+        }
 
         self.sync_cursors(context, work.cursor_updates())?;
         self.sync_requests(context, work.requests())?;

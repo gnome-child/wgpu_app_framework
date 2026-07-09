@@ -348,6 +348,9 @@ factor and the entry bounds. The parent window remains authoritative for focus,
 commands, keyboard routing, diagnostics, and session state. Pointer cursor
 application currently targets framework windows; popup-hosted text fields will
 need the cursor side effect to target the physical window under the pointer.
+Native popup lifetime is synchronized only by an authoritative overlay
+presentation pass: no popup presentation statement means leave existing popups
+alone, while an authoritative empty popup set means close stale popups.
 
 Intent is portable; realization is native. `Material::Glass` means "glasslike
 panel material," but an in-frame backend realizes it by sampling the parent
