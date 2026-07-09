@@ -379,7 +379,9 @@ erase backdrop blur, luminosity, or other glass material.
 
 Backdrop blur needs target-local scratch padding for the kernel reach; group
 bounds reserve that spread before the filter chain writes into local ping/pong
-textures. Temporary group targets use the renderer alpha convention
+textures. Temporary filter layer and scratch texture pools are retention-capped
+at eight entries each and report their current sizes through render diagnostics.
+Temporary group targets use the renderer alpha convention
 consistently: primitives draw into a transparent target, and the group composite
 samples and re-applies opacity as one image so text, rounded edges, shadows, and
 backdrop effects do not separate. A full premultiplied-alpha/group-blend audit
