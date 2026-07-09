@@ -80,7 +80,7 @@ pub(super) fn blur_kernel_radius_px(sigma: f32, scale_factor: f32) -> f32 {
 }
 
 #[cfg(test)]
-pub(crate) fn prepared_filter_silhouette_for_test(
+pub(in crate::render) fn prepared_filter_silhouette_for_test(
     rect: Rect,
     scale_factor: f32,
 ) -> Option<PreparedSilhouette> {
@@ -93,7 +93,7 @@ pub(crate) fn prepared_filter_silhouette_for_test(
 }
 
 #[cfg(test)]
-pub(crate) fn prepared_clip_silhouette_for_test(
+pub(in crate::render) fn prepared_clip_silhouette_for_test(
     rect: Rect,
     scale_factor: f32,
 ) -> Option<PreparedSilhouette> {

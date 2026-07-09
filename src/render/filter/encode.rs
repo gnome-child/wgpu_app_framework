@@ -311,7 +311,7 @@ impl Renderer {
     }
 }
 
-pub(crate) fn shader_source() -> String {
+pub(in crate::render) fn shader_source() -> String {
     shader::module_source()
 }
 

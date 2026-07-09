@@ -75,7 +75,7 @@ pub fn pipeline(
         })
 }
 
-pub(crate) fn shader_source() -> String {
+pub(in crate::render) fn shader_source() -> String {
     silhouette::wgsl_module_source(QUAD_WGSL)
 }
 
