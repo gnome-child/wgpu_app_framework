@@ -5,11 +5,11 @@ use wgpu::util::DeviceExt;
 
 use crate::paint::{self, Rect};
 use crate::render;
-use crate::render::silhouette::{self, PreparedSilhouette, edges, rect_data, rounding_data};
+use crate::render::silhouette::{PreparedSilhouette, edges, rect_data, rounding_data};
 
 mod noise;
+mod shader;
 
-const FILTER_WGSL: &str = include_str!("filter.wgsl");
 const LAYER_POOL_LIMIT: usize = 8;
 const SCRATCH_POOL_LIMIT: usize = 8;
 
@@ -1733,7 +1733,7 @@ fn take_pooled_scratch(
 }
 
 pub(crate) fn shader_source() -> String {
-    silhouette::wgsl_module_source(FILTER_WGSL)
+    shader::module_source()
 }
 
 impl Layer {
@@ -2268,15 +2268,18 @@ mod tests {
 
     #[test]
     fn filter_shader_uses_named_alpha_mode_helper() {
-        assert!(FILTER_WGSL.contains("alpha_mode: vec4<f32>"));
-        assert!(FILTER_WGSL.contains("fn filter_alpha"));
-        assert!(FILTER_WGSL.contains("fn filter_source_rgb"));
-        assert!(FILTER_WGSL.contains("params.alpha_mode.x"));
+        let source = shader::raw_source();
+
+        assert!(source.contains("alpha_mode: vec4<f32>"));
+        assert!(source.contains("fn filter_alpha"));
+        assert!(source.contains("fn filter_source_rgb"));
+        assert!(source.contains("params.alpha_mode.x"));
     }
 
     #[test]
     fn shape_alpha_mode_reads_source_rgb_without_unpremultiply() {
-        let helper = FILTER_WGSL
+        let source = shader::raw_source();
+        let helper = source
             .split("fn filter_source_rgb")
             .nth(1)
             .expect("source rgb helper should exist")
@@ -2294,7 +2297,7 @@ mod tests {
             "fs_noise",
             "fs_composite_pixel",
         ] {
-            let body = FILTER_WGSL
+            let body = source
                 .split(&format!("fn {fragment}"))
                 .nth(1)
                 .unwrap_or_else(|| panic!("{fragment} fragment should exist"))
@@ -2643,7 +2646,7 @@ mod tests {
 
     #[test]
     fn noise_shader_uses_material_local_coordinates() {
-        let noise_body = FILTER_WGSL
+        let noise_body = shader::raw_source()
             .split("fn fs_noise")
             .nth(1)
             .expect("noise fragment should exist")
