@@ -30,6 +30,12 @@ pub struct Scene {
     primitives: Vec<Primitive>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct NativePopupScenes {
+    native_material: Scene,
+    opaque_fallback: Scene,
+}
+
 impl Scene {
     #[cfg(test)]
     pub(crate) fn paint(layout: &layout::Layout) -> Self {
@@ -144,20 +150,35 @@ impl Scene {
         self.append_scene_with_opacity(&ghost, opacity);
     }
 
-    pub(crate) fn popup_scene_without_backdrop_sampling(&self, bounds: geometry::Rect) -> Self {
+    pub(crate) fn native_popup_scenes(&self, bounds: geometry::Rect) -> NativePopupScenes {
         let dx = -bounds.x();
         let dy = -bounds.y();
-        let mut scene = Self::new_with_clear(
+        let mut native_material = Self::new_with_clear(
             geometry::Size::new(bounds.width(), bounds.height()),
             Color::rgba(0, 0, 0, 0),
         );
-        scene.primitives = self
+        native_material.primitives = self
             .primitives
             .iter()
-            .map(ghost_primitive)
+            .filter_map(native_popup_material_primitive)
             .map(|primitive| primitive.translated(dx, dy))
             .collect();
-        scene
+
+        let mut opaque_fallback = Self::new_with_clear(
+            geometry::Size::new(bounds.width(), bounds.height()),
+            native_popup_fallback_clear(&self.primitives).unwrap_or(DEFAULT_CLEAR),
+        );
+        opaque_fallback.primitives = self
+            .primitives
+            .iter()
+            .filter_map(native_popup_fallback_primitive)
+            .map(|primitive| primitive.translated(dx, dy))
+            .collect();
+
+        NativePopupScenes {
+            native_material,
+            opaque_fallback,
+        }
     }
 
     pub fn quads(&self) -> Vec<&Quad> {
@@ -287,6 +308,16 @@ impl Scene {
     }
 }
 
+impl NativePopupScenes {
+    pub(crate) fn native_material(&self) -> &Scene {
+        &self.native_material
+    }
+
+    pub(crate) fn opaque_fallback(&self) -> &Scene {
+        &self.opaque_fallback
+    }
+}
+
 fn collect_quads<'a>(primitives: &'a [Primitive], quads: &mut Vec<&'a Quad>) {
     for primitive in primitives {
         match primitive {
@@ -393,6 +424,59 @@ fn ghost_primitive(primitive: &Primitive) -> Primitive {
     }
 }
 
+fn native_popup_material_primitive(primitive: &Primitive) -> Option<Primitive> {
+    match primitive {
+        Primitive::Pane(pane) if matches!(pane.material(), Material::Glass(_)) => None,
+        Primitive::Shadow(_) => None,
+        Primitive::Group(group) => {
+            let primitives = group
+                .primitives()
+                .iter()
+                .filter_map(native_popup_material_primitive)
+                .collect();
+            Group::new(primitives, group.opacity()).map(Primitive::Group)
+        }
+        _ => Some(primitive.clone()),
+    }
+}
+
+fn native_popup_fallback_primitive(primitive: &Primitive) -> Option<Primitive> {
+    match primitive {
+        Primitive::Pane(pane) => match pane.material() {
+            Material::Glass(glass) => Some(Primitive::Quad(
+                Quad::styled(pane.rect(), Style::filled_with(glass.fallback()))
+                    .with_rounding(pane.rounding()),
+            )),
+            Material::Solid(_) => Some(Primitive::Pane(pane.clone())),
+        },
+        Primitive::Shadow(_) => None,
+        Primitive::Group(group) => {
+            let primitives = group
+                .primitives()
+                .iter()
+                .filter_map(native_popup_fallback_primitive)
+                .collect();
+            Group::new(primitives, group.opacity()).map(Primitive::Group)
+        }
+        _ => Some(primitive.clone()),
+    }
+}
+
+fn native_popup_fallback_clear(primitives: &[Primitive]) -> Option<Color> {
+    primitives.iter().find_map(|primitive| match primitive {
+        Primitive::Pane(pane) => match pane.material() {
+            Material::Glass(glass) => match glass.fallback() {
+                Brush::Solid(color) => Some(color),
+                Brush::LinearGradient { .. } => None,
+            },
+            Material::Solid(Brush::Solid(color)) => Some(*color),
+            Material::Solid(Brush::LinearGradient { .. }) => None,
+        },
+        Primitive::Group(group) => native_popup_fallback_clear(group.primitives()),
+        _ => None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,24 +575,37 @@ mod tests {
     }
 
     #[test]
-    fn popup_scene_translates_and_removes_backdrop_sampling() {
+    fn native_popup_material_scene_translates_and_removes_framework_glass() {
         let source = glass_pane_scene();
 
-        let popup = source.popup_scene_without_backdrop_sampling(geometry::Rect::new(4, 6, 40, 24));
+        let popup = source.native_popup_scenes(geometry::Rect::new(4, 6, 40, 24));
+        let native = popup.native_material();
 
-        assert_eq!(popup.size(), geometry::Size::new(40, 24));
-        assert_eq!(popup.clear(), Color::rgba(0, 0, 0, 0));
-        let panes = popup.panes();
-        let [pane] = panes.as_slice() else {
-            panic!("popup should keep one pane");
-        };
-        assert_eq!(pane.rect(), geometry::Rect::new(0, 0, 40, 24));
-        let Material::Glass(glass) = pane.material() else {
-            panic!("popup pane should keep glass body");
-        };
+        assert_eq!(native.size(), geometry::Size::new(40, 24));
+        assert_eq!(native.clear(), Color::rgba(0, 0, 0, 0));
         assert!(
-            glass.backdrop_layers().is_empty(),
-            "native popup panes must not sample desktop backdrop"
+            native.panes().is_empty(),
+            "OS-material popup scene must not render framework glass panes"
         );
+    }
+
+    #[test]
+    fn native_popup_opaque_fallback_replaces_glass_with_solid_body() {
+        let source = glass_pane_scene();
+
+        let popup = source.native_popup_scenes(geometry::Rect::new(4, 6, 40, 24));
+        let fallback = popup.opaque_fallback();
+
+        assert_eq!(fallback.size(), geometry::Size::new(40, 24));
+        assert_eq!(fallback.clear(), Color::rgb(28, 28, 30));
+        assert!(
+            fallback.panes().is_empty(),
+            "fallback body must not be framework glass"
+        );
+        let quads = fallback.quads();
+        let [quad] = quads.as_slice() else {
+            panic!("fallback should render one solid body quad");
+        };
+        assert_eq!(quad.rect(), geometry::Rect::new(0, 0, 40, 24));
     }
 }

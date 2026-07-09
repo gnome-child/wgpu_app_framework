@@ -26,6 +26,12 @@ pub struct Surface {
     ready: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CompositeAlphaPreference {
+    Default,
+    PreMultiplied,
+}
+
 const LOW_LATENCY_FRAME_LIMIT: u32 = 1;
 const PRESENT_MODE_PRIORITY: [wgpu::PresentMode; 4] = [
     wgpu::PresentMode::Mailbox,
@@ -44,6 +50,7 @@ impl Surface {
         area: paint::area::Physical,
         render_context: &render::Context,
         target: impl Into<SurfaceTarget<'static>>,
+        alpha_preference: CompositeAlphaPreference,
     ) -> Result<Self> {
         log::debug!(
             "creating render surface: {}x{} physical",
@@ -69,15 +76,21 @@ impl Surface {
 
         config.present_mode =
             preferred_present_mode(&capabilities.present_modes, config.present_mode);
+        config.alpha_mode = preferred_alpha_mode(
+            &capabilities.alpha_modes,
+            config.alpha_mode,
+            alpha_preference,
+        );
         config.desired_maximum_frame_latency = LOW_LATENCY_FRAME_LIMIT;
 
         inner.configure(render_context.device(), &config);
         log::debug!(
-            "configured render surface: {}x{}, format={:?}, present_mode={:?}, desired_frame_latency={}",
+            "configured render surface: {}x{}, format={:?}, present_mode={:?}, alpha_mode={:?}, desired_frame_latency={}",
             config.width,
             config.height,
             config.format,
             config.present_mode,
+            config.alpha_mode,
             config.desired_maximum_frame_latency
         );
 
@@ -208,6 +221,27 @@ fn preferred_present_mode(
         .unwrap_or(fallback)
 }
 
+fn preferred_alpha_mode(
+    supported: &[wgpu::CompositeAlphaMode],
+    fallback: wgpu::CompositeAlphaMode,
+    preference: CompositeAlphaPreference,
+) -> wgpu::CompositeAlphaMode {
+    match preference {
+        CompositeAlphaPreference::Default => fallback,
+        CompositeAlphaPreference::PreMultiplied => {
+            if supported.contains(&wgpu::CompositeAlphaMode::PreMultiplied) {
+                wgpu::CompositeAlphaMode::PreMultiplied
+            } else {
+                log::warn!(
+                    target: "wgpu_l3::native_popup",
+                    "premultiplied popup surface alpha unsupported; using {fallback:?}"
+                );
+                fallback
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,5 +259,36 @@ mod tests {
     #[test]
     fn surface_frame_latency_defaults_to_low_latency_gui_value() {
         assert_eq!(LOW_LATENCY_FRAME_LIMIT, 1);
+    }
+
+    #[test]
+    fn surface_alpha_prefers_premultiplied_when_supported() {
+        let supported = [
+            wgpu::CompositeAlphaMode::Opaque,
+            wgpu::CompositeAlphaMode::PreMultiplied,
+        ];
+
+        assert_eq!(
+            preferred_alpha_mode(
+                &supported,
+                wgpu::CompositeAlphaMode::Opaque,
+                CompositeAlphaPreference::PreMultiplied,
+            ),
+            wgpu::CompositeAlphaMode::PreMultiplied
+        );
+    }
+
+    #[test]
+    fn surface_alpha_falls_back_when_premultiplied_is_unsupported() {
+        let supported = [wgpu::CompositeAlphaMode::Opaque];
+
+        assert_eq!(
+            preferred_alpha_mode(
+                &supported,
+                wgpu::CompositeAlphaMode::Opaque,
+                CompositeAlphaPreference::PreMultiplied,
+            ),
+            wgpu::CompositeAlphaMode::Opaque
+        );
     }
 }

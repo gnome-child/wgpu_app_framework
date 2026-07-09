@@ -94,6 +94,16 @@ impl Window {
         super::sys::configure_popup_bounds(&self.handle, x, y, area);
     }
 
+    pub fn set_popup_material_theme(&self, dark: bool) {
+        let theme = if dark {
+            winit::window::Theme::Dark
+        } else {
+            winit::window::Theme::Light
+        };
+        self.handle.set_theme(Some(theme));
+        super::sys::set_popup_dark_mode(&self.handle, dark);
+    }
+
     pub fn handle(&self) -> Handle {
         Arc::clone(&self.handle)
     }
@@ -159,11 +169,14 @@ fn configure_platform_popup_attributes(
     owner: Option<&winit::window::Window>,
 ) -> WindowAttributes {
     use winit::platform::windows::WindowAttributesExtWindows;
+    use winit::platform::windows::{BackdropType, CornerPreference};
     use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
     let mut attributes = attributes
         .with_skip_taskbar(true)
-        .with_undecorated_shadow(false);
+        .with_undecorated_shadow(true)
+        .with_system_backdrop(BackdropType::TransientWindow)
+        .with_corner_preference(CornerPreference::Round);
 
     if let Some(owner) = owner {
         if let Ok(handle) = owner.window_handle() {
@@ -185,7 +198,7 @@ fn configure_platform_popup_attributes(
 
     attributes
         .with_accepts_first_mouse(true)
-        .with_has_shadow(false)
+        .with_has_shadow(true)
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]

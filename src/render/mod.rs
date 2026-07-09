@@ -5,7 +5,7 @@ pub(crate) use context::{Context, Options as ContextOptions};
 pub(crate) use frame::{Frame, Outcome as FrameOutcome};
 pub(in crate::render) use primitive::Vertex;
 pub(crate) use renderer::Renderer;
-pub(crate) use surface::{PresentTiming, Surface};
+pub(crate) use surface::{CompositeAlphaPreference, PresentTiming, Surface};
 
 mod batch;
 mod canvas;

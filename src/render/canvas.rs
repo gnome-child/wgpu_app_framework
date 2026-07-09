@@ -15,6 +15,7 @@ pub struct Options {
     pub area: paint::area::Physical,
     pub scale_factor: f32,
     pub color: wgpu::Color,
+    pub composite_alpha: render::CompositeAlphaPreference,
 }
 
 impl Canvas {
@@ -25,7 +26,12 @@ impl Canvas {
     ) -> render::Result<Self> {
         let physical_area = options.area;
         let logical_area = physical_area.to_logical(options.scale_factor);
-        let surface = render::Surface::new(physical_area, render_context, target)?;
+        let surface = render::Surface::new(
+            physical_area,
+            render_context,
+            target,
+            options.composite_alpha,
+        )?;
 
         Ok(Self {
             surface,
@@ -38,6 +44,10 @@ impl Canvas {
 
     pub fn surface(&self) -> &render::Surface {
         &self.surface
+    }
+
+    pub fn composite_alpha_mode(&self) -> wgpu::CompositeAlphaMode {
+        self.surface.config().alpha_mode
     }
 
     pub fn physical_area(&self) -> paint::area::Physical {

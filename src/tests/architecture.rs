@@ -1331,9 +1331,14 @@ fn windows_native_popup_clicks_do_not_activate() {
         manifest.contains("\"Win32_UI_Shell\""),
         "popup subclass APIs must be enabled through the Windows Shell bindings"
     );
+    assert!(
+        manifest.contains("\"Win32_Graphics_Dwm\""),
+        "popup dark-mode DWM sync must stay behind the Windows bindings"
+    );
     assert!(windows.contains("SetWindowSubclass"));
     assert!(windows.contains("DefSubclassProc"));
     assert!(windows.contains("RemoveWindowSubclass"));
+    assert!(windows.contains("DWMWA_USE_IMMERSIVE_DARK_MODE"));
     assert!(windows.contains("WM_MOUSEACTIVATE"));
     assert!(
         windows.contains("return MA_NOACTIVATE as LRESULT"),
@@ -1356,6 +1361,12 @@ fn windows_native_popup_clicks_do_not_activate() {
         native_window.contains("install_popup_subclass"),
         "popup creation must install the mouse-activation interceptor"
     );
+    assert!(native_window.contains("BackdropType::TransientWindow"));
+    assert!(native_window.contains("CornerPreference::Round"));
+    assert!(native_window.contains("with_undecorated_shadow(true)"));
+    assert!(native_window.contains("with_has_shadow(true)"));
+    assert!(!native_window.contains("with_undecorated_shadow(false)"));
+    assert!(!native_window.contains("with_has_shadow(false)"));
     assert!(
         native_mod.contains("impl Drop for PopupWindow")
             && native_mod.contains("remove_popup_subclass"),

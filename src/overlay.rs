@@ -99,6 +99,13 @@ pub(crate) struct PopupPresentation {
     id: interaction::Id,
     bounds: geometry::Rect,
     scene: scene::Scene,
+    opaque_fallback_scene: scene::Scene,
+    material: PopupMaterial,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PopupMaterial {
+    NativeWindow { dark: bool },
 }
 
 #[derive(Debug)]
@@ -120,6 +127,7 @@ struct Live {
     id: interaction::Id,
     order: u64,
     scene: scene::Scene,
+    backend: Backend,
     appeared_at: Instant,
     demotion_logged: bool,
 }
@@ -316,12 +324,16 @@ impl PopupPresentation {
         id: interaction::Id,
         bounds: geometry::Rect,
         scene: scene::Scene,
+        opaque_fallback_scene: scene::Scene,
+        material: PopupMaterial,
     ) -> Self {
         Self {
             parent,
             id,
             bounds,
             scene,
+            opaque_fallback_scene,
+            material,
         }
     }
 
@@ -339,6 +351,22 @@ impl PopupPresentation {
 
     pub(crate) fn scene(&self) -> &scene::Scene {
         &self.scene
+    }
+
+    pub(crate) fn opaque_fallback_scene(&self) -> &scene::Scene {
+        &self.opaque_fallback_scene
+    }
+
+    pub(crate) fn material(&self) -> PopupMaterial {
+        self.material
+    }
+}
+
+impl PopupMaterial {
+    pub(crate) fn dark(self) -> bool {
+        match self {
+            Self::NativeWindow { dark } => dark,
+        }
     }
 }
 
@@ -371,7 +399,7 @@ impl Store {
         state.ghosts.retain(|ghost| !ghost.expired_at(now));
         for live in previous_by_id
             .values()
-            .filter(|live| !current_ids.contains(&live.id))
+            .filter(|live| live.backend == Backend::InFrame && !current_ids.contains(&live.id))
         {
             if overlay.exit_fade_ms > 0 {
                 state.ghosts.push(Ghost {
@@ -419,6 +447,7 @@ impl Store {
                 id: draft.id,
                 order,
                 scene: draft.scene.clone(),
+                backend,
                 appeared_at,
                 demotion_logged: demotion_logged || demotion_marker,
             };
@@ -753,6 +782,32 @@ mod tests {
         assert_eq!(store.ghost_count(window), 0);
         assert!(expired.layers.is_empty());
         assert_eq!(expired.schedule, animation::Schedule::Idle);
+    }
+
+    #[test]
+    fn removed_native_popup_entry_allocates_no_ghost() {
+        let mut store = Store::new();
+        let window = window::Id::new(25);
+        let now = Instant::now();
+
+        store.update_window(
+            window,
+            vec![popup_draft("menu")],
+            overlay_theme(0, 120),
+            Capabilities::with_native_popups(),
+            now,
+        );
+        let removed = store.update_window(
+            window,
+            Vec::new(),
+            overlay_theme(0, 120),
+            Capabilities::with_native_popups(),
+            now + Duration::from_millis(10),
+        );
+
+        assert_eq!(store.ghost_count(window), 0);
+        assert!(removed.layers.is_empty());
+        assert_eq!(removed.schedule, animation::Schedule::Idle);
     }
 
     #[test]

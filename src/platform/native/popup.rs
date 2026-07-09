@@ -58,8 +58,37 @@ impl Native {
             .popups
             .get_mut(&key)
             .expect("popup should exist before presenting");
+        let material = presentation.material();
+        if popup.material != Some(material) {
+            popup.window.set_popup_material_theme(material.dark());
+            popup.material = Some(material);
+        }
+        let using_native_material =
+            popup.window.canvas().composite_alpha_mode() == wgpu::CompositeAlphaMode::PreMultiplied;
+        if popup.using_native_material != Some(using_native_material) {
+            if using_native_material {
+                log::debug!(
+                    target: "wgpu_l3::native_popup",
+                    "native popup {:?} uses OS material over premultiplied alpha surface",
+                    presentation.id()
+                );
+            } else {
+                log::warn!(
+                    target: "wgpu_l3::native_popup",
+                    "native popup {:?} downgraded to opaque fallback: premultiplied alpha surface unavailable ({:?})",
+                    presentation.id(),
+                    popup.window.canvas().composite_alpha_mode()
+                );
+            }
+            popup.using_native_material = Some(using_native_material);
+        }
+        let source_scene = if using_native_material {
+            presentation.scene()
+        } else {
+            presentation.opaque_fallback_scene()
+        };
         let scene = super::paint::to_paint_scene_at_scale(
-            presentation.scene(),
+            source_scene,
             popup.window.canvas().scale_factor(),
         );
 
@@ -135,6 +164,7 @@ impl Native {
                 color: render::color_to_wgpu(super::color::paint_color(
                     presentation.scene().clear(),
                 )),
+                composite_alpha: render::CompositeAlphaPreference::PreMultiplied,
             },
             render_context,
             handle.clone(),

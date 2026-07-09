@@ -588,6 +588,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                             window,
                             &mut scene,
                             layer,
+                            theme.variant() == crate::theme::Variant::Dark,
                             &mut popup_presentations,
                         );
                     }
@@ -678,26 +679,44 @@ fn append_or_present_overlay_layer(
     window: window::Id,
     scene: &mut scene::Scene,
     layer: &crate::overlay::Layer,
+    native_popup_dark: bool,
     popup_presentations: &mut Vec<crate::overlay::PopupPresentation>,
 ) {
     match layer.backend() {
         crate::overlay::Backend::InFrame => append_overlay_layer(scene, layer),
         crate::overlay::Backend::NativePopup => {
-            let local = layer
-                .scene()
-                .popup_scene_without_backdrop_sampling(layer.bounds());
-            let mut popup_scene =
-                scene::Scene::new_with_clear(local.size(), scene::Color::rgba(0, 0, 0, 0));
+            let local = layer.scene().native_popup_scenes(layer.bounds());
+            let mut popup_scene = scene::Scene::new_with_clear(
+                local.native_material().size(),
+                scene::Color::rgba(0, 0, 0, 0),
+            );
             if layer.force_group_at_full_opacity() {
-                popup_scene.append_scene_with_forced_group(&local, layer.opacity());
+                popup_scene
+                    .append_scene_with_forced_group(local.native_material(), layer.opacity());
             } else {
-                popup_scene.append_scene_with_opacity(&local, layer.opacity());
+                popup_scene.append_scene_with_opacity(local.native_material(), layer.opacity());
+            }
+
+            let mut opaque_fallback_scene = scene::Scene::new_with_clear(
+                local.opaque_fallback().size(),
+                local.opaque_fallback().clear(),
+            );
+            if layer.force_group_at_full_opacity() {
+                opaque_fallback_scene
+                    .append_scene_with_forced_group(local.opaque_fallback(), layer.opacity());
+            } else {
+                opaque_fallback_scene
+                    .append_scene_with_opacity(local.opaque_fallback(), layer.opacity());
             }
             popup_presentations.push(crate::overlay::PopupPresentation::new(
                 window,
                 layer.id(),
                 layer.bounds(),
                 popup_scene,
+                opaque_fallback_scene,
+                crate::overlay::PopupMaterial::NativeWindow {
+                    dark: native_popup_dark,
+                },
             ));
         }
     }

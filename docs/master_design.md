@@ -351,32 +351,43 @@ need the cursor side effect to target the physical window under the pointer.
 Native popup lifetime is synchronized only by an authoritative overlay
 presentation pass: no popup presentation statement means leave existing popups
 alone, while an authoritative empty popup set means close stale popups.
+Native popup text editing has two named v1 seams: IME candidate windows still
+need popup-local caret anchoring, and pointer cursor application still needs to
+target the physical popup window under the pointer. Until those seams are
+implemented, popup-hosted text input is not considered complete.
 
 Intent is portable; realization is native. `Material::Glass` means "glasslike
-panel material," but an in-frame backend realizes it by sampling the parent
-composition, a future OS-window backend may realize it with platform effects
-such as Windows acrylic/Mica or AppKit semantic visual-effect materials, and
-the v1 native popup backend realizes it as the non-backdrop opaque/tinted body.
-Theme/config should express portable intent and platform-scoped realization
-choices, never a flat optional cluster of OS-specific fields.
+panel material"; an in-frame backend realizes it by sampling the parent
+composition, a native popup backend realizes it with OS window material when
+the platform and surface alpha support it, and native fallback realizes it as
+an opaque readable body when neither backdrop path is available. Theme/config
+should express portable intent and platform-scoped realization choices, never a
+flat optional cluster of OS-specific fields.
 
 Overlay backend choice follows window capability, not material identity. A
 floating panel that prefers `NativePopup` uses it whenever the platform probe
 supports native popup windows; unsupported platforms fall back to `InFrame`.
 Material realization is backend-local: in-frame panes may sample parent
-composition, while v1 native popup panes use their non-backdrop body until OS
-backdrop realization exists. All floating panels therefore follow the same
-backend path, with material differences handled below the backend seam.
+composition, while native popup windows own backdrop material, corner shape,
+and shadow. Native popup scenes must not contain framework glass panes; the
+framework renders content and interaction visuals into a transparent
+premultiplied popup surface so OS material can show through. If the popup
+surface cannot support that alpha mode, the backend logs the downgrade and
+renders an opaque native-safe fallback scene, still without framework glass.
+All floating panels therefore follow the same backend path, with material
+differences handled below the backend seam.
 
-Overlay ghosts are paint-only afterlife. When a live entry is dismissed,
-runtime may retain its final scene bucket briefly as a `Ghost` for fade-out,
-but the ghost is not layout, hit testing, wheel targeting, cursor resolution,
-focus routing, dismissal containment, semantics, or command routing. Focus
-restoration and key routing update when the live entry is dismissed, not when
-the ghost expires. Ghost fade frames are presentation work and must not imply
-model revision changes. If a ghost contains a material pane, the pane is
-downgraded to paint-only material layers; ghosts keep body, tint, and grain,
-but they do not backdrop-sample the world.
+Overlay ghosts are paint-only afterlife. When a live in-frame entry is
+dismissed, runtime may retain its final scene bucket briefly as a `Ghost` for
+fade-out, but the ghost is not layout, hit testing, wheel targeting, cursor
+resolution, focus routing, dismissal containment, semantics, or command
+routing. Native popup entries do not allocate ghosts in v1; the native surface
+closes rather than teleporting a fading afterimage back into the parent
+window. Focus restoration and key routing update when the live entry is
+dismissed, not when the ghost expires. Ghost fade frames are presentation work
+and must not imply model revision changes. If an in-frame ghost contains a
+material pane, the pane is downgraded to paint-only material layers; ghosts
+keep body, tint, and grain, but they do not backdrop-sample the world.
 
 Ghosts capture scene primitives, not paint primitives, so DPI and scale changes
 during a fade still pass through the normal layout-to-paint boundary. Ghost

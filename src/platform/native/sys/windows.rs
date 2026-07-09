@@ -2,6 +2,7 @@ use crate::paint;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, GetWindowLongPtrW, HWND_TOPMOST, MA_NOACTIVATE, SW_HIDE, SW_SHOWNOACTIVATE,
@@ -123,6 +124,35 @@ pub(super) fn set_popup_visible(window: &winit::window::Window, visible: bool) {
         } else {
             ShowWindow(hwnd, SW_HIDE);
         }
+    }
+}
+
+pub(super) fn set_popup_dark_mode(window: &winit::window::Window, dark: bool) {
+    let Some(hwnd) = hwnd(window) else {
+        log::warn!(target: "wgpu_l3::native_popup", "cannot set popup dark mode without HWND");
+        return;
+    };
+
+    let value: i32 = i32::from(dark);
+    let result = unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE as u32,
+            &value as *const _ as *const core::ffi::c_void,
+            std::mem::size_of::<i32>() as u32,
+        )
+    };
+
+    if result < 0 {
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "failed to set popup immersive dark mode to {dark}: HRESULT {result:#x}"
+        );
+    } else {
+        log::trace!(
+            target: "wgpu_l3::native_popup",
+            "set popup immersive dark mode to {dark}"
+        );
     }
 }
 

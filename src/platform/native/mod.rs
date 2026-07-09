@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{geometry, interaction, render};
+use crate::{geometry, interaction, overlay, render};
 
 use super::super::{session, window as app_window};
 
@@ -41,6 +41,8 @@ struct PopupWindow {
     bounds: geometry::Rect,
     geometry: PopupGeometryState,
     visible: bool,
+    material: Option<overlay::PopupMaterial>,
+    using_native_material: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -78,6 +80,8 @@ impl PopupWindow {
             bounds: geometry::Rect::new(0, 0, 0, 0),
             geometry: PopupGeometryState::default(),
             visible: false,
+            material: None,
+            using_native_material: None,
         }
     }
 }

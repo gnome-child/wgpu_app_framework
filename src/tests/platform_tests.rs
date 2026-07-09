@@ -871,12 +871,14 @@ fn menu_dropdown_uses_native_popup_work_when_backend_supports_it() {
             id: _,
             size,
             clear_color,
-            backdrop_sampling_panes,
+            framework_glass_panes,
+            fallback_framework_glass_panes,
         } if *parent == window
             && size.width() > 0
             && size.height() > 0
             && *clear_color == scene::Color::rgba(0, 0, 0, 0)
-            && *backdrop_sampling_panes == 0
+            && *framework_glass_panes == 0
+            && *fallback_framework_glass_panes == 0
     )));
     assert_eq!(
         platform.host().shell().runtime().session().windows()[0].kind(),
@@ -914,13 +916,15 @@ fn command_palette_uses_native_popup_work_when_backend_supports_it() {
             id,
             size,
             clear_color,
-            backdrop_sampling_panes,
+            framework_glass_panes,
+            fallback_framework_glass_panes,
         } if *parent == window
             && *id == interaction::CommandPalette::panel_id()
             && size.width() > 0
             && size.height() > 0
             && *clear_color == scene::Color::rgba(0, 0, 0, 0)
-            && *backdrop_sampling_panes == 0
+            && *framework_glass_panes == 0
+            && *fallback_framework_glass_panes == 0
     )));
 }
 

@@ -64,6 +64,7 @@ impl Native {
                 area: paint::area::physical(inner_size.width, inner_size.height).clamp_min(1),
                 scale_factor: handle.scale_factor() as f32,
                 color: render::color_to_wgpu(super::color::paint_color(window.canvas_color())),
+                composite_alpha: render::CompositeAlphaPreference::Default,
             },
             render_context,
             handle.clone(),

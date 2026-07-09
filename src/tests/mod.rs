@@ -270,7 +270,8 @@ enum BackendEvent {
         id: interaction::Id,
         size: geometry::Size,
         clear_color: scene::Color,
-        backdrop_sampling_panes: usize,
+        framework_glass_panes: usize,
+        fallback_framework_glass_panes: usize,
     },
     FileDialog {
         window: window::Id,
@@ -367,7 +368,10 @@ impl platform::Backend for FakeBackend {
                 id: presentation.id(),
                 size: presentation.scene().size(),
                 clear_color: presentation.scene().clear(),
-                backdrop_sampling_panes: backdrop_sampling_pane_count(presentation.scene()),
+                framework_glass_panes: framework_glass_pane_count(presentation.scene()),
+                fallback_framework_glass_panes: framework_glass_pane_count(
+                    presentation.opaque_fallback_scene(),
+                ),
             });
         }
         Ok(())
@@ -844,12 +848,12 @@ fn rect_contains(bounds: geometry::Rect, rect: geometry::Rect) -> bool {
         && rect.y().saturating_add(rect.height()) <= bounds.y().saturating_add(bounds.height())
 }
 
-fn backdrop_sampling_pane_count(scene: &scene::Scene) -> usize {
+fn framework_glass_pane_count(scene: &scene::Scene) -> usize {
     scene
         .panes()
         .into_iter()
         .filter(|pane| match pane.material() {
-            scene::Material::Glass(glass) => !glass.backdrop_layers().is_empty(),
+            scene::Material::Glass(_) => true,
             scene::Material::Solid(_) => false,
         })
         .count()
