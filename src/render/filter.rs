@@ -344,7 +344,6 @@ struct PreparedFilter {
 impl Renderer {
     const NOISE_TEXTURE_SIZE: u32 = 128;
     const NOISE_SEED: u32 = 0x8f73_d4a9;
-    const MAX_BLUR_RADIUS_PX: f32 = 256.0;
     const MAX_LIQUID_REFRACTION: f32 = 48.0;
 
     pub fn new(render_context: &render::Context, format: wgpu::TextureFormat) -> Self {
@@ -1683,18 +1682,15 @@ fn source_rect_for_prepared_destination(
 }
 
 fn blur_radius_px(amount: f32, scale_factor: f32) -> f32 {
-    (amount.clamp(0.0, 1.0) * Renderer::MAX_BLUR_RADIUS_PX * scale_factor)
-        .clamp(0.0, Renderer::MAX_BLUR_RADIUS_PX)
+    paint::filter_blur_radius_px(amount, scale_factor)
 }
 
 fn blur_sigma_px(sigma: f32, scale_factor: f32) -> f32 {
-    sigma.max(0.0) * scale_factor.max(0.0001)
+    paint::filter_blur_sigma_px(sigma, scale_factor)
 }
 
 fn blur_kernel_radius_px(sigma: f32, scale_factor: f32) -> f32 {
-    (blur_sigma_px(sigma, scale_factor) * 3.0)
-        .ceil()
-        .clamp(0.0, Renderer::MAX_BLUR_RADIUS_PX)
+    paint::filter_blur_kernel_radius_px(sigma, scale_factor)
 }
 
 fn liquid_depth_displacement(depth: f32) -> f32 {
@@ -2175,7 +2171,41 @@ mod tests {
     fn filter_shader_uses_named_alpha_mode_helper() {
         assert!(FILTER_WGSL.contains("alpha_mode: vec4<f32>"));
         assert!(FILTER_WGSL.contains("fn filter_alpha"));
+        assert!(FILTER_WGSL.contains("fn filter_source_rgb"));
         assert!(FILTER_WGSL.contains("params.alpha_mode.x"));
+    }
+
+    #[test]
+    fn shape_alpha_mode_reads_source_rgb_without_unpremultiply() {
+        let helper = FILTER_WGSL
+            .split("fn filter_source_rgb")
+            .nth(1)
+            .expect("source rgb helper should exist")
+            .split("fn filter_alpha")
+            .next()
+            .expect("source rgb helper should precede alpha helper");
+
+        assert!(helper.contains("return color.rgb;"));
+        assert!(helper.contains("return unpremultiply(color);"));
+
+        for fragment in [
+            "fs_composite",
+            "fs_liquid",
+            "fs_luminosity",
+            "fs_noise",
+            "fs_composite_pixel",
+        ] {
+            let body = FILTER_WGSL
+                .split(&format!("fn {fragment}"))
+                .nth(1)
+                .unwrap_or_else(|| panic!("{fragment} fragment should exist"))
+                .split("@fragment")
+                .next()
+                .expect("fragment body should be bounded");
+
+            assert!(body.contains("filter_source_rgb(color)"));
+            assert!(!body.contains("unpremultiply(color)"));
+        }
     }
 
     #[test]
@@ -2267,6 +2297,83 @@ mod tests {
         assert_eq!(params.texture_size, [240.0, 120.0]);
         assert_eq!(params.source_rect, [0.0, 0.0, 240.0, 120.0]);
         assert_eq!(params.target_rect, [0.0, 0.0, 240.0, 120.0]);
+    }
+
+    #[test]
+    fn promoted_blur_first_pass_samples_global_and_writes_local() {
+        let filter = paint::Filter::stack(
+            Rect::new(
+                paint::point::logical(20.0, 30.0),
+                paint::area::logical(50.0, 40.0),
+            ),
+            [paint::FilterOp::backdrop_blur(paint::BackdropBlur {
+                sigma: 44.55,
+                edge_mode: paint::BackdropEdgeMode::Mirror,
+            })],
+        );
+        let group = paint::group_from_items(
+            &[paint::Item::Filter(filter.clone())],
+            0.5,
+            paint::Grid::new(1.5),
+        )
+        .expect("filter should produce group");
+        let [paint::Item::Filter(local)] = group.items.as_slice() else {
+            panic!("expected translated filter");
+        };
+        let prepared = prepare_filter(local.rect, 1.5)
+            .expect("filter should prepare")
+            .with_blur_sigma(44.55, 1.5);
+        let params = params_with_texture_area(ParamInput {
+            target_scale_factor: 1.5,
+            texture_area: paint::area::physical(1200, 900),
+            texture_logical_area: paint::area::logical(800.0, 600.0),
+            prepared,
+            source_rect: local
+                .source_rect
+                .expect("group filter keeps global source rect"),
+            direction: [1.0, 0.0],
+            effect: [prepared.blur_sigma_px, 0.0, 0.0, 0.0],
+            alpha_mode: AlphaMode::Source,
+            sampling: paint::LayerSampling::PixelAligned,
+        });
+
+        assert_eq!(params.source_rect, [30.0, 45.0, 75.0, 60.0]);
+        assert_eq!(params.target_rect, [201.0, 201.0, 75.0, 60.0]);
+        assert!(rect_fits_in_area(prepared.raster_rect, group.bounds.area));
+    }
+
+    #[test]
+    fn high_sigma_blur_write_rect_fits_in_inflated_group_target() {
+        let filter = paint::Filter::stack(
+            Rect::new(
+                paint::point::logical(20.0, 30.0),
+                paint::area::logical(50.0, 40.0),
+            ),
+            [paint::FilterOp::backdrop_blur(paint::BackdropBlur {
+                sigma: 44.55,
+                edge_mode: paint::BackdropEdgeMode::Mirror,
+            })],
+        );
+
+        for scale in [1.0, 1.5] {
+            let group = paint::group_from_items(
+                &[paint::Item::Filter(filter.clone())],
+                0.5,
+                paint::Grid::new(scale),
+            )
+            .expect("filter should produce group");
+            let [paint::Item::Filter(local)] = group.items.as_slice() else {
+                panic!("expected translated filter");
+            };
+            let prepared = prepare_filter(local.rect, scale)
+                .expect("filter should prepare")
+                .with_blur_sigma(44.55, scale);
+
+            assert!(
+                rect_fits_in_area(prepared.raster_rect, group.bounds.area),
+                "scale {scale} should keep the blur write rect inside target-local scratch"
+            );
+        }
     }
 
     #[test]
@@ -2505,5 +2612,15 @@ mod tests {
         assert!((left.1 - right.1).abs() <= EPSILON, "{left:?} != {right:?}");
         assert!((left.2 - right.2).abs() <= EPSILON, "{left:?} != {right:?}");
         assert!((left.3 - right.3).abs() <= EPSILON, "{left:?} != {right:?}");
+    }
+
+    fn rect_fits_in_area(rect: Rect, area: paint::area::Logical) -> bool {
+        const EPSILON: f32 = 0.0001;
+        let (left, top, right, bottom) = edges(rect);
+
+        left >= -EPSILON
+            && top >= -EPSILON
+            && right <= area.width() + EPSILON
+            && bottom <= area.height() + EPSILON
     }
 }

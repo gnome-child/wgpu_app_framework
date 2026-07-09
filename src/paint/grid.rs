@@ -29,6 +29,10 @@ impl Grid {
         self.logical_pixel
     }
 
+    pub(crate) fn scale_factor(self) -> f32 {
+        self.scale_factor
+    }
+
     pub(crate) fn snap_position(self, position: f32) -> f32 {
         round_ties_toward_zero(position * self.scale_factor) / self.scale_factor
     }

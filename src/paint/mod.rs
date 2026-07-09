@@ -12,6 +12,8 @@ mod rect;
 pub(crate) use grid::Grid;
 pub(crate) use rect::{Radius, Rect, Rounding};
 
+pub(crate) const MAX_FILTER_BLUR_RADIUS_PX: f32 = 256.0;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scene {
     clear_color: Option<Color>,
@@ -645,6 +647,21 @@ impl Noise {
     }
 }
 
+pub(crate) fn filter_blur_radius_px(amount: f32, scale_factor: f32) -> f32 {
+    (amount.clamp(0.0, 1.0) * MAX_FILTER_BLUR_RADIUS_PX * scale_factor.max(0.0001))
+        .clamp(0.0, MAX_FILTER_BLUR_RADIUS_PX)
+}
+
+pub(crate) fn filter_blur_sigma_px(sigma: f32, scale_factor: f32) -> f32 {
+    sigma.max(0.0) * scale_factor.max(0.0001)
+}
+
+pub(crate) fn filter_blur_kernel_radius_px(sigma: f32, scale_factor: f32) -> f32 {
+    (filter_blur_sigma_px(sigma, scale_factor) * 3.0)
+        .ceil()
+        .clamp(0.0, MAX_FILTER_BLUR_RADIUS_PX)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Style {
     pub fill: Option<Fill>,
@@ -897,9 +914,34 @@ fn item_bounds(item: &Item, grid: Grid) -> Option<Rect> {
             outline.rect,
             outline.offset.max(0.0) + outline.width.max(0.0) + grid.logical_pixel(),
         )),
-        Item::Filter(filter) => Some(filter.rect),
+        Item::Filter(filter) => Some(expand_rect(filter.rect, filter_outset(filter, grid))),
         Item::Clip(_) | Item::PopClip => None,
         Item::Group(group) => Some(group.bounds),
+    }
+}
+
+fn filter_outset(filter: &Filter, grid: Grid) -> f32 {
+    filter
+        .ops
+        .iter()
+        .map(|op| filter_op_outset(*op, grid))
+        .fold(0.0, f32::max)
+}
+
+fn filter_op_outset(op: FilterOp, grid: Grid) -> f32 {
+    let scale_factor = grid.scale_factor();
+    match op {
+        FilterOp::Blur { amount } => filter_blur_radius_px(amount, scale_factor) / scale_factor,
+        FilterOp::BackdropBlur(blur) => {
+            filter_blur_kernel_radius_px(blur.sigma, scale_factor) / scale_factor
+        }
+        // Liquid/refraction displace the source sample but still write inside
+        // the shaped filter rect. Grow this when a future op owns pixels
+        // outside its rect instead of only sampling from outside it.
+        FilterOp::Liquid { .. }
+        | FilterOp::Refraction(_)
+        | FilterOp::Luminosity(_)
+        | FilterOp::Noise(_) => 0.0,
     }
 }
 
@@ -1290,9 +1332,46 @@ mod tests {
 
         assert_eq!(
             local.rect,
-            Rect::new(point::logical(0.0, 0.0), area::logical(50.0, 40.0))
+            Rect::new(point::logical(30.0, 30.0), area::logical(50.0, 40.0))
         );
         assert_eq!(local.source_rect, Some(filter.rect));
+    }
+
+    #[test]
+    fn group_bounds_include_backdrop_blur_kernel_spread() {
+        let filter = Filter::stack(
+            Rect::new(point::logical(20.0, 30.0), area::logical(50.0, 40.0)),
+            [FilterOp::backdrop_blur(BackdropBlur {
+                sigma: 44.55,
+                edge_mode: BackdropEdgeMode::Mirror,
+            })],
+        );
+
+        for scale in [1.0, 1.5] {
+            let group = group_from_items(&[Item::Filter(filter.clone())], 0.5, Grid::new(scale))
+                .expect("filter should produce group bounds");
+
+            assert_eq!(
+                group.bounds,
+                Rect::new(point::logical(-114.0, -104.0), area::logical(318.0, 308.0)),
+                "scale {scale} should reserve the high-sigma blur kernel"
+            );
+        }
+    }
+
+    #[test]
+    fn group_bounds_include_normalized_blur_spread() {
+        let filter = Filter::blur(
+            Rect::new(point::logical(20.0, 30.0), area::logical(50.0, 40.0)),
+            0.5,
+        );
+        let group = group_from_items(&[Item::Filter(filter)], 0.5, Grid::new(1.0))
+            .expect("filter should produce group bounds");
+
+        assert_eq!(
+            group.bounds,
+            Rect::new(point::logical(-108.0, -98.0), area::logical(306.0, 296.0))
+        );
     }
 
     #[test]

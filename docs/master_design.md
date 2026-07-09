@@ -350,12 +350,19 @@ inside a promoted group, a prior local primitive such as a shadow does not make
 the local transparent target the backdrop for glass. Backdrop operators sample
 the accumulated parent scene; local surface operators sample the material built
 inside the target so far. Material coverage is the panel shape, not sampled
-source alpha; source alpha belongs to layer and group composite-back. Temporary
-group targets use the renderer alpha convention consistently: primitives draw
-into a transparent target, and the group composite samples and re-applies
-opacity as one image so text, rounded edges, shadows, and backdrop effects do
-not separate. Reduced motion and accessibility policy can set zero exit
-duration to skip ghost allocation entirely.
+source alpha; source alpha belongs to layer and group composite-back.
+Shape-mode material filters use source RGB independently from source alpha so a
+transparent group target cannot erase backdrop blur, luminosity, or other glass
+material. Backdrop blur also needs target-local scratch padding for the kernel
+reach; group bounds reserve that spread before the filter chain writes into
+local ping/pong textures. Temporary group targets use the renderer alpha
+convention consistently: primitives draw into a transparent target, and the
+group composite samples and re-applies opacity as one image so text, rounded
+edges, shadows, and backdrop effects do not separate. A full
+premultiplied-alpha/group-blend audit is scheduled follow-up work, not an
+optional maybe, because group compositing has now exposed multiple
+alpha-convention seams. Reduced motion and accessibility policy can set zero
+exit duration to skip ghost allocation entirely.
 
 `theme`
 

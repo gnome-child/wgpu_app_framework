@@ -102,6 +102,14 @@ fn unpremultiply(color: vec4<f32>) -> vec3<f32> {
     return select(color.rgb / max(color.a, 0.0001), vec3<f32>(0.0), color.a <= 0.0001);
 }
 
+fn filter_source_rgb(color: vec4<f32>) -> vec3<f32> {
+    if params.alpha_mode.x >= 0.5 {
+        return color.rgb;
+    }
+
+    return unpremultiply(color);
+}
+
 fn filter_alpha(source_alpha: f32, shape_alpha: f32, opacity: f32) -> f32 {
     let coverage = shape_alpha * opacity;
 
@@ -180,7 +188,7 @@ fn fs_composite(in: CompositeOut) -> @location(0) vec4<f32> {
         + (in.local_position - params.rect.xy) * params.source_scale;
     let uv = source_position / max(params.texture_size, vec2<f32>(1.0));
     let color = textureSample(source_texture, source_sampler, uv);
-    let rgb = unpremultiply(color);
+    let rgb = filter_source_rgb(color);
     let opacity = clamp(params.effect.x, 0.0, 1.0);
 
     return vec4<f32>(rgb, filter_alpha(color.a, alpha, opacity));
@@ -209,7 +217,7 @@ fn fs_liquid(in: CompositeOut) -> @location(0) vec4<f32> {
         + (in.local_position - params.rect.xy + displacement) * params.source_scale;
     let uv = source_position / max(params.texture_size, vec2<f32>(1.0));
     let color = textureSample(source_texture, source_sampler, uv);
-    let rgb = unpremultiply(color);
+    let rgb = filter_source_rgb(color);
 
     return vec4<f32>(rgb, filter_alpha(color.a, alpha, 1.0));
 }
@@ -223,7 +231,7 @@ fn fs_luminosity(in: CompositeOut) -> @location(0) vec4<f32> {
     }
 
     let color = sample_source_for_local(in.local_position);
-    let rgb = unpremultiply(color);
+    let rgb = filter_source_rgb(color);
     let target_color = clamp(params.effect.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     let opacity = clamp(params.effect.w, 0.0, 1.0);
     let weights = vec3<f32>(0.2126, 0.7152, 0.0722);
@@ -243,7 +251,7 @@ fn fs_noise(in: CompositeOut) -> @location(0) vec4<f32> {
     }
 
     let color = sample_source_for_local(in.local_position);
-    let rgb = unpremultiply(color);
+    let rgb = filter_source_rgb(color);
     let opacity = clamp(params.effect.x, 0.0, 1.0);
     let noise_uv = material_position_for_local(in.local_position) / vec2<f32>(128.0);
     let noise = textureSample(noise_texture, noise_sampler, noise_uv);
@@ -265,7 +273,7 @@ fn fs_composite_pixel(in: CompositeOut) -> @location(0) vec4<f32> {
     let max_position = max(params.texture_size - vec2<f32>(1.0), vec2<f32>(0.0));
     let texel = vec2<i32>(floor(clamp(source_position, vec2<f32>(0.0), max_position)));
     let color = textureLoad(source_texture, texel, 0);
-    let rgb = unpremultiply(color);
+    let rgb = filter_source_rgb(color);
     let opacity = clamp(params.effect.x, 0.0, 1.0);
 
     return vec4<f32>(rgb, filter_alpha(color.a, alpha, opacity));
