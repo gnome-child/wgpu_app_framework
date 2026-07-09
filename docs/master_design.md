@@ -560,7 +560,7 @@ retained filter layer/scratch pool entries).
 
 The instrument map is:
 
-| Surface | Owner | Signals |
+| Instrument | Owner | Signals |
 | --- | --- | --- |
 | `Text layout` | `text::layout`, `text::edit` | paint calls, metric calls, visible and shaped lines, overscan segments, overlay and highlight work |
 | `Text caches` | text layout caches | line hits/misses, render-surface calls, render-cache hits/misses, render source lines and bytes |
