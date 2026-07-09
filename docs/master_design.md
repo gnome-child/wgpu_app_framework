@@ -340,9 +340,10 @@ material operation, not a list of unrelated blur, luminosity, tint, and noise
 draw items that happen to agree. `scene::Pane` and `paint::Pane` carry the
 pane rect, rounding, and material recipe until render, where one material
 context owns backdrop color, local material state, shape coverage, scratch, and
-group opacity. Generic filter chains remain available for non-material image
-operations and future local blur, but floating-panel glass does not flatten
-into generic filter primitives.
+group opacity. Renderer-internal generic filter chains remain available for
+non-material image operations and future local blur, but floating-panel glass
+does not flatten into generic filter primitives or expose a generic filter
+display-list front.
 
 Group bounds are paint-space visual extents, not just the retained entry rect:
 they include shadows, filter spreads, blur radii, and other pixels the entry
