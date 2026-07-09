@@ -7,7 +7,7 @@ pub(super) fn module_source() -> String {
 }
 
 #[cfg(test)]
-pub(super) fn raw_source() -> &'static str {
+fn raw_source() -> &'static str {
     SOURCE
 }
 
