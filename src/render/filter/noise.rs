@@ -91,7 +91,7 @@ fn hash_texel(x: u32, y: u32) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{bytes, texel, texture_size};
 
     #[test]
     fn texture_bytes_are_deterministic_rgba_grayscale() {

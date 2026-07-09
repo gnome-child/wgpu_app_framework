@@ -13,7 +13,7 @@ pub(super) fn raw_source() -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::raw_source;
 
     #[test]
     fn uses_named_alpha_mode_helper() {
