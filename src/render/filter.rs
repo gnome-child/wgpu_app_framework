@@ -139,7 +139,7 @@ impl Texture {
 }
 
 impl<'a> FilterSource<'a> {
-    fn sample(self) -> FilterSample<'a> {
+    fn initial_sample(self) -> FilterSample<'a> {
         match self {
             Self::Backdrop {
                 texture,
@@ -168,7 +168,7 @@ impl<'a> FilterChainContext<'a> {
         prepared: PreparedFilter,
         source: FilterSource<'a>,
     ) -> Self {
-        let sample = source.sample();
+        let sample = source.initial_sample();
 
         Self {
             target,
@@ -178,6 +178,18 @@ impl<'a> FilterChainContext<'a> {
             current_rect: sample.rect,
             current_space: sample.space,
         }
+    }
+
+    fn target(&self) -> Target {
+        self.target
+    }
+
+    fn output(&self) -> &'a wgpu::TextureView {
+        self.output
+    }
+
+    fn base_prepared(&self) -> PreparedFilter {
+        self.prepared
     }
 
     fn current_sample(&self) -> FilterSample<'a> {
@@ -190,6 +202,14 @@ impl<'a> FilterChainContext<'a> {
 
     fn local_rect(&self) -> Rect {
         self.prepared.shape_rect
+    }
+
+    fn local_intermediate<'b>(&self, texture: TextureSource<'b>) -> FilterSample<'b> {
+        FilterSample {
+            texture,
+            rect: self.local_rect(),
+            space: FilterSourceSpace::Local,
+        }
     }
 
     fn mark_output_as_current(&mut self) {
@@ -887,14 +907,16 @@ impl Renderer {
                             continue;
                         }
 
-                        let prepared = chain.prepared.with_blur(amount, chain.target.scale_factor);
+                        let prepared = chain
+                            .base_prepared()
+                            .with_blur(amount, chain.target().scale_factor);
                         let sample = chain.current_sample();
                         self.blur_pass(BlurPass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
                             source: sample.texture,
                             output: scratch.ping_view(),
-                            target: chain.target,
+                            target: chain.target(),
                             prepared,
                             direction: [1.0, 0.0],
                             source_rect: sample.rect,
@@ -904,29 +926,35 @@ impl Renderer {
                                 "Filter Blur Horizontal Pass",
                             ),
                         });
+                        let intermediate = chain.local_intermediate(
+                            scratch.ping_source(paint::LayerSampling::Filtered),
+                        );
                         self.blur_pass(BlurPass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
-                            source: scratch.ping_source(paint::LayerSampling::Filtered),
+                            source: intermediate.texture,
                             output: scratch.pong_view(),
-                            target: chain.target,
+                            target: chain.target(),
                             prepared,
                             direction: [0.0, 1.0],
-                            source_rect: chain.local_rect(),
-                            source_space: FilterSourceSpace::Local,
+                            source_rect: intermediate.rect,
+                            source_space: intermediate.space,
                             labels: BlurLabels::new(
                                 "Filter Blur Vertical Bind Group",
                                 "Filter Blur Vertical Pass",
                             ),
                         });
+                        let intermediate = chain.local_intermediate(
+                            scratch.pong_source(paint::LayerSampling::Filtered),
+                        );
                         self.composite_pass(CompositePass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
-                            source: scratch.pong_source(paint::LayerSampling::Filtered),
-                            output: pass.output,
-                            target: chain.target,
+                            source: intermediate.texture,
+                            output: chain.output(),
+                            target: chain.target(),
                             prepared,
-                            source_rect: chain.local_rect(),
+                            source_rect: intermediate.rect,
                             opacity: 1.0,
                             alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
@@ -944,15 +972,15 @@ impl Renderer {
                         }
 
                         let prepared = chain
-                            .prepared
-                            .with_blur_sigma(blur.sigma, chain.target.scale_factor);
+                            .base_prepared()
+                            .with_blur_sigma(blur.sigma, chain.target().scale_factor);
                         let sample = chain.current_sample();
                         self.blur_pass(BlurPass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
                             source: sample.texture,
                             output: scratch.ping_view(),
-                            target: chain.target,
+                            target: chain.target(),
                             prepared,
                             direction: [1.0, 0.0],
                             source_rect: sample.rect,
@@ -962,29 +990,35 @@ impl Renderer {
                                 "Filter Backdrop Blur Horizontal Pass",
                             ),
                         });
+                        let intermediate = chain.local_intermediate(
+                            scratch.ping_source(paint::LayerSampling::Filtered),
+                        );
                         self.blur_pass(BlurPass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
-                            source: scratch.ping_source(paint::LayerSampling::Filtered),
+                            source: intermediate.texture,
                             output: scratch.pong_view(),
-                            target: chain.target,
+                            target: chain.target(),
                             prepared,
                             direction: [0.0, 1.0],
-                            source_rect: chain.local_rect(),
-                            source_space: FilterSourceSpace::Local,
+                            source_rect: intermediate.rect,
+                            source_space: intermediate.space,
                             labels: BlurLabels::new(
                                 "Filter Backdrop Blur Vertical Bind Group",
                                 "Filter Backdrop Blur Vertical Pass",
                             ),
                         });
+                        let intermediate = chain.local_intermediate(
+                            scratch.pong_source(paint::LayerSampling::Filtered),
+                        );
                         self.composite_pass(CompositePass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
-                            source: scratch.pong_source(paint::LayerSampling::Filtered),
-                            output: pass.output,
-                            target: chain.target,
+                            source: intermediate.texture,
+                            output: chain.output(),
+                            target: chain.target(),
                             prepared,
-                            source_rect: chain.local_rect(),
+                            source_rect: intermediate.rect,
                             opacity: 1.0,
                             alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
@@ -1016,20 +1050,23 @@ impl Renderer {
                             source_rect: sample.rect,
                             source_sampling: sample.texture.sampling,
                             output: scratch.ping_view(),
-                            target: chain.target,
-                            prepared: chain.prepared,
+                            target: chain.target(),
+                            prepared: chain.base_prepared(),
                             effect: liquid_effect(depth, splay, feather, curve),
                             alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
                         });
+                        let intermediate = chain.local_intermediate(
+                            scratch.ping_source(paint::LayerSampling::Filtered),
+                        );
                         self.composite_pass(CompositePass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
-                            source: scratch.ping_source(paint::LayerSampling::Filtered),
-                            output: pass.output,
-                            target: chain.target,
-                            prepared: chain.prepared,
-                            source_rect: chain.local_rect(),
+                            source: intermediate.texture,
+                            output: chain.output(),
+                            target: chain.target(),
+                            prepared: chain.base_prepared(),
+                            source_rect: intermediate.rect,
                             opacity: 1.0,
                             alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
@@ -1056,20 +1093,23 @@ impl Renderer {
                             source_rect: sample.rect,
                             source_sampling: sample.texture.sampling,
                             output: scratch.ping_view(),
-                            target: chain.target,
-                            prepared: chain.prepared,
+                            target: chain.target(),
+                            prepared: chain.base_prepared(),
                             effect: refraction_effect(refraction),
                             alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
                         });
+                        let intermediate = chain.local_intermediate(
+                            scratch.ping_source(paint::LayerSampling::Filtered),
+                        );
                         self.composite_pass(CompositePass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
-                            source: scratch.ping_source(paint::LayerSampling::Filtered),
-                            output: pass.output,
-                            target: chain.target,
-                            prepared: chain.prepared,
-                            source_rect: chain.local_rect(),
+                            source: intermediate.texture,
+                            output: chain.output(),
+                            target: chain.target(),
+                            prepared: chain.base_prepared(),
+                            source_rect: intermediate.rect,
                             opacity: 1.0,
                             alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
@@ -1096,8 +1136,8 @@ impl Renderer {
                             source_rect: sample.rect,
                             source_sampling: sample.texture.sampling,
                             output: scratch.ping_view(),
-                            target: chain.target,
-                            prepared: chain.prepared,
+                            target: chain.target(),
+                            prepared: chain.base_prepared(),
                             effect: [
                                 luminosity.color.r,
                                 luminosity.color.g,
@@ -1113,14 +1153,17 @@ impl Renderer {
                                 "Filter Luminosity Pass",
                             ),
                         });
+                        let intermediate = chain.local_intermediate(
+                            scratch.ping_source(paint::LayerSampling::Filtered),
+                        );
                         self.composite_pass(CompositePass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
-                            source: scratch.ping_source(paint::LayerSampling::Filtered),
-                            output: pass.output,
-                            target: chain.target,
-                            prepared: chain.prepared,
-                            source_rect: chain.local_rect(),
+                            source: intermediate.texture,
+                            output: chain.output(),
+                            target: chain.target(),
+                            prepared: chain.base_prepared(),
+                            source_rect: intermediate.rect,
                             opacity: 1.0,
                             alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
@@ -1147,8 +1190,8 @@ impl Renderer {
                             source_rect: sample.rect,
                             source_sampling: sample.texture.sampling,
                             output: scratch.ping_view(),
-                            target: chain.target,
-                            prepared: chain.prepared,
+                            target: chain.target(),
+                            prepared: chain.base_prepared(),
                             effect: [noise.opacity, 0.0, 0.0, 0.0],
                             alpha_mode: AlphaMode::Shape,
                             pipeline: &self.noise_pipeline,
@@ -1159,14 +1202,17 @@ impl Renderer {
                                 "Filter Noise Pass",
                             ),
                         });
+                        let intermediate = chain.local_intermediate(
+                            scratch.ping_source(paint::LayerSampling::Filtered),
+                        );
                         self.composite_pass(CompositePass {
                             render_context: pass.render_context,
                             encoder: pass.encoder,
-                            source: scratch.ping_source(paint::LayerSampling::Filtered),
-                            output: pass.output,
-                            target: chain.target,
-                            prepared: chain.prepared,
-                            source_rect: chain.local_rect(),
+                            source: intermediate.texture,
+                            output: chain.output(),
+                            target: chain.target(),
+                            prepared: chain.base_prepared(),
+                            source_rect: intermediate.rect,
                             opacity: 1.0,
                             alpha_mode: AlphaMode::Shape,
                             scissor: pass.scissor,
@@ -2534,6 +2580,26 @@ mod tests {
         assert!(log.contains("target_rect"));
         assert!(log.contains("texture_size"));
         assert!(log.contains("target_area"));
+    }
+
+    #[test]
+    fn filter_op_composites_use_context_output() {
+        let source = std::fs::read_to_string(file!()).expect("filter source should be readable");
+        let draw_body = source
+            .split("pub(crate) fn draw")
+            .nth(1)
+            .expect("draw function should exist")
+            .split("pub(crate) fn composite_layer")
+            .next()
+            .expect("draw body should precede layer composite");
+
+        assert!(
+            !draw_body.contains("output: pass.output"),
+            "filter op composites must use the chain output, not raw draw-pass output"
+        );
+        assert!(draw_body.contains("output: chain.output()"));
+        assert!(draw_body.contains("chain.local_intermediate"));
+        assert!(draw_body.contains("mark_output_as_current"));
     }
 
     #[test]

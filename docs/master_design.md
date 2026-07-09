@@ -348,12 +348,14 @@ noise use panel-local material space so grain rides with the glass instead of
 the world. Filter pass parameters derive from one filter-chain context that owns
 the backdrop source, local source, target scratch, and global-to-local mapping;
 individual passes must not re-thread bare source and target rects as independent
-truths. Local target dirtiness is also a separate axis from backdrop truth:
-inside a promoted group, a prior local primitive such as a shadow does not make
-the local transparent target the backdrop for glass. Backdrop operators sample
-the accumulated parent scene; local surface operators sample the material built
-inside the target so far. Material coverage is the panel shape, not sampled
-source alpha; source alpha belongs to layer and group composite-back.
+truths. A filter chain has one world; a pass that derives source, target, or
+coverage from outside the context is a migration bug. Local target dirtiness is
+also a separate axis from backdrop truth: inside a promoted group, a prior local
+primitive such as a shadow does not make the local transparent target the
+backdrop for glass. Backdrop operators sample the accumulated parent scene;
+local surface operators sample the material built inside the target so far.
+Material coverage is the panel shape, not sampled source alpha; source alpha
+belongs to layer and group composite-back.
 Shape-mode material filters use source RGB independently from source alpha so a
 transparent group target cannot erase backdrop blur, luminosity, or other glass
 material. Backdrop blur also needs target-local scratch padding for the kernel

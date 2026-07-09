@@ -1113,6 +1113,26 @@ mod tests {
     }
 
     #[test]
+    fn group_filter_encoding_is_local_but_group_composite_back_is_parent_space() {
+        let source = std::fs::read_to_string(file!()).expect("renderer source should be readable");
+        let encode_group = source
+            .split("fn encode_group")
+            .nth(1)
+            .expect("encode_group should exist")
+            .split("fn push_clip")
+            .next()
+            .expect("encode_group should precede push_clip");
+
+        assert!(
+            encode_group.contains("let group_target = render::filter::Target::from_logical_area")
+        );
+        assert!(encode_group.contains("base_view: group_view"));
+        assert!(encode_group.contains("viewport: render::Viewport::from_logical_area"));
+        assert!(encode_group.contains("target: self.output_target"));
+        assert!(encode_group.contains("source_rect: Some(group_layer_source_rect(group.bounds))"));
+    }
+
+    #[test]
     fn group_backdrop_blur_after_local_shape_chooses_parent_backdrop() {
         let filter = backdrop_blur_filter();
 
