@@ -1,6 +1,11 @@
 use std::cell::RefCell;
 
-use super::*;
+use crate::render;
+
+use super::encode::shader_source;
+use super::noise;
+use super::pass::CompositeVertex;
+use super::state::Renderer;
 
 impl Renderer {
     pub fn new(render_context: &render::Context, format: wgpu::TextureFormat) -> Self {
