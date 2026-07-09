@@ -3,7 +3,7 @@ use thiserror::Error;
 pub(crate) use canvas::{Canvas, Options as CanvasOptions};
 pub(crate) use context::{Context, Options as ContextOptions};
 pub(crate) use frame::{Frame, Outcome as FrameOutcome};
-pub(crate) use primitive::Vertex;
+pub(in crate::render) use primitive::Vertex;
 pub(crate) use renderer::Renderer;
 pub(crate) use surface::{PresentTiming, Surface};
 

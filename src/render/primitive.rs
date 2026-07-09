@@ -2,21 +2,21 @@ use bytemuck::{Pod, Zeroable};
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-pub struct Vertex {
-    pub position: [f32; 2],
-    pub local_position: [f32; 2],
-    pub outer_rect: [f32; 4],
-    pub outer_rounding: [f32; 4],
-    pub inner_rect: [f32; 4],
-    pub inner_rounding: [f32; 4],
-    pub color: [f32; 4],
-    pub color_to: [f32; 4],
-    pub brush_points: [f32; 4],
-    pub params: [f32; 4],
+pub(in crate::render) struct Vertex {
+    pub(in crate::render) position: [f32; 2],
+    pub(in crate::render) local_position: [f32; 2],
+    pub(in crate::render) outer_rect: [f32; 4],
+    pub(in crate::render) outer_rounding: [f32; 4],
+    pub(in crate::render) inner_rect: [f32; 4],
+    pub(in crate::render) inner_rounding: [f32; 4],
+    pub(in crate::render) color: [f32; 4],
+    pub(in crate::render) color_to: [f32; 4],
+    pub(in crate::render) brush_points: [f32; 4],
+    pub(in crate::render) params: [f32; 4],
 }
 
 impl Vertex {
-    pub fn layout() -> wgpu::VertexBufferLayout<'static> {
+    pub(in crate::render) fn layout() -> wgpu::VertexBufferLayout<'static> {
         const ATTRIBUTES: [wgpu::VertexAttribute; 10] = wgpu::vertex_attr_array![
             0 => Float32x2,
             1 => Float32x2,
