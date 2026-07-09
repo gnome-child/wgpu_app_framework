@@ -1,6 +1,7 @@
 use crate::paint::{self, Rect};
 
-use super::{PreparedFilter, Target, TextureSource};
+use super::geometry::PreparedFilter;
+use super::{Target, TextureSource};
 
 #[derive(Clone, Copy)]
 pub(crate) enum FilterSource<'a> {

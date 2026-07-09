@@ -3,7 +3,7 @@ use bytemuck::{Pod, Zeroable};
 use crate::paint::{self, Rect};
 use crate::render::silhouette::{rect_data, rounding_data};
 
-use super::PreparedFilter;
+use super::geometry::PreparedFilter;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum AlphaMode {

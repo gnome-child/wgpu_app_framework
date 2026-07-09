@@ -5,8 +5,9 @@ use crate::render;
 use crate::render::silhouette::{edges, rect_data, rounding_data};
 
 use super::chain::FilterSourceSpace;
+use super::geometry::PreparedFilter;
 use super::params::AlphaMode;
-use super::{PreparedFilter, Target, TextureSource};
+use super::{Target, TextureSource};
 
 pub(super) struct BlurPass<'a> {
     pub(super) render_context: &'a render::Context,

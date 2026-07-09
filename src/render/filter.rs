@@ -19,7 +19,6 @@ pub(crate) use chain::FilterSource;
 pub(crate) use draw::FilterDraw;
 #[cfg(test)]
 pub(crate) use encode::shader_source;
-use geometry::PreparedFilter;
 #[cfg(test)]
 pub(crate) use geometry::{prepared_clip_silhouette_for_test, prepared_filter_silhouette_for_test};
 pub(crate) use source::TextureSource;
