@@ -7,6 +7,8 @@ use crate::paint::{self, Rect};
 use crate::render;
 use crate::render::silhouette::{self, PreparedSilhouette, edges, rect_data, rounding_data};
 
+mod noise;
+
 const FILTER_WGSL: &str = include_str!("filter.wgsl");
 const LAYER_POOL_LIMIT: usize = 8;
 const SCRATCH_POOL_LIMIT: usize = 8;
@@ -474,8 +476,6 @@ struct PreparedFilter {
 }
 
 impl Renderer {
-    const NOISE_TEXTURE_SIZE: u32 = 128;
-    const NOISE_SEED: u32 = 0x8f73_d4a9;
     const MAX_LIQUID_REFRACTION: f32 = 48.0;
 
     pub fn new(render_context: &render::Context, format: wgpu::TextureFormat) -> Self {
@@ -761,7 +761,7 @@ impl Renderer {
                     min_filter: wgpu::FilterMode::Nearest,
                     ..Default::default()
                 });
-        let noise_texture = create_noise_texture(render_context);
+        let noise_texture = noise::create_texture(render_context);
         let noise_sampler = render_context
             .device()
             .create_sampler(&wgpu::SamplerDescriptor {
@@ -1999,85 +1999,6 @@ fn noise_material_position_data(local_position: [f32; 2], params: Params) -> [f3
     ]
 }
 
-fn create_noise_texture(render_context: &render::Context) -> Texture {
-    let extent = wgpu::Extent3d {
-        width: Renderer::NOISE_TEXTURE_SIZE,
-        height: Renderer::NOISE_TEXTURE_SIZE,
-        depth_or_array_layers: 1,
-    };
-    let texture = render_context
-        .device()
-        .create_texture(&wgpu::TextureDescriptor {
-            label: Some("Filter Noise Texture"),
-            size: extent,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-    let bytes = noise_texture_bytes();
-    render_context.queue().write_texture(
-        wgpu::TexelCopyTextureInfo {
-            texture: &texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        &bytes,
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(Renderer::NOISE_TEXTURE_SIZE * 4),
-            rows_per_image: Some(Renderer::NOISE_TEXTURE_SIZE),
-        },
-        extent,
-    );
-    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-    Texture {
-        _inner: texture,
-        view,
-        area: paint::area::physical(Renderer::NOISE_TEXTURE_SIZE, Renderer::NOISE_TEXTURE_SIZE),
-    }
-}
-
-fn noise_texture_bytes() -> Vec<u8> {
-    let size = Renderer::NOISE_TEXTURE_SIZE as usize;
-    let mut bytes = Vec::with_capacity(size * size * 4);
-
-    for y in 0..Renderer::NOISE_TEXTURE_SIZE {
-        for x in 0..Renderer::NOISE_TEXTURE_SIZE {
-            let value = noise_texel(x, y);
-            bytes.extend_from_slice(&[value, value, value, u8::MAX]);
-        }
-    }
-
-    bytes
-}
-
-fn noise_texel(x: u32, y: u32) -> u8 {
-    let hash = hash_noise_texel(x, y);
-    let centered = hash as i16 - 128;
-    let value = 128 + centered * 35 / 100;
-
-    value.clamp(0, u8::MAX as i16) as u8
-}
-
-fn hash_noise_texel(x: u32, y: u32) -> u8 {
-    let mut value = x.wrapping_mul(0x9e37_79b9).rotate_left(7)
-        ^ y.wrapping_mul(0x85eb_ca6b).rotate_left(13)
-        ^ Renderer::NOISE_SEED;
-
-    value ^= value >> 16;
-    value = value.wrapping_mul(0x7feb_352d);
-    value ^= value >> 15;
-    value = value.wrapping_mul(0x846c_a68b);
-    value ^= value >> 16;
-
-    (value >> 24) as u8
-}
-
 fn clear_view(
     encoder: &mut wgpu::CommandEncoder,
     view: &wgpu::TextureView,
@@ -2167,11 +2088,11 @@ mod tests {
 
     #[test]
     fn noise_texture_bytes_are_deterministic_rgba_grayscale() {
-        let bytes = noise_texture_bytes();
+        let bytes = noise::bytes();
 
         assert_eq!(
             bytes.len(),
-            (Renderer::NOISE_TEXTURE_SIZE * Renderer::NOISE_TEXTURE_SIZE * 4) as usize
+            (noise::texture_size() * noise::texture_size() * 4) as usize
         );
         assert_eq!(
             &bytes[..16],
@@ -2188,7 +2109,7 @@ mod tests {
 
     #[test]
     fn noise_texel_range_stays_low_contrast() {
-        let bytes = noise_texture_bytes();
+        let bytes = noise::bytes();
         let values = bytes.chunks_exact(4).map(|rgba| rgba[0]);
         let min = values.clone().min().expect("noise should have texels");
         let max = values.max().expect("noise should have texels");
@@ -2199,11 +2120,11 @@ mod tests {
 
     #[test]
     fn noise_texel_values_are_seed_stable() {
-        assert_eq!(noise_texel(0, 0), 152);
-        assert_eq!(noise_texel(1, 0), 166);
-        assert_eq!(noise_texel(0, 1), 106);
-        assert_eq!(noise_texel(17, 31), 167);
-        assert_eq!(noise_texel(127, 127), 143);
+        assert_eq!(noise::texel(0, 0), 152);
+        assert_eq!(noise::texel(1, 0), 166);
+        assert_eq!(noise::texel(0, 1), 106);
+        assert_eq!(noise::texel(17, 31), 167);
+        assert_eq!(noise::texel(127, 127), 143);
     }
 
     #[test]
