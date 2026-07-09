@@ -1,6 +1,6 @@
 use crate::{paint, render};
 
-use super::Texture;
+use super::storage::Texture;
 
 const TEXTURE_SIZE: u32 = 128;
 const SEED: u32 = 0x8f73_d4a9;

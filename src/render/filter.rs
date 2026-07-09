@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-
 use crate::paint;
 use crate::render;
 
@@ -16,6 +14,7 @@ mod resources;
 mod setup;
 mod shader;
 mod source;
+mod state;
 mod storage;
 mod target;
 
@@ -33,34 +32,14 @@ use pass::{
     composite_vertices,
 };
 pub(crate) use source::TextureSource;
+pub(crate) use state::Renderer;
 pub(crate) use storage::Layer;
 pub(crate) use storage::LayerComposite;
-use storage::{
-    ScratchTargets, ScratchTextures, Texture, Textures, take_pooled_layer, take_pooled_scratch,
-};
+use storage::{ScratchTargets, Textures, take_pooled_layer, take_pooled_scratch};
 pub(crate) use target::Target;
 
 const LAYER_POOL_LIMIT: usize = 8;
 const SCRATCH_POOL_LIMIT: usize = 8;
-
-pub struct Renderer {
-    blur_pipeline: wgpu::RenderPipeline,
-    liquid_pipeline: wgpu::RenderPipeline,
-    luminosity_pipeline: wgpu::RenderPipeline,
-    noise_pipeline: wgpu::RenderPipeline,
-    blit_pipeline: wgpu::RenderPipeline,
-    composite_pipeline: wgpu::RenderPipeline,
-    pixel_composite_pipeline: wgpu::RenderPipeline,
-    bind_group_layout: wgpu::BindGroupLayout,
-    filtered_sampler: wgpu::Sampler,
-    pixel_aligned_sampler: wgpu::Sampler,
-    noise_texture: Texture,
-    noise_sampler: wgpu::Sampler,
-    textures: Option<Textures>,
-    layer_pool: RefCell<Vec<Layer>>,
-    scratch_pool: RefCell<Vec<ScratchTextures>>,
-    format: wgpu::TextureFormat,
-}
 
 #[cfg(test)]
 mod tests;

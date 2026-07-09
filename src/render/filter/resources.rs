@@ -1,4 +1,5 @@
 use super::encode::clear_view;
+use super::storage::{ScratchTextures, Texture};
 use super::*;
 
 impl Renderer {
