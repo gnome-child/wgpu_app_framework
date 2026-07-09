@@ -464,7 +464,7 @@ impl Pane {
 }
 
 impl Filter {
-    pub fn stack(rect: Rect, ops: impl IntoIterator<Item = FilterOp>) -> Self {
+    pub(crate) fn stack(rect: Rect, ops: impl IntoIterator<Item = FilterOp>) -> Self {
         Self {
             rect,
             source_rect: None,
@@ -654,25 +654,25 @@ fn lerp(from: f32, to: f32, progress: f32) -> f32 {
 }
 
 impl FilterOp {
-    pub fn blur(amount: f32) -> Self {
+    pub(crate) fn blur(amount: f32) -> Self {
         Self::Blur {
             amount: amount.clamp(0.0, 1.0),
         }
     }
 
-    pub fn backdrop_blur(params: BackdropBlur) -> Self {
+    pub(crate) fn backdrop_blur(params: BackdropBlur) -> Self {
         Self::BackdropBlur(params.clamped())
     }
 
-    pub fn refraction(params: Refraction) -> Self {
+    pub(crate) fn refraction(params: Refraction) -> Self {
         Self::Refraction(params.clamped())
     }
 
-    pub fn luminosity(params: Luminosity) -> Self {
+    pub(crate) fn luminosity(params: Luminosity) -> Self {
         Self::Luminosity(params.clamped())
     }
 
-    pub fn noise(params: Noise) -> Self {
+    pub(crate) fn noise(params: Noise) -> Self {
         Self::Noise(params.clamped())
     }
 
