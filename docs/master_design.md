@@ -376,6 +376,20 @@ surface cannot support that alpha mode, the backend logs the downgrade and
 renders an opaque native-safe fallback scene, still without framework glass.
 All floating panels therefore follow the same backend path, with material
 differences handled below the backend seam.
+On Windows, native popup OS material uses wgpu's DX12 DirectComposition Visual
+presentation path so popup surfaces can expose transparent alpha for DWM
+backdrops. This path is instance-wide, so the main window uses the same
+presentation system; latency gauges (`key->present` and acquire-wait p95) are
+the acceptance instrument for pacing changes. RenderDoc capture on Windows may
+need the explicit `WGPU_DX12_PRESENTATION_SYSTEM=DxgiFromHwnd` override, which
+trades OS-material transparency for the older HWND presentation path. If a
+premultiplied DirectComposition popup still shows no acrylic, the next
+single-call Windows experiment is `DwmExtendFrameIntoClientArea` with
+sheet-of-glass margins, not a return to framework glass inside native popups.
+Windows native popups also set `WS_EX_NOREDIRECTIONBITMAP` through winit's
+no-redirection-bitmap attribute; without it, the OS redirection surface can
+flatten a premultiplied popup swapchain into an opaque slab before DWM material
+has a chance to show through.
 
 Overlay ghosts are paint-only afterlife. When a live in-frame entry is
 dismissed, runtime may retain its final scene bucket briefly as a `Ghost` for

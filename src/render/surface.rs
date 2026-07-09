@@ -74,6 +74,7 @@ impl Surface {
 
         let capabilities = inner.get_capabilities(render_context.adapter());
 
+        let default_alpha_mode = config.alpha_mode;
         config.present_mode =
             preferred_present_mode(&capabilities.present_modes, config.present_mode);
         config.alpha_mode = preferred_alpha_mode(
@@ -81,6 +82,15 @@ impl Surface {
             config.alpha_mode,
             alpha_preference,
         );
+        if matches!(alpha_preference, CompositeAlphaPreference::PreMultiplied) {
+            log::debug!(
+                target: "wgpu_l3::native_popup",
+                "popup surface alpha capabilities: supported={:?}, default={:?}, selected={:?}",
+                capabilities.alpha_modes,
+                default_alpha_mode,
+                config.alpha_mode
+            );
+        }
         config.desired_maximum_frame_latency = LOW_LATENCY_FRAME_LIMIT;
 
         inner.configure(render_context.device(), &config);
@@ -234,7 +244,7 @@ fn preferred_alpha_mode(
             } else {
                 log::warn!(
                     target: "wgpu_l3::native_popup",
-                    "premultiplied popup surface alpha unsupported; using {fallback:?}"
+                    "premultiplied popup surface alpha unsupported; supported={supported:?}; using {fallback:?}"
                 );
                 fallback
             }

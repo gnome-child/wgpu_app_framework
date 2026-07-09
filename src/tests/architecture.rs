@@ -1351,6 +1351,23 @@ fn windows_native_popup_clicks_do_not_activate() {
     assert!(windows.contains("WS_EX_NOACTIVATE"));
     assert!(windows.contains("WS_EX_TOOLWINDOW"));
     assert!(windows.contains("WS_EX_APPWINDOW"));
+    assert!(windows.contains("GWL_STYLE"));
+    assert!(windows.contains("SetWindowLongPtrW(hwnd, GWL_STYLE"));
+    assert!(windows.contains("WS_POPUP"));
+    for style in [
+        "WS_CAPTION",
+        "WS_SYSMENU",
+        "WS_THICKFRAME",
+        "WS_MINIMIZEBOX",
+        "WS_MAXIMIZEBOX",
+        "WS_BORDER",
+        "WS_DLGFRAME",
+    ] {
+        assert!(
+            windows.contains(style),
+            "popup chrome/control style {style} must be explicitly cleared"
+        );
+    }
     assert!(windows.contains("SWP_FRAMECHANGED"));
     assert!(windows.contains("SWP_NOACTIVATE"));
     assert!(
@@ -1363,8 +1380,10 @@ fn windows_native_popup_clicks_do_not_activate() {
     );
     assert!(native_window.contains("BackdropType::TransientWindow"));
     assert!(native_window.contains("CornerPreference::Round"));
+    assert!(native_window.contains("with_no_redirection_bitmap(true)"));
     assert!(native_window.contains("with_undecorated_shadow(true)"));
     assert!(native_window.contains("with_has_shadow(true)"));
+    assert!(!native_window.contains("with_no_redirection_bitmap(false)"));
     assert!(!native_window.contains("with_undecorated_shadow(false)"));
     assert!(!native_window.contains("with_has_shadow(false)"));
     assert!(
@@ -1376,6 +1395,80 @@ fn windows_native_popup_clicks_do_not_activate() {
         popup.contains("self.popups.remove(&key)") && adapter.contains("self.popups.remove(&key)"),
         "stale popup and parent-close cleanup must drive PopupWindow drop"
     );
+}
+
+#[test]
+fn windows_native_popup_material_uses_dx12_visual_presentation_by_default() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let context = std::fs::read_to_string(root.join("src").join("render").join("context.rs"))
+        .expect("render context source should read");
+    let surface = std::fs::read_to_string(root.join("src").join("render").join("surface.rs"))
+        .expect("render surface source should read");
+    let native_window = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("window.rs"),
+    )
+    .expect("native window source should read");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    assert!(
+        context.contains("Dx12SwapchainKind::DxgiFromVisual"),
+        "Windows should default to the DirectComposition Visual DX12 presentation path"
+    );
+    assert!(
+        context.contains("backend_options") && context.contains(".with_env()"),
+        "DX12 presentation defaults must remain overridable through wgpu env handling"
+    );
+    assert!(
+        surface.contains("popup surface alpha capabilities"),
+        "native popup surface alpha capabilities must be logged"
+    );
+    assert!(
+        surface.contains("supported={supported:?}"),
+        "opaque popup fallback should report supported alpha modes"
+    );
+    assert!(
+        native_window.contains("with_no_redirection_bitmap(true)"),
+        "Windows native popups must disable the redirection bitmap so swapchain alpha reaches DWM"
+    );
+    for phrase in [
+        "WGPU_DX12_PRESENTATION_SYSTEM=DxgiFromHwnd",
+        "key->present",
+        "acquire-wait p95",
+        "DwmExtendFrameIntoClientArea",
+        "WS_EX_NOREDIRECTIONBITMAP",
+    ] {
+        assert!(
+            master.contains(phrase),
+            "Windows native material diagnostic doctrine should mention {phrase}"
+        );
+    }
+}
+
+#[test]
+fn native_popup_presentations_preserve_overlay_fade_for_material_and_fallback() {
+    let presentation = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("runtime")
+            .join("presentation.rs"),
+    )
+    .expect("runtime presentation source should read");
+
+    for call in [
+        "append_scene_with_forced_group(local.native_material(), layer.opacity())",
+        "append_scene_with_opacity(local.native_material(), layer.opacity())",
+        "append_scene_with_forced_group(local.opaque_fallback(), layer.opacity())",
+        "append_scene_with_opacity(local.opaque_fallback(), layer.opacity())",
+    ] {
+        assert!(
+            presentation.contains(call),
+            "native popup presentation should preserve overlay opacity path through {call}"
+        );
+    }
 }
 
 #[test]

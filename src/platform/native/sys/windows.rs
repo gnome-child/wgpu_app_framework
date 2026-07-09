@@ -5,10 +5,11 @@ use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GetWindowLongPtrW, HWND_TOPMOST, MA_NOACTIVATE, SW_HIDE, SW_SHOWNOACTIVATE,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER,
-    SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_MOUSEACTIVATE, WS_EX_APPWINDOW,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, MA_NOACTIVATE, SW_HIDE,
+    SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
+    SWP_NOZORDER, SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_MOUSEACTIVATE,
+    WS_BORDER, WS_CAPTION, WS_DLGFRAME, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
 };
 
 const POPUP_SUBCLASS_ID: usize = 1;
@@ -20,11 +21,31 @@ pub(super) fn enforce_popup_style(window: &winit::window::Window) {
     };
 
     unsafe {
-        let current = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        let desired = (current | WS_EX_NOACTIVATE as isize | WS_EX_TOOLWINDOW as isize)
-            & !(WS_EX_APPWINDOW as isize);
-        if desired != current {
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, desired);
+        let current_style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        let style_control_bits = WS_CAPTION
+            | WS_SYSMENU
+            | WS_THICKFRAME
+            | WS_MINIMIZEBOX
+            | WS_MAXIMIZEBOX
+            | WS_BORDER
+            | WS_DLGFRAME;
+        let desired_style = (current_style | WS_POPUP as isize) & !(style_control_bits as isize);
+
+        let current_exstyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let desired_exstyle =
+            (current_exstyle | WS_EX_NOACTIVATE as isize | WS_EX_TOOLWINDOW as isize)
+                & !(WS_EX_APPWINDOW as isize);
+
+        let style_changed = desired_style != current_style;
+        let exstyle_changed = desired_exstyle != current_exstyle;
+
+        if style_changed {
+            SetWindowLongPtrW(hwnd, GWL_STYLE, desired_style);
+        }
+        if exstyle_changed {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, desired_exstyle);
+        }
+        if style_changed || exstyle_changed {
             SetWindowPos(
                 hwnd,
                 std::ptr::null_mut(),
@@ -36,12 +57,12 @@ pub(super) fn enforce_popup_style(window: &winit::window::Window) {
             );
             log::debug!(
                 target: "wgpu_l3::native_popup",
-                "enforced popup exstyle: {current:#x} -> {desired:#x}"
+                "enforced popup style: style {current_style:#x} -> {desired_style:#x}, exstyle {current_exstyle:#x} -> {desired_exstyle:#x}"
             );
         } else {
             log::debug!(
                 target: "wgpu_l3::native_popup",
-                "popup exstyle already enforced: {current:#x}"
+                "popup style already enforced: style {current_style:#x}, exstyle {current_exstyle:#x}"
             );
         }
     }

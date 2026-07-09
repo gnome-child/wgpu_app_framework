@@ -174,6 +174,7 @@ fn configure_platform_popup_attributes(
 
     let mut attributes = attributes
         .with_skip_taskbar(true)
+        .with_no_redirection_bitmap(true)
         .with_undecorated_shadow(true)
         .with_system_backdrop(BackdropType::TransientWindow)
         .with_corner_preference(CornerPreference::Round);

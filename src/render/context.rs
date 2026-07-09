@@ -35,11 +35,20 @@ impl Context {
             options.power_preference,
             options.force_fallback_adapter
         );
+        let backend_options = default_backend_options().with_env();
+        #[cfg(target_os = "windows")]
+        let dx12_presentation_system = backend_options.dx12.presentation_system;
+        #[cfg(target_os = "windows")]
+        log::info!(
+            target: "wgpu_l3::native_popup",
+            "using Windows DX12 presentation system {:?}",
+            dx12_presentation_system
+        );
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: options.backends,
             flags: Default::default(),
             memory_budget_thresholds: Default::default(),
-            backend_options: Default::default(),
+            backend_options,
             display: None,
         });
 
@@ -57,7 +66,15 @@ impl Context {
                 return Err(Error::from(error).into());
             }
         };
-        log::debug!("selected wgpu adapter: {:?}", adapter.get_info());
+        let adapter_info = adapter.get_info();
+        log::debug!("selected wgpu adapter: {:?}", adapter_info);
+        #[cfg(target_os = "windows")]
+        log::info!(
+            target: "wgpu_l3::native_popup",
+            "selected Windows graphics backend {:?} with DX12 presentation system {:?}",
+            adapter_info.backend,
+            dx12_presentation_system
+        );
 
         let (device, queue) = match adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -100,5 +117,33 @@ impl Context {
 
     pub fn queue(&self) -> &wgpu::Queue {
         &self.queue
+    }
+}
+
+fn default_backend_options() -> wgpu::BackendOptions {
+    let mut options = wgpu::BackendOptions::default();
+    configure_default_backend_options(&mut options);
+    options
+}
+
+#[cfg(target_os = "windows")]
+fn configure_default_backend_options(options: &mut wgpu::BackendOptions) {
+    options.dx12.presentation_system = wgpu::Dx12SwapchainKind::DxgiFromVisual;
+}
+
+#[cfg(not(target_os = "windows"))]
+fn configure_default_backend_options(_options: &mut wgpu::BackendOptions) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn windows_defaults_to_dx12_visual_presentation() {
+        assert_eq!(
+            default_backend_options().dx12.presentation_system,
+            wgpu::Dx12SwapchainKind::DxgiFromVisual
+        );
     }
 }
