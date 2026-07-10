@@ -21,31 +21,31 @@ mod tests {
 
         assert!(source.contains("alpha_mode: vec4<f32>"));
         assert!(source.contains("fn filter_alpha"));
-        assert!(source.contains("fn filter_source_rgb"));
+        assert!(source.contains("fn composite_source"));
+        assert!(source.contains("fn filtered_source"));
         assert!(source.contains("params.alpha_mode.x"));
     }
 
     #[test]
-    fn shape_alpha_mode_reads_source_rgb_without_unpremultiply() {
+    fn source_alpha_composite_never_round_trips_through_straight_rgb() {
         let source = raw_source();
         let helper = source
-            .split("fn filter_source_rgb")
+            .split("fn composite_source")
             .nth(1)
-            .expect("source rgb helper should exist")
-            .split("fn filter_alpha")
+            .expect("composite helper should exist")
+            .split("fn filtered_source")
             .next()
-            .expect("source rgb helper should precede alpha helper");
+            .expect("composite helper should precede filtered helper");
 
-        assert!(helper.contains("return color.rgb;"));
-        assert!(helper.contains("return unpremultiply(color);"));
+        assert!(helper.contains("return associate(unpremultiply(color), coverage);"));
+        assert!(helper.contains("return vec4<f32>(color.rgb * coverage, color.a * coverage);"));
+        assert_eq!(
+            helper.matches("unpremultiply(color)").count(),
+            1,
+            "only shape-alpha replacement may unpremultiply a composite source"
+        );
 
-        for fragment in [
-            "fs_composite",
-            "fs_refraction",
-            "fs_luminosity",
-            "fs_noise",
-            "fs_composite_pixel",
-        ] {
+        for fragment in ["fs_composite", "fs_refraction", "fs_composite_pixel"] {
             let body = source
                 .split(&format!("fn {fragment}"))
                 .nth(1)
@@ -54,8 +54,26 @@ mod tests {
                 .next()
                 .expect("fragment body should be bounded");
 
-            assert!(body.contains("filter_source_rgb(color)"));
+            assert!(body.contains("composite_source(color"));
             assert!(!body.contains("unpremultiply(color)"));
+        }
+    }
+
+    #[test]
+    fn color_changing_filters_reassociate_their_straight_result() {
+        let source = raw_source();
+
+        for fragment in ["fs_luminosity", "fs_noise"] {
+            let body = source
+                .split(&format!("fn {fragment}"))
+                .nth(1)
+                .unwrap_or_else(|| panic!("{fragment} fragment should exist"))
+                .split("@fragment")
+                .next()
+                .expect("fragment body should be bounded");
+
+            assert!(body.contains("let rgb = unpremultiply(color);"));
+            assert!(body.contains("return filtered_source(adjusted, color.a, alpha, 1.0);"));
         }
     }
 

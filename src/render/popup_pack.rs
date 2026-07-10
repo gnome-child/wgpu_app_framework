@@ -145,11 +145,10 @@ impl Packer {
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
                         entry_point: Some("fs_main"),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format: output_format,
-                            blend: None,
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
+                        targets: &[Some(render::alpha::color_target(
+                            output_format,
+                            render::alpha::FragmentOutput::Replace,
+                        ))],
                         compilation_options: Default::default(),
                     }),
                     multiview_mask: None,

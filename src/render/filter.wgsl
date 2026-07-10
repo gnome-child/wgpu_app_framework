@@ -102,12 +102,8 @@ fn unpremultiply(color: vec4<f32>) -> vec3<f32> {
     return select(color.rgb / max(color.a, 0.0001), vec3<f32>(0.0), color.a <= 0.0001);
 }
 
-fn filter_source_rgb(color: vec4<f32>) -> vec3<f32> {
-    if params.alpha_mode.x >= 0.5 {
-        return color.rgb;
-    }
-
-    return unpremultiply(color);
+fn associate(straight_rgb: vec3<f32>, alpha: f32) -> vec4<f32> {
+    return vec4<f32>(straight_rgb * alpha, alpha);
 }
 
 fn filter_alpha(source_alpha: f32, shape_alpha: f32, opacity: f32) -> f32 {
@@ -118,6 +114,28 @@ fn filter_alpha(source_alpha: f32, shape_alpha: f32, opacity: f32) -> f32 {
     }
 
     return source_alpha * coverage;
+}
+
+fn composite_source(color: vec4<f32>, shape_alpha: f32, opacity: f32) -> vec4<f32> {
+    let coverage = shape_alpha * opacity;
+
+    if params.alpha_mode.x >= 0.5 {
+        return associate(unpremultiply(color), coverage);
+    }
+
+    // Source-alpha compositing stays associated end to end. In particular,
+    // group opacity never divides a low-alpha sample only to multiply it again
+    // in fixed-function blending.
+    return vec4<f32>(color.rgb * coverage, color.a * coverage);
+}
+
+fn filtered_source(
+    straight_rgb: vec3<f32>,
+    source_alpha: f32,
+    shape_alpha: f32,
+    opacity: f32,
+) -> vec4<f32> {
+    return associate(straight_rgb, filter_alpha(source_alpha, shape_alpha, opacity));
 }
 
 fn source_position_for_local(local_position: vec2<f32>) -> vec2<f32> {
@@ -188,10 +206,9 @@ fn fs_composite(in: CompositeOut) -> @location(0) vec4<f32> {
         + (in.local_position - params.rect.xy) * params.source_scale;
     let uv = source_position / max(params.texture_size, vec2<f32>(1.0));
     let color = textureSample(source_texture, source_sampler, uv);
-    let rgb = filter_source_rgb(color);
     let opacity = clamp(params.effect.x, 0.0, 1.0);
 
-    return vec4<f32>(rgb, filter_alpha(color.a, alpha, opacity));
+    return composite_source(color, alpha, opacity);
 }
 
 @fragment
@@ -217,9 +234,8 @@ fn fs_refraction(in: CompositeOut) -> @location(0) vec4<f32> {
         + (in.local_position - params.rect.xy + displacement) * params.source_scale;
     let uv = source_position / max(params.texture_size, vec2<f32>(1.0));
     let color = textureSample(source_texture, source_sampler, uv);
-    let rgb = filter_source_rgb(color);
 
-    return vec4<f32>(rgb, filter_alpha(color.a, alpha, 1.0));
+    return composite_source(color, alpha, 1.0);
 }
 
 @fragment
@@ -231,7 +247,7 @@ fn fs_luminosity(in: CompositeOut) -> @location(0) vec4<f32> {
     }
 
     let color = sample_source_for_local(in.local_position);
-    let rgb = filter_source_rgb(color);
+    let rgb = unpremultiply(color);
     let target_color = clamp(params.effect.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     let opacity = clamp(params.effect.w, 0.0, 1.0);
     let weights = vec3<f32>(0.2126, 0.7152, 0.0722);
@@ -239,7 +255,7 @@ fn fs_luminosity(in: CompositeOut) -> @location(0) vec4<f32> {
     let target_luma = dot(target_color, weights);
     let adjusted = clamp(rgb + (target_luma - source_luma) * opacity, vec3<f32>(0.0), vec3<f32>(1.0));
 
-    return vec4<f32>(adjusted, filter_alpha(color.a, alpha, 1.0));
+    return filtered_source(adjusted, color.a, alpha, 1.0);
 }
 
 @fragment
@@ -251,13 +267,13 @@ fn fs_noise(in: CompositeOut) -> @location(0) vec4<f32> {
     }
 
     let color = sample_source_for_local(in.local_position);
-    let rgb = filter_source_rgb(color);
+    let rgb = unpremultiply(color);
     let opacity = clamp(params.effect.x, 0.0, 1.0);
     let noise_uv = material_position_for_local(in.local_position) / vec2<f32>(128.0);
     let noise = textureSample(noise_texture, noise_sampler, noise_uv);
     let adjusted = mix(rgb, noise.rgb, opacity * noise.a);
 
-    return vec4<f32>(adjusted, filter_alpha(color.a, alpha, 1.0));
+    return filtered_source(adjusted, color.a, alpha, 1.0);
 }
 
 @fragment
@@ -273,8 +289,7 @@ fn fs_composite_pixel(in: CompositeOut) -> @location(0) vec4<f32> {
     let max_position = max(params.texture_size - vec2<f32>(1.0), vec2<f32>(0.0));
     let texel = vec2<i32>(floor(clamp(source_position, vec2<f32>(0.0), max_position)));
     let color = textureLoad(source_texture, texel, 0);
-    let rgb = filter_source_rgb(color);
     let opacity = clamp(params.effect.x, 0.0, 1.0);
 
-    return vec4<f32>(rgb, filter_alpha(color.a, alpha, opacity));
+    return composite_source(color, alpha, opacity);
 }

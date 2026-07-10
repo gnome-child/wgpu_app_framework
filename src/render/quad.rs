@@ -63,11 +63,10 @@ pub(in crate::render) fn pipeline(
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
+                targets: &[Some(render::alpha::color_target(
                     format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+                    render::alpha::FragmentOutput::Straight,
+                ))],
                 compilation_options: Default::default(),
             }),
             multiview_mask: None,

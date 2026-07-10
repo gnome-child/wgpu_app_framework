@@ -515,8 +515,9 @@ functions.
 Windows premultiplied popup surfaces use a different final pass than ordinary
 opaque app windows. The scene renders into an sRGB offscreen target using the
 normal linear renderer. The final popup pack pass samples that scene, converts
-straight RGB with the exact piecewise sRGB transfer function, re-multiplies by
-alpha, and writes with `REPLACE` into a non-sRGB premultiplied popup surface.
+its associated linear RGB back to straight RGB, applies the exact piecewise
+sRGB transfer function, re-associates RGB with alpha, and writes with `REPLACE`
+into a non-sRGB premultiplied popup surface.
 The legacy composition-texture blit remains for opaque/default app windows; it
 must not be reused as the Windows popup handoff. This replaced the earlier
 direct-surface pin: that pin was correct before the sRGB/premultiplied boundary
@@ -583,6 +584,28 @@ panel chrome, text, icons, shadows, and rounded edges into a local transparent
 target, then composite that target back once with the group opacity. Opacity 0
 skips rendering.
 
+The alpha pipeline has one convention at each stage:
+
+- Quad fragments and glyph mask fragments emit straight linear RGB plus alpha;
+  straight source-over associates them as they enter a target. Glyphon's color
+  atlas follows the same straight-output blend contract.
+- Main scene, clip, group, and filter textures store associated (premultiplied)
+  linear RGBA. An sRGB texture format changes only the stored RGB encoding;
+  blending and shader sampling still see linear associated RGB.
+- Blur and blit passes sample and replace associated RGBA unchanged. Refraction,
+  luminosity, and noise scratch passes explicitly return associated RGBA and
+  replace a cleared target. A shape-alpha material operation may unassociate a
+  sample before replacing source alpha with shape coverage; source-alpha paths
+  remain associated throughout.
+- Clip, group, overlay, and ghost composite-back shaders emit associated RGBA
+  and use premultiplied source-over. Group opacity multiplies RGB and alpha once;
+  it never unassociates a low-alpha sample and asks straight blending to restore
+  it. Native-popup retiring content follows this same group path.
+- The Windows popup pack consumes the associated linear scene texture,
+  unassociates only for sRGB encoding, then re-associates for the non-sRGB
+  premultiplied surface. Ordinary opaque surfaces keep the exact associated
+  composition blit.
+
 A material is a visual recipe; a pane is shaped material. Glass is a UI
 material operation, not a list of unrelated blur, luminosity, tint, and noise
 draw items that happen to agree. `scene::Pane` and `paint::Pane` carry the
@@ -632,11 +655,12 @@ at eight entries each and report their current sizes through render diagnostics.
 Temporary group targets use the renderer alpha convention
 consistently: primitives draw into a transparent target, and the group composite
 samples and re-applies opacity as one image so text, rounded edges, shadows, and
-backdrop effects do not separate. A full premultiplied-alpha/group-blend audit
-is scheduled follow-up work, not an optional maybe, because group compositing has
-now exposed multiple alpha-convention seams. Local blur is future work on the
-same filter-chain context seam, but it must wait for that audit because blurring
-transparent local content under straight alpha creates dark halos.
+backdrop effects do not separate. The premultiplied-alpha/group-blend audit is
+closed by the pipeline map above and the renderer-owned fragment-output blend
+states. This makes the filter chain arithmetically ready for future local blur:
+blur scratch preserves associated RGB through transparent edges, and
+source-alpha composite-back no longer creates straight-alpha dark halos. Local
+blur remains a separate product/API feature; readiness is not implementation.
 
 Reduced motion and accessibility policy can set zero exit duration to skip
 ghost allocation entirely.

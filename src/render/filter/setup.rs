@@ -95,11 +95,10 @@ impl Renderer {
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
                         entry_point: Some("fs_blur"),
-                        targets: &[Some(wgpu::ColorTargetState {
+                        targets: &[Some(render::alpha::color_target(
                             format,
-                            blend: None,
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
+                            render::alpha::FragmentOutput::Replace,
+                        ))],
                         compilation_options: Default::default(),
                     }),
                     multiview_mask: None,
@@ -123,11 +122,10 @@ impl Renderer {
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
                         entry_point: Some("fs_blit"),
-                        targets: &[Some(wgpu::ColorTargetState {
+                        targets: &[Some(render::alpha::color_target(
                             format,
-                            blend: None,
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
+                            render::alpha::FragmentOutput::Replace,
+                        ))],
                         compilation_options: Default::default(),
                     }),
                     multiview_mask: None,
@@ -151,11 +149,10 @@ impl Renderer {
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
                         entry_point: Some("fs_refraction"),
-                        targets: &[Some(wgpu::ColorTargetState {
+                        targets: &[Some(render::alpha::color_target(
                             format,
-                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
+                            render::alpha::FragmentOutput::Replace,
+                        ))],
                         compilation_options: Default::default(),
                     }),
                     multiview_mask: None,
@@ -179,11 +176,10 @@ impl Renderer {
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
                         entry_point: Some("fs_luminosity"),
-                        targets: &[Some(wgpu::ColorTargetState {
+                        targets: &[Some(render::alpha::color_target(
                             format,
-                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
+                            render::alpha::FragmentOutput::Replace,
+                        ))],
                         compilation_options: Default::default(),
                     }),
                     multiview_mask: None,
@@ -207,11 +203,10 @@ impl Renderer {
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
                         entry_point: Some("fs_noise"),
-                        targets: &[Some(wgpu::ColorTargetState {
+                        targets: &[Some(render::alpha::color_target(
                             format,
-                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
+                            render::alpha::FragmentOutput::Replace,
+                        ))],
                         compilation_options: Default::default(),
                     }),
                     multiview_mask: None,
@@ -235,11 +230,10 @@ impl Renderer {
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
                         entry_point: Some("fs_composite"),
-                        targets: &[Some(wgpu::ColorTargetState {
+                        targets: &[Some(render::alpha::color_target(
                             format,
-                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
+                            render::alpha::FragmentOutput::Premultiplied,
+                        ))],
                         compilation_options: Default::default(),
                     }),
                     multiview_mask: None,
@@ -263,11 +257,10 @@ impl Renderer {
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
                         entry_point: Some("fs_composite_pixel"),
-                        targets: &[Some(wgpu::ColorTargetState {
+                        targets: &[Some(render::alpha::color_target(
                             format,
-                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
+                            render::alpha::FragmentOutput::Premultiplied,
+                        ))],
                         compilation_options: Default::default(),
                     }),
                     multiview_mask: None,

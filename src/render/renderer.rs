@@ -1265,6 +1265,49 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "GPU readback diagnostic for associated group composite alpha"]
+    fn premultiplied_group_witness_applies_opacity_once() {
+        let mut scene = paint::Scene::new();
+        scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0));
+        scene.push_group(paint::Group {
+            bounds: Rect::new(
+                paint::point::logical(0.0, 0.0),
+                paint::area::logical(16.0, 16.0),
+            ),
+            opacity: 0.5,
+            items: vec![paint::Item::Quad(paint::Quad::unchecked_for_test(
+                Rect::new(
+                    paint::point::logical(2.0, 2.0),
+                    paint::area::logical(12.0, 12.0),
+                ),
+                paint::Style {
+                    fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::rgba(
+                        1.0, 0.0, 0.0, 0.5,
+                    )))),
+                    stroke: None,
+                    tint: None,
+                },
+                paint::Rasterization::default(),
+                paint::Transform::identity(),
+            ))],
+        });
+
+        let pixels = pollster::block_on(read_premultiplied_scene_pixels(scene, 16, 16))
+            .expect("group witness should render and read back");
+        let sample = pixels[8 * 16 + 8];
+
+        assert!(
+            (sample[3] - 0.25).abs() <= 0.03,
+            "half-alpha content at half group opacity should produce quarter alpha, got {sample:?}"
+        );
+        assert!(
+            (sample[0] - 0.25).abs() <= 0.03,
+            "associated red should receive group opacity exactly once, got {sample:?}"
+        );
+        assert_premultiplied_red(sample, "group opacity");
+    }
+
+    #[test]
     #[ignore = "GPU readback diagnostic for native popup sRGB premultiplied packing"]
     fn popup_pack_witness_encodes_srgb_before_premultiplying() {
         let sample = pollster::block_on(read_popup_pack_witness())

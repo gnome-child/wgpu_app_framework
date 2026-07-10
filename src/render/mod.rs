@@ -10,6 +10,7 @@ pub(crate) use surface::{
     scene_format_for_surface_format, supports_windows_premultiplied_popup_pack,
 };
 
+mod alpha;
 mod batch;
 mod canvas;
 mod context;

@@ -2528,6 +2528,60 @@ fn popup_pack_shader_uses_exact_srgb_piecewise_transfer() {
 }
 
 #[test]
+fn renderer_alpha_conventions_have_one_blend_owner() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let render = root.join("src").join("render");
+    let alpha = std::fs::read_to_string(render.join("alpha.rs"))
+        .expect("alpha convention owner should read");
+    let quad =
+        std::fs::read_to_string(render.join("quad.rs")).expect("quad renderer source should read");
+    let filter_setup = std::fs::read_to_string(render.join("filter").join("setup.rs"))
+        .expect("filter setup source should read");
+    let filter_shader =
+        std::fs::read_to_string(render.join("filter.wgsl")).expect("filter shader should read");
+    let popup_pack = std::fs::read_to_string(render.join("popup_pack.rs"))
+        .expect("popup pack source should read");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    assert!(alpha.contains("FragmentOutput::Straight => Some(wgpu::BlendState::ALPHA_BLENDING)"));
+    assert!(alpha.contains("wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING"));
+    assert!(alpha.contains("FragmentOutput::Replace => None"));
+    assert!(quad.contains("render::alpha::FragmentOutput::Straight"));
+    assert_eq!(
+        filter_setup
+            .matches("render::alpha::FragmentOutput::Replace")
+            .count(),
+        5,
+        "filter scratch/transform pipelines must replace associated RGBA"
+    );
+    assert_eq!(
+        filter_setup
+            .matches("render::alpha::FragmentOutput::Premultiplied")
+            .count(),
+        2,
+        "filtered and pixel-aligned composite pipelines must use premultiplied source-over"
+    );
+    assert!(popup_pack.contains("render::alpha::FragmentOutput::Replace"));
+    assert!(filter_shader.contains("return vec4<f32>(color.rgb * coverage, color.a * coverage);"));
+    let renderer =
+        std::fs::read_to_string(render.join("renderer.rs")).expect("renderer source should read");
+    assert!(renderer.contains("premultiplied_group_witness_applies_opacity_once"));
+    assert!(renderer.contains("(sample[3] - 0.25).abs()"));
+    assert!(renderer.contains("(sample[0] - 0.25).abs()"));
+    assert!(master.contains("The alpha pipeline has one convention at each stage:"));
+    assert!(master.contains("readiness is not implementation"));
+
+    for source in [&quad, &filter_setup, &popup_pack] {
+        assert!(
+            !source.contains("BlendState::ALPHA_BLENDING")
+                && !source.contains("BlendState::PREMULTIPLIED_ALPHA_BLENDING"),
+            "renderer pipelines must choose blend semantics through render::alpha"
+        );
+    }
+}
+
+#[test]
 fn native_popup_foreground_fix_is_packing_not_coverage_compensation() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let renderer = std::fs::read_to_string(root.join("src").join("render").join("renderer.rs"))
