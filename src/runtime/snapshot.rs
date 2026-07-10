@@ -69,12 +69,21 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let change = self.store.restore(snapshot.state, reason);
         self.store.mark_saved();
         self.session.restore(snapshot.session);
+        self.reset_transient_state();
+        change
+    }
+
+    fn reset_transient_state(&mut self) {
         self.composition.clear();
         self.timeline.clear();
         self.gesture = None;
         self.history_group = None;
         self.tasks.clear();
+        self.animation_schedules.clear();
+        self.visual_animations.clear();
+        self.overlays.clear();
+        self.layout_cache.clear();
         self.diagnostics.restore_windows(self.session.windows());
-        change
+        self.request_all_redraws();
     }
 }

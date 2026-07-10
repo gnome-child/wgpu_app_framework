@@ -357,6 +357,48 @@ fn runtime_snapshot_restore_replaces_model_session_and_marks_clean() {
 }
 
 #[test]
+fn runtime_snapshot_restore_clears_transient_animation_schedule() {
+    let mut app = text_editor::app(text_editor::State::default());
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let snapshot = app.snapshot();
+    let presented = app.present(window).expect("window should have a view");
+    let focus = presented.text_areas()[0]
+        .focus()
+        .expect("text area should declare focus");
+    app.handle_input(window, Input::focus(focus))
+        .expect("focus should be handled");
+    let target = interaction::Target::text_area(focus);
+    let epoch = app
+        .session()
+        .interaction(window)
+        .and_then(|interaction| interaction.text_input().caret_epoch_for(&target))
+        .expect("focused text area should store a caret epoch");
+    app.render_scene_at(window, geometry::Size::new(480, 180), epoch)
+        .expect("focused window should render");
+    assert_ne!(
+        app.animation_schedule(),
+        crate::animation::Schedule::Idle,
+        "focused caret should seed transient animation state"
+    );
+
+    app.restore(snapshot);
+
+    assert_eq!(
+        app.animation_schedule(),
+        crate::animation::Schedule::Idle,
+        "restoring an unfocused snapshot must not retain the later caret schedule"
+    );
+    assert!(
+        app.session()
+            .window(window)
+            .is_some_and(session::Window::redraw_requested),
+        "restore should redraw after dropping cached presentation state"
+    );
+}
+
+#[test]
 fn runtime_save_and_load_use_app_defined_persistence() {
     let mut app = Runtime::new(EditorState::default()).started(|cx| {
         cx.open_window(window::Options::new("Editor"));

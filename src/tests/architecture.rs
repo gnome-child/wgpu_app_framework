@@ -1107,6 +1107,31 @@ fn history_coalescing_is_scoped_to_the_runtime_target() {
 }
 
 #[test]
+fn snapshot_restore_has_one_transient_state_reset() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let snapshot = std::fs::read_to_string(root.join("runtime").join("snapshot.rs"))
+        .expect("runtime snapshot source should read");
+
+    assert_eq!(
+        snapshot.matches("fn reset_transient_state").count(),
+        1,
+        "snapshot restore should have one transient-state reset owner"
+    );
+    for reset in [
+        "self.composition.clear()",
+        "self.animation_schedules.clear()",
+        "self.visual_animations.clear()",
+        "self.overlays.clear()",
+        "self.layout_cache.clear()",
+    ] {
+        assert!(
+            snapshot.contains(reset),
+            "snapshot restore must discard transient presentation state: {reset}"
+        );
+    }
+}
+
+#[test]
 fn glass_material_carrier_is_pane_not_surface() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let scene_primitive = std::fs::read_to_string(root.join("scene").join("primitive.rs"))

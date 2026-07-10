@@ -416,6 +416,10 @@ impl Store {
         }
     }
 
+    pub(crate) fn clear(&mut self) {
+        self.windows.clear();
+    }
+
     pub(crate) fn update_window(
         &mut self,
         window: window::Id,

@@ -709,6 +709,8 @@ Runtime owns coarse invalidation scheduling. Paint-only frames reuse the cached
 window layout when size and theme still match; layout invalidation refreshes
 transient projection and recomposes without rebuilding the view; rebuild
 invalidation runs the full view projection and composition reconciliation path.
+Snapshot restore has one runtime-owned reset for transient composition,
+animation, overlay, task, gesture, history-group, and layout-cache state.
 
 `diagnostics`
 

@@ -66,6 +66,12 @@ struct TransitionStep {
 }
 
 impl Animations {
+    pub(super) fn clear(&mut self) {
+        self.transitions.clear();
+        self.scrollbar_activity.clear();
+        self.scrollbar_offsets.clear();
+    }
+
     pub(super) fn update_window(
         &mut self,
         window: window::Id,
