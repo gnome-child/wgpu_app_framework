@@ -1,6 +1,26 @@
 use super::*;
 
 #[test]
+fn typing_history_group_carries_the_text_owned_coalesce_window() {
+    let typing =
+        <document::ApplyEdit as Command>::history_group(&text::edit::Edit::Insert("a".to_owned()))
+            .expect("typing edit should declare a history group");
+    let generic = command::HistoryGroup::new("generic");
+
+    assert_eq!(
+        typing.coalesce_window(),
+        text::edit::TYPING_UNDO_COALESCE_WINDOW
+    );
+    assert_eq!(generic.coalesce_window(), Duration::from_millis(1000));
+    assert_ne!(
+        generic
+            .clone()
+            .with_coalesce_window(Duration::from_millis(250)),
+        generic
+    );
+}
+
+#[test]
 fn key_down_shortcuts_are_matched_from_registered_specs() {
     let mut app = Runtime::new(SourceState::default())
         .commands(|commands| {

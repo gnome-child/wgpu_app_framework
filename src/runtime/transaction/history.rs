@@ -1,9 +1,7 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use super::super::Runtime;
 use crate::{command, session, state, window};
-
-const HISTORY_GROUP_COALESCE_WINDOW: Duration = Duration::from_millis(1000);
 
 pub(in crate::runtime) struct ActiveGroup {
     group: command::HistoryGroup,
@@ -84,8 +82,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             active.group == group
                 && active.window == window
                 && same_focus_target(active.focus, focus)
-                && now.saturating_duration_since(active.recorded_at)
-                    <= HISTORY_GROUP_COALESCE_WINDOW
+                && now.saturating_duration_since(active.recorded_at) <= group.coalesce_window()
         });
         self.history_group = Some(ActiveGroup {
             group,

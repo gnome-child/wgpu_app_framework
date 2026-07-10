@@ -755,6 +755,9 @@ Owns undo and redo history. History is a framework concept, not incidental app
 bookkeeping. Command history policy should route through the timeline instead
 of each feature inventing local undo semantics. Runtime scopes a command's
 coalescing declaration to its window and focused target before timeline reuse.
+`HistoryGroup` carries its coalescing window: generic groups use the command
+default, while document typing supplies `text::edit::TYPING_UNDO_COALESCE_WINDOW`
+so the runtime timeline and text buffer consume the same typing-pause fact.
 
 `clipboard`
 

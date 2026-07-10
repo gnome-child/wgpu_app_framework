@@ -4,6 +4,8 @@ mod spec;
 mod state;
 mod trigger;
 
+use std::time::Duration;
+
 pub use observer::Observation;
 pub(crate) use observer::Observers;
 pub use registry::Registry;
@@ -43,10 +45,25 @@ pub enum History {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HistoryGroup {
     key: &'static str,
+    coalesce_window: Duration,
 }
 
 impl HistoryGroup {
     pub fn new(key: &'static str) -> Self {
-        Self { key }
+        Self {
+            key,
+            coalesce_window: DEFAULT_HISTORY_GROUP_COALESCE_WINDOW,
+        }
+    }
+
+    pub fn with_coalesce_window(mut self, coalesce_window: Duration) -> Self {
+        self.coalesce_window = coalesce_window;
+        self
+    }
+
+    pub(crate) fn coalesce_window(&self) -> Duration {
+        self.coalesce_window
     }
 }
+
+const DEFAULT_HISTORY_GROUP_COALESCE_WINDOW: Duration = Duration::from_millis(1000);

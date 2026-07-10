@@ -1313,10 +1313,19 @@ fn layered_presentation_and_frame_names_remain_documented_twins() {
 
 #[test]
 fn history_coalescing_is_scoped_to_the_runtime_target() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = root.join("src");
     let history =
-        std::fs::read_to_string(root.join("runtime").join("transaction").join("history.rs"))
+        std::fs::read_to_string(src.join("runtime").join("transaction").join("history.rs"))
             .expect("runtime history source should read");
+    let command =
+        std::fs::read_to_string(src.join("command/mod.rs")).expect("command source should read");
+    let document = std::fs::read_to_string(src.join("document/command.rs"))
+        .expect("document command source should read");
+    let text_history = std::fs::read_to_string(src.join("text/edit/history.rs"))
+        .expect("text history source should read");
+    let master = std::fs::read_to_string(root.join("docs/master_design.md"))
+        .expect("master design should read");
 
     for witness in [
         "active.window == window",
@@ -1327,6 +1336,28 @@ fn history_coalescing_is_scoped_to_the_runtime_target() {
             "history groups must include their runtime target identity: {witness}"
         );
     }
+    assert!(
+        command.contains("DEFAULT_HISTORY_GROUP_COALESCE_WINDOW")
+            && command.contains("coalesce_window: Duration"),
+        "command HistoryGroup must own the generic coalescing default"
+    );
+    assert!(
+        document.contains(".with_coalesce_window(text::edit::TYPING_UNDO_COALESCE_WINDOW)")
+            && text_history.contains(
+                "pub const TYPING_UNDO_COALESCE_WINDOW: Duration = Duration::from_millis(1000)"
+            ),
+        "document typing must carry the text-owned coalescing window"
+    );
+    assert!(
+        history.contains("group.coalesce_window()")
+            && !history.contains("HISTORY_GROUP_COALESCE_WINDOW")
+            && !history.contains("Duration::from_millis(1000)"),
+        "runtime must consume the declared window instead of recomputing it"
+    );
+    assert!(
+        master.contains("runtime timeline and text buffer consume the same typing-pause fact"),
+        "master design must name typing coalescing ownership"
+    );
 }
 
 #[test]
