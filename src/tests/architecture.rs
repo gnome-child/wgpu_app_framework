@@ -975,6 +975,61 @@ fn public_target_contract_uses_public_command_values() {
 }
 
 #[test]
+fn clipboard_outcomes_flow_from_system_to_text_commands() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = root.join("src");
+    let public = std::fs::read_to_string(src.join("clipboard").join("mod.rs"))
+        .expect("clipboard source should read");
+    let system = std::fs::read_to_string(src.join("clipboard").join("system.rs"))
+        .expect("system clipboard source should read");
+    let document = std::fs::read_to_string(src.join("text").join("edit").join("editor.rs"))
+        .expect("text editor source should read");
+    let focused = std::fs::read_to_string(
+        src.join("runtime")
+            .join("services")
+            .join("text")
+            .join("focused")
+            .join("transfer.rs"),
+    )
+    .expect("focused text transfer source should read");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    for signature in [
+        "pub fn put<T: Payload>(&self, payload: &T) -> Result<()>",
+        "pub fn get<T: Payload>(&self) -> Result<Option<T>>",
+        "pub fn contains<T: Payload>(&self) -> Result<bool>",
+    ] {
+        assert!(
+            public.contains(signature),
+            "public clipboard operations must expose their outcome: {signature}"
+        );
+    }
+    assert!(
+        system.contains("pub(super) fn read_text(&mut self) -> Result<Option<String>>")
+            && system.contains("pub(super) fn write_text(&mut self, text: &str) -> Result<()>"),
+        "the system adapter must propagate read and write results"
+    );
+    assert!(
+        document.contains("Ok(()) =>")
+            && document.contains("Err(_) => result.unavailable = true")
+            && focused.contains("Ok(()) => self.edit_response(text::edit::Edit::Delete, true)")
+            && focused
+                .contains("Err(_) => Response::output(document::Outcome::unavailable_result())"),
+        "Cut must mutate text only after a confirmed clipboard write"
+    );
+    assert!(
+        focused.contains("Ok(None)") && focused.contains("Err(_)"),
+        "Paste must distinguish an empty clipboard from a failed read"
+    );
+    assert!(
+        master.contains("Cut deletes only after `Ok(())`")
+            && master.contains("keeps empty distinct from failed"),
+        "master design must retain clipboard outcome doctrine"
+    );
+}
+
+#[test]
 fn state_change_reasons_do_not_import_command_contracts() {
     let state_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src")

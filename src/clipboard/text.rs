@@ -31,12 +31,13 @@ impl Payload for Text {
 
 impl text_engine::edit::Clipboard for Clipboard {
     fn read_text(&mut self) -> text_engine::edit::ClipboardResult<Option<String>> {
-        Ok(self.text())
+        self.text()
+            .map_err(|_| text_engine::edit::ClipboardError::Unavailable)
     }
 
     fn write_text(&mut self, text: &str) -> text_engine::edit::ClipboardResult<()> {
-        self.put(&Text::new(text));
-        Ok(())
+        self.put(&Text::new(text))
+            .map_err(|_| text_engine::edit::ClipboardError::Unavailable)
     }
 }
 

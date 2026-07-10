@@ -313,7 +313,13 @@ fn control_gallery_edit_menu_operates_on_focused_text_box() {
     open_gallery_edit_menu(&mut app, window, size);
     let copied = activate_gallery_edit_binding(&mut app, window, size, "Copy");
     assert!(copied.is_handled());
-    assert_eq!(app.clipboard().text().as_deref(), Some("alpha"));
+    assert_eq!(
+        app.clipboard()
+            .text()
+            .expect("clipboard read should succeed")
+            .as_deref(),
+        Some("alpha")
+    );
     assert_eq!(app.state().query, "alpha");
 
     open_gallery_edit_menu(&mut app, window, size);

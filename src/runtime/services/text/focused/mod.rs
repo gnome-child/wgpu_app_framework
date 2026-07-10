@@ -108,13 +108,12 @@ impl<'a> FocusedTextBox<'a> {
     }
 }
 
-fn put_clipboard_text(cx: &mut command_context::Context, text: String) -> bool {
+fn put_clipboard_text(cx: &mut command_context::Context, text: String) -> clipboard::Result<()> {
     let Some(clipboard) = cx.clipboard_mut() else {
-        return false;
+        return Err(clipboard::Error::Unavailable);
     };
 
-    clipboard.put(&clipboard::Text::new(text));
-    true
+    clipboard.put(&clipboard::Text::new(text))
 }
 
 fn effect_for_change(change: &draft::Change) -> Effect {

@@ -705,6 +705,16 @@ bookkeeping. Command history policy should route through the timeline instead
 of each feature inventing local undo semantics. Runtime scopes a command's
 coalescing declaration to its window and focused target before timeline reuse.
 
+`clipboard`
+
+Owns clipboard representations and the outcome of synchronizing them with the
+configured backend. Public reads return `Result<Option<T>>`: `Ok(None)` means
+the clipboard was read and was empty, while `Err` means it could not be read.
+Writes stage representations and publish them only after a system write is
+confirmed. Copy reports that result, Cut deletes only after `Ok(())`, and Paste
+keeps empty distinct from failed. No adapter may log an OS failure and then
+report success to its caller.
+
 `runtime`
 
 Owns orchestration. Runtime may know about state, timeline, session,

@@ -1,7 +1,5 @@
 use crate::text;
-use crate::{
-    clipboard, command, context as command_context, document, response::Response, target::Target,
-};
+use crate::{command, context as command_context, document, response::Response, target::Target};
 
 use super::{FocusedTextBox, put_clipboard_text};
 
@@ -26,12 +24,10 @@ impl Target<document::Copy> for FocusedTextBox<'_> {
             return Response::output(document::Outcome::from_text_change(false, false, false));
         };
 
-        let clipboard_changed = put_clipboard_text(cx, selection);
-        Response::output(document::Outcome::from_text_change(
-            false,
-            false,
-            clipboard_changed,
-        ))
+        match put_clipboard_text(cx, selection) {
+            Ok(()) => Response::output(document::Outcome::from_text_change(false, false, true)),
+            Err(_) => Response::output(document::Outcome::unavailable_result()),
+        }
     }
 }
 
@@ -48,14 +44,19 @@ impl Target<document::Cut> for FocusedTextBox<'_> {
             return Response::output(document::Outcome::from_text_change(false, false, false));
         };
 
-        let clipboard_changed = put_clipboard_text(cx, selection);
-        self.edit_response(text::edit::Edit::Delete, clipboard_changed)
+        match put_clipboard_text(cx, selection) {
+            Ok(()) => self.edit_response(text::edit::Edit::Delete, true),
+            Err(_) => Response::output(document::Outcome::unavailable_result()),
+        }
     }
 }
 
 impl Target<document::Paste> for FocusedTextBox<'_> {
     fn state(&self, _: &(), cx: &command_context::Context) -> command::State {
-        if cx.clipboard().is_some_and(clipboard::Clipboard::has_text) {
+        if cx
+            .clipboard()
+            .is_some_and(|clipboard| clipboard.has_text().unwrap_or(true))
+        {
             command::State::enabled()
         } else {
             command::State::disabled()
@@ -63,10 +64,14 @@ impl Target<document::Paste> for FocusedTextBox<'_> {
     }
 
     fn invoke(&mut self, _: (), cx: &mut command_context::Context) -> Response<document::Outcome> {
-        let Some(text) = cx.clipboard_mut().and_then(|clipboard| clipboard.text()) else {
-            return Response::output(document::Outcome::from_text_change(false, false, false));
+        let Some(clipboard) = cx.clipboard_mut() else {
+            return Response::output(document::Outcome::unavailable_result());
         };
 
-        self.edit_response(text::edit::Edit::insert(text), false)
+        match clipboard.text() {
+            Ok(Some(text)) => self.edit_response(text::edit::Edit::insert(text), false),
+            Ok(None) => Response::output(document::Outcome::from_text_change(false, false, false)),
+            Err(_) => Response::output(document::Outcome::unavailable_result()),
+        }
     }
 }

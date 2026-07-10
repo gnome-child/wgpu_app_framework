@@ -286,9 +286,44 @@ fn document_text_command_outcome_is_framework_owned() {
     assert!(!copied.selection_changed());
     assert!(copied.clipboard_changed());
     assert!(!copied.unavailable());
-    assert_eq!(clipboard.text().as_deref(), Some("alpha"));
+    assert_eq!(
+        clipboard
+            .text()
+            .expect("clipboard read should succeed")
+            .as_deref(),
+        Some("alpha")
+    );
     assert_eq!(document.text(), "alpha");
     assert_eq!(document.edit_count(), 0);
+}
+
+#[test]
+fn clipboard_failures_preserve_cut_text_and_differ_from_empty_paste() {
+    let mut document = TextDocument::from_text("alpha");
+    document.apply_edit(text::edit::Edit::SelectAll);
+    let mut unavailable = Clipboard::unavailable_system();
+
+    let cut = document.apply_action(text::edit::Action::Cut, &mut unavailable);
+
+    assert_eq!(document.text(), "alpha");
+    assert!(!cut.text_changed());
+    assert!(!cut.clipboard_changed());
+    assert!(cut.unavailable());
+    assert_eq!(
+        unavailable.put(&clipboard::Text::new("replacement")),
+        Err(clipboard::Error::Unavailable)
+    );
+    assert_eq!(unavailable.text(), Err(clipboard::Error::Unavailable));
+
+    let failed_paste = document.apply_action(text::edit::Action::Paste, &mut unavailable);
+    assert_eq!(document.text(), "alpha");
+    assert!(failed_paste.unavailable());
+
+    let mut empty = Clipboard::default();
+    let empty_paste = document.apply_action(text::edit::Action::Paste, &mut empty);
+    assert_eq!(document.text(), "alpha");
+    assert!(!empty_paste.unavailable());
+    assert!(!empty_paste.buffer_changed());
 }
 
 #[test]

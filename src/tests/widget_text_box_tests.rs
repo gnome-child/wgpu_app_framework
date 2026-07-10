@@ -698,7 +698,13 @@ fn text_box_ctrl_a_then_cut_updates_bound_text_and_clipboard() {
 
     assert!(cut.is_handled());
     assert!(!cut.changed_state());
-    assert_eq!(app.clipboard().text().as_deref(), Some("alpha"));
+    assert_eq!(
+        app.clipboard()
+            .text()
+            .expect("clipboard read should succeed")
+            .as_deref(),
+        Some("alpha")
+    );
     assert_eq!(app.state().submitted, "alpha");
     assert_eq!(app.revision(), state::Revision::initial());
 
@@ -723,6 +729,51 @@ fn text_box_ctrl_a_then_cut_updates_bound_text_and_clipboard() {
     assert_eq!(app.state().submitted, "");
     assert_eq!(app.revision().get(), 1);
     assert_eq!(text_draft(&app, window, focus).text(), "");
+}
+
+#[test]
+fn text_box_cut_waits_for_confirmed_clipboard_write() {
+    let focus = session::Focus::text("search");
+    let mut app = Runtime::new(TextBoxSubmitState {
+        submitted: "alpha".to_owned(),
+        ..TextBoxSubmitState::default()
+    })
+    .with_clipboard(Clipboard::unavailable_system())
+    .started(|cx| {
+        cx.open_window(window::Options::new("Failed Text Box Cut"));
+    })
+    .view(move |state, _| {
+        widget::view(|ui| {
+            ui.text_box(widget::TextBox::new(state.submitted.clone()).focus(focus));
+        })
+    });
+
+    app.start();
+    let window = app.session().windows()[0].id();
+    app.present(window)
+        .expect("view should be presented before command input");
+    app.handle_input(window, Input::focus(focus))
+        .expect("text box focus should be handled");
+    app.invoke_focused(window, app.trigger::<document::SelectAll>(()))
+        .output
+        .expect("select all should succeed");
+
+    let cut = app
+        .invoke_focused(window, app.trigger::<document::Cut>(()))
+        .output
+        .expect("cut should report its clipboard outcome");
+
+    assert!(cut.unavailable());
+    assert!(!cut.clipboard_changed());
+    assert!(!cut.buffer_changed());
+    assert_eq!(text_draft(&app, window, focus).text(), "alpha");
+
+    let paste = app
+        .invoke_focused(window, app.trigger::<document::Paste>(()))
+        .output
+        .expect("paste failure should remain an outcome");
+    assert!(paste.unavailable());
+    assert_eq!(text_draft(&app, window, focus).text(), "alpha");
 }
 
 #[test]
@@ -767,7 +818,9 @@ fn text_box_paste_replaces_selection_and_truncates_to_first_line() {
     )
     .expect("ctrl-a should select the focused text box");
 
-    app.clipboard().put(&clipboard::Text::new("beta\ngamma"));
+    app.clipboard()
+        .put(&clipboard::Text::new("beta\ngamma"))
+        .expect("clipboard write should succeed");
 
     let pasted = app
         .handle_input(

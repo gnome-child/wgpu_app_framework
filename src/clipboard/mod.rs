@@ -1,10 +1,12 @@
 use std::{cell::RefCell, fmt, rc::Rc};
 
+mod error;
 mod payload;
 mod representations;
 mod system;
 mod text;
 
+pub use error::{Error, Result};
 pub use payload::Payload;
 pub use representations::Representations;
 pub use text::Text;
@@ -32,29 +34,32 @@ impl Clipboard {
         }
     }
 
-    pub fn put<T: Payload>(&self, payload: &T) {
+    pub fn put<T: Payload>(&self, payload: &T) -> Result<()> {
         let mut inner = self.inner.borrow_mut();
-        payload.write(&mut inner.representations);
-        inner.write_system_text();
+        let mut representations = inner.representations.clone();
+        payload.write(&mut representations);
+        inner.write_system_text(&representations)?;
+        inner.representations = representations;
+        Ok(())
     }
 
-    pub fn get<T: Payload>(&self) -> Option<T> {
+    pub fn get<T: Payload>(&self) -> Result<Option<T>> {
         let mut inner = self.inner.borrow_mut();
-        inner.read_system_text();
-        T::read(&inner.representations)
+        inner.read_system_text()?;
+        Ok(T::read(&inner.representations))
     }
 
-    pub fn contains<T: Payload>(&self) -> bool {
+    pub fn contains<T: Payload>(&self) -> Result<bool> {
         let mut inner = self.inner.borrow_mut();
-        inner.read_system_text();
-        T::contains(&inner.representations)
+        inner.read_system_text()?;
+        Ok(T::contains(&inner.representations))
     }
 
-    pub fn text(&self) -> Option<String> {
-        self.get::<Text>().map(Text::into_string)
+    pub fn text(&self) -> Result<Option<String>> {
+        Ok(self.get::<Text>()?.map(Text::into_string))
     }
 
-    pub fn has_text(&self) -> bool {
+    pub fn has_text(&self) -> Result<bool> {
         self.contains::<Text>()
     }
 
@@ -72,27 +77,39 @@ impl PartialEq for Clipboard {
 impl Eq for Clipboard {}
 
 impl Inner {
-    fn read_system_text(&mut self) {
+    fn read_system_text(&mut self) -> Result<()> {
         let Some(system) = self.system.as_mut() else {
-            return;
+            return Ok(());
         };
 
-        match system.read_text() {
-            Some(Some(text)) => self.representations.set_text(text),
-            Some(None) => self.representations.clear_text(),
-            None => {}
+        match system.read_text()? {
+            Some(text) => self.representations.set_text(text),
+            None => self.representations.clear_text(),
         }
+        Ok(())
     }
 
-    fn write_system_text(&mut self) {
+    fn write_system_text(&mut self, representations: &Representations) -> Result<()> {
         let Some(system) = self.system.as_mut() else {
-            return;
+            return Ok(());
         };
-        let Some(text) = self.representations.text() else {
-            return;
+        let Some(text) = representations.text() else {
+            return Ok(());
         };
 
-        system.write_text(text);
+        system.write_text(text)
+    }
+}
+
+#[cfg(test)]
+impl Clipboard {
+    pub(crate) fn unavailable_system() -> Self {
+        Self {
+            inner: Rc::new(RefCell::new(Inner {
+                representations: Representations::default(),
+                system: Some(System::unavailable()),
+            })),
+        }
     }
 }
 

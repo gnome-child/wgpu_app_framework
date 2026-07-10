@@ -9,7 +9,7 @@ pub struct Outcome {
 }
 
 impl Outcome {
-    pub(in crate::document) fn unavailable_result() -> Self {
+    pub(crate) fn unavailable_result() -> Self {
         Self {
             unavailable: true,
             text_changed: false,

@@ -552,11 +552,22 @@ fn text_editor_key_down_edit_shortcuts_use_focused_responder_and_timeline() {
     .expect("ctrl+x should dispatch cut");
 
     assert_eq!(app.state().document.text(), "");
-    assert_eq!(app.clipboard().text().as_deref(), Some("alpha"));
-    assert!(app.clipboard().contains::<clipboard::Text>());
+    assert_eq!(
+        app.clipboard()
+            .text()
+            .expect("clipboard read should succeed")
+            .as_deref(),
+        Some("alpha")
+    );
+    assert!(
+        app.clipboard()
+            .contains::<clipboard::Text>()
+            .expect("clipboard read should succeed")
+    );
     assert_eq!(
         app.clipboard()
             .get::<clipboard::Text>()
+            .expect("clipboard read should succeed")
             .expect("clipboard should contain text payload")
             .as_str(),
         "alpha"
@@ -682,7 +693,13 @@ fn text_editor_edit_and_timeline_shortcuts_use_focus_and_history() {
         .expect("cut shortcut should resolve");
 
     assert_eq!(app.state().document.text(), "");
-    assert_eq!(app.clipboard().text().as_deref(), Some("alpha"));
+    assert_eq!(
+        app.clipboard()
+            .text()
+            .expect("clipboard read should succeed")
+            .as_deref(),
+        Some("alpha")
+    );
     assert_eq!(app.state().last_status, "cut");
     assert_eq!(app.revision().get(), 3);
 
@@ -985,14 +1002,26 @@ fn text_editor_edit_menu_clipboard_commands_use_focused_document() {
 
     app.activate_in(window, copy).expect("copy should activate");
 
-    assert_eq!(app.clipboard().text().as_deref(), Some("alpha"));
+    assert_eq!(
+        app.clipboard()
+            .text()
+            .expect("clipboard read should succeed")
+            .as_deref(),
+        Some("alpha")
+    );
     assert_eq!(app.state().document.text(), "alpha");
     assert_eq!(app.state().last_status, "copy");
     assert_eq!(app.revision().get(), 3);
 
     app.activate_in(window, cut).expect("cut should activate");
 
-    assert_eq!(app.clipboard().text().as_deref(), Some("alpha"));
+    assert_eq!(
+        app.clipboard()
+            .text()
+            .expect("clipboard read should succeed")
+            .as_deref(),
+        Some("alpha")
+    );
     assert_eq!(app.state().document.text(), "");
     assert_eq!(app.state().last_status, "cut");
     assert_eq!(app.revision().get(), 4);
