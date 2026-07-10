@@ -348,27 +348,12 @@ fn measure_for_width(width: i32) -> text_engine::layout::Measure {
 
 fn text_color_from_scene(color: scene::Color) -> text_engine::Color {
     let (r, g, b, a) = color.channels();
-
     text_engine::Color::rgba(
-        linear_channel(r),
-        linear_channel(g),
-        linear_channel(b),
-        alpha_channel(a),
+        crate::color::byte_to_unit(r),
+        crate::color::byte_to_unit(g),
+        crate::color::byte_to_unit(b),
+        crate::color::byte_to_unit(a),
     )
-}
-
-fn linear_channel(channel: u8) -> f32 {
-    let value = alpha_channel(channel);
-
-    if value <= 0.04045 {
-        value / 12.92
-    } else {
-        ((value + 0.055) / 1.055).powf(2.4)
-    }
-}
-
-fn alpha_channel(channel: u8) -> f32 {
-    channel as f32 / 255.0
 }
 
 fn scroll_offset_for_text_state(state: &text_engine::edit::ViewState) -> interaction::ScrollOffset {

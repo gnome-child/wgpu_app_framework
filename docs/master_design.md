@@ -156,6 +156,12 @@ Owns `Facts`: id, title, inner size, canvas color, and kind. Session, shell,
 host, and platform window types remain layer projections that wrap this core;
 they must not redeclare its fields.
 
+`color`
+
+Owns transfer functions and named byte conventions. Scene RGB bytes are sRGB,
+paint RGB floats are linear, glyphon color bytes are sRGB, and Windows accent
+gradients are packed as `AABBGGRR`; conversion happens once at these boundaries.
+
 `text`
 
 Owns document, buffer, edit, surface, layout, and unicode concepts. The text

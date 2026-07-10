@@ -286,7 +286,7 @@ fn prepare_text_surface_in_bounds<'a>(
             right: clip_right.ceil() as i32,
             bottom: clip_bottom.ceil() as i32,
         },
-        default_color: paint_color(text.default_color),
+        default_color: glyphon_color_from_linear_paint(text.default_color),
         stats: InlineStats::default(),
     })
 }
@@ -330,19 +330,17 @@ fn prepare_icon(
             right: clip_right.ceil() as i32,
             bottom: clip_bottom.ceil() as i32,
         },
-        default_color: paint_color(icon.color),
+        default_color: glyphon_color_from_linear_paint(icon.color),
         stats: prepared.stats,
     })
 }
 
-fn paint_color(color: paint::Color) -> glyphon::Color {
-    let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
-
+fn glyphon_color_from_linear_paint(color: paint::Color) -> glyphon::Color {
     glyphon::Color::rgba(
-        channel(color.r),
-        channel(color.g),
-        channel(color.b),
-        channel(color.a),
+        crate::color::linear_unit_to_srgb_byte(color.r),
+        crate::color::linear_unit_to_srgb_byte(color.g),
+        crate::color::linear_unit_to_srgb_byte(color.b),
+        crate::color::unit_to_byte(color.a),
     )
 }
 
@@ -538,6 +536,9 @@ mod tests {
 
         assert_eq!(black.stats.icon_cache_hits, 1);
         assert_eq!(black.stats.icon_shape_calls, 0);
-        assert_eq!(black.default_color, paint_color(paint::Color::BLACK));
+        assert_eq!(
+            black.default_color,
+            glyphon_color_from_linear_paint(paint::Color::BLACK)
+        );
     }
 }

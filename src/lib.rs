@@ -33,6 +33,7 @@ pub mod widget;
 pub mod window;
 
 mod animation;
+mod color;
 mod composition;
 mod draft;
 mod layout;

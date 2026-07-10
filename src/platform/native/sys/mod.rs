@@ -97,18 +97,5 @@ pub(in crate::platform::native) fn set_popup_accent_material(
 
 pub(in crate::platform::native) fn accent_gradient_abgr(color: scene::Color) -> u32 {
     let (r, g, b, a) = color.channels();
-    ((a as u32) << 24) | ((b as u32) << 16) | ((g as u32) << 8) | r as u32
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn accent_gradient_color_uses_abgr_order() {
-        assert_eq!(
-            accent_gradient_abgr(scene::Color::rgba(0x11, 0x22, 0x33, 0x44)),
-            0x44332211
-        );
-    }
+    crate::color::aabbggrr(r, g, b, a)
 }

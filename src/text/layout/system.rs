@@ -193,7 +193,10 @@ pub(crate) fn weight(weight: text::document::Weight) -> glyphon::Weight {
 
 pub(crate) fn color(color: text::Color) -> glyphon::Color {
     let (r, g, b, a) = color.channels();
-    let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
-
-    glyphon::Color::rgba(channel(r), channel(g), channel(b), channel(a))
+    glyphon::Color::rgba(
+        crate::color::unit_to_byte(r),
+        crate::color::unit_to_byte(g),
+        crate::color::unit_to_byte(b),
+        crate::color::unit_to_byte(a),
+    )
 }
