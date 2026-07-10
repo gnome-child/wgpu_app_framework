@@ -302,6 +302,67 @@ fn text_layout_system_module_stays_private() {
 }
 
 #[test]
+fn text_buffer_old_line_and_mmap_representations_stay_deleted() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let buffer = root.join("src").join("text").join("buffer");
+    let document = std::fs::read_to_string(buffer.join("document.rs"))
+        .expect("text document source should read");
+    let span_tree = std::fs::read_to_string(buffer.join("document").join("span_tree.rs"))
+        .expect("source span tree should read");
+    let buffer_api =
+        std::fs::read_to_string(buffer.join("mod.rs")).expect("text buffer API should read");
+    let manifest =
+        std::fs::read_to_string(root.join("Cargo.toml")).expect("Cargo manifest should read");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    for deleted in ["line.rs", "source.rs"] {
+        assert!(
+            !buffer.join("document").join(deleted).exists(),
+            "the retired text-buffer representation must not return as {deleted}"
+        );
+    }
+    for retired in [
+        "TextLineTree",
+        "Vec<TextLine>",
+        "MappedTextSource",
+        "memmap2",
+    ] {
+        assert!(
+            !document.contains(retired)
+                && !span_tree.contains(retired)
+                && !manifest.contains(retired),
+            "the retired text-buffer representation must not contain {retired}"
+        );
+    }
+    for witness in ["struct SourceSpan", "struct SpanTree", "Arc<Node>"] {
+        assert!(
+            span_tree.contains(witness),
+            "the source-span tree must retain {witness}"
+        );
+    }
+    assert!(
+        document.contains("tree: SpanTree") && document.contains("lines: LineIndex"),
+        "TextDocument must have one source-span representation and its persistent line index"
+    );
+    assert!(
+        buffer_api.contains("pub fn from_mapped_file")
+            && buffer_api.contains("Self::from_file(path)"),
+        "the compatibility file API must delegate to owned source loading"
+    );
+    for decision in [
+        "Owned sources, never retained mappings",
+        "SIGBUS or an access violation",
+        "locked against the atomic-rename save path",
+    ] {
+        assert!(
+            master.contains(decision),
+            "the mmap-retirement decision must retain {decision}"
+        );
+    }
+}
+
+#[test]
 fn caret_affinity_has_one_position_to_cursor_owner() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let text = root.join("src").join("text");

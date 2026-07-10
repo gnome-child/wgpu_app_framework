@@ -782,6 +782,30 @@ transitions. State answers "what changed?" and "which model value is current?"
 It should not know how a widget painted, which native event arrived, or which
 renderer will draw the result.
 
+`text::Buffer`
+
+Owns text bytes as one persistent tree of spans into immutable source buffers:
+one owned original source plus immutable add chunks. Tree nodes summarize bytes
+and logical line breaks; clones share the root, and edits path-copy only the
+split/insert route. A separate persistent line-index tree owns stable
+`LineLayoutIdentity` values so editing one line does not invalidate layout
+caches for its siblings. Grapheme and word segmentation are line-local and
+lazy; the buffer stores no whole-file character or grapheme index.
+
+**Owned sources, never retained mappings.** A file load reads UTF-8 into owned
+immutable source storage. A mapping must not survive loading: external file
+truncation can turn a later mapped read into SIGBUS or an access violation, and
+Windows keeps mapped files locked against the atomic-rename save path. Save
+snapshots therefore Arc-share the persistent tree and stream its spans into the
+sibling temporary file without flattening the document.
+
+Original line-ending bytes remain source truth. The line index treats LF and
+CRLF uniformly as logical boundaries and excludes CRLF bytes from line content.
+The dominant loaded ending (count, then first-seen tie break; LF for a file with
+none) owns newly inserted logical line breaks. Programmatic multiline
+construction retains its legacy canonical-LF policy; file loading does not
+normalize bytes.
+
 `target` and `responder`
 
 Own executable capability and routing participation. A target says "this value

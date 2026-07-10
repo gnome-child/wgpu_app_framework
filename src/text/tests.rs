@@ -1131,7 +1131,7 @@ fn file_buffer_owns_original_source_without_mapping() {
     ));
     std::fs::write(&path, "one\ntwo\nthree").expect("temp mapped text should be writable");
 
-    let buffer = Buffer::from_mapped_file(&path).expect("mapped text buffer should open");
+    let buffer = Buffer::from_file(&path).expect("owned text buffer should open");
     let (owned, mapped, add) = buffer.document_piece_source_lengths();
 
     assert_eq!(buffer.to_plain_text(), "one\ntwo\nthree");
@@ -1151,7 +1151,7 @@ fn file_buffer_preserves_crlf_and_uses_dominant_ending_for_inserted_breaks() {
         Instant::now().elapsed().as_nanos()
     ));
     std::fs::write(&path, "one\r\ntwo\r\nthree\n").expect("temporary CRLF text should be writable");
-    let mut buffer = Buffer::from_mapped_file(&path).expect("owned file buffer should open");
+    let mut buffer = Buffer::from_file(&path).expect("owned file buffer should open");
     let mut state = buffer.initial_state();
     let mut editor = Editor::new();
 

@@ -73,7 +73,7 @@ impl Document {
 
     pub fn open_path(&mut self, path: impl Into<PathBuf>) -> io::Result<()> {
         let path = path.into();
-        let buffer = text::Buffer::from_mapped_file(&path)?;
+        let buffer = text::Buffer::from_file(&path)?;
         let saved_buffer_revision = buffer.revision();
 
         self.identity = Identity::next();

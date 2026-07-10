@@ -6,11 +6,7 @@ use super::super::unicode::{
 };
 use super::{Cursor, LineLayoutIdentity, Mark, MarkGravity, MarkRange, Position, Range, Selection};
 
-#[allow(dead_code)]
-mod line;
 mod line_index;
-#[allow(dead_code)]
-mod source;
 mod span_tree;
 mod stats;
 

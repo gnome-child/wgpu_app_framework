@@ -2822,7 +2822,6 @@ dependencies = [
  "iconflow",
  "log",
  "lru",
- "memmap2",
  "pollster",
  "rfd",
  "serde",

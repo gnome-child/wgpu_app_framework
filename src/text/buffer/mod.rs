@@ -114,11 +114,16 @@ impl Buffer {
         Self::from_document_with_mode(TextDocument::from_text(&text), multiline)
     }
 
+    /// Compatibility entry point. File-backed buffers now use owned source storage.
     pub fn from_mapped_file(path: impl AsRef<Path>) -> io::Result<Self> {
-        Self::from_mapped_file_with_mode(path, true)
+        Self::from_file(path)
     }
 
-    fn from_mapped_file_with_mode(path: impl AsRef<Path>, multiline: bool) -> io::Result<Self> {
+    pub fn from_file(path: impl AsRef<Path>) -> io::Result<Self> {
+        Self::from_file_with_mode(path, true)
+    }
+
+    fn from_file_with_mode(path: impl AsRef<Path>, multiline: bool) -> io::Result<Self> {
         let document = TextDocument::open_file(path)?;
         Ok(Self::from_document_with_mode(document, multiline))
     }
