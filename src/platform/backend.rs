@@ -60,41 +60,33 @@ pub trait Backend {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
-    id: window::Id,
-    title: String,
-    size: geometry::Size,
-    canvas_color: scene::Color,
-    kind: window::Kind,
+    facts: window::Facts,
 }
 
 impl Window {
     pub(super) fn from_shell(window: &shell::Window) -> Self {
         Self {
-            id: window.id(),
-            title: window.title().to_owned(),
-            size: window.size(),
-            canvas_color: window.canvas_color(),
-            kind: window.kind(),
+            facts: window.facts().clone(),
         }
     }
 
     pub fn id(&self) -> window::Id {
-        self.id
+        self.facts.id()
     }
 
     pub fn title(&self) -> &str {
-        &self.title
+        self.facts.title()
     }
 
     pub fn size(&self) -> geometry::Size {
-        self.size
+        self.facts.inner_size()
     }
 
     pub fn canvas_color(&self) -> scene::Color {
-        self.canvas_color
+        self.facts.canvas_color()
     }
 
     pub fn kind(&self) -> window::Kind {
-        self.kind
+        self.facts.kind()
     }
 }

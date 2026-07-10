@@ -138,7 +138,7 @@ impl<M: State, E: Send + 'static> Host<M, E> {
                     window.title(),
                     window.size()
                 );
-                entry.update(window.title(), window.size());
+                entry.update(window.facts());
                 continue;
             }
 
@@ -148,8 +148,7 @@ impl<M: State, E: Send + 'static> Host<M, E> {
                 window.title(),
                 window.size()
             );
-            self.windows
-                .push(Window::new(window.id(), window.title(), window.size()));
+            self.windows.push(Window::new(window.facts().clone()));
         }
 
         for presentation in work.presentations() {

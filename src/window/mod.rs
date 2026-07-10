@@ -1,6 +1,8 @@
+mod facts;
 mod id;
 mod options;
 
+pub use facts::Facts;
 pub use id::Id;
 pub use options::{Kind, Options};
 

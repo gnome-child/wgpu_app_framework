@@ -150,6 +150,12 @@ and outer ring edges. Do not snap `offset + width` as one expanded rect. The
 internal ring path already follows the same distance-first law by deriving its
 inset from a snapped base edge and a snapped width.
 
+`window`
+
+Owns `Facts`: id, title, inner size, canvas color, and kind. Session, shell,
+host, and platform window types remain layer projections that wrap this core;
+they must not redeclare its fields.
+
 `text`
 
 Owns document, buffer, edit, surface, layout, and unicode concepts. The text

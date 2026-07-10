@@ -3,11 +3,7 @@ use super::{FileDialog, Focus, Session, Snapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
-    pub(super) id: app_window::Id,
-    pub(super) title: String,
-    pub(super) inner_size: geometry::Size,
-    pub(super) canvas_color: scene::Color,
-    pub(super) kind: app_window::Kind,
+    pub(super) facts: app_window::Facts,
     pub(super) invalidation: Option<response::Invalidation>,
     pub(super) presented_revision: Option<state::Revision>,
     pub(super) cursor: pointer::Cursor,
@@ -20,29 +16,14 @@ pub struct Window {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowSnapshot {
-    pub(super) id: app_window::Id,
-    pub(super) title: String,
-    pub(super) inner_size: geometry::Size,
-    pub(super) canvas_color: scene::Color,
-    pub(super) kind: app_window::Kind,
+    pub(super) facts: app_window::Facts,
     pub(super) focus: Option<Focus>,
 }
 
 impl Window {
-    pub(super) fn new(
-        id: app_window::Id,
-        title: String,
-        inner_size: geometry::Size,
-        canvas_color: scene::Color,
-        kind: app_window::Kind,
-        draft_limit: usize,
-    ) -> Self {
+    pub(super) fn new(facts: app_window::Facts, draft_limit: usize) -> Self {
         Self {
-            id,
-            title,
-            inner_size,
-            canvas_color,
-            kind,
+            facts,
             invalidation: Some(response::Invalidation::Rebuild),
             presented_revision: None,
             cursor: pointer::Cursor::Default,
@@ -56,11 +37,7 @@ impl Window {
 
     pub(super) fn restore(snapshot: WindowSnapshot, draft_limit: usize) -> Self {
         Self {
-            id: snapshot.id,
-            title: snapshot.title,
-            inner_size: snapshot.inner_size,
-            canvas_color: snapshot.canvas_color,
-            kind: snapshot.kind,
+            facts: snapshot.facts,
             invalidation: Some(response::Invalidation::Rebuild),
             presented_revision: None,
             cursor: pointer::Cursor::Default,
@@ -73,23 +50,27 @@ impl Window {
     }
 
     pub fn id(&self) -> app_window::Id {
-        self.id
+        self.facts.id()
     }
 
     pub fn title(&self) -> &str {
-        &self.title
+        self.facts.title()
     }
 
     pub fn inner_size(&self) -> geometry::Size {
-        self.inner_size
+        self.facts.inner_size()
     }
 
     pub fn canvas_color(&self) -> scene::Color {
-        self.canvas_color
+        self.facts.canvas_color()
     }
 
     pub fn kind(&self) -> app_window::Kind {
-        self.kind
+        self.facts.kind()
+    }
+
+    pub(crate) fn facts(&self) -> &app_window::Facts {
+        &self.facts
     }
 
     pub fn redraw_requested(&self) -> bool {
@@ -120,44 +101,42 @@ impl Window {
 impl WindowSnapshot {
     pub fn new(id: app_window::Id, title: impl Into<String>, focus: Option<Focus>) -> Self {
         Self {
-            id,
-            title: title.into(),
-            inner_size: app_window::Options::default_inner_size(),
-            canvas_color: app_window::Options::default_canvas_color(),
-            kind: app_window::Kind::Application,
+            facts: app_window::Facts::new(
+                id,
+                title,
+                app_window::Options::default_inner_size(),
+                app_window::Options::default_canvas_color(),
+                app_window::Kind::Application,
+            ),
             focus,
         }
     }
 
     pub(super) fn from_window(window: &Window) -> Self {
         Self {
-            id: window.id,
-            title: window.title.clone(),
-            inner_size: window.inner_size,
-            canvas_color: window.canvas_color,
-            kind: window.kind,
+            facts: window.facts.clone(),
             focus: window.focus,
         }
     }
 
     pub fn id(&self) -> app_window::Id {
-        self.id
+        self.facts.id()
     }
 
     pub fn title(&self) -> &str {
-        &self.title
+        self.facts.title()
     }
 
     pub fn inner_size(&self) -> geometry::Size {
-        self.inner_size
+        self.facts.inner_size()
     }
 
     pub fn canvas_color(&self) -> scene::Color {
-        self.canvas_color
+        self.facts.canvas_color()
     }
 
     pub fn kind(&self) -> app_window::Kind {
-        self.kind
+        self.facts.kind()
     }
 
     pub fn focus(&self) -> Option<Focus> {
@@ -171,11 +150,7 @@ impl Session {
         let id = app_window::Id::new(self.next_window_id);
         self.next_window_id += 1;
         self.windows.push(Window::new(
-            id,
-            title,
-            inner_size,
-            canvas_color,
-            kind,
+            app_window::Facts::new(id, title, inner_size, canvas_color, kind),
             self.draft_limit,
         ));
 
@@ -183,7 +158,7 @@ impl Session {
     }
 
     pub fn close_window(&mut self, id: app_window::Id) -> bool {
-        let Some(index) = self.windows.iter().position(|window| window.id == id) else {
+        let Some(index) = self.windows.iter().position(|window| window.id() == id) else {
             return false;
         };
 
@@ -245,7 +220,7 @@ impl Session {
             .filter_map(|window| {
                 window.cursor_changed.then(|| {
                     window.cursor_changed = false;
-                    pointer::Update::new(window.id, window.cursor)
+                    pointer::Update::new(window.id(), window.cursor)
                 })
             })
             .collect()
@@ -271,7 +246,7 @@ impl Session {
     }
 
     pub fn window(&self, id: app_window::Id) -> Option<&Window> {
-        self.windows.iter().find(|window| window.id == id)
+        self.windows.iter().find(|window| window.id() == id)
     }
 
     pub fn contains(&self, id: app_window::Id) -> bool {
@@ -296,7 +271,7 @@ impl Session {
         self.next_window_id = self
             .windows
             .iter()
-            .map(|window| window.id.get() + 1)
+            .map(|window| window.id().get() + 1)
             .max()
             .unwrap_or_default();
     }
@@ -309,6 +284,6 @@ impl Session {
     }
 
     pub(in crate::session) fn window_mut(&mut self, id: app_window::Id) -> Option<&mut Window> {
-        self.windows.iter_mut().find(|window| window.id == id)
+        self.windows.iter_mut().find(|window| window.id() == id)
     }
 }

@@ -2,38 +2,31 @@ use super::super::{geometry, window as app_window};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
-    id: app_window::Id,
-    title: String,
-    size: geometry::Size,
+    facts: app_window::Facts,
 }
 
 impl Window {
-    pub(super) fn new(id: app_window::Id, title: impl Into<String>, size: geometry::Size) -> Self {
-        Self {
-            id,
-            title: title.into(),
-            size,
-        }
+    pub(super) fn new(facts: app_window::Facts) -> Self {
+        Self { facts }
     }
 
     pub fn id(&self) -> app_window::Id {
-        self.id
+        self.facts.id()
     }
 
     pub fn title(&self) -> &str {
-        &self.title
+        self.facts.title()
     }
 
     pub fn size(&self) -> geometry::Size {
-        self.size
+        self.facts.inner_size()
     }
 
-    pub(super) fn update(&mut self, title: &str, size: geometry::Size) {
-        self.title = title.to_owned();
-        self.size = size;
+    pub(super) fn update(&mut self, facts: &app_window::Facts) {
+        self.facts.clone_from(facts);
     }
 
     pub(super) fn set_size(&mut self, size: geometry::Size) {
-        self.size = size;
+        self.facts.set_inner_size(size);
     }
 }

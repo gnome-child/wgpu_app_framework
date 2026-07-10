@@ -4,63 +4,44 @@ use super::{Shell, work::WindowChanges};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
-    id: app_window::Id,
-    title: String,
-    size: geometry::Size,
-    canvas_color: scene::Color,
-    kind: app_window::Kind,
+    facts: app_window::Facts,
 }
 
 impl Window {
-    pub(super) fn new(
-        id: app_window::Id,
-        title: impl Into<String>,
-        size: geometry::Size,
-        canvas_color: scene::Color,
-        kind: app_window::Kind,
-    ) -> Self {
-        Self {
-            id,
-            title: title.into(),
-            size,
-            canvas_color,
-            kind,
-        }
+    pub(super) fn new(facts: app_window::Facts) -> Self {
+        Self { facts }
     }
 
     pub fn id(&self) -> app_window::Id {
-        self.id
+        self.facts.id()
     }
 
     pub fn title(&self) -> &str {
-        &self.title
+        self.facts.title()
     }
 
     pub fn size(&self) -> geometry::Size {
-        self.size
+        self.facts.inner_size()
     }
 
     pub fn canvas_color(&self) -> scene::Color {
-        self.canvas_color
+        self.facts.canvas_color()
     }
 
     pub fn kind(&self) -> app_window::Kind {
-        self.kind
+        self.facts.kind()
+    }
+
+    pub(crate) fn facts(&self) -> &app_window::Facts {
+        &self.facts
     }
 
     pub(super) fn set_size(&mut self, size: geometry::Size) {
-        self.size = size;
+        self.facts.set_inner_size(size);
     }
 
-    pub(super) fn update(
-        &mut self,
-        title: String,
-        canvas_color: scene::Color,
-        kind: app_window::Kind,
-    ) {
-        self.title = title;
-        self.canvas_color = canvas_color;
-        self.kind = kind;
+    pub(super) fn update(&mut self, facts: &app_window::Facts) {
+        self.facts.replace_preserving_inner_size(facts);
     }
 }
 
@@ -92,35 +73,29 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
             .session()
             .windows()
             .iter()
-            .map(|window| {
-                (
-                    window.id(),
-                    window.title().to_owned(),
-                    window.inner_size(),
-                    window.canvas_color(),
-                    window.kind(),
-                )
-            })
+            .map(|window| window.facts().clone())
             .collect::<Vec<_>>();
 
         let mut changes = WindowChanges::default();
         self.windows.retain(|entry| {
-            let retained = windows
-                .iter()
-                .any(|(window, _, _, _, _)| *window == entry.id());
+            let retained = windows.iter().any(|facts| facts.id() == entry.id());
             if !retained {
                 changes.closed.push(entry.id());
             }
             retained
         });
 
-        for (window, title, inner_size, canvas_color, kind) in windows {
-            if let Some(entry) = self.windows.iter_mut().find(|entry| entry.id() == window) {
-                entry.update(title, canvas_color, kind);
+        for facts in windows {
+            if let Some(entry) = self
+                .windows
+                .iter_mut()
+                .find(|entry| entry.id() == facts.id())
+            {
+                entry.update(&facts);
                 continue;
             }
 
-            let entry = Window::new(window, title, inner_size, canvas_color, kind);
+            let entry = Window::new(facts);
             changes.opened.push(entry.clone());
             self.windows.push(entry);
         }

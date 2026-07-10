@@ -59,7 +59,7 @@ impl Session {
             .filter_map(|window| {
                 window
                     .file_dialog
-                    .map(|dialog| Request::file_dialog(window.id, dialog))
+                    .map(|dialog| Request::file_dialog(window.id(), dialog))
             })
             .collect()
     }
