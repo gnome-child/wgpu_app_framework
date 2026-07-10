@@ -417,6 +417,11 @@ applied snapshot; they coalesce to the latest value and cross into the OS only
 after a meaningful geometry change, material-presence change, or short settled
 quiet period. Drag-rate parameter changes must not build a queue of native
 compositor calls.
+`SysApplicator<T>` owns desired value, applied value, desired-change time, and
+the shared initial/immediate/settled due decision. Geometry, accent, and border
+are typed clients that provide only their policy: geometry changes are
+immediate, accent-presence changes are immediate while tint changes settle, and
+post-creation border changes settle.
 `FloatingPanel.border` is the one popup border datum. In-frame popups paint it
 as their outline; native Windows popups convert the same sRGB bytes to
 `COLORREF` (`0x00BBGGRR`) for `DWMWA_BORDER_COLOR`. Creation applies the border

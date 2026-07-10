@@ -13,12 +13,15 @@ mod paint;
 mod poll;
 mod popup;
 mod request;
+mod settle;
 mod surface;
 mod sys;
 mod window;
 
 pub use context::NativeContext;
 pub use error::NativeError;
+
+use settle::{ApplyDue, SysApplicator};
 
 pub struct Native {
     context: Option<render::Context>,
@@ -71,36 +74,9 @@ pub(in crate::platform) struct PopupEventTarget {
     scale_factor: f64,
 }
 
-#[derive(Debug, Default)]
-struct PopupGeometryState {
-    applied: Option<PopupGeometry>,
-}
-
-#[derive(Debug, Default)]
-struct PopupAccentState {
-    desired: Option<sys::PopupAccentMaterial>,
-    applied: Option<sys::PopupAccentMaterial>,
-    desired_changed_at: Option<Instant>,
-}
-
-#[derive(Debug, Default)]
-struct PopupBorderState {
-    desired: Option<scene::Color>,
-    applied: Option<scene::Color>,
-    desired_changed_at: Option<Instant>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PopupAccentDue {
-    Immediate,
-    Settled,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PopupBorderDue {
-    Immediate,
-    Settled,
-}
+type PopupGeometryState = SysApplicator<PopupGeometry>;
+type PopupAccentState = SysApplicator<sys::PopupAccentMaterial>;
+type PopupBorderState = SysApplicator<scene::Color>;
 
 #[derive(Debug)]
 struct PopupFirstPresentTrace {
@@ -175,112 +151,7 @@ impl PopupEventTarget {
 
 // Windows accent re-application rebuilds compositor-side material state. Keep
 // parameter churn settle-rate while preserving instant material presence.
-const POPUP_ACCENT_SETTLE_DELAY: Duration = Duration::from_millis(150);
-const POPUP_BORDER_SETTLE_DELAY: Duration = Duration::from_millis(150);
-
-impl PopupGeometryState {
-    fn needs_apply(&self, desired: PopupGeometry) -> bool {
-        self.applied != Some(desired)
-    }
-
-    fn mark_applied(&mut self, geometry: PopupGeometry) {
-        self.applied = Some(geometry);
-    }
-}
-
-impl PopupAccentState {
-    fn set_desired(&mut self, desired: sys::PopupAccentMaterial, now: Instant) -> bool {
-        if self.desired == Some(desired) {
-            return false;
-        }
-
-        self.desired = Some(desired);
-        self.desired_changed_at = (self.applied != Some(desired)).then_some(now);
-        true
-    }
-
-    fn due(&self, now: Instant) -> Option<PopupAccentDue> {
-        let desired = self.desired?;
-        if self.applied == Some(desired) {
-            return None;
-        }
-
-        let Some(applied) = self.applied else {
-            return Some(PopupAccentDue::Immediate);
-        };
-
-        if accent_presence(applied) != accent_presence(desired) {
-            return Some(PopupAccentDue::Immediate);
-        }
-
-        let changed_at = self.desired_changed_at.unwrap_or(now);
-        (now.duration_since(changed_at) >= POPUP_ACCENT_SETTLE_DELAY)
-            .then_some(PopupAccentDue::Settled)
-    }
-
-    fn desired(&self) -> Option<sys::PopupAccentMaterial> {
-        self.desired
-    }
-
-    fn mark_applied(&mut self, material: sys::PopupAccentMaterial) {
-        self.applied = Some(material);
-        self.desired = Some(material);
-        self.desired_changed_at = None;
-    }
-
-    fn pending(&self) -> bool {
-        self.desired.is_some() && self.desired != self.applied
-    }
-
-    fn changed_instant(&self) -> Option<Instant> {
-        self.desired_changed_at
-    }
-}
-
-impl PopupBorderState {
-    fn set_desired(&mut self, desired: scene::Color, now: Instant) -> bool {
-        if self.desired == Some(desired) {
-            return false;
-        }
-
-        self.desired = Some(desired);
-        self.desired_changed_at = (self.applied != Some(desired)).then_some(now);
-        true
-    }
-
-    fn due(&self, now: Instant) -> Option<PopupBorderDue> {
-        let desired = self.desired?;
-        if self.applied == Some(desired) {
-            return None;
-        }
-
-        if self.applied.is_none() {
-            return Some(PopupBorderDue::Immediate);
-        }
-
-        let changed_at = self.desired_changed_at.unwrap_or(now);
-        (now.duration_since(changed_at) >= POPUP_BORDER_SETTLE_DELAY)
-            .then_some(PopupBorderDue::Settled)
-    }
-
-    fn desired(&self) -> Option<scene::Color> {
-        self.desired
-    }
-
-    fn mark_applied(&mut self, border: scene::Color) {
-        self.applied = Some(border);
-        self.desired = Some(border);
-        self.desired_changed_at = None;
-    }
-
-    fn pending(&self) -> bool {
-        self.desired.is_some() && self.desired != self.applied
-    }
-
-    fn changed_instant(&self) -> Option<Instant> {
-        self.desired_changed_at
-    }
-}
+const POPUP_SYS_SETTLE_DELAY: Duration = Duration::from_millis(150);
 
 impl PopupFirstPresentTrace {
     fn new() -> Self {
@@ -302,6 +173,20 @@ fn accent_presence(material: sys::PopupAccentMaterial) -> PopupAccentPresence {
         sys::PopupAccentMaterial::Disabled => PopupAccentPresence::Disabled,
         sys::PopupAccentMaterial::Acrylic { .. } => PopupAccentPresence::Acrylic,
     }
+}
+
+fn popup_geometry_due(state: &PopupGeometryState, now: Instant) -> Option<ApplyDue> {
+    state.due(now, Duration::ZERO, |_, _| true)
+}
+
+fn popup_accent_due(state: &PopupAccentState, now: Instant) -> Option<ApplyDue> {
+    state.due(now, POPUP_SYS_SETTLE_DELAY, |applied, desired| {
+        accent_presence(applied) != accent_presence(desired)
+    })
+}
+
+fn popup_border_due(state: &PopupBorderState, now: Instant) -> Option<ApplyDue> {
+    state.due(now, POPUP_SYS_SETTLE_DELAY, |_, _| false)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -437,9 +322,9 @@ impl Default for Native {
 #[cfg(test)]
 mod tests {
     use super::{
-        POPUP_ACCENT_SETTLE_DELAY, POPUP_BORDER_SETTLE_DELAY, PopupAccentDue, PopupAccentState,
-        PopupBorderDue, PopupBorderState, PopupGeometry, PopupGeometryState,
-        PopupMaterialRealization, PopupPresentationMode,
+        ApplyDue, POPUP_SYS_SETTLE_DELAY, PopupAccentState, PopupBorderState, PopupGeometry,
+        PopupGeometryState, PopupMaterialRealization, PopupPresentationMode, popup_accent_due,
+        popup_border_due, popup_geometry_due,
     };
     use crate::overlay::PopupMaterialPreference;
     use crate::platform::native::sys::PopupAccentMaterial;
@@ -464,30 +349,39 @@ mod tests {
 
     #[test]
     fn popup_geometry_state_skips_unchanged_redraws() {
+        let now = Instant::now();
         let mut state = PopupGeometryState::default();
         let desired = geometry(10, 20, 1.0);
 
-        assert!(state.needs_apply(desired));
+        assert!(state.set_desired(desired, now));
+        assert_eq!(popup_geometry_due(&state, now), Some(ApplyDue::Initial));
         state.mark_applied(desired);
 
         assert!(
-            !state.needs_apply(desired),
+            !state.set_desired(desired, now + Duration::from_millis(1))
+                && popup_geometry_due(&state, now + Duration::from_millis(1)).is_none(),
             "fade/redraw frames with unchanged geometry must be draw-only"
         );
     }
 
     #[test]
     fn popup_geometry_state_reapplies_real_geometry_changes() {
+        let now = Instant::now();
         let mut state = PopupGeometryState::default();
         let desired = geometry(10, 20, 1.0);
+        state.set_desired(desired, now);
         state.mark_applied(desired);
 
         assert!(
-            state.needs_apply(geometry(11, 20, 1.0)),
+            state.set_desired(geometry(11, 20, 1.0), now)
+                && popup_geometry_due(&state, now) == Some(ApplyDue::Immediate),
             "parent move or anchor change must reconfigure popup position"
         );
+        state.set_desired(desired, now);
+        state.mark_applied(desired);
         assert!(
-            state.needs_apply(geometry(10, 20, 1.5)),
+            state.set_desired(geometry(10, 20, 1.5), now)
+                && popup_geometry_due(&state, now) == Some(ApplyDue::Immediate),
             "popup monitor scale changes must reconfigure popup size"
         );
     }
@@ -513,9 +407,9 @@ mod tests {
         let desired = acrylic(10);
 
         assert!(state.set_desired(desired, now));
-        assert_eq!(state.due(now), Some(PopupAccentDue::Immediate));
+        assert_eq!(popup_accent_due(&state, now), Some(ApplyDue::Initial));
         state.mark_applied(desired);
-        assert_eq!(state.due(now), None);
+        assert_eq!(popup_accent_due(&state, now), None);
         assert!(!state.pending());
     }
 
@@ -529,8 +423,8 @@ mod tests {
         let desired = acrylic(10);
         assert!(state.set_desired(desired, now + Duration::from_millis(1)));
         assert_eq!(
-            state.due(now + Duration::from_millis(1)),
-            Some(PopupAccentDue::Immediate)
+            popup_accent_due(&state, now + Duration::from_millis(1)),
+            Some(ApplyDue::Immediate)
         );
     }
 
@@ -545,14 +439,23 @@ mod tests {
         let second = acrylic(11);
         let third = acrylic(12);
         assert!(state.set_desired(second, now + Duration::from_millis(1)));
-        assert_eq!(state.due(now + Duration::from_millis(1)), None);
+        assert_eq!(
+            popup_accent_due(&state, now + Duration::from_millis(1)),
+            None
+        );
         assert!(state.pending());
 
         assert!(state.set_desired(third, now + Duration::from_millis(20)));
-        assert_eq!(state.due(now + Duration::from_millis(149)), None);
         assert_eq!(
-            state.due(now + Duration::from_millis(20) + POPUP_ACCENT_SETTLE_DELAY),
-            Some(PopupAccentDue::Settled)
+            popup_accent_due(&state, now + Duration::from_millis(149)),
+            None
+        );
+        assert_eq!(
+            popup_accent_due(
+                &state,
+                now + Duration::from_millis(20) + POPUP_SYS_SETTLE_DELAY
+            ),
+            Some(ApplyDue::Settled)
         );
         assert_eq!(state.desired(), Some(third));
     }
@@ -571,8 +474,8 @@ mod tests {
         assert!(!state.set_desired(second, now + Duration::from_millis(120)));
         assert_eq!(state.changed_instant(), changed_at);
         assert_eq!(
-            state.due(now + POPUP_ACCENT_SETTLE_DELAY),
-            Some(PopupAccentDue::Settled)
+            popup_accent_due(&state, now + POPUP_SYS_SETTLE_DELAY),
+            Some(ApplyDue::Settled)
         );
     }
 
@@ -586,7 +489,7 @@ mod tests {
         state.set_desired(acrylic(11), now + Duration::from_millis(1));
 
         assert!(state.set_desired(first, now + Duration::from_millis(2)));
-        assert_eq!(state.due(now + POPUP_ACCENT_SETTLE_DELAY), None);
+        assert_eq!(popup_accent_due(&state, now + POPUP_SYS_SETTLE_DELAY), None);
         assert!(!state.pending());
     }
 
@@ -598,19 +501,25 @@ mod tests {
         let second = scene::Color::rgb(0x44, 0x55, 0x66);
 
         assert!(state.set_desired(first, now));
-        assert_eq!(state.due(now), Some(PopupBorderDue::Immediate));
+        assert_eq!(popup_border_due(&state, now), Some(ApplyDue::Initial));
         state.mark_applied(first);
         assert!(!state.pending());
 
         assert!(state.set_desired(second, now + Duration::from_millis(1)));
-        assert_eq!(state.due(now + Duration::from_millis(1)), None);
+        assert_eq!(
+            popup_border_due(&state, now + Duration::from_millis(1)),
+            None
+        );
         assert!(state.pending());
         let changed_at = state.changed_instant();
         assert!(!state.set_desired(second, now + Duration::from_millis(100)));
         assert_eq!(state.changed_instant(), changed_at);
         assert_eq!(
-            state.due(now + Duration::from_millis(1) + POPUP_BORDER_SETTLE_DELAY),
-            Some(PopupBorderDue::Settled)
+            popup_border_due(
+                &state,
+                now + Duration::from_millis(1) + POPUP_SYS_SETTLE_DELAY
+            ),
+            Some(ApplyDue::Settled)
         );
         assert_eq!(state.desired(), Some(second));
     }

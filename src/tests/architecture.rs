@@ -1782,8 +1782,8 @@ fn native_popup_accent_realization_is_settle_rate() {
     let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
         .expect("master design should read");
 
-    assert!(native_mod.contains("PopupAccentState"));
-    assert!(native_mod.contains("POPUP_ACCENT_SETTLE_DELAY"));
+    assert!(native_mod.contains("type PopupAccentState = SysApplicator"));
+    assert!(native_mod.contains("POPUP_SYS_SETTLE_DELAY"));
     assert!(native_mod.contains("Duration::from_millis(150)"));
     assert!(popup.contains("popup.accent.set_desired(accent, now)"));
     assert!(popup.contains("apply_due_popup_accents"));
@@ -1871,7 +1871,7 @@ fn popup_border_has_one_theme_datum_for_scene_and_windows() {
         "the creation border must apply before first show"
     );
     assert!(
-        native_mod.contains("POPUP_BORDER_SETTLE_DELAY")
+        native_mod.contains("type PopupBorderState = SysApplicator")
             && popup.contains("apply_due_popup_borders")
             && windows.contains("DWMWA_BORDER_COLOR"),
         "theme border changes must use settle-rate Windows application"
@@ -1884,6 +1884,59 @@ fn popup_border_has_one_theme_datum_for_scene_and_windows() {
         master.contains("`FloatingPanel.border` is the one popup border datum")
             && master.contains("`COLORREF` (`0x00BBGGRR`)"),
         "master design must retain popup border ownership and byte order"
+    );
+}
+
+#[test]
+fn sys_side_realizations_share_one_settle_applicator() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let native_mod = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("mod.rs"),
+    )
+    .expect("native module source should read");
+    let settle = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("settle.rs"),
+    )
+    .expect("sys settle source should read");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    for fact in [
+        "desired: Option<T>",
+        "applied: Option<T>",
+        "desired_changed_at: Option<Instant>",
+        "pub(super) fn due(",
+    ] {
+        assert!(
+            settle.contains(fact),
+            "SysApplicator must own realization fact {fact}"
+        );
+    }
+    for client in [
+        "type PopupGeometryState = SysApplicator<PopupGeometry>",
+        "type PopupAccentState = SysApplicator<sys::PopupAccentMaterial>",
+        "type PopupBorderState = SysApplicator<scene::Color>",
+    ] {
+        assert!(
+            native_mod.contains(client),
+            "sys realization must ride the shared applicator: {client}"
+        );
+    }
+    assert!(
+        native_mod.contains("state.due(now, Duration::ZERO, |_, _| true)")
+            && native_mod.contains("accent_presence(applied) != accent_presence(desired)")
+            && native_mod.contains("state.due(now, POPUP_SYS_SETTLE_DELAY, |_, _| false)"),
+        "geometry, accent, and border should retain only their distinct due policy"
+    );
+    assert!(
+        master.contains("`SysApplicator<T>` owns desired value, applied value"),
+        "master design must retain the shared sys applicator owner"
     );
 }
 
@@ -1919,7 +1972,7 @@ fn native_popup_first_present_is_visible_traced_and_confirmed_once() {
     let before_draw = &popup[desired..draw];
 
     assert!(
-        before_draw.contains("popup.accent.due(now)")
+        before_draw.contains("popup_accent_due(&popup.accent, now)")
             && before_draw.contains("apply_popup_accent(key, popup, reason)"),
         "an already-due popup accent must apply before the imminent frame"
     );

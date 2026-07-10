@@ -6,8 +6,9 @@ use crate::{geometry, overlay, paint, render, window as app_window};
 use super::surface::native_logical_area;
 use super::window::{InitialSize, Options, Window as NativeWindow};
 use super::{
-    Native, NativeContext, NativeError, PopupAccentDue, PopupBorderDue, PopupFirstPresentState,
-    PopupFirstPresentTrace, PopupGeometry, PopupKey, PopupPresentationMode, PopupWindow,
+    ApplyDue, Native, NativeContext, NativeError, PopupFirstPresentState, PopupFirstPresentTrace,
+    PopupGeometry, PopupKey, PopupPresentationMode, PopupWindow, popup_accent_due,
+    popup_border_due, popup_geometry_due,
 };
 
 impl Native {
@@ -53,7 +54,7 @@ impl Native {
         now: Instant,
     ) -> Result<bool, NativeError> {
         self.ensure_popup_window(context, presentation)?;
-        self.configure_popup_window(presentation)?;
+        self.configure_popup_window(presentation, now)?;
 
         let key = PopupKey::new(presentation.parent(), presentation.id());
         self.sync_popup_surface(key)?;
@@ -168,7 +169,7 @@ impl Native {
                 accent
             );
         }
-        if let Some(reason) = popup.accent.due(now) {
+        if let Some(reason) = popup_accent_due(&popup.accent, now) {
             apply_popup_accent(key, popup, reason);
         }
         if popup.border.set_desired(presentation.border(), now) {
@@ -179,7 +180,7 @@ impl Native {
                 presentation.border()
             );
         }
-        if let Some(reason) = popup.border.due(now) {
+        if let Some(reason) = popup_border_due(&popup.border, now) {
             apply_popup_border(key, popup, reason);
         }
         let source_scene = if realization.uses_native_material_scene() {
@@ -325,6 +326,7 @@ impl Native {
     fn configure_popup_window(
         &mut self,
         presentation: &overlay::PopupPresentation,
+        now: Instant,
     ) -> Result<(), NativeError> {
         let parent_id = presentation.parent();
         let key = PopupKey::new(parent_id, presentation.id());
@@ -376,7 +378,8 @@ impl Native {
         let observed_position = popup.window.handle().outer_position().ok();
         let observed_area = popup.window.inner_area();
 
-        if !popup.geometry.needs_apply(desired) {
+        popup.geometry.set_desired(desired, now);
+        let Some(reason) = popup_geometry_due(&popup.geometry, now) else {
             log::trace!(
                 target: "wgpu_l3::native_popup",
                 "skipped native popup geometry {:?}: desired={desired:?}, observed_position={observed_position:?}, observed_area={}x{}",
@@ -385,13 +388,13 @@ impl Native {
                 observed_area.height()
             );
             return Ok(());
-        }
+        };
 
         log::debug!(
             target: "wgpu_l3::native_popup",
-            "applying native popup geometry {:?}: desired={desired:?}, prior={:?}, observed_position={observed_position:?}, observed_area={}x{}",
+            "applying native popup geometry {:?}: reason={reason:?}, desired={desired:?}, prior={:?}, observed_position={observed_position:?}, observed_area={}x{}",
             key.id,
-            popup.geometry.applied,
+            popup.geometry.applied(),
             observed_area.width(),
             observed_area.height()
         );
@@ -467,7 +470,7 @@ impl Native {
         let mut pending = false;
         let mut redraw_parents = HashSet::new();
         for (key, popup) in &mut self.popups {
-            let Some(reason) = popup.accent.due(now) else {
+            let Some(reason) = popup_accent_due(&popup.accent, now) else {
                 if popup.accent.pending() && popup.accent.changed_instant() != Some(now) {
                     pending = true;
                     log::trace!(
@@ -493,7 +496,7 @@ impl Native {
     pub(in crate::platform::native) fn apply_due_popup_borders(&mut self, now: Instant) {
         let mut pending = false;
         for (key, popup) in &mut self.popups {
-            let Some(reason) = popup.border.due(now) else {
+            let Some(reason) = popup_border_due(&popup.border, now) else {
                 if popup.border.pending() && popup.border.changed_instant() != Some(now) {
                     pending = true;
                     log::trace!(
@@ -534,7 +537,7 @@ impl Native {
     }
 }
 
-fn apply_popup_accent(key: PopupKey, popup: &mut PopupWindow, reason: PopupAccentDue) {
+fn apply_popup_accent(key: PopupKey, popup: &mut PopupWindow, reason: ApplyDue) {
     let accent = popup
         .accent
         .desired()
@@ -550,7 +553,7 @@ fn apply_popup_accent(key: PopupKey, popup: &mut PopupWindow, reason: PopupAccen
     popup.accent.mark_applied(accent);
 }
 
-fn apply_popup_border(key: PopupKey, popup: &mut PopupWindow, reason: PopupBorderDue) {
+fn apply_popup_border(key: PopupKey, popup: &mut PopupWindow, reason: ApplyDue) {
     let border = popup
         .border
         .desired()
