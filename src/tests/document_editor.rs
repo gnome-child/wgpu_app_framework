@@ -423,6 +423,30 @@ fn document_save_to_and_open_path_keep_document_clean() {
 }
 
 #[test]
+fn open_crlf_document_edits_and_atomically_saves_while_open() {
+    let path = temp_text_path("document_crlf_roundtrip.txt");
+    std::fs::write(&path, "one\r\ntwo\r\nthree\n").expect("CRLF fixture should be writable");
+    let mut document = TextDocument::default();
+    document
+        .open_path(path.clone())
+        .expect("CRLF file should open");
+
+    assert_eq!(document.text(), "one\r\ntwo\r\nthree\n");
+    document.apply_edit(text::edit::Edit::insert_line_break());
+    document
+        .save_to(path.clone())
+        .expect("an owned open document should atomically replace its source file");
+
+    assert_eq!(
+        std::fs::read(&path).expect("saved CRLF file should read"),
+        b"one\r\ntwo\r\nthree\n\r\n"
+    );
+    assert!(!document.is_dirty());
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn document_save_snapshot_keeps_identity_and_captured_revision_together() {
     let path = temp_text_path("document_versioned_save.txt");
     let mut document = TextDocument::from_text("alpha");

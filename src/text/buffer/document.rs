@@ -191,11 +191,6 @@ impl TextDocument {
             .piece_tree_updates
             .set(self.stats.piece_tree_updates.get() + 1);
         debug_assert_eq!(self.tree.line_count(), self.lines.len());
-        #[cfg(debug_assertions)]
-        {
-            self.tree.assert_invariants();
-            self.lines.assert_invariants();
-        }
 
         (
             range,

@@ -426,7 +426,7 @@ impl SpanTree {
         Some((&chunk[..end - start], start))
     }
 
-    #[cfg(any(debug_assertions, test))]
+    #[cfg(test)]
     pub(super) fn assert_invariants(&self) {
         if let Some(root) = &self.root {
             validate(root);
@@ -469,7 +469,7 @@ fn leaf(span: SourceSpan) -> Arc<Node> {
         .enumerate()
         .filter_map(|(index, byte)| (byte == b'\n').then_some(index as u32))
         .collect::<Arc<[_]>>();
-    Arc::new(Node {
+    let node = Arc::new(Node {
         summary: Summary {
             bytes: span.len,
             newlines: newline_offsets.len(),
@@ -479,11 +479,14 @@ fn leaf(span: SourceSpan) -> Arc<Node> {
             span,
             newline_offsets,
         },
-    })
+    });
+    debug_assert_local_summary(&node);
+    node
 }
 
 fn branch(left: Arc<Node>, right: Arc<Node>) -> Arc<Node> {
-    Arc::new(Node {
+    debug_assert!(left.summary.height.abs_diff(right.summary.height) <= 1);
+    let node = Arc::new(Node {
         summary: Summary {
             bytes: left.summary.bytes.saturating_add(right.summary.bytes),
             newlines: left.summary.newlines.saturating_add(right.summary.newlines),
@@ -494,7 +497,34 @@ fn branch(left: Arc<Node>, right: Arc<Node>) -> Arc<Node> {
                 .saturating_add(1),
         },
         kind: NodeKind::Branch { left, right },
-    })
+    });
+    debug_assert_local_summary(&node);
+    node
+}
+
+fn debug_assert_local_summary(node: &Arc<Node>) {
+    #[cfg(debug_assertions)]
+    match &node.kind {
+        NodeKind::Leaf {
+            span,
+            newline_offsets,
+        } => {
+            debug_assert_eq!(node.summary.bytes, span.len);
+            debug_assert_eq!(node.summary.newlines, newline_offsets.len());
+            debug_assert_eq!(node.summary.height, 1);
+        }
+        NodeKind::Branch { left, right } => {
+            debug_assert_eq!(node.summary.bytes, left.summary.bytes + right.summary.bytes);
+            debug_assert_eq!(
+                node.summary.newlines,
+                left.summary.newlines + right.summary.newlines
+            );
+            debug_assert_eq!(
+                node.summary.height,
+                left.summary.height.max(right.summary.height) + 1
+            );
+        }
+    }
 }
 
 fn build_balanced(nodes: &[Arc<Node>]) -> Option<Arc<Node>> {
@@ -696,7 +726,7 @@ fn visit_leaves(
     }
 }
 
-#[cfg(any(debug_assertions, test))]
+#[cfg(test)]
 fn validate(node: &Arc<Node>) -> Summary {
     let actual = match &node.kind {
         NodeKind::Leaf {

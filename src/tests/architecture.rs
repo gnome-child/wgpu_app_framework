@@ -346,6 +346,12 @@ fn text_buffer_old_line_and_mmap_representations_stay_deleted() {
         "TextDocument must have one source-span representation and its persistent line index"
     );
     assert!(
+        span_tree.contains("GraphemeCursor")
+            && document.contains(".floor_grapheme_boundary(")
+            && !document.contains("grapheme_boundaries"),
+        "grapheme navigation must stay lazy and chunk-aware instead of returning to eager indexes"
+    );
+    assert!(
         buffer_api.contains("pub fn from_mapped_file")
             && buffer_api.contains("Self::from_file(path)"),
         "the compatibility file API must delegate to owned source loading"

@@ -135,7 +135,7 @@ impl LineIndex {
         }
     }
 
-    #[cfg(any(debug_assertions, test))]
+    #[cfg(test)]
     pub(super) fn assert_invariants(&self) {
         if let Some(root) = &self.root {
             validate(root);
@@ -167,23 +167,45 @@ fn summary(node: Option<&Arc<Node>>) -> Summary {
 
 fn leaf(lines: Arc<[LineMeta]>) -> Arc<Node> {
     debug_assert!(!lines.is_empty());
-    Arc::new(Node {
+    let node = Arc::new(Node {
         summary: Summary {
             lines: lines.len(),
             height: 1,
         },
         kind: NodeKind::Leaf(lines),
-    })
+    });
+    debug_assert_local_summary(&node);
+    node
 }
 
 fn branch(left: Arc<Node>, right: Arc<Node>) -> Arc<Node> {
-    Arc::new(Node {
+    debug_assert!(left.summary.height.abs_diff(right.summary.height) <= 1);
+    let node = Arc::new(Node {
         summary: Summary {
             lines: left.summary.lines + right.summary.lines,
             height: left.summary.height.max(right.summary.height) + 1,
         },
         kind: NodeKind::Branch { left, right },
-    })
+    });
+    debug_assert_local_summary(&node);
+    node
+}
+
+fn debug_assert_local_summary(node: &Arc<Node>) {
+    #[cfg(debug_assertions)]
+    match &node.kind {
+        NodeKind::Leaf(lines) => {
+            debug_assert_eq!(node.summary.lines, lines.len());
+            debug_assert_eq!(node.summary.height, 1);
+        }
+        NodeKind::Branch { left, right } => {
+            debug_assert_eq!(node.summary.lines, left.summary.lines + right.summary.lines);
+            debug_assert_eq!(
+                node.summary.height,
+                left.summary.height.max(right.summary.height) + 1
+            );
+        }
+    }
 }
 
 fn build_balanced(nodes: &[Arc<Node>]) -> Option<Arc<Node>> {
@@ -329,7 +351,7 @@ fn split_node(node: Option<&Arc<Node>>, line: usize) -> (Option<Arc<Node>>, Opti
     }
 }
 
-#[cfg(any(debug_assertions, test))]
+#[cfg(test)]
 fn validate(node: &Arc<Node>) -> Summary {
     let actual = match &node.kind {
         NodeKind::Leaf(lines) => {
