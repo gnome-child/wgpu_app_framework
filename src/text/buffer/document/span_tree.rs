@@ -502,25 +502,28 @@ fn branch(left: Arc<Node>, right: Arc<Node>) -> Arc<Node> {
     node
 }
 
-fn debug_assert_local_summary(node: &Arc<Node>) {
+fn debug_assert_local_summary(_node: &Arc<Node>) {
     #[cfg(debug_assertions)]
-    match &node.kind {
+    match &_node.kind {
         NodeKind::Leaf {
             span,
             newline_offsets,
         } => {
-            debug_assert_eq!(node.summary.bytes, span.len);
-            debug_assert_eq!(node.summary.newlines, newline_offsets.len());
-            debug_assert_eq!(node.summary.height, 1);
+            debug_assert_eq!(_node.summary.bytes, span.len);
+            debug_assert_eq!(_node.summary.newlines, newline_offsets.len());
+            debug_assert_eq!(_node.summary.height, 1);
         }
         NodeKind::Branch { left, right } => {
-            debug_assert_eq!(node.summary.bytes, left.summary.bytes + right.summary.bytes);
             debug_assert_eq!(
-                node.summary.newlines,
+                _node.summary.bytes,
+                left.summary.bytes + right.summary.bytes
+            );
+            debug_assert_eq!(
+                _node.summary.newlines,
                 left.summary.newlines + right.summary.newlines
             );
             debug_assert_eq!(
-                node.summary.height,
+                _node.summary.height,
                 left.summary.height.max(right.summary.height) + 1
             );
         }
