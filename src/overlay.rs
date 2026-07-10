@@ -15,6 +15,7 @@ pub(crate) struct Draft {
     preference: Preference,
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
+    text_caret_rect: Option<geometry::Rect>,
     force_group_at_full_opacity: bool,
 }
 
@@ -27,6 +28,7 @@ struct Entry {
     backend: Backend,
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
+    text_caret_rect: Option<geometry::Rect>,
     opacity: f32,
     state: State,
     elapsed: Duration,
@@ -63,6 +65,7 @@ pub(crate) struct Layer {
     backend: Backend,
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
+    text_caret_rect: Option<geometry::Rect>,
     state: Option<State>,
     elapsed: Option<Duration>,
     force_group_at_full_opacity: bool,
@@ -159,6 +162,7 @@ impl Draft {
             preference: Preference::InFrame,
             popup_material_preference: PopupMaterialPreference::System,
             popup_border: scene::Color::rgba(0, 0, 0, 0),
+            text_caret_rect: None,
             force_group_at_full_opacity: false,
         }
     }
@@ -180,6 +184,11 @@ impl Draft {
 
     pub(crate) fn popup_border(mut self, border: scene::Color) -> Self {
         self.popup_border = border;
+        self
+    }
+
+    pub(crate) fn text_caret_rect(mut self, text_caret_rect: Option<geometry::Rect>) -> Self {
+        self.text_caret_rect = text_caret_rect;
         self
     }
 
@@ -205,6 +214,7 @@ impl Entry {
             backend: self.backend,
             popup_material_preference: self.popup_material_preference,
             popup_border: self.popup_border,
+            text_caret_rect: self.text_caret_rect,
             state: Some(self.state),
             elapsed: Some(self.elapsed),
             force_group_at_full_opacity: self.force_group_at_full_opacity,
@@ -230,6 +240,7 @@ impl Ghost {
             backend: Backend::InFrame,
             popup_material_preference: PopupMaterialPreference::System,
             popup_border: scene::Color::rgba(0, 0, 0, 0),
+            text_caret_rect: None,
             state: None,
             elapsed: Some(now.saturating_duration_since(self.started_at)),
             force_group_at_full_opacity: false,
@@ -291,6 +302,10 @@ impl Layer {
 
     pub(crate) fn popup_border(&self) -> scene::Color {
         self.popup_border
+    }
+
+    pub(crate) fn text_caret_rect(&self) -> Option<geometry::Rect> {
+        self.text_caret_rect
     }
 
     pub(crate) fn state(&self) -> Option<State> {
@@ -532,6 +547,7 @@ impl Store {
                 backend,
                 popup_material_preference: draft.popup_material_preference,
                 popup_border: draft.popup_border,
+                text_caret_rect: draft.text_caret_rect,
                 opacity,
                 state: state_kind,
                 elapsed: now.saturating_duration_since(appeared_at),

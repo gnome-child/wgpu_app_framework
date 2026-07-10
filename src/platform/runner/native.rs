@@ -169,6 +169,7 @@ fn popup_window_event_kind(event: &WinitWindowEvent) -> &'static str {
         WinitWindowEvent::MouseWheel { .. } => "mouse-wheel",
         WinitWindowEvent::Focused(true) => "focused",
         WinitWindowEvent::Focused(false) => "unfocused",
+        WinitWindowEvent::Ime(_) => "ime",
         WinitWindowEvent::Destroyed => "destroyed",
         _ => "other",
     }

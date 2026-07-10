@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::{geometry, interaction, overlay, pointer, render, scene};
+use crate::{geometry, ime as app_ime, interaction, overlay, pointer, render, scene};
 
 use super::super::{session, window as app_window};
 
@@ -9,6 +9,7 @@ mod adapter;
 mod color;
 mod context;
 mod error;
+mod ime;
 mod paint;
 mod poll;
 mod popup;
@@ -32,6 +33,7 @@ pub struct Native {
     raw_popups: HashMap<winit::window::WindowId, PopupKey>,
     cursor_hosts: HashMap<app_window::Id, CursorHost>,
     cursor_values: HashMap<app_window::Id, pointer::Cursor>,
+    ime_targets: HashMap<app_window::Id, app_ime::Target>,
     requests: Vec<session::Request>,
     poll_requested: bool,
 }
@@ -60,6 +62,12 @@ enum CursorHost {
     Parent,
     Popup(PopupKey),
     Outside,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImeHost {
+    Parent,
+    Popup(PopupKey),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -328,6 +336,7 @@ impl Native {
             raw_popups: HashMap::new(),
             cursor_hosts: HashMap::new(),
             cursor_values: HashMap::new(),
+            ime_targets: HashMap::new(),
             requests: Vec::new(),
             poll_requested: false,
         }

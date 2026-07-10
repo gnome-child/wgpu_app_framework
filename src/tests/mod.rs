@@ -2,7 +2,7 @@ use super::{
     Clipboard, Command, Context, Diagnostics, Document as TextDocument, Error, Host, Input,
     Platform, Response, Runtime, Scene, Session, Shell, State, Target, Task, Theme, Timeline, View,
     clipboard, command, composition, context, control_gallery, diagnostics, document, draft,
-    geometry, glass_tuner, host, input, interaction, keymap, layout, notification, overlay,
+    geometry, glass_tuner, host, ime, input, interaction, keymap, layout, notification, overlay,
     platform, pointer, responder, response, runtime, scene, session, shell, state, subject, task,
     text_editor, timeline, view, widget, window,
 };
@@ -281,6 +281,9 @@ enum BackendEvent {
         window: window::Id,
         cursor: pointer::Cursor,
     },
+    SetIme {
+        update: ime::Update,
+    },
     Poll,
 }
 
@@ -397,6 +400,15 @@ impl platform::Backend for FakeBackend {
         cursor: pointer::Cursor,
     ) -> Result<(), Self::Error> {
         self.events.push(BackendEvent::SetCursor { window, cursor });
+        Ok(())
+    }
+
+    fn set_ime(
+        &mut self,
+        _context: &mut Self::Context<'_>,
+        update: ime::Update,
+    ) -> Result<(), Self::Error> {
+        self.events.push(BackendEvent::SetIme { update });
         Ok(())
     }
 

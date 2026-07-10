@@ -1,4 +1,4 @@
-use super::super::{diagnostics, geometry, overlay, pointer, scene, session, shell, window};
+use super::super::{diagnostics, geometry, ime, overlay, pointer, scene, session, shell, window};
 
 pub trait Backend {
     type Error;
@@ -48,6 +48,15 @@ pub trait Backend {
         _context: &mut Self::Context<'_>,
         _window: window::Id,
         _cursor: pointer::Cursor,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    #[allow(private_interfaces)]
+    fn set_ime(
+        &mut self,
+        _context: &mut Self::Context<'_>,
+        _update: ime::Update,
     ) -> Result<(), Self::Error> {
         Ok(())
     }

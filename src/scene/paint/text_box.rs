@@ -58,15 +58,7 @@ pub(super) fn paint_caret(
         return;
     }
 
-    let Some(field) = frame.text_box_layout() else {
-        return;
-    };
-    let rect = frame.text_box_text_rect();
-
-    if let Some(caret) = field.layout().caret()
-        && let Some(caret) =
-            text_surface::clipped_span_rect(rect, caret.x(), caret.y(), 1.0, caret.height())
-    {
+    if let Some(caret) = frame.text_caret_rect() {
         scene.push_rule(text_surface::caret_rule(caret, theme));
     }
 }

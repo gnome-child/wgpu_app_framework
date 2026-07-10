@@ -172,6 +172,10 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             )?;
         }
 
+        for update in work.ime_updates() {
+            self.backend.set_ime(context, *update)?;
+        }
+
         self.sync_cursors(context, work.cursor_updates())?;
         self.sync_requests(context, work.requests())?;
         self.sync_poll(context, work.needs_poll())?;

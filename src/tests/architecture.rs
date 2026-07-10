@@ -1789,6 +1789,74 @@ fn native_cursor_routing_owns_the_physical_pointer_host() {
 }
 
 #[test]
+fn ime_caret_geometry_follows_the_physical_text_host() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = root.join("src");
+    let frame = std::fs::read_to_string(src.join("layout").join("frame.rs"))
+        .expect("layout frame source should read");
+    let paint = [
+        std::fs::read_to_string(src.join("scene").join("paint").join("text_area.rs"))
+            .expect("text-area paint source should read"),
+        std::fs::read_to_string(src.join("scene").join("paint").join("text_box.rs"))
+            .expect("text-box paint source should read"),
+    ]
+    .join("\n");
+    let runtime = std::fs::read_to_string(src.join("runtime").join("presentation.rs"))
+        .expect("runtime presentation source should read");
+    let platform = std::fs::read_to_string(src.join("platform").join("mod.rs"))
+        .expect("platform source should read");
+    let native_ime = std::fs::read_to_string(src.join("platform").join("native").join("ime.rs"))
+        .expect("native IME source should read");
+    let event = std::fs::read_to_string(src.join("platform").join("event.rs"))
+        .expect("platform event source should read");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    assert!(
+        frame.contains("pub(crate) fn text_caret_rect(&self) -> Option<Rect>")
+            && paint.matches("frame.text_caret_rect()").count() == 2,
+        "caret paint and IME projection must consume one layout-owned rectangle"
+    );
+    assert!(
+        runtime.contains("layout.text_caret_rect()")
+            && runtime.contains("ime::Target::popup(layer.id(), area, layer.bounds())")
+            && runtime.contains("layer.backend() == crate::overlay::Backend::NativePopup"),
+        "runtime must project focused caret geometry through the resolved overlay host"
+    );
+    let popup_sync = platform
+        .find("self.backend.present_overlay_popups")
+        .expect("platform should synchronize popups");
+    let ime_sync = platform[popup_sync..]
+        .find("self.backend.set_ime(context, *update)")
+        .expect("platform should apply IME projection after popup sync");
+    assert!(
+        ime_sync > 0,
+        "IME host must exist before its cursor area is applied"
+    );
+    assert!(
+        native_ime.contains("popup.window.set_ime_allowed(false)")
+            && native_ime.contains("parent_window.set_ime_allowed(true)")
+            && native_ime.contains("matches!(host, ImeHost::Popup(_))")
+            && native_ime.contains("window.set_ime_cursor_area(target.area())"),
+        "native IME routing must retain parent input authority while moving popup geometry"
+    );
+    let popup_adapter = event
+        .split("pub fn popup_window_event")
+        .nth(1)
+        .expect("popup event adapter should exist");
+    assert!(
+        popup_adapter.contains("WinitWindowEvent::Ime(ime) => ime_window_event(ime)?"),
+        "popup IME events must return to the logical parent input model"
+    );
+    assert!(
+        master.contains("one geometry used")
+            && master.contains("caret paint and IME placement")
+            && master.contains("popup-local coordinates for a native floating panel"),
+        "master design must retain IME geometry and host ownership"
+    );
+}
+
+#[test]
 fn windows_native_popup_clicks_do_not_activate() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let manifest =

@@ -3,7 +3,7 @@ use super::super::{
     view, window,
 };
 use super::{CachedLayout, Runtime, services::Services, work};
-use crate::{animation, text};
+use crate::{animation, ime, text};
 use std::time::Instant;
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
@@ -300,10 +300,11 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         &mut self,
         size_for: impl FnMut(window::Id) -> geometry::Size,
     ) -> work::RenderWork {
-        let (presentations, popup_presentations) = self.render_pending(size_for);
+        let (presentations, popup_presentations, ime_updates) = self.render_pending(size_for);
         work::RenderWork::new(
             presentations,
             popup_presentations,
+            ime_updates,
             self.requests(),
             self.session.take_cursor_updates(),
             self.pending_tasks(),
@@ -523,6 +524,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     ) -> (
         Vec<scene::Presentation>,
         Option<Vec<crate::overlay::PopupPresentation>>,
+        Vec<ime::Update>,
     ) {
         let revision = self.revision();
         let windows = self
@@ -542,6 +544,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .collect::<Vec<_>>();
         let mut rendered = Vec::with_capacity(windows.len());
         let mut popup_presentations = Vec::new();
+        let mut ime_updates = Vec::with_capacity(windows.len());
         let theme = self.active_theme();
         let now = Instant::now();
 
@@ -579,6 +582,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 self.overlay_capabilities,
                 now,
             );
+            let ime_target =
+                ime_target_for_layers(layout.text_caret_rect(), overlay_update.layers());
             for layer in overlay_update.layers() {
                 log_overlay_layer_application(layer, overlay_update.schedule());
                 match layer.kind() {
@@ -606,11 +611,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             rendered.push(scene::Presentation::with_scene(
                 window, revision, layout, scene,
             ));
+            ime_updates.push(ime::Update::new(window, ime_target));
         }
 
         let popup_presentations = (!rendered.is_empty()).then_some(popup_presentations);
 
-        (rendered, popup_presentations)
+        (rendered, popup_presentations, ime_updates)
     }
 
     pub(crate) fn hit_test(
@@ -631,6 +637,25 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         self.cache_layout(window, size, &theme, &layout);
         layout.hit_test(point)
     }
+}
+
+fn ime_target_for_layers(
+    parent_caret: Option<geometry::Rect>,
+    layers: &[crate::overlay::Layer],
+) -> Option<ime::Target> {
+    layers
+        .iter()
+        .rev()
+        .find_map(|layer| {
+            (layer.kind() == crate::overlay::LayerKind::Live
+                && layer.backend() == crate::overlay::Backend::NativePopup)
+                .then(|| {
+                    let area = layer.text_caret_rect()?;
+                    Some(ime::Target::popup(layer.id(), area, layer.bounds()))
+                })
+                .flatten()
+        })
+        .or_else(|| parent_caret.map(ime::Target::parent))
 }
 
 fn active_descendant_reveal_offset(

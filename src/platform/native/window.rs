@@ -2,7 +2,7 @@ use super::{Native, NativeError, PopupPresentationMode};
 use crate::window as app_window;
 use crate::{paint, pointer, render};
 use std::sync::Arc;
-use winit::dpi::LogicalSize;
+use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::{
     event::WindowEvent as WinitWindowEvent,
     event_loop::ActiveEventLoop,
@@ -126,6 +126,13 @@ impl Window {
 
     pub fn set_ime_allowed(&self, allowed: bool) {
         self.handle.set_ime_allowed(allowed);
+    }
+
+    pub fn set_ime_cursor_area(&self, area: crate::geometry::Rect) {
+        self.handle.set_ime_cursor_area(
+            LogicalPosition::new(area.x(), area.y()),
+            LogicalSize::new(area.width(), area.height()),
+        );
     }
 
     pub fn set_cursor(&self, cursor: pointer::Cursor) {

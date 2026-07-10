@@ -1,6 +1,8 @@
 use super::super::{Backend, NativeError, Window};
 use super::{CursorHost, Native, NativeContext};
-use crate::{diagnostics, notification, overlay, pointer, session, shell, window as app_window};
+use crate::{
+    diagnostics, ime, notification, overlay, pointer, session, shell, window as app_window,
+};
 
 impl Backend for Native {
     type Error = NativeError;
@@ -13,7 +15,7 @@ impl Backend for Native {
     ) -> Result<(), Self::Error> {
         let mut native_window = self.create_native_window(context, window)?;
         self.clear_window(&mut native_window)?;
-        native_window.set_ime_allowed(true);
+        native_window.set_ime_allowed(false);
         native_window.set_visibility(true);
 
         self.raw_windows.insert(native_window.raw_id(), window.id());
@@ -37,6 +39,7 @@ impl Backend for Native {
         self.raw_windows.remove(&native_window.raw_id());
         self.cursor_hosts.remove(&window);
         self.cursor_values.remove(&window);
+        self.ime_targets.remove(&window);
         <Self as notification::Listener<app_window::Departed>>::notify(self, &window);
         log::debug!("closed native window: {window:?}");
         Ok(())
@@ -83,6 +86,16 @@ impl Backend for Native {
         Native::set_cursor(self, window, cursor)
     }
 
+    #[allow(private_interfaces)]
+    fn set_ime(
+        &mut self,
+        _context: &mut Self::Context<'_>,
+        update: ime::Update,
+    ) -> Result<(), Self::Error> {
+        self.apply_ime_update(update);
+        Ok(())
+    }
+
     fn schedule_poll(&mut self, _context: &mut Self::Context<'_>) -> Result<(), Self::Error> {
         self.schedule_poll_request();
         Ok(())
@@ -112,6 +125,7 @@ impl notification::Listener<app_window::Departed> for Native {
         }
         self.cursor_hosts.remove(window);
         self.cursor_values.remove(window);
+        self.ime_targets.remove(window);
 
         notification::Reaction::ignored()
     }

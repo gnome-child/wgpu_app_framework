@@ -405,9 +405,16 @@ Native cursor routing keeps the parent window's logical cursor value separate
 from the physical window currently under the pointer. Raw parent/popup
 enter-move-leave events switch that host immediately, reset the old host, and
 apply the stored value to the new host even when logical cursor dedup observes
-no value change. Popup-hosted IME candidate windows still need popup-local
-caret anchoring; until that seam is implemented, popup-hosted text input is not
-considered complete.
+no value change. Layout's focused text caret rectangle is the one geometry used
+by caret paint and IME placement. Runtime projects that rectangle onto the
+physical host declared by overlay ownership: parent coordinates for in-frame
+content, popup-local coordinates for a native floating panel. Platform applies
+the IME update only after popup synchronization; native routing disables the
+previous popup geometry host, keeps the parent context enabled as the logical
+keyboard authority, and gives the declared parent or popup host the cursor
+area. IME preedit, commit, and disable events received by a popup remain
+coordinate-free input events and adapt back into the parent's logical
+focus/session truth.
 
 Intent is portable; realization is native. `Material::Glass` means "glasslike
 panel material"; an in-frame backend realizes it by sampling the parent

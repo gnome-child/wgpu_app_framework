@@ -343,6 +343,21 @@ impl Frame {
         self.text_box_text_rect
     }
 
+    pub(crate) fn text_caret_rect(&self) -> Option<Rect> {
+        if !self.is_focused() {
+            return None;
+        }
+
+        if let Some(text_area) = self.text_area_layout() {
+            let caret = text_area.layout().caret()?;
+            return clipped_caret_rect(self.rect(), caret);
+        }
+
+        let field = self.text_box_layout()?;
+        let caret = field.layout().caret()?;
+        clipped_caret_rect(self.text_box_text_rect(), caret)
+    }
+
     pub(crate) fn target(&self) -> Option<&interaction::Target> {
         self.target.as_ref()
     }
@@ -481,6 +496,21 @@ fn text_box_text_rect_for(rect: Rect, theme: &Theme) -> Rect {
         rect.width().saturating_sub(padding_x.saturating_mul(2)),
         rect.height(),
     )
+}
+
+fn clipped_caret_rect(rect: Rect, caret: crate::text::layout::Caret) -> Option<Rect> {
+    let caret = Rect::new(
+        rect.x().saturating_add(caret.x().floor() as i32),
+        rect.y().saturating_add(caret.y().floor() as i32),
+        1,
+        caret.height().ceil().max(0.0) as i32,
+    );
+    let left = caret.x().max(rect.x());
+    let top = caret.y().max(rect.y());
+    let right = caret.right().min(rect.right());
+    let bottom = caret.bottom().min(rect.bottom());
+
+    (right > left && bottom > top).then(|| Rect::new(left, top, right - left, bottom - top))
 }
 
 fn active_rect_for(

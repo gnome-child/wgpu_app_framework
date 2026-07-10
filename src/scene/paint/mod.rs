@@ -69,7 +69,7 @@ fn paint_overlay_entries(
                 .frames()
                 .iter()
                 .filter(|frame| layer_for(frame) == Layer::Floating)
-                .filter(|frame| frame.node_id() == panel.node_id() || frame.is_descendant_of(panel))
+                .filter(|frame| frame_belongs_to_panel(frame, panel))
             {
                 paint_frame_with_clip(frame, &mut scene, theme, visuals, &mut focus_overlays);
             }
@@ -91,10 +91,26 @@ fn paint_overlay_entries(
                     .prefer(overlay::Preference::NativePopup)
                     .popup_material_preference(popup_material_preference(panel))
                     .popup_border(theme.floating_panel().border())
+                    .text_caret_rect(text_caret_rect_for_panel(layout, panel))
                     .force_group_at_full_opacity(panel.force_overlay_group())
             })
         })
         .collect()
+}
+
+fn frame_belongs_to_panel(frame: &layout::Frame, panel: &layout::Frame) -> bool {
+    frame.node_id() == panel.node_id() || frame.is_descendant_of(panel)
+}
+
+fn text_caret_rect_for_panel(
+    layout: &layout::Layout,
+    panel: &layout::Frame,
+) -> Option<geometry::Rect> {
+    layout
+        .frames()
+        .iter()
+        .filter(|frame| frame_belongs_to_panel(frame, panel))
+        .find_map(layout::Frame::text_caret_rect)
 }
 
 fn popup_material_preference(panel: &layout::Frame) -> overlay::PopupMaterialPreference {

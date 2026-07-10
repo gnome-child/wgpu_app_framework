@@ -112,17 +112,7 @@ impl Events {
                 modifiers: self.modifiers,
                 text: key_text(event.text.as_deref()),
             },
-            WinitWindowEvent::Ime(Ime::Commit(text)) => {
-                host::WindowEvent::TextCommitted { text: text.clone() }
-            }
-            WinitWindowEvent::Ime(Ime::Preedit(text, selection)) => {
-                host::WindowEvent::TextPreedit {
-                    preedit: text::edit::Preedit::new(text.clone(), *selection),
-                }
-            }
-            WinitWindowEvent::Ime(Ime::Disabled) => host::WindowEvent::TextPreedit {
-                preedit: text::edit::Preedit::new("", None),
-            },
+            WinitWindowEvent::Ime(ime) => ime_window_event(ime)?,
             WinitWindowEvent::RedrawRequested => host::WindowEvent::RedrawRequested,
             _ => return None,
         };
@@ -158,6 +148,7 @@ impl Events {
                 point: self.pointer(parent),
                 delta: scroll_delta(*delta, popup_scale_factor),
             },
+            WinitWindowEvent::Ime(ime) => ime_window_event(ime)?,
             WinitWindowEvent::RedrawRequested => host::WindowEvent::RedrawRequested,
             _ => return None,
         };
@@ -170,6 +161,19 @@ impl Events {
             scale_factor: self.default_scale_factor,
             pointer: origin(),
         })
+    }
+}
+
+fn ime_window_event(ime: &Ime) -> Option<host::WindowEvent> {
+    match ime {
+        Ime::Commit(text) => Some(host::WindowEvent::TextCommitted { text: text.clone() }),
+        Ime::Preedit(text, selection) => Some(host::WindowEvent::TextPreedit {
+            preedit: text::edit::Preedit::new(text.clone(), *selection),
+        }),
+        Ime::Disabled => Some(host::WindowEvent::TextPreedit {
+            preedit: text::edit::Preedit::new("", None),
+        }),
+        Ime::Enabled => None,
     }
 }
 

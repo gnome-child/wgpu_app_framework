@@ -1,5 +1,5 @@
 use crate::animation;
-use crate::{overlay, pointer, runtime, session, window};
+use crate::{ime, overlay, pointer, runtime, session, window};
 
 use super::{Presentation, Window};
 
@@ -8,6 +8,7 @@ pub struct Work {
     closed_windows: Vec<window::Id>,
     presentations: Vec<Presentation>,
     popup_presentations: Option<Vec<overlay::PopupPresentation>>,
+    ime_updates: Vec<ime::Update>,
     requests: Vec<session::Request>,
     cursor_updates: Vec<pointer::Update>,
     pending_tasks: usize,
@@ -36,6 +37,7 @@ impl Work {
                 .map(Presentation::from_scene_presentation)
                 .collect(),
             popup_presentations: work.popup_presentations().map(<[_]>::to_vec),
+            ime_updates: work.ime_updates().to_vec(),
             requests: work.requests().to_vec(),
             cursor_updates: work.cursor_updates().to_vec(),
             pending_tasks: work.pending_tasks(),
@@ -58,6 +60,10 @@ impl Work {
 
     pub(crate) fn popup_presentations(&self) -> Option<&[overlay::PopupPresentation]> {
         self.popup_presentations.as_deref()
+    }
+
+    pub(crate) fn ime_updates(&self) -> &[ime::Update] {
+        &self.ime_updates
     }
 
     pub fn requests(&self) -> &[session::Request] {
@@ -89,6 +95,7 @@ impl Work {
             && self.closed_windows.is_empty()
             && self.presentations.is_empty()
             && self.popup_presentations.is_none()
+            && self.ime_updates.is_empty()
             && self.requests.is_empty()
             && self.cursor_updates.is_empty()
             && self.pending_tasks == 0

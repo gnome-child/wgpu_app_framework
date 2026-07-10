@@ -31,11 +31,7 @@ pub(super) fn paint(
     let caret_visible = frame
         .target()
         .is_none_or(|target| visuals.caret_visible(target));
-    if caret_visible
-        && let Some(caret) = text_area.layout().caret()
-        && let Some(caret) =
-            text_surface::clipped_span_rect(rect, caret.x(), caret.y(), 1.0, caret.height())
-    {
+    if caret_visible && let Some(caret) = frame.text_caret_rect() {
         scene.push_rule(text_surface::caret_rule(caret, theme));
     }
 }

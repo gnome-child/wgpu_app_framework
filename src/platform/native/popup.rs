@@ -302,6 +302,7 @@ impl Native {
             handle.clone(),
         )?;
         let popup = NativeWindow::new(handle, canvas);
+        popup.set_ime_allowed(false);
         let popup = PopupWindow::new(popup, presentation_mode);
         log::debug!(
             target: "wgpu_l3::native_popup",

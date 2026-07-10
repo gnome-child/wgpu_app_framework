@@ -367,6 +367,51 @@ fn popup_window_events_map_to_parent_overlay_coordinates() {
 }
 
 #[test]
+fn popup_ime_events_route_to_parent_text_input() {
+    use winit::event::{Ime, WindowEvent as WinitWindowEvent};
+
+    let parent = window::Id::new(71);
+    let bounds = geometry::Rect::new(100, 50, 300, 200);
+    let mut events = platform::Events::new();
+
+    let preedit = events
+        .popup_window_event(
+            parent,
+            bounds,
+            1.25,
+            &WinitWindowEvent::Ime(Ime::Preedit("compose".to_owned(), Some((1, 4)))),
+        )
+        .expect("popup preedit should route to its logical parent");
+    match preedit {
+        host::Event::Window {
+            window,
+            event: host::WindowEvent::TextPreedit { preedit },
+        } => {
+            assert_eq!(window, parent);
+            assert_eq!(preedit.text(), "compose");
+            assert_eq!(preedit.selection(), Some((1, 4)));
+        }
+        _ => panic!("expected parent preedit event"),
+    }
+
+    let commit = events
+        .popup_window_event(
+            parent,
+            bounds,
+            1.25,
+            &WinitWindowEvent::Ime(Ime::Commit("text".to_owned())),
+        )
+        .expect("popup commit should route to its logical parent");
+    assert!(matches!(
+        commit,
+        host::Event::Window {
+            window,
+            event: host::WindowEvent::TextCommitted { ref text },
+        } if window == parent && text == "text"
+    ));
+}
+
+#[test]
 fn popup_window_event_adapter_forwards_non_left_buttons() {
     use winit::{
         dpi::PhysicalPosition,
@@ -938,6 +983,23 @@ fn command_palette_uses_native_popup_work_when_backend_supports_it() {
             && *framework_glass_panes == 0
             && *fallback_framework_glass_panes == 0
     )));
+    assert!(
+        platform.backend().events().iter().any(|event| matches!(
+            event,
+            BackendEvent::SetIme { update }
+                if update.parent() == window
+                    && matches!(
+                        update.target(),
+                        Some(ime::Target::Popup { id, area })
+                            if id == interaction::CommandPalette::panel_id()
+                                && area.x() >= 0
+                                && area.y() >= 0
+                                && area.width() == 1
+                                && area.height() > 0
+                    )
+        )),
+        "the palette caret must be projected in popup-local coordinates"
+    );
 }
 
 #[test]

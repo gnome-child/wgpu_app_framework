@@ -1,6 +1,6 @@
 use super::{
     composition,
-    geometry::{Point, Size},
+    geometry::{Point, Rect, Size},
     interaction, keymap,
     theme::Theme,
     view,
@@ -127,6 +127,10 @@ impl Layout {
 
     pub(crate) fn chrome(&self) -> &[Chrome] {
         &self.chrome
+    }
+
+    pub(crate) fn text_caret_rect(&self) -> Option<Rect> {
+        self.frames.iter().find_map(Frame::text_caret_rect)
     }
 
     pub(crate) fn hit_test(&self, point: Point) -> Option<Hit> {
