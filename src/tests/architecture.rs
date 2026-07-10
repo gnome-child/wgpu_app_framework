@@ -1089,6 +1089,48 @@ fn master_design_names_answer_patterns() {
 }
 
 #[test]
+fn layered_presentation_and_frame_names_remain_documented_twins() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = root.join("src");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    assert_source_patterns_absent(
+        &src,
+        &[
+            ["Presentation", " as "].concat(),
+            ["Frame", " as "].concat(),
+        ],
+    );
+    for seam in [
+        ("shell/presentation.rs", "scene::Presentation"),
+        ("layout/frame.rs", "animation::Frame"),
+        ("render/canvas.rs", "render::Frame"),
+        ("runtime/presentation.rs", "layout::Frame"),
+    ] {
+        let source = std::fs::read_to_string(src.join(seam.0))
+            .unwrap_or_else(|error| panic!("{} should read: {error}", seam.0));
+        assert!(
+            source.contains(seam.1),
+            "layer-twin seam {} must keep {} qualified",
+            seam.0,
+            seam.1
+        );
+    }
+    for verdict in [
+        "legitimate layer twins",
+        "view/scene/shell",
+        "animation/layout/",
+        "No import scope aliases either word",
+    ] {
+        assert!(
+            master.contains(verdict),
+            "master design must retain the census verdict: {verdict}"
+        );
+    }
+}
+
+#[test]
 fn history_coalescing_is_scoped_to_the_runtime_target() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let history =

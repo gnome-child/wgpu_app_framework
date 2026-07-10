@@ -971,6 +971,12 @@ Repeated words are not automatically wrong; they become naming debt when the
 meanings co-occur in one scope and force aliases or reader ambiguity. Current
 known overloaded terms include `Presentation`, `Frame`, and `Surface`; rename
 them only when a concrete import-scope collision proves the ambiguity.
+The current census records legitimate layer twins: view/scene/shell
+`Presentation` types are qualified projection stages, while animation/layout/
+render/diagnostics `Frame` types mean a time sample, derived node, acquired
+texture, and counter set respectively. No import scope aliases either word;
+the first required `Presentation as ...` or `Frame as ...` alias reopens the
+rename decision.
 
 `Structural Absence`
 
