@@ -1,10 +1,12 @@
 use std::{
     ffi::OsString,
     fs::{File, OpenOptions},
-    io::{self, Write},
+    io,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
+
+use crate::text;
 
 static NEXT_DOCUMENT_IDENTITY: AtomicU64 = AtomicU64::new(1);
 static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(1);
@@ -21,7 +23,7 @@ pub struct Version {
 #[derive(Debug, Clone)]
 pub struct SaveSnapshot {
     version: Version,
-    text: String,
+    buffer: text::Buffer,
 }
 
 impl Identity {
@@ -45,8 +47,8 @@ impl Version {
 }
 
 impl SaveSnapshot {
-    pub(super) fn new(version: Version, text: String) -> Self {
-        Self { version, text }
+    pub(super) fn new(version: Version, buffer: text::Buffer) -> Self {
+        Self { version, buffer }
     }
 
     pub fn version(&self) -> Version {
@@ -54,15 +56,16 @@ impl SaveSnapshot {
     }
 
     pub fn write_to(&self, path: impl AsRef<Path>) -> io::Result<()> {
-        write_atomic(path.as_ref(), self.text.as_bytes())
+        write_atomic(path.as_ref(), |temporary| self.buffer.write_to(temporary))
     }
 }
 
-fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
+fn write_atomic(
+    path: &Path,
+    write_contents: impl FnOnce(&mut File) -> io::Result<()>,
+) -> io::Result<()> {
     let (temporary_path, mut temporary) = create_temporary_sibling(path)?;
-    let write_result = temporary
-        .write_all(contents)
-        .and_then(|()| temporary.sync_all());
+    let write_result = write_contents(&mut temporary).and_then(|()| temporary.sync_all());
     drop(temporary);
 
     if let Err(error) = write_result {

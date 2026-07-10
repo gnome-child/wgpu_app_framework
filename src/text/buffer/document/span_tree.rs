@@ -14,6 +14,7 @@ pub(super) enum SourceKind {
 
 #[derive(Debug)]
 struct SourceBuffer {
+    #[cfg_attr(not(test), allow(dead_code))]
     kind: SourceKind,
     text: Arc<str>,
 }
@@ -235,6 +236,7 @@ impl SpanTree {
         self.for_each_leaf(&mut |span, _| writer.write_all(span.text().as_bytes()))
     }
 
+    #[cfg(test)]
     pub(super) fn source_lengths(&self) -> (usize, usize) {
         let mut original = 0usize;
         let mut add = 0usize;

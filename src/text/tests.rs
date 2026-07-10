@@ -1085,6 +1085,23 @@ fn piece_tree_insert_updates_touched_storage_without_full_materialization() {
 }
 
 #[test]
+fn source_span_stream_writes_without_full_document_materialization() {
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_multiline_text("alpha\nbeta\ngamma");
+    let mut state = buffer.initial_state();
+    apply_edit(&mut editor, &mut buffer, &mut state, Edit::insert("!"));
+    buffer.reset_document_stats();
+    let mut written = Vec::new();
+
+    buffer
+        .write_to(&mut written)
+        .expect("source spans should stream to a writer");
+
+    assert_eq!(String::from_utf8(written).unwrap(), "alpha\nbeta\ngamma!");
+    assert_eq!(buffer.document_stats().full_materializations, 0);
+}
+
+#[test]
 fn marks_round_trip_through_line_identity() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_multiline_text("alpha\nbeta\ngamma");

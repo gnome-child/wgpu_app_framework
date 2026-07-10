@@ -106,7 +106,7 @@ impl Document {
     }
 
     pub fn save_snapshot(&self) -> SaveSnapshot {
-        SaveSnapshot::new(self.version(), self.buffer.text())
+        SaveSnapshot::new(self.version(), self.buffer.clone())
     }
 
     pub fn buffer(&self) -> &text::Buffer {
