@@ -9,6 +9,8 @@ use super::{
 
 mod line;
 mod source;
+#[allow(dead_code)]
+mod span_tree;
 mod stats;
 
 #[cfg(test)]
