@@ -4,6 +4,7 @@ use std::rc::Rc;
 use glyphon::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping};
 
 use super::super::document::{self, Align, Document, Style, TextDirection, Weight};
+use super::key::finite_bits;
 use super::shaping_cache::ShapingCache;
 use super::system;
 use crate::icon;
@@ -333,16 +334,6 @@ fn attrs_for_shape(style: Style) -> Attrs<'static> {
         .family(Family::SansSerif)
         .weight(system::weight(style.weight()))
         .metrics(Metrics::relative(style.size().max(1.0), 1.25))
-}
-
-fn finite_bits(value: f32) -> u32 {
-    if value.is_finite() {
-        value.to_bits()
-    } else if value.is_sign_negative() {
-        0.0_f32.to_bits()
-    } else {
-        f32::INFINITY.to_bits()
-    }
 }
 
 #[cfg(test)]
