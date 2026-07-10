@@ -4,12 +4,12 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::unicode::normalize_for_mode;
+use super::unicode::{normalize_for_mode, normalize_multiline_with_ending, normalize_single_line};
 
 mod document;
 mod mark;
 #[cfg(test)]
-pub(super) use document::TEXT_DOCUMENT_BLOCK_TARGET_LINES;
+pub(super) use document::TEXT_DOCUMENT_TARGET_LEAF_BYTES;
 use document::TextDocument;
 #[cfg(test)]
 pub(super) use document::TextDocumentStatsSnapshot;
@@ -119,7 +119,7 @@ impl Buffer {
     }
 
     fn from_mapped_file_with_mode(path: impl AsRef<Path>, multiline: bool) -> io::Result<Self> {
-        let document = TextDocument::open_mapped(path)?;
+        let document = TextDocument::open_file(path)?;
         Ok(Self::from_document_with_mode(document, multiline))
     }
 
@@ -174,41 +174,31 @@ impl Buffer {
     }
 
     #[cfg(test)]
-    pub(super) fn shares_add_buffer_with(&self, other: &Self) -> bool {
-        std::sync::Arc::ptr_eq(
-            &self.inner.document.add_buffer,
-            &other.inner.document.add_buffer,
-        )
+    pub(super) fn shares_text_root_with(&self, other: &Self) -> bool {
+        self.inner
+            .document
+            .shares_text_root_with(&other.inner.document)
     }
 
     #[cfg(test)]
-    pub(super) fn shares_line_text_with(&self, other: &Self, line: usize) -> bool {
-        let left = &self.inner;
-        let right = &other.inner;
-        let Some(left_text) = left.document.tree.line(line).map(|line| line.text.clone()) else {
-            return false;
-        };
-        let Some(right_text) = right.document.tree.line(line).map(|line| line.text.clone()) else {
-            return false;
-        };
-
-        std::sync::Arc::ptr_eq(&left_text, &right_text)
+    pub(super) fn shared_text_leaf_count(&self, other: &Self) -> usize {
+        self.inner
+            .document
+            .shared_text_leaf_count(&other.inner.document)
     }
 
     #[cfg(test)]
-    pub(super) fn shares_line_block_with(&self, other: &Self, line: usize) -> bool {
-        let left = &self.inner;
-        let right = &other.inner;
-        let (left_block, _) = left.document.tree.locate_line(line);
-        let (right_block, _) = right.document.tree.locate_line(line);
-        let Some(left_block) = left.document.tree.blocks.get(left_block) else {
-            return false;
-        };
-        let Some(right_block) = right.document.tree.blocks.get(right_block) else {
-            return false;
-        };
+    pub(super) fn shares_line_index_root_with(&self, other: &Self) -> bool {
+        self.inner
+            .document
+            .shares_line_index_root_with(&other.inner.document)
+    }
 
-        std::sync::Arc::ptr_eq(&left_block.lines, &right_block.lines)
+    #[cfg(test)]
+    pub(super) fn shared_line_index_leaf_count(&self, other: &Self) -> usize {
+        self.inner
+            .document
+            .shared_line_index_leaf_count(&other.inner.document)
     }
 
     pub fn to_plain_text(&self) -> String {
@@ -273,6 +263,12 @@ impl Buffer {
     pub(crate) fn line_layout_identity(&self, line: usize) -> Option<LineLayoutIdentity> {
         self.inner.document.line_layout_identity(line)
     }
+    pub(crate) fn line_ending(&self) -> &'static str {
+        self.inner.document.line_ending()
+    }
+    pub(crate) fn write_to(&self, writer: &mut dyn io::Write) -> io::Result<()> {
+        self.inner.document.write_to(writer)
+    }
 }
 pub(crate) fn local_cursor_range_for_source_line(
     range: (Cursor, Cursor),
@@ -330,7 +326,11 @@ impl From<&str> for Buffer {
 }
 
 pub(crate) fn normalize_for_buffer(buffer: &Buffer, text: &str) -> String {
-    normalize_for_mode(buffer.is_multiline(), text)
+    if buffer.is_multiline() {
+        normalize_multiline_with_ending(text, buffer.line_ending())
+    } else {
+        normalize_single_line(text)
+    }
 }
 
 impl Clone for Buffer {

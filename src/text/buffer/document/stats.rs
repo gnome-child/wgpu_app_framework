@@ -6,7 +6,6 @@ pub(in crate::text) struct TextDocumentStatsSnapshot {
     pub(in crate::text) full_materializations: usize,
     pub(in crate::text) total_document_scans: usize,
     pub(in crate::text) piece_tree_updates: usize,
-    pub(in crate::text) mapped_index_pages_scanned: usize,
 }
 
 #[derive(Debug, Default)]
@@ -14,7 +13,6 @@ pub(super) struct TextDocumentStats {
     pub(super) full_materializations: Cell<usize>,
     pub(super) total_document_scans: Cell<usize>,
     pub(super) piece_tree_updates: Cell<usize>,
-    pub(super) mapped_index_pages_scanned: Cell<usize>,
 }
 
 impl Clone for TextDocumentStats {
@@ -23,7 +21,6 @@ impl Clone for TextDocumentStats {
             full_materializations: Cell::new(self.full_materializations.get()),
             total_document_scans: Cell::new(self.total_document_scans.get()),
             piece_tree_updates: Cell::new(self.piece_tree_updates.get()),
-            mapped_index_pages_scanned: Cell::new(self.mapped_index_pages_scanned.get()),
         }
     }
 }
@@ -35,7 +32,6 @@ impl TextDocumentStats {
             full_materializations: self.full_materializations.get(),
             total_document_scans: self.total_document_scans.get(),
             piece_tree_updates: self.piece_tree_updates.get(),
-            mapped_index_pages_scanned: self.mapped_index_pages_scanned.get(),
         }
     }
 

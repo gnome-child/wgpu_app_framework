@@ -172,6 +172,7 @@ impl Editor {
             }
             Edit::InsertLineBreak => {
                 if buffer.is_multiline() {
+                    let line_ending = buffer.line_ending();
                     let range = buffer.selected_range_for_state(*state).unwrap_or_else(|| {
                         Range::collapsed(buffer.position_for_state(*state).index)
                     });
@@ -180,7 +181,7 @@ impl Editor {
                         buffer.replace_text_range_with_kind_and_impact_for_state(
                             state,
                             range,
-                            "\n",
+                            line_ending,
                             Kind::Insert,
                         ),
                     );

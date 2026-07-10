@@ -143,7 +143,7 @@ impl LineIndex {
     }
 
     #[cfg(test)]
-    fn shares_root_with(&self, other: &Self) -> bool {
+    pub(super) fn shares_root_with(&self, other: &Self) -> bool {
         match (&self.root, &other.root) {
             (Some(left), Some(right)) => Arc::ptr_eq(left, right),
             (None, None) => true,
@@ -152,7 +152,7 @@ impl LineIndex {
     }
 
     #[cfg(test)]
-    fn shared_leaf_count(&self, other: &Self) -> usize {
+    pub(super) fn shared_leaf_count(&self, other: &Self) -> usize {
         let mut left = Vec::new();
         let mut right = Vec::new();
         collect_leaf_ptrs(self.root.as_ref(), &mut left);

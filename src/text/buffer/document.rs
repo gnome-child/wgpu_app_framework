@@ -1,89 +1,100 @@
-use std::{fs::File, io, path::Path, rc::Rc, sync::Arc};
+use std::{fs, io, path::Path, rc::Rc, sync::Arc};
 
 use super::super::unicode::{
-    next_grapheme_boundary, next_word_boundary, previous_grapheme_boundary, previous_word_boundary,
+    ceil_grapheme_boundary, floor_grapheme_boundary, next_grapheme_boundary, next_word_boundary,
+    previous_grapheme_boundary, previous_word_boundary,
 };
-use super::{
-    Cursor, LineId, LineLayoutIdentity, Mark, MarkGravity, MarkRange, Position, Range, Selection,
-};
+use super::{Cursor, LineLayoutIdentity, Mark, MarkGravity, MarkRange, Position, Range, Selection};
 
+#[allow(dead_code)]
 mod line;
-#[allow(dead_code)]
 mod line_index;
-mod source;
 #[allow(dead_code)]
+mod source;
 mod span_tree;
 mod stats;
 
+use line_index::{LineIndex, LineMeta};
+use span_tree::SpanTree;
 #[cfg(test)]
-pub(in crate::text) use line::TEXT_DOCUMENT_BLOCK_TARGET_LINES;
-use line::{TextLine, TextLineEnding, TextLineTree};
-use source::{MappedTextSource, TextOriginal, TextPieceSource};
+pub(in crate::text) use span_tree::TARGET_LEAF_BYTES as TEXT_DOCUMENT_TARGET_LEAF_BYTES;
 use stats::TextDocumentStats;
 #[cfg(test)]
 pub(in crate::text) use stats::TextDocumentStatsSnapshot;
 
-const TEXT_MAPPED_INDEX_PAGE_BYTES: usize = 64 * 1024;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DocumentLineEnding {
+    Lf,
+    CrLf,
+}
+
+impl DocumentLineEnding {
+    fn detect(text: &str) -> Self {
+        let bytes = text.as_bytes();
+        let mut lf = 0usize;
+        let mut crlf = 0usize;
+        let mut first = None;
+        for (index, byte) in bytes.iter().copied().enumerate() {
+            if byte != b'\n' {
+                continue;
+            }
+            let ending = if index > 0 && bytes[index - 1] == b'\r' {
+                crlf += 1;
+                Self::CrLf
+            } else {
+                lf += 1;
+                Self::Lf
+            };
+            first.get_or_insert(ending);
+        }
+        match crlf.cmp(&lf) {
+            std::cmp::Ordering::Greater => Self::CrLf,
+            std::cmp::Ordering::Less => Self::Lf,
+            std::cmp::Ordering::Equal => first.unwrap_or(Self::Lf),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Lf => "\n",
+            Self::CrLf => "\r\n",
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(in crate::text) struct TextDocument {
-    // Owns the original text bytes, and keeps mmap-backed source slices alive.
-    #[allow(dead_code)]
-    original: TextOriginal,
-    pub(super) add_buffer: Arc<String>,
-    pub(super) tree: TextLineTree,
+    tree: SpanTree,
+    lines: LineIndex,
+    line_ending: DocumentLineEnding,
     pub(in crate::text) revision: u64,
     stats: TextDocumentStats,
 }
 
 impl TextDocument {
     pub(in crate::text) fn from_text(text: &str) -> Self {
-        let original: Arc<str> = Arc::from(text);
-        Self::from_source_text(
-            text,
-            TextOriginal::Owned(original),
-            TextPieceSource::OriginalOwned,
-            0,
-        )
+        Self::from_owned(Arc::from(text))
     }
 
-    pub(in crate::text) fn open_mapped(path: impl AsRef<Path>) -> io::Result<Self> {
-        let path = path.as_ref();
-        let file = File::open(path)?;
-        let mmap = Arc::new(unsafe { memmap2::Mmap::map(&file)? });
-        let text = std::str::from_utf8(&mmap[..]).map_err(|error| {
+    pub(in crate::text) fn open_file(path: impl AsRef<Path>) -> io::Result<Self> {
+        let bytes = fs::read(path)?;
+        let text = String::from_utf8(bytes).map_err(|error| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("mapped text is not valid UTF-8: {error}"),
+                format!("text file is not valid UTF-8: {error}"),
             )
         })?;
-        let mapped = Arc::new(MappedTextSource {
-            path: path.to_path_buf(),
-            mmap: mmap.clone(),
-        });
-        let document = Self::from_source_text(
-            text,
-            TextOriginal::Mapped(mapped),
-            TextPieceSource::OriginalMapped,
-            0,
-        );
-        let pages = text.len().saturating_add(TEXT_MAPPED_INDEX_PAGE_BYTES - 1)
-            / TEXT_MAPPED_INDEX_PAGE_BYTES;
-        document.stats.mapped_index_pages_scanned.set(pages.max(1));
-        Ok(document)
+        Ok(Self::from_owned(Arc::from(text)))
     }
 
-    fn from_source_text(
-        text: &str,
-        original: TextOriginal,
-        source: TextPieceSource,
-        source_base: usize,
-    ) -> Self {
-        let lines = Self::lines_from_source(text, TextLineEnding::None, 0, source, source_base);
+    fn from_owned(text: Arc<str>) -> Self {
+        let line_ending = DocumentLineEnding::detect(&text);
+        let tree = SpanTree::from_original(text);
+        let lines = LineIndex::new(tree.line_count(), 0);
         Self {
-            original,
-            add_buffer: Arc::new(String::new()),
-            tree: TextLineTree::from_lines(lines),
+            tree,
+            lines,
+            line_ending,
             revision: 0,
             stats: TextDocumentStats::default(),
         }
@@ -94,25 +105,14 @@ impl TextDocument {
     }
 
     pub(in crate::text) fn text_len(&self) -> usize {
-        self.tree.text_len()
+        self.tree.len()
     }
 
     pub(in crate::text) fn line_starts(&self) -> Rc<Vec<usize>> {
         self.stats
             .total_document_scans
             .set(self.stats.total_document_scans.get() + 1);
-        let mut starts = Vec::with_capacity(self.line_count());
-        let mut offset = 0usize;
-        for block in &self.tree.blocks {
-            for line in block.lines.iter() {
-                starts.push(offset);
-                offset = offset.saturating_add(line.total_len());
-            }
-        }
-        if starts.is_empty() {
-            starts.push(0);
-        }
-        Rc::new(starts)
+        Rc::new(self.tree.line_starts())
     }
 
     pub(in crate::text) fn line_start(&self, line: usize) -> usize {
@@ -120,76 +120,38 @@ impl TextDocument {
     }
 
     pub(in crate::text) fn line_text_len(&self, line: usize) -> usize {
-        self.tree
-            .line(line)
-            .map(|line| line.text.len())
-            .unwrap_or(0)
+        let bounds = self.tree.line_bounds(line);
+        bounds.end - bounds.start
+    }
+
+    pub(in crate::text) fn line_ending(&self) -> &'static str {
+        self.line_ending.as_str()
     }
 
     pub(in crate::text) fn text(&self) -> String {
         self.stats
             .full_materializations
             .set(self.stats.full_materializations.get() + 1);
-        let mut text = String::with_capacity(self.text_len());
-        for block in &self.tree.blocks {
-            for line in block.lines.iter() {
-                text.push_str(&line.text);
-                text.push_str(line.ending.as_str());
-            }
-        }
-        text
+        self.tree.text()
     }
 
     pub(in crate::text) fn text_for_range(&self, range: std::ops::Range<usize>) -> String {
-        let range = range.start.min(self.text_len())..range.end.min(self.text_len());
-        if range.is_empty() {
-            return String::new();
-        }
-        let (start_line, start_local) = self.line_and_local_for_index(range.start);
-        let (end_line, end_local) = self.line_and_local_for_index(range.end);
-        if start_line == end_line {
-            let Some(line) = self.tree.line(start_line) else {
-                return String::new();
-            };
-            return line.text[start_local.min(line.text.len())..end_local.min(line.text.len())]
-                .to_owned();
-        }
-        let mut text = String::new();
-        if let Some(line) = self.tree.line(start_line) {
-            text.push_str(&line.text[start_local.min(line.text.len())..]);
-            text.push_str(line.ending.as_str());
-        }
-        for line_index in start_line + 1..end_line {
-            if let Some(line) = self.tree.line(line_index) {
-                text.push_str(&line.text);
-                text.push_str(line.ending.as_str());
-            }
-        }
-        if let Some(line) = self.tree.line(end_line) {
-            text.push_str(&line.text[..end_local.min(line.text.len())]);
-        }
-        text
+        self.tree.text_for_range(range)
     }
 
     pub(in crate::text) fn text_for_line_range(&self, start: usize, end: usize) -> String {
-        let mut text = String::new();
         let end = end.min(self.line_count());
-        for line_index in start.min(end)..end {
-            if let Some(line) = self.tree.line(line_index) {
-                text.push_str(&line.text);
-                if line_index + 1 < end {
-                    text.push_str(line.ending.as_str());
-                }
-            }
+        let start = start.min(end);
+        if start == end {
+            return String::new();
         }
-        text
+        let first = self.tree.line_bounds(start);
+        let last = self.tree.line_bounds(end - 1);
+        self.tree.text_for_range(first.start..last.end)
     }
 
     pub(in crate::text) fn line_layout_identity(&self, line: usize) -> Option<LineLayoutIdentity> {
-        self.tree.line(line).map(|line| LineLayoutIdentity {
-            id: line.id,
-            revision: line.revision,
-        })
+        self.lines.get(line).map(LineMeta::identity)
     }
 
     pub(in crate::text) fn replace_range(
@@ -206,84 +168,56 @@ impl TextDocument {
         let (start_line, start_local) = self.line_and_local_for_index(range.start);
         let (end_line, end_local) = self.line_and_local_for_index(range.end);
         let old_line_count = end_line.saturating_sub(start_line) + 1;
-        let old_start_id = self.tree.line(start_line).map(|line| line.id);
-        let old_end_id = self.tree.line(end_line).map(|line| line.id);
-        let end_ending = self
-            .tree
-            .line(end_line)
-            .map(|line| line.ending)
-            .unwrap_or(TextLineEnding::None);
-        let prefix = self
-            .tree
-            .line(start_line)
-            .map(|line| line.text[..start_local.min(line.text.len())].to_owned())
-            .unwrap_or_default();
-        let suffix = self
-            .tree
-            .line(end_line)
-            .map(|line| line.text[end_local.min(line.text.len())..].to_owned())
-            .unwrap_or_default();
-
-        let mut replacement_text =
-            String::with_capacity(prefix.len() + inserted.len() + suffix.len());
-        replacement_text.push_str(&prefix);
-        replacement_text.push_str(inserted);
-        replacement_text.push_str(&suffix);
-
+        let old_start = self.lines.get(start_line);
+        let old_end = self.lines.get(end_line);
         let next_revision = self.revision.saturating_add(1);
-        let add_buffer = Arc::make_mut(&mut self.add_buffer);
-        let add_start = add_buffer.len();
-        add_buffer.push_str(&replacement_text);
-        let removes_whole_lines =
-            start_local == 0 && replacement_text.is_empty() && deleted.ends_with('\n');
-        let mut replacement = if removes_whole_lines {
-            Vec::new()
-        } else {
-            Self::lines_from_source(
-                &replacement_text,
-                end_ending,
-                next_revision,
-                TextPieceSource::Add,
-                add_start,
-            )
-        };
-        if start_local == 0 && end_local == 0 {
-            let suffix_line = inserted.match_indices('\n').count();
-            if let Some(id) = old_end_id
-                && let Some(line) = replacement.get_mut(suffix_line)
-            {
-                line.id = id;
-            }
-        } else if let (Some(id), Some(first)) = (old_start_id, replacement.first_mut()) {
-            first.id = id;
-        }
-        let new_line_count = replacement.len();
+        let inserted_line_count = inserted.bytes().filter(|byte| *byte == b'\n').count() + 1;
+        let mut replacement_lines = (0..inserted_line_count)
+            .map(|_| LineMeta::new(next_revision))
+            .collect::<Vec<_>>();
 
-        self.tree
-            .splice_lines(start_line, old_line_count, replacement);
+        if start_local == 0 && end_local == 0 {
+            if let (Some(old_end), Some(suffix)) = (old_end, replacement_lines.last_mut()) {
+                *suffix = old_end.with_revision(next_revision);
+            }
+        } else if let (Some(old_start), Some(first)) = (old_start, replacement_lines.first_mut()) {
+            *first = old_start.with_revision(next_revision);
+        }
+
+        let inserted_tree = if inserted.is_empty() {
+            SpanTree::default()
+        } else {
+            SpanTree::from_addition(Arc::from(inserted))
+        };
+        self.tree = self.tree.replace(range.clone(), inserted_tree);
+        self.lines = self
+            .lines
+            .replace(start_line, old_line_count, replacement_lines);
         self.revision = next_revision;
         self.stats
             .piece_tree_updates
             .set(self.stats.piece_tree_updates.get() + 1);
+        debug_assert_eq!(self.tree.line_count(), self.lines.len());
+        #[cfg(debug_assertions)]
+        {
+            self.tree.assert_invariants();
+            self.lines.assert_invariants();
+        }
+
         (
             range,
             deleted,
             inserted.to_owned(),
             start_line,
             old_line_count,
-            new_line_count,
+            inserted_line_count,
         )
     }
 
     pub(in crate::text) fn cursor_for_text_index(&self, index: usize) -> Cursor {
         let index = index.min(self.text_len());
         let (line, local) = self.line_and_local_for_index(index);
-        let local = self
-            .tree
-            .line(line)
-            .map(|line| line.floor_grapheme(local))
-            .unwrap_or(0);
-        Cursor::new(line, local)
+        Cursor::new(line, self.floor_grapheme_in_line(line, local))
     }
 
     pub(in crate::text) fn cursor_for_position(&self, position: Position) -> Cursor {
@@ -293,23 +227,12 @@ impl TextDocument {
 
     pub(in crate::text) fn text_index_for_cursor(&self, cursor: Cursor) -> usize {
         let line = cursor.line.min(self.line_count().saturating_sub(1));
-        let local = self
-            .tree
-            .line(line)
-            .map(|line| line.floor_grapheme(cursor.index))
-            .unwrap_or(0);
-        self.line_start(line) + local
+        self.line_start(line) + self.floor_grapheme_in_line(line, cursor.index)
     }
 
     pub(in crate::text) fn mark_for_position(&self, position: Position) -> Option<Mark> {
         let cursor = self.cursor_for_position(position);
-        let line = self.tree.line(cursor.line)?;
-        Some(Mark {
-            line_id: line.id,
-            byte_offset: cursor.index,
-            affinity: cursor.affinity,
-            gravity: MarkGravity::Downstream,
-        })
+        self.mark_for_cursor(cursor)
     }
 
     pub(in crate::text) fn mark_range_for_selection(
@@ -323,27 +246,30 @@ impl TextDocument {
     }
 
     pub(in crate::text) fn position_for_mark(&self, anchor: Mark) -> Option<Position> {
-        let (_, offset, line) = self.line_index_start_and_line_for_id(anchor.line_id)?;
-        let local = line.floor_grapheme(anchor.byte_offset);
-        Some(Position::with_affinity(offset + local, anchor.affinity))
+        let (line, _) = self.lines.find(anchor.line_id)?;
+        let local = self.floor_grapheme_in_line(line, anchor.byte_offset);
+        Some(Position::with_affinity(
+            self.line_start(line) + local,
+            anchor.affinity,
+        ))
     }
 
     pub(in crate::text) fn mark_for_cursor(&self, cursor: Cursor) -> Option<Mark> {
-        let line_index = cursor.line.min(self.line_count().saturating_sub(1));
-        let line = self.tree.line(line_index)?;
+        let line = cursor.line.min(self.line_count().saturating_sub(1));
+        let meta = self.lines.get(line)?;
         Some(Mark {
-            line_id: line.id,
-            byte_offset: line.floor_grapheme(cursor.index),
+            line_id: meta.id,
+            byte_offset: self.floor_grapheme_in_line(line, cursor.index),
             affinity: cursor.affinity,
             gravity: MarkGravity::Downstream,
         })
     }
 
     pub(in crate::text) fn cursor_for_mark(&self, anchor: Mark) -> Option<Cursor> {
-        let (line_index, _, line) = self.line_index_start_and_line_for_id(anchor.line_id)?;
+        let (line, _) = self.lines.find(anchor.line_id)?;
         Some(Cursor::new_with_affinity(
-            line_index,
-            line.floor_grapheme(anchor.byte_offset),
+            line,
+            self.floor_grapheme_in_line(line, anchor.byte_offset),
             anchor.affinity,
         ))
     }
@@ -370,24 +296,6 @@ impl TextDocument {
         }
     }
 
-    fn line_index_start_and_line_for_id(
-        &self,
-        line_id: LineId,
-    ) -> Option<(usize, usize, &TextLine)> {
-        let mut line_index = 0usize;
-        let mut offset = 0usize;
-        for block in &self.tree.blocks {
-            for line in block.lines.iter() {
-                if line.id == line_id {
-                    return Some((line_index, offset, line));
-                }
-                line_index = line_index.saturating_add(1);
-                offset = offset.saturating_add(line.total_len());
-            }
-        }
-        None
-    }
-
     pub(in crate::text) fn line_and_local_for_index(&self, index: usize) -> (usize, usize) {
         self.tree.line_and_local_for_index(index)
     }
@@ -402,19 +310,13 @@ impl TextDocument {
     }
 
     pub(in crate::text) fn floor_grapheme_boundary(&self, index: usize) -> usize {
-        let (line_index, local) = self.line_and_local_for_index(index);
-        let Some(line) = self.tree.line(line_index) else {
-            return 0;
-        };
-        self.line_start(line_index) + line.floor_grapheme(local)
+        let (line, local) = self.line_and_local_for_index(index);
+        self.line_start(line) + self.floor_grapheme_in_line(line, local)
     }
 
     pub(in crate::text) fn ceil_grapheme_boundary(&self, index: usize) -> usize {
-        let (line_index, local) = self.line_and_local_for_index(index);
-        let Some(line) = self.tree.line(line_index) else {
-            return self.text_len();
-        };
-        self.line_start(line_index) + line.ceil_grapheme(local)
+        let (line, local) = self.line_and_local_for_index(index);
+        self.line_start(line) + self.ceil_grapheme_in_line(line, local)
     }
 
     pub(in crate::text) fn previous_grapheme_boundary_index(&self, index: usize) -> usize {
@@ -422,31 +324,25 @@ impl TextDocument {
         if index == 0 {
             return 0;
         }
-        let (line_index, local) = self.line_and_local_for_index(index);
-        let Some(line) = self.tree.line(line_index) else {
-            return 0;
-        };
+        let (line, local) = self.line_and_local_for_index(index);
         if local > 0 {
-            return self.line_start(line_index) + previous_grapheme_boundary(&line.text, local);
-        }
-        if line_index == 0 {
+            let text = self.line_text(line);
+            self.line_start(line) + previous_grapheme_boundary(&text, local)
+        } else if line == 0 {
             0
         } else {
-            self.line_start(line_index - 1) + self.line_text_len(line_index - 1)
+            self.line_start(line - 1) + self.line_text_len(line - 1)
         }
     }
 
     pub(in crate::text) fn next_grapheme_boundary_index(&self, index: usize) -> usize {
         let index = index.min(self.text_len());
-        let (line_index, local) = self.line_and_local_for_index(index);
-        let Some(line) = self.tree.line(line_index) else {
-            return self.text_len();
-        };
-        if local < line.text.len() {
-            return self.line_start(line_index) + next_grapheme_boundary(&line.text, local);
-        }
-        if line_index + 1 < self.line_count() {
-            self.line_start(line_index + 1)
+        let (line, local) = self.line_and_local_for_index(index);
+        let text = self.line_text(line);
+        if local < text.len() {
+            self.line_start(line) + next_grapheme_boundary(&text, local)
+        } else if line + 1 < self.line_count() {
+            self.line_start(line + 1)
         } else {
             self.text_len()
         }
@@ -457,96 +353,78 @@ impl TextDocument {
         if index == 0 {
             return 0;
         }
-        let (line_index, local) = self.line_and_local_for_index(index);
-        let Some(line) = self.tree.line(line_index) else {
-            return 0;
-        };
+        let (line, local) = self.line_and_local_for_index(index);
         if local > 0 {
-            return self.line_start(line_index) + previous_word_boundary(&line.text, local);
-        }
-        if line_index == 0 {
+            let text = self.line_text(line);
+            self.line_start(line) + previous_word_boundary(&text, local)
+        } else if line == 0 {
             0
         } else {
-            self.line_start(line_index - 1) + self.line_text_len(line_index - 1)
+            self.line_start(line - 1) + self.line_text_len(line - 1)
         }
     }
 
     pub(in crate::text) fn next_word_boundary_index(&self, index: usize) -> usize {
         let index = index.min(self.text_len());
-        let (line_index, local) = self.line_and_local_for_index(index);
-        let Some(line) = self.tree.line(line_index) else {
-            return self.text_len();
-        };
-        if local < line.text.len() {
-            return self.line_start(line_index) + next_word_boundary(&line.text, local);
-        }
-        if line_index + 1 < self.line_count() {
-            self.line_start(line_index + 1)
+        let (line, local) = self.line_and_local_for_index(index);
+        let text = self.line_text(line);
+        if local < text.len() {
+            self.line_start(line) + next_word_boundary(&text, local)
+        } else if line + 1 < self.line_count() {
+            self.line_start(line + 1)
         } else {
             self.text_len()
         }
     }
 
-    fn lines_from_source(
-        text: &str,
-        last_ending: TextLineEnding,
-        revision: u64,
-        source: TextPieceSource,
-        source_base: usize,
-    ) -> Vec<TextLine> {
-        let mut lines = Vec::new();
-        let mut start = 0;
-        for (index, _) in text.match_indices('\n') {
-            lines.push(
-                TextLine::from_piece(
-                    &text[start..index],
-                    TextLineEnding::Lf,
-                    source,
-                    source_base + start,
-                    revision,
-                )
-                .with_revision(revision),
-            );
-            start = index + 1;
-        }
-        lines.push(
-            TextLine::from_piece(
-                &text[start..],
-                last_ending,
-                source,
-                source_base + start,
-                revision,
-            )
-            .with_revision(revision),
-        );
-        if lines.is_empty() {
-            lines.push(TextLine::new("", TextLineEnding::None).with_revision(revision));
-        }
-        lines
+    fn line_text(&self, line: usize) -> String {
+        let bounds = self.tree.line_bounds(line);
+        self.tree.text_for_range(bounds.start..bounds.end)
+    }
+
+    fn floor_grapheme_in_line(&self, line: usize, local: usize) -> usize {
+        let text = self.line_text(line);
+        floor_grapheme_boundary(&text, local)
+    }
+
+    fn ceil_grapheme_in_line(&self, line: usize, local: usize) -> usize {
+        let text = self.line_text(line);
+        ceil_grapheme_boundary(&text, local)
+    }
+
+    pub(in crate::text) fn write_to(&self, writer: &mut dyn io::Write) -> io::Result<()> {
+        self.tree.write_to(writer)
     }
 
     #[cfg(test)]
     pub(super) fn original_len(&self) -> usize {
-        match &self.original {
-            TextOriginal::Owned(text) => text.len(),
-            TextOriginal::Mapped(mapped) => mapped.mmap.len(),
-        }
+        self.tree.source_lengths().0
     }
 
     #[cfg(test)]
     pub(super) fn piece_source_lengths(&self) -> (usize, usize, usize) {
-        let mut owned = 0usize;
-        let mut mapped = 0usize;
-        let mut add = 0usize;
-        for block in &self.tree.blocks {
-            for line in block.lines.iter() {
-                let (line_owned, line_mapped, line_add) = line.piece_source_lengths();
-                owned = owned.saturating_add(line_owned);
-                mapped = mapped.saturating_add(line_mapped);
-                add = add.saturating_add(line_add);
-            }
-        }
-        (owned, mapped, add)
+        let (original, add) = self.tree.source_lengths();
+        (original, 0, add)
+    }
+
+    #[cfg(test)]
+    pub(super) fn shares_text_root_with(&self, other: &Self) -> bool {
+        self.tree.shares_root_with(&other.tree)
+    }
+
+    #[cfg(test)]
+    pub(super) fn shared_text_leaf_count(&self, other: &Self) -> usize {
+        self.tree.shared_leaf_count(&other.tree)
+    }
+
+    #[cfg(test)]
+    pub(super) fn shares_line_index_root_with(&self, other: &Self) -> bool {
+        self.lines.shares_root_with(&other.lines)
+    }
+
+    #[cfg(test)]
+    pub(super) fn shared_line_index_leaf_count(&self, other: &Self) -> usize {
+        self.lines.shared_leaf_count(&other.lines)
     }
 
     #[cfg(test)]
@@ -557,5 +435,27 @@ impl TextDocument {
     #[cfg(test)]
     pub(super) fn stats(&self) -> TextDocumentStatsSnapshot {
         self.stats.snapshot()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DocumentLineEnding;
+
+    #[test]
+    fn dominant_line_ending_uses_counts_then_first_seen_tie_break() {
+        assert_eq!(DocumentLineEnding::detect("plain"), DocumentLineEnding::Lf);
+        assert_eq!(
+            DocumentLineEnding::detect("a\r\nb\r\nc\n"),
+            DocumentLineEnding::CrLf
+        );
+        assert_eq!(
+            DocumentLineEnding::detect("a\nb\r\n"),
+            DocumentLineEnding::Lf
+        );
+        assert_eq!(
+            DocumentLineEnding::detect("a\r\nb\n"),
+            DocumentLineEnding::CrLf
+        );
     }
 }

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use crate::paint;
 
 use super::buffer::{
-    Affinity, Cursor, CursorSelection, Mark, Position, Range, TEXT_DOCUMENT_BLOCK_TARGET_LINES,
+    Affinity, Cursor, CursorSelection, Mark, Position, Range, TEXT_DOCUMENT_TARGET_LEAF_BYTES,
 };
 use super::document::{Align, Block, ResolvedTextDirection, Run, Style, Weight};
 use super::edit::{
@@ -379,15 +379,15 @@ fn cloning_buffer_creates_independent_value_snapshot() {
         buffer.position_for_state(buffer_state),
         clone.position_for_state(clone_state)
     );
-    assert!(buffer.shares_add_buffer_with(&clone));
-    assert!(buffer.shares_line_text_with(&clone, 0));
+    assert!(buffer.shares_text_root_with(&clone));
+    assert!(buffer.shares_line_index_root_with(&clone));
 
     editor.apply_edit(&mut clone, &mut clone_state, Edit::insert("!"));
 
     assert_eq!(buffer.text(), "one\ntwo\nthree");
     assert_eq!(clone.text(), "one\ntwo\nthree!");
-    assert!(!buffer.shares_add_buffer_with(&clone));
-    assert!(buffer.shares_line_text_with(&clone, 0));
+    assert!(!buffer.shares_text_root_with(&clone));
+    assert!(!buffer.shares_line_index_root_with(&clone));
 }
 
 #[test]
@@ -428,7 +428,8 @@ fn buffer_state_can_be_copied_separately_from_buffer_content() {
     );
     assert_eq!(clone.selected_text_for_state(clone_state), None);
     assert_eq!(buffer.text(), clone.text());
-    assert!(buffer.shares_line_text_with(&clone, 0));
+    assert!(buffer.shares_text_root_with(&clone));
+    assert!(buffer.shares_line_index_root_with(&clone));
 }
 
 #[test]
@@ -467,18 +468,18 @@ fn area_model_owns_buffer_state_separately_from_buffer() {
 }
 
 #[test]
-fn cloned_buffer_shares_unchanged_line_tree_blocks() {
+fn cloned_buffer_edit_shares_untouched_span_and_line_index_leaves() {
     let mut editor = Editor::new();
     let text = (0..300)
-        .map(|index| format!("line {index}"))
+        .map(|index| format!("line {index} {}", "x".repeat(64)))
         .collect::<Vec<_>>()
         .join("\n");
     let buffer = Buffer::from_multiline_text(text);
     let mut clone = buffer.clone();
     let mut clone_state = clone.initial_state();
 
-    assert!(buffer.shares_line_block_with(&clone, 0));
-    assert!(buffer.shares_line_block_with(&clone, 250));
+    assert!(buffer.shares_text_root_with(&clone));
+    assert!(buffer.shares_line_index_root_with(&clone));
 
     apply_edit(
         &mut editor,
@@ -490,8 +491,10 @@ fn cloned_buffer_shares_unchanged_line_tree_blocks() {
 
     assert!(buffer.text().starts_with("line 0"));
     assert!(clone.text().starts_with("!line 0"));
-    assert!(!buffer.shares_line_block_with(&clone, 0));
-    assert!(buffer.shares_line_block_with(&clone, 250));
+    assert!(!buffer.shares_text_root_with(&clone));
+    assert!(!buffer.shares_line_index_root_with(&clone));
+    assert!(buffer.shared_text_leaf_count(&clone) >= 1);
+    assert!(buffer.shared_line_index_leaf_count(&clone) >= 1);
 }
 
 #[test]
@@ -1103,7 +1106,7 @@ fn marks_round_trip_through_line_identity() {
 }
 
 #[test]
-fn mapped_file_buffer_uses_original_mapped_pieces() {
+fn file_buffer_owns_original_source_without_mapping() {
     let path = std::env::temp_dir().join(format!(
         "wgpu_l3_text_mapped_{}_{}.txt",
         std::process::id(),
@@ -1112,31 +1115,49 @@ fn mapped_file_buffer_uses_original_mapped_pieces() {
     std::fs::write(&path, "one\ntwo\nthree").expect("temp mapped text should be writable");
 
     let buffer = Buffer::from_mapped_file(&path).expect("mapped text buffer should open");
-    let stats = buffer.document_stats();
     let (owned, mapped, add) = buffer.document_piece_source_lengths();
 
     assert_eq!(buffer.to_plain_text(), "one\ntwo\nthree");
     assert_eq!(buffer.original_len(), "one\ntwo\nthree".len());
-    assert_eq!(owned, 0);
-    assert!(mapped >= "onetwothree".len());
+    assert_eq!(owned, "one\ntwo\nthree".len());
+    assert_eq!(mapped, 0);
     assert_eq!(add, 0);
-    assert!(stats.mapped_index_pages_scanned >= 1);
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn file_buffer_preserves_crlf_and_uses_dominant_ending_for_inserted_breaks() {
+    let path = std::env::temp_dir().join(format!(
+        "wgpu_l3_text_crlf_{}_{}.txt",
+        std::process::id(),
+        Instant::now().elapsed().as_nanos()
+    ));
+    std::fs::write(&path, "one\r\ntwo\r\nthree\n").expect("temporary CRLF text should be writable");
+    let mut buffer = Buffer::from_mapped_file(&path).expect("owned file buffer should open");
+    let mut state = buffer.initial_state();
+    let mut editor = Editor::new();
+
+    assert_eq!(buffer.text(), "one\r\ntwo\r\nthree\n");
+    assert_eq!(buffer.logical_line_count(), 4);
+    assert_eq!(buffer.text_for_line_range(0, 1), "one");
+    apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::insert_line_break(),
+    );
+    assert_eq!(buffer.text(), "one\r\ntwo\r\nthree\n\r\n");
 
     let _ = std::fs::remove_file(path);
 }
 #[test]
-fn piece_tree_seek_handles_summary_block_boundaries() {
-    let lines = (0..300)
-        .map(|index| format!("line-{index:03}"))
-        .collect::<Vec<_>>();
-    let text = lines.join("\n");
+fn source_span_seek_handles_leaf_boundaries() {
+    let first = "x".repeat(TEXT_DOCUMENT_TARGET_LEAF_BYTES - 1);
+    let text = format!("{first}\nsecond");
     let buffer = Buffer::from_multiline_text(text);
-    let boundary_line = TEXT_DOCUMENT_BLOCK_TARGET_LINES;
-    let boundary_index = lines
-        .iter()
-        .take(boundary_line)
-        .map(|line| line.len() + 1)
-        .sum::<usize>();
+    let boundary_line = 1;
+    let boundary_index = TEXT_DOCUMENT_TARGET_LEAF_BYTES;
 
     let cursor = buffer.cursor_for_text_index(boundary_index);
     let position = buffer.position_for_text_index(boundary_index);

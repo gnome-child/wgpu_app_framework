@@ -1,8 +1,5 @@
-use super::super::buffer::{Mark, MarkRange};
-use super::super::{
-    buffer::{Buffer, Cursor, CursorSelection, Position, Range, Selection},
-    unicode::normalize_for_mode,
-};
+use super::super::buffer::{Buffer, Cursor, CursorSelection, Position, Range, Selection};
+use super::super::buffer::{Mark, MarkRange, normalize_for_buffer};
 use super::{
     Marker, State,
     marker::document_end_mark,
@@ -106,7 +103,7 @@ impl Buffer {
         text: &str,
         kind: Kind,
     ) -> (Transaction, Option<Impact>) {
-        let inserted = normalize_for_mode(self.is_multiline(), text);
+        let inserted = normalize_for_buffer(self, text);
         let range = {
             let inner = &self.inner;
             inner.document.snap_range(range)

@@ -10,8 +10,30 @@ pub(super) fn normalize_single_line(text: &str) -> String {
 }
 
 pub(super) fn normalize_multiline(text: &str) -> String {
-    let text = text.replace("\r\n", "\n").replace("\n\r", "\n");
-    text.replace('\r', "\n")
+    normalize_multiline_with_ending(text, "\n")
+}
+
+pub(super) fn normalize_multiline_with_ending(text: &str, ending: &str) -> String {
+    let mut normalized = String::with_capacity(text.len());
+    let mut characters = text.chars().peekable();
+    while let Some(character) = characters.next() {
+        match character {
+            '\r' => {
+                if characters.peek() == Some(&'\n') {
+                    characters.next();
+                }
+                normalized.push_str(ending);
+            }
+            '\n' => {
+                if characters.peek() == Some(&'\r') {
+                    characters.next();
+                }
+                normalized.push_str(ending);
+            }
+            _ => normalized.push(character),
+        }
+    }
+    normalized
 }
 
 pub(super) fn normalize_for_mode(multiline: bool, text: &str) -> String {

@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-const TARGET_LEAF_BYTES: usize = 8 * 1024;
+pub(in crate::text) const TARGET_LEAF_BYTES: usize = 8 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SourceKind {
@@ -121,10 +121,6 @@ impl SpanTree {
 
     pub(super) fn len(&self) -> usize {
         summary(self.root.as_ref()).bytes
-    }
-
-    pub(super) fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     pub(super) fn line_count(&self) -> usize {
@@ -285,7 +281,7 @@ impl SpanTree {
     }
 
     #[cfg(test)]
-    fn shares_root_with(&self, other: &Self) -> bool {
+    pub(super) fn shares_root_with(&self, other: &Self) -> bool {
         match (&self.root, &other.root) {
             (Some(left), Some(right)) => Arc::ptr_eq(left, right),
             (None, None) => true,
@@ -294,7 +290,7 @@ impl SpanTree {
     }
 
     #[cfg(test)]
-    fn shared_leaf_count(&self, other: &Self) -> usize {
+    pub(super) fn shared_leaf_count(&self, other: &Self) -> usize {
         let mut left = Vec::new();
         let mut right = Vec::new();
         collect_leaf_ptrs(self.root.as_ref(), &mut left);
