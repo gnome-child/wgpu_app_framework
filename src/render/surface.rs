@@ -24,6 +24,7 @@ pub struct Surface {
     inner: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     ready: bool,
+    reconfigure_after_present: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,6 +114,7 @@ impl Surface {
             inner,
             config,
             ready: false,
+            reconfigure_after_present: false,
         })
     }
 
@@ -134,9 +136,13 @@ impl Surface {
         self.config.height = area.height();
 
         self.inner.configure(render_context.device(), &self.config);
+        self.reconfigure_after_present = false;
     }
 
-    pub fn acquire_frame(&self, render_context: &render::Context) -> Result<render::FrameOutcome> {
+    pub fn acquire_frame(
+        &mut self,
+        render_context: &render::Context,
+    ) -> Result<render::FrameOutcome> {
         use wgpu::CurrentSurfaceTexture::*;
 
         match self.inner.get_current_texture() {
@@ -144,8 +150,10 @@ impl Surface {
                 surface_texture,
             ))),
             Suboptimal(surface_texture) => {
-                log::debug!("acquired suboptimal surface texture; reconfiguring surface");
-                self.reconfigure(render_context);
+                log::debug!(
+                    "acquired suboptimal surface texture; deferring reconfiguration until present"
+                );
+                self.reconfigure_after_present = true;
                 Ok(render::FrameOutcome::Acquired(render::Frame::new(
                     surface_texture,
                 )))
@@ -204,11 +212,14 @@ impl Surface {
         render_context.queue().submit([encoder.finish()]);
         frame.present();
         self.ready = true;
+        if self.reconfigure_after_present {
+            self.reconfigure(render_context);
+        }
 
         Ok(Some(PresentTiming { acquire_wait }))
     }
 
-    pub fn reconfigure(&self, render_context: &render::Context) {
+    pub fn reconfigure(&mut self, render_context: &render::Context) {
         log::debug!(
             "reconfiguring render surface: {}x{}, format={:?}, present_mode={:?}",
             self.config.width,
@@ -217,6 +228,7 @@ impl Surface {
             self.config.present_mode
         );
         self.inner.configure(render_context.device(), &self.config);
+        self.reconfigure_after_present = false;
     }
 }
 

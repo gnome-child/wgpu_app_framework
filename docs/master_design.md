@@ -906,6 +906,10 @@ The paint `Grid` owns device-scale snapping.
 Enforce by deleting parallel computations. Add tests only where a duplicate
 has already returned or where the owner boundary is easy to regress.
 
+Render `Surface` owns surface configuration epochs: a suboptimal acquire records
+deferred reconfiguration, and render completion applies it only after presenting
+and releasing the outstanding surface texture.
+
 `Witness Demotion`
 
 Fallacy: a displaced mechanism should keep doing part of the old job. Answer:

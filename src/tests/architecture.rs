@@ -1840,6 +1840,45 @@ fn filter_texture_pools_are_capped_and_reported() {
     }
 }
 
+#[test]
+fn suboptimal_surface_reconfiguration_waits_for_present() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let surface = std::fs::read_to_string(root.join("src").join("render").join("surface.rs"))
+        .expect("render surface source should read");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    let suboptimal_start = surface
+        .find("Suboptimal(surface_texture)")
+        .expect("surface acquire should handle suboptimal textures");
+    let outdated_start = surface[suboptimal_start..]
+        .find("Outdated =>")
+        .map(|offset| suboptimal_start + offset)
+        .expect("outdated acquire branch should follow suboptimal");
+    let suboptimal = &surface[suboptimal_start..outdated_start];
+    assert!(
+        suboptimal.contains("self.reconfigure_after_present = true")
+            && !suboptimal.contains("self.reconfigure(render_context)"),
+        "a live suboptimal SurfaceTexture must defer surface reconfiguration"
+    );
+
+    let present = surface
+        .find("frame.present();")
+        .expect("surface render should present an acquired frame");
+    let deferred_reconfigure = surface[present..]
+        .find("if self.reconfigure_after_present")
+        .map(|offset| present + offset)
+        .expect("surface render should apply deferred reconfiguration");
+    assert!(
+        present < deferred_reconfigure,
+        "surface reconfiguration must occur only after presentation releases the texture"
+    );
+    assert!(
+        master.contains("Render `Surface` owns surface configuration epochs"),
+        "master design must name the owner of surface reconfiguration timing"
+    );
+}
+
 fn assert_source_patterns_absent(path: &std::path::Path, patterns: &[String]) {
     for entry in std::fs::read_dir(path).expect("framework source directory should be readable") {
         let path = entry
