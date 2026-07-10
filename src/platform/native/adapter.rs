@@ -1,5 +1,5 @@
 use super::super::{Backend, NativeError, Window};
-use super::{Native, NativeContext};
+use super::{CursorHost, Native, NativeContext};
 use crate::{diagnostics, notification, overlay, pointer, session, shell, window as app_window};
 
 impl Backend for Native {
@@ -18,6 +18,9 @@ impl Backend for Native {
 
         self.raw_windows.insert(native_window.raw_id(), window.id());
         self.windows.insert(window.id(), native_window);
+        self.cursor_hosts.insert(window.id(), CursorHost::Parent);
+        self.cursor_values
+            .insert(window.id(), pointer::Cursor::Default);
 
         Ok(())
     }
@@ -32,6 +35,8 @@ impl Backend for Native {
             return Err(NativeError::MissingWindow { window });
         };
         self.raw_windows.remove(&native_window.raw_id());
+        self.cursor_hosts.remove(&window);
+        self.cursor_values.remove(&window);
         <Self as notification::Listener<app_window::Departed>>::notify(self, &window);
         log::debug!("closed native window: {window:?}");
         Ok(())
@@ -105,6 +110,8 @@ impl notification::Listener<app_window::Departed> for Native {
                 self.raw_popups.remove(&popup.window.raw_id());
             }
         }
+        self.cursor_hosts.remove(window);
+        self.cursor_values.remove(window);
 
         notification::Reaction::ignored()
     }

@@ -451,6 +451,7 @@ impl Native {
             .copied()
             .collect::<Vec<_>>();
         for key in stale {
+            self.rehome_cursor_from_popup(key);
             if let Some(popup) = self.popups.remove(&key) {
                 self.raw_popups.remove(&popup.window.raw_id());
                 log::debug!(

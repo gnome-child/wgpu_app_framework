@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::{geometry, interaction, overlay, render, scene};
+use crate::{geometry, interaction, overlay, pointer, render, scene};
 
 use super::super::{session, window as app_window};
 
@@ -30,6 +30,8 @@ pub struct Native {
     popups: HashMap<PopupKey, PopupWindow>,
     raw_windows: HashMap<winit::window::WindowId, app_window::Id>,
     raw_popups: HashMap<winit::window::WindowId, PopupKey>,
+    cursor_hosts: HashMap<app_window::Id, CursorHost>,
+    cursor_values: HashMap<app_window::Id, pointer::Cursor>,
     requests: Vec<session::Request>,
     poll_requested: bool,
 }
@@ -51,6 +53,13 @@ struct PopupWindow {
     material: Option<overlay::PopupMaterial>,
     presentation_mode: PopupPresentationMode,
     material_realization: Option<PopupMaterialRealization>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CursorHost {
+    Parent,
+    Popup(PopupKey),
+    Outside,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -317,6 +326,8 @@ impl Native {
             popups: HashMap::new(),
             raw_windows: HashMap::new(),
             raw_popups: HashMap::new(),
+            cursor_hosts: HashMap::new(),
+            cursor_values: HashMap::new(),
             requests: Vec::new(),
             poll_requested: false,
         }
@@ -340,9 +351,9 @@ impl Default for Native {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApplyDue, POPUP_SYS_SETTLE_DELAY, PopupAccentState, PopupBorderState, PopupGeometry,
-        PopupGeometryState, PopupMaterialRealization, PopupPresentationMode, popup_accent_due,
-        popup_border_due, popup_geometry_due,
+        ApplyDue, CursorHost, Native, POPUP_SYS_SETTLE_DELAY, PopupAccentState, PopupBorderState,
+        PopupGeometry, PopupGeometryState, PopupKey, PopupMaterialRealization,
+        PopupPresentationMode, popup_accent_due, popup_border_due, popup_geometry_due,
     };
     use crate::overlay::PopupMaterialPreference;
     use crate::platform::native::sys::PopupAccentMaterial;
@@ -363,6 +374,37 @@ mod tests {
         PopupAccentMaterial::Acrylic {
             tint: scene::Color::rgba(red, 20, 30, 180),
         }
+    }
+
+    #[test]
+    fn cursor_routing_moves_unchanged_logical_value_between_physical_hosts() {
+        let parent = crate::window::Id::new(41);
+        let key = PopupKey::new(parent, crate::interaction::Id::new("palette"));
+        let mut native = Native::new();
+        native.cursor_hosts.insert(parent, CursorHost::Parent);
+        native
+            .cursor_values
+            .insert(parent, crate::pointer::Cursor::Text);
+
+        native.set_cursor_host(parent, CursorHost::Popup(key));
+
+        assert_eq!(
+            native.cursor_hosts.get(&parent),
+            Some(&CursorHost::Popup(key))
+        );
+        assert_eq!(
+            native.cursor_values.get(&parent),
+            Some(&crate::pointer::Cursor::Text)
+        );
+
+        native.set_cursor_host(parent, CursorHost::Outside);
+        assert_eq!(native.cursor_hosts.get(&parent), Some(&CursorHost::Outside));
+
+        native.rehome_cursor_from_popup(key);
+        assert_eq!(native.cursor_hosts.get(&parent), Some(&CursorHost::Outside));
+        native.set_cursor_host(parent, CursorHost::Popup(key));
+        native.rehome_cursor_from_popup(key);
+        assert_eq!(native.cursor_hosts.get(&parent), Some(&CursorHost::Parent));
     }
 
     #[test]

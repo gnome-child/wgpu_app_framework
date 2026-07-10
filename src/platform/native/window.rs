@@ -4,9 +4,12 @@ use crate::{paint, pointer, render};
 use std::sync::Arc;
 use winit::dpi::LogicalSize;
 use winit::{
+    event::WindowEvent as WinitWindowEvent,
     event_loop::ActiveEventLoop,
     window::{CursorIcon, WindowAttributes},
 };
+
+use super::{CursorHost, PopupKey};
 
 pub(in crate::platform::native) type Handle = Arc<winit::window::Window>;
 
@@ -292,17 +295,98 @@ impl Native {
     }
 
     pub fn set_cursor(
-        &self,
+        &mut self,
         window: app_window::Id,
         cursor: pointer::Cursor,
     ) -> Result<(), NativeError> {
-        let Some(window) = self.windows.get(&window) else {
+        if !self.windows.contains_key(&window) {
             log::warn!("cursor update requested for missing native window: {window:?}");
             return Err(NativeError::MissingWindow { window });
+        }
+
+        self.cursor_values.insert(window, cursor);
+        self.apply_cursor_to_host(window, self.cursor_host(window), cursor);
+        Ok(())
+    }
+
+    pub(in crate::platform) fn route_cursor_host_event(
+        &mut self,
+        raw: winit::window::WindowId,
+        event: &WinitWindowEvent,
+    ) {
+        let target = self
+            .raw_windows
+            .get(&raw)
+            .copied()
+            .map(|parent| (parent, CursorHost::Parent))
+            .or_else(|| {
+                self.raw_popups
+                    .get(&raw)
+                    .copied()
+                    .map(|key| (key.parent, CursorHost::Popup(key)))
+            });
+        let Some((parent, host)) = target else {
+            return;
         };
 
-        window.set_cursor(cursor);
-        Ok(())
+        match event {
+            WinitWindowEvent::CursorEntered { .. } | WinitWindowEvent::CursorMoved { .. } => {
+                self.set_cursor_host(parent, host);
+            }
+            WinitWindowEvent::CursorLeft { .. } if self.cursor_host(parent) == host => {
+                self.set_cursor_host(parent, CursorHost::Outside);
+            }
+            _ => {}
+        }
+    }
+
+    pub(in crate::platform::native) fn set_cursor_host(
+        &mut self,
+        parent: app_window::Id,
+        next: CursorHost,
+    ) {
+        let previous = self.cursor_host(parent);
+        if previous == next {
+            return;
+        }
+
+        self.apply_cursor_to_host(parent, previous, pointer::Cursor::Default);
+        self.cursor_hosts.insert(parent, next);
+        let cursor = self
+            .cursor_values
+            .get(&parent)
+            .copied()
+            .unwrap_or(pointer::Cursor::Default);
+        self.apply_cursor_to_host(parent, next, cursor);
+    }
+
+    pub(in crate::platform::native) fn rehome_cursor_from_popup(&mut self, key: PopupKey) {
+        if self.cursor_host(key.parent) == CursorHost::Popup(key) {
+            self.set_cursor_host(key.parent, CursorHost::Parent);
+        }
+    }
+
+    fn cursor_host(&self, parent: app_window::Id) -> CursorHost {
+        self.cursor_hosts
+            .get(&parent)
+            .copied()
+            .unwrap_or(CursorHost::Parent)
+    }
+
+    fn apply_cursor_to_host(
+        &self,
+        parent: app_window::Id,
+        host: CursorHost,
+        cursor: pointer::Cursor,
+    ) {
+        let window = match host {
+            CursorHost::Parent => self.windows.get(&parent),
+            CursorHost::Popup(key) => self.popups.get(&key).map(|popup| &popup.window),
+            CursorHost::Outside => None,
+        };
+        if let Some(window) = window {
+            window.set_cursor(cursor);
+        }
     }
 
     #[cfg(test)]

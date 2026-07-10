@@ -1749,6 +1749,46 @@ fn native_popup_positioning_anchors_to_parent_client_origin() {
 }
 
 #[test]
+fn native_cursor_routing_owns_the_physical_pointer_host() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let native = root.join("src").join("platform").join("native");
+    let state =
+        std::fs::read_to_string(native.join("mod.rs")).expect("native state source should read");
+    let window = std::fs::read_to_string(native.join("window.rs"))
+        .expect("native window source should read");
+    let runner = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("runner")
+            .join("native.rs"),
+    )
+    .expect("native runner source should read");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    assert!(
+        state.contains("cursor_hosts: HashMap<app_window::Id, CursorHost>")
+            && state.contains("cursor_values: HashMap<app_window::Id, pointer::Cursor>"),
+        "native must separate desired logical cursor from its physical host"
+    );
+    assert!(
+        runner.contains(".route_cursor_host_event(raw_window, event)")
+            && window.contains("CursorHost::Popup(key)")
+            && window.contains("CursorHost::Outside")
+            && window
+                .contains("self.apply_cursor_to_host(parent, previous, pointer::Cursor::Default)")
+            && window.contains("self.apply_cursor_to_host(parent, next, cursor)"),
+        "raw events must reset the old physical host and apply the stored cursor to the new one"
+    );
+    assert!(
+        master.contains("logical cursor value separate")
+            && master.contains("physical window currently under the pointer")
+            && !master.contains("application currently targets framework windows"),
+        "master design must retain native cursor-host ownership"
+    );
+}
+
+#[test]
 fn windows_native_popup_clicks_do_not_activate() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let manifest =

@@ -395,18 +395,19 @@ not a second interaction model. Pointer movement, buttons, and wheel events
 from a popup window are converted from popup-local physical coordinates to the
 parent window's logical overlay coordinates by using the popup window scale
 factor and the entry bounds. The parent window remains authoritative for focus,
-commands, keyboard routing, diagnostics, and session state. Pointer cursor
-application currently targets framework windows; popup-hosted text fields will
-need the cursor side effect to target the physical window under the pointer.
+commands, keyboard routing, diagnostics, and session state.
 Native popup lifetime is synchronized only by an authoritative overlay
 presentation pass and is scoped per rendered parent: no popup presentation
 statement means leave existing popups alone, an authoritative empty popup set
 closes stale popups for the synchronized parents, and popups owned by parents
 absent from that pass remain untouched.
-Native popup text editing has two named v1 seams: IME candidate windows still
-need popup-local caret anchoring, and pointer cursor application still needs to
-target the physical popup window under the pointer. Until those seams are
-implemented, popup-hosted text input is not considered complete.
+Native cursor routing keeps the parent window's logical cursor value separate
+from the physical window currently under the pointer. Raw parent/popup
+enter-move-leave events switch that host immediately, reset the old host, and
+apply the stored value to the new host even when logical cursor dedup observes
+no value change. Popup-hosted IME candidate windows still need popup-local
+caret anchoring; until that seam is implemented, popup-hosted text input is not
+considered complete.
 
 Intent is portable; realization is native. `Material::Glass` means "glasslike
 panel material"; an in-frame backend realizes it by sampling the parent

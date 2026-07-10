@@ -34,6 +34,10 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
         raw_window: winit::window::WindowId,
         event: &WinitWindowEvent,
     ) -> Option<host::Event> {
+        self.platform
+            .backend_mut()
+            .route_cursor_host_event(raw_window, event);
+
         if let Some(window) = self.platform.backend().window_for_raw(raw_window) {
             return self.events.window_event(window, event);
         }
