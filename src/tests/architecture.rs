@@ -1089,6 +1089,24 @@ fn master_design_names_answer_patterns() {
 }
 
 #[test]
+fn history_coalescing_is_scoped_to_the_runtime_target() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let history =
+        std::fs::read_to_string(root.join("runtime").join("transaction").join("history.rs"))
+            .expect("runtime history source should read");
+
+    for witness in [
+        "active.window == window",
+        "same_focus_target(active.focus, focus)",
+    ] {
+        assert!(
+            history.contains(witness),
+            "history groups must include their runtime target identity: {witness}"
+        );
+    }
+}
+
+#[test]
 fn glass_material_carrier_is_pane_not_surface() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let scene_primitive = std::fs::read_to_string(root.join("scene").join("primitive.rs"))

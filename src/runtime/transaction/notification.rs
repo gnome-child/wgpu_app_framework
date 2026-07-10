@@ -15,7 +15,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     fn transact_notification<N: notification::Notification>(
         &mut self,
         focus: Option<crate::session::Focus>,
-        _window: Option<window::Id>,
+        window: Option<window::Id>,
         payload: N::Payload,
         source: command_context::Source,
     ) -> notification::Reaction {
@@ -42,6 +42,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             None,
             command::History::Ignored,
             None,
+            window,
+            focus,
             revision_before,
             state::Reason::notification(N::NAME),
             changed,

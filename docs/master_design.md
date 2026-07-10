@@ -680,7 +680,8 @@ composition.
 
 Owns undo and redo history. History is a framework concept, not incidental app
 bookkeeping. Command history policy should route through the timeline instead
-of each feature inventing local undo semantics.
+of each feature inventing local undo semantics. Runtime scopes a command's
+coalescing declaration to its window and focused target before timeline reuse.
 
 `runtime`
 

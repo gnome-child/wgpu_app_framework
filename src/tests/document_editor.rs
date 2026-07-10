@@ -1,5 +1,13 @@
 use super::*;
 
+#[derive(Clone, Default)]
+struct TypingDocuments {
+    first: TextDocument,
+    second: TextDocument,
+}
+
+impl State for TypingDocuments {}
+
 #[test]
 fn closing_window_removes_framework_owned_composition() {
     let mut app = text_editor::app(text_editor::State::default());
@@ -180,6 +188,52 @@ fn document_edit_command_targets_text_document_and_bumps_app_revision() {
         app.store().changes()[0].reason(),
         &state::Reason::Command("document.apply_edit")
     );
+}
+
+#[test]
+fn typing_history_does_not_coalesce_across_focused_documents() {
+    let mut app = Runtime::new(TypingDocuments::default())
+        .commands(|commands| {
+            commands.register::<document::ApplyEdit>(command::Spec::new("Edit"));
+        })
+        .responders(|responders| {
+            responders
+                .object("first", |state: &mut TypingDocuments| &mut state.first)
+                .target::<document::ApplyEdit>();
+            responders
+                .object("second", |state: &mut TypingDocuments| &mut state.second)
+                .target::<document::ApplyEdit>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Editor"));
+        });
+
+    app.start();
+    let window = app.session().windows()[0].id();
+
+    assert!(app.focus(window, session::Focus::text("first")));
+    app.invoke_focused(
+        window,
+        app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("a")),
+    )
+    .output
+    .expect("first document edit should succeed");
+
+    assert!(app.focus(window, session::Focus::text("second")));
+    app.invoke_focused(
+        window,
+        app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("b")),
+    )
+    .output
+    .expect("second document edit should succeed");
+
+    assert_eq!(app.state().first.text(), "a");
+    assert_eq!(app.state().second.text(), "b");
+    assert_eq!(app.timeline().undo_depth(), 2);
+
+    assert!(app.undo(), "second document edit should undo independently");
+    assert_eq!(app.state().first.text(), "a");
+    assert_eq!(app.state().second.text(), "");
 }
 
 #[test]
