@@ -17,7 +17,8 @@ use super::layout::{
     Engine, HighlightStats, Measure, TEXT_AREA_FRAME_MAX_LOGICAL_LINES,
     TEXT_AREA_FRAME_MIN_OVERSCAN_LINES, TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY,
     TEXT_AREA_RENDER_GUARD_LINES, TEXT_FIELD_CARET_MARGIN, TEXT_LAYOUT_VISUAL_LINE_EPSILON,
-    TextAreaSurface, TextLayoutMap, VisualLineGroup, text_area_estimated_line_height,
+    TextAreaSurface, TextLayoutMap, VisualLineGroup, clamp_cursor_in_buffer,
+    text_area_estimated_line_height,
 };
 use super::{Buffer, Color, Document, edit, layout};
 
@@ -2140,6 +2141,88 @@ fn wrapped_text_area_hit_testing_uses_clicked_visual_row() {
         second_row_end,
         first_row_end
     );
+}
+
+#[test]
+fn wrapped_line_boundary_pointer_carets_preserve_visual_affinity() {
+    let mut engine = engine();
+    let text = "abcdefghijklmnopqrstuvwxyz";
+    let source = Buffer::from_multiline_text(text);
+    let area_model = Area::new(source.clone());
+    let style = Style::default().with_size(18.0);
+    let viewport = paint::area::logical(54.0, 180.0);
+
+    let (previous_row_end, next_row_start) = {
+        let display = engine.text_area_line_display(
+            &area_model,
+            area_model.buffer(),
+            true,
+            style,
+            viewport,
+            0,
+        );
+        let prepared = display.buffer.borrow();
+        let runs = prepared.layout_runs().collect::<Vec<_>>();
+        let groups = TextLayoutMap::visual_line_groups(&runs);
+        assert!(
+            groups.len() >= 2,
+            "test text should wrap into at least two visual rows"
+        );
+        let map = TextLayoutMap::from_line_starts(Rc::new(vec![display.source_start]));
+        let first_right = runs[groups[0].start..groups[0].end]
+            .iter()
+            .flat_map(|run| run.glyphs.iter())
+            .map(|glyph| glyph.x + glyph.w)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let second_left = runs[groups[1].start..groups[1].end]
+            .iter()
+            .flat_map(|run| run.glyphs.iter())
+            .map(|glyph| glyph.x)
+            .fold(f32::INFINITY, f32::min);
+        let previous_row_end = map
+            .hit(
+                &prepared,
+                first_right + 1.0,
+                (groups[0].top + groups[0].bottom) * 0.5,
+            )
+            .expect("first-row end should resolve to a caret");
+        let next_row_start = map
+            .hit(
+                &prepared,
+                second_left - 1.0,
+                (groups[1].top + groups[1].bottom) * 0.5,
+            )
+            .expect("second-row start should resolve to a caret");
+
+        for position in [previous_row_end, next_row_start] {
+            let local = Cursor::new_with_affinity(
+                0,
+                position.index - display.source_start,
+                position.affinity,
+            );
+            assert_eq!(
+                clamp_cursor_in_buffer(&prepared, local).affinity,
+                position.affinity
+            );
+        }
+        (previous_row_end, next_row_start)
+    };
+
+    assert_eq!(previous_row_end.index, next_row_start.index);
+    assert_eq!(previous_row_end.affinity, Affinity::Upstream);
+    assert_eq!(next_row_start.affinity, Affinity::Downstream);
+
+    let mut buffer = source;
+    let mut state = buffer.initial_state();
+    let mut editor = Editor::new();
+    for position in [previous_row_end, next_row_start] {
+        editor.apply_edit(
+            &mut buffer,
+            &mut state,
+            Edit::pointer(PointerEditKind::Click, position),
+        );
+        assert_eq!(buffer.position_for_state(state), position);
+    }
 }
 
 #[test]

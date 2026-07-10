@@ -223,7 +223,9 @@ impl Engine {
                 && state.caret_visible(now)
                 && projection.cursor().line == surface.source_line
             {
-                let cursor = Cursor::new(0, projection.cursor().index);
+                let source_cursor = projection.cursor();
+                let cursor =
+                    Cursor::new_with_affinity(0, source_cursor.index, source_cursor.affinity);
                 caret = cursor_position(&buffer, cursor).map(|(x, y)| Caret {
                     x: x as f32 + surface.x,
                     y: surface.y + y as f32,
@@ -377,7 +379,9 @@ impl Engine {
                 && request.state.caret_visible(request.now)
                 && request.projection.cursor().line == segment.display.source_line
             {
-                let cursor = Cursor::new(0, request.projection.cursor().index);
+                let source_cursor = request.projection.cursor();
+                let cursor =
+                    Cursor::new_with_affinity(0, source_cursor.index, source_cursor.affinity);
                 caret = cursor_position(&buffer, cursor).map(|(x, y)| Caret {
                     x: x as f32 - request.state.scroll_x(),
                     y: segment.y + y as f32,

@@ -76,7 +76,11 @@ impl FieldProjection {
     }
 
     fn display_cursor(source_boundaries: &[usize], cursor: Cursor) -> Cursor {
-        Cursor::new(0, display_index(source_boundaries, cursor.index))
+        Cursor::new_with_affinity(
+            0,
+            display_index(source_boundaries, cursor.index),
+            cursor.affinity,
+        )
     }
 
     fn source_index(&self, source_boundaries: &[usize], display_index: usize) -> usize {

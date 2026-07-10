@@ -169,6 +169,12 @@ engine should be usable without the framework runtime. Editing state belongs to
 explicit edit/session values, not secretly to a shared buffer when multiple
 views or surfaces can exist.
 
+Caret affinity belongs to the caret position. `Buffer` owns Position-to-Cursor
+conversion, and pointer edits, cursor clamping, obscured-field projection, and
+per-line layout projection preserve that affinity. A cursor mutation that
+cannot preserve it must choose an affinity explicitly; default construction is
+not an allowed conversion.
+
 Text layout owns shaped-buffer cache mechanics through `ShapingCache`; area
 lines, field surfaces, and inline text/icons supply domain keys and retention
 limits, while the shared owner mediates lookup, insertion, and `FontSystem` use.

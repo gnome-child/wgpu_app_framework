@@ -282,6 +282,11 @@ impl TextDocument {
         Cursor::new(line, local)
     }
 
+    pub(in crate::text) fn cursor_for_position(&self, position: Position) -> Cursor {
+        let cursor = self.cursor_for_text_index(position.index);
+        Cursor::new_with_affinity(cursor.line, cursor.index, position.affinity)
+    }
+
     pub(in crate::text) fn text_index_for_cursor(&self, cursor: Cursor) -> usize {
         let line = cursor.line.min(self.line_count().saturating_sub(1));
         let local = self
@@ -293,12 +298,12 @@ impl TextDocument {
     }
 
     pub(in crate::text) fn mark_for_position(&self, position: Position) -> Option<Mark> {
-        let cursor = self.cursor_for_text_index(position.index);
+        let cursor = self.cursor_for_position(position);
         let line = self.tree.line(cursor.line)?;
         Some(Mark {
             line_id: line.id,
             byte_offset: cursor.index,
-            affinity: position.affinity,
+            affinity: cursor.affinity,
             gravity: MarkGravity::Downstream,
         })
     }

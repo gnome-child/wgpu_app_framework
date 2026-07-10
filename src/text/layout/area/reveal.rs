@@ -98,7 +98,11 @@ impl Engine {
 
         let caret_layout = {
             let buffer = display.buffer.borrow();
-            cursor_position(&buffer, Cursor::new(0, source_cursor.index)).map(|(x, y)| {
+            cursor_position(
+                &buffer,
+                Cursor::new_with_affinity(0, source_cursor.index, source_cursor.affinity),
+            )
+            .map(|(x, y)| {
                 CaretLayout::new(Caret::new(
                     x as f32 - state.scroll_x(),
                     caret_line_top + y as f32 - state.scroll_y(),
@@ -177,7 +181,11 @@ fn text_area_caret_layout_from_segments(
         }
 
         let buffer = segment.display.buffer.borrow();
-        let cursor = Cursor::new(0, source_cursor.index.min(segment.display.source_text_len));
+        let cursor = Cursor::new_with_affinity(
+            0,
+            source_cursor.index.min(segment.display.source_text_len),
+            source_cursor.affinity,
+        );
         return cursor_position(&buffer, cursor).map(|(x, y)| {
             CaretLayout::new(Caret::new(
                 x as f32 - state.scroll_x(),

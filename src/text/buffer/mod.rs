@@ -246,18 +246,17 @@ impl Buffer {
     }
     pub fn text_index_for_position(&self, position: Position) -> usize {
         let inner = &self.inner;
-        let cursor = inner.document.cursor_for_text_index(position.index);
         inner
             .document
-            .text_index_for_cursor(Cursor::new_with_affinity(
-                cursor.line,
-                cursor.index,
-                position.affinity,
-            ))
+            .text_index_for_cursor(inner.document.cursor_for_position(position))
     }
     pub(crate) fn cursor_for_text_index(&self, index: usize) -> Cursor {
         let inner = &self.inner;
         inner.document.cursor_for_text_index(index)
+    }
+    pub(crate) fn cursor_for_position(&self, position: Position) -> Cursor {
+        let inner = &self.inner;
+        inner.document.cursor_for_position(position)
     }
     pub(crate) fn text_index_for_cursor(&self, cursor: Cursor) -> usize {
         let inner = &self.inner;

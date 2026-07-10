@@ -302,6 +302,57 @@ fn text_layout_system_module_stays_private() {
 }
 
 #[test]
+fn caret_affinity_has_one_position_to_cursor_owner() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let text = root.join("src").join("text");
+    let document = std::fs::read_to_string(text.join("buffer").join("document.rs"))
+        .expect("text document source should read");
+    let buffer = std::fs::read_to_string(text.join("buffer").join("mod.rs"))
+        .expect("text buffer source should read");
+    let editor = std::fs::read_to_string(text.join("edit").join("editor.rs"))
+        .expect("text editor source should read");
+    let glyph = std::fs::read_to_string(text.join("layout").join("glyph.rs"))
+        .expect("text glyph source should read");
+    let projection =
+        std::fs::read_to_string(text.join("edit").join("surface").join("projection.rs"))
+            .expect("text projection source should read");
+    let paint = std::fs::read_to_string(text.join("layout").join("area").join("paint.rs"))
+        .expect("text-area paint source should read");
+    let reveal = std::fs::read_to_string(text.join("layout").join("area").join("reveal.rs"))
+        .expect("text-area reveal source should read");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    assert!(
+        document.contains("fn cursor_for_position(&self, position: Position) -> Cursor")
+            && document.contains("cursor.index, position.affinity")
+            && buffer.contains("inner.document.cursor_for_position(position)"),
+        "Buffer must own the affinity-preserving Position-to-Cursor conversion"
+    );
+    assert!(
+        editor
+            .matches("buffer.cursor_for_position(position)")
+            .count()
+            == 2
+            && !editor.contains("buffer.cursor_for_text_index(position.index)"),
+        "set-position and pointer mutations must consume the buffer-owned conversion"
+    );
+    assert!(
+        glyph.contains("floor_grapheme_boundary(line_text, cursor.index)")
+            && glyph.contains("cursor.affinity")
+            && projection.contains("display_index(source_boundaries, cursor.index)")
+            && projection.contains("cursor.affinity")
+            && paint.matches("source_cursor.affinity").count() >= 2
+            && reveal.matches("source_cursor.affinity").count() >= 2,
+        "clamping and every caret projection must preserve affinity"
+    );
+    assert!(
+        master.contains("Caret affinity belongs to the caret position"),
+        "master design must retain caret-affinity ownership"
+    );
+}
+
+#[test]
 fn draft_input_module_stays_private() {
     let lib = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

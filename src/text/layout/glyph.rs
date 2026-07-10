@@ -171,7 +171,11 @@ pub(crate) fn clamp_cursor_in_buffer(buffer: &glyphon::Buffer, cursor: Cursor) -
         .map(glyphon::BufferLine::text)
         .unwrap_or("");
 
-    Cursor::new(line, floor_grapheme_boundary(line_text, cursor.index))
+    Cursor::new_with_affinity(
+        line,
+        floor_grapheme_boundary(line_text, cursor.index),
+        cursor.affinity,
+    )
 }
 
 pub(crate) fn cursor_position(buffer: &glyphon::Buffer, cursor: Cursor) -> Option<(i32, i32)> {

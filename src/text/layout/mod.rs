@@ -40,6 +40,8 @@ pub(crate) use diagnostics::HighlightStats;
 #[cfg(test)]
 pub(super) use diagnostics::TextInteractionStats;
 pub use engine::Engine;
+#[cfg(test)]
+pub(super) use glyph::clamp_cursor_in_buffer;
 use glyph::{cosmic_motion_for_text_motion, glyph_cursor, glyph_selection, text_cursor};
 pub use highlight::SelectionSpan;
 pub(crate) use inline::{InlineCache, InlineStats};

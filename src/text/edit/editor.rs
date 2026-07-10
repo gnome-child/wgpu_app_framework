@@ -253,15 +253,14 @@ impl Editor {
                 buffer.set_cursor_and_selection_for_state(state, cursor, selection);
             }
             Edit::SetPosition(position) => {
-                let cursor = buffer.cursor_for_text_index(position.index);
                 buffer.set_cursor_and_selection_for_state(
                     state,
-                    Cursor::new_with_affinity(cursor.line, cursor.index, position.affinity),
+                    buffer.cursor_for_position(position),
                     CursorSelection::None,
                 );
             }
             Edit::Pointer { kind, position } => {
-                let cursor = buffer.cursor_for_text_index(position.index);
+                let cursor = buffer.cursor_for_position(position);
                 match kind {
                     PointerEditKind::Click => buffer.set_cursor_and_selection_for_state(
                         state,
