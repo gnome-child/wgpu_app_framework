@@ -8,6 +8,8 @@ use super::{
 };
 
 mod line;
+#[allow(dead_code)]
+mod line_index;
 mod source;
 #[allow(dead_code)]
 mod span_tree;

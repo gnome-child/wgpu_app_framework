@@ -1,17 +1,9 @@
-use std::{
-    rc::Rc,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-};
+use std::{rc::Rc, sync::Arc};
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::super::LineId;
+use super::super::{LineId, next_line_id};
 use super::source::{TextPiece, TextPieceSource};
-
-static NEXT_LINE_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum TextLineEnding {
@@ -133,7 +125,7 @@ impl TextLine {
     ) -> Self {
         let text: Arc<str> = Arc::from(text);
         let mut line = Self {
-            id: LineId(NEXT_LINE_ID.fetch_add(1, Ordering::Relaxed)),
+            id: next_line_id(),
             revision,
             pieces,
             text,

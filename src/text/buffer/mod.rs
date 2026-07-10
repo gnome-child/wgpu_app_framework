@@ -16,6 +16,11 @@ pub(super) use document::TextDocumentStatsSnapshot;
 pub use mark::{Mark, MarkGravity, MarkRange};
 
 static NEXT_BUFFER_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_LINE_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_line_id() -> LineId {
+    LineId(NEXT_LINE_ID.fetch_add(1, Ordering::Relaxed))
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum Affinity {
