@@ -215,6 +215,16 @@ so a late worker completion for a no-longer-pending id is inert. Headless test
 helpers may execute a task deterministically, but they are not the native
 production path.
 
+Suite-runtime measurements distinguish Cargo wall time from test-harness work.
+The Loop III Windows audit at 785 tests measured five warm `cargo test --lib`
+runs at 2.054s average, the already-built test binary at 1.169s average, and
+the harness-reported test work at 1.08s. The executor's exact test measured the
+same ~96.5ms process floor as an empty filtered harness, and removing that test
+did not materially change the suite. Its two-second channel timeout is a
+failure ceiling around immediately dispatched work, not a scheduled wait;
+executor tests must not sleep. The apparent ~1.05s -> ~2.07s doubling was a
+measurement-boundary mismatch, not executor runtime debt.
+
 Visible naming has separate meanings. `interaction::Id` is invisible identity
 for reconciliation, hit targets, tests, and runtime lookup. `label` is visible
 presentation text and should be painted when the role presents labels. A node

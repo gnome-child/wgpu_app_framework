@@ -2753,6 +2753,8 @@ fn deferred_tasks_have_one_worker_execution_path() {
         .expect("native runner handler source should read");
     let work = std::fs::read_to_string(root.join("src/shell/work.rs"))
         .expect("shell work source should read");
+    let runtime_tests = std::fs::read_to_string(root.join("src/tests/runtime_tests.rs"))
+        .expect("runtime tests source should read");
     let master = std::fs::read_to_string(root.join("docs/master_design.md"))
         .expect("master design should read");
 
@@ -2782,9 +2784,20 @@ fn deferred_tasks_have_one_worker_execution_path() {
         !needs_poll.contains("pending_tasks"),
         "pending worker jobs must not create UI poll wakes"
     );
+    let executor_test = runtime_tests
+        .split("fn task_executor_runs_future_work_off_the_calling_thread()")
+        .nth(1)
+        .and_then(|source| source.split("#[test]").next())
+        .expect("executor runtime test body should exist");
     assert!(
-        master.contains("Owns deferred job execution through a bounded worker pool"),
-        "master design must name the owner of deferred task execution"
+        executor_test.contains("recv_timeout") && !executor_test.contains("sleep("),
+        "executor coverage may use a failure ceiling but must not add real-time sleeps"
+    );
+    assert!(
+        master.contains("Owns deferred job execution through a bounded worker pool")
+            && master.contains("measurement-boundary mismatch")
+            && master.contains("executor tests must not sleep"),
+        "master design must name task ownership and retain the suite-runtime audit"
     );
 }
 
