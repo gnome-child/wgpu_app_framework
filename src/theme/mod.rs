@@ -7,6 +7,8 @@ use crate::text as text_model;
 use super::keymap;
 use super::scene;
 
+pub(crate) const DEFAULT_CANVAS_COLOR: scene::Color = scene::Color::rgb(17, 18, 20);
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     variant: Variant,
@@ -241,7 +243,7 @@ impl Theme {
                 accent: scene::Color::rgb(10, 132, 255),
             },
             surfaces: Surfaces {
-                canvas: scene::Color::rgb(17, 18, 20),
+                canvas: DEFAULT_CANVAS_COLOR,
                 root: scene::Color::rgb(17, 18, 20),
                 panel: scene::Color::rgba(0, 0, 0, 0),
             },

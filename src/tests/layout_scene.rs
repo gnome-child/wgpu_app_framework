@@ -3413,6 +3413,8 @@ fn scene_paint_accepts_theme_data_variants() {
         .find(|quad| quad.rect() == root)
         .expect("light scene should paint the root");
 
+    assert_eq!(dark.clear(), Theme::default().surfaces().canvas);
+    assert_eq!(dark.clear(), window::DEFAULT_CANVAS_COLOR);
     assert_eq!(light.clear(), light_theme.surfaces().canvas);
     assert_ne!(dark.clear(), light.clear());
     assert_ne!(dark_root.fill(), light_root.fill());

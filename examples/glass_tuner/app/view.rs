@@ -9,7 +9,7 @@ use super::{
 use wgpu_l3::{
     View, geometry, interaction, scene,
     view::{Align, Context as ViewContext, Dimension, Padding},
-    widget,
+    widget, window,
 };
 
 const PANEL_ID: interaction::Id = interaction::Id::new("glass_tuner.panel");
@@ -18,7 +18,7 @@ const FOREGROUND_ID: interaction::Id = interaction::Id::new("glass_tuner.foregro
 const PANEL_SURFACE_COLOR: scene::Color = scene::Color::rgb(28, 28, 30);
 
 pub const WINDOW_TITLE: &str = "wgpu_l3 Acrylic Tuner";
-pub const CANVAS_COLOR: scene::Color = scene::Color::rgb(17, 18, 20);
+pub const CANVAS_COLOR: scene::Color = window::DEFAULT_CANVAS_COLOR;
 
 pub fn window_size() -> geometry::Size {
     geometry::Size::new(980, 760)

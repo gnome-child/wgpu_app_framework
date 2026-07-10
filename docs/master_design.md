@@ -609,6 +609,12 @@ appearance. Presentation transforms such as command palette section uppercasing
 render a label without mutating the stored label, subject, or future accessible
 name.
 
+Theme also owns the framework default canvas color. Unthemed scene clears,
+window defaults, and examples that choose the framework default consume that
+one token; `window::DEFAULT_CANVAS_COLOR` remains its public projection. The
+theme `root` surface is a separate token even when a variant currently assigns
+it the same bytes as `canvas`.
+
 Typography has two anchors. `interface` is compact system/widget text: buttons,
 text boxes, checkbox and radio labels, sliders, menus, palette rows, and other
 control chrome. `body` is app/content/document text: labels, prose, document

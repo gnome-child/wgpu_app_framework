@@ -19,9 +19,7 @@ pub use primitive::{
 pub(crate) use visual::Visuals;
 pub(crate) use visual::{Scalar as VisualScalar, Target as TargetVisual};
 
-use super::{geometry, layout, overlay, theme::Theme};
-
-const DEFAULT_CLEAR: Color = Color::rgb(17, 18, 20);
+use super::{geometry, layout, overlay, theme, theme::Theme};
 
 #[derive(Debug, Clone)]
 pub struct Scene {
@@ -40,18 +38,12 @@ pub(crate) struct NativePopupScenes {
 impl Scene {
     #[cfg(test)]
     pub(crate) fn paint(layout: &layout::Layout) -> Self {
-        Self::paint_with_clear(layout, DEFAULT_CLEAR)
+        Self::paint_with_theme(layout, &Theme::default())
     }
 
     #[cfg(test)]
     pub(crate) fn paint_with_theme(layout: &layout::Layout, theme: &Theme) -> Self {
         Self::paint_with_clear_and_theme(layout, theme.surfaces().canvas, theme)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn paint_with_clear(layout: &layout::Layout, clear: Color) -> Self {
-        let theme = Theme::default();
-        Self::paint_with_clear_and_theme(layout, clear, &theme)
     }
 
     #[cfg(test)]
@@ -93,7 +85,7 @@ impl Scene {
     }
 
     pub fn new(size: geometry::Size) -> Self {
-        Self::new_with_clear(size, DEFAULT_CLEAR)
+        Self::new_with_clear(size, theme::DEFAULT_CANVAS_COLOR)
     }
 
     pub fn new_with_clear(size: geometry::Size, clear: Color) -> Self {
@@ -167,7 +159,7 @@ impl Scene {
 
         let mut opaque_fallback = Self::new_with_clear(
             geometry::Size::new(bounds.width(), bounds.height()),
-            native_popup_fallback_clear(&self.primitives).unwrap_or(DEFAULT_CLEAR),
+            native_popup_fallback_clear(&self.primitives).unwrap_or(theme::DEFAULT_CANVAS_COLOR),
         );
         opaque_fallback.primitives = self
             .primitives

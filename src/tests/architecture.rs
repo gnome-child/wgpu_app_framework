@@ -832,6 +832,57 @@ fn scene_layout_painting_stays_internal() {
 }
 
 #[test]
+fn theme_owns_the_framework_default_canvas_color() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let theme =
+        std::fs::read_to_string(root.join("src/theme/mod.rs")).expect("theme source should read");
+    let scene =
+        std::fs::read_to_string(root.join("src/scene/mod.rs")).expect("scene source should read");
+    let window =
+        std::fs::read_to_string(root.join("src/window/mod.rs")).expect("window source should read");
+    let control_gallery =
+        std::fs::read_to_string(root.join("examples/control_gallery/app/view.rs"))
+            .expect("control gallery view should read");
+    let glass_tuner = std::fs::read_to_string(root.join("examples/glass_tuner/app/view.rs"))
+        .expect("glass tuner view should read");
+    let master = std::fs::read_to_string(root.join("docs/master_design.md"))
+        .expect("master design should read");
+
+    assert!(
+        theme.contains(
+            "pub(crate) const DEFAULT_CANVAS_COLOR: scene::Color = scene::Color::rgb(17, 18, 20)"
+        ) && theme.contains("canvas: DEFAULT_CANVAS_COLOR"),
+        "theme must own and consume the framework default canvas token"
+    );
+    assert!(
+        !scene.contains("DEFAULT_CLEAR")
+            && scene.contains("theme::DEFAULT_CANVAS_COLOR")
+            && window.contains(
+                "pub const DEFAULT_CANVAS_COLOR: scene::Color = theme::DEFAULT_CANVAS_COLOR"
+            ),
+        "scene and window defaults must project the theme-owned token"
+    );
+    for (name, source) in [
+        ("control gallery", control_gallery),
+        ("glass tuner", glass_tuner),
+    ] {
+        assert!(
+            source.contains("window::DEFAULT_CANVAS_COLOR")
+                && !source.contains("scene::Color::rgb(17, 18, 20)"),
+            "{name} must consume, not recompute, the framework default canvas"
+        );
+    }
+    assert!(
+        theme.contains("root: scene::Color::rgb(17, 18, 20)"),
+        "theme root remains an independent visual token despite equal default bytes"
+    );
+    assert!(
+        master.contains("Theme also owns the framework default canvas color"),
+        "master design must name the default canvas owner"
+    );
+}
+
+#[test]
 fn view_tree_inspection_helpers_stay_internal() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let view_mod = std::fs::read_to_string(src_dir.join("view").join("mod.rs"))

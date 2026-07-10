@@ -8,7 +8,7 @@ use super::{
 use wgpu_l3::{
     View, document, geometry, interaction, scene, timeline,
     view::{Align, Context as ViewContext, Dimension, Padding},
-    widget,
+    widget, window,
 };
 
 const MENU_CONTROLS: interaction::Id = interaction::Id::new("control_gallery.menu.controls");
@@ -17,7 +17,7 @@ const MENU_VIEW: interaction::Id = interaction::Id::new("control_gallery.menu.vi
 pub(super) const QUERY_FOCUS: interaction::Id = interaction::Id::new("control_gallery.query");
 
 pub const WINDOW_TITLE: &str = "wgpu_l3 Control Gallery";
-pub const CANVAS_COLOR: scene::Color = scene::Color::rgb(17, 18, 20);
+pub const CANVAS_COLOR: scene::Color = window::DEFAULT_CANVAS_COLOR;
 
 pub fn window_size() -> geometry::Size {
     geometry::Size::new(760, 520)
