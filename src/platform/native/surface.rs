@@ -198,7 +198,7 @@ fn render_context_options() -> render::ContextOptions {
 
 #[cfg(target_os = "windows")]
 fn default_native_backends() -> wgpu::Backends {
-    wgpu::Backends::DX12
+    wgpu::Backends::all()
 }
 
 #[cfg(not(target_os = "windows"))]

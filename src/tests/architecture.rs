@@ -1411,7 +1411,7 @@ fn windows_native_popup_clicks_do_not_activate() {
 }
 
 #[test]
-fn windows_native_popup_material_uses_dx12_visual_presentation_by_default() {
+fn windows_native_popup_material_keeps_dx12_visual_available_without_forcing_it() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let context = std::fs::read_to_string(root.join("src").join("render").join("context.rs"))
         .expect("render context source should read");
@@ -1443,12 +1443,17 @@ fn windows_native_popup_material_uses_dx12_visual_presentation_by_default() {
 
     assert!(
         context.contains("Dx12SwapchainKind::DxgiFromVisual"),
-        "Windows should default to the DirectComposition Visual DX12 presentation path"
+        "Windows should keep the DirectComposition Visual DX12 presentation path available"
     );
     assert!(
         context.contains("options.backends.with_env()")
-            && native_surface.contains("default_native_backends()"),
-        "Windows should default to DX12 while remaining overridable through WGPU_BACKEND"
+            && native_surface.contains("default_native_backends()")
+            && native_surface.contains("wgpu::Backends::all()"),
+        "Windows should use normal backend selection while remaining overridable through WGPU_BACKEND"
+    );
+    assert!(
+        !native_surface.contains("wgpu::Backends::DX12"),
+        "Windows native popup acrylic must not require a hardcoded DX12 backend"
     );
     assert!(
         surface.contains("popup surface alpha capabilities"),
@@ -1468,14 +1473,19 @@ fn windows_native_popup_material_uses_dx12_visual_presentation_by_default() {
         native_window.contains("with_no_redirection_bitmap(mode.no_redirection_bitmap())"),
         "Windows native popups must pair no-redirection with the selected presentation mode"
     );
+    assert!(
+        native_mod.contains(
+            "Self::RedirectedFallback => render::CompositeAlphaPreference::PreMultiplied"
+        ) && native_mod.contains("PopupPresentationMode::RedirectedFallback.realization_for")
+            && native_mod.contains("PopupMaterialRealization::WindowsAccentAcrylic"),
+        "redirected Vulkan popups may realize OS material when the surface reports premultiplied alpha"
+    );
     for phrase in [
-        "WGPU_DX12_PRESENTATION_SYSTEM=DxgiFromHwnd",
         "WGPU_BACKEND",
-        "key->present",
-        "acquire-wait p95",
         "system backdrop tracks activation state",
         "SetWindowCompositionAttribute",
-        "WS_EX_NOREDIRECTIONBITMAP",
+        "Vulkan redirected popups",
+        "DxgiFromVisual",
     ] {
         assert!(
             master.contains(phrase),
@@ -1507,6 +1517,41 @@ fn native_popup_presentations_defer_overlay_fade_until_premultiplied_audit() {
         !presentation
             .contains("append_scene_with_opacity(local.native_material(), layer.opacity())"),
         "native popup material must not apply semi-transparent overlay fade yet"
+    );
+}
+
+#[test]
+fn glass_tuner_foreground_fixture_compares_backed_and_unbacked_same_content() {
+    let view = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples")
+            .join("glass_tuner")
+            .join("app")
+            .join("view.rs"),
+    )
+    .expect("glass tuner view source should read");
+
+    for phrase in [
+        "Backed: in-frame surface reference",
+        "Unbacked: native material boundary",
+        "foreground_sample(Some(PANEL_SURFACE_COLOR))",
+        "foreground_sample(None)",
+        ".children(foreground_sample_content)",
+        "Glyph coverage: Agjpqy 0123456789",
+        "Shortcut glyphs: Ctrl Shift Alt Enter",
+        "Slider AA",
+        "Half-alpha quads",
+    ] {
+        assert!(
+            view.contains(phrase),
+            "foreground clarity fixture should contain {phrase}"
+        );
+    }
+
+    assert_eq!(
+        view.matches(".children(foreground_sample_content)").count(),
+        1,
+        "backed and unbacked rows must share the same content helper"
     );
 }
 

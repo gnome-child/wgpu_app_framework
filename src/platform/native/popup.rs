@@ -90,6 +90,15 @@ impl Native {
                     alpha_mode,
                     material.preference()
                 );
+            } else if material.preference() == overlay::PopupMaterialPreference::OpaqueFallback {
+                log::info!(
+                    target: "wgpu_l3::native_popup",
+                    "native popup {:?} uses requested opaque fallback: mode={:?}, alpha={:?}, preference={:?}",
+                    presentation.id(),
+                    popup.presentation_mode,
+                    alpha_mode,
+                    material.preference()
+                );
             } else {
                 log::warn!(
                     target: "wgpu_l3::native_popup",

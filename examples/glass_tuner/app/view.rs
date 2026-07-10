@@ -12,6 +12,7 @@ use wgpu_l3::{
 const PANEL_ID: interaction::Id = interaction::Id::new("glass_tuner.panel");
 const COMPARISON_ID: interaction::Id = interaction::Id::new("glass_tuner.promotion_comparison");
 const FOREGROUND_ID: interaction::Id = interaction::Id::new("glass_tuner.foreground_clarity");
+const PANEL_SURFACE_COLOR: scene::Color = scene::Color::rgb(28, 28, 30);
 
 pub const WINDOW_TITLE: &str = "wgpu_l3 Acrylic Tuner";
 pub const CANVAS_COLOR: scene::Color = scene::Color::rgb(17, 18, 20);
@@ -197,29 +198,15 @@ fn foreground_panel(state: &State) -> widget::panel::Floating {
         .diagnostic_native_popup_material(state.foreground_mode.popup_preference())
         .column()
         .width(Dimension::fixed(340))
-        .height(Dimension::fixed(310))
+        .height(Dimension::fixed(430))
         .layout(|layout| layout.gap(8))
         .children(|ui| {
             ui.label("Foreground clarity");
             ui.label(format!("Mode: {}", state.foreground_mode.label()));
-            ui.add(line(scene::Color::rgba(245, 245, 247, 120), 300, 1));
-            ui.row(|ui| {
-                ui.add(swatch(scene::Color::rgba(255, 64, 64, 128)));
-                ui.add(swatch(scene::Color::rgba(64, 180, 255, 128)));
-                ui.add(swatch(scene::Color::rgba(245, 245, 247, 180)));
-                ui.label("Half-alpha quads");
-            });
-            ui.add(grid_strip());
-            ui.label("Glyph coverage: Agjpqy 0123456789");
-            ui.label("Shortcut glyphs: Ctrl Shift Alt Enter");
-            ui.add(line(scene::Color::rgba(245, 245, 247, 96), 300, 1));
-            add_slider(ui, AcrylicToken::TintOpacity, state.tint_opacity, 0.0..=1.0);
-            add_slider(
-                ui,
-                AcrylicToken::NoiseOpacity,
-                state.noise_opacity,
-                0.0..=0.08,
-            );
+            ui.label("Backed: in-frame surface reference");
+            ui.add(foreground_sample(Some(PANEL_SURFACE_COLOR)));
+            ui.label("Unbacked: native material boundary");
+            ui.add(foreground_sample(None));
             ui.label(foreground_hint(state.foreground_mode));
         })
 }
@@ -232,13 +219,47 @@ fn foreground_hint(mode: ForegroundMode) -> &'static str {
     }
 }
 
+fn foreground_sample(backing: Option<scene::Color>) -> widget::Element {
+    let mut sample = widget::Element::new()
+        .column()
+        .width(Dimension::fixed(300))
+        .height(Dimension::fixed(132))
+        .layout(|layout| {
+            layout
+                .gap(6)
+                .padding(Padding::symmetric(10, 8))
+                .align_items(Align::Start)
+        })
+        .children(foreground_sample_content);
+
+    if let Some(color) = backing {
+        sample = sample.background(scene::Brush::solid(color));
+    }
+
+    sample
+}
+
+fn foreground_sample_content(ui: &mut widget::Ui) {
+    ui.add(line(scene::Color::rgba(245, 245, 247, 120), 280, 1));
+    ui.row(|ui| {
+        ui.add(swatch(scene::Color::rgba(255, 64, 64, 128)));
+        ui.add(swatch(scene::Color::rgba(64, 180, 255, 128)));
+        ui.add(swatch(scene::Color::rgba(245, 245, 247, 180)));
+        ui.label("Half-alpha quads");
+    });
+    ui.add(grid_strip());
+    ui.label("Glyph coverage: Agjpqy 0123456789");
+    ui.label("Shortcut glyphs: Ctrl Shift Alt Enter");
+    ui.add(slider_specimen());
+}
+
 fn grid_strip() -> widget::Element {
     widget::Element::new()
         .row()
-        .width(Dimension::fixed(300))
+        .width(Dimension::fixed(280))
         .height(Dimension::fixed(34))
         .children(|ui| {
-            for index in 0..30 {
+            for index in 0..28 {
                 let color = if index % 2 == 0 {
                     scene::Color::rgba(245, 245, 247, 220)
                 } else {
@@ -266,6 +287,29 @@ fn swatch(color: scene::Color) -> widget::Element {
         .width(Dimension::fixed(34))
         .height(Dimension::fixed(22))
         .background(scene::Brush::solid(color))
+}
+
+fn slider_specimen() -> widget::Element {
+    widget::Element::new()
+        .row()
+        .width(Dimension::fixed(280))
+        .height(Dimension::fixed(18))
+        .layout(|layout| layout.gap(8).align_items(Align::Center))
+        .children(|ui| {
+            ui.add(
+                widget::Element::new()
+                    .width(Dimension::fixed(196))
+                    .height(Dimension::fixed(4))
+                    .background(scene::Brush::solid(scene::Color::rgba(245, 245, 247, 72))),
+            );
+            ui.add(
+                widget::Element::new()
+                    .width(Dimension::fixed(18))
+                    .height(Dimension::fixed(18))
+                    .background(scene::Brush::solid(scene::Color::rgba(245, 245, 247, 196))),
+            );
+            ui.label("Slider AA");
+        })
 }
 
 fn add_slider(

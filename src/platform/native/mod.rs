@@ -166,7 +166,7 @@ impl PopupPresentationMode {
     fn alpha_preference(self) -> render::CompositeAlphaPreference {
         match self {
             Self::CompositionBacked => render::CompositeAlphaPreference::PreMultiplied,
-            Self::RedirectedFallback => render::CompositeAlphaPreference::Default,
+            Self::RedirectedFallback => render::CompositeAlphaPreference::PreMultiplied,
         }
     }
 
@@ -180,18 +180,14 @@ impl PopupPresentationMode {
                 PopupMaterialRealization::OpaqueFallback
             }
             overlay::PopupMaterialPreference::NoAccent => {
-                if self == Self::CompositionBacked
-                    && alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied
-                {
+                if alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied {
                     PopupMaterialRealization::TransparentNoAccent
                 } else {
                     PopupMaterialRealization::OpaqueFallback
                 }
             }
             overlay::PopupMaterialPreference::System => {
-                if self == Self::CompositionBacked
-                    && alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied
-                {
+                if alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied {
                     PopupMaterialRealization::WindowsAccentAcrylic
                 } else {
                     PopupMaterialRealization::OpaqueFallback
@@ -218,12 +214,8 @@ impl PopupMaterialRealization {
         match (self, mode, alpha_mode) {
             (Self::WindowsAccentAcrylic, _, _) => None,
             (Self::TransparentNoAccent, _, _) => None,
-            (Self::OpaqueFallback, PopupPresentationMode::RedirectedFallback, _) => {
-                Some("composition-backed popup presentation unavailable")
-            }
-            (Self::OpaqueFallback, PopupPresentationMode::CompositionBacked, _) => {
-                Some("premultiplied alpha surface unavailable")
-            }
+            (Self::OpaqueFallback, _, wgpu::CompositeAlphaMode::PreMultiplied) => None,
+            (Self::OpaqueFallback, _, _) => Some("premultiplied alpha surface unavailable"),
         }
     }
 }
@@ -329,12 +321,12 @@ mod tests {
         assert!(!PopupPresentationMode::RedirectedFallback.no_redirection_bitmap());
         assert_eq!(
             PopupPresentationMode::RedirectedFallback.alpha_preference(),
-            crate::render::CompositeAlphaPreference::Default
+            crate::render::CompositeAlphaPreference::PreMultiplied
         );
     }
 
     #[test]
-    fn popup_material_realization_requires_composition_and_premultiplied_alpha() {
+    fn popup_material_realization_requires_premultiplied_alpha() {
         assert_eq!(
             PopupPresentationMode::CompositionBacked.realization_for(
                 wgpu::CompositeAlphaMode::PreMultiplied,
@@ -354,7 +346,7 @@ mod tests {
                 wgpu::CompositeAlphaMode::PreMultiplied,
                 PopupMaterialPreference::System
             ),
-            PopupMaterialRealization::OpaqueFallback
+            PopupMaterialRealization::WindowsAccentAcrylic
         );
     }
 
@@ -379,7 +371,7 @@ mod tests {
                 wgpu::CompositeAlphaMode::PreMultiplied,
                 PopupMaterialPreference::NoAccent
             ),
-            PopupMaterialRealization::OpaqueFallback
+            PopupMaterialRealization::TransparentNoAccent
         );
     }
 }
