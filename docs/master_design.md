@@ -175,6 +175,10 @@ per-line layout projection preserve that affinity. A cursor mutation that
 cannot preserve it must choose an affinity explicitly; default construction is
 not an allowed conversion.
 
+Hit mapping follows each glyph's own bidi level, including LTR glyphs embedded
+in an RTL paragraph. Obscured fields emit exactly one dot per source grapheme;
+an empty source has one boundary and therefore renders no phantom dot.
+
 Text layout owns shaped-buffer cache mechanics through `ShapingCache`; area
 lines, field surfaces, and inline text/icons supply domain keys and retention
 limits, while the shared owner mediates lookup, insertion, and `FontSystem` use.

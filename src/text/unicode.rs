@@ -29,7 +29,9 @@ pub(super) fn source_grapheme_boundaries(text: &str) -> Vec<usize> {
         boundaries.push(index);
     }
 
-    boundaries.push(text.len());
+    if boundaries.last().copied() != Some(text.len()) {
+        boundaries.push(text.len());
+    }
     boundaries
 }
 

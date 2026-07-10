@@ -165,12 +165,7 @@ impl TextLayoutMap {
             let left = glyph.x;
             let right = glyph.x + glyph.w;
             if x >= left && x <= right {
-                return Some(self.visual_position(
-                    run.rtl,
-                    line_start,
-                    glyph,
-                    x <= left + glyph.w * 0.5,
-                ));
+                return Some(self.visual_position(line_start, glyph, x <= left + glyph.w * 0.5));
             }
         }
 
@@ -211,18 +206,17 @@ impl TextLayoutMap {
             }
         }
 
-        Some(self.visual_position(run.rtl, line_start, glyph, visual_left))
+        Some(self.visual_position(line_start, glyph, visual_left))
     }
 
     fn visual_position(
         &self,
-        rtl: bool,
         line_start: usize,
         glyph: &glyphon::LayoutGlyph,
         visual_left: bool,
     ) -> Position {
         let glyph_rtl = glyph.level.is_rtl();
-        match (rtl || glyph_rtl, visual_left) {
+        match (glyph_rtl, visual_left) {
             (false, true) => {
                 Position::with_affinity(line_start + glyph.start, Affinity::Downstream)
             }

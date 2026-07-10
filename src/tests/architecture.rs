@@ -353,6 +353,36 @@ fn caret_affinity_has_one_position_to_cursor_owner() {
 }
 
 #[test]
+fn text_direction_and_obscuring_keep_their_domain_owners() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let text = root.join("src").join("text");
+    let map = std::fs::read_to_string(text.join("layout").join("map.rs"))
+        .expect("text layout map should read");
+    let unicode =
+        std::fs::read_to_string(text.join("unicode.rs")).expect("text unicode source should read");
+    let projection =
+        std::fs::read_to_string(text.join("edit").join("surface").join("projection.rs"))
+            .expect("text projection source should read");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    assert!(
+        map.contains("match (glyph_rtl, visual_left)") && !map.contains("rtl || glyph_rtl"),
+        "each glyph's bidi level must own its hit direction"
+    );
+    assert!(
+        unicode.contains("boundaries.last().copied() != Some(text.len())")
+            && projection.contains("source_grapheme_boundaries(text).len().saturating_sub(1)"),
+        "obscuring must derive its dot count from the unicode-owned unique boundaries"
+    );
+    assert!(
+        master.contains("Hit mapping follows each glyph's own bidi level")
+            && master.contains("an empty source has one boundary"),
+        "master design must retain bidi-hit and obscuring ownership"
+    );
+}
+
+#[test]
 fn draft_input_module_stays_private() {
     let lib = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

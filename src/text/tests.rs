@@ -1807,6 +1807,56 @@ fn bidi_hit_testing_preserves_visual_affinity() {
 }
 
 #[test]
+fn rtl_paragraph_embedded_ltr_glyph_owns_its_hit_direction() {
+    let mut engine = engine();
+    let text = "אבג abc דהו";
+    let buffer = Buffer::from_text(text);
+    let prepared = engine.prepare_text_field_buffer(
+        &buffer,
+        Style::default().with_size(18.0),
+        paint::area::logical(400.0, 32.0),
+    );
+    let prepared = prepared.0.borrow();
+    let map = TextLayoutMap::new(&prepared);
+    let embedded_ltr = prepared
+        .layout_runs()
+        .flat_map(|run| {
+            let line_start = map.line_starts.get(run.line_i).copied().unwrap_or(0);
+            run.glyphs.iter().filter_map(move |glyph| {
+                let start = glyph.start.min(glyph.end);
+                let end = glyph.start.max(glyph.end);
+                let source = text.get(line_start + start..line_start + end)?;
+                (run.rtl
+                    && !glyph.level.is_rtl()
+                    && source
+                        .chars()
+                        .any(|character| character.is_ascii_alphabetic()))
+                .then_some((run.line_top, run.line_height, line_start, glyph))
+            })
+        })
+        .next()
+        .expect("RTL paragraph should contain an embedded LTR glyph");
+    let (line_top, line_height, line_start, glyph) = embedded_ltr;
+    let y = line_top + line_height * 0.5;
+
+    let left = map
+        .hit(&prepared, glyph.x + glyph.w * 0.25, y)
+        .expect("left half should hit the embedded LTR glyph");
+    let right = map
+        .hit(&prepared, glyph.x + glyph.w * 0.75, y)
+        .expect("right half should hit the embedded LTR glyph");
+
+    assert_eq!(
+        left,
+        Position::with_affinity(line_start + glyph.start, Affinity::Downstream)
+    );
+    assert_eq!(
+        right,
+        Position::with_affinity(line_start + glyph.end, Affinity::Upstream)
+    );
+}
+
+#[test]
 fn text_field_surface_cache_reuses_shape_but_projects_current_color() {
     let mut engine = engine();
     let field = Field::new("cached field");
@@ -3111,6 +3161,15 @@ fn obscured_text_field_hit_testing_maps_display_cursor_to_source_cursor() {
     assert_eq!(field.presentation_text(), "••");
     assert_eq!(field.buffer().text(), "åb");
     assert_eq!(position.index, field.buffer().text().len());
+}
+
+#[test]
+fn empty_obscured_text_field_has_no_phantom_dot() {
+    let field = Field::new("").obscured_dot();
+
+    assert!(field.buffer().is_empty());
+    assert_eq!(field.presentation_text(), "");
+    assert_eq!(super::unicode::source_grapheme_boundaries(""), vec![0]);
 }
 
 #[test]
