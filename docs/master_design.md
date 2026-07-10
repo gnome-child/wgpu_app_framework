@@ -470,6 +470,11 @@ premultiplied clear, never a straight-alpha clear as evidence. The authoritative
 alpha witness is a standalone primitive over a transparent clear with readback that proves both alpha and premultiplied RGB; clear-only witnesses and visuals
 nested inside panel body content are contaminated evidence.
 
+Native surface context creation owns one cross-platform default backend mask:
+`wgpu::Backends::all()`, refined by `WGPU_BACKEND`. Target-specific presentation
+policy belongs in render backend options, not identical cfg-specific default
+functions.
+
 Windows premultiplied popup surfaces use a different final pass than ordinary
 opaque app windows. The scene renders into an sRGB offscreen target using the
 normal linear renderer. The final popup pack pass samples that scene, converts

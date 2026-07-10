@@ -1761,6 +1761,13 @@ fn windows_native_popup_material_keeps_dx12_visual_available_without_forcing_it(
             && native_surface.contains("wgpu::Backends::all()"),
         "Windows should use normal backend selection while remaining overridable through WGPU_BACKEND"
     );
+    assert_eq!(
+        native_surface
+            .matches("fn default_native_backends()")
+            .count(),
+        1,
+        "native backend defaults are one cross-platform fact, not identical cfg arms"
+    );
     assert!(
         !native_surface.contains("wgpu::Backends::DX12"),
         "Windows native popup acrylic must not require a hardcoded DX12 backend"
