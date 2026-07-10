@@ -159,8 +159,9 @@ they must not redeclare its fields.
 `color`
 
 Owns transfer functions and named byte conventions. Scene RGB bytes are sRGB,
-paint RGB floats are linear, glyphon color bytes are sRGB, and Windows accent
-gradients are packed as `AABBGGRR`; conversion happens once at these boundaries.
+paint RGB floats are linear, and glyphon color bytes are sRGB. Platform-packed
+formats are named at their platform boundary; conversion happens once through
+`color` rather than being re-derived by native adapters.
 
 `text`
 
@@ -216,7 +217,7 @@ helpers may execute a task deterministically, but they are not the native
 production path.
 
 Suite-runtime measurements distinguish Cargo wall time from test-harness work.
-The Loop III Windows audit at 785 tests measured five warm `cargo test --lib`
+The Loop III suite-runtime audit at 785 tests measured five warm `cargo test --lib`
 runs at 2.054s average, the already-built test binary at 1.169s average, and
 the harness-reported test work at 1.08s. The executor's exact test measured the
 same ~96.5ms process floor as an empty filtered harness, and removing that test
@@ -446,15 +447,7 @@ surface cannot support that alpha mode, the backend logs the downgrade and
 renders an opaque native-safe fallback scene, still without framework glass.
 All floating panels therefore follow the same backend path, with material
 differences handled below the backend seam.
-On Windows, documented DWM system backdrop tracks activation state. A
-`NOACTIVATE` popup is permanently inactive for that material and receives the
-solid fallback color even when its owner window is focused. System backdrop may
-still be valid for future activation-capable utility windows, but not for
-nonactivating popup overlays. Windows popup glass therefore uses the
-focus-independent accent policy (`SetWindowCompositionAttribute` with
-`ACCENT_ENABLE_ACRYLICBLURBEHIND`) behind the native sys seam. The accent
-`GradientColor` is ABGR/AABBGGRR and comes from the popup material tint, so tint
-alpha remains a theme/material dial rather than a platform constant.
+
 OS-side realizations are settle-rate, not event-rate. Geometry, accent material,
 border color, and similar native attributes are desired state with an
 applied snapshot; they coalesce to the latest value and cross into the OS only
@@ -467,87 +460,90 @@ are typed clients that provide only their policy: geometry changes are
 immediate, accent-presence changes are immediate while tint changes settle, and
 post-creation border changes settle.
 `FloatingPanel.border` is the one popup border datum. In-frame popups paint it
-as their outline; native Windows popups convert the same sRGB bytes to
-`COLORREF` (`0x00BBGGRR`) for `DWMWA_BORDER_COLOR`. Creation applies the border
-before first show, while later theme changes use the settle-rate maintenance
-path.
-Native popup first presentation follows platform-visible causality: create and
-configure the nonactivating HWND, realize any immediately due material, show
-the contentless glass, then acquire and present its content. Presenting into a
-hidden redirected window is not an allowed optimization. `PopupFirstPresentTrace`
-records timestamped created, configured, shown, acquire-outcome, present, and
-native popup event-kind stages under `wgpu_l3::native_popup`. Field evidence
-showed a blank first frame despite successful first and confirmation presents;
-the event trace then proved the confirmation followed the popup's own redraw
-request and that an explicit parent redraw could submit a third frame before
-the compositor picked any of them up. More presents are therefore not the
-answer. After the first successful Windows present, `DwmFlush` is the one
-compositor-pickup barrier: success completes the lifecycle without a policy
-confirmation frame, an explicit flush failure earns one fallback confirmation,
-and an acquire outcome that produced no present earns a retry. OS-requested
-popup redraws remain legitimate redraws rather than lifecycle redundancy.
-Accent application from maintenance, where no draw follows immediately,
-requests one parent redraw so compositor material changes cannot strand stale
-foreground content.
+as their outline; native backends encode the same sRGB bytes in the platform's
+border format. Creation applies the border before first show, while later theme
+changes use the settle-rate maintenance path.
+
+Native surface context creation owns the one cross-platform backend selection.
+Target-specific presentation policy belongs in render backend options, not
+identical cfg-specific default functions.
+
+#### Windows Platform Map
+
+This is the single reference for Windows popup shell, compositor, color, and
+diagnostic policy. Portable overlay intent remains in the surrounding `scene`
+contract; Win32 realization details stay here and behind the native `sys` seam.
+
+**Shell and activation.** A popup HWND is an owned, topmost, nonactivating tool
+window. Winit creation attributes are inputs, not the postcondition: immediately
+after creation the style purge sets `WS_POPUP`, removes caption, system-menu,
+resizable-frame, min/max, border, and dialog-frame bits, adds
+`WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW`, removes `WS_EX_APPWINDOW`, and commits any
+change with `SWP_FRAMECHANGED | SWP_NOACTIVATE`. The installed subclass answers
+`WM_MOUSEACTIVATE` with `MA_NOACTIVATE`; configure and show use no-activate paths.
+This is shell correctness, not an optional acrylic tweak.
+
+**Material and packed color.** DWM system backdrop tracks activation state; it
+is focus-coupled. A `NOACTIVATE` popup is permanently inactive for that material
+and receives its solid fallback even while the owner is focused, so
+nonactivating popup glass uses the focus-independent accent policy:
+`SetWindowCompositionAttribute` with
+`ACCENT_ENABLE_ACRYLICBLURBEHIND`. Accent `GradientColor` is
+`AABBGGRR`/ABGR and derives from the scene material tint; tint alpha remains a
+theme dial. `FloatingPanel.border` uses the same scene sRGB bytes as the in-frame
+outline, converted once to `COLORREF` (`0x00BBGGRR`) for
+`DWMWA_BORDER_COLOR`. Accent and border values obey the shared settle-rate
+applicator; the content-only fade contract below leaves them untouched.
+
+**Presentation causality.** First presentation is create, style/configure,
+realize immediately due material, show contentless glass, then acquire and
+present content. Presenting to a hidden redirected window is forbidden. A wgpu
+present call is not proof that DWM displayed the frame: `PopupFirstPresentTrace`
+records timestamped created, configured, shown, acquire outcome, present, and
+native event-kind stages under `wgpu_l3::native_popup`. Field evidence showed
+successful present calls that DWM had not picked up. More presents are therefore not the answer: redundant confirmation and parent redraw presents did not
+establish visibility. After the first successful present, `DwmFlush` is the one
+compositor-pickup barrier. Flush success completes the lifecycle without a
+policy confirmation frame; explicit flush failure earns one fallback
+confirmation; an acquire with no present earns a retry. OS-requested popup
+redraws remain legitimate redraws. Accent maintenance that has no immediate draw
+requests one parent redraw.
+
 One later manual menu pass still showed exactly one first-frame content skip,
 but that occurrence had no attached lifecycle log, so its mechanism remains
 open. Content-fade scheduling supplies later legitimate presents; those frames
 may heal the symptom, but they are neither a diagnosis nor a claimed fix.
-Windows popup acrylic is not tied to the DX12 DirectComposition Visual path:
-Vulkan redirected popups can realize accent acrylic when the surface reports
-premultiplied alpha. The backend mask therefore stays `wgpu::Backends::all()`
-and `WGPU_BACKEND` remains the A/B lever. DX12 `DxgiFromVisual` stays available
-for future composition-backed windows and targeted diagnostics, but it is not
-the default requirement for popup acrylic. `CompositionBacked` still means the
-DX12 visual path plus `WS_EX_NOREDIRECTIONBITMAP`; `RedirectedFallback` keeps the
-redirection bitmap, requests premultiplied alpha, and may use OS acrylic if the
-reported alpha mode supports it. Premultiplied surfaces require premultiplied
-content: alpha diagnostics must use a real half-alpha primitive or
-premultiplied clear, never a straight-alpha clear as evidence. The authoritative
-alpha witness is a standalone primitive over a transparent clear with readback that proves both alpha and premultiplied RGB; clear-only witnesses and visuals
-nested inside panel body content are contaminated evidence.
 
-Native surface context creation owns one cross-platform default backend mask:
-`wgpu::Backends::all()`, refined by `WGPU_BACKEND`. Target-specific presentation
-policy belongs in render backend options, not identical cfg-specific default
-functions.
+**Backend and alpha handoff.** Acrylic is not tied to DX12 DirectComposition:
+Vulkan redirected popups can realize it when the surface reports premultiplied
+alpha. The backend mask stays `wgpu::Backends::all()` and `WGPU_BACKEND` is the
+A/B lever. `CompositionBacked` means the DX12 `DxgiFromVisual` path plus
+`WS_EX_NOREDIRECTIONBITMAP`; `RedirectedFallback` keeps redirection, requests
+premultiplied alpha, and may still use accent acrylic. The DX12 visual path
+remains a targeted diagnostic/future utility-window option, not the default
+acrylic requirement.
 
-Windows premultiplied popup surfaces use a different final pass than ordinary
-opaque app windows. The scene renders into an sRGB offscreen target using the
-normal linear renderer. The final popup pack pass samples that scene, converts
-its associated linear RGB back to straight RGB, applies the exact piecewise
-sRGB transfer function, re-associates RGB with alpha, and writes with `REPLACE`
-into a non-sRGB premultiplied popup surface.
-The legacy composition-texture blit remains for opaque/default app windows; it
-must not be reused as the Windows popup handoff. This replaced the earlier
-direct-surface pin: that pin was correct before the sRGB/premultiplied boundary
-was understood, but it is now obsolete.
+The normal renderer writes the scene to an sRGB offscreen target. A Windows
+premultiplied popup pack then samples associated linear RGB, unassociates it,
+applies the exact piecewise sRGB transfer, re-associates it, and uses `REPLACE`
+to write the non-sRGB premultiplied surface. Opaque/default windows keep the
+legacy composition blit; it is not a popup handoff. Alpha evidence must use a
+real half-alpha primitive or premultiplied clear. The authoritative witness is a
+standalone primitive over a transparent clear. Its readback that proves both alpha and premultiplied RGB is the test.
+The result rejects clear-only witnesses and visuals nested inside panel body content as contaminated evidence.
 
-`native_alpha_probe` is the
-permanent Windows instrument for backend, accent, and popup attribute bisection:
-start with a boring transparent window, compare Vulkan against DX12
-`DxgiFromVisual`, test single popup attributes first, and only then test
-suspicious pairs such as owner+toolwindow or no-redirection+backdrop.
-
-Native popup foreground defects must be partitioned before fixing: alpha
-convention, color-space/gamma, and scale/stretch can all look like "crusty"
-foreground pixels but require different repairs. Foreground witnesses must
-include fractional coverage from antialiased quads and glyph masks, not only
-solid interior pixels. Visual comparison starts with the same foreground over
-`OpaqueFallback`, transparent/no-accent, and OS acrylic; if the opaque fallback
-is also crusty, scale and surface sizing are the first suspects. Native popup
-scale diagnostics report the whole chain: scene logical bounds, requested
-popup bounds, observed inner size, canvas physical area, surface config size,
-and popup scale factor. The foreground clarity fixture compares the same content
-over an opaque backing strip that uses the in-frame panel surface color and over
-the unbacked native material. The backed row must match the in-frame reference
-before unbacked crust can convict native-boundary blending. The six-cell manual
-matrix is `OpaqueFallback`, transparent/no-accent, and acrylic, each checked in
-backed and unbacked form; crust in no-accent and acrylic unbacked rows points to
-general DWM/native boundary blending, while crust only under acrylic points to
-the accent layer. The foreground rows must include the real states where defects
-are easiest to see: disabled menu bindings with shortcut glyphs and live sliders
-whose hover/drag animation exercises the actual slider paint path.
+**Diagnostics.** `native_alpha_probe` owns backend, accent, and attribute
+bisection: begin with a plain transparent window, compare Vulkan with DX12
+`DxgiFromVisual`, test individual attributes, then suspicious pairs such as
+owner+toolwindow or no-redirection+backdrop. Foreground defects are partitioned
+before fixing into alpha convention, color/gamma, and scale/stretch. Witnesses
+include fractional quad coverage and glyph masks. The manual matrix compares
+`OpaqueFallback`, transparent/no-accent, and acrylic with both backed and
+unbacked content. A backed mismatch first convicts scale/rendering; matching
+no-accent and acrylic defects implicate the general native boundary; acrylic-only
+defects implicate accent. Scale logs carry scene bounds, requested bounds,
+observed inner size, canvas physical area, surface size, and popup scale. Real
+fixtures include disabled menu shortcuts and live hover/drag sliders.
 
 Native popup fades are content-side overlay animation, never native material
 policy. The local native-material scene removes the framework glass pane, and
@@ -601,10 +597,8 @@ The alpha pipeline has one convention at each stage:
   and use premultiplied source-over. Group opacity multiplies RGB and alpha once;
   it never unassociates a low-alpha sample and asks straight blending to restore
   it. Native-popup retiring content follows this same group path.
-- The Windows popup pack consumes the associated linear scene texture,
-  unassociates only for sRGB encoding, then re-associates for the non-sRGB
-  premultiplied surface. Ordinary opaque surfaces keep the exact associated
-  composition blit.
+- Platform surface handoffs that require a different encoded association use an
+  explicit replace pass; platform-specific packing belongs in the platform map.
 
 A material is a visual recipe; a pane is shaped material. Glass is a UI
 material operation, not a list of unrelated blur, luminosity, tint, and noise
@@ -652,12 +646,10 @@ Backdrop blur needs target-local scratch padding for the kernel reach; group
 bounds reserve that spread before the filter chain writes into local ping/pong
 textures. Temporary filter layer and scratch texture pools are retention-capped
 at eight entries each and report their current sizes through render diagnostics.
-Temporary group targets use the renderer alpha convention
-consistently: primitives draw into a transparent target, and the group composite
-samples and re-applies opacity as one image so text, rounded edges, shadows, and
-backdrop effects do not separate. The premultiplied-alpha/group-blend audit is
-closed by the pipeline map above and the renderer-owned fragment-output blend
-states. This makes the filter chain arithmetically ready for future local blur:
+Temporary group targets follow the alpha pipeline map above; the one composite
+keeps text, rounded edges, shadows, and backdrop effects together. The
+renderer-owned fragment-output blend states close the premultiplied-alpha audit
+and make the filter chain arithmetically ready for future local blur:
 blur scratch preserves associated RGB through transparent edges, and
 source-alpha composite-back no longer creates straight-alpha dark halos. Local
 blur remains a separate product/API feature; readiness is not implementation.
@@ -854,18 +846,8 @@ Owns framework-visible counters and sample windows that turn performance and
 interaction reports into numbers. Diagnostics are not behavior inputs; they are
 instrumentation read by tools, tests, and debug panels.
 
-The text editor debug panel is the current full instrument panel. It shows text
-layout work (paint calls, metric calls, visible and shaped logical lines,
-layout plus overscan segments, interaction surfaces, highlight scans), text
-caches (line hits/misses, render-surface calls and cache hits/misses, render
-source lines and bytes), scroll work (wheel events, offset changes, redraw
-requests, committed frame scrolls, text area viewports), frame work (full
-redraws, view rebuilds, layout recomposes and reuses, text surfaces), and
-render work (presented frames, frame-interval p95, surface-acquire p95, draw
-p95, `key->present` p95, pending key samples, promoted group composites, and
-retained filter layer/scratch pool entries).
-
-The instrument map is:
+The text editor debug panel is the current full instrument panel. Its one
+instrument map is:
 
 | Instrument | Owner | Signals |
 | --- | --- | --- |
@@ -884,15 +866,9 @@ Render latency samples are revision-tagged: a key/input sample records only
 when the presented frame revision includes the state change it produced.
 `key->present` means input-to-present-call, not input-to-glass.
 
-Compositor investigations use narrow debug log targets and must stay quiet
-under the example default `RUST_LOG=info`. Current targeted debug channels are
-`wgpu_l3::render::filter_params` for filter pass uniforms,
-`wgpu_l3::render::material` for pane material source/target facts, and
-`wgpu_l3::overlay::fade` for overlay opacity, schedule, and demotion timing.
-Native popup and backend-choice questions use `wgpu_l3::native_popup` and
-`wgpu_l3::overlay::backend`.
-Use targeted `RUST_LOG=wgpu_l3::render::material=debug` style filters for
-diagnosis instead of raising the whole app to debug.
+The log-target rows above are the compositor diagnostic catalog. They stay quiet
+under the examples' default `RUST_LOG=info`; enable only the narrow target under
+investigation instead of raising the whole app to debug.
 
 `platform`, `host`, and native/render adapters
 
