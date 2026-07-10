@@ -42,7 +42,20 @@ struct PopupWindow {
     geometry: PopupGeometryState,
     visible: bool,
     material: Option<overlay::PopupMaterial>,
-    using_native_material: Option<bool>,
+    presentation_mode: PopupPresentationMode,
+    material_realization: Option<PopupMaterialRealization>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::platform::native) enum PopupPresentationMode {
+    CompositionBacked,
+    RedirectedFallback,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PopupMaterialRealization {
+    OsMaterial,
+    OpaqueFallback,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -74,14 +87,15 @@ impl PopupKey {
 }
 
 impl PopupWindow {
-    fn new(window: window::Window) -> Self {
+    fn new(window: window::Window, presentation_mode: PopupPresentationMode) -> Self {
         Self {
             window,
             bounds: geometry::Rect::new(0, 0, 0, 0),
             geometry: PopupGeometryState::default(),
             visible: false,
             material: None,
-            using_native_material: None,
+            presentation_mode,
+            material_realization: None,
         }
     }
 }
@@ -126,6 +140,60 @@ impl PopupGeometry {
     }
 }
 
+impl PopupPresentationMode {
+    fn from_render_context(context: &render::Context) -> Self {
+        if context.windows_popup_composition_supported() {
+            Self::CompositionBacked
+        } else {
+            Self::RedirectedFallback
+        }
+    }
+
+    pub(in crate::platform::native) fn no_redirection_bitmap(self) -> bool {
+        matches!(self, Self::CompositionBacked)
+    }
+
+    fn alpha_preference(self) -> render::CompositeAlphaPreference {
+        match self {
+            Self::CompositionBacked => render::CompositeAlphaPreference::PreMultiplied,
+            Self::RedirectedFallback => render::CompositeAlphaPreference::Default,
+        }
+    }
+
+    fn realization_for(self, alpha_mode: wgpu::CompositeAlphaMode) -> PopupMaterialRealization {
+        match self {
+            Self::CompositionBacked if alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied => {
+                PopupMaterialRealization::OsMaterial
+            }
+            Self::CompositionBacked | Self::RedirectedFallback => {
+                PopupMaterialRealization::OpaqueFallback
+            }
+        }
+    }
+}
+
+impl PopupMaterialRealization {
+    fn uses_os_material(self) -> bool {
+        matches!(self, Self::OsMaterial)
+    }
+
+    fn fallback_reason(
+        self,
+        mode: PopupPresentationMode,
+        alpha_mode: wgpu::CompositeAlphaMode,
+    ) -> Option<&'static str> {
+        match (self, mode, alpha_mode) {
+            (Self::OsMaterial, _, _) => None,
+            (Self::OpaqueFallback, PopupPresentationMode::RedirectedFallback, _) => {
+                Some("composition-backed popup presentation unavailable")
+            }
+            (Self::OpaqueFallback, PopupPresentationMode::CompositionBacked, _) => {
+                Some("premultiplied alpha surface unavailable")
+            }
+        }
+    }
+}
+
 impl Native {
     pub fn new() -> Self {
         Self {
@@ -157,7 +225,9 @@ impl Default for Native {
 
 #[cfg(test)]
 mod tests {
-    use super::{PopupGeometry, PopupGeometryState};
+    use super::{
+        PopupGeometry, PopupGeometryState, PopupMaterialRealization, PopupPresentationMode,
+    };
 
     fn geometry(x: i32, y: i32, scale: f64) -> PopupGeometry {
         PopupGeometry {
@@ -196,6 +266,40 @@ mod tests {
         assert!(
             state.needs_apply(geometry(10, 20, 1.5)),
             "popup monitor scale changes must reconfigure popup size"
+        );
+    }
+
+    #[test]
+    fn popup_presentation_mode_pairs_no_redirection_with_premultiplied_alpha() {
+        assert!(PopupPresentationMode::CompositionBacked.no_redirection_bitmap());
+        assert_eq!(
+            PopupPresentationMode::CompositionBacked.alpha_preference(),
+            crate::render::CompositeAlphaPreference::PreMultiplied
+        );
+
+        assert!(!PopupPresentationMode::RedirectedFallback.no_redirection_bitmap());
+        assert_eq!(
+            PopupPresentationMode::RedirectedFallback.alpha_preference(),
+            crate::render::CompositeAlphaPreference::Default
+        );
+    }
+
+    #[test]
+    fn popup_material_realization_requires_composition_and_premultiplied_alpha() {
+        assert_eq!(
+            PopupPresentationMode::CompositionBacked
+                .realization_for(wgpu::CompositeAlphaMode::PreMultiplied),
+            PopupMaterialRealization::OsMaterial
+        );
+        assert_eq!(
+            PopupPresentationMode::CompositionBacked
+                .realization_for(wgpu::CompositeAlphaMode::Opaque),
+            PopupMaterialRealization::OpaqueFallback
+        );
+        assert_eq!(
+            PopupPresentationMode::RedirectedFallback
+                .realization_for(wgpu::CompositeAlphaMode::PreMultiplied),
+            PopupMaterialRealization::OpaqueFallback
         );
     }
 }

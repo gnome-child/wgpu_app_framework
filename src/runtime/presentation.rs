@@ -690,24 +690,13 @@ fn append_or_present_overlay_layer(
                 local.native_material().size(),
                 scene::Color::rgba(0, 0, 0, 0),
             );
-            if layer.force_group_at_full_opacity() {
-                popup_scene
-                    .append_scene_with_forced_group(local.native_material(), layer.opacity());
-            } else {
-                popup_scene.append_scene_with_opacity(local.native_material(), layer.opacity());
-            }
+            popup_scene.append_scene_with_opacity(local.native_material(), 1.0);
 
             let mut opaque_fallback_scene = scene::Scene::new_with_clear(
                 local.opaque_fallback().size(),
                 local.opaque_fallback().clear(),
             );
-            if layer.force_group_at_full_opacity() {
-                opaque_fallback_scene
-                    .append_scene_with_forced_group(local.opaque_fallback(), layer.opacity());
-            } else {
-                opaque_fallback_scene
-                    .append_scene_with_opacity(local.opaque_fallback(), layer.opacity());
-            }
+            opaque_fallback_scene.append_scene_with_opacity(local.opaque_fallback(), 1.0);
             popup_presentations.push(crate::overlay::PopupPresentation::new(
                 window,
                 layer.id(),

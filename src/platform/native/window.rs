@@ -1,4 +1,4 @@
-use super::{Native, NativeError};
+use super::{Native, NativeError, PopupPresentationMode};
 use crate::window as app_window;
 use crate::{paint, pointer, render};
 use std::sync::Arc;
@@ -20,6 +20,7 @@ pub(in crate::platform::native) struct Options {
     pub inner_size: InitialSize,
     pub kind: app_window::Kind,
     pub owner: Option<Handle>,
+    pub popup_presentation_mode: Option<PopupPresentationMode>,
 }
 
 pub(in crate::platform::native) enum InitialSize {
@@ -34,8 +35,12 @@ impl Window {
         let mut window_attributes = WindowAttributes::default()
             .with_title(options.title)
             .with_visible(false);
-        window_attributes =
-            configure_base_attributes(window_attributes, options.kind, options.owner.as_deref());
+        window_attributes = configure_base_attributes(
+            window_attributes,
+            options.kind,
+            options.owner.as_deref(),
+            options.popup_presentation_mode,
+        );
 
         match options.inner_size {
             InitialSize::Logical(inner_area) => {
@@ -142,16 +147,22 @@ fn configure_base_attributes(
     attributes: WindowAttributes,
     kind: app_window::Kind,
     owner: Option<&winit::window::Window>,
+    popup_presentation_mode: Option<PopupPresentationMode>,
 ) -> WindowAttributes {
     match kind {
         app_window::Kind::Application => attributes,
-        app_window::Kind::Popup => popup_attributes(attributes, owner),
+        app_window::Kind::Popup => popup_attributes(
+            attributes,
+            owner,
+            popup_presentation_mode.unwrap_or(PopupPresentationMode::RedirectedFallback),
+        ),
     }
 }
 
 fn popup_attributes(
     attributes: WindowAttributes,
     owner: Option<&winit::window::Window>,
+    mode: PopupPresentationMode,
 ) -> WindowAttributes {
     let attributes = attributes
         .with_decorations(false)
@@ -160,13 +171,14 @@ fn popup_attributes(
         .with_window_level(winit::window::WindowLevel::AlwaysOnTop)
         .with_active(false);
 
-    configure_platform_popup_attributes(attributes, owner)
+    configure_platform_popup_attributes(attributes, owner, mode)
 }
 
 #[cfg(target_os = "windows")]
 fn configure_platform_popup_attributes(
     attributes: WindowAttributes,
     owner: Option<&winit::window::Window>,
+    mode: PopupPresentationMode,
 ) -> WindowAttributes {
     use winit::platform::windows::WindowAttributesExtWindows;
     use winit::platform::windows::{BackdropType, CornerPreference};
@@ -174,7 +186,7 @@ fn configure_platform_popup_attributes(
 
     let mut attributes = attributes
         .with_skip_taskbar(true)
-        .with_no_redirection_bitmap(true)
+        .with_no_redirection_bitmap(mode.no_redirection_bitmap())
         .with_undecorated_shadow(true)
         .with_system_backdrop(BackdropType::TransientWindow)
         .with_corner_preference(CornerPreference::Round);
@@ -194,6 +206,7 @@ fn configure_platform_popup_attributes(
 fn configure_platform_popup_attributes(
     attributes: WindowAttributes,
     _owner: Option<&winit::window::Window>,
+    _mode: PopupPresentationMode,
 ) -> WindowAttributes {
     use winit::platform::macos::WindowAttributesExtMacOS;
 
@@ -206,6 +219,7 @@ fn configure_platform_popup_attributes(
 fn configure_platform_popup_attributes(
     attributes: WindowAttributes,
     _owner: Option<&winit::window::Window>,
+    _mode: PopupPresentationMode,
 ) -> WindowAttributes {
     use winit::platform::x11::{WindowAttributesExtX11, WindowType};
 
@@ -222,6 +236,7 @@ fn configure_platform_popup_attributes(
 fn configure_platform_popup_attributes(
     attributes: WindowAttributes,
     _owner: Option<&winit::window::Window>,
+    _mode: PopupPresentationMode,
 ) -> WindowAttributes {
     attributes
 }

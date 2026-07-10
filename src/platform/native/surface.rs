@@ -52,6 +52,7 @@ impl Native {
             )),
             kind: window.kind(),
             owner: None,
+            popup_presentation_mode: None,
         };
         let handle = NativeWindow::open(native_options, context.event_loop())?;
         let render_context = self
@@ -187,12 +188,22 @@ impl Native {
 fn render_context_options() -> render::ContextOptions {
     render::ContextOptions {
         device_label: "wgpu_l3 device",
-        backends: wgpu::Backends::all(),
+        backends: default_native_backends(),
         power_preference: wgpu::PowerPreference::HighPerformance,
         force_fallback_adapter: false,
         required_features: wgpu::Features::empty(),
         required_limits: wgpu::Limits::default(),
     }
+}
+
+#[cfg(target_os = "windows")]
+fn default_native_backends() -> wgpu::Backends {
+    wgpu::Backends::DX12
+}
+
+#[cfg(not(target_os = "windows"))]
+fn default_native_backends() -> wgpu::Backends {
+    wgpu::Backends::all()
 }
 
 pub(in crate::platform::native) fn native_logical_area(

@@ -4663,6 +4663,31 @@ fn glass_tuner_force_promoted_comparison_renders_group_at_rest() {
     );
 }
 
+#[test]
+fn glass_tuner_comparison_emits_half_alpha_popup_witness_quad() {
+    let mut app = glass_tuner::app(glass_tuner::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = glass_tuner::window_size();
+    app.invoke(app.trigger::<glass_tuner::ToggleComparison>(()))
+        .output
+        .expect("toggle comparison should succeed");
+    let rendered = app
+        .render_scene_after_overlay_fade(window, size)
+        .expect("comparison should render");
+
+    assert!(
+        rendered
+            .scene()
+            .quads()
+            .iter()
+            .any(|quad| quad.fill().channels() == (255, 0, 255, 128)),
+        "alpha witness must be a real half-alpha primitive, not a clear color"
+    );
+}
+
 fn top_level_group_count(scene: &Scene) -> usize {
     scene
         .primitives()

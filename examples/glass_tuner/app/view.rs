@@ -169,6 +169,13 @@ fn comparison_panel(state: &State) -> widget::panel::Floating {
             ));
             ui.label(format!("Noise opacity: {:.3}", state.noise_opacity));
             ui.label(format!("Forced group: {}", state.force_promoted));
+            ui.label("Alpha witness");
+            ui.add(
+                widget::Element::new()
+                    .width(Dimension::fixed(150))
+                    .height(Dimension::fixed(28))
+                    .background(scene::Brush::solid(scene::Color::rgba(255, 0, 255, 128))),
+            );
             ui.label(state.tint.hex());
         })
 }

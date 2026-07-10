@@ -5,7 +5,9 @@ use crate::{geometry, overlay, paint, render, window as app_window};
 
 use super::surface::native_logical_area;
 use super::window::{InitialSize, Options, Window as NativeWindow};
-use super::{Native, NativeContext, NativeError, PopupGeometry, PopupKey, PopupWindow};
+use super::{
+    Native, NativeContext, NativeError, PopupGeometry, PopupKey, PopupPresentationMode, PopupWindow,
+};
 
 impl Native {
     pub(in crate::platform::native) fn overlay_capabilities() -> overlay::Capabilities {
@@ -63,26 +65,32 @@ impl Native {
             popup.window.set_popup_material_theme(material.dark());
             popup.material = Some(material);
         }
-        let using_native_material =
-            popup.window.canvas().composite_alpha_mode() == wgpu::CompositeAlphaMode::PreMultiplied;
-        if popup.using_native_material != Some(using_native_material) {
-            if using_native_material {
+        let alpha_mode = popup.window.canvas().composite_alpha_mode();
+        let realization = popup.presentation_mode.realization_for(alpha_mode);
+        if popup.material_realization != Some(realization) {
+            if realization.uses_os_material() {
                 log::debug!(
                     target: "wgpu_l3::native_popup",
-                    "native popup {:?} uses OS material over premultiplied alpha surface",
-                    presentation.id()
+                    "native popup {:?} uses OS material: mode={:?}, alpha={:?}",
+                    presentation.id(),
+                    popup.presentation_mode,
+                    alpha_mode
                 );
             } else {
                 log::warn!(
                     target: "wgpu_l3::native_popup",
-                    "native popup {:?} downgraded to opaque fallback: premultiplied alpha surface unavailable ({:?})",
+                    "native popup {:?} downgraded to opaque fallback: mode={:?}, alpha={:?}, reason={}",
                     presentation.id(),
-                    popup.window.canvas().composite_alpha_mode()
+                    popup.presentation_mode,
+                    alpha_mode,
+                    realization
+                        .fallback_reason(popup.presentation_mode, alpha_mode)
+                        .unwrap_or("unknown")
                 );
             }
-            popup.using_native_material = Some(using_native_material);
+            popup.material_realization = Some(realization);
         }
-        let source_scene = if using_native_material {
+        let source_scene = if realization.uses_os_material() {
             presentation.scene()
         } else {
             presentation.opaque_fallback_scene()
@@ -133,6 +141,11 @@ impl Native {
         }
 
         self.ensure_context()?;
+        let render_context = self
+            .context
+            .as_ref()
+            .expect("render context should exist before creating popup");
+        let presentation_mode = PopupPresentationMode::from_render_context(render_context);
         let parent = self.windows.get(&presentation.parent()).ok_or_else(|| {
             log::error!(
                 "cannot create popup {:?} for missing parent {:?}",
@@ -150,12 +163,9 @@ impl Native {
             )),
             kind: app_window::Kind::Popup,
             owner: Some(parent.handle()),
+            popup_presentation_mode: Some(presentation_mode),
         };
         let handle = NativeWindow::open(native_options, context.event_loop())?;
-        let render_context = self
-            .context
-            .as_ref()
-            .expect("render context should exist before creating popup canvas");
         let inner_size = handle.inner_size();
         let canvas = render::Canvas::new(
             render::CanvasOptions {
@@ -164,7 +174,7 @@ impl Native {
                 color: render::color_to_wgpu(super::color::paint_color(
                     presentation.scene().clear(),
                 )),
-                composite_alpha: render::CompositeAlphaPreference::PreMultiplied,
+                composite_alpha: presentation_mode.alpha_preference(),
             },
             render_context,
             handle.clone(),
@@ -172,16 +182,19 @@ impl Native {
         let popup = NativeWindow::new(handle, canvas);
         log::debug!(
             target: "wgpu_l3::native_popup",
-            "created native popup {:?} for parent {:?}: raw={:?}, size={:?}, scale={}",
+            "created native popup {:?} for parent {:?}: raw={:?}, mode={:?}, no_redirection_bitmap={}, size={:?}, scale={}",
             presentation.id(),
             presentation.parent(),
             popup.raw_id(),
+            presentation_mode,
+            presentation_mode.no_redirection_bitmap(),
             presentation.scene().size(),
             popup.scale_factor()
         );
 
         self.raw_popups.insert(popup.raw_id(), key);
-        self.popups.insert(key, PopupWindow::new(popup));
+        self.popups
+            .insert(key, PopupWindow::new(popup, presentation_mode));
 
         Ok(())
     }

@@ -16,6 +16,7 @@ pub struct Context {
     instance: wgpu::Instance,
     adapter: wgpu::Adapter,
     queue: wgpu::Queue,
+    windows_popup_composition_supported: bool,
 }
 
 pub struct Options {
@@ -29,9 +30,10 @@ pub struct Options {
 
 impl Context {
     pub async fn new(options: Options) -> render::Result<Self> {
+        let backends = options.backends.with_env();
         log::debug!(
             "creating wgpu context: backends={:?}, power_preference={:?}, fallback={}",
-            options.backends,
+            backends,
             options.power_preference,
             options.force_fallback_adapter
         );
@@ -45,7 +47,7 @@ impl Context {
             dx12_presentation_system
         );
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: options.backends,
+            backends,
             flags: Default::default(),
             memory_budget_thresholds: Default::default(),
             backend_options,
@@ -67,6 +69,12 @@ impl Context {
             }
         };
         let adapter_info = adapter.get_info();
+        let adapter_backend = adapter_info.backend;
+        #[cfg(target_os = "windows")]
+        let windows_popup_composition_supported = adapter_backend == wgpu::Backend::Dx12
+            && dx12_presentation_system == wgpu::Dx12SwapchainKind::DxgiFromVisual;
+        #[cfg(not(target_os = "windows"))]
+        let windows_popup_composition_supported = false;
         log::debug!("selected wgpu adapter: {:?}", adapter_info);
         #[cfg(target_os = "windows")]
         log::info!(
@@ -100,6 +108,7 @@ impl Context {
             adapter,
             device,
             queue,
+            windows_popup_composition_supported,
         })
     }
 
@@ -113,6 +122,10 @@ impl Context {
 
     pub fn adapter(&self) -> &wgpu::Adapter {
         &self.adapter
+    }
+
+    pub(crate) fn windows_popup_composition_supported(&self) -> bool {
+        self.windows_popup_composition_supported
     }
 
     pub fn queue(&self) -> &wgpu::Queue {

@@ -376,20 +376,29 @@ surface cannot support that alpha mode, the backend logs the downgrade and
 renders an opaque native-safe fallback scene, still without framework glass.
 All floating panels therefore follow the same backend path, with material
 differences handled below the backend seam.
-On Windows, native popup OS material uses wgpu's DX12 DirectComposition Visual
-presentation path so popup surfaces can expose transparent alpha for DWM
-backdrops. This path is instance-wide, so the main window uses the same
-presentation system; latency gauges (`key->present` and acquire-wait p95) are
-the acceptance instrument for pacing changes. RenderDoc capture on Windows may
-need the explicit `WGPU_DX12_PRESENTATION_SYSTEM=DxgiFromHwnd` override, which
-trades OS-material transparency for the older HWND presentation path. If a
-premultiplied DirectComposition popup still shows no acrylic, the next
-single-call Windows experiment is `DwmExtendFrameIntoClientArea` with
-sheet-of-glass margins, not a return to framework glass inside native popups.
-Windows native popups also set `WS_EX_NOREDIRECTIONBITMAP` through winit's
-no-redirection-bitmap attribute; without it, the OS redirection surface can
-flatten a premultiplied popup swapchain into an opaque slab before DWM material
-has a chance to show through.
+On Windows, native popup OS material is `CompositionBacked`: wgpu's DX12
+DirectComposition Visual presentation path, premultiplied popup alpha, and
+`WS_EX_NOREDIRECTIONBITMAP` as one matched set. Non-composition stacks are
+`RedirectedFallback`: the redirection bitmap stays enabled and the popup draws
+an opaque fallback scene so content never disappears. Windows defaults to DX12
+for this path while still honoring `WGPU_BACKEND` for debugging and A/B runs.
+Because the presentation path is instance-wide, latency gauges (`key->present`
+and acquire-wait p95) are the acceptance instrument for pacing changes.
+RenderDoc capture on Windows may need the explicit
+`WGPU_DX12_PRESENTATION_SYSTEM=DxgiFromHwnd` override, which trades
+OS-material transparency for the older HWND presentation path. Premultiplied
+surfaces require premultiplied content: alpha diagnostics must use a real
+half-alpha primitive or premultiplied clear, never a straight-alpha clear as
+evidence. If valid premultiplied transparency works and a DirectComposition
+popup still shows no acrylic, the next single-call Windows experiment is
+`DwmExtendFrameIntoClientArea` with sheet-of-glass margins, not a return to
+framework glass inside native popups.
+
+Native popup enter-fade stays disabled until the premultiplied-alpha/group
+blend audit. Menus can ship before that because their content uses the safe
+alpha extremes: opaque rows/text over transparent window gaps. Fade makes
+ordinary content semi-transparent and therefore depends on the same
+premultiplied convention that future local blur also requires.
 
 Overlay ghosts are paint-only afterlife. When a live in-frame entry is
 dismissed, runtime may retain its final scene bucket briefly as a `Ghost` for

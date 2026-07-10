@@ -1380,9 +1380,10 @@ fn windows_native_popup_clicks_do_not_activate() {
     );
     assert!(native_window.contains("BackdropType::TransientWindow"));
     assert!(native_window.contains("CornerPreference::Round"));
-    assert!(native_window.contains("with_no_redirection_bitmap(true)"));
+    assert!(native_window.contains("with_no_redirection_bitmap(mode.no_redirection_bitmap())"));
     assert!(native_window.contains("with_undecorated_shadow(true)"));
     assert!(native_window.contains("with_has_shadow(true)"));
+    assert!(!native_window.contains("with_no_redirection_bitmap(true)"));
     assert!(!native_window.contains("with_no_redirection_bitmap(false)"));
     assert!(!native_window.contains("with_undecorated_shadow(false)"));
     assert!(!native_window.contains("with_has_shadow(false)"));
@@ -1404,6 +1405,20 @@ fn windows_native_popup_material_uses_dx12_visual_presentation_by_default() {
         .expect("render context source should read");
     let surface = std::fs::read_to_string(root.join("src").join("render").join("surface.rs"))
         .expect("render surface source should read");
+    let native_surface = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("surface.rs"),
+    )
+    .expect("native surface source should read");
+    let native_mod = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("mod.rs"),
+    )
+    .expect("native module source should read");
     let native_window = std::fs::read_to_string(
         root.join("src")
             .join("platform")
@@ -1419,8 +1434,9 @@ fn windows_native_popup_material_uses_dx12_visual_presentation_by_default() {
         "Windows should default to the DirectComposition Visual DX12 presentation path"
     );
     assert!(
-        context.contains("backend_options") && context.contains(".with_env()"),
-        "DX12 presentation defaults must remain overridable through wgpu env handling"
+        context.contains("options.backends.with_env()")
+            && native_surface.contains("default_native_backends()"),
+        "Windows should default to DX12 while remaining overridable through WGPU_BACKEND"
     );
     assert!(
         surface.contains("popup surface alpha capabilities"),
@@ -1431,11 +1447,18 @@ fn windows_native_popup_material_uses_dx12_visual_presentation_by_default() {
         "opaque popup fallback should report supported alpha modes"
     );
     assert!(
-        native_window.contains("with_no_redirection_bitmap(true)"),
-        "Windows native popups must disable the redirection bitmap so swapchain alpha reaches DWM"
+        native_mod.contains("PopupPresentationMode")
+            && native_mod.contains("CompositionBacked")
+            && native_mod.contains("RedirectedFallback"),
+        "native popup presentation mode must be explicit"
+    );
+    assert!(
+        native_window.contains("with_no_redirection_bitmap(mode.no_redirection_bitmap())"),
+        "Windows native popups must pair no-redirection with the selected presentation mode"
     );
     for phrase in [
         "WGPU_DX12_PRESENTATION_SYSTEM=DxgiFromHwnd",
+        "WGPU_BACKEND",
         "key->present",
         "acquire-wait p95",
         "DwmExtendFrameIntoClientArea",
@@ -1449,7 +1472,7 @@ fn windows_native_popup_material_uses_dx12_visual_presentation_by_default() {
 }
 
 #[test]
-fn native_popup_presentations_preserve_overlay_fade_for_material_and_fallback() {
+fn native_popup_presentations_defer_overlay_fade_until_premultiplied_audit() {
     let presentation = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src")
@@ -1459,16 +1482,37 @@ fn native_popup_presentations_preserve_overlay_fade_for_material_and_fallback() 
     .expect("runtime presentation source should read");
 
     for call in [
-        "append_scene_with_forced_group(local.native_material(), layer.opacity())",
-        "append_scene_with_opacity(local.native_material(), layer.opacity())",
-        "append_scene_with_forced_group(local.opaque_fallback(), layer.opacity())",
-        "append_scene_with_opacity(local.opaque_fallback(), layer.opacity())",
+        "append_scene_with_opacity(local.native_material(), 1.0)",
+        "append_scene_with_opacity(local.opaque_fallback(), 1.0)",
     ] {
         assert!(
             presentation.contains(call),
-            "native popup presentation should preserve overlay opacity path through {call}"
+            "native popup presentation should render full opacity until the premultiplied audit: {call}"
         );
     }
+    assert!(
+        !presentation
+            .contains("append_scene_with_opacity(local.native_material(), layer.opacity())"),
+        "native popup material must not apply semi-transparent overlay fade yet"
+    );
+}
+
+#[test]
+fn glass_tuner_has_native_popup_half_alpha_primitive_witness() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let view = std::fs::read_to_string(
+        root.join("examples")
+            .join("glass_tuner")
+            .join("app")
+            .join("view.rs"),
+    )
+    .expect("glass tuner view should read");
+
+    assert!(view.contains("Alpha witness"));
+    assert!(
+        view.contains("scene::Color::rgba(255, 0, 255, 128)"),
+        "alpha witness must be a half-alpha primitive, not a clear color"
+    );
 }
 
 #[test]

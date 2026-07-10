@@ -436,13 +436,20 @@ impl Store {
                 backend,
                 capabilities.native_popups_supported()
             );
-            let (opacity, entering) = live_opacity(appeared_at, overlay.enter_fade_ms, now);
+            let (opacity, entering) = if backend == Backend::NativePopup {
+                (1.0, false)
+            } else {
+                live_opacity(appeared_at, overlay.enter_fade_ms, now)
+            };
             let state_kind = if entering {
                 State::Entering
             } else {
                 State::Live
             };
-            let demotion_marker = !entering && !demotion_logged && overlay.enter_fade_ms > 0;
+            let demotion_marker = backend == Backend::InFrame
+                && !entering
+                && !demotion_logged
+                && overlay.enter_fade_ms > 0;
             let live = Live {
                 id: draft.id,
                 order,
@@ -659,6 +666,27 @@ mod tests {
         );
         assert_eq!(settled.layers[0].opacity, 1.0);
         assert_eq!(settled.schedule, animation::Schedule::Idle);
+    }
+
+    #[test]
+    fn native_popup_entry_skips_enter_fade_until_premultiplied_audit() {
+        let mut store = Store::new();
+        let window = window::Id::new(26);
+        let now = Instant::now();
+
+        let first = store.update_window(
+            window,
+            vec![popup_draft("menu")],
+            overlay_theme(5_000, 120),
+            Capabilities::with_native_popups(),
+            now,
+        );
+
+        assert_eq!(first.layers.len(), 1);
+        assert_eq!(first.layers[0].backend(), Backend::NativePopup);
+        assert_eq!(first.layers[0].opacity, 1.0);
+        assert_eq!(first.layers[0].state, Some(State::Live));
+        assert_eq!(first.schedule, animation::Schedule::Idle);
     }
 
     #[test]
