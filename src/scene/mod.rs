@@ -34,6 +34,7 @@ pub struct Scene {
 pub(crate) struct NativePopupScenes {
     native_material: Scene,
     opaque_fallback: Scene,
+    accent_tint: Color,
 }
 
 impl Scene {
@@ -178,6 +179,8 @@ impl Scene {
         NativePopupScenes {
             native_material,
             opaque_fallback,
+            accent_tint: native_popup_accent_tint(&self.primitives)
+                .unwrap_or(Color::rgba(28, 28, 30, 192)),
         }
     }
 
@@ -315,6 +318,10 @@ impl NativePopupScenes {
 
     pub(crate) fn opaque_fallback(&self) -> &Scene {
         &self.opaque_fallback
+    }
+
+    pub(crate) fn accent_tint(&self) -> Color {
+        self.accent_tint
     }
 }
 
@@ -477,6 +484,39 @@ fn native_popup_fallback_clear(primitives: &[Primitive]) -> Option<Color> {
     })
 }
 
+fn native_popup_accent_tint(primitives: &[Primitive]) -> Option<Color> {
+    primitives.iter().find_map(|primitive| match primitive {
+        Primitive::Pane(pane) => match pane.material() {
+            Material::Glass(glass) => match glass.tint() {
+                Some((Brush::Solid(color), opacity)) => {
+                    let (r, g, b, _) = color.channels();
+                    Some(Color::rgba(
+                        r,
+                        g,
+                        b,
+                        (opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
+                    ))
+                }
+                Some((Brush::LinearGradient { .. }, _)) => None,
+                None => match glass.fallback() {
+                    Brush::Solid(color) => {
+                        let (r, g, b, _) = color.channels();
+                        Some(Color::rgba(r, g, b, 192))
+                    }
+                    Brush::LinearGradient { .. } => None,
+                },
+            },
+            Material::Solid(Brush::Solid(color)) => {
+                let (r, g, b, a) = color.channels();
+                Some(Color::rgba(r, g, b, a))
+            }
+            Material::Solid(Brush::LinearGradient { .. }) => None,
+        },
+        Primitive::Group(group) => native_popup_accent_tint(group.primitives()),
+        _ => None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -581,6 +621,7 @@ mod tests {
         let popup = source.native_popup_scenes(geometry::Rect::new(4, 6, 40, 24));
         let native = popup.native_material();
 
+        assert_eq!(popup.accent_tint(), Color::rgba(28, 28, 30, 224));
         assert_eq!(native.size(), geometry::Size::new(40, 24));
         assert_eq!(native.clear(), Color::rgba(0, 0, 0, 0));
         assert!(

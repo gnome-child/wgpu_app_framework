@@ -61,20 +61,22 @@ impl Native {
             .get_mut(&key)
             .expect("popup should exist before presenting");
         let material = presentation.material();
-        if popup.material != Some(material) {
+        let material_changed = popup.material != Some(material);
+        if material_changed {
             popup.window.set_popup_material_theme(material.dark());
             popup.material = Some(material);
         }
         let alpha_mode = popup.window.canvas().composite_alpha_mode();
         let realization = popup.presentation_mode.realization_for(alpha_mode);
-        if popup.material_realization != Some(realization) {
+        if popup.material_realization != Some(realization) || material_changed {
             if realization.uses_os_material() {
                 log::info!(
                     target: "wgpu_l3::native_popup",
-                    "native popup {:?} uses OS material: mode={:?}, alpha={:?}",
+                    "native popup {:?} uses Windows accent acrylic: mode={:?}, alpha={:?}, tint={:?}",
                     presentation.id(),
                     popup.presentation_mode,
-                    alpha_mode
+                    alpha_mode,
+                    material.tint()
                 );
             } else {
                 log::warn!(
@@ -88,6 +90,14 @@ impl Native {
                         .unwrap_or("unknown")
                 );
             }
+            let accent = if realization.uses_os_material() {
+                super::sys::PopupAccentMaterial::Acrylic {
+                    tint: material.tint(),
+                }
+            } else {
+                super::sys::PopupAccentMaterial::Disabled
+            };
+            popup.window.set_popup_accent_material(accent);
             popup.material_realization = Some(realization);
         }
         let source_scene = if realization.uses_os_material() {

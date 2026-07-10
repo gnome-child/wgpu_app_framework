@@ -109,6 +109,10 @@ impl Window {
         super::sys::set_popup_dark_mode(&self.handle, dark);
     }
 
+    pub fn set_popup_accent_material(&self, material: super::sys::PopupAccentMaterial) {
+        super::sys::set_popup_accent_material(&self.handle, material);
+    }
+
     pub fn handle(&self) -> Handle {
         Arc::clone(&self.handle)
     }
@@ -180,15 +184,14 @@ fn configure_platform_popup_attributes(
     owner: Option<&winit::window::Window>,
     mode: PopupPresentationMode,
 ) -> WindowAttributes {
+    use winit::platform::windows::CornerPreference;
     use winit::platform::windows::WindowAttributesExtWindows;
-    use winit::platform::windows::{BackdropType, CornerPreference};
     use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
     let mut attributes = attributes
         .with_skip_taskbar(true)
         .with_no_redirection_bitmap(mode.no_redirection_bitmap())
         .with_undecorated_shadow(true)
-        .with_system_backdrop(BackdropType::TransientWindow)
         .with_corner_preference(CornerPreference::Round);
 
     if let Some(owner) = owner {

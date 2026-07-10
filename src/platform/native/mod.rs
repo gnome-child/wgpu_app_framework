@@ -54,7 +54,7 @@ pub(in crate::platform::native) enum PopupPresentationMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PopupMaterialRealization {
-    OsMaterial,
+    WindowsAccentAcrylic,
     OpaqueFallback,
 }
 
@@ -163,7 +163,7 @@ impl PopupPresentationMode {
     fn realization_for(self, alpha_mode: wgpu::CompositeAlphaMode) -> PopupMaterialRealization {
         match self {
             Self::CompositionBacked if alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied => {
-                PopupMaterialRealization::OsMaterial
+                PopupMaterialRealization::WindowsAccentAcrylic
             }
             Self::CompositionBacked | Self::RedirectedFallback => {
                 PopupMaterialRealization::OpaqueFallback
@@ -174,7 +174,7 @@ impl PopupPresentationMode {
 
 impl PopupMaterialRealization {
     fn uses_os_material(self) -> bool {
-        matches!(self, Self::OsMaterial)
+        matches!(self, Self::WindowsAccentAcrylic)
     }
 
     fn fallback_reason(
@@ -183,7 +183,7 @@ impl PopupMaterialRealization {
         alpha_mode: wgpu::CompositeAlphaMode,
     ) -> Option<&'static str> {
         match (self, mode, alpha_mode) {
-            (Self::OsMaterial, _, _) => None,
+            (Self::WindowsAccentAcrylic, _, _) => None,
             (Self::OpaqueFallback, PopupPresentationMode::RedirectedFallback, _) => {
                 Some("composition-backed popup presentation unavailable")
             }
@@ -289,7 +289,7 @@ mod tests {
         assert_eq!(
             PopupPresentationMode::CompositionBacked
                 .realization_for(wgpu::CompositeAlphaMode::PreMultiplied),
-            PopupMaterialRealization::OsMaterial
+            PopupMaterialRealization::WindowsAccentAcrylic
         );
         assert_eq!(
             PopupPresentationMode::CompositionBacked

@@ -105,7 +105,7 @@ pub(crate) struct PopupPresentation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PopupMaterial {
-    NativeWindow { dark: bool },
+    NativeWindow { dark: bool, tint: scene::Color },
 }
 
 #[derive(Debug)]
@@ -365,7 +365,13 @@ impl PopupPresentation {
 impl PopupMaterial {
     pub(crate) fn dark(self) -> bool {
         match self {
-            Self::NativeWindow { dark } => dark,
+            Self::NativeWindow { dark, .. } => dark,
+        }
+    }
+
+    pub(crate) fn tint(self) -> scene::Color {
+        match self {
+            Self::NativeWindow { tint, .. } => tint,
         }
     }
 }

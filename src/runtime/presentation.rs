@@ -705,6 +705,7 @@ fn append_or_present_overlay_layer(
                 opaque_fallback_scene,
                 crate::overlay::PopupMaterial::NativeWindow {
                     dark: native_popup_dark,
+                    tint: local.accent_tint(),
                 },
             ));
         }

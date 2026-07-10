@@ -2,6 +2,13 @@
 mod windows;
 
 use crate::paint;
+use crate::scene;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::platform::native) enum PopupAccentMaterial {
+    Disabled,
+    Acrylic { tint: scene::Color },
+}
 
 pub(in crate::platform::native) fn enforce_popup_style(window: &winit::window::Window) {
     #[cfg(target_os = "windows")]
@@ -71,5 +78,37 @@ pub(in crate::platform::native) fn set_popup_dark_mode(window: &winit::window::W
     {
         let _ = window;
         let _ = dark;
+    }
+}
+
+pub(in crate::platform::native) fn set_popup_accent_material(
+    window: &winit::window::Window,
+    material: PopupAccentMaterial,
+) {
+    #[cfg(target_os = "windows")]
+    windows::set_popup_accent_material(window, material);
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+        let _ = material;
+    }
+}
+
+pub(in crate::platform::native) fn accent_gradient_abgr(color: scene::Color) -> u32 {
+    let (r, g, b, a) = color.channels();
+    ((a as u32) << 24) | ((b as u32) << 16) | ((g as u32) << 8) | r as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accent_gradient_color_uses_abgr_order() {
+        assert_eq!(
+            accent_gradient_abgr(scene::Color::rgba(0x11, 0x22, 0x33, 0x44)),
+            0x44332211
+        );
     }
 }

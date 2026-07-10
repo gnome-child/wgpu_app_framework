@@ -1,8 +1,10 @@
+use super::PopupAccentMaterial;
 use crate::paint;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
+use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, MA_NOACTIVATE, SW_HIDE,
@@ -11,8 +13,31 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_BORDER, WS_CAPTION, WS_DLGFRAME, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
     WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
 };
+use windows_sys::core::BOOL;
 
 const POPUP_SUBCLASS_ID: usize = 1;
+const WCA_ACCENT_POLICY: u32 = 19;
+const ACCENT_DISABLED: i32 = 0;
+const ACCENT_ENABLE_ACRYLICBLURBEHIND: i32 = 4;
+const ACCENT_ENABLE_GRADIENT_COLOR: i32 = 2;
+
+#[repr(C)]
+struct AccentPolicy {
+    accent_state: i32,
+    accent_flags: i32,
+    gradient_color: u32,
+    animation_id: i32,
+}
+
+#[repr(C)]
+struct WindowCompositionAttribData {
+    attribute: u32,
+    data: *mut core::ffi::c_void,
+    size_of_data: usize,
+}
+
+type SetWindowCompositionAttributeFn =
+    unsafe extern "system" fn(HWND, *mut WindowCompositionAttribData) -> BOOL;
 
 pub(super) fn enforce_popup_style(window: &winit::window::Window) {
     let Some(hwnd) = hwnd(window) else {
@@ -175,6 +200,68 @@ pub(super) fn set_popup_dark_mode(window: &winit::window::Window, dark: bool) {
             "set popup immersive dark mode to {dark}"
         );
     }
+}
+
+pub(super) fn set_popup_accent_material(
+    window: &winit::window::Window,
+    material: PopupAccentMaterial,
+) {
+    let Some(hwnd) = hwnd(window) else {
+        log::warn!(target: "wgpu_l3::native_popup", "cannot set popup accent material without HWND");
+        return;
+    };
+
+    let (state, gradient_color) = match material {
+        PopupAccentMaterial::Disabled => (ACCENT_DISABLED, 0),
+        PopupAccentMaterial::Acrylic { tint } => (
+            ACCENT_ENABLE_ACRYLICBLURBEHIND,
+            super::accent_gradient_abgr(tint),
+        ),
+    };
+    let mut policy = AccentPolicy {
+        accent_state: state,
+        accent_flags: ACCENT_ENABLE_GRADIENT_COLOR,
+        gradient_color,
+        animation_id: 0,
+    };
+    let mut data = WindowCompositionAttribData {
+        attribute: WCA_ACCENT_POLICY,
+        data: (&mut policy as *mut AccentPolicy).cast(),
+        size_of_data: std::mem::size_of::<AccentPolicy>(),
+    };
+    let Some(set_window_composition_attribute) = set_window_composition_attribute() else {
+        log::warn!(
+            target: "wgpu_l3::native_popup",
+            "SetWindowCompositionAttribute unavailable; cannot set popup accent material"
+        );
+        return;
+    };
+    let result = unsafe { set_window_composition_attribute(hwnd, &mut data) };
+
+    if result == 0 {
+        log::warn!(
+            target: "wgpu_l3::native_popup",
+            "failed to set popup accent material {material:?}"
+        );
+    } else {
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "set popup accent material {material:?} gradient={gradient_color:#x}"
+        );
+    }
+}
+
+fn set_window_composition_attribute() -> Option<SetWindowCompositionAttributeFn> {
+    let module = unsafe { GetModuleHandleA(c"user32.dll".as_ptr().cast()) };
+    if module.is_null() {
+        return None;
+    }
+    let proc = unsafe { GetProcAddress(module, c"SetWindowCompositionAttribute".as_ptr().cast()) }?;
+    Some(unsafe {
+        std::mem::transmute::<unsafe extern "system" fn() -> isize, SetWindowCompositionAttributeFn>(
+            proc,
+        )
+    })
 }
 
 fn hwnd(window: &winit::window::Window) -> Option<HWND> {

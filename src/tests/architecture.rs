@@ -1335,10 +1335,18 @@ fn windows_native_popup_clicks_do_not_activate() {
         manifest.contains("\"Win32_Graphics_Dwm\""),
         "popup dark-mode DWM sync must stay behind the Windows bindings"
     );
+    assert!(
+        manifest.contains("\"Win32_System_LibraryLoader\""),
+        "undocumented accent policy must be late-bound through user32 lookup"
+    );
     assert!(windows.contains("SetWindowSubclass"));
     assert!(windows.contains("DefSubclassProc"));
     assert!(windows.contains("RemoveWindowSubclass"));
     assert!(windows.contains("DWMWA_USE_IMMERSIVE_DARK_MODE"));
+    assert!(windows.contains("SetWindowCompositionAttribute"));
+    assert!(windows.contains("ACCENT_ENABLE_ACRYLICBLURBEHIND"));
+    assert!(windows.contains("WCA_ACCENT_POLICY"));
+    assert!(sys_mod.contains("accent_gradient_abgr"));
     assert!(windows.contains("WM_MOUSEACTIVATE"));
     assert!(
         windows.contains("return MA_NOACTIVATE as LRESULT"),
@@ -1378,7 +1386,11 @@ fn windows_native_popup_clicks_do_not_activate() {
         native_window.contains("install_popup_subclass"),
         "popup creation must install the mouse-activation interceptor"
     );
-    assert!(native_window.contains("BackdropType::TransientWindow"));
+    assert!(
+        !native_window.contains("BackdropType::TransientWindow")
+            && !native_window.contains("with_system_backdrop"),
+        "nonactivating native popups must not use focus-coupled DWM system backdrop"
+    );
     assert!(native_window.contains("CornerPreference::Round"));
     assert!(native_window.contains("with_no_redirection_bitmap(mode.no_redirection_bitmap())"));
     assert!(native_window.contains("with_undecorated_shadow(true)"));
@@ -1461,7 +1473,8 @@ fn windows_native_popup_material_uses_dx12_visual_presentation_by_default() {
         "WGPU_BACKEND",
         "key->present",
         "acquire-wait p95",
-        "DwmExtendFrameIntoClientArea",
+        "system backdrop tracks activation state",
+        "SetWindowCompositionAttribute",
         "WS_EX_NOREDIRECTIONBITMAP",
     ] {
         assert!(
@@ -1561,6 +1574,10 @@ fn native_alpha_probe_exposes_backend_and_attribute_bisection_knobs() {
         "Dx12Visual",
         "Vulkan",
         "KeyCode::KeyV | KeyCode::KeyD",
+        "KeyCode::KeyC",
+        "AccentChoice",
+        "ACCENT_ENABLE_ACRYLICBLURBEHIND",
+        "SetWindowCompositionAttribute",
         "with_no_redirection_bitmap(config.no_redirection_bitmap)",
         "with_owner_window",
         "WS_EX_NOACTIVATE",

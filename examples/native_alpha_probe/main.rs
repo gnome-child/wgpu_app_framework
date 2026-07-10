@@ -55,8 +55,26 @@ impl BackendChoice {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AccentChoice {
+    Off,
+    Blur,
+    Acrylic,
+}
+
+impl AccentChoice {
+    fn toggle(self) -> Self {
+        match self {
+            Self::Off => Self::Blur,
+            Self::Blur => Self::Acrylic,
+            Self::Acrylic => Self::Off,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ProbeConfig {
     backend: BackendChoice,
+    accent: AccentChoice,
     no_redirection_bitmap: bool,
     owner: bool,
     popup_undecorated: bool,
@@ -72,6 +90,7 @@ impl Default for ProbeConfig {
     fn default() -> Self {
         Self {
             backend: BackendChoice::Dx12Visual,
+            accent: AccentChoice::Off,
             no_redirection_bitmap: false,
             owner: false,
             popup_undecorated: false,
@@ -90,6 +109,11 @@ impl ProbeConfig {
         let mut attrs = Vec::new();
         if self.no_redirection_bitmap {
             attrs.push("nrb");
+        }
+        match self.accent {
+            AccentChoice::Off => {}
+            AccentChoice::Blur => attrs.push("accent-blur"),
+            AccentChoice::Acrylic => attrs.push("accent-acrylic"),
         }
         if self.owner {
             attrs.push("owner");
@@ -443,6 +467,7 @@ impl App {
     fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode) {
         match code {
             KeyCode::KeyV | KeyCode::KeyD => self.config.backend = self.config.backend.toggle(),
+            KeyCode::KeyC => self.config.accent = self.config.accent.toggle(),
             KeyCode::KeyN => self.config.no_redirection_bitmap ^= true,
             KeyCode::KeyO => self.config.owner ^= true,
             KeyCode::KeyP => self.config.popup_undecorated ^= true,
@@ -552,7 +577,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn print_help() {
     log::info!(
         target: "wgpu_l3::native_alpha_probe",
-        "keys: V/D backend, N no-redirection, O owner, P popup/undecorated, A noactivate, T toolwindow, L topmost, B backdrop, R rounded, S shadow, 0 reset, 1 owner+toolwindow, 2 nrb+backdrop, Q/Esc quit"
+        "keys: V/D backend, C accent off/blur/acrylic, N no-redirection, O owner, P popup/undecorated, A noactivate, T toolwindow, L topmost, B backdrop, R rounded, S shadow, 0 reset, 1 owner+toolwindow, 2 nrb+backdrop, Q/Esc quit"
     );
 }
 
@@ -609,11 +634,37 @@ fn configure_platform_window(window: &Window, config: ProbeConfig) {
     use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
     use windows_sys::Win32::UI::Shell::SetWindowSubclass;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, MA_NOACTIVATE, SetWindowLongPtrW,
         WM_MOUSEACTIVATE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP,
     };
+    use windows_sys::core::BOOL;
+
+    const WCA_ACCENT_POLICY: u32 = 19;
+    const ACCENT_DISABLED: i32 = 0;
+    const ACCENT_ENABLE_BLURBEHIND: i32 = 3;
+    const ACCENT_ENABLE_ACRYLICBLURBEHIND: i32 = 4;
+    const ACCENT_ENABLE_GRADIENT_COLOR: i32 = 2;
+
+    #[repr(C)]
+    struct AccentPolicy {
+        accent_state: i32,
+        accent_flags: i32,
+        gradient_color: u32,
+        animation_id: i32,
+    }
+
+    #[repr(C)]
+    struct WindowCompositionAttribData {
+        attribute: u32,
+        data: *mut core::ffi::c_void,
+        size_of_data: usize,
+    }
+
+    type SetWindowCompositionAttributeFn =
+        unsafe extern "system" fn(HWND, *mut WindowCompositionAttribData) -> BOOL;
 
     let Ok(handle) = window.window_handle() else {
         return;
@@ -639,6 +690,56 @@ fn configure_platform_window(window: &Window, config: ProbeConfig) {
             }
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, exstyle);
         }
+
+        let accent_state = match config.accent {
+            AccentChoice::Off => ACCENT_DISABLED,
+            AccentChoice::Blur => ACCENT_ENABLE_BLURBEHIND,
+            AccentChoice::Acrylic => ACCENT_ENABLE_ACRYLICBLURBEHIND,
+        };
+        let gradient_color = match config.accent {
+            AccentChoice::Off => 0,
+            AccentChoice::Blur | AccentChoice::Acrylic => 0xcc1e1c1c,
+        };
+        let mut policy = AccentPolicy {
+            accent_state,
+            accent_flags: ACCENT_ENABLE_GRADIENT_COLOR,
+            gradient_color,
+            animation_id: 0,
+        };
+        let mut data = WindowCompositionAttribData {
+            attribute: WCA_ACCENT_POLICY,
+            data: (&mut policy as *mut AccentPolicy).cast(),
+            size_of_data: std::mem::size_of::<AccentPolicy>(),
+        };
+        if let Some(set_window_composition_attribute) = set_window_composition_attribute() {
+            let result = set_window_composition_attribute(hwnd, &mut data);
+            log::info!(
+                target: "wgpu_l3::native_alpha_probe",
+                "accent={:?} state={} gradient={gradient_color:#x} result={result}",
+                config.accent,
+                accent_state
+            );
+        } else {
+            log::warn!(
+                target: "wgpu_l3::native_alpha_probe",
+                "SetWindowCompositionAttribute unavailable"
+            );
+        }
+    }
+
+    fn set_window_composition_attribute() -> Option<SetWindowCompositionAttributeFn> {
+        let module = unsafe { GetModuleHandleA(c"user32.dll".as_ptr().cast()) };
+        if module.is_null() {
+            return None;
+        }
+        let proc =
+            unsafe { GetProcAddress(module, c"SetWindowCompositionAttribute".as_ptr().cast()) }?;
+        Some(unsafe {
+            std::mem::transmute::<
+                unsafe extern "system" fn() -> isize,
+                SetWindowCompositionAttributeFn,
+            >(proc)
+        })
     }
 
     unsafe extern "system" fn mouse_activate_proc(

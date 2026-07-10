@@ -376,12 +376,20 @@ surface cannot support that alpha mode, the backend logs the downgrade and
 renders an opaque native-safe fallback scene, still without framework glass.
 All floating panels therefore follow the same backend path, with material
 differences handled below the backend seam.
-On Windows, native popup OS material is `CompositionBacked`: wgpu's DX12
-DirectComposition Visual presentation path, premultiplied popup alpha, and
-`WS_EX_NOREDIRECTIONBITMAP` as one matched set. Non-composition stacks are
-`RedirectedFallback`: the redirection bitmap stays enabled and the popup draws
-an opaque fallback scene so content never disappears. Windows defaults to DX12
-for this path while still honoring `WGPU_BACKEND` for debugging and A/B runs.
+On Windows, documented DWM system backdrop tracks activation state. A
+`NOACTIVATE` popup is permanently inactive for that material and receives the
+solid fallback color even when its owner window is focused. System backdrop may
+still be valid for future activation-capable utility windows, but not for
+nonactivating popup overlays. Windows popup glass therefore uses the
+focus-independent accent policy (`SetWindowCompositionAttribute` with
+`ACCENT_ENABLE_ACRYLICBLURBEHIND`) behind the native sys seam. The accent
+`GradientColor` is ABGR/AABBGGRR and comes from the popup material tint, so tint
+alpha remains a theme/material dial rather than a platform constant.
+`CompositionBacked` still means wgpu's DX12 DirectComposition Visual
+presentation path, premultiplied popup alpha, and `WS_EX_NOREDIRECTIONBITMAP` as
+one matched set; `RedirectedFallback` keeps the redirection bitmap and draws the
+opaque fallback scene so content never disappears. Windows defaults to DX12 for
+this path while still honoring `WGPU_BACKEND` for debugging and A/B runs.
 Because the presentation path is instance-wide, latency gauges (`key->present`
 and acquire-wait p95) are the acceptance instrument for pacing changes.
 RenderDoc capture on Windows may need the explicit
@@ -392,17 +400,14 @@ half-alpha primitive or premultiplied clear, never a straight-alpha clear as
 evidence. The authoritative alpha witness is a standalone primitive over a
 transparent clear with readback that proves both alpha and premultiplied RGB;
 clear-only witnesses and visuals nested inside panel body content are
-contaminated evidence. Premultiplied native popup surfaces render directly to the popup
-surface; they do not take the ordinary composition-texture plus final-blit path,
-because that path exists for opaque app windows and framework backdrop filters.
-`native_alpha_probe` is the permanent Windows instrument for backend and popup
-attribute bisection: start with a boring transparent window, compare DX12
-`DxgiFromVisual` against Vulkan, test single popup attributes first, and only
-then test suspicious pairs such as owner+toolwindow or no-redirection+backdrop.
-If valid premultiplied transparency works and a DirectComposition popup still
-shows no acrylic, the next single-call Windows experiment is
-`DwmExtendFrameIntoClientArea` with sheet-of-glass margins, not a return to
-framework glass inside native popups.
+contaminated evidence. Premultiplied native popup surfaces render directly to
+the popup surface; they do not take the ordinary composition-texture plus final
+blit path, because that path exists for opaque app windows and framework
+backdrop filters. `native_alpha_probe` is the permanent Windows instrument for
+backend, accent, and popup attribute bisection: start with a boring transparent
+window, compare DX12 `DxgiFromVisual` against Vulkan, test single popup
+attributes first, and only then test suspicious pairs such as owner+toolwindow
+or no-redirection+backdrop.
 
 Native popup enter-fade stays disabled until the premultiplied-alpha/group
 blend audit. Menus can ship before that because their content uses the safe
