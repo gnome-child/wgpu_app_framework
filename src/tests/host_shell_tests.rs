@@ -455,11 +455,12 @@ fn text_editor_shell_event_surface_drives_save_flow() {
         shell.runtime().state().last_status,
         format!("saving {}", text_editor::compact_path(&path))
     );
-    assert!(selected.needs_poll());
-
-    let finished = shell
-        .handle_event(shell::Event::Poll)
-        .expect("poll event should run and dispatch task work");
+    assert!(!selected.needs_poll());
+    assert!(
+        shell.run_next_task().is_some(),
+        "headless tests should complete worker work explicitly"
+    );
+    let finished = shell.drain();
 
     assert_eq!(finished.pending_tasks(), 0);
     assert_eq!(finished.task_completions(), 0);
@@ -601,11 +602,12 @@ fn text_editor_host_adapter_consumes_shell_work_end_to_end() {
         })
         .expect("selected save path should schedule save");
 
-    assert!(selected.needs_poll());
-    assert!(host.needs_poll());
+    assert!(!selected.needs_poll());
+    assert!(!host.needs_poll());
     assert!(host.requests().is_empty());
 
-    host.poll().expect("poll should complete save task");
+    assert!(host.shell_mut().run_next_task().is_some());
+    host.drain();
 
     assert!(!host.needs_poll());
     assert_eq!(

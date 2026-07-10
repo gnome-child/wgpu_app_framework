@@ -554,7 +554,10 @@ fn platform_error_exposes_wrapped_source_errors() {
 
 #[test]
 fn native_platform_runner_is_winit_application_handler_without_starting_wgpu() {
-    fn assert_handler<A: winit::application::ApplicationHandler<text_editor::Event>>() {}
+    fn assert_handler<
+        A: winit::application::ApplicationHandler<platform::RunnerEvent<text_editor::Event>>,
+    >() {
+    }
 
     assert_handler::<platform::Runner<text_editor::State, text_editor::Event>>();
 
@@ -682,10 +685,21 @@ fn platform_runner_delegates_lifecycle_and_poll_to_platform() {
             .iter()
             .filter(|event| matches!(event, BackendEvent::Poll))
             .count(),
-        1
+        0
     );
 
-    runner.poll().expect("runner poll should run the task");
+    assert!(
+        runner
+            .platform_mut()
+            .host_mut()
+            .shell_mut()
+            .run_next_task()
+            .is_some()
+    );
+    runner
+        .platform_mut()
+        .drain()
+        .expect("deterministic completion should drain");
 
     assert_eq!(
         runner
@@ -701,7 +715,7 @@ fn platform_runner_delegates_lifecycle_and_poll_to_platform() {
 }
 
 #[test]
-fn platform_poll_scheduling_rearms_after_each_poll_event() {
+fn pending_tasks_do_not_schedule_ui_poll_wakes() {
     let runtime = Runtime::new(EditorState::default())
         .started(|cx| {
             assert!(cx.spawn(Task::ready(())).is_some());
@@ -712,7 +726,7 @@ fn platform_poll_scheduling_rearms_after_each_poll_event() {
 
     platform
         .start()
-        .expect("start should schedule pending tasks");
+        .expect("start should retain pending tasks for worker dispatch");
     assert_eq!(
         platform
             .backend()
@@ -720,11 +734,12 @@ fn platform_poll_scheduling_rearms_after_each_poll_event() {
             .iter()
             .filter(|event| matches!(event, BackendEvent::Poll))
             .count(),
-        1
+        0
     );
+    assert!(!platform.host().needs_poll());
 
-    platform.backend_mut().events.clear();
-    platform.poll().expect("first poll should run one task");
+    assert!(platform.host_mut().shell_mut().run_next_task().is_some());
+    platform.drain().expect("first completion should drain");
     assert_eq!(
         platform
             .backend()
@@ -732,15 +747,13 @@ fn platform_poll_scheduling_rearms_after_each_poll_event() {
             .iter()
             .filter(|event| matches!(event, BackendEvent::Poll))
             .count(),
-        1,
-        "remaining task should schedule another poll wake"
+        0,
+        "remaining worker work must not schedule a UI poll wake"
     );
-    assert!(platform.host().needs_poll());
+    assert!(!platform.host().needs_poll());
 
     platform.backend_mut().events.clear();
-    platform
-        .drain()
-        .expect("duplicate drain should not duplicate scheduled poll");
+    platform.drain().expect("duplicate drain should stay idle");
     assert_eq!(
         platform
             .backend()
@@ -751,9 +764,8 @@ fn platform_poll_scheduling_rearms_after_each_poll_event() {
         0
     );
 
-    platform
-        .poll()
-        .expect("second poll should drain task queue");
+    assert!(platform.host_mut().shell_mut().run_next_task().is_some());
+    platform.drain().expect("second completion should drain");
     assert!(!platform.host().needs_poll());
     assert_eq!(
         platform.animation_schedule(),
@@ -1157,10 +1169,11 @@ fn text_editor_platform_deduplicates_dialogs_and_poll_scheduling() {
             .iter()
             .filter(|event| matches!(event, BackendEvent::Poll))
             .count(),
-        1
+        0
     );
 
-    platform.poll().expect("poll should complete save task");
+    assert!(platform.host_mut().shell_mut().run_next_task().is_some());
+    platform.drain().expect("save completion should drain");
 
     assert!(path.exists());
     assert_eq!(

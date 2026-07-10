@@ -6,10 +6,10 @@ use winit::{
 };
 
 use super::super::{Native, NativeContext};
-use super::Runner;
+use super::{Runner, RunnerEvent};
 use crate::state::State;
 
-impl<M: State, E: Send + 'static> ApplicationHandler<E> for Runner<M, E, Native> {
+impl<M: State, E: Send + 'static> ApplicationHandler<RunnerEvent<E>> for Runner<M, E, Native> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.started {
             self.sync_control_flow(event_loop);
@@ -26,12 +26,15 @@ impl<M: State, E: Send + 'static> ApplicationHandler<E> for Runner<M, E, Native>
         self.finish_native_pass(event_loop);
     }
 
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: E) {
-        self.platform
-            .host_mut()
-            .shell_mut()
-            .runtime_mut()
-            .emit(event);
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: RunnerEvent<E>) {
+        match event {
+            RunnerEvent::TaskCompleted { id, event } => {
+                let runtime = self.platform.host_mut().shell_mut().runtime_mut();
+                if runtime.accept_task_completion(id, event) {
+                    runtime.dispatch_next_task_completion();
+                }
+            }
+        }
 
         let mut context = NativeContext::new(event_loop);
         if let Err(error) = self.platform.drain_with(&mut context) {

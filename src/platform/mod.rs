@@ -14,6 +14,8 @@ pub use event::{
 };
 pub use native::{Native, NativeContext, NativeError};
 #[cfg(test)]
+pub(crate) use runner::RunnerEvent;
+#[cfg(test)]
 pub(super) use runner::file_dialog_selected;
 pub use runner::{Runner, run};
 

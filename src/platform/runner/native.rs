@@ -6,9 +6,9 @@ use winit::{
 };
 
 use super::super::{Error, Native, NativeError, Platform, RunError};
-use super::Runner;
+use super::{Runner, RunnerEvent};
 use crate::animation;
-use crate::{host, shell, state::State};
+use crate::{host, shell, state::State, task};
 
 impl<M: State, E: Send + 'static> Runner<M, E, Native> {
     pub fn new(shell: shell::Shell<M, E>) -> Self {
@@ -16,7 +16,9 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
     }
 
     pub fn run(mut self) -> Result<(), RunError<NativeError>> {
-        let event_loop = EventLoop::<E>::with_user_event().build()?;
+        let event_loop = EventLoop::<RunnerEvent<E>>::with_user_event().build()?;
+        self.task_proxy = Some(event_loop.create_proxy());
+        self.executor = Some(task::Executor::new());
 
         event_loop.run_app(&mut self)?;
 
@@ -74,8 +76,38 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
             return;
         }
 
+        self.dispatch_pending_tasks();
+
         if !self.exit_if_finished(event_loop) {
             self.sync_control_flow(event_loop);
+        }
+    }
+
+    fn dispatch_pending_tasks(&mut self) {
+        let (Some(executor), Some(proxy)) = (&self.executor, &self.task_proxy) else {
+            return;
+        };
+
+        while let Some((id, task)) = self
+            .platform
+            .host_mut()
+            .shell_mut()
+            .runtime_mut()
+            .take_next_task()
+        {
+            let proxy = proxy.clone();
+            let scheduled = executor.spawn(move || {
+                let event = task.run();
+                let _ = proxy.send_event(RunnerEvent::TaskCompleted { id, event });
+            });
+            if !scheduled {
+                log::error!("worker executor rejected task {id:?}");
+                self.platform
+                    .host_mut()
+                    .shell_mut()
+                    .runtime_mut()
+                    .cancel_task(id);
+            }
         }
     }
 

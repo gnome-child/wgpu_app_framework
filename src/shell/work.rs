@@ -77,7 +77,7 @@ impl Work {
     }
 
     pub fn needs_poll(&self) -> bool {
-        self.pending_tasks > 0 || self.task_completions > 0
+        self.task_completions > 0
     }
 
     pub(crate) fn animation_schedule(&self) -> animation::Schedule {

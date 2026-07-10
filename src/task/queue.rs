@@ -51,10 +51,12 @@ impl<E: Send + 'static> Queue<E> {
     pub(crate) fn run_next(&mut self) -> Option<Id> {
         let (id, task) = self.pop()?;
         let event = task.run();
-        let mut inner = self.inner.borrow_mut();
-        inner.complete(id);
-        inner.push_completion(id, event);
+        self.accept_completion(id, event);
         Some(id)
+    }
+
+    pub(crate) fn accept_completion(&mut self, id: Id, event: E) -> bool {
+        self.inner.borrow_mut().accept_completion(id, event)
     }
 
     pub(crate) fn pop_completion(&mut self) -> Option<(Id, E)> {
@@ -131,9 +133,9 @@ impl<E: Send + 'static> Inner<E> {
     }
 
     fn len(&self) -> usize {
-        self.tasks
-            .iter()
-            .filter(|entry| self.status(entry.id) == Some(Status::Pending))
+        self.statuses
+            .values()
+            .filter(|status| **status == Status::Pending)
             .count()
     }
 
@@ -143,9 +145,9 @@ impl<E: Send + 'static> Inner<E> {
 
     fn clear(&mut self) {
         let pending = self.len();
-        for entry in &self.tasks {
-            if self.status(entry.id) == Some(Status::Pending) {
-                self.statuses.insert(entry.id, Status::Canceled);
+        for status in self.statuses.values_mut() {
+            if *status == Status::Pending {
+                *status = Status::Canceled;
             }
         }
         self.tasks.clear();
@@ -170,11 +172,18 @@ impl<E: Send + 'static> Inner<E> {
         true
     }
 
-    fn complete(&mut self, id: Id) {
-        if self.status(id) == Some(Status::Pending) {
-            self.statuses.insert(id, Status::Completed);
-            log::debug!("completed task {id:?}");
+    fn accept_completion(&mut self, id: Id, event: E) -> bool {
+        if self.status(id) != Some(Status::Pending) {
+            log::debug!(
+                "discarding task completion {id:?}; status={:?}",
+                self.status(id)
+            );
+            return false;
         }
+        self.statuses.insert(id, Status::Completed);
+        log::debug!("completed task {id:?}");
+        self.push_completion(id, event);
+        true
     }
 
     fn status(&self, id: Id) -> Option<Status> {

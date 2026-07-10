@@ -1,5 +1,6 @@
 use std::future::Future;
 
+mod executor;
 mod id;
 mod outcome;
 mod queue;
@@ -8,6 +9,7 @@ mod sink;
 pub use id::{Id, Status};
 pub use outcome::Outcome;
 
+pub(crate) use executor::Executor;
 pub(crate) use queue::Queue;
 pub(crate) use sink::{AnyTask, Sink};
 

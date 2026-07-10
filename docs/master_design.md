@@ -194,6 +194,17 @@ and action metadata. View answers "what is being presented?" It should not own
 input dispatch, command execution, mutation history, platform rendering, or
 task execution.
 
+`task`
+
+Owns deferred job execution through a bounded worker pool. `Task<E>` describes
+work that eventually produces an application event; native `Runner` moves the
+job to the executor, returns its completion through the event-loop proxy, and
+only then dispatches the event on the UI thread. Pending work never requests a
+UI poll wake. Cancellation and runtime restore keep the task id authoritative,
+so a late worker completion for a no-longer-pending id is inert. Headless test
+helpers may execute a task deterministically, but they are not the native
+production path.
+
 Visible naming has separate meanings. `interaction::Id` is invisible identity
 for reconciliation, hit targets, tests, and runtime lookup. `label` is visible
 presentation text and should be painted when the role presents labels. A node

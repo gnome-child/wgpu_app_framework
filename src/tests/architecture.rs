@@ -2382,6 +2382,52 @@ fn suboptimal_surface_reconfiguration_waits_for_present() {
     );
 }
 
+#[test]
+fn deferred_tasks_have_one_worker_execution_path() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let executor = std::fs::read_to_string(root.join("src/task/executor.rs"))
+        .expect("task executor source should read");
+    let native = std::fs::read_to_string(root.join("src/platform/runner/native.rs"))
+        .expect("native runner source should read");
+    let handler = std::fs::read_to_string(root.join("src/platform/runner/handler.rs"))
+        .expect("native runner handler source should read");
+    let work = std::fs::read_to_string(root.join("src/shell/work.rs"))
+        .expect("shell work source should read");
+    let master = std::fs::read_to_string(root.join("docs/master_design.md"))
+        .expect("master design should read");
+
+    assert!(
+        executor.contains("thread::Builder::new()")
+            && executor.contains("wgpu_l3-worker-")
+            && executor.contains("sender.send(Box::new(job))"),
+        "task module must own execution on named worker threads"
+    );
+    assert!(
+        native.contains("executor.spawn(move ||")
+            && native.contains("proxy.send_event(RunnerEvent::TaskCompleted"),
+        "native runner must send worker results through its event-loop proxy"
+    );
+    assert!(
+        handler.contains("runtime.accept_task_completion(id, event)")
+            && handler.contains("runtime.dispatch_next_task_completion()"),
+        "only accepted task ids may dispatch completion events on the UI thread"
+    );
+    let needs_poll = work
+        .split("pub fn needs_poll(&self) -> bool")
+        .nth(1)
+        .and_then(|source| source.split("pub(crate) fn animation_schedule").next())
+        .expect("Work::needs_poll body should exist");
+    assert!(needs_poll.contains("self.task_completions > 0"));
+    assert!(
+        !needs_poll.contains("pending_tasks"),
+        "pending worker jobs must not create UI poll wakes"
+    );
+    assert!(
+        master.contains("Owns deferred job execution through a bounded worker pool"),
+        "master design must name the owner of deferred task execution"
+    );
+}
+
 fn assert_source_patterns_absent(path: &std::path::Path, patterns: &[String]) {
     for entry in std::fs::read_dir(path).expect("framework source directory should be readable") {
         let path = entry

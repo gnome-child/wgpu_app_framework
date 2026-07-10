@@ -22,6 +22,14 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         self.tasks.run_next()
     }
 
+    pub(crate) fn take_next_task(&mut self) -> Option<(task::Id, task::Task<E>)> {
+        self.tasks.pop()
+    }
+
+    pub(crate) fn accept_task_completion(&mut self, id: task::Id, event: E) -> bool {
+        self.tasks.accept_completion(id, event)
+    }
+
     pub fn dispatch_next_task_completion(&mut self) -> Option<task::Outcome> {
         let (id, event) = self.tasks.pop_completion()?;
         let before = self.revision();

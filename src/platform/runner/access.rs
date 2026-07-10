@@ -9,6 +9,8 @@ impl<M: State, E: Send + 'static, B: Backend> Runner<M, E, B> {
             events: Events::new(),
             started: false,
             error: None,
+            executor: None,
+            task_proxy: None,
         }
     }
 

@@ -765,6 +765,96 @@ fn future_tasks_complete_through_runtime_events() {
 }
 
 #[test]
+fn task_executor_runs_future_work_off_the_calling_thread() {
+    let calling_thread = std::thread::current().id();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let executor = task::Executor::new();
+    let work = Task::future(async move {
+        (
+            std::thread::current().id(),
+            std::thread::current().name().map(str::to_owned),
+        )
+    });
+
+    assert!(executor.spawn(move || {
+        sender
+            .send(work.run())
+            .expect("worker result receiver should remain connected");
+    }));
+    let (worker_thread, worker_name) = receiver
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("worker should complete the future");
+
+    assert_ne!(worker_thread, calling_thread);
+    assert!(
+        worker_name.is_some_and(|name| name.starts_with("wgpu_l3-worker-")),
+        "task work should run on a named framework worker"
+    );
+}
+
+#[test]
+fn cancellation_discards_an_in_flight_task_completion() {
+    let mut app = Runtime::new(EditorState::default())
+        .commands(|commands| {
+            commands.register::<SpawnEditorEvent>(command::Spec::new("Spawn Event"));
+        })
+        .responders(|responders| {
+            responders.app().target::<SpawnEditorEvent>();
+        })
+        .event(|cx, event: EditorEvent| {
+            if let EditorEvent::Edited = event {
+                cx.change(state::Reason::event("edited"), |state| {
+                    state.event_count += 1;
+                });
+            }
+        });
+
+    let id = app
+        .invoke(app.trigger::<SpawnEditorEvent>(EditorEvent::Edited))
+        .output
+        .expect("spawn command should resolve")
+        .expect("task should be accepted");
+    let (taken_id, work) = app.take_next_task().expect("worker should take the task");
+    assert_eq!(taken_id, id);
+    assert_eq!(app.pending_tasks(), 1, "in-flight work remains pending");
+
+    assert!(app.cancel_task(id));
+    assert!(!app.accept_task_completion(id, work.run()));
+
+    assert_eq!(app.task_status(id), Some(task::Status::Canceled));
+    assert_eq!(app.pending_tasks(), 0);
+    assert_eq!(app.pending_task_completions(), 0);
+    assert_eq!(app.state().event_count, 0);
+}
+
+#[test]
+fn restore_discards_an_in_flight_task_completion() {
+    let mut app = Runtime::new(EditorState::default())
+        .commands(|commands| {
+            commands.register::<SpawnEditorEvent>(command::Spec::new("Spawn Event"));
+        })
+        .responders(|responders| {
+            responders.app().target::<SpawnEditorEvent>();
+        })
+        .event(|_, _: EditorEvent| {});
+    let snapshot = app.snapshot();
+    let id = app
+        .invoke(app.trigger::<SpawnEditorEvent>(EditorEvent::Edited))
+        .output
+        .expect("spawn command should resolve")
+        .expect("task should be accepted");
+    let (taken_id, work) = app.take_next_task().expect("worker should take the task");
+    assert_eq!(taken_id, id);
+
+    app.restore(snapshot);
+    assert!(!app.accept_task_completion(id, work.run()));
+
+    assert_eq!(app.task_status(id), Some(task::Status::Canceled));
+    assert_eq!(app.pending_tasks(), 0);
+    assert_eq!(app.pending_task_completions(), 0);
+}
+
+#[test]
 fn pending_tasks_can_be_canceled_before_they_emit_events() {
     let mut app = Runtime::new(EditorState::default())
         .commands(|commands| {
