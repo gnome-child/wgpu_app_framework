@@ -13,6 +13,7 @@ pub(crate) struct Draft {
     bounds: geometry::Rect,
     scene: scene::Scene,
     preference: Preference,
+    popup_material_preference: PopupMaterialPreference,
     force_group_at_full_opacity: bool,
 }
 
@@ -23,6 +24,7 @@ struct Entry {
     bounds: geometry::Rect,
     scene: scene::Scene,
     backend: Backend,
+    popup_material_preference: PopupMaterialPreference,
     opacity: f32,
     state: State,
     elapsed: Duration,
@@ -57,6 +59,7 @@ pub(crate) struct Layer {
     opacity: f32,
     kind: LayerKind,
     backend: Backend,
+    popup_material_preference: PopupMaterialPreference,
     state: Option<State>,
     elapsed: Option<Duration>,
     force_group_at_full_opacity: bool,
@@ -83,6 +86,13 @@ pub(crate) enum Backend {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PopupMaterialPreference {
+    System,
+    OpaqueFallback,
+    NoAccent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Capabilities {
     native_popups: bool,
 }
@@ -105,7 +115,11 @@ pub(crate) struct PopupPresentation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PopupMaterial {
-    NativeWindow { dark: bool, tint: scene::Color },
+    NativeWindow {
+        dark: bool,
+        tint: scene::Color,
+        preference: PopupMaterialPreference,
+    },
 }
 
 #[derive(Debug)]
@@ -139,6 +153,7 @@ impl Draft {
             bounds,
             scene,
             preference: Preference::InFrame,
+            popup_material_preference: PopupMaterialPreference::System,
             force_group_at_full_opacity: false,
         }
     }
@@ -150,6 +165,11 @@ impl Draft {
 
     pub(crate) fn force_group_at_full_opacity(mut self, force: bool) -> Self {
         self.force_group_at_full_opacity = force;
+        self
+    }
+
+    pub(crate) fn popup_material_preference(mut self, preference: PopupMaterialPreference) -> Self {
+        self.popup_material_preference = preference;
         self
     }
 
@@ -173,6 +193,7 @@ impl Entry {
             opacity: self.opacity,
             kind: LayerKind::Live,
             backend: self.backend,
+            popup_material_preference: self.popup_material_preference,
             state: Some(self.state),
             elapsed: Some(self.elapsed),
             force_group_at_full_opacity: self.force_group_at_full_opacity,
@@ -196,6 +217,7 @@ impl Ghost {
             opacity: self.opacity_at(now),
             kind: LayerKind::Ghost,
             backend: Backend::InFrame,
+            popup_material_preference: PopupMaterialPreference::System,
             state: None,
             elapsed: Some(now.saturating_duration_since(self.started_at)),
             force_group_at_full_opacity: false,
@@ -249,6 +271,10 @@ impl Layer {
 
     pub(crate) fn backend(&self) -> Backend {
         self.backend
+    }
+
+    pub(crate) fn popup_material_preference(&self) -> PopupMaterialPreference {
+        self.popup_material_preference
     }
 
     pub(crate) fn state(&self) -> Option<State> {
@@ -374,6 +400,12 @@ impl PopupMaterial {
             Self::NativeWindow { tint, .. } => tint,
         }
     }
+
+    pub(crate) fn preference(self) -> PopupMaterialPreference {
+        match self {
+            Self::NativeWindow { preference, .. } => preference,
+        }
+    }
 }
 
 impl Store {
@@ -436,9 +468,10 @@ impl Store {
             let backend = resolve_backend(draft.preference, capabilities);
             log::debug!(
                 target: "wgpu_l3::overlay::backend",
-                "resolved overlay backend id={:?} preference={:?} backend={:?} native_popups={}",
+                "resolved overlay backend id={:?} preference={:?} material_preference={:?} backend={:?} native_popups={}",
                 draft.id,
                 draft.preference,
+                draft.popup_material_preference,
                 backend,
                 capabilities.native_popups_supported()
             );
@@ -471,6 +504,7 @@ impl Store {
                 bounds: draft.bounds,
                 scene: draft.scene,
                 backend,
+                popup_material_preference: draft.popup_material_preference,
                 opacity,
                 state: state_kind,
                 elapsed: now.saturating_duration_since(appeared_at),
@@ -627,6 +661,27 @@ mod tests {
         );
 
         assert_eq!(update.layers[0].backend(), Backend::NativePopup);
+    }
+
+    #[test]
+    fn popup_material_preference_reaches_native_layer() {
+        let mut store = Store::new();
+        let window = window::Id::new(25);
+        let update = store.update_window(
+            window,
+            vec![
+                popup_draft("foreground_clarity")
+                    .popup_material_preference(PopupMaterialPreference::NoAccent),
+            ],
+            overlay_theme(0, 0),
+            Capabilities::with_native_popups(),
+            Instant::now(),
+        );
+
+        assert_eq!(
+            update.layers[0].popup_material_preference(),
+            PopupMaterialPreference::NoAccent
+        );
     }
 
     #[test]

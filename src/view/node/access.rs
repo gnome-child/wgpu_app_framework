@@ -3,7 +3,7 @@ use super::super::{
     control::{Button, Checkbox, Control, Radio, Slider, TextArea, TextBox},
     style::Style,
 };
-use super::{Axis, FloatingPlacement, Node, Role};
+use super::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node, Role};
 use crate::{interaction, subject};
 
 impl Node {
@@ -25,6 +25,10 @@ impl Node {
 
     pub(crate) fn force_overlay_group(&self) -> bool {
         self.force_overlay_group
+    }
+
+    pub(crate) fn native_popup_material_preference(&self) -> NativePopupMaterialPreference {
+        self.native_popup_material_preference
     }
 
     pub fn subject(&self) -> Option<&subject::Segment> {

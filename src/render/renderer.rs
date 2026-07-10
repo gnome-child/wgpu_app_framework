@@ -1146,6 +1146,63 @@ mod tests {
         );
     }
 
+    #[test]
+    #[ignore = "GPU readback diagnostic for native popup foreground alpha investigation"]
+    fn premultiplied_quad_aa_edge_witness_preserves_fractional_coverage() {
+        let mut scene = paint::Scene::new();
+        scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0));
+        scene.push_quad(paint::Quad::unchecked_for_test(
+            Rect::rounded(
+                paint::point::logical(4.0, 4.0),
+                paint::area::logical(24.0, 24.0),
+                paint::Rounding::fixed(8.0),
+            ),
+            paint::Style {
+                fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::rgba(
+                    1.0, 0.0, 0.0, 1.0,
+                )))),
+                stroke: None,
+                tint: None,
+            },
+            paint::Rasterization {
+                edge_mode: paint::EdgeMode::Antialiased,
+            },
+            paint::Transform::identity(),
+        ));
+
+        let pixels = pollster::block_on(read_premultiplied_scene_pixels(scene, 32, 32))
+            .expect("quad witness should render and read back");
+        let sample = fractional_red_sample(&pixels)
+            .expect("rounded quad should produce at least one fractional AA edge pixel");
+
+        assert_premultiplied_red(sample, "quad AA edge");
+    }
+
+    #[test]
+    #[ignore = "GPU readback diagnostic for native popup foreground alpha investigation"]
+    fn premultiplied_glyph_witness_preserves_fractional_coverage() {
+        let mut scene = paint::Scene::new();
+        scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0));
+        scene.push_text(paint::Text {
+            rect: Rect::new(
+                paint::point::logical(2.0, 2.0),
+                paint::area::logical(60.0, 28.0),
+            ),
+            document: text::document::Document::plain("Ag")
+                .with_color(text::Color::RED)
+                .with_size(24.0),
+            wrap: paint::TextWrap::None,
+            vertical_align: paint::TextVerticalAlign::Center,
+        });
+
+        let pixels = pollster::block_on(read_premultiplied_scene_pixels(scene, 64, 32))
+            .expect("glyph witness should render and read back");
+        let sample = fractional_red_sample(&pixels)
+            .expect("glyph mask should produce at least one fractional coverage pixel");
+
+        assert_premultiplied_red(sample, "glyph fractional coverage");
+    }
+
     async fn read_direct_premultiplied_alpha_witness() -> Result<[f32; 4], String> {
         let context = render::Context::new(render::ContextOptions {
             device_label: "wgpu_l3 alpha witness",
@@ -1304,5 +1361,178 @@ mod tests {
         output.unmap();
 
         Ok(pixel)
+    }
+
+    async fn read_premultiplied_scene_pixels(
+        scene: paint::Scene,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<[f32; 4]>, String> {
+        let context = render::Context::new(render::ContextOptions {
+            device_label: "wgpu_l3 foreground alpha witness",
+            backends: wgpu::Backends::PRIMARY,
+            power_preference: wgpu::PowerPreference::default(),
+            force_fallback_adapter: false,
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::downlevel_defaults(),
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+
+        let format = wgpu::TextureFormat::Rgba8Unorm;
+        let texture = context.device().create_texture(&wgpu::TextureDescriptor {
+            label: Some("Foreground Alpha Witness Target"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut renderer = Renderer::new(&context, format);
+        let viewport = render::Viewport::from_logical_area(
+            paint::area::logical(width as f32, height as f32),
+            1.0,
+        );
+        let item_batch_list = item_batches(scene.items());
+        let text_batch_count = glyph_batch_count(&item_batch_list);
+        if text_batch_count > 0 {
+            renderer
+                .text_renderer
+                .prepare_frame(&context, text_batch_count);
+        }
+        let mut text_renderer_index = 0;
+        let prepared_scene = renderer
+            .prepare_scene_batches(
+                &context,
+                viewport,
+                &item_batch_list,
+                &mut text_renderer_index,
+            )
+            .map_err(|error| error.to_string())?;
+        let mut text_render_error = None;
+        let mut encoder =
+            context
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Foreground Alpha Witness Encoder"),
+                });
+        {
+            let _clear = begin_main_pass(&mut encoder, &view, wgpu::Color::TRANSPARENT, true);
+        }
+        let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
+            render_context: &context,
+            quad_pipeline: &renderer.quad_pipeline,
+            filter_renderer: &renderer.filter_renderer,
+            text_renderer: &mut renderer.text_renderer,
+            encoder: &mut encoder,
+            base_view: &view,
+            backdrop_view: &view,
+            backdrop_target: render::filter::Target::from_viewport(viewport),
+            clear_color: wgpu::Color::TRANSPARENT,
+            viewport,
+            base_dirty: true,
+            inside_group: false,
+            text_render_error: &mut text_render_error,
+        });
+        scene_encoder.encode(&prepared_scene.render_batches);
+
+        let bytes_per_pixel = 4u32;
+        let unpadded_bytes_per_row = width * bytes_per_pixel;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
+        let output_buffer_size = padded_bytes_per_row as u64 * height as u64;
+        let output = context.device().create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Foreground Alpha Witness Readback"),
+            size: output_buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &output,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        context.queue().submit(Some(encoder.finish()));
+
+        let slice = output.slice(..);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        context
+            .device()
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            })
+            .map_err(|error| error.to_string())?;
+        receiver
+            .recv()
+            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())?;
+
+        let data = slice.get_mapped_range();
+        let mut pixels = Vec::with_capacity((width * height) as usize);
+        for y in 0..height as usize {
+            for x in 0..width as usize {
+                let offset = y * padded_bytes_per_row as usize + x * bytes_per_pixel as usize;
+                pixels.push([
+                    data[offset] as f32 / 255.0,
+                    data[offset + 1] as f32 / 255.0,
+                    data[offset + 2] as f32 / 255.0,
+                    data[offset + 3] as f32 / 255.0,
+                ]);
+            }
+        }
+        drop(data);
+        output.unmap();
+
+        Ok(pixels)
+    }
+
+    fn fractional_red_sample(pixels: &[[f32; 4]]) -> Option<[f32; 4]> {
+        pixels
+            .iter()
+            .copied()
+            .find(|pixel| pixel[3] > 0.1 && pixel[3] < 0.9 && pixel[0] > 0.02)
+    }
+
+    fn assert_premultiplied_red(sample: [f32; 4], label: &str) {
+        assert!(
+            sample[0] <= sample[3] + 0.04,
+            "{label} red must not exceed alpha on premultiplied output, got rgba={sample:?}"
+        );
+        assert!(
+            (sample[0] - sample[3]).abs() <= 0.06,
+            "{label} red should track fractional alpha, got rgba={sample:?}"
+        );
+        assert!(
+            sample[1] <= 0.02 && sample[2] <= 0.02,
+            "{label} green/blue should stay near zero, got rgba={sample:?}"
+        );
     }
 }

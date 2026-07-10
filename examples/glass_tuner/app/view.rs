@@ -1,7 +1,7 @@
 use super::{
     State,
-    command::{SetToken, ToggleComparison, ToggleForcePromoted, TogglePanel},
-    state::AcrylicToken,
+    command::{CycleForegroundMode, SetToken, ToggleComparison, ToggleForcePromoted, TogglePanel},
+    state::{AcrylicToken, ForegroundMode},
 };
 use wgpu_l3::{
     View, geometry, interaction, scene,
@@ -11,6 +11,7 @@ use wgpu_l3::{
 
 const PANEL_ID: interaction::Id = interaction::Id::new("glass_tuner.panel");
 const COMPARISON_ID: interaction::Id = interaction::Id::new("glass_tuner.promotion_comparison");
+const FOREGROUND_ID: interaction::Id = interaction::Id::new("glass_tuner.foreground_clarity");
 
 pub const WINDOW_TITLE: &str = "wgpu_l3 Acrylic Tuner";
 pub const CANVAS_COLOR: scene::Color = scene::Color::rgb(17, 18, 20);
@@ -66,6 +67,15 @@ fn toolbar(state: &State) -> widget::Element {
                     .reserve_labels(["Force promote"])
                     .trigger::<ToggleForcePromoted>(()),
             );
+            ui.button(
+                widget::Button::new(format!("Foreground: {}", state.foreground_mode.label()))
+                    .reserve_labels([
+                        "Foreground: Acrylic",
+                        "Foreground: Opaque fallback",
+                        "Foreground: No accent",
+                    ])
+                    .trigger::<CycleForegroundMode>(()),
+            );
             ui.label(format!("Status: {}", state.last_status));
         })
 }
@@ -84,6 +94,7 @@ fn stage(state: &State) -> widget::Element {
             ui.add(color_bars());
             if state.panel_open {
                 ui.add(floating_panel(state));
+                ui.add(foreground_panel(state));
             }
             if state.comparison_open {
                 ui.add(comparison_panel(state));
@@ -178,6 +189,83 @@ fn comparison_panel(state: &State) -> widget::panel::Floating {
             );
             ui.label(state.tint.hex());
         })
+}
+
+fn foreground_panel(state: &State) -> widget::panel::Floating {
+    widget::panel::Floating::new(FOREGROUND_ID)
+        .offset(588, 282)
+        .diagnostic_native_popup_material(state.foreground_mode.popup_preference())
+        .column()
+        .width(Dimension::fixed(340))
+        .height(Dimension::fixed(310))
+        .layout(|layout| layout.gap(8))
+        .children(|ui| {
+            ui.label("Foreground clarity");
+            ui.label(format!("Mode: {}", state.foreground_mode.label()));
+            ui.add(line(scene::Color::rgba(245, 245, 247, 120), 300, 1));
+            ui.row(|ui| {
+                ui.add(swatch(scene::Color::rgba(255, 64, 64, 128)));
+                ui.add(swatch(scene::Color::rgba(64, 180, 255, 128)));
+                ui.add(swatch(scene::Color::rgba(245, 245, 247, 180)));
+                ui.label("Half-alpha quads");
+            });
+            ui.add(grid_strip());
+            ui.label("Glyph coverage: Agjpqy 0123456789");
+            ui.label("Shortcut glyphs: Ctrl Shift Alt Enter");
+            ui.add(line(scene::Color::rgba(245, 245, 247, 96), 300, 1));
+            add_slider(ui, AcrylicToken::TintOpacity, state.tint_opacity, 0.0..=1.0);
+            add_slider(
+                ui,
+                AcrylicToken::NoiseOpacity,
+                state.noise_opacity,
+                0.0..=0.08,
+            );
+            ui.label(foreground_hint(state.foreground_mode));
+        })
+}
+
+fn foreground_hint(mode: ForegroundMode) -> &'static str {
+    match mode {
+        ForegroundMode::Acrylic => "Compare against OS acrylic.",
+        ForegroundMode::OpaqueFallback => "If crust remains here, suspect scale.",
+        ForegroundMode::NoAccent => "Transparent surface with no accent.",
+    }
+}
+
+fn grid_strip() -> widget::Element {
+    widget::Element::new()
+        .row()
+        .width(Dimension::fixed(300))
+        .height(Dimension::fixed(34))
+        .children(|ui| {
+            for index in 0..30 {
+                let color = if index % 2 == 0 {
+                    scene::Color::rgba(245, 245, 247, 220)
+                } else {
+                    scene::Color::rgba(20, 22, 26, 220)
+                };
+                ui.add(line(color, 1, 34));
+                ui.add(
+                    widget::Element::new()
+                        .width(Dimension::fixed(9))
+                        .height(Dimension::fixed(34)),
+                );
+            }
+        })
+}
+
+fn line(color: scene::Color, width: i32, height: i32) -> widget::Element {
+    widget::Element::new()
+        .width(Dimension::fixed(width))
+        .height(Dimension::fixed(height))
+        .background(scene::Brush::solid(color))
+}
+
+fn swatch(color: scene::Color) -> widget::Element {
+    widget::Element::new()
+        .width(Dimension::fixed(34))
+        .height(Dimension::fixed(22))
+        .background(scene::Brush::solid(color))
 }
 
 fn add_slider(

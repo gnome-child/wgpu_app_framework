@@ -89,10 +89,21 @@ fn paint_overlay_entries(
             (!scene.is_empty()).then(|| {
                 overlay::Draft::new(id, panel.rect(), scene)
                     .prefer(overlay::Preference::NativePopup)
+                    .popup_material_preference(popup_material_preference(panel))
                     .force_group_at_full_opacity(panel.force_overlay_group())
             })
         })
         .collect()
+}
+
+fn popup_material_preference(panel: &layout::Frame) -> overlay::PopupMaterialPreference {
+    match panel.native_popup_material_preference() {
+        view::NativePopupMaterialPreference::System => overlay::PopupMaterialPreference::System,
+        view::NativePopupMaterialPreference::OpaqueFallback => {
+            overlay::PopupMaterialPreference::OpaqueFallback
+        }
+        view::NativePopupMaterialPreference::NoAccent => overlay::PopupMaterialPreference::NoAccent,
+    }
 }
 
 fn root_floating_panels(layout: &layout::Layout) -> Vec<&layout::Frame> {

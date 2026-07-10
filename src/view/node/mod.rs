@@ -19,6 +19,13 @@ pub enum FloatingPlacement {
     Offset { x: i32, y: i32 },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativePopupMaterialPreference {
+    System,
+    OpaqueFallback,
+    NoAccent,
+}
+
 #[derive(Clone)]
 pub struct Node {
     role: Role,
@@ -27,6 +34,7 @@ pub struct Node {
     style: Style,
     floating_placement: FloatingPlacement,
     force_overlay_group: bool,
+    native_popup_material_preference: NativePopupMaterialPreference,
     subject: Option<subject::Segment>,
     label: Option<String>,
     binding: Option<Binding>,

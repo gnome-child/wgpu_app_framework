@@ -55,6 +55,7 @@ pub(in crate::platform::native) enum PopupPresentationMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PopupMaterialRealization {
     WindowsAccentAcrylic,
+    TransparentNoAccent,
     OpaqueFallback,
 }
 
@@ -138,6 +139,15 @@ impl PopupGeometry {
     fn logical_area(self) -> crate::paint::area::Logical {
         crate::paint::area::logical(self.width, self.height)
     }
+
+    #[cfg(test)]
+    fn rounded_physical_area(self) -> crate::paint::area::Physical {
+        let scale = f64::from_bits(self.scale_factor_bits);
+        crate::paint::area::physical(
+            ((self.width as f64) * scale).round() as u32,
+            ((self.height as f64) * scale).round() as u32,
+        )
+    }
 }
 
 impl PopupPresentationMode {
@@ -160,13 +170,32 @@ impl PopupPresentationMode {
         }
     }
 
-    fn realization_for(self, alpha_mode: wgpu::CompositeAlphaMode) -> PopupMaterialRealization {
-        match self {
-            Self::CompositionBacked if alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied => {
-                PopupMaterialRealization::WindowsAccentAcrylic
-            }
-            Self::CompositionBacked | Self::RedirectedFallback => {
+    fn realization_for(
+        self,
+        alpha_mode: wgpu::CompositeAlphaMode,
+        preference: overlay::PopupMaterialPreference,
+    ) -> PopupMaterialRealization {
+        match preference {
+            overlay::PopupMaterialPreference::OpaqueFallback => {
                 PopupMaterialRealization::OpaqueFallback
+            }
+            overlay::PopupMaterialPreference::NoAccent => {
+                if self == Self::CompositionBacked
+                    && alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied
+                {
+                    PopupMaterialRealization::TransparentNoAccent
+                } else {
+                    PopupMaterialRealization::OpaqueFallback
+                }
+            }
+            overlay::PopupMaterialPreference::System => {
+                if self == Self::CompositionBacked
+                    && alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied
+                {
+                    PopupMaterialRealization::WindowsAccentAcrylic
+                } else {
+                    PopupMaterialRealization::OpaqueFallback
+                }
             }
         }
     }
@@ -177,6 +206,10 @@ impl PopupMaterialRealization {
         matches!(self, Self::WindowsAccentAcrylic)
     }
 
+    fn uses_native_material_scene(self) -> bool {
+        matches!(self, Self::WindowsAccentAcrylic | Self::TransparentNoAccent)
+    }
+
     fn fallback_reason(
         self,
         mode: PopupPresentationMode,
@@ -184,6 +217,7 @@ impl PopupMaterialRealization {
     ) -> Option<&'static str> {
         match (self, mode, alpha_mode) {
             (Self::WindowsAccentAcrylic, _, _) => None,
+            (Self::TransparentNoAccent, _, _) => None,
             (Self::OpaqueFallback, PopupPresentationMode::RedirectedFallback, _) => {
                 Some("composition-backed popup presentation unavailable")
             }
@@ -228,6 +262,7 @@ mod tests {
     use super::{
         PopupGeometry, PopupGeometryState, PopupMaterialRealization, PopupPresentationMode,
     };
+    use crate::overlay::PopupMaterialPreference;
 
     fn geometry(x: i32, y: i32, scale: f64) -> PopupGeometry {
         PopupGeometry {
@@ -270,6 +305,20 @@ mod tests {
     }
 
     #[test]
+    fn popup_geometry_scale_chain_rounds_logical_size_to_physical_size() {
+        let geometry = geometry(10, 20, 1.5);
+
+        assert_eq!(
+            geometry.logical_area(),
+            crate::paint::area::logical(240.0, 180.0)
+        );
+        assert_eq!(
+            geometry.rounded_physical_area(),
+            crate::paint::area::physical(360, 270)
+        );
+    }
+
+    #[test]
     fn popup_presentation_mode_pairs_no_redirection_with_premultiplied_alpha() {
         assert!(PopupPresentationMode::CompositionBacked.no_redirection_bitmap());
         assert_eq!(
@@ -287,18 +336,49 @@ mod tests {
     #[test]
     fn popup_material_realization_requires_composition_and_premultiplied_alpha() {
         assert_eq!(
-            PopupPresentationMode::CompositionBacked
-                .realization_for(wgpu::CompositeAlphaMode::PreMultiplied),
+            PopupPresentationMode::CompositionBacked.realization_for(
+                wgpu::CompositeAlphaMode::PreMultiplied,
+                PopupMaterialPreference::System
+            ),
             PopupMaterialRealization::WindowsAccentAcrylic
         );
         assert_eq!(
-            PopupPresentationMode::CompositionBacked
-                .realization_for(wgpu::CompositeAlphaMode::Opaque),
+            PopupPresentationMode::CompositionBacked.realization_for(
+                wgpu::CompositeAlphaMode::Opaque,
+                PopupMaterialPreference::System
+            ),
             PopupMaterialRealization::OpaqueFallback
         );
         assert_eq!(
-            PopupPresentationMode::RedirectedFallback
-                .realization_for(wgpu::CompositeAlphaMode::PreMultiplied),
+            PopupPresentationMode::RedirectedFallback.realization_for(
+                wgpu::CompositeAlphaMode::PreMultiplied,
+                PopupMaterialPreference::System
+            ),
+            PopupMaterialRealization::OpaqueFallback
+        );
+    }
+
+    #[test]
+    fn popup_material_diagnostics_can_force_realization() {
+        assert_eq!(
+            PopupPresentationMode::CompositionBacked.realization_for(
+                wgpu::CompositeAlphaMode::PreMultiplied,
+                PopupMaterialPreference::OpaqueFallback
+            ),
+            PopupMaterialRealization::OpaqueFallback
+        );
+        assert_eq!(
+            PopupPresentationMode::CompositionBacked.realization_for(
+                wgpu::CompositeAlphaMode::PreMultiplied,
+                PopupMaterialPreference::NoAccent
+            ),
+            PopupMaterialRealization::TransparentNoAccent
+        );
+        assert_eq!(
+            PopupPresentationMode::RedirectedFallback.realization_for(
+                wgpu::CompositeAlphaMode::PreMultiplied,
+                PopupMaterialPreference::NoAccent
+            ),
             PopupMaterialRealization::OpaqueFallback
         );
     }

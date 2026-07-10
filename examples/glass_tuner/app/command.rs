@@ -4,6 +4,7 @@ use wgpu_l3::command::Command;
 pub struct TogglePanel;
 pub struct ToggleComparison;
 pub struct ToggleForcePromoted;
+pub struct CycleForegroundMode;
 pub struct SetToken;
 
 impl Command for TogglePanel {
@@ -32,4 +33,11 @@ impl Command for ToggleForcePromoted {
     type Output = ();
 
     const NAME: &'static str = "glass_tuner.toggle_force_promoted";
+}
+
+impl Command for CycleForegroundMode {
+    type Args = ();
+    type Output = ();
+
+    const NAME: &'static str = "glass_tuner.cycle_foreground_mode";
 }

@@ -56,6 +56,7 @@ pub(crate) struct Frame {
     focus_visible: bool,
     selected: bool,
     force_overlay_group: bool,
+    native_popup_material_preference: view::NativePopupMaterialPreference,
     floating_layer: bool,
     background: Option<scene::Brush>,
     clip: Option<Clip>,
@@ -172,6 +173,7 @@ impl Frame {
             focus_visible: node.focus_visible(),
             selected: node.is_selected(),
             force_overlay_group: node.force_overlay_group(),
+            native_popup_material_preference: node.native_popup_material_preference(),
             floating_layer,
             background: node.style().background(),
             clip,
@@ -259,6 +261,10 @@ impl Frame {
 
     pub(crate) fn force_overlay_group(&self) -> bool {
         self.force_overlay_group
+    }
+
+    pub(crate) fn native_popup_material_preference(&self) -> view::NativePopupMaterialPreference {
+        self.native_popup_material_preference
     }
 
     pub(crate) fn is_floating_layer(&self) -> bool {

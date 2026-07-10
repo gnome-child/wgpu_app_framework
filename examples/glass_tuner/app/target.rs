@@ -1,6 +1,6 @@
 use super::{
     State,
-    command::{SetToken, ToggleComparison, ToggleForcePromoted, TogglePanel},
+    command::{CycleForegroundMode, SetToken, ToggleComparison, ToggleForcePromoted, TogglePanel},
     state::AcrylicToken,
 };
 use wgpu_l3::{Context, Response, Target, command};
@@ -60,6 +60,18 @@ impl Target<ToggleForcePromoted> for State {
         } else {
             "forced promotion disabled".to_owned()
         };
+        Response::changed(())
+    }
+}
+
+impl Target<CycleForegroundMode> for State {
+    fn state(&self, _: &(), _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
+        self.foreground_mode = self.foreground_mode.next();
+        self.last_status = format!("foreground mode: {}", self.foreground_mode.label());
         Response::changed(())
     }
 }

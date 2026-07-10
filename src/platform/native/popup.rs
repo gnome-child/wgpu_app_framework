@@ -67,24 +67,37 @@ impl Native {
             popup.material = Some(material);
         }
         let alpha_mode = popup.window.canvas().composite_alpha_mode();
-        let realization = popup.presentation_mode.realization_for(alpha_mode);
+        let realization = popup
+            .presentation_mode
+            .realization_for(alpha_mode, material.preference());
         if popup.material_realization != Some(realization) || material_changed {
             if realization.uses_os_material() {
                 log::info!(
                     target: "wgpu_l3::native_popup",
-                    "native popup {:?} uses Windows accent acrylic: mode={:?}, alpha={:?}, tint={:?}",
+                    "native popup {:?} uses Windows accent acrylic: mode={:?}, alpha={:?}, preference={:?}, tint={:?}",
                     presentation.id(),
                     popup.presentation_mode,
                     alpha_mode,
+                    material.preference(),
                     material.tint()
+                );
+            } else if realization.uses_native_material_scene() {
+                log::info!(
+                    target: "wgpu_l3::native_popup",
+                    "native popup {:?} uses transparent native scene without accent: mode={:?}, alpha={:?}, preference={:?}",
+                    presentation.id(),
+                    popup.presentation_mode,
+                    alpha_mode,
+                    material.preference()
                 );
             } else {
                 log::warn!(
                     target: "wgpu_l3::native_popup",
-                    "native popup {:?} downgraded to opaque fallback: mode={:?}, alpha={:?}, reason={}",
+                    "native popup {:?} downgraded to opaque fallback: mode={:?}, alpha={:?}, preference={:?}, reason={}",
                     presentation.id(),
                     popup.presentation_mode,
                     alpha_mode,
+                    material.preference(),
                     realization
                         .fallback_reason(popup.presentation_mode, alpha_mode)
                         .unwrap_or("unknown")
@@ -100,7 +113,7 @@ impl Native {
             popup.window.set_popup_accent_material(accent);
             popup.material_realization = Some(realization);
         }
-        let source_scene = if realization.uses_os_material() {
+        let source_scene = if realization.uses_native_material_scene() {
             presentation.scene()
         } else {
             presentation.opaque_fallback_scene()
@@ -108,6 +121,26 @@ impl Native {
         let scene = super::paint::to_paint_scene_at_scale(
             source_scene,
             popup.window.canvas().scale_factor(),
+        );
+        let canvas = popup.window.canvas();
+        let surface_config = canvas.surface().config();
+        let observed_area = popup.window.inner_area();
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "native popup scale chain {:?}: source_logical={}x{} bounds={}x{} observed_inner={}x{} canvas={}x{} surface={}x{} scale={} realization={:?}",
+            presentation.id(),
+            source_scene.size().width(),
+            source_scene.size().height(),
+            presentation.bounds().width(),
+            presentation.bounds().height(),
+            observed_area.width(),
+            observed_area.height(),
+            canvas.physical_area().width(),
+            canvas.physical_area().height(),
+            surface_config.width,
+            surface_config.height,
+            canvas.scale_factor(),
+            realization
         );
 
         let draw_started = Instant::now();

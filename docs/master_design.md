@@ -409,6 +409,17 @@ window, compare DX12 `DxgiFromVisual` against Vulkan, test single popup
 attributes first, and only then test suspicious pairs such as owner+toolwindow
 or no-redirection+backdrop.
 
+Native popup foreground defects must be partitioned before fixing: alpha
+convention, color-space/gamma, and scale/stretch can all look like "crusty"
+foreground pixels but require different repairs. Foreground witnesses must
+include fractional coverage from antialiased quads and glyph masks, not only
+solid interior pixels. Visual comparison starts with the same foreground over
+`OpaqueFallback`, transparent/no-accent, and OS acrylic; if the opaque fallback
+is also crusty, scale and surface sizing are the first suspects. Native popup
+scale diagnostics report the whole chain: scene logical bounds, requested
+popup bounds, observed inner size, canvas physical area, surface config size,
+and popup scale factor.
+
 Native popup enter-fade stays disabled until the premultiplied-alpha/group
 blend audit. Menus can ship before that because their content uses the safe
 alpha extremes: opaque rows/text over transparent window gaps. Fade makes

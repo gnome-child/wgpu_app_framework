@@ -706,6 +706,7 @@ fn append_or_present_overlay_layer(
                 crate::overlay::PopupMaterial::NativeWindow {
                     dark: native_popup_dark,
                     tint: local.accent_tint(),
+                    preference: layer.popup_material_preference(),
                 },
             ));
         }

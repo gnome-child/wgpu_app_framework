@@ -5,6 +5,7 @@ pub struct State {
     pub panel_open: bool,
     pub comparison_open: bool,
     pub force_promoted: bool,
+    pub foreground_mode: ForegroundMode,
     pub blur_sigma: f64,
     pub tint: Rgb,
     pub tint_opacity: f64,
@@ -22,6 +23,13 @@ pub enum AcrylicToken {
     TintR,
     TintG,
     TintB,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForegroundMode {
+    Acrylic,
+    OpaqueFallback,
+    NoAccent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +99,7 @@ impl Default for State {
             panel_open: true,
             comparison_open: false,
             force_promoted: false,
+            foreground_mode: ForegroundMode::Acrylic,
             blur_sigma: 44.55,
             tint: Rgb::new(28, 28, 30),
             tint_opacity: 0.88,
@@ -102,6 +111,32 @@ impl Default for State {
 }
 
 impl wgpu_l3::state::State for State {}
+
+impl ForegroundMode {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Acrylic => "Acrylic",
+            Self::OpaqueFallback => "Opaque fallback",
+            Self::NoAccent => "No accent",
+        }
+    }
+
+    pub const fn next(self) -> Self {
+        match self {
+            Self::Acrylic => Self::OpaqueFallback,
+            Self::OpaqueFallback => Self::NoAccent,
+            Self::NoAccent => Self::Acrylic,
+        }
+    }
+
+    pub const fn popup_preference(self) -> wgpu_l3::view::NativePopupMaterialPreference {
+        match self {
+            Self::Acrylic => wgpu_l3::view::NativePopupMaterialPreference::System,
+            Self::OpaqueFallback => wgpu_l3::view::NativePopupMaterialPreference::OpaqueFallback,
+            Self::NoAccent => wgpu_l3::view::NativePopupMaterialPreference::NoAccent,
+        }
+    }
+}
 
 impl AcrylicToken {
     pub fn label(self) -> &'static str {

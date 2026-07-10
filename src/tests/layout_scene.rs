@@ -4508,7 +4508,9 @@ fn overlay_layout_paints_styled_backgrounds_under_floating_panel() {
 
 #[test]
 fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
-    let mut app = glass_tuner::app(glass_tuner::State::default());
+    let mut state = glass_tuner::State::default();
+    state.comparison_open = false;
+    let mut app = glass_tuner::app(state);
 
     app.start();
 
@@ -4636,7 +4638,9 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
 
 #[test]
 fn glass_tuner_force_promoted_comparison_renders_group_at_rest() {
-    let mut app = glass_tuner::app(glass_tuner::State::default());
+    let mut state = glass_tuner::State::default();
+    state.comparison_open = false;
+    let mut app = glass_tuner::app(state);
 
     app.start();
 
@@ -4665,7 +4669,9 @@ fn glass_tuner_force_promoted_comparison_renders_group_at_rest() {
 
 #[test]
 fn glass_tuner_comparison_emits_half_alpha_popup_witness_quad() {
-    let mut app = glass_tuner::app(glass_tuner::State::default());
+    let mut state = glass_tuner::State::default();
+    state.comparison_open = false;
+    let mut app = glass_tuner::app(state);
 
     app.start();
 

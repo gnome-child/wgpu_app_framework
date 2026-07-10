@@ -3,7 +3,7 @@ use super::super::{
     control::{Button, Checkbox, Control, Radio, Slider, TextArea, TextBox},
     style::Style,
 };
-use super::{Axis, FloatingPlacement, Node, Role};
+use super::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node, Role};
 use crate::{command, context::Source, interaction, subject};
 
 impl Node {
@@ -174,6 +174,14 @@ impl Node {
         self
     }
 
+    pub(crate) fn with_native_popup_material_preference(
+        mut self,
+        preference: NativePopupMaterialPreference,
+    ) -> Self {
+        self.native_popup_material_preference = preference;
+        self
+    }
+
     pub(crate) fn with_subject(mut self, subject: subject::Segment) -> Self {
         self.subject = Some(subject);
         self
@@ -236,6 +244,7 @@ impl Node {
             style: Style::default(),
             floating_placement: FloatingPlacement::Default,
             force_overlay_group: false,
+            native_popup_material_preference: NativePopupMaterialPreference::System,
             subject: None,
             label: None,
             binding: None,

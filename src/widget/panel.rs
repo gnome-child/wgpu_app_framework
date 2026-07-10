@@ -54,6 +54,14 @@ impl Floating {
         self
     }
 
+    pub fn diagnostic_native_popup_material(
+        mut self,
+        preference: view::NativePopupMaterialPreference,
+    ) -> Self {
+        self.panel = self.panel.native_popup_material_preference(preference);
+        self
+    }
+
     pub fn background(mut self, background: scene::Brush) -> Self {
         self.panel = self.panel.background(background);
         self
@@ -144,6 +152,14 @@ impl Panel {
 
     fn force_overlay_group(mut self, force: bool) -> Self {
         self.element = self.element.force_overlay_group(force);
+        self
+    }
+
+    fn native_popup_material_preference(
+        mut self,
+        preference: view::NativePopupMaterialPreference,
+    ) -> Self {
+        self.element = self.element.native_popup_material_preference(preference);
         self
     }
 

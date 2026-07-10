@@ -70,6 +70,14 @@ impl Element {
         self
     }
 
+    pub(in crate::widget) fn native_popup_material_preference(
+        mut self,
+        preference: view::NativePopupMaterialPreference,
+    ) -> Self {
+        self.node = self.node.with_native_popup_material_preference(preference);
+        self
+    }
+
     pub fn background(mut self, background: scene::Brush) -> Self {
         self.background = Some(background);
         self
