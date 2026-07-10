@@ -422,7 +422,9 @@ before unbacked crust can convict native-boundary blending. The six-cell manual
 matrix is `OpaqueFallback`, transparent/no-accent, and acrylic, each checked in
 backed and unbacked form; crust in no-accent and acrylic unbacked rows points to
 general DWM/native boundary blending, while crust only under acrylic points to
-the accent layer.
+the accent layer. The foreground rows must include the real states where defects
+are easiest to see: disabled menu bindings with shortcut glyphs and live sliders
+whose hover/drag animation exercises the actual slider paint path.
 
 Native popup enter-fade stays disabled until the premultiplied-alpha/group
 blend audit. Menus can ship before that because their content uses the safe

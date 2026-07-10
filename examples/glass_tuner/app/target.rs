@@ -1,6 +1,9 @@
 use super::{
     State,
-    command::{CycleForegroundMode, SetToken, ToggleComparison, ToggleForcePromoted, TogglePanel},
+    command::{
+        CycleForegroundMode, ForegroundDisabledItem, ForegroundEnabledItem, SetToken,
+        ToggleComparison, ToggleForcePromoted, TogglePanel,
+    },
     state::AcrylicToken,
 };
 use wgpu_l3::{Context, Response, Target, command};
@@ -72,6 +75,28 @@ impl Target<CycleForegroundMode> for State {
     fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
         self.foreground_mode = self.foreground_mode.next();
         self.last_status = format!("foreground mode: {}", self.foreground_mode.label());
+        Response::changed(())
+    }
+}
+
+impl Target<ForegroundEnabledItem> for State {
+    fn state(&self, _: &(), _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
+        self.last_status = "foreground enabled item clicked".to_owned();
+        Response::changed(())
+    }
+}
+
+impl Target<ForegroundDisabledItem> for State {
+    fn state(&self, _: &(), _: &Context) -> command::State {
+        command::State::disabled()
+    }
+
+    fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
+        self.last_status = "disabled foreground item should not invoke".to_owned();
         Response::changed(())
     }
 }

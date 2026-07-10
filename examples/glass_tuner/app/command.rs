@@ -5,6 +5,8 @@ pub struct TogglePanel;
 pub struct ToggleComparison;
 pub struct ToggleForcePromoted;
 pub struct CycleForegroundMode;
+pub struct ForegroundEnabledItem;
+pub struct ForegroundDisabledItem;
 pub struct SetToken;
 
 impl Command for TogglePanel {
@@ -40,4 +42,18 @@ impl Command for CycleForegroundMode {
     type Output = ();
 
     const NAME: &'static str = "glass_tuner.cycle_foreground_mode";
+}
+
+impl Command for ForegroundEnabledItem {
+    type Args = ();
+    type Output = ();
+
+    const NAME: &'static str = "glass_tuner.foreground_enabled_item";
+}
+
+impl Command for ForegroundDisabledItem {
+    type Args = ();
+    type Output = ();
+
+    const NAME: &'static str = "glass_tuner.foreground_disabled_item";
 }

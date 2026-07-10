@@ -1,6 +1,9 @@
 use super::{
     State,
-    command::{CycleForegroundMode, SetToken, ToggleComparison, ToggleForcePromoted, TogglePanel},
+    command::{
+        CycleForegroundMode, ForegroundDisabledItem, ForegroundEnabledItem, SetToken,
+        ToggleComparison, ToggleForcePromoted, TogglePanel,
+    },
     state::{AcrylicToken, ForegroundMode},
 };
 use wgpu_l3::{
@@ -198,15 +201,15 @@ fn foreground_panel(state: &State) -> widget::panel::Floating {
         .diagnostic_native_popup_material(state.foreground_mode.popup_preference())
         .column()
         .width(Dimension::fixed(340))
-        .height(Dimension::fixed(430))
+        .height(Dimension::fixed(520))
         .layout(|layout| layout.gap(8))
         .children(|ui| {
             ui.label("Foreground clarity");
             ui.label(format!("Mode: {}", state.foreground_mode.label()));
             ui.label("Backed: in-frame surface reference");
-            ui.add(foreground_sample(Some(PANEL_SURFACE_COLOR)));
+            ui.add(foreground_sample(Some(PANEL_SURFACE_COLOR), state));
             ui.label("Unbacked: native material boundary");
-            ui.add(foreground_sample(None));
+            ui.add(foreground_sample(None, state));
             ui.label(foreground_hint(state.foreground_mode));
         })
 }
@@ -219,18 +222,20 @@ fn foreground_hint(mode: ForegroundMode) -> &'static str {
     }
 }
 
-fn foreground_sample(backing: Option<scene::Color>) -> widget::Element {
+fn foreground_sample(backing: Option<scene::Color>, state: &State) -> widget::Element {
+    let tint_opacity = state.tint_opacity;
+    let noise_opacity = state.noise_opacity;
     let mut sample = widget::Element::new()
         .column()
         .width(Dimension::fixed(300))
-        .height(Dimension::fixed(132))
+        .height(Dimension::fixed(176))
         .layout(|layout| {
             layout
                 .gap(6)
                 .padding(Padding::symmetric(10, 8))
                 .align_items(Align::Start)
         })
-        .children(foreground_sample_content);
+        .children(move |ui| foreground_sample_content(ui, tint_opacity, noise_opacity));
 
     if let Some(color) = backing {
         sample = sample.background(scene::Brush::solid(color));
@@ -239,7 +244,9 @@ fn foreground_sample(backing: Option<scene::Color>) -> widget::Element {
     sample
 }
 
-fn foreground_sample_content(ui: &mut widget::Ui) {
+fn foreground_sample_content(ui: &mut widget::Ui, tint_opacity: f64, noise_opacity: f64) {
+    ui.add(widget::Binding::<ForegroundEnabledItem>::menu());
+    ui.add(widget::Binding::<ForegroundDisabledItem>::menu());
     ui.add(line(scene::Color::rgba(245, 245, 247, 120), 280, 1));
     ui.row(|ui| {
         ui.add(swatch(scene::Color::rgba(255, 64, 64, 128)));
@@ -248,9 +255,14 @@ fn foreground_sample_content(ui: &mut widget::Ui) {
         ui.label("Half-alpha quads");
     });
     ui.add(grid_strip());
-    ui.label("Glyph coverage: Agjpqy 0123456789");
-    ui.label("Shortcut glyphs: Ctrl Shift Alt Enter");
-    ui.add(slider_specimen());
+    ui.slider(
+        widget::Slider::new("Tint opacity", tint_opacity, 0.0..=1.0)
+            .trigger_with::<SetToken, _>(|value| (AcrylicToken::TintOpacity, value)),
+    );
+    ui.slider(
+        widget::Slider::new("Noise opacity", noise_opacity, 0.0..=0.08)
+            .trigger_with::<SetToken, _>(|value| (AcrylicToken::NoiseOpacity, value)),
+    );
 }
 
 fn grid_strip() -> widget::Element {
@@ -287,29 +299,6 @@ fn swatch(color: scene::Color) -> widget::Element {
         .width(Dimension::fixed(34))
         .height(Dimension::fixed(22))
         .background(scene::Brush::solid(color))
-}
-
-fn slider_specimen() -> widget::Element {
-    widget::Element::new()
-        .row()
-        .width(Dimension::fixed(280))
-        .height(Dimension::fixed(18))
-        .layout(|layout| layout.gap(8).align_items(Align::Center))
-        .children(|ui| {
-            ui.add(
-                widget::Element::new()
-                    .width(Dimension::fixed(196))
-                    .height(Dimension::fixed(4))
-                    .background(scene::Brush::solid(scene::Color::rgba(245, 245, 247, 72))),
-            );
-            ui.add(
-                widget::Element::new()
-                    .width(Dimension::fixed(18))
-                    .height(Dimension::fixed(18))
-                    .background(scene::Brush::solid(scene::Color::rgba(245, 245, 247, 196))),
-            );
-            ui.label("Slider AA");
-        })
 }
 
 fn add_slider(

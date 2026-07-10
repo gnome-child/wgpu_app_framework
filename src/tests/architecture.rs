@@ -1534,12 +1534,13 @@ fn glass_tuner_foreground_fixture_compares_backed_and_unbacked_same_content() {
     for phrase in [
         "Backed: in-frame surface reference",
         "Unbacked: native material boundary",
-        "foreground_sample(Some(PANEL_SURFACE_COLOR))",
-        "foreground_sample(None)",
-        ".children(foreground_sample_content)",
-        "Glyph coverage: Agjpqy 0123456789",
-        "Shortcut glyphs: Ctrl Shift Alt Enter",
-        "Slider AA",
+        "foreground_sample(Some(PANEL_SURFACE_COLOR), state)",
+        "foreground_sample(None, state)",
+        "foreground_sample_content(ui, tint_opacity, noise_opacity)",
+        "Binding::<ForegroundEnabledItem>::menu()",
+        "Binding::<ForegroundDisabledItem>::menu()",
+        "Slider::new(\"Tint opacity\"",
+        "Slider::new(\"Noise opacity\"",
         "Half-alpha quads",
     ] {
         assert!(
@@ -1549,7 +1550,8 @@ fn glass_tuner_foreground_fixture_compares_backed_and_unbacked_same_content() {
     }
 
     assert_eq!(
-        view.matches(".children(foreground_sample_content)").count(),
+        view.matches("foreground_sample_content(ui, tint_opacity, noise_opacity)")
+            .count(),
         1,
         "backed and unbacked rows must share the same content helper"
     );
