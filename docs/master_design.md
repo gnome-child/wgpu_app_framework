@@ -479,6 +479,10 @@ popup redraws remain legitimate redraws rather than lifecycle redundancy.
 Accent application from maintenance, where no draw follows immediately,
 requests one parent redraw so compositor material changes cannot strand stale
 foreground content.
+One later manual menu pass still showed exactly one first-frame content skip,
+but that occurrence had no attached lifecycle log, so its mechanism remains
+open. Content-fade scheduling supplies later legitimate presents; those frames
+may heal the symptom, but they are neither a diagnosis nor a claimed fix.
 Windows popup acrylic is not tied to the DX12 DirectComposition Visual path:
 Vulkan redirected popups can realize accent acrylic when the surface reports
 premultiplied alpha. The backend mask therefore stays `wgpu::Backends::all()`
@@ -534,21 +538,24 @@ the accent layer. The foreground rows must include the real states where defects
 are easiest to see: disabled menu bindings with shortcut glyphs and live sliders
 whose hover/drag animation exercises the actual slider paint path.
 
-Native popup enter-fade stays disabled until the premultiplied-alpha/group
-blend audit. Menus can ship before that because their content uses the safe
-alpha extremes: opaque rows/text over transparent window gaps. Fade makes
-ordinary content semi-transparent and therefore depends on the same
-premultiplied convention that future local blur also requires.
+Native popup fades are content-side overlay animation, never native material
+policy. The local native-material scene removes the framework glass pane, and
+group opacity applies only to the remaining content pixels; the transparent
+surface, accent state, fallback body, and border remain stable. Repeated fade
+frames therefore do not reapply accent policy. On dismissal, a noninteractive
+`RetiringPopup` keeps the same native surface and material facts alive through
+the exit timeline, then native synchronization closes it. It never becomes a
+parent-window ghost.
 
 Overlay ghosts are paint-only afterlife. When a live in-frame entry is
 dismissed, runtime may retain its final scene bucket briefly as a `Ghost` for
 fade-out, but the ghost is not layout, hit testing, wheel targeting, cursor
 resolution, focus routing, dismissal containment, semantics, or command
-routing. Native popup entries do not allocate ghosts in v1; the native surface
-closes rather than teleporting a fading afterimage back into the parent
-window. Focus restoration and key routing update when the live entry is
-dismissed, not when the ghost expires. Ghost fade frames are presentation work
-and must not imply model revision changes. If an in-frame ghost contains a
+routing. Native popup entries do not allocate parent ghosts; their retiring
+native layer fades on the same popup surface. Focus restoration and key routing
+update when the live entry is dismissed, not when either kind of afterlife
+expires. Ghost and retiring-popup fade frames are presentation work and must
+not imply model revision changes. If an in-frame ghost contains a
 material pane, the pane is downgraded to paint-only material layers; ghosts
 keep body, tint, and grain, but they do not backdrop-sample the world.
 

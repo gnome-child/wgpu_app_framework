@@ -503,6 +503,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 crate::overlay::LayerKind::Ghost => {
                     scene.append_ghost_scene_with_opacity(layer.scene(), layer.opacity());
                 }
+                crate::overlay::LayerKind::RetiringPopup => {}
             }
         }
         self.update_animation_schedule(
@@ -587,7 +588,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             for layer in overlay_update.layers() {
                 log_overlay_layer_application(layer, overlay_update.schedule());
                 match layer.kind() {
-                    crate::overlay::LayerKind::Live => {
+                    crate::overlay::LayerKind::Live | crate::overlay::LayerKind::RetiringPopup => {
                         append_or_present_overlay_layer(
                             window,
                             &mut scene,
@@ -714,13 +715,14 @@ fn append_or_present_overlay_layer(
                 local.native_material().size(),
                 scene::Color::rgba(0, 0, 0, 0),
             );
-            popup_scene.append_scene_with_opacity(local.native_material(), 1.0);
+            popup_scene.append_scene_with_opacity(local.native_material(), layer.opacity());
 
             let mut opaque_fallback_scene = scene::Scene::new_with_clear(
                 local.opaque_fallback().size(),
                 local.opaque_fallback().clear(),
             );
-            opaque_fallback_scene.append_scene_with_opacity(local.opaque_fallback(), 1.0);
+            opaque_fallback_scene
+                .append_scene_with_opacity(local.opaque_fallback(), layer.opacity());
             popup_presentations.push(crate::overlay::PopupPresentation::new(
                 window,
                 layer.id(),

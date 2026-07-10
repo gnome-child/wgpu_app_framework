@@ -5,7 +5,7 @@ use std::{
 
 use crate::{animation, geometry, interaction, notification, scene, theme, window};
 
-const DEFAULT_GHOST_LIMIT: usize = 8;
+const DEFAULT_AFTERLIFE_LIMIT: usize = 8;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Draft {
@@ -47,6 +47,19 @@ struct Ghost {
     from_opacity: f32,
 }
 
+#[derive(Debug, Clone)]
+struct RetiringPopup {
+    id: interaction::Id,
+    original_order: u64,
+    bounds: geometry::Rect,
+    scene: scene::Scene,
+    popup_material_preference: PopupMaterialPreference,
+    popup_border: scene::Color,
+    started_at: Instant,
+    duration: Duration,
+    from_opacity: f32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum State {
     Entering,
@@ -77,6 +90,7 @@ pub(crate) struct Layer {
 pub(crate) enum LayerKind {
     Live,
     Ghost,
+    RetiringPopup,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,13 +146,14 @@ pub(crate) enum PopupMaterial {
 #[derive(Debug)]
 pub(crate) struct Store {
     windows: HashMap<window::Id, WindowState>,
-    ghost_limit: usize,
+    afterlife_limit: usize,
 }
 
 #[derive(Debug, Default)]
 struct WindowState {
     live: Vec<Live>,
     ghosts: Vec<Ghost>,
+    retiring_popups: Vec<RetiringPopup>,
     next_order: u64,
     frame_number: u64,
 }
@@ -147,8 +162,11 @@ struct WindowState {
 struct Live {
     id: interaction::Id,
     order: u64,
+    bounds: geometry::Rect,
     scene: scene::Scene,
     backend: Backend,
+    popup_material_preference: PopupMaterialPreference,
+    popup_border: scene::Color,
     appeared_at: Instant,
     demotion_logged: bool,
 }
@@ -250,24 +268,50 @@ impl Ghost {
     }
 
     fn opacity_at(&self, now: Instant) -> f32 {
-        if self.duration.is_zero() {
-            return 0.0;
-        }
-
-        let progress = now.saturating_duration_since(self.started_at).as_secs_f32()
-            / self.duration.as_secs_f32();
-        let eased = animation::Easing::EaseOutCubic.sample(progress.clamp(0.0, 1.0));
-
-        self.from_opacity * (1.0 - eased)
+        exit_opacity_at(self.started_at, self.duration, self.from_opacity, now)
     }
 
     fn expired_at(&self, now: Instant) -> bool {
-        now.saturating_duration_since(self.started_at) >= self.duration
+        exit_expired_at(self.started_at, self.duration, now)
     }
 
     #[cfg(test)]
     fn id(&self) -> interaction::Id {
         self.id
+    }
+}
+
+impl RetiringPopup {
+    fn layer_at(&self, now: Instant, frame_number: u64) -> Option<Layer> {
+        if self.expired_at(now) {
+            return None;
+        }
+
+        Some(Layer {
+            id: self.id,
+            order: self.original_order,
+            bounds: self.bounds,
+            scene: self.scene.clone(),
+            opacity: self.opacity_at(now),
+            kind: LayerKind::RetiringPopup,
+            backend: Backend::NativePopup,
+            popup_material_preference: self.popup_material_preference,
+            popup_border: self.popup_border,
+            text_caret_rect: None,
+            state: None,
+            elapsed: Some(now.saturating_duration_since(self.started_at)),
+            force_group_at_full_opacity: false,
+            demotion_marker: false,
+            frame_number,
+        })
+    }
+
+    fn opacity_at(&self, now: Instant) -> f32 {
+        exit_opacity_at(self.started_at, self.duration, self.from_opacity, now)
+    }
+
+    fn expired_at(&self, now: Instant) -> bool {
+        exit_expired_at(self.started_at, self.duration, now)
     }
 }
 
@@ -449,7 +493,7 @@ impl Store {
     pub(crate) fn new() -> Self {
         Self {
             windows: HashMap::new(),
-            ghost_limit: DEFAULT_GHOST_LIMIT,
+            afterlife_limit: DEFAULT_AFTERLIFE_LIMIT,
         }
     }
 
@@ -476,24 +520,47 @@ impl Store {
         let current_ids = drafts.iter().map(Draft::id).collect::<HashSet<_>>();
 
         state.ghosts.retain(|ghost| !ghost.expired_at(now));
+        state
+            .retiring_popups
+            .retain(|popup| !popup.expired_at(now) && !current_ids.contains(&popup.id));
         for live in previous_by_id
             .values()
-            .filter(|live| live.backend == Backend::InFrame && !current_ids.contains(&live.id))
+            .filter(|live| !current_ids.contains(&live.id))
         {
-            if overlay.exit_fade_ms > 0 {
-                state.ghosts.push(Ghost {
+            if overlay.exit_fade_ms == 0 {
+                continue;
+            }
+            let duration = Duration::from_millis(overlay.exit_fade_ms);
+            let from_opacity = live_opacity(live.appeared_at, overlay.enter_fade_ms, now).0;
+            match live.backend {
+                Backend::InFrame => state.ghosts.push(Ghost {
                     id: live.id,
                     original_order: live.order,
                     scene: live.scene.clone(),
                     started_at: now,
-                    duration: Duration::from_millis(overlay.exit_fade_ms),
-                    from_opacity: live_opacity(live.appeared_at, overlay.enter_fade_ms, now).0,
-                });
+                    duration,
+                    from_opacity,
+                }),
+                Backend::NativePopup => state.retiring_popups.push(RetiringPopup {
+                    id: live.id,
+                    original_order: live.order,
+                    bounds: live.bounds,
+                    scene: live.scene.clone(),
+                    popup_material_preference: live.popup_material_preference,
+                    popup_border: live.popup_border,
+                    started_at: now,
+                    duration,
+                    from_opacity,
+                }),
             }
         }
-        if state.ghosts.len() > self.ghost_limit {
-            let drop_count = state.ghosts.len() - self.ghost_limit;
+        if state.ghosts.len() > self.afterlife_limit {
+            let drop_count = state.ghosts.len() - self.afterlife_limit;
             state.ghosts.drain(0..drop_count);
+        }
+        if state.retiring_popups.len() > self.afterlife_limit {
+            let drop_count = state.retiring_popups.len() - self.afterlife_limit;
+            state.retiring_popups.drain(0..drop_count);
         }
 
         let mut entries = Vec::with_capacity(drafts.len());
@@ -516,11 +583,7 @@ impl Store {
                 backend,
                 capabilities.native_popups_supported()
             );
-            let (opacity, entering) = if backend == Backend::NativePopup {
-                (1.0, false)
-            } else {
-                live_opacity(appeared_at, overlay.enter_fade_ms, now)
-            };
+            let (opacity, entering) = live_opacity(appeared_at, overlay.enter_fade_ms, now);
             let state_kind = if entering {
                 State::Entering
             } else {
@@ -533,8 +596,11 @@ impl Store {
             let live = Live {
                 id: draft.id,
                 order,
+                bounds: draft.bounds,
                 scene: draft.scene.clone(),
                 backend,
+                popup_material_preference: draft.popup_material_preference,
+                popup_border: draft.popup_border,
                 appeared_at,
                 demotion_logged: demotion_logged || demotion_marker,
             };
@@ -561,12 +627,22 @@ impl Store {
             .ghosts
             .iter()
             .filter_map(|ghost| ghost.layer_at(now, frame_number))
+            .chain(
+                state
+                    .retiring_popups
+                    .iter()
+                    .filter_map(|popup| popup.layer_at(now, frame_number)),
+            )
             .chain(entries.iter().map(Entry::layer))
             .collect::<Vec<_>>();
         layers.sort_by_key(|layer| layer.order);
 
         let schedule = if entries.iter().any(|entry| entry.state == State::Entering)
             || state.ghosts.iter().any(|ghost| !ghost.expired_at(now))
+            || state
+                .retiring_popups
+                .iter()
+                .any(|popup| !popup.expired_at(now))
         {
             animation::Schedule::NextFrame
         } else {
@@ -589,6 +665,14 @@ impl Store {
         self.windows
             .get(&window)
             .map(|state| state.ghosts.iter().map(Ghost::id).collect())
+            .unwrap_or_default()
+    }
+
+    #[cfg(test)]
+    fn retiring_popup_count(&self, window: window::Id) -> usize {
+        self.windows
+            .get(&window)
+            .map(|state| state.retiring_popups.len())
             .unwrap_or_default()
     }
 }
@@ -628,6 +712,25 @@ fn live_opacity(appeared_at: Instant, duration_ms: u64, now: Instant) -> (f32, b
     }
 
     (opacity, entering)
+}
+
+fn exit_opacity_at(
+    started_at: Instant,
+    duration: Duration,
+    from_opacity: f32,
+    now: Instant,
+) -> f32 {
+    if duration.is_zero() {
+        return 0.0;
+    }
+
+    let progress = now.saturating_duration_since(started_at).as_secs_f32() / duration.as_secs_f32();
+    let eased = animation::Easing::EaseOutCubic.sample(progress.clamp(0.0, 1.0));
+    from_opacity * (1.0 - eased)
+}
+
+fn exit_expired_at(started_at: Instant, duration: Duration, now: Instant) -> bool {
+    now.saturating_duration_since(started_at) >= duration
 }
 
 #[cfg(test)]
@@ -787,24 +890,45 @@ mod tests {
     }
 
     #[test]
-    fn native_popup_entry_skips_enter_fade_until_premultiplied_audit() {
+    fn native_popup_entry_uses_the_overlay_content_fade_timeline() {
         let mut store = Store::new();
         let window = window::Id::new(26);
         let now = Instant::now();
+        let theme = overlay_theme(100, 120);
 
         let first = store.update_window(
             window,
             vec![popup_draft("menu")],
-            overlay_theme(5_000, 120),
+            theme,
             Capabilities::with_native_popups(),
             now,
         );
 
         assert_eq!(first.layers.len(), 1);
         assert_eq!(first.layers[0].backend(), Backend::NativePopup);
-        assert_eq!(first.layers[0].opacity, 1.0);
-        assert_eq!(first.layers[0].state, Some(State::Live));
-        assert_eq!(first.schedule, animation::Schedule::Idle);
+        assert_eq!(first.layers[0].opacity, 0.0);
+        assert_eq!(first.layers[0].state, Some(State::Entering));
+        assert_eq!(first.schedule, animation::Schedule::NextFrame);
+
+        let middle = store.update_window(
+            window,
+            vec![popup_draft("menu")],
+            theme,
+            Capabilities::with_native_popups(),
+            now + Duration::from_millis(50),
+        );
+        assert!(middle.layers[0].opacity > 0.0 && middle.layers[0].opacity < 1.0);
+
+        let settled = store.update_window(
+            window,
+            vec![popup_draft("menu")],
+            theme,
+            Capabilities::with_native_popups(),
+            now + Duration::from_millis(100),
+        );
+        assert_eq!(settled.layers[0].opacity, 1.0);
+        assert_eq!(settled.layers[0].state, Some(State::Live));
+        assert_eq!(settled.schedule, animation::Schedule::Idle);
     }
 
     #[test]
@@ -931,14 +1055,19 @@ mod tests {
     }
 
     #[test]
-    fn removed_native_popup_entry_allocates_no_ghost() {
+    fn removed_native_popup_retires_on_its_native_surface_without_a_parent_ghost() {
         let mut store = Store::new();
         let window = window::Id::new(25);
         let now = Instant::now();
+        let border = scene::Color::rgb(10, 20, 30);
 
         store.update_window(
             window,
-            vec![popup_draft("menu")],
+            vec![
+                popup_draft("menu")
+                    .popup_material_preference(PopupMaterialPreference::NoAccent)
+                    .popup_border(border),
+            ],
             overlay_theme(0, 120),
             Capabilities::with_native_popups(),
             now,
@@ -952,8 +1081,72 @@ mod tests {
         );
 
         assert_eq!(store.ghost_count(window), 0);
-        assert!(removed.layers.is_empty());
-        assert_eq!(removed.schedule, animation::Schedule::Idle);
+        assert_eq!(store.retiring_popup_count(window), 1);
+        assert_eq!(removed.layers.len(), 1);
+        assert_eq!(removed.layers[0].kind(), LayerKind::RetiringPopup);
+        assert_eq!(removed.layers[0].backend(), Backend::NativePopup);
+        assert_eq!(
+            removed.layers[0].popup_material_preference(),
+            PopupMaterialPreference::NoAccent
+        );
+        assert_eq!(removed.layers[0].popup_border(), border);
+        assert_eq!(removed.layers[0].opacity(), 1.0);
+        assert_eq!(removed.schedule, animation::Schedule::NextFrame);
+
+        let middle = store.update_window(
+            window,
+            Vec::new(),
+            overlay_theme(0, 120),
+            Capabilities::with_native_popups(),
+            now + Duration::from_millis(70),
+        );
+        assert!(middle.layers[0].opacity() > 0.0 && middle.layers[0].opacity() < 1.0);
+
+        let expired = store.update_window(
+            window,
+            Vec::new(),
+            overlay_theme(0, 120),
+            Capabilities::with_native_popups(),
+            now + Duration::from_millis(131),
+        );
+        assert_eq!(store.retiring_popup_count(window), 0);
+        assert!(expired.layers.is_empty());
+        assert_eq!(expired.schedule, animation::Schedule::Idle);
+    }
+
+    #[test]
+    fn reopened_native_popup_replaces_its_retiring_surface_entry() {
+        let mut store = Store::new();
+        let window = window::Id::new(27);
+        let now = Instant::now();
+        let theme = overlay_theme(100, 120);
+
+        store.update_window(
+            window,
+            vec![popup_draft("menu")],
+            theme,
+            Capabilities::with_native_popups(),
+            now,
+        );
+        store.update_window(
+            window,
+            Vec::new(),
+            theme,
+            Capabilities::with_native_popups(),
+            now + Duration::from_millis(50),
+        );
+        let reopened = store.update_window(
+            window,
+            vec![popup_draft("menu")],
+            theme,
+            Capabilities::with_native_popups(),
+            now + Duration::from_millis(60),
+        );
+
+        assert_eq!(store.retiring_popup_count(window), 0);
+        assert_eq!(reopened.layers.len(), 1);
+        assert_eq!(reopened.layers[0].kind(), LayerKind::Live);
+        assert_eq!(reopened.layers[0].backend(), Backend::NativePopup);
     }
 
     #[test]
@@ -1054,7 +1247,7 @@ mod tests {
             );
         }
 
-        assert_eq!(store.ghost_count(window), DEFAULT_GHOST_LIMIT);
+        assert_eq!(store.ghost_count(window), DEFAULT_AFTERLIFE_LIMIT);
         assert_eq!(
             store.ghost_ids(window),
             vec![

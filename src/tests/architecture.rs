@@ -2394,28 +2394,42 @@ fn native_popup_first_present_is_visible_traced_and_compositor_synchronized() {
 }
 
 #[test]
-fn native_popup_presentations_defer_overlay_fade_until_premultiplied_audit() {
-    let presentation = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("runtime")
-            .join("presentation.rs"),
-    )
-    .expect("runtime presentation source should read");
+fn native_popup_fade_changes_content_pixels_without_changing_material_policy() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let presentation = std::fs::read_to_string(root.join("src/runtime/presentation.rs"))
+        .expect("runtime presentation source should read");
+    let overlay =
+        std::fs::read_to_string(root.join("src/overlay.rs")).expect("overlay source should read");
+    let popup = std::fs::read_to_string(root.join("src/platform/native/popup.rs"))
+        .expect("native popup source should read");
+    let master = std::fs::read_to_string(root.join("docs/master_design.md"))
+        .expect("master design should read");
 
     for call in [
-        "append_scene_with_opacity(local.native_material(), 1.0)",
-        "append_scene_with_opacity(local.opaque_fallback(), 1.0)",
+        "append_scene_with_opacity(local.native_material(), layer.opacity())",
+        "append_scene_with_opacity(local.opaque_fallback(), layer.opacity())",
     ] {
         assert!(
             presentation.contains(call),
-            "native popup presentation should render full opacity until the premultiplied audit: {call}"
+            "native popup content must consume overlay opacity: {call}"
         );
     }
     assert!(
-        !presentation
-            .contains("append_scene_with_opacity(local.native_material(), layer.opacity())"),
-        "native popup material must not apply semi-transparent overlay fade yet"
+        overlay.contains("struct RetiringPopup")
+            && overlay.contains("kind: LayerKind::RetiringPopup")
+            && overlay.contains("backend: Backend::NativePopup"),
+        "native exit fade must retain the native surface rather than allocate a parent ghost"
+    );
+    assert!(
+        popup.contains("popup.accent.set_desired(accent, now)")
+            && !popup.contains("layer.opacity()"),
+        "native material policy must remain independent of content opacity"
+    );
+    assert!(
+        master.contains("content-side overlay animation, never native material")
+            && master.contains("It never becomes a")
+            && master.contains("parent-window ghost"),
+        "master design must retain the content-only native fade contract"
     );
 }
 
