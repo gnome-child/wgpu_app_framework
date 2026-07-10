@@ -1426,6 +1426,43 @@ fn glass_material_carrier_is_pane_not_surface() {
 }
 
 #[test]
+fn scene_owns_refraction_constraints_before_paint_projection() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scene_material = std::fs::read_to_string(root.join("src/scene/material.rs"))
+        .expect("scene material source should read");
+    let native_paint = std::fs::read_to_string(root.join("src/platform/native/paint.rs"))
+        .expect("native paint source should read");
+    let paint =
+        std::fs::read_to_string(root.join("src/paint/mod.rs")).expect("paint source should read");
+    let effects = std::fs::read_to_string(root.join("src/render/filter/effects.rs"))
+        .expect("filter effects source should read");
+    let master = std::fs::read_to_string(root.join("docs/master_design.md"))
+        .expect("master design should read");
+
+    assert!(
+        scene_material.contains("const MAX_DISPLACEMENT: f32 = 4.0")
+            && scene_material.contains("displacement.clamp(0.0, Self::MAX_DISPLACEMENT)"),
+        "scene Refraction must own its domain constraints"
+    );
+    assert!(
+        native_paint.contains("let refraction = refraction.clamped();"),
+        "the scene-to-paint bridge must resolve refraction before projection"
+    );
+    assert!(
+        !paint.contains("impl Refraction {") && !paint.contains("MAX_DISPLACEMENT"),
+        "paint Refraction is a projection and must not recompute scene constraints"
+    );
+    assert!(
+        !effects.contains(".clamp(") && !effects.contains(".max("),
+        "renderer uniform lowering must forward resolved refraction values"
+    );
+    assert!(
+        master.contains("Scene material values own their semantic constraints"),
+        "master design must name the refraction constraint owner"
+    );
+}
+
+#[test]
 fn scene_no_longer_exposes_generic_filter_primitives() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let scene_mod =

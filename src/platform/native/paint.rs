@@ -207,6 +207,7 @@ fn to_paint_backdrop_layer(layer: scene::BackdropLayer) -> paint::BackdropLayer 
             edge_mode: to_paint_backdrop_edge_mode(blur.edge_mode()),
         }),
         scene::BackdropLayer::Refraction(refraction) => {
+            let refraction = refraction.clamped();
             paint::BackdropLayer::Refraction(paint::Refraction {
                 displacement: refraction.displacement(),
                 splay: refraction.splay(),
@@ -515,6 +516,21 @@ mod tests {
                         && *opacity == 0.88
             )
         }));
+    }
+
+    #[test]
+    fn refraction_constraints_resolve_before_paint_projection() {
+        let projected = to_paint_backdrop_layer(scene::BackdropLayer::Refraction(
+            scene::Refraction::new(99.0, -2.0, -3.0, 0.0),
+        ));
+        let paint::BackdropLayer::Refraction(refraction) = projected else {
+            panic!("refraction should remain a refraction projection");
+        };
+
+        assert_eq!(refraction.displacement, 4.0);
+        assert_eq!(refraction.splay, 0.0);
+        assert_eq!(refraction.feather, 0.0);
+        assert_eq!(refraction.curve, 0.1);
     }
 
     #[test]

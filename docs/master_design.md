@@ -338,6 +338,11 @@ continuous; do not add another primitive-local snap policy when the boundary
 snap should own the fact. A permanent unsnapped transform is not a default
 behavior; a future caller must earn and name that variant explicitly.
 
+Scene material values own their semantic constraints. In particular,
+`scene::Refraction::clamped` is the one refraction constraint computation;
+the native paint bridge applies it before projecting into the private display
+list, and paint/render forward the resolved values without reclamping them.
+
 `overlay`
 
 Owns floating UI entries above the main scene. An overlay entry is live UI:

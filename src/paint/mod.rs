@@ -665,7 +665,7 @@ impl FilterOp {
     }
 
     pub(crate) fn refraction(params: Refraction) -> Self {
-        Self::Refraction(params.clamped())
+        Self::Refraction(params)
     }
 
     pub(crate) fn luminosity(params: Luminosity) -> Self {
@@ -680,7 +680,7 @@ impl FilterOp {
         match self {
             Self::Blur { amount } => Self::blur(amount),
             Self::BackdropBlur(params) => Self::backdrop_blur(params),
-            Self::Refraction(params) => Self::refraction(params),
+            Self::Refraction(params) => Self::Refraction(params),
             Self::Luminosity(params) => Self::luminosity(params),
             Self::Noise(params) => Self::noise(params),
         }
@@ -692,19 +692,6 @@ impl BackdropBlur {
         Self {
             sigma: self.sigma.max(0.0),
             edge_mode: self.edge_mode,
-        }
-    }
-}
-
-impl Refraction {
-    const MAX_DISPLACEMENT: f32 = 4.0;
-
-    fn clamped(self) -> Self {
-        Self {
-            displacement: self.displacement.clamp(0.0, Self::MAX_DISPLACEMENT),
-            splay: self.splay.max(0.0),
-            feather: self.feather.max(0.0),
-            curve: self.curve.max(0.1),
         }
     }
 }
