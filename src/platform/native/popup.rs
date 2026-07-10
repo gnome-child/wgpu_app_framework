@@ -23,6 +23,7 @@ impl Native {
         context: &NativeContext<'_>,
         presentations: &[overlay::PopupPresentation],
     ) -> Result<(), NativeError> {
+        let now = Instant::now();
         let active = presentations
             .iter()
             .map(|presentation| PopupKey::new(presentation.parent(), presentation.id()))
@@ -30,8 +31,9 @@ impl Native {
         self.close_stale_popups(&active);
 
         for presentation in presentations {
-            self.present_popup_overlay(context, presentation)?;
+            self.present_popup_overlay(context, presentation, now)?;
         }
+        self.apply_due_popup_accents(now);
 
         Ok(())
     }
@@ -40,43 +42,61 @@ impl Native {
         &mut self,
         context: &NativeContext<'_>,
         presentation: &overlay::PopupPresentation,
+        now: Instant,
     ) -> Result<(), NativeError> {
         self.ensure_popup_window(context, presentation)?;
         self.configure_popup_window(presentation)?;
 
         let key = PopupKey::new(presentation.parent(), presentation.id());
-        let format = self.sync_popup_surface(key)?;
-        self.ensure_renderer(format);
+        self.sync_popup_surface(key)?;
+        let render_format = {
+            let popup = self
+                .popups
+                .get(&key)
+                .expect("popup should exist before selecting render format");
+            super::surface::render_format_for_canvas(popup.window.canvas())
+        };
+        self.ensure_renderer(render_format);
 
         let render_context = self
             .context
             .as_ref()
             .expect("render context should exist before presenting popup");
         let renderer = self
-            .renderer
-            .as_mut()
+            .renderers
+            .get_mut(&render_format)
             .expect("renderer should exist before presenting popup");
         let popup = self
             .popups
             .get_mut(&key)
             .expect("popup should exist before presenting");
         let material = presentation.material();
-        let material_changed = popup.material != Some(material);
-        if material_changed {
+        let prior_material = popup.material;
+        let material_changed = prior_material != Some(material);
+        let dark_changed =
+            prior_material.map(overlay::PopupMaterial::dark) != Some(material.dark());
+        if dark_changed {
             popup.window.set_popup_material_theme(material.dark());
+        }
+        if material_changed {
             popup.material = Some(material);
         }
-        let alpha_mode = popup.window.canvas().composite_alpha_mode();
-        let realization = popup
-            .presentation_mode
-            .realization_for(alpha_mode, material.preference());
-        if popup.material_realization != Some(realization) || material_changed {
+        let surface_config = popup.window.canvas().surface().config();
+        let alpha_mode = surface_config.alpha_mode;
+        let realization = popup.presentation_mode.realization_for(
+            surface_config.format,
+            alpha_mode,
+            material.preference(),
+        );
+        let realization_changed = popup.material_realization != Some(realization);
+        if realization_changed {
             if realization.uses_os_material() {
                 log::info!(
                     target: "wgpu_l3::native_popup",
-                    "native popup {:?} uses Windows accent acrylic: mode={:?}, alpha={:?}, preference={:?}, tint={:?}",
+                    "native popup {:?} uses Windows accent acrylic: mode={:?}, format={:?}, alpha={:?}, preference={:?}, tint={:?}",
                     presentation.id(),
                     popup.presentation_mode,
+                    surface_config.format,
                     alpha_mode,
                     material.preference(),
                     material.tint()
@@ -84,43 +104,54 @@ impl Native {
             } else if realization.uses_native_material_scene() {
                 log::info!(
                     target: "wgpu_l3::native_popup",
-                    "native popup {:?} uses transparent native scene without accent: mode={:?}, alpha={:?}, preference={:?}",
+                    "native popup {:?} uses transparent native scene without accent: mode={:?}, format={:?}, alpha={:?}, preference={:?}",
                     presentation.id(),
                     popup.presentation_mode,
+                    surface_config.format,
                     alpha_mode,
                     material.preference()
                 );
             } else if material.preference() == overlay::PopupMaterialPreference::OpaqueFallback {
                 log::info!(
                     target: "wgpu_l3::native_popup",
-                    "native popup {:?} uses requested opaque fallback: mode={:?}, alpha={:?}, preference={:?}",
+                    "native popup {:?} uses requested opaque fallback: mode={:?}, format={:?}, alpha={:?}, preference={:?}",
                     presentation.id(),
                     popup.presentation_mode,
+                    surface_config.format,
                     alpha_mode,
                     material.preference()
                 );
             } else {
                 log::warn!(
                     target: "wgpu_l3::native_popup",
-                    "native popup {:?} downgraded to opaque fallback: mode={:?}, alpha={:?}, preference={:?}, reason={}",
+                    "native popup {:?} downgraded to opaque fallback: mode={:?}, format={:?}, alpha={:?}, preference={:?}, reason={}",
                     presentation.id(),
                     popup.presentation_mode,
+                    surface_config.format,
                     alpha_mode,
                     material.preference(),
                     realization
-                        .fallback_reason(popup.presentation_mode, alpha_mode)
+                        .fallback_reason(popup.presentation_mode, surface_config.format, alpha_mode)
                         .unwrap_or("unknown")
                 );
             }
-            let accent = if realization.uses_os_material() {
-                super::sys::PopupAccentMaterial::Acrylic {
-                    tint: material.tint(),
-                }
-            } else {
-                super::sys::PopupAccentMaterial::Disabled
-            };
-            popup.window.set_popup_accent_material(accent);
             popup.material_realization = Some(realization);
+        }
+        let accent = if realization.uses_os_material() {
+            super::sys::PopupAccentMaterial::Acrylic {
+                tint: material.tint(),
+            }
+        } else {
+            super::sys::PopupAccentMaterial::Disabled
+        };
+        if popup.accent.set_desired(accent, now) {
+            log::debug!(
+                target: "wgpu_l3::native_popup",
+                "recorded native popup accent desire {:?}: realization={:?}, accent={:?}",
+                presentation.id(),
+                realization,
+                accent
+            );
         }
         let source_scene = if realization.uses_native_material_scene() {
             presentation.scene()
@@ -132,11 +163,10 @@ impl Native {
             popup.window.canvas().scale_factor(),
         );
         let canvas = popup.window.canvas();
-        let surface_config = canvas.surface().config();
         let observed_area = popup.window.inner_area();
         log::debug!(
             target: "wgpu_l3::native_popup",
-            "native popup scale chain {:?}: source_logical={}x{} bounds={}x{} observed_inner={}x{} canvas={}x{} surface={}x{} scale={} realization={:?}",
+            "native popup scale chain {:?}: source_logical={}x{} bounds={}x{} observed_inner={}x{} canvas={}x{} surface={}x{} scale={} realization={:?} render_format={:?}",
             presentation.id(),
             source_scene.size().width(),
             source_scene.size().height(),
@@ -149,7 +179,8 @@ impl Native {
             surface_config.width,
             surface_config.height,
             canvas.scale_factor(),
-            realization
+            realization,
+            render_format
         );
 
         let draw_started = Instant::now();
@@ -380,6 +411,41 @@ impl Native {
                     key.parent
                 );
             }
+        }
+    }
+
+    pub(in crate::platform::native) fn apply_due_popup_accents(&mut self, now: Instant) {
+        let mut pending = false;
+        for (key, popup) in &mut self.popups {
+            let Some(reason) = popup.accent.due(now) else {
+                if popup.accent.pending() && popup.accent.changed_instant() != Some(now) {
+                    pending = true;
+                    log::trace!(
+                        target: "wgpu_l3::native_popup",
+                        "native popup accent pending {:?}: desired={:?}",
+                        key.id,
+                        popup.accent.desired()
+                    );
+                }
+                continue;
+            };
+            let accent = popup
+                .accent
+                .desired()
+                .expect("due accent should have a desired material");
+            log::debug!(
+                target: "wgpu_l3::native_popup",
+                "applying native popup accent {:?}: reason={:?}, accent={:?}",
+                key.id,
+                reason,
+                accent
+            );
+            popup.window.set_popup_accent_material(accent);
+            popup.accent.mark_applied(accent);
+        }
+
+        if pending {
+            self.schedule_poll_request();
         }
     }
 }

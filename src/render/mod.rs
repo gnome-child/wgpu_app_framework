@@ -5,7 +5,10 @@ pub(crate) use context::{Context, Options as ContextOptions};
 pub(crate) use frame::{Frame, Outcome as FrameOutcome};
 pub(in crate::render) use primitive::Vertex;
 pub(crate) use renderer::Renderer;
-pub(crate) use surface::{CompositeAlphaPreference, PresentTiming, Surface};
+pub(crate) use surface::{
+    CompositeAlphaPreference, PresentTiming, Surface, scene_format_for_surface_format,
+    supports_windows_premultiplied_popup_pack,
+};
 
 mod batch;
 mod canvas;
@@ -13,6 +16,7 @@ mod context;
 mod filter;
 mod frame;
 mod material;
+mod popup_pack;
 mod primitive;
 mod quad;
 mod renderer;

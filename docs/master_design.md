@@ -385,6 +385,12 @@ focus-independent accent policy (`SetWindowCompositionAttribute` with
 `ACCENT_ENABLE_ACRYLICBLURBEHIND`) behind the native sys seam. The accent
 `GradientColor` is ABGR/AABBGGRR and comes from the popup material tint, so tint
 alpha remains a theme/material dial rather than a platform constant.
+OS-side realizations are settle-rate, not event-rate. Geometry, accent material,
+future border color, and similar native attributes are desired state with an
+applied snapshot; they coalesce to the latest value and cross into the OS only
+after a meaningful geometry change, material-presence change, or short settled
+quiet period. Drag-rate parameter changes must not build a queue of native
+compositor calls.
 Windows popup acrylic is not tied to the DX12 DirectComposition Visual path:
 Vulkan redirected popups can realize accent acrylic when the surface reports
 premultiplied alpha. The backend mask therefore stays `wgpu::Backends::all()`
@@ -397,10 +403,19 @@ reported alpha mode supports it. Premultiplied surfaces require premultiplied
 content: alpha diagnostics must use a real half-alpha primitive or
 premultiplied clear, never a straight-alpha clear as evidence. The authoritative
 alpha witness is a standalone primitive over a transparent clear with readback that proves both alpha and premultiplied RGB; clear-only witnesses and visuals
-nested inside panel body content are contaminated evidence. Premultiplied native
-popup surfaces render directly to the popup surface; they do not take the
-ordinary composition-texture plus final blit path, because that path exists for
-opaque app windows and framework backdrop filters. `native_alpha_probe` is the
+nested inside panel body content are contaminated evidence.
+
+Windows premultiplied popup surfaces use a different final pass than ordinary
+opaque app windows. The scene renders into an sRGB offscreen target using the
+normal linear renderer. The final popup pack pass samples that scene, converts
+straight RGB with the exact piecewise sRGB transfer function, re-multiplies by
+alpha, and writes with `REPLACE` into a non-sRGB premultiplied popup surface.
+The legacy composition-texture blit remains for opaque/default app windows; it
+must not be reused as the Windows popup handoff. This replaced the earlier
+direct-surface pin: that pin was correct before the sRGB/premultiplied boundary
+was understood, but it is now obsolete.
+
+`native_alpha_probe` is the
 permanent Windows instrument for backend, accent, and popup attribute bisection:
 start with a boring transparent window, compare Vulkan against DX12
 `DxgiFromVisual`, test single popup attributes first, and only then test

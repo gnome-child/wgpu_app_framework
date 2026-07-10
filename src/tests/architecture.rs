@@ -1456,8 +1456,8 @@ fn windows_native_popup_material_keeps_dx12_visual_available_without_forcing_it(
         "Windows native popup acrylic must not require a hardcoded DX12 backend"
     );
     assert!(
-        surface.contains("popup surface alpha capabilities"),
-        "native popup surface alpha capabilities must be logged"
+        surface.contains("popup surface capabilities"),
+        "native popup surface format and alpha capabilities must be logged"
     );
     assert!(
         surface.contains("supported={supported:?}"),
@@ -1492,6 +1492,56 @@ fn windows_native_popup_material_keeps_dx12_visual_available_without_forcing_it(
             "Windows native material diagnostic doctrine should mention {phrase}"
         );
     }
+}
+
+#[test]
+fn native_popup_accent_realization_is_settle_rate() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let popup = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("popup.rs"),
+    )
+    .expect("native popup source should read");
+    let native_mod = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("mod.rs"),
+    )
+    .expect("native module source should read");
+    let adapter = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("adapter.rs"),
+    )
+    .expect("native adapter source should read");
+    let platform = std::fs::read_to_string(root.join("src").join("platform").join("mod.rs"))
+        .expect("platform source should read");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    assert!(native_mod.contains("PopupAccentState"));
+    assert!(native_mod.contains("POPUP_ACCENT_SETTLE_DELAY"));
+    assert!(native_mod.contains("Duration::from_millis(150)"));
+    assert!(popup.contains("popup.accent.set_desired(accent, now)"));
+    assert!(popup.contains("apply_due_popup_accents"));
+    assert_eq!(
+        popup.matches("set_popup_accent_material(accent)").count(),
+        1,
+        "popup presentation must not call the Windows accent API at tint-sample rate"
+    );
+    assert!(
+        adapter.contains("apply_due_popup_accents(std::time::Instant::now())")
+            && platform.contains("self.backend.maintain(context)?"),
+        "pending native accent state must drain from backend maintenance, not only popup presentations"
+    );
+    assert!(
+        master.contains("OS-side realizations are settle-rate, not event-rate"),
+        "native material doctrine should name settle-rate OS realization"
+    );
 }
 
 #[test]
@@ -1558,7 +1608,7 @@ fn glass_tuner_foreground_fixture_compares_backed_and_unbacked_same_content() {
 }
 
 #[test]
-fn premultiplied_surfaces_render_directly_without_final_blit() {
+fn premultiplied_popup_surfaces_pack_without_legacy_final_blit() {
     let renderer = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src")
@@ -1575,15 +1625,83 @@ fn premultiplied_surfaces_render_directly_without_final_blit() {
         "renderer must explicitly detect premultiplied surfaces"
     );
     assert!(
-        renderer.contains("base_view: &view")
-            && renderer.contains("begin_main_pass(encoder, &view, clear_color, true)"),
-        "premultiplied surfaces should render scene content directly to the surface view"
+        renderer.contains("pack_premultiplied_surface")
+            && renderer.contains("supports_windows_premultiplied_popup_pack")
+            && renderer.contains("popup_packer.pack_to_view"),
+        "premultiplied non-sRGB popup surfaces should render through the Windows pack pass"
     );
     assert!(
         renderer.contains("filter_renderer.blit_to_view")
             && renderer.contains("} else {\n            canvas.draw"),
         "opaque/default surfaces should keep the composition texture plus final blit path"
     );
+}
+
+#[test]
+fn popup_pack_shader_uses_exact_srgb_piecewise_transfer() {
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("render")
+            .join("popup_pack.wgsl"),
+    )
+    .expect("popup pack shader should read");
+
+    for phrase in [
+        "0.0031308",
+        "12.92 * v",
+        "1.055 * pow(v, 1.0 / 2.4) - 0.055",
+        "srgb_encode(straight) * alpha",
+    ] {
+        assert!(
+            source.contains(phrase),
+            "popup pack shader must contain exact sRGB packing phrase {phrase}"
+        );
+    }
+    assert!(
+        !source.contains("2.2"),
+        "popup pack shader must not approximate sRGB with gamma 2.2"
+    );
+}
+
+#[test]
+fn native_popup_foreground_fix_is_packing_not_coverage_compensation() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let renderer = std::fs::read_to_string(root.join("src").join("render").join("renderer.rs"))
+        .expect("renderer source should read");
+    let popup_pack =
+        std::fs::read_to_string(root.join("src").join("render").join("popup_pack.wgsl"))
+            .expect("popup pack shader should read");
+
+    assert!(renderer.contains("PackedPremultipliedSrgbForWindows"));
+    assert!(
+        !renderer.contains("coverage_compensation") && !popup_pack.contains("coverage"),
+        "native popup clarity fix must not use a coverage-compensation approximation"
+    );
+}
+
+#[test]
+fn native_renderer_cache_is_keyed_by_render_target_format() {
+    let native_mod = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("platform")
+            .join("native")
+            .join("mod.rs"),
+    )
+    .expect("native mod source should read");
+    let surface = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("platform")
+            .join("native")
+            .join("surface.rs"),
+    )
+    .expect("native surface source should read");
+
+    assert!(native_mod.contains("renderers: HashMap<wgpu::TextureFormat, render::Renderer>"));
+    assert!(surface.contains("render_format_for_canvas"));
+    assert!(surface.contains("render::scene_format_for_surface_format(format)"));
 }
 
 #[test]

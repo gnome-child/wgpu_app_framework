@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use crate::{geometry, interaction, overlay, render};
 
@@ -21,7 +22,7 @@ pub use error::NativeError;
 
 pub struct Native {
     context: Option<render::Context>,
-    renderer: Option<render::Renderer>,
+    renderers: HashMap<wgpu::TextureFormat, render::Renderer>,
     windows: HashMap<app_window::Id, window::Window>,
     popups: HashMap<PopupKey, PopupWindow>,
     raw_windows: HashMap<winit::window::WindowId, app_window::Id>,
@@ -40,6 +41,7 @@ struct PopupWindow {
     window: window::Window,
     bounds: geometry::Rect,
     geometry: PopupGeometryState,
+    accent: PopupAccentState,
     visible: bool,
     material: Option<overlay::PopupMaterial>,
     presentation_mode: PopupPresentationMode,
@@ -72,6 +74,19 @@ struct PopupGeometryState {
     applied: Option<PopupGeometry>,
 }
 
+#[derive(Debug, Default)]
+struct PopupAccentState {
+    desired: Option<sys::PopupAccentMaterial>,
+    applied: Option<sys::PopupAccentMaterial>,
+    desired_changed_at: Option<Instant>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PopupAccentDue {
+    Immediate,
+    Settled,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct PopupGeometry {
     x: i32,
@@ -93,6 +108,7 @@ impl PopupWindow {
             window,
             bounds: geometry::Rect::new(0, 0, 0, 0),
             geometry: PopupGeometryState::default(),
+            accent: PopupAccentState::default(),
             visible: false,
             material: None,
             presentation_mode,
@@ -125,6 +141,10 @@ impl PopupEventTarget {
     }
 }
 
+// Windows accent re-application rebuilds compositor-side material state. Keep
+// parameter churn settle-rate while preserving instant material presence.
+const POPUP_ACCENT_SETTLE_DELAY: Duration = Duration::from_millis(150);
+
 impl PopupGeometryState {
     fn needs_apply(&self, desired: PopupGeometry) -> bool {
         self.applied != Some(desired)
@@ -133,6 +153,68 @@ impl PopupGeometryState {
     fn mark_applied(&mut self, geometry: PopupGeometry) {
         self.applied = Some(geometry);
     }
+}
+
+impl PopupAccentState {
+    fn set_desired(&mut self, desired: sys::PopupAccentMaterial, now: Instant) -> bool {
+        if self.desired == Some(desired) {
+            return false;
+        }
+
+        self.desired = Some(desired);
+        self.desired_changed_at = (self.applied != Some(desired)).then_some(now);
+        true
+    }
+
+    fn due(&self, now: Instant) -> Option<PopupAccentDue> {
+        let desired = self.desired?;
+        if self.applied == Some(desired) {
+            return None;
+        }
+
+        let Some(applied) = self.applied else {
+            return Some(PopupAccentDue::Immediate);
+        };
+
+        if accent_presence(applied) != accent_presence(desired) {
+            return Some(PopupAccentDue::Immediate);
+        }
+
+        let changed_at = self.desired_changed_at.unwrap_or(now);
+        (now.duration_since(changed_at) >= POPUP_ACCENT_SETTLE_DELAY)
+            .then_some(PopupAccentDue::Settled)
+    }
+
+    fn desired(&self) -> Option<sys::PopupAccentMaterial> {
+        self.desired
+    }
+
+    fn mark_applied(&mut self, material: sys::PopupAccentMaterial) {
+        self.applied = Some(material);
+        self.desired = Some(material);
+        self.desired_changed_at = None;
+    }
+
+    fn pending(&self) -> bool {
+        self.desired.is_some() && self.desired != self.applied
+    }
+
+    fn changed_instant(&self) -> Option<Instant> {
+        self.desired_changed_at
+    }
+}
+
+fn accent_presence(material: sys::PopupAccentMaterial) -> PopupAccentPresence {
+    match material {
+        sys::PopupAccentMaterial::Disabled => PopupAccentPresence::Disabled,
+        sys::PopupAccentMaterial::Acrylic { .. } => PopupAccentPresence::Acrylic,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PopupAccentPresence {
+    Disabled,
+    Acrylic,
 }
 
 impl PopupGeometry {
@@ -172,6 +254,7 @@ impl PopupPresentationMode {
 
     fn realization_for(
         self,
+        format: wgpu::TextureFormat,
         alpha_mode: wgpu::CompositeAlphaMode,
         preference: overlay::PopupMaterialPreference,
     ) -> PopupMaterialRealization {
@@ -180,14 +263,14 @@ impl PopupPresentationMode {
                 PopupMaterialRealization::OpaqueFallback
             }
             overlay::PopupMaterialPreference::NoAccent => {
-                if alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied {
+                if render::supports_windows_premultiplied_popup_pack(format, alpha_mode) {
                     PopupMaterialRealization::TransparentNoAccent
                 } else {
                     PopupMaterialRealization::OpaqueFallback
                 }
             }
             overlay::PopupMaterialPreference::System => {
-                if alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied {
+                if render::supports_windows_premultiplied_popup_pack(format, alpha_mode) {
                     PopupMaterialRealization::WindowsAccentAcrylic
                 } else {
                     PopupMaterialRealization::OpaqueFallback
@@ -209,13 +292,22 @@ impl PopupMaterialRealization {
     fn fallback_reason(
         self,
         mode: PopupPresentationMode,
+        format: wgpu::TextureFormat,
         alpha_mode: wgpu::CompositeAlphaMode,
     ) -> Option<&'static str> {
-        match (self, mode, alpha_mode) {
-            (Self::WindowsAccentAcrylic, _, _) => None,
-            (Self::TransparentNoAccent, _, _) => None,
-            (Self::OpaqueFallback, _, wgpu::CompositeAlphaMode::PreMultiplied) => None,
-            (Self::OpaqueFallback, _, _) => Some("premultiplied alpha surface unavailable"),
+        match (self, mode, format, alpha_mode) {
+            (Self::WindowsAccentAcrylic, _, _, _) => None,
+            (Self::TransparentNoAccent, _, _, _) => None,
+            (Self::OpaqueFallback, _, _, wgpu::CompositeAlphaMode::PreMultiplied)
+                if !matches!(
+                    format,
+                    wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm
+                ) =>
+            {
+                Some("non-sRGB premultiplied popup surface format unavailable")
+            }
+            (Self::OpaqueFallback, _, _, wgpu::CompositeAlphaMode::PreMultiplied) => None,
+            (Self::OpaqueFallback, _, _, _) => Some("premultiplied alpha surface unavailable"),
         }
     }
 }
@@ -224,7 +316,7 @@ impl Native {
     pub fn new() -> Self {
         Self {
             context: None,
-            renderer: None,
+            renderers: HashMap::new(),
             windows: HashMap::new(),
             popups: HashMap::new(),
             raw_windows: HashMap::new(),
@@ -252,9 +344,13 @@ impl Default for Native {
 #[cfg(test)]
 mod tests {
     use super::{
-        PopupGeometry, PopupGeometryState, PopupMaterialRealization, PopupPresentationMode,
+        POPUP_ACCENT_SETTLE_DELAY, PopupAccentDue, PopupAccentState, PopupGeometry,
+        PopupGeometryState, PopupMaterialRealization, PopupPresentationMode,
     };
     use crate::overlay::PopupMaterialPreference;
+    use crate::platform::native::sys::PopupAccentMaterial;
+    use crate::scene;
+    use std::time::{Duration, Instant};
 
     fn geometry(x: i32, y: i32, scale: f64) -> PopupGeometry {
         PopupGeometry {
@@ -263,6 +359,12 @@ mod tests {
             width: 240.0,
             height: 180.0,
             scale_factor_bits: scale.to_bits(),
+        }
+    }
+
+    fn acrylic(red: u8) -> PopupAccentMaterial {
+        PopupAccentMaterial::Acrylic {
+            tint: scene::Color::rgba(red, 20, 30, 180),
         }
     }
 
@@ -311,6 +413,90 @@ mod tests {
     }
 
     #[test]
+    fn popup_accent_state_applies_first_material_immediately() {
+        let now = Instant::now();
+        let mut state = PopupAccentState::default();
+        let desired = acrylic(10);
+
+        assert!(state.set_desired(desired, now));
+        assert_eq!(state.due(now), Some(PopupAccentDue::Immediate));
+        state.mark_applied(desired);
+        assert_eq!(state.due(now), None);
+        assert!(!state.pending());
+    }
+
+    #[test]
+    fn popup_accent_state_applies_presence_changes_immediately() {
+        let now = Instant::now();
+        let mut state = PopupAccentState::default();
+        state.set_desired(PopupAccentMaterial::Disabled, now);
+        state.mark_applied(PopupAccentMaterial::Disabled);
+
+        let desired = acrylic(10);
+        assert!(state.set_desired(desired, now + Duration::from_millis(1)));
+        assert_eq!(
+            state.due(now + Duration::from_millis(1)),
+            Some(PopupAccentDue::Immediate)
+        );
+    }
+
+    #[test]
+    fn popup_accent_state_debounces_tint_only_changes_to_latest() {
+        let now = Instant::now();
+        let mut state = PopupAccentState::default();
+        let first = acrylic(10);
+        state.set_desired(first, now);
+        state.mark_applied(first);
+
+        let second = acrylic(11);
+        let third = acrylic(12);
+        assert!(state.set_desired(second, now + Duration::from_millis(1)));
+        assert_eq!(state.due(now + Duration::from_millis(1)), None);
+        assert!(state.pending());
+
+        assert!(state.set_desired(third, now + Duration::from_millis(20)));
+        assert_eq!(state.due(now + Duration::from_millis(149)), None);
+        assert_eq!(
+            state.due(now + Duration::from_millis(20) + POPUP_ACCENT_SETTLE_DELAY),
+            Some(PopupAccentDue::Settled)
+        );
+        assert_eq!(state.desired(), Some(third));
+    }
+
+    #[test]
+    fn popup_accent_state_repeated_desired_does_not_extend_quiet_time() {
+        let now = Instant::now();
+        let mut state = PopupAccentState::default();
+        let first = acrylic(10);
+        let second = acrylic(11);
+        state.set_desired(first, now);
+        state.mark_applied(first);
+        state.set_desired(second, now);
+        let changed_at = state.changed_instant();
+
+        assert!(!state.set_desired(second, now + Duration::from_millis(120)));
+        assert_eq!(state.changed_instant(), changed_at);
+        assert_eq!(
+            state.due(now + POPUP_ACCENT_SETTLE_DELAY),
+            Some(PopupAccentDue::Settled)
+        );
+    }
+
+    #[test]
+    fn popup_accent_state_reverting_to_applied_value_clears_pending() {
+        let now = Instant::now();
+        let mut state = PopupAccentState::default();
+        let first = acrylic(10);
+        state.set_desired(first, now);
+        state.mark_applied(first);
+        state.set_desired(acrylic(11), now + Duration::from_millis(1));
+
+        assert!(state.set_desired(first, now + Duration::from_millis(2)));
+        assert_eq!(state.due(now + POPUP_ACCENT_SETTLE_DELAY), None);
+        assert!(!state.pending());
+    }
+
+    #[test]
     fn popup_presentation_mode_pairs_no_redirection_with_premultiplied_alpha() {
         assert!(PopupPresentationMode::CompositionBacked.no_redirection_bitmap());
         assert_eq!(
@@ -329,6 +515,7 @@ mod tests {
     fn popup_material_realization_requires_premultiplied_alpha() {
         assert_eq!(
             PopupPresentationMode::CompositionBacked.realization_for(
+                wgpu::TextureFormat::Bgra8Unorm,
                 wgpu::CompositeAlphaMode::PreMultiplied,
                 PopupMaterialPreference::System
             ),
@@ -336,6 +523,7 @@ mod tests {
         );
         assert_eq!(
             PopupPresentationMode::CompositionBacked.realization_for(
+                wgpu::TextureFormat::Bgra8Unorm,
                 wgpu::CompositeAlphaMode::Opaque,
                 PopupMaterialPreference::System
             ),
@@ -343,10 +531,19 @@ mod tests {
         );
         assert_eq!(
             PopupPresentationMode::RedirectedFallback.realization_for(
+                wgpu::TextureFormat::Bgra8Unorm,
                 wgpu::CompositeAlphaMode::PreMultiplied,
                 PopupMaterialPreference::System
             ),
             PopupMaterialRealization::WindowsAccentAcrylic
+        );
+        assert_eq!(
+            PopupPresentationMode::RedirectedFallback.realization_for(
+                wgpu::TextureFormat::Bgra8UnormSrgb,
+                wgpu::CompositeAlphaMode::PreMultiplied,
+                PopupMaterialPreference::System
+            ),
+            PopupMaterialRealization::OpaqueFallback
         );
     }
 
@@ -354,6 +551,7 @@ mod tests {
     fn popup_material_diagnostics_can_force_realization() {
         assert_eq!(
             PopupPresentationMode::CompositionBacked.realization_for(
+                wgpu::TextureFormat::Bgra8Unorm,
                 wgpu::CompositeAlphaMode::PreMultiplied,
                 PopupMaterialPreference::OpaqueFallback
             ),
@@ -361,6 +559,7 @@ mod tests {
         );
         assert_eq!(
             PopupPresentationMode::CompositionBacked.realization_for(
+                wgpu::TextureFormat::Bgra8Unorm,
                 wgpu::CompositeAlphaMode::PreMultiplied,
                 PopupMaterialPreference::NoAccent
             ),
@@ -368,6 +567,7 @@ mod tests {
         );
         assert_eq!(
             PopupPresentationMode::RedirectedFallback.realization_for(
+                wgpu::TextureFormat::Bgra8Unorm,
                 wgpu::CompositeAlphaMode::PreMultiplied,
                 PopupMaterialPreference::NoAccent
             ),

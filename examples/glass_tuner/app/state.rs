@@ -97,7 +97,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             panel_open: true,
-            comparison_open: false,
+            comparison_open: true,
             force_promoted: false,
             foreground_mode: ForegroundMode::Acrylic,
             blur_sigma: 44.55,

@@ -75,8 +75,10 @@ impl Surface {
         let capabilities = inner.get_capabilities(render_context.adapter());
 
         let default_alpha_mode = config.alpha_mode;
+        let default_format = config.format;
         config.present_mode =
             preferred_present_mode(&capabilities.present_modes, config.present_mode);
+        config.format = preferred_format(&capabilities.formats, config.format, alpha_preference);
         config.alpha_mode = preferred_alpha_mode(
             &capabilities.alpha_modes,
             config.alpha_mode,
@@ -85,7 +87,10 @@ impl Surface {
         if matches!(alpha_preference, CompositeAlphaPreference::PreMultiplied) {
             log::debug!(
                 target: "wgpu_l3::native_popup",
-                "popup surface alpha capabilities: supported={:?}, default={:?}, selected={:?}",
+                "popup surface capabilities: formats={:?}, default_format={:?}, selected_format={:?}, alpha={:?}, default_alpha={:?}, selected_alpha={:?}",
+                capabilities.formats,
+                default_format,
+                config.format,
                 capabilities.alpha_modes,
                 default_alpha_mode,
                 config.alpha_mode
@@ -252,6 +257,65 @@ fn preferred_alpha_mode(
     }
 }
 
+fn preferred_format(
+    supported: &[wgpu::TextureFormat],
+    fallback: wgpu::TextureFormat,
+    preference: CompositeAlphaPreference,
+) -> wgpu::TextureFormat {
+    match preference {
+        CompositeAlphaPreference::Default => fallback,
+        CompositeAlphaPreference::PreMultiplied => {
+            const PREFERRED: [wgpu::TextureFormat; 2] = [
+                wgpu::TextureFormat::Bgra8Unorm,
+                wgpu::TextureFormat::Rgba8Unorm,
+            ];
+
+            PREFERRED
+                .into_iter()
+                .find(|format| supported.contains(format))
+                .or_else(|| {
+                    non_srgb_variant(fallback)
+                        .filter(|format| supported.contains(format))
+                })
+                .unwrap_or_else(|| {
+                    log::warn!(
+                        target: "wgpu_l3::native_popup",
+                        "non-sRGB premultiplied popup surface format unsupported; supported={supported:?}; using {fallback:?}"
+                    );
+                    fallback
+                })
+        }
+    }
+}
+
+pub(crate) fn scene_format_for_surface_format(format: wgpu::TextureFormat) -> wgpu::TextureFormat {
+    match format {
+        wgpu::TextureFormat::Bgra8Unorm => wgpu::TextureFormat::Bgra8UnormSrgb,
+        wgpu::TextureFormat::Rgba8Unorm => wgpu::TextureFormat::Rgba8UnormSrgb,
+        _ => format,
+    }
+}
+
+pub(crate) fn supports_windows_premultiplied_popup_pack(
+    format: wgpu::TextureFormat,
+    alpha_mode: wgpu::CompositeAlphaMode,
+) -> bool {
+    alpha_mode == wgpu::CompositeAlphaMode::PreMultiplied
+        && matches!(
+            format,
+            wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm
+        )
+}
+
+fn non_srgb_variant(format: wgpu::TextureFormat) -> Option<wgpu::TextureFormat> {
+    match format {
+        wgpu::TextureFormat::Bgra8UnormSrgb => Some(wgpu::TextureFormat::Bgra8Unorm),
+        wgpu::TextureFormat::Rgba8UnormSrgb => Some(wgpu::TextureFormat::Rgba8Unorm),
+        wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm => Some(format),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,6 +363,66 @@ mod tests {
                 CompositeAlphaPreference::PreMultiplied,
             ),
             wgpu::CompositeAlphaMode::Opaque
+        );
+    }
+
+    #[test]
+    fn premultiplied_popup_format_prefers_non_srgb_bgra() {
+        let supported = [
+            wgpu::TextureFormat::Bgra8UnormSrgb,
+            wgpu::TextureFormat::Bgra8Unorm,
+            wgpu::TextureFormat::Rgba8Unorm,
+        ];
+
+        assert_eq!(
+            preferred_format(
+                &supported,
+                wgpu::TextureFormat::Bgra8UnormSrgb,
+                CompositeAlphaPreference::PreMultiplied,
+            ),
+            wgpu::TextureFormat::Bgra8Unorm
+        );
+    }
+
+    #[test]
+    fn premultiplied_popup_format_falls_back_when_non_srgb_is_unavailable() {
+        let supported = [wgpu::TextureFormat::Bgra8UnormSrgb];
+
+        assert_eq!(
+            preferred_format(
+                &supported,
+                wgpu::TextureFormat::Bgra8UnormSrgb,
+                CompositeAlphaPreference::PreMultiplied,
+            ),
+            wgpu::TextureFormat::Bgra8UnormSrgb
+        );
+    }
+
+    #[test]
+    fn premultiplied_popup_pack_requires_non_srgb_format_and_premultiplied_alpha() {
+        assert!(supports_windows_premultiplied_popup_pack(
+            wgpu::TextureFormat::Bgra8Unorm,
+            wgpu::CompositeAlphaMode::PreMultiplied
+        ));
+        assert!(!supports_windows_premultiplied_popup_pack(
+            wgpu::TextureFormat::Bgra8UnormSrgb,
+            wgpu::CompositeAlphaMode::PreMultiplied
+        ));
+        assert!(!supports_windows_premultiplied_popup_pack(
+            wgpu::TextureFormat::Bgra8Unorm,
+            wgpu::CompositeAlphaMode::Opaque
+        ));
+    }
+
+    #[test]
+    fn non_srgb_popup_surface_maps_to_srgb_scene_format() {
+        assert_eq!(
+            scene_format_for_surface_format(wgpu::TextureFormat::Bgra8Unorm),
+            wgpu::TextureFormat::Bgra8UnormSrgb
+        );
+        assert_eq!(
+            scene_format_for_surface_format(wgpu::TextureFormat::Rgba8Unorm),
+            wgpu::TextureFormat::Rgba8UnormSrgb
         );
     }
 }

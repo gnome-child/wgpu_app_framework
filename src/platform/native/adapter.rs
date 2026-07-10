@@ -91,4 +91,9 @@ impl Backend for Native {
         self.schedule_poll_request();
         Ok(())
     }
+
+    fn maintain(&mut self, _context: &mut Self::Context<'_>) -> Result<(), Self::Error> {
+        self.apply_due_popup_accents(std::time::Instant::now());
+        Ok(())
+    }
 }

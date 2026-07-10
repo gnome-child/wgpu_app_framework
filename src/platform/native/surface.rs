@@ -20,7 +20,7 @@ impl Native {
     }
 
     pub(in crate::platform::native) fn ensure_renderer(&mut self, format: wgpu::TextureFormat) {
-        if self.renderer.is_some() {
+        if self.renderers.contains_key(&format) {
             return;
         }
 
@@ -29,7 +29,8 @@ impl Native {
             .context
             .as_ref()
             .expect("render context should exist before creating renderer");
-        self.renderer = Some(render::Renderer::new(context, format));
+        self.renderers
+            .insert(format, render::Renderer::new(context, format));
     }
 
     pub(in crate::platform::native) fn create_native_window(
@@ -86,16 +87,16 @@ impl Native {
         &mut self,
         native_window: &mut NativeWindow,
     ) -> Result<(), NativeError> {
-        let format = native_window.canvas().surface().config().format;
-        self.ensure_renderer(format);
+        let render_format = render_format_for_canvas(native_window.canvas());
+        self.ensure_renderer(render_format);
 
         let context = self
             .context
             .as_ref()
             .expect("render context should exist before clearing");
         let renderer = self
-            .renderer
-            .as_mut()
+            .renderers
+            .get_mut(&render_format)
             .expect("renderer should exist before clearing");
         renderer.clear(context, native_window.canvas_mut())?;
 
@@ -107,16 +108,23 @@ impl Native {
         presentation: &shell::Presentation,
     ) -> Result<diagnostics::RenderReport, NativeError> {
         let window = presentation.window();
-        let format = self.sync_window_surface(window)?;
-        self.ensure_renderer(format);
+        self.sync_window_surface(window)?;
+        let render_format = {
+            let native_window = self.windows.get(&window).ok_or_else(|| {
+                log::error!("cannot present missing native window: {window:?}");
+                NativeError::MissingWindow { window }
+            })?;
+            render_format_for_canvas(native_window.canvas())
+        };
+        self.ensure_renderer(render_format);
 
         let context = self
             .context
             .as_ref()
             .expect("render context should exist before presenting");
         let renderer = self
-            .renderer
-            .as_mut()
+            .renderers
+            .get_mut(&render_format)
             .expect("renderer should exist before presenting");
         let native_window = self.windows.get_mut(&window).ok_or_else(|| {
             log::error!("cannot present missing native window: {window:?}");
@@ -182,6 +190,17 @@ impl Native {
         }
 
         Ok(native_window.canvas().surface().config().format)
+    }
+}
+
+pub(in crate::platform::native) fn render_format_for_canvas(
+    canvas: &render::Canvas,
+) -> wgpu::TextureFormat {
+    let format = canvas.surface().config().format;
+    if render::supports_windows_premultiplied_popup_pack(format, canvas.composite_alpha_mode()) {
+        render::scene_format_for_surface_format(format)
+    } else {
+        format
     }
 }
 

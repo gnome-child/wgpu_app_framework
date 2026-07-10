@@ -166,6 +166,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
         self.sync_requests(context, work.requests())?;
         self.sync_poll(context, work.needs_poll())?;
         self.animation_schedule = work.animation_schedule();
+        self.backend.maintain(context)?;
 
         Ok(())
     }

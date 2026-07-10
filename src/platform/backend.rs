@@ -52,6 +52,10 @@ pub trait Backend {
     }
 
     fn schedule_poll(&mut self, context: &mut Self::Context<'_>) -> Result<(), Self::Error>;
+
+    fn maintain(&mut self, _context: &mut Self::Context<'_>) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
