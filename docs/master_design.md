@@ -173,6 +173,14 @@ Text layout owns shaped-buffer cache mechanics through `ShapingCache`; area
 lines, field surfaces, and inline text/icons supply domain keys and retention
 limits, while the shared owner mediates lookup, insertion, and `FontSystem` use.
 
+Document saves capture a `document::Version` containing document identity and
+buffer revision. Deferred completion carries that version plus a monotonically
+newer save generation; only the latest generation for the same identity may
+update the document. A completion for an older revision records what reached
+disk but leaves newer edits dirty. `SaveSnapshot` writes through a sibling
+temporary file and atomic replacement, so memory never calls a partial write a
+saved document.
+
 `widget`
 
 Owns ergonomic builders for view data. Widgets produce nodes. Widgets do not

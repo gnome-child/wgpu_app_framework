@@ -159,14 +159,22 @@ impl Listener<document::SaveDialogCanceled> for State {
 }
 
 fn queue_save(state: &mut State, path: PathBuf, cx: &mut Context) -> Response<Result<(), String>> {
-    let text = state.document.text();
+    let snapshot = state.document.save_snapshot();
+    let version = snapshot.version();
+    let generation = state.save_generation.wrapping_add(1);
     state.last_status = format!("saving {}", compact_path(&path));
     let scheduled = cx.spawn(Task::new(move || {
-        let result = std::fs::write(&path, text).map_err(|error| error.to_string());
-        Event::FileSaved { path, result }
+        let result = snapshot.write_to(&path).map_err(|error| error.to_string());
+        Event::FileSaved {
+            version,
+            generation,
+            path,
+            result,
+        }
     }));
 
     if scheduled.is_some() {
+        state.save_generation = generation;
         Response::changed(Ok(()))
     } else {
         state.last_status = "save failed: task queue unavailable".to_owned();
@@ -174,11 +182,34 @@ fn queue_save(state: &mut State, path: PathBuf, cx: &mut Context) -> Response<Re
     }
 }
 
-pub(super) fn finish_save(state: &mut State, path: PathBuf, result: Result<(), String>) {
+pub(super) fn accepts_save_completion(
+    state: &State,
+    version: document::Version,
+    generation: u64,
+) -> bool {
+    state.save_generation == generation && state.document.identity() == version.identity()
+}
+
+pub(super) fn finish_save(
+    state: &mut State,
+    version: document::Version,
+    path: PathBuf,
+    result: Result<(), String>,
+) {
     match result {
         Ok(()) => {
-            state.document.mark_saved_at(path.clone());
-            state.last_status = format!("saved {}", compact_path(&path));
+            let accepted = state
+                .document
+                .record_saved_version_at(version, path.clone());
+            debug_assert!(
+                accepted,
+                "save completion identity was checked before mutation"
+            );
+            state.last_status = if state.document.is_dirty() {
+                format!("saved {}; newer edits remain unsaved", compact_path(&path))
+            } else {
+                format!("saved {}", compact_path(&path))
+            };
         }
         Err(error) => {
             state.last_status = format!("save failed: {error}");

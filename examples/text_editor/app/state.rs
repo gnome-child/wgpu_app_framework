@@ -8,6 +8,7 @@ pub struct State {
     pub wrap_text: bool,
     pub show_debug_panel: bool,
     pub last_status: String,
+    pub save_generation: u64,
 }
 
 impl wgpu_l3::State for State {}
@@ -19,6 +20,7 @@ impl Default for State {
             wrap_text: true,
             show_debug_panel: false,
             last_status: "ready".to_owned(),
+            save_generation: 0,
         }
     }
 }

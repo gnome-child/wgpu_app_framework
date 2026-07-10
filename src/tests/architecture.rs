@@ -1030,6 +1030,81 @@ fn clipboard_outcomes_flow_from_system_to_text_commands() {
 }
 
 #[test]
+fn deferred_save_completion_carries_version_generation_and_atomic_write_owner() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let document = std::fs::read_to_string(root.join("src").join("document").join("mod.rs"))
+        .expect("document source should read");
+    let save = std::fs::read_to_string(root.join("src").join("document").join("save.rs"))
+        .expect("document save source should read");
+    let event = std::fs::read_to_string(
+        root.join("examples")
+            .join("text_editor")
+            .join("app")
+            .join("event.rs"),
+    )
+    .expect("text editor event source should read");
+    let target = std::fs::read_to_string(
+        root.join("examples")
+            .join("text_editor")
+            .join("app")
+            .join("target.rs"),
+    )
+    .expect("text editor target source should read");
+    let runtime = std::fs::read_to_string(
+        root.join("examples")
+            .join("text_editor")
+            .join("app")
+            .join("runtime.rs"),
+    )
+    .expect("text editor runtime source should read");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    for owner in [
+        "pub struct Identity",
+        "pub struct Version",
+        "pub struct SaveSnapshot",
+    ] {
+        assert!(
+            save.contains(owner),
+            "document save owner must retain {owner}"
+        );
+    }
+    for atomic_step in ["create_new(true)", "temporary.sync_all()", "replace_file("] {
+        assert!(
+            save.contains(atomic_step),
+            "document saves must retain atomic step {atomic_step}"
+        );
+    }
+    assert!(
+        document.contains("let snapshot = self.save_snapshot()")
+            && document.contains("snapshot.write_to(&path)?")
+            && !document.contains("std::fs::write(&path, self.buffer.text())"),
+        "Document::save_to must use the atomic snapshot owner"
+    );
+    assert!(
+        event.contains("version: document::Version") && event.contains("generation: u64"),
+        "save completion must carry document version and save generation"
+    );
+    assert!(
+        target.contains("let snapshot = state.document.save_snapshot()")
+            && target.contains("state.save_generation = generation")
+            && target.contains("state.document.identity() == version.identity()")
+            && !target.contains("std::fs::write(&path, text)"),
+        "the example must write and validate the captured save identity"
+    );
+    assert!(
+        runtime.contains("accepts_save_completion(cx.state(), version, generation)"),
+        "stale save completions must be rejected before a state transaction"
+    );
+    assert!(
+        master.contains("only the latest generation for the same identity")
+            && master.contains("leaves newer edits dirty"),
+        "master design must retain save completion identity doctrine"
+    );
+}
+
+#[test]
 fn state_change_reasons_do_not_import_command_contracts() {
     let state_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src")

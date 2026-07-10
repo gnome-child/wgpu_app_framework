@@ -573,6 +573,164 @@ fn text_editor_file_commands_flow_through_runtime_responders() {
 }
 
 #[test]
+fn text_editor_save_completion_keeps_newer_edits_dirty() {
+    let path = temp_text_path("save_completion_revision.txt");
+    let mut app = text_editor::app(text_editor::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    assert!(app.focus(window, session::Focus::text("document")));
+    app.invoke_focused(
+        window,
+        app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("alpha")),
+    )
+    .output
+    .expect("initial edit should succeed");
+    let saved_version = app.state().document.version();
+
+    app.invoke(app.trigger::<document::SaveToPath>(path.clone()))
+        .output
+        .expect("save command should resolve")
+        .expect("save should schedule");
+    app.invoke_focused(
+        window,
+        app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("!")),
+    )
+    .output
+    .expect("newer edit should succeed");
+
+    let completion = app.run_next_task().expect("save task should complete");
+
+    assert!(completion.changed_state());
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("saved snapshot should be readable"),
+        "alpha"
+    );
+    assert_eq!(app.state().document.text(), "alpha!");
+    assert_eq!(app.state().document.path(), Some(path.as_path()));
+    assert_eq!(
+        app.state().document.saved_buffer_revision(),
+        saved_version.revision()
+    );
+    assert!(app.state().document.is_dirty());
+    assert_eq!(
+        app.state().last_status,
+        format!(
+            "saved {}; newer edits remain unsaved",
+            text_editor::compact_path(&path)
+        )
+    );
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn text_editor_save_completion_cannot_mark_a_replacement_document_saved() {
+    let path = temp_text_path("save_completion_document_identity.txt");
+    let mut app = text_editor::app(text_editor::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    assert!(app.focus(window, session::Focus::text("document")));
+    app.invoke_focused(
+        window,
+        app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("old document")),
+    )
+    .output
+    .expect("edit should succeed");
+    let saving_identity = app.state().document.identity();
+    app.invoke(app.trigger::<document::SaveToPath>(path.clone()))
+        .output
+        .expect("save command should resolve")
+        .expect("save should schedule");
+
+    app.invoke(app.trigger::<document::NewFile>(()))
+        .output
+        .expect("new file should succeed");
+    assert_ne!(app.state().document.identity(), saving_identity);
+    let revision_before_completion = app.revision();
+
+    let completion = app.run_next_task().expect("old save task should complete");
+
+    assert!(!completion.changed_state());
+    assert_eq!(app.revision(), revision_before_completion);
+    assert_eq!(app.state().document.text(), "");
+    assert_eq!(app.state().document.path(), None);
+    assert!(!app.state().document.is_dirty());
+    assert_eq!(app.state().last_status, "new file");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("old snapshot should still reach disk"),
+        "old document"
+    );
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn text_editor_latest_save_generation_owns_completion() {
+    let first_path = temp_text_path("save_generation_first.txt");
+    let second_path = temp_text_path("save_generation_second.txt");
+    let mut app = text_editor::app(text_editor::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    assert!(app.focus(window, session::Focus::text("document")));
+    app.invoke_focused(
+        window,
+        app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("first")),
+    )
+    .output
+    .expect("first edit should succeed");
+    app.invoke(app.trigger::<document::SaveToPath>(first_path.clone()))
+        .output
+        .expect("first save command should resolve")
+        .expect("first save should schedule");
+    let first_generation = app.state().save_generation;
+
+    app.invoke_focused(
+        window,
+        app.trigger::<document::ApplyEdit>(text::edit::Edit::insert(" second")),
+    )
+    .output
+    .expect("second edit should succeed");
+    app.invoke(app.trigger::<document::SaveToPath>(second_path.clone()))
+        .output
+        .expect("second save command should resolve")
+        .expect("second save should schedule");
+    assert!(app.state().save_generation > first_generation);
+    let waiting_status = format!("saving {}", text_editor::compact_path(&second_path));
+
+    let stale = app
+        .run_next_task()
+        .expect("first save task should complete");
+
+    assert!(!stale.changed_state());
+    assert_eq!(app.state().document.path(), None);
+    assert!(app.state().document.is_dirty());
+    assert_eq!(app.state().last_status, waiting_status);
+    assert_eq!(
+        std::fs::read_to_string(&first_path).expect("first save should reach disk"),
+        "first"
+    );
+
+    let current = app
+        .run_next_task()
+        .expect("second save task should complete");
+
+    assert!(current.changed_state());
+    assert_eq!(app.state().document.path(), Some(second_path.as_path()));
+    assert!(!app.state().document.is_dirty());
+    assert_eq!(
+        std::fs::read_to_string(&second_path).expect("second save should reach disk"),
+        "first second"
+    );
+    assert_eq!(
+        app.state().last_status,
+        format!("saved {}", text_editor::compact_path(&second_path))
+    );
+
+    let _ = std::fs::remove_file(first_path);
+    let _ = std::fs::remove_file(second_path);
+}
+
+#[test]
 fn text_editor_restore_clears_pending_save_task_and_transient_dialog() {
     let path = temp_text_path("restore_clears_pending_save.txt");
     let mut app = text_editor::app(text_editor::State::default());

@@ -81,10 +81,17 @@ pub fn runtime(state: State) -> Runtime<State, Event> {
             target::record_text_command_status(state, result, "paste", observation);
         })
         .event(|cx, event| match event {
-            Event::FileSaved { path, result } => {
-                cx.change(state::Reason::event("file_saved"), |state| {
-                    target::finish_save(state, path, result);
-                });
+            Event::FileSaved {
+                version,
+                generation,
+                path,
+                result,
+            } => {
+                if target::accepts_save_completion(cx.state(), version, generation) {
+                    cx.change(state::Reason::event("file_saved"), |state| {
+                        target::finish_save(state, version, path, result);
+                    });
+                }
             }
         })
 }
