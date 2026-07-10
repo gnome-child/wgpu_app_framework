@@ -214,20 +214,11 @@ impl<'a, M: state::State> Chain<'a, M> {
         None
     }
 
-    pub(crate) fn notify<N: Notification>(
-        &mut self,
-        payload: &N::Payload,
-        cx: &mut Context,
-    ) -> Reaction {
-        self.notify_any(TypeId::of::<N>(), payload, cx)
+    pub(crate) fn notify<N: Notification>(&mut self, payload: &N::Payload) -> Reaction {
+        self.notify_any(TypeId::of::<N>(), payload)
     }
 
-    fn notify_any(
-        &mut self,
-        notification_type: TypeId,
-        payload: &dyn Any,
-        cx: &mut Context,
-    ) -> Reaction {
+    fn notify_any(&mut self, notification_type: TypeId, payload: &dyn Any) -> Reaction {
         let mut reaction = Reaction::ignored();
 
         for responder in &self.responders {
@@ -236,7 +227,7 @@ impl<'a, M: state::State> Chain<'a, M> {
                 .iter()
                 .filter(|listener| listener.handles_type(notification_type))
             {
-                reaction = reaction.then(listener.notify_any(self.store.model_mut(), payload, cx));
+                reaction = reaction.then(listener.notify_any(self.store.model_mut(), payload));
             }
         }
 

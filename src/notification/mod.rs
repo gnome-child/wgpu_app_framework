@@ -1,6 +1,6 @@
 use std::any::{Any, TypeId};
 
-use crate::{context::Context, response, state, target::Selector};
+use crate::{response, state, target::Selector};
 
 /// A past-tense framework fact.
 ///
@@ -14,7 +14,7 @@ pub trait Notification: 'static + Sized {
 
 /// A value that wants to hear a notification.
 pub trait Listener<N: Notification> {
-    fn notify(&mut self, payload: &N::Payload, cx: &mut Context) -> Reaction;
+    fn notify(&mut self, payload: &N::Payload) -> Reaction;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,7 +23,7 @@ pub struct Reaction {
     effect: response::Effect,
 }
 
-type NotifyThunk<M> = dyn Fn(&mut M, &dyn Any, &mut Context) -> Reaction;
+type NotifyThunk<M> = dyn Fn(&mut M, &dyn Any) -> Reaction;
 
 pub(crate) struct AnyListener<M: state::State> {
     notification_type: TypeId,
@@ -74,13 +74,13 @@ impl<M: state::State> AnyListener<M> {
     {
         Self {
             notification_type: TypeId::of::<N>(),
-            notify: Box::new(move |model, payload, cx| {
+            notify: Box::new(move |model, payload| {
                 let payload = payload
                     .downcast_ref::<N::Payload>()
                     .expect("notification payload type matched listener registration");
                 let listener = selector(model);
 
-                <T as Listener<N>>::notify(listener, payload, cx)
+                <T as Listener<N>>::notify(listener, payload)
             }),
         }
     }
@@ -89,12 +89,7 @@ impl<M: state::State> AnyListener<M> {
         self.notification_type == notification_type
     }
 
-    pub(crate) fn notify_any(
-        &self,
-        model: &mut M,
-        payload: &dyn Any,
-        cx: &mut Context,
-    ) -> Reaction {
-        (self.notify)(model, payload, cx)
+    pub(crate) fn notify_any(&self, model: &mut M, payload: &dyn Any) -> Reaction {
+        (self.notify)(model, payload)
     }
 }

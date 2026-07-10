@@ -105,7 +105,7 @@ impl Target<document::OpenPath> for State {
 }
 
 impl Listener<document::OpenDialogCanceled> for State {
-    fn notify(&mut self, _: &(), _: &mut Context) -> notification::Reaction {
+    fn notify(&mut self, _: &()) -> notification::Reaction {
         self.last_status = "open canceled".to_owned();
         notification::Reaction::changed()
     }
@@ -152,7 +152,7 @@ impl Target<document::SaveToPath> for State {
 }
 
 impl Listener<document::SaveDialogCanceled> for State {
-    fn notify(&mut self, _: &(), _: &mut Context) -> notification::Reaction {
+    fn notify(&mut self, _: &()) -> notification::Reaction {
         self.last_status = "save canceled".to_owned();
         notification::Reaction::changed()
     }

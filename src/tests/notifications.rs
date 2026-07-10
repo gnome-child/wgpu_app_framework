@@ -42,14 +42,14 @@ impl Clone for NotificationState {
 impl State for NotificationState {}
 
 impl notification::Listener<TestNotice> for NotificationPane {
-    fn notify(&mut self, payload: &&'static str, _: &mut Context) -> notification::Reaction {
+    fn notify(&mut self, payload: &&'static str) -> notification::Reaction {
         self.events.borrow_mut().push(format!("focused:{payload}"));
         notification::Reaction::changed().with_effect(response::Effect::OpenFileDialog)
     }
 }
 
 impl notification::Listener<TestNotice> for NotificationState {
-    fn notify(&mut self, payload: &&'static str, _: &mut Context) -> notification::Reaction {
+    fn notify(&mut self, payload: &&'static str) -> notification::Reaction {
         self.events.borrow_mut().push(format!("app:{payload}"));
         notification::Reaction::changed().with_effect(response::Effect::SaveFileDialog)
     }

@@ -20,12 +20,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         source: command_context::Source,
     ) -> notification::Reaction {
         let revision_before = self.revision();
-        let task_sink = self.tasks.sink();
-        let mut cx =
-            command_context::Context::with_services_source(&mut self.clipboard, task_sink, source)
-                .with_text_service(self.layout.text_service());
         let mut chain = self.responders.chain_for(&mut self.store, focus);
-        let reaction = chain.notify::<N>(&payload, &mut cx);
+        let reaction = chain.notify::<N>(&payload);
         let changed = reaction.changed_state();
         log::debug!(
             "delivered notification {} from {:?}: changed={}, effect={:?}",
@@ -36,7 +32,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         );
 
         drop(chain);
-        drop(cx);
 
         self.finish_transaction(
             None,
