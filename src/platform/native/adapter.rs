@@ -64,9 +64,10 @@ impl Backend for Native {
     fn present_overlay_popups(
         &mut self,
         context: &mut Self::Context<'_>,
+        synchronized_parents: &[app_window::Id],
         presentations: &[overlay::PopupPresentation],
     ) -> Result<(), Self::Error> {
-        self.present_popup_overlays(context, presentations)
+        self.present_popup_overlays(context, synchronized_parents, presentations)
     }
 
     fn request(
@@ -93,7 +94,8 @@ impl Backend for Native {
     }
 
     fn maintain(&mut self, _context: &mut Self::Context<'_>) -> Result<(), Self::Error> {
-        self.apply_due_popup_accents(std::time::Instant::now());
+        let redraw_parents = self.apply_due_popup_accents(std::time::Instant::now());
+        self.request_popup_parent_redraws(&redraw_parents);
         Ok(())
     }
 }

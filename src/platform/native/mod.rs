@@ -43,6 +43,7 @@ struct PopupWindow {
     geometry: PopupGeometryState,
     accent: PopupAccentState,
     visible: bool,
+    first_present: PopupFirstPresentTrace,
     material: Option<overlay::PopupMaterial>,
     presentation_mode: PopupPresentationMode,
     material_realization: Option<PopupMaterialRealization>,
@@ -87,6 +88,21 @@ enum PopupAccentDue {
     Settled,
 }
 
+#[derive(Debug)]
+struct PopupFirstPresentTrace {
+    created_at: Instant,
+    configured: bool,
+    acquire_attempts: u32,
+    state: PopupFirstPresentState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PopupFirstPresentState {
+    AwaitingFirst,
+    AwaitingConfirmation,
+    Complete,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct PopupGeometry {
     x: i32,
@@ -110,6 +126,7 @@ impl PopupWindow {
             geometry: PopupGeometryState::default(),
             accent: PopupAccentState::default(),
             visible: false,
+            first_present: PopupFirstPresentTrace::new(),
             material: None,
             presentation_mode,
             material_realization: None,
@@ -201,6 +218,21 @@ impl PopupAccentState {
 
     fn changed_instant(&self) -> Option<Instant> {
         self.desired_changed_at
+    }
+}
+
+impl PopupFirstPresentTrace {
+    fn new() -> Self {
+        Self {
+            created_at: Instant::now(),
+            configured: false,
+            acquire_attempts: 0,
+            state: PopupFirstPresentState::AwaitingFirst,
+        }
+    }
+
+    fn elapsed_micros(&self) -> u128 {
+        self.created_at.elapsed().as_micros()
     }
 }
 

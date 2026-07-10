@@ -149,6 +149,11 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
                 .open_window(context, &Window::from_shell(window))?;
         }
 
+        let synchronized_popup_parents = work
+            .presentations()
+            .iter()
+            .map(shell::Presentation::window)
+            .collect::<Vec<_>>();
         for presentation in work.presentations() {
             let report = self.backend.present(context, presentation)?;
             self.host.shell_mut().runtime_mut().record_render_report(
@@ -158,8 +163,11 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             );
         }
         if let Some(popup_presentations) = work.popup_presentations() {
-            self.backend
-                .present_overlay_popups(context, popup_presentations)?;
+            self.backend.present_overlay_popups(
+                context,
+                &synchronized_popup_parents,
+                popup_presentations,
+            )?;
         }
 
         self.sync_cursors(context, work.cursor_updates())?;

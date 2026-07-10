@@ -6,7 +6,8 @@ use crate::{geometry, overlay, paint, render, window as app_window};
 use super::surface::native_logical_area;
 use super::window::{InitialSize, Options, Window as NativeWindow};
 use super::{
-    Native, NativeContext, NativeError, PopupGeometry, PopupKey, PopupPresentationMode, PopupWindow,
+    Native, NativeContext, NativeError, PopupAccentDue, PopupFirstPresentState,
+    PopupFirstPresentTrace, PopupGeometry, PopupKey, PopupPresentationMode, PopupWindow,
 };
 
 impl Native {
@@ -21,19 +22,25 @@ impl Native {
     pub(in crate::platform::native) fn present_popup_overlays(
         &mut self,
         context: &NativeContext<'_>,
+        synchronized_parents: &[app_window::Id],
         presentations: &[overlay::PopupPresentation],
     ) -> Result<(), NativeError> {
         let now = Instant::now();
+        let synchronized_parents = synchronized_parents.iter().copied().collect::<HashSet<_>>();
         let active = presentations
             .iter()
             .map(|presentation| PopupKey::new(presentation.parent(), presentation.id()))
             .collect::<HashSet<_>>();
-        self.close_stale_popups(&active);
+        self.close_stale_popups(&synchronized_parents, &active);
 
+        let mut redraw_parents = HashSet::new();
         for presentation in presentations {
-            self.present_popup_overlay(context, presentation, now)?;
+            if self.present_popup_overlay(context, presentation, now)? {
+                queue_popup_parent_redraw(&mut redraw_parents, presentation.parent());
+            }
         }
-        self.apply_due_popup_accents(now);
+        redraw_parents.extend(self.apply_due_popup_accents(now));
+        self.request_popup_parent_redraws(&redraw_parents);
 
         Ok(())
     }
@@ -43,7 +50,7 @@ impl Native {
         context: &NativeContext<'_>,
         presentation: &overlay::PopupPresentation,
         now: Instant,
-    ) -> Result<(), NativeError> {
+    ) -> Result<bool, NativeError> {
         self.ensure_popup_window(context, presentation)?;
         self.configure_popup_window(presentation)?;
 
@@ -81,10 +88,17 @@ impl Native {
         if material_changed {
             popup.material = Some(material);
         }
-        let surface_config = popup.window.canvas().surface().config();
-        let alpha_mode = surface_config.alpha_mode;
+        let (surface_format, alpha_mode, surface_width, surface_height) = {
+            let config = popup.window.canvas().surface().config();
+            (
+                config.format,
+                config.alpha_mode,
+                config.width,
+                config.height,
+            )
+        };
         let realization = popup.presentation_mode.realization_for(
-            surface_config.format,
+            surface_format,
             alpha_mode,
             material.preference(),
         );
@@ -96,7 +110,7 @@ impl Native {
                     "native popup {:?} uses Windows accent acrylic: mode={:?}, format={:?}, alpha={:?}, preference={:?}, tint={:?}",
                     presentation.id(),
                     popup.presentation_mode,
-                    surface_config.format,
+                    surface_format,
                     alpha_mode,
                     material.preference(),
                     material.tint()
@@ -107,7 +121,7 @@ impl Native {
                     "native popup {:?} uses transparent native scene without accent: mode={:?}, format={:?}, alpha={:?}, preference={:?}",
                     presentation.id(),
                     popup.presentation_mode,
-                    surface_config.format,
+                    surface_format,
                     alpha_mode,
                     material.preference()
                 );
@@ -117,7 +131,7 @@ impl Native {
                     "native popup {:?} uses requested opaque fallback: mode={:?}, format={:?}, alpha={:?}, preference={:?}",
                     presentation.id(),
                     popup.presentation_mode,
-                    surface_config.format,
+                    surface_format,
                     alpha_mode,
                     material.preference()
                 );
@@ -127,11 +141,11 @@ impl Native {
                     "native popup {:?} downgraded to opaque fallback: mode={:?}, format={:?}, alpha={:?}, preference={:?}, reason={}",
                     presentation.id(),
                     popup.presentation_mode,
-                    surface_config.format,
+                    surface_format,
                     alpha_mode,
                     material.preference(),
                     realization
-                        .fallback_reason(popup.presentation_mode, surface_config.format, alpha_mode)
+                        .fallback_reason(popup.presentation_mode, surface_format, alpha_mode)
                         .unwrap_or("unknown")
                 );
             }
@@ -152,6 +166,9 @@ impl Native {
                 realization,
                 accent
             );
+        }
+        if let Some(reason) = popup.accent.due(now) {
+            apply_popup_accent(key, popup, reason);
         }
         let source_scene = if realization.uses_native_material_scene() {
             presentation.scene()
@@ -176,41 +193,50 @@ impl Native {
             observed_area.height(),
             canvas.physical_area().width(),
             canvas.physical_area().height(),
-            surface_config.width,
-            surface_config.height,
+            surface_width,
+            surface_height,
             canvas.scale_factor(),
             realization,
             render_format
         );
 
-        let draw_started = Instant::now();
-        let report = renderer.draw(render_context, popup.window.canvas_mut(), &scene)?;
-        let draw = draw_started.elapsed();
-        let acquire_wait = report
-            .present_timing
-            .map(render::PresentTiming::acquire_wait)
-            .unwrap_or_default();
-        log::debug!(
-            "presented native popup {:?} for parent {:?}: draw={}us acquire={}us groups={}",
-            presentation.id(),
-            presentation.parent(),
-            draw.as_micros(),
-            acquire_wait.as_micros(),
-            report.stats.group_composites
-        );
-
         if !popup.visible {
             popup.window.set_popup_visibility(true);
             popup.visible = true;
-            log::debug!(
-                target: "wgpu_l3::native_popup",
-                "showed native popup {:?} for parent {:?}",
-                presentation.id(),
-                presentation.parent()
-            );
+            popup.first_present.record_shown(key);
         }
 
-        Ok(())
+        let draw_started = Instant::now();
+        let report = renderer.draw(render_context, popup.window.canvas_mut(), &scene)?;
+        let draw = draw_started.elapsed();
+        popup
+            .first_present
+            .record_acquire(key, report.acquire_outcome);
+        let request_confirmation = if let Some(timing) = report.present_timing {
+            let request_confirmation = popup.first_present.record_presented(key, timing);
+            log::debug!(
+                target: "wgpu_l3::native_popup",
+                "presented native popup {:?} for parent {:?}: draw={}us acquire={}us groups={}",
+                presentation.id(),
+                presentation.parent(),
+                draw.as_micros(),
+                timing.acquire_wait().as_micros(),
+                report.stats.group_composites
+            );
+            request_confirmation
+        } else {
+            log::debug!(
+                target: "wgpu_l3::native_popup",
+                "skipped native popup frame {:?} for parent {:?}: draw={}us visible={}",
+                presentation.id(),
+                presentation.parent(),
+                draw.as_micros(),
+                popup.visible
+            );
+            false
+        };
+
+        Ok(request_confirmation)
     }
 
     fn ensure_popup_window(
@@ -263,22 +289,23 @@ impl Native {
             handle.clone(),
         )?;
         let popup = NativeWindow::new(handle, canvas);
+        let popup = PopupWindow::new(popup, presentation_mode);
         log::debug!(
             target: "wgpu_l3::native_popup",
-            "created native popup {:?} for parent {:?}: raw={:?}, mode={:?}, no_redirection_bitmap={}, backend={:?}, size={:?}, scale={}",
+            "first-present stage=created popup={:?} parent={:?} elapsed_us={} raw={:?} mode={:?} no_redirection_bitmap={} backend={:?} logical_size={:?} scale={}",
             presentation.id(),
             presentation.parent(),
-            popup.raw_id(),
+            popup.first_present.elapsed_micros(),
+            popup.window.raw_id(),
             presentation_mode,
             presentation_mode.no_redirection_bitmap(),
             render_context.adapter().get_info().backend,
             presentation.scene().size(),
-            popup.scale_factor()
+            popup.window.scale_factor()
         );
 
-        self.raw_popups.insert(popup.raw_id(), key);
-        self.popups
-            .insert(key, PopupWindow::new(popup, presentation_mode));
+        self.raw_popups.insert(popup.window.raw_id(), key);
+        self.popups.insert(key, popup);
 
         Ok(())
     }
@@ -360,6 +387,9 @@ impl Native {
             .window
             .configure_popup_bounds(desired.x, desired.y, desired.logical_area());
         popup.geometry.mark_applied(desired);
+        popup
+            .first_present
+            .record_configured(key, desired, observed_position, observed_area);
 
         Ok(())
     }
@@ -394,11 +424,15 @@ impl Native {
         Ok(popup.window.canvas().surface().config().format)
     }
 
-    fn close_stale_popups(&mut self, active: &HashSet<PopupKey>) {
+    fn close_stale_popups(
+        &mut self,
+        synchronized_parents: &HashSet<app_window::Id>,
+        active: &HashSet<PopupKey>,
+    ) {
         let stale = self
             .popups
             .keys()
-            .filter(|key| !active.contains(key))
+            .filter(|key| popup_is_stale(key, synchronized_parents, active))
             .copied()
             .collect::<Vec<_>>();
         for key in stale {
@@ -414,8 +448,12 @@ impl Native {
         }
     }
 
-    pub(in crate::platform::native) fn apply_due_popup_accents(&mut self, now: Instant) {
+    pub(in crate::platform::native) fn apply_due_popup_accents(
+        &mut self,
+        now: Instant,
+    ) -> HashSet<app_window::Id> {
         let mut pending = false;
+        let mut redraw_parents = HashSet::new();
         for (key, popup) in &mut self.popups {
             let Some(reason) = popup.accent.due(now) else {
                 if popup.accent.pending() && popup.accent.changed_instant() != Some(now) {
@@ -429,25 +467,145 @@ impl Native {
                 }
                 continue;
             };
-            let accent = popup
-                .accent
-                .desired()
-                .expect("due accent should have a desired material");
-            log::debug!(
-                target: "wgpu_l3::native_popup",
-                "applying native popup accent {:?}: reason={:?}, accent={:?}",
-                key.id,
-                reason,
-                accent
-            );
-            popup.window.set_popup_accent_material(accent);
-            popup.accent.mark_applied(accent);
+            apply_popup_accent(*key, popup, reason);
+            queue_popup_parent_redraw(&mut redraw_parents, key.parent);
         }
 
         if pending {
             self.schedule_poll_request();
         }
+
+        redraw_parents
     }
+
+    pub(in crate::platform::native) fn request_popup_parent_redraws(
+        &self,
+        parents: &HashSet<app_window::Id>,
+    ) {
+        for parent in parents {
+            let Some(window) = self.windows.get(parent) else {
+                log::trace!(
+                    target: "wgpu_l3::native_popup",
+                    "skipped popup maintenance redraw for closed parent {parent:?}"
+                );
+                continue;
+            };
+            log::debug!(
+                target: "wgpu_l3::native_popup",
+                "requested coalesced popup maintenance redraw for parent {parent:?}"
+            );
+            window.request_redraw();
+        }
+    }
+}
+
+fn apply_popup_accent(key: PopupKey, popup: &mut PopupWindow, reason: PopupAccentDue) {
+    let accent = popup
+        .accent
+        .desired()
+        .expect("due accent should have a desired material");
+    log::debug!(
+        target: "wgpu_l3::native_popup",
+        "applying native popup accent {:?}: reason={:?}, accent={:?}",
+        key.id,
+        reason,
+        accent
+    );
+    popup.window.set_popup_accent_material(accent);
+    popup.accent.mark_applied(accent);
+}
+
+impl PopupFirstPresentTrace {
+    fn record_configured(
+        &mut self,
+        key: PopupKey,
+        desired: PopupGeometry,
+        observed_position: Option<winit::dpi::PhysicalPosition<i32>>,
+        observed_area: paint::area::Physical,
+    ) {
+        if self.configured {
+            return;
+        }
+        self.configured = true;
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "first-present stage=configured popup={:?} parent={:?} elapsed_us={} desired={desired:?} observed_position={observed_position:?} observed_physical={}x{}",
+            key.id,
+            key.parent,
+            self.elapsed_micros(),
+            observed_area.width(),
+            observed_area.height()
+        );
+    }
+
+    fn record_shown(&self, key: PopupKey) {
+        if self.state == PopupFirstPresentState::Complete {
+            return;
+        }
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "first-present stage=shown popup={:?} parent={:?} elapsed_us={}",
+            key.id,
+            key.parent,
+            self.elapsed_micros()
+        );
+    }
+
+    fn record_acquire(&mut self, key: PopupKey, outcome: render::AcquireOutcome) {
+        if self.state == PopupFirstPresentState::Complete {
+            return;
+        }
+        self.acquire_attempts = self.acquire_attempts.saturating_add(1);
+        let stage = match self.state {
+            PopupFirstPresentState::AwaitingFirst => "acquire",
+            PopupFirstPresentState::AwaitingConfirmation => "confirmation-acquire",
+            PopupFirstPresentState::Complete => return,
+        };
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "first-present stage={stage} popup={:?} parent={:?} elapsed_us={} attempt={} outcome={outcome:?}",
+            key.id,
+            key.parent,
+            self.elapsed_micros(),
+            self.acquire_attempts
+        );
+    }
+
+    fn record_presented(&mut self, key: PopupKey, timing: render::PresentTiming) -> bool {
+        let (stage, request_confirmation) = match self.state {
+            PopupFirstPresentState::AwaitingFirst => {
+                self.state = PopupFirstPresentState::AwaitingConfirmation;
+                ("presented", true)
+            }
+            PopupFirstPresentState::AwaitingConfirmation => {
+                self.state = PopupFirstPresentState::Complete;
+                ("confirmed", false)
+            }
+            PopupFirstPresentState::Complete => return false,
+        };
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "first-present stage={stage} popup={:?} parent={:?} elapsed_us={} attempt={} acquire_us={}",
+            key.id,
+            key.parent,
+            self.elapsed_micros(),
+            self.acquire_attempts,
+            timing.acquire_wait().as_micros()
+        );
+        request_confirmation
+    }
+}
+
+fn queue_popup_parent_redraw(redraw_parents: &mut HashSet<app_window::Id>, parent: app_window::Id) {
+    redraw_parents.insert(parent);
+}
+
+fn popup_is_stale(
+    key: &PopupKey,
+    synchronized_parents: &HashSet<app_window::Id>,
+    active: &HashSet<PopupKey>,
+) -> bool {
+    synchronized_parents.contains(&key.parent) && !active.contains(key)
 }
 
 fn native_popups_supported() -> bool {
@@ -460,4 +618,45 @@ fn native_popups_supported() -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::{PopupKey, popup_is_stale, queue_popup_parent_redraw};
+    use crate::{interaction, window};
+
+    #[test]
+    fn popup_maintenance_redraws_coalesce_per_parent() {
+        let first = window::Id::new(1);
+        let second = window::Id::new(2);
+        let mut parents = HashSet::new();
+
+        queue_popup_parent_redraw(&mut parents, first);
+        queue_popup_parent_redraw(&mut parents, first);
+        queue_popup_parent_redraw(&mut parents, second);
+
+        assert_eq!(parents, HashSet::from([first, second]));
+    }
+
+    #[test]
+    fn stale_popup_cleanup_is_scoped_to_synchronized_parents() {
+        let first = window::Id::new(1);
+        let second = window::Id::new(2);
+        let first_popup = PopupKey::new(first, interaction::Id::new("first.popup"));
+        let second_popup = PopupKey::new(second, interaction::Id::new("second.popup"));
+        let synchronized = HashSet::from([first]);
+
+        assert!(popup_is_stale(&first_popup, &synchronized, &HashSet::new()));
+        assert!(
+            !popup_is_stale(&second_popup, &synchronized, &HashSet::new()),
+            "redrawing one parent must not close another parent's popup"
+        );
+        assert!(!popup_is_stale(
+            &first_popup,
+            &synchronized,
+            &HashSet::from([first_popup])
+        ));
+    }
 }

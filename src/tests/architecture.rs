@@ -1552,14 +1552,122 @@ fn native_popup_accent_realization_is_settle_rate() {
         "popup presentation must not call the Windows accent API at tint-sample rate"
     );
     assert!(
-        adapter.contains("apply_due_popup_accents(std::time::Instant::now())")
+        adapter.contains("let redraw_parents = self.apply_due_popup_accents")
+            && adapter.contains("self.request_popup_parent_redraws(&redraw_parents)")
             && platform.contains("self.backend.maintain(context)?"),
-        "pending native accent state must drain from backend maintenance, not only popup presentations"
+        "backend maintenance must drain pending accents and redraw their parents"
     );
     assert!(
         master.contains("OS-side realizations are settle-rate, not event-rate"),
         "native material doctrine should name settle-rate OS realization"
     );
+}
+
+#[test]
+fn native_popup_first_present_is_visible_traced_and_confirmed_once() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let popup = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("popup.rs"),
+    )
+    .expect("native popup source should read");
+    let native_mod = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("mod.rs"),
+    )
+    .expect("native module source should read");
+    let surface = std::fs::read_to_string(root.join("src").join("render").join("surface.rs"))
+        .expect("render surface source should read");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    let desired = popup
+        .find("popup.accent.set_desired(accent, now)")
+        .expect("popup presentation should record desired accent");
+    let draw = popup[desired..]
+        .find("renderer.draw")
+        .map(|offset| desired + offset)
+        .expect("popup presentation should draw after resolving material");
+    let before_draw = &popup[desired..draw];
+
+    assert!(
+        before_draw.contains("popup.accent.due(now)")
+            && before_draw.contains("apply_popup_accent(key, popup, reason)"),
+        "an already-due popup accent must apply before the imminent frame"
+    );
+    let show = before_draw
+        .find("set_popup_visibility(true)")
+        .expect("popup must become visible before its first acquire");
+    assert!(
+        show < before_draw.len(),
+        "show must precede renderer draw/acquire"
+    );
+    assert!(
+        popup.contains("if self.present_popup_overlay(context, presentation, now)?")
+            && popup.contains("queue_popup_parent_redraw(&mut redraw_parents")
+            && native_mod.contains("AwaitingFirst")
+            && native_mod.contains("AwaitingConfirmation")
+            && native_mod.contains("Complete"),
+        "the successful first present must request exactly one lifecycle-owned confirmation frame"
+    );
+    assert!(
+        native_mod.contains("PopupFirstPresentTrace") && !native_mod.contains("PopupFrameRecovery"),
+        "confirmation must be a finite first-present state, not a retry budget"
+    );
+    for stage in ["created", "configured", "shown"] {
+        assert!(
+            popup.contains(&format!("first-present stage={stage}")),
+            "first-present trace must record {stage}"
+        );
+    }
+    for transition in [
+        "\"acquire\"",
+        "\"confirmation-acquire\"",
+        "(\"presented\", true)",
+        "(\"confirmed\", false)",
+    ] {
+        assert!(
+            popup.contains(transition),
+            "first-present trace must retain transition {transition}"
+        );
+    }
+    for outcome in [
+        "Suboptimal",
+        "Outdated",
+        "Timeout",
+        "Occluded",
+        "Validation",
+    ] {
+        assert!(
+            surface.contains(outcome),
+            "surface acquire trace must distinguish {outcome}"
+        );
+    }
+    let close_stale = popup
+        .find("self.close_stale_popups(&synchronized_parents, &active)")
+        .expect("popup synchronization should close stale entries");
+    let drain_accents = popup
+        .find("self.apply_due_popup_accents(now)")
+        .expect("popup synchronization should drain due accents");
+    assert!(
+        close_stale < drain_accents,
+        "stale popup removal must precede deferred accent calls"
+    );
+    for phrase in [
+        "contentless glass",
+        "hidden redirected window",
+        "despite `Success` acquisition",
+        "receipted compositor",
+    ] {
+        assert!(
+            master.contains(phrase),
+            "native popup first-show doctrine should mention {phrase}"
+        );
+    }
 }
 
 #[test]

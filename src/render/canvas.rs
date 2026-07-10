@@ -82,7 +82,7 @@ impl Canvas {
         &mut self,
         render_context: &render::Context,
         encode: impl FnOnce(&mut wgpu::CommandEncoder, &render::Frame),
-    ) -> render::Result<Option<render::PresentTiming>> {
+    ) -> render::Result<render::SurfaceReport> {
         Ok(self.surface.render(render_context, encode)?)
     }
 }

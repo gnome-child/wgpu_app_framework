@@ -23,7 +23,6 @@ pub enum Error {
 pub struct Surface {
     inner: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
-    ready: bool,
     reconfigure_after_present: bool,
 }
 
@@ -44,6 +43,22 @@ const PRESENT_MODE_PRIORITY: [wgpu::PresentMode; 4] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PresentTiming {
     acquire_wait: Duration,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AcquireOutcome {
+    Success,
+    Suboptimal,
+    Outdated,
+    Timeout,
+    Occluded,
+    Validation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SurfaceReport {
+    acquire: AcquireOutcome,
+    present_timing: Option<PresentTiming>,
 }
 
 impl Surface {
@@ -113,7 +128,6 @@ impl Surface {
         Ok(Self {
             inner,
             config,
-            ready: false,
             reconfigure_after_present: false,
         })
     }
@@ -142,42 +156,44 @@ impl Surface {
     pub fn acquire_frame(
         &mut self,
         render_context: &render::Context,
-    ) -> Result<render::FrameOutcome> {
+    ) -> Result<(render::FrameOutcome, AcquireOutcome)> {
         use wgpu::CurrentSurfaceTexture::*;
 
         match self.inner.get_current_texture() {
-            Success(surface_texture) => Ok(render::FrameOutcome::Acquired(render::Frame::new(
-                surface_texture,
-            ))),
+            Success(surface_texture) => Ok((
+                render::FrameOutcome::Acquired(render::Frame::new(surface_texture)),
+                AcquireOutcome::Success,
+            )),
             Suboptimal(surface_texture) => {
                 log::debug!(
                     "acquired suboptimal surface texture; deferring reconfiguration until present"
                 );
                 self.reconfigure_after_present = true;
-                Ok(render::FrameOutcome::Acquired(render::Frame::new(
-                    surface_texture,
-                )))
+                Ok((
+                    render::FrameOutcome::Acquired(render::Frame::new(surface_texture)),
+                    AcquireOutcome::Suboptimal,
+                ))
             }
             Outdated => {
                 log::debug!(
                     "surface texture is outdated; reconfiguring surface and skipping frame"
                 );
                 self.reconfigure(render_context);
-                Ok(render::FrameOutcome::Skipped)
+                Ok((render::FrameOutcome::Skipped, AcquireOutcome::Outdated))
             }
             Timeout => {
                 log::debug!("surface texture acquisition timed out; skipping frame");
-                Ok(render::FrameOutcome::Skipped)
+                Ok((render::FrameOutcome::Skipped, AcquireOutcome::Timeout))
             }
             Occluded => {
                 log::debug!("surface is occluded; skipping frame");
-                Ok(render::FrameOutcome::Skipped)
+                Ok((render::FrameOutcome::Skipped, AcquireOutcome::Occluded))
             }
             Validation => {
                 log::warn!(
                     "surface texture acquisition returned validation status; skipping frame"
                 );
-                Ok(render::FrameOutcome::Skipped)
+                Ok((render::FrameOutcome::Skipped, AcquireOutcome::Validation))
             }
             Lost => {
                 log::error!("surface was lost");
@@ -190,15 +206,15 @@ impl Surface {
         &mut self,
         render_context: &render::Context,
         encode: impl FnOnce(&mut wgpu::CommandEncoder, &render::Frame),
-    ) -> Result<Option<PresentTiming>> {
+    ) -> Result<SurfaceReport> {
         let acquire_started = Instant::now();
-        let outcome = self.acquire_frame(render_context)?;
+        let (outcome, acquire) = self.acquire_frame(render_context)?;
         let acquire_wait = acquire_started.elapsed();
 
         use render::FrameOutcome::*;
         let frame = match outcome {
             Acquired(frame) => frame,
-            Skipped => return Ok(None),
+            Skipped => return Ok(SurfaceReport::new(acquire, None)),
         };
 
         let mut encoder =
@@ -211,12 +227,14 @@ impl Surface {
         encode(&mut encoder, &frame);
         render_context.queue().submit([encoder.finish()]);
         frame.present();
-        self.ready = true;
         if self.reconfigure_after_present {
             self.reconfigure(render_context);
         }
 
-        Ok(Some(PresentTiming { acquire_wait }))
+        Ok(SurfaceReport::new(
+            acquire,
+            Some(PresentTiming { acquire_wait }),
+        ))
     }
 
     pub fn reconfigure(&mut self, render_context: &render::Context) {
@@ -235,6 +253,23 @@ impl Surface {
 impl PresentTiming {
     pub(crate) fn acquire_wait(self) -> Duration {
         self.acquire_wait
+    }
+}
+
+impl SurfaceReport {
+    fn new(acquire: AcquireOutcome, present_timing: Option<PresentTiming>) -> Self {
+        Self {
+            acquire,
+            present_timing,
+        }
+    }
+
+    pub(crate) fn acquire(self) -> AcquireOutcome {
+        self.acquire
+    }
+
+    pub(crate) fn present_timing(self) -> Option<PresentTiming> {
+        self.present_timing
     }
 }
 

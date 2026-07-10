@@ -365,8 +365,10 @@ commands, keyboard routing, diagnostics, and session state. Pointer cursor
 application currently targets framework windows; popup-hosted text fields will
 need the cursor side effect to target the physical window under the pointer.
 Native popup lifetime is synchronized only by an authoritative overlay
-presentation pass: no popup presentation statement means leave existing popups
-alone, while an authoritative empty popup set means close stale popups.
+presentation pass and is scoped per rendered parent: no popup presentation
+statement means leave existing popups alone, an authoritative empty popup set
+closes stale popups for the synchronized parents, and popups owned by parents
+absent from that pass remain untouched.
 Native popup text editing has two named v1 seams: IME candidate windows still
 need popup-local caret anchoring, and pointer cursor application still needs to
 target the physical popup window under the pointer. Until those seams are
@@ -407,6 +409,18 @@ applied snapshot; they coalesce to the latest value and cross into the OS only
 after a meaningful geometry change, material-presence change, or short settled
 quiet period. Drag-rate parameter changes must not build a queue of native
 compositor calls.
+Native popup first presentation follows platform-visible causality: create and
+configure the nonactivating HWND, realize any immediately due material, show
+the contentless glass, then acquire and present its content. Presenting into a
+hidden redirected window is not an allowed optimization. `PopupFirstPresentTrace`
+records timestamped created, configured, shown, acquire-outcome, and presented
+stages under `wgpu_l3::native_popup`. Field evidence showed a blank first frame
+despite `Success` acquisition and a completed present, so Windows redirected
+popups advance once through `AwaitingFirst -> AwaitingConfirmation -> Complete`
+and request exactly one confirmation frame. This is a receipted compositor
+pickup workaround, not a retry budget. Accent application from maintenance,
+where no draw follows immediately, requests one parent redraw so compositor
+material changes cannot strand stale foreground content.
 Windows popup acrylic is not tied to the DX12 DirectComposition Visual path:
 Vulkan redirected popups can realize accent acrylic when the surface reports
 premultiplied alpha. The backend mask therefore stays `wgpu::Backends::all()`

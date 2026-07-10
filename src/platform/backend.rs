@@ -31,6 +31,7 @@ pub trait Backend {
     fn present_overlay_popups(
         &mut self,
         _context: &mut Self::Context<'_>,
+        _synchronized_parents: &[window::Id],
         _presentations: &[overlay::PopupPresentation],
     ) -> Result<(), Self::Error> {
         Ok(())

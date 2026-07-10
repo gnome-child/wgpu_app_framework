@@ -359,6 +359,7 @@ impl platform::Backend for FakeBackend {
     fn present_overlay_popups(
         &mut self,
         _context: &mut Self::Context<'_>,
+        _synchronized_parents: &[window::Id],
         presentations: &[overlay::PopupPresentation],
     ) -> Result<(), Self::Error> {
         self.popup_sync_counts.push(presentations.len());

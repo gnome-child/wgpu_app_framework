@@ -6,8 +6,8 @@ pub(crate) use frame::{Frame, Outcome as FrameOutcome};
 pub(in crate::render) use primitive::Vertex;
 pub(crate) use renderer::Renderer;
 pub(crate) use surface::{
-    CompositeAlphaPreference, PresentTiming, Surface, scene_format_for_surface_format,
-    supports_windows_premultiplied_popup_pack,
+    AcquireOutcome, CompositeAlphaPreference, PresentTiming, Surface, SurfaceReport,
+    scene_format_for_surface_format, supports_windows_premultiplied_popup_pack,
 };
 
 mod batch;

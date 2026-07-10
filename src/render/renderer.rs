@@ -22,9 +22,10 @@ pub struct DrawStats {
     pub filter_scratch_pool_entries: usize,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DrawReport {
     pub(crate) stats: DrawStats,
+    pub(crate) acquire_outcome: render::AcquireOutcome,
     pub(crate) present_timing: Option<render::PresentTiming>,
 }
 
@@ -203,7 +204,7 @@ impl Renderer {
         let text_renderer = &mut self.text_renderer;
         let mut text_render_error = None;
 
-        let present_timing = if pack_premultiplied_surface {
+        let surface_report = if pack_premultiplied_surface {
             canvas.draw(render_context, |encoder, frame| {
                 let view = frame.create_view();
                 filter_renderer.clear_composition(encoder, clear_color);
@@ -302,7 +303,8 @@ impl Renderer {
 
         Ok(DrawReport {
             stats,
-            present_timing,
+            acquire_outcome: surface_report.acquire(),
+            present_timing: surface_report.present_timing(),
         })
     }
 
