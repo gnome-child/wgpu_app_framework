@@ -162,7 +162,7 @@ pub(crate) fn slider_thumb_rect(
 ) -> Rect {
     let slider_theme = theme.slider();
     let track = slider_track_rect(rect, measured_label_width, theme);
-    let filled_width = ((track.width() as f64) * slider_fraction(slider)).round() as i32;
+    let filled_width = ((track.width() as f64) * slider.fraction()).round() as i32;
     let thumb_center = track.x().saturating_add(filled_width);
 
     Rect::new(
@@ -184,15 +184,6 @@ pub(crate) fn slider_active_rect(
         slider_track_rect(rect, measured_label_width, theme),
         slider_thumb_rect(rect, slider, measured_label_width, theme),
     )
-}
-
-fn slider_fraction(slider: &view::Slider) -> f64 {
-    let span = slider.end() - slider.start();
-    if span.abs() <= f64::EPSILON {
-        return 0.0;
-    }
-
-    ((slider.value() - slider.start()) / span).clamp(0.0, 1.0)
 }
 
 fn palette_row(label_width: i32, shortcut_width: i32, theme: &theme::Theme) -> Row {
