@@ -13,6 +13,7 @@ use super::constants::{
 };
 use super::key::{StyleKey, finite_bits};
 use super::output::TextAreaSurface;
+use super::shaping_cache::ShapingCache;
 use crate::paint;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,10 +147,10 @@ impl LineDisplay {
     }
 }
 
-pub(super) fn line_display_cache() -> LruCache<LineDisplayKey, CachedLineDisplay> {
-    LruCache::new(
-        NonZeroUsize::new(TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY)
-            .expect("text area line display cache capacity must be non-zero"),
+pub(super) fn line_display_cache() -> ShapingCache<LineDisplayKey, CachedLineDisplay> {
+    ShapingCache::new(
+        TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY,
+        "text area line display",
     )
 }
 

@@ -21,6 +21,7 @@ mod key;
 mod map;
 mod measure_cache;
 mod output;
+mod shaping_cache;
 mod system;
 mod text_area;
 
@@ -53,6 +54,7 @@ pub use output::{
 };
 #[cfg(test)]
 pub(super) use system::align as glyphon_align;
+#[cfg(test)]
 pub(crate) use system::font_system as glyphon_font_system;
 #[cfg(test)]
 pub(crate) use system::{
@@ -213,6 +215,7 @@ impl Engine {
         self.cache = MeasureCache::new(constants::MEASURE_CACHE_CAPACITY);
         self.text_area_line_displays = text_area::line_display_cache();
         self.text_area_render_buffers = text_area::render_buffer_cache();
+        self.text_field_surfaces = field::surface_cache();
         self.text_area_height_indices = height::cache();
         self.diagnostics = Diagnostics::default();
         self.highlight_stats = HighlightStats::default();

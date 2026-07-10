@@ -12,6 +12,7 @@ use super::super::{
     engine::Engine,
     glyph::{glyph_wrap, set_cosmic_buffer_text, text_area_shaping_for_text},
     height::{TextAreaHeightIndex, TextAreaHeightKey},
+    shaping_cache::Shaped,
     system,
     text_area::{
         CachedLineDisplay as CachedTextAreaLineDisplay, DisplaySegment as TextAreaDisplaySegment,
@@ -59,60 +60,54 @@ impl Engine {
             viewport.width().max(0.0),
             source_line,
         );
-        if committed
-            && let Some(key) = key.as_ref()
-            && let Some(cached) = self.text_area_line_displays.get(key)
-        {
+        let shaped = if let Some(key) = key {
+            self.text_area_line_displays
+                .shape(&mut self.font_system, key, committed, |font_system, _| {
+                    Some(prepare_text_area_line_display(
+                        font_system,
+                        area_model,
+                        source,
+                        style,
+                        viewport,
+                        source_line,
+                    ))
+                })
+                .expect("text area line shaping should always produce a display")
+        } else {
+            Shaped {
+                value: prepare_text_area_line_display(
+                    &mut self.font_system,
+                    area_model,
+                    source,
+                    style,
+                    viewport,
+                    source_line,
+                ),
+                cache_hit: false,
+            }
+        };
+
+        if shaped.cache_hit {
             self.diagnostics.text_area_line_cache_hits += 1;
             #[cfg(test)]
             {
                 self.interaction_stats.text_area_frame_cache_hits += 1;
             }
-            return TextAreaLineDisplay::from_cached(source, source_line, cached.clone());
+        } else {
+            self.diagnostics.text_area_line_cache_misses += 1;
+            let visual_runs = shaped.value.buffer.borrow().layout_runs().count();
+            self.diagnostics.text_area_line_shape_calls += 1;
+            self.diagnostics.text_area_shaped_logical_lines += 1;
+            self.diagnostics.text_area_shaped_visual_lines += visual_runs;
+            #[cfg(test)]
+            {
+                self.interaction_stats.text_area_frame_cache_misses += 1;
+                self.interaction_stats.text_area_frame_shape_calls += 1;
+                self.interaction_stats.text_area_frame_shaped_logical_lines += 1;
+                self.interaction_stats.text_area_frame_shaped_visual_lines += visual_runs;
+            }
         }
-        self.diagnostics.text_area_line_cache_misses += 1;
-        #[cfg(test)]
-        {
-            self.interaction_stats.text_area_frame_cache_misses += 1;
-        }
-        let font_size = style.size().max(1.0);
-        let metrics = glyphon::Metrics::relative(font_size, 1.25);
-        let attrs = system::attrs_for_style(style);
-        let text = source.text_for_line_range(source_line, source_line + 1);
-        let mut buffer = glyphon::Buffer::new_empty(metrics);
-        buffer.set_wrap(&mut self.font_system, glyph_wrap(area_model.wrap()));
-        buffer.set_size(
-            &mut self.font_system,
-            match area_model.wrap() {
-                AreaWrap::None => None,
-                AreaWrap::WordOrGlyph => Some(viewport.width().max(0.0)),
-            },
-            None,
-        );
-        let shaping = text_area_shaping_for_text(style, &text);
-        set_cosmic_buffer_text(&mut buffer, &text, glyphon::AttrsList::new(&attrs), shaping);
-        buffer.shape_until_scroll(&mut self.font_system, false);
-        let content = buffer_content_area(&buffer);
-        let visual_runs = buffer.layout_runs().count();
-        self.diagnostics.text_area_line_shape_calls += 1;
-        self.diagnostics.text_area_shaped_logical_lines += 1;
-        self.diagnostics.text_area_shaped_visual_lines += visual_runs;
-        #[cfg(test)]
-        {
-            self.interaction_stats.text_area_frame_shape_calls += 1;
-            self.interaction_stats.text_area_frame_shaped_logical_lines += 1;
-            self.interaction_stats.text_area_frame_shaped_visual_lines += visual_runs;
-        }
-        let cached = CachedTextAreaLineDisplay {
-            buffer: Rc::new(RefCell::new(buffer)),
-            height: content.height(),
-            width: content.width(),
-        };
-        let display = TextAreaLineDisplay::from_cached(source, source_line, cached.clone());
-        if committed && let Some(key) = key {
-            self.text_area_line_displays.put(key, cached);
-        }
-        display
+        TextAreaLineDisplay::from_cached(source, source_line, shaped.value)
     }
 
     fn cached_text_area_line_display(
@@ -143,7 +138,7 @@ impl Engine {
         Some(TextAreaLineDisplay::from_cached(
             source,
             source_line,
-            cached.clone(),
+            cached,
         ))
     }
 
@@ -229,5 +224,38 @@ impl Engine {
         }
 
         segments
+    }
+}
+
+fn prepare_text_area_line_display(
+    font_system: &mut glyphon::FontSystem,
+    area_model: &Area,
+    source: &Buffer,
+    style: Style,
+    viewport: paint::area::Logical,
+    source_line: usize,
+) -> CachedTextAreaLineDisplay {
+    let font_size = style.size().max(1.0);
+    let metrics = glyphon::Metrics::relative(font_size, 1.25);
+    let attrs = system::attrs_for_style(style);
+    let text = source.text_for_line_range(source_line, source_line + 1);
+    let mut buffer = glyphon::Buffer::new_empty(metrics);
+    buffer.set_wrap(font_system, glyph_wrap(area_model.wrap()));
+    buffer.set_size(
+        font_system,
+        match area_model.wrap() {
+            AreaWrap::None => None,
+            AreaWrap::WordOrGlyph => Some(viewport.width().max(0.0)),
+        },
+        None,
+    );
+    let shaping = text_area_shaping_for_text(style, &text);
+    set_cosmic_buffer_text(&mut buffer, &text, glyphon::AttrsList::new(&attrs), shaping);
+    buffer.shape_until_scroll(font_system, false);
+    let content = buffer_content_area(&buffer);
+    CachedTextAreaLineDisplay {
+        buffer: Rc::new(RefCell::new(buffer)),
+        height: content.height(),
+        width: content.width(),
     }
 }

@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc, time::Instant};
 
 use super::super::{
     buffer::{Buffer, Position},
-    document::Style,
+    document::{Style, TextDirection, Weight},
     edit::{
         Field, FieldProjection, PreeditProjection, State, ViewState, projected_state_for_field,
     },
@@ -13,11 +13,48 @@ use super::{
     engine::Engine,
     glyph::{cosmic_buffer_from_text, cursor_position},
     highlight::spans_for_ranges as highlight_spans_for_ranges,
+    key::finite_bits,
     map::TextLayoutMap,
     output::{TextAreaSurface, TextFieldLayout, TextFieldPaintLayout},
+    shaping_cache::ShapingCache,
     system,
 };
 use crate::paint;
+
+const TEXT_FIELD_SURFACE_CACHE_CAPACITY: usize = 512;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct FieldSurfaceKey {
+    text: String,
+    size: u32,
+    weight: Weight,
+    direction: TextDirection,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Clone)]
+pub(super) struct CachedFieldSurface {
+    buffer: Rc<RefCell<glyphon::Buffer>>,
+    vertical_offset: f32,
+}
+
+pub(super) fn surface_cache() -> ShapingCache<FieldSurfaceKey, CachedFieldSurface> {
+    ShapingCache::new(TEXT_FIELD_SURFACE_CACHE_CAPACITY, "text field surface")
+}
+
+impl FieldSurfaceKey {
+    fn new(buffer: &Buffer, style: Style, area: paint::area::Logical) -> Self {
+        Self {
+            text: buffer.text_for_line_range(0, 1),
+            size: finite_bits(style.size().max(1.0)),
+            weight: style.weight(),
+            direction: style.direction(),
+            width: finite_bits(area.width().max(0.0)),
+            height: finite_bits(area.height().max(0.0)),
+        }
+    }
+}
 
 impl Engine {
     pub fn text_field_layout_for_field(
@@ -55,9 +92,10 @@ impl Engine {
         let projection = PreeditProjection::new(buffer, edit_state, &state);
         let (prepared, vertical_offset) =
             self.prepare_text_field_buffer(&projection.buffer, style, area);
+        let prepared_buffer = prepared.borrow();
         let ranges = projection.highlight_ranges();
         let (spans, stats) = highlight_spans_for_ranges(
-            &prepared,
+            &prepared_buffer,
             projection.selection_bounds(),
             ranges.0,
             ranges.1,
@@ -68,21 +106,23 @@ impl Engine {
         self.add_highlight_stats(stats);
         let caret = (!projection.has_non_empty_selection() && state.caret_visible(now))
             .then(|| {
-                cursor_position(&prepared, projection.cursor()).map(|(x, y)| Caret {
+                cursor_position(&prepared_buffer, projection.cursor()).map(|(x, y)| Caret {
                     x: x as f32 - state.field_scroll_x(),
                     y: vertical_offset + y as f32,
-                    height: prepared.metrics().line_height,
+                    height: prepared_buffer.metrics().line_height,
                 })
             })
             .flatten();
 
-        let content_area = buffer_content_area(&prepared);
+        let content_area = buffer_content_area(&prepared_buffer);
+        let line_height = prepared_buffer.metrics().line_height;
+        drop(prepared_buffer);
         let source_text_len = projection.buffer.text_for_line_range(0, 1).len();
         let surface = (area.width() > 0.0 && area.height() > 0.0).then(|| TextAreaSurface {
             x: -state.field_scroll_x(),
             y: vertical_offset,
             width: content_area.width().max(area.width()) + state.field_scroll_x().max(0.0),
-            height: prepared.metrics().line_height.max(1.0),
+            height: line_height.max(1.0),
             source_line: 0,
             source_line_id: projection
                 .buffer
@@ -90,7 +130,7 @@ impl Engine {
                 .map(|identity| identity.id),
             source_start: 0,
             source_text_len,
-            buffer: Rc::new(RefCell::new(prepared)),
+            buffer: prepared,
             default_color: style.color(),
         });
 
@@ -178,6 +218,7 @@ impl Engine {
         let projection = PreeditProjection::new(buffer, edit_state, &state);
         let (prepared, vertical_offset) =
             self.prepare_text_field_buffer(&projection.buffer, style, area);
+        let prepared = prepared.borrow();
         TextLayoutMap::from_line_starts(projection.buffer.line_start_offsets()).hit_with_observer(
             &prepared,
             position.x() + state.field_scroll_x(),
@@ -233,6 +274,7 @@ impl Engine {
         let projection = PreeditProjection::new(buffer, edit_state, &state);
         let (prepared, vertical_offset) =
             self.prepare_text_field_buffer(&projection.buffer, style, area);
+        let prepared = prepared.borrow();
         let content_area = buffer_content_area(&prepared);
         let max_scroll_x = (content_area.width() - area.width().max(0.0)).max(0.0);
         let Some((caret_x, caret_y)) = cursor_position(&prepared, projection.cursor()) else {
@@ -271,24 +313,50 @@ impl Engine {
         buffer: &Buffer,
         style: Style,
         area: paint::area::Logical,
-    ) -> (glyphon::Buffer, f32) {
-        let font_size = style.size().max(1.0);
-        let line_height = font_size * 1.25;
-        let buffer_height = area.height().max(0.0).min(line_height);
-        let vertical_offset = (area.height().max(0.0) - buffer_height).max(0.0) * 0.5;
-        let attrs = system::attrs_for_style(style);
-        let mut prepared = cosmic_buffer_from_text(&buffer.text_for_line_range(0, 1));
-        for line in &mut prepared.lines {
-            line.set_attrs_list(glyphon::AttrsList::new(&attrs));
-        }
-        prepared.set_wrap(&mut self.font_system, glyphon::Wrap::None);
-        prepared.set_metrics_and_size(
-            &mut self.font_system,
-            glyphon::Metrics::relative(font_size, 1.25),
-            Some(area.width().max(0.0)),
-            Some(buffer_height),
-        );
-        prepared.shape_until_scroll(&mut self.font_system, false);
-        (prepared, vertical_offset)
+    ) -> (Rc<RefCell<glyphon::Buffer>>, f32) {
+        let key = FieldSurfaceKey::new(buffer, style, area);
+        let shaped = self
+            .text_field_surfaces
+            .shape(
+                &mut self.font_system,
+                key,
+                true,
+                prepare_cached_field_surface,
+            )
+            .expect("text field shaping should always produce a surface");
+        (shaped.value.buffer, shaped.value.vertical_offset)
     }
+}
+
+fn prepare_cached_field_surface(
+    font_system: &mut glyphon::FontSystem,
+    key: &FieldSurfaceKey,
+) -> Option<CachedFieldSurface> {
+    let font_size = f32::from_bits(key.size).max(1.0);
+    let line_height = font_size * 1.25;
+    let area_width = f32::from_bits(key.width).max(0.0);
+    let area_height = f32::from_bits(key.height).max(0.0);
+    let buffer_height = area_height.min(line_height);
+    let vertical_offset = (area_height - buffer_height).max(0.0) * 0.5;
+    let style = Style::default()
+        .with_size(font_size)
+        .with_weight(key.weight)
+        .with_direction(key.direction);
+    let attrs = system::attrs_for_style(style);
+    let mut prepared = cosmic_buffer_from_text(&key.text);
+    for line in &mut prepared.lines {
+        line.set_attrs_list(glyphon::AttrsList::new(&attrs));
+    }
+    prepared.set_wrap(font_system, glyphon::Wrap::None);
+    prepared.set_metrics_and_size(
+        font_system,
+        glyphon::Metrics::relative(font_size, 1.25),
+        Some(area_width),
+        Some(buffer_height),
+    );
+    prepared.shape_until_scroll(font_system, false);
+    Some(CachedFieldSurface {
+        buffer: Rc::new(RefCell::new(prepared)),
+        vertical_offset,
+    })
 }

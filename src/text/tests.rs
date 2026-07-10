@@ -1773,7 +1773,7 @@ fn bidi_hit_testing_preserves_visual_affinity() {
         Style::default().with_size(18.0),
         paint::area::logical(400.0, 32.0),
     );
-    let prepared = prepared.0;
+    let prepared = prepared.0.borrow();
     let map = TextLayoutMap::new(&prepared);
     let rtl_glyph = prepared
         .layout_runs()
@@ -1803,6 +1803,25 @@ fn bidi_hit_testing_preserves_visual_affinity() {
         right,
         Position::with_affinity(line_start + glyph.start, Affinity::Downstream)
     );
+}
+
+#[test]
+fn text_field_surface_cache_reuses_shape_but_projects_current_color() {
+    let mut engine = engine();
+    let field = Field::new("cached field");
+    let area = paint::area::logical(240.0, 32.0);
+    let state = ViewState::default();
+    let red = Style::default().with_color(Color::RED);
+    let black = Style::default().with_color(Color::BLACK);
+
+    let first = engine.text_field_paint_layout_for_field(&field, red, area, state.clone());
+    let second = engine.text_field_paint_layout_for_field(&field, black, area, state);
+    let first = first.surface().expect("field should produce a surface");
+    let second = second.surface().expect("field should produce a surface");
+
+    assert!(std::rc::Rc::ptr_eq(&first.buffer(), &second.buffer()));
+    assert_eq!(first.default_color(), Color::RED);
+    assert_eq!(second.default_color(), Color::BLACK);
 }
 
 #[test]

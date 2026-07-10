@@ -157,6 +157,10 @@ engine should be usable without the framework runtime. Editing state belongs to
 explicit edit/session values, not secretly to a shared buffer when multiple
 views or surfaces can exist.
 
+Text layout owns shaped-buffer cache mechanics through `ShapingCache`; area
+lines, field surfaces, and inline text/icons supply domain keys and retention
+limits, while the shared owner mediates lookup, insertion, and `FontSystem` use.
+
 `widget`
 
 Owns ergonomic builders for view data. Widgets produce nodes. Widgets do not

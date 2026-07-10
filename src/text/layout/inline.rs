@@ -1,11 +1,10 @@
 use std::cell::RefCell;
-use std::num::NonZeroUsize;
 use std::rc::Rc;
 
 use glyphon::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping};
-use lru::LruCache;
 
 use super::super::document::{self, Align, Document, Style, TextDirection, Weight};
+use super::shaping_cache::ShapingCache;
 use super::system;
 use crate::icon;
 use crate::text;
@@ -24,8 +23,9 @@ pub(crate) struct InlineStats {
 }
 
 pub(crate) struct InlineCache {
-    text: LruCache<TextKey, CachedText>,
-    icons: LruCache<IconKey, CachedIcon>,
+    font_system: FontSystem,
+    text: ShapingCache<TextKey, CachedText>,
+    icons: ShapingCache<IconKey, CachedIcon>,
 }
 
 #[derive(Clone)]
@@ -84,28 +84,31 @@ pub(crate) enum WrapKey {
 impl InlineCache {
     pub(crate) fn new() -> Self {
         Self {
-            text: LruCache::new(
-                NonZeroUsize::new(TEXT_CACHE_CAPACITY)
-                    .expect("inline text cache capacity must be non-zero"),
-            ),
-            icons: LruCache::new(
-                NonZeroUsize::new(ICON_CACHE_CAPACITY)
-                    .expect("inline icon cache capacity must be non-zero"),
-            ),
+            font_system: system::font_system(),
+            text: ShapingCache::new(TEXT_CACHE_CAPACITY, "inline text"),
+            icons: ShapingCache::new(ICON_CACHE_CAPACITY, "inline icon"),
         }
+    }
+
+    pub(crate) fn font_system_mut(&mut self) -> &mut FontSystem {
+        &mut self.font_system
     }
 
     pub(crate) fn prepare_text(
         &mut self,
-        font_system: &mut FontSystem,
         document: &Document,
         width: f32,
         height: f32,
         wrap: glyphon::Wrap,
     ) -> Option<PreparedText> {
         let Some((key, color)) = TextKey::new(document, width, height, wrap) else {
-            let prepared =
-                system::prepare_document_buffer(font_system, document, width, height, wrap)?;
+            let prepared = system::prepare_document_buffer(
+                &mut self.font_system,
+                document,
+                width,
+                height,
+                wrap,
+            )?;
             return Some(PreparedText {
                 buffer: Rc::new(RefCell::new(prepared.buffer)),
                 default_color: prepared.default_color,
@@ -117,36 +120,32 @@ impl InlineCache {
             });
         };
 
-        if let Some(cached) = self.text.get(&key).cloned() {
-            return Some(PreparedText {
-                buffer: cached.buffer,
-                default_color: system::color(color),
-                content_height: cached.content_height,
-                stats: InlineStats {
-                    text_cache_hits: 1,
-                    ..InlineStats::default()
-                },
-            });
-        }
-
-        let cached = prepare_cached_text(font_system, &key)?;
-        self.text.put(key, cached.clone());
+        let shaped = self
+            .text
+            .shape(&mut self.font_system, key, true, prepare_cached_text)?;
+        let cached = shaped.value;
 
         Some(PreparedText {
             buffer: cached.buffer,
             default_color: system::color(color),
             content_height: cached.content_height,
-            stats: InlineStats {
-                text_cache_misses: 1,
-                text_shape_calls: 1,
-                ..InlineStats::default()
+            stats: if shaped.cache_hit {
+                InlineStats {
+                    text_cache_hits: 1,
+                    ..InlineStats::default()
+                }
+            } else {
+                InlineStats {
+                    text_cache_misses: 1,
+                    text_shape_calls: 1,
+                    ..InlineStats::default()
+                }
             },
         })
     }
 
     pub(crate) fn prepare_icon(
         &mut self,
-        font_system: &mut FontSystem,
         glyph: icon::Glyph,
         size: f32,
         width: f32,
@@ -154,27 +153,25 @@ impl InlineCache {
     ) -> Option<PreparedIcon> {
         let key = IconKey::new(glyph, size, width, height);
 
-        if let Some(cached) = self.icons.get(&key).cloned() {
-            return Some(PreparedIcon {
-                buffer: cached.buffer,
-                line_height: cached.line_height,
-                stats: InlineStats {
-                    icon_cache_hits: 1,
-                    ..InlineStats::default()
-                },
-            });
-        }
-
-        let cached = prepare_cached_icon(font_system, key)?;
-        self.icons.put(key, cached.clone());
+        let shaped = self
+            .icons
+            .shape(&mut self.font_system, key, true, prepare_cached_icon)?;
+        let cached = shaped.value;
 
         Some(PreparedIcon {
             buffer: cached.buffer,
             line_height: cached.line_height,
-            stats: InlineStats {
-                icon_cache_misses: 1,
-                icon_shape_calls: 1,
-                ..InlineStats::default()
+            stats: if shaped.cache_hit {
+                InlineStats {
+                    icon_cache_hits: 1,
+                    ..InlineStats::default()
+                }
+            } else {
+                InlineStats {
+                    icon_cache_misses: 1,
+                    icon_shape_calls: 1,
+                    ..InlineStats::default()
+                }
             },
         })
     }
@@ -303,7 +300,7 @@ fn prepare_cached_text(font_system: &mut FontSystem, key: &TextKey) -> Option<Ca
     })
 }
 
-fn prepare_cached_icon(font_system: &mut FontSystem, key: IconKey) -> Option<CachedIcon> {
+fn prepare_cached_icon(font_system: &mut FontSystem, key: &IconKey) -> Option<CachedIcon> {
     let character = key.glyph.character()?;
     let font_size = f32::from_bits(key.size).max(1.0);
     let line_height = font_size;
@@ -369,15 +366,14 @@ mod tests {
     #[test]
     fn text_cache_ignores_color() {
         let mut cache = InlineCache::new();
-        let mut font_system = system::font_system();
         let red = document("Label", Color::RED, 12.0, Weight::Normal);
         let black = document("Label", Color::BLACK, 12.0, Weight::Normal);
 
         let first = cache
-            .prepare_text(&mut font_system, &red, 120.0, 22.0, glyphon::Wrap::None)
+            .prepare_text(&red, 120.0, 22.0, glyphon::Wrap::None)
             .expect("text should prepare");
         let second = cache
-            .prepare_text(&mut font_system, &black, 120.0, 22.0, glyphon::Wrap::None)
+            .prepare_text(&black, 120.0, 22.0, glyphon::Wrap::None)
             .expect("text should prepare");
 
         assert_eq!(first.stats.text_cache_misses, 1);
@@ -390,13 +386,12 @@ mod tests {
     #[test]
     fn text_cache_misses_when_metrics_change() {
         let mut cache = InlineCache::new();
-        let mut font_system = system::font_system();
         let normal = document("Label", Color::BLACK, 12.0, Weight::Normal);
         let bold = document("Label", Color::BLACK, 12.0, Weight::Bold);
 
-        let _ = cache.prepare_text(&mut font_system, &normal, 120.0, 22.0, glyphon::Wrap::None);
+        let _ = cache.prepare_text(&normal, 120.0, 22.0, glyphon::Wrap::None);
         let changed = cache
-            .prepare_text(&mut font_system, &bold, 120.0, 22.0, glyphon::Wrap::None)
+            .prepare_text(&bold, 120.0, 22.0, glyphon::Wrap::None)
             .expect("text should prepare");
 
         assert_eq!(changed.stats.text_cache_misses, 1);
@@ -406,7 +401,6 @@ mod tests {
     #[test]
     fn multi_run_text_uses_uncached_path() {
         let mut cache = InlineCache::new();
-        let mut font_system = system::font_system();
         let mut block = Block::new(Align::Start);
         block.push_run(Run::new(
             "Red",
@@ -419,22 +413,10 @@ mod tests {
         let document = Document::from_block(block);
 
         let first = cache
-            .prepare_text(
-                &mut font_system,
-                &document,
-                120.0,
-                22.0,
-                glyphon::Wrap::None,
-            )
+            .prepare_text(&document, 120.0, 22.0, glyphon::Wrap::None)
             .expect("text should prepare");
         let second = cache
-            .prepare_text(
-                &mut font_system,
-                &document,
-                120.0,
-                22.0,
-                glyphon::Wrap::None,
-            )
+            .prepare_text(&document, 120.0, 22.0, glyphon::Wrap::None)
             .expect("text should prepare");
 
         assert_eq!(first.stats.text_cache_hits, 0);
@@ -445,16 +427,15 @@ mod tests {
     #[test]
     fn icon_cache_ignores_color_by_only_keying_shape_inputs() {
         let mut cache = InlineCache::new();
-        let mut font_system = system::font_system();
         let glyph = icon::Icon::phosphor(icon::Id::new("command"))
             .glyph()
             .expect("command icon should resolve");
 
         let first = cache
-            .prepare_icon(&mut font_system, glyph, 12.0, 18.0, 18.0)
+            .prepare_icon(glyph, 12.0, 18.0, 18.0)
             .expect("icon should prepare");
         let second = cache
-            .prepare_icon(&mut font_system, glyph, 12.0, 18.0, 18.0)
+            .prepare_icon(glyph, 12.0, 18.0, 18.0)
             .expect("icon should prepare");
 
         assert_eq!(first.stats.icon_cache_misses, 1);

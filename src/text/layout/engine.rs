@@ -3,8 +3,10 @@ use lru::LruCache;
 use super::{
     constants::MEASURE_CACHE_CAPACITY,
     diagnostics::Diagnostics,
+    field::{self, CachedFieldSurface, FieldSurfaceKey},
     height::{self, TextAreaHeightIndex, TextAreaHeightKey},
     measure_cache::MeasureCache,
+    shaping_cache::ShapingCache,
     system, text_area,
     text_area::{
         CachedLineDisplay as CachedTextAreaLineDisplay,
@@ -20,9 +22,10 @@ pub struct Engine {
     pub(super) font_system: glyphon::FontSystem,
     pub(super) cache: MeasureCache,
     pub(in crate::text) text_area_line_displays:
-        LruCache<TextAreaLineDisplayKey, CachedTextAreaLineDisplay>,
+        ShapingCache<TextAreaLineDisplayKey, CachedTextAreaLineDisplay>,
     pub(super) text_area_render_buffers:
         LruCache<TextAreaRenderBufferKey, CachedTextAreaRenderBuffer>,
+    pub(super) text_field_surfaces: ShapingCache<FieldSurfaceKey, CachedFieldSurface>,
     pub(super) text_area_height_indices: LruCache<TextAreaHeightKey, TextAreaHeightIndex>,
     pub(super) diagnostics: Diagnostics,
     #[cfg(test)]
@@ -40,6 +43,7 @@ impl Engine {
             cache: MeasureCache::new(MEASURE_CACHE_CAPACITY),
             text_area_line_displays: text_area::line_display_cache(),
             text_area_render_buffers: text_area::render_buffer_cache(),
+            text_field_surfaces: field::surface_cache(),
             text_area_height_indices: height::cache(),
             diagnostics: Diagnostics::default(),
             #[cfg(test)]
