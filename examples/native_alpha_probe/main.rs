@@ -130,6 +130,7 @@ struct GpuState {
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
+    max_texture_dimension_2d: u32,
 }
 
 impl GpuState {
@@ -154,12 +155,19 @@ impl GpuState {
             .map_err(to_string)?;
         let info = adapter.get_info();
         let capabilities = surface.get_capabilities(&adapter);
+        let adapter_limits = adapter.limits();
+        let required_limits = wgpu::Limits::default().using_resolution(adapter_limits.clone());
+        let surface_size = clamp_surface_size(
+            window.inner_size(),
+            required_limits.max_texture_dimension_2d,
+        );
+        log_surface_clamp(
+            window.inner_size(),
+            surface_size,
+            required_limits.max_texture_dimension_2d,
+        );
         let default_config = surface
-            .get_default_config(
-                &adapter,
-                window.inner_size().width.max(1),
-                window.inner_size().height.max(1),
-            )
+            .get_default_config(&adapter, surface_size.width, surface_size.height)
             .ok_or_else(|| "surface has no default configuration".to_string())?;
         let mut surface_config = default_config;
         surface_config.alpha_mode = if capabilities
@@ -184,7 +192,7 @@ impl GpuState {
                 label: Some("native alpha probe"),
                 required_features: wgpu::Features::empty(),
                 experimental_features: Default::default(),
-                required_limits: wgpu::Limits::downlevel_defaults(),
+                required_limits,
                 memory_hints: Default::default(),
                 trace: wgpu::Trace::Off,
             })
@@ -264,6 +272,7 @@ impl GpuState {
             config: surface_config,
             pipeline,
             vertex_buffer,
+            max_texture_dimension_2d: adapter_limits.max_texture_dimension_2d,
         })
     }
 
@@ -271,8 +280,10 @@ impl GpuState {
         if size.width == 0 || size.height == 0 {
             return;
         }
-        self.config.width = size.width;
-        self.config.height = size.height;
+        let clamped = clamp_surface_size(size, self.max_texture_dimension_2d);
+        log_surface_clamp(size, clamped, self.max_texture_dimension_2d);
+        self.config.width = clamped.width;
+        self.config.height = clamped.height;
         self.surface.configure(&self.device, &self.config);
     }
 
@@ -323,6 +334,29 @@ impl GpuState {
         }
         self.queue.submit(Some(encoder.finish()));
         frame.present();
+    }
+}
+
+fn clamp_surface_size(size: PhysicalSize<u32>, max_texture_dimension_2d: u32) -> PhysicalSize<u32> {
+    let max = max_texture_dimension_2d.max(1);
+    PhysicalSize::new(size.width.max(1).min(max), size.height.max(1).min(max))
+}
+
+fn log_surface_clamp(
+    requested: PhysicalSize<u32>,
+    applied: PhysicalSize<u32>,
+    max_texture_dimension_2d: u32,
+) {
+    if requested != applied {
+        log::warn!(
+            target: "wgpu_l3::native_alpha_probe",
+            "clamped probe surface size from {}x{} to {}x{}; requested extent exceeds adapter max texture dimension {}",
+            requested.width,
+            requested.height,
+            applied.width,
+            applied.height,
+            max_texture_dimension_2d
+        );
     }
 }
 

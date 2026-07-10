@@ -1572,12 +1572,20 @@ fn native_alpha_probe_exposes_backend_and_attribute_bisection_knobs() {
         "owner+toolwindow",
         "nrb+backdrop",
         "wgpu_l3::native_alpha_probe",
+        "using_resolution(adapter_limits.clone())",
+        "clamp_surface_size",
+        "max_texture_dimension_2d",
     ] {
         assert!(
             probe.contains(phrase),
             "native alpha probe must expose/log {phrase}"
         );
     }
+
+    assert!(
+        !probe.contains("downlevel_defaults()"),
+        "native alpha probe must not request downlevel limits; tiling WMs can resize diagnostics past 2048px"
+    );
 }
 
 #[test]
