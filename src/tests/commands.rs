@@ -597,6 +597,17 @@ fn session_windows_are_framework_owned_runtime_state() {
 }
 
 #[test]
+fn closing_a_session_window_emits_one_departed_fact() {
+    let mut session = Session::default();
+    let window = session.open_window(window::Options::new("Departing"));
+
+    assert!(session.close_window(window));
+    assert!(!session.close_window(window));
+    assert_eq!(session.take_departed(), vec![window]);
+    assert!(session.take_departed().is_empty());
+}
+
+#[test]
 fn command_availability_does_not_mutate_model_or_revision() {
     let mut app = Runtime::new(EditorState {
         document: SaveDocument {

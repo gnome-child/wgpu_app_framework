@@ -163,7 +163,12 @@ impl Session {
         };
 
         self.windows.remove(index);
+        self.departed.push(id);
         true
+    }
+
+    pub(crate) fn take_departed(&mut self) -> Vec<app_window::Id> {
+        std::mem::take(&mut self.departed)
     }
 
     pub fn request_redraw(&mut self, id: app_window::Id) -> bool {
@@ -263,6 +268,7 @@ impl Session {
     }
 
     pub(crate) fn restore(&mut self, snapshot: Snapshot) {
+        self.departed.clear();
         self.windows = snapshot
             .into_windows()
             .into_iter()

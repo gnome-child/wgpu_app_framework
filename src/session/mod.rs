@@ -13,13 +13,14 @@ pub use window::{Window, WindowSnapshot};
 
 pub(crate) use service::{Service, register};
 
-use super::draft;
+use super::{draft, window as app_window};
 
 #[derive(Debug)]
 pub struct Session {
     pub(in crate::session) windows: Vec<Window>,
     pub(in crate::session) next_window_id: u64,
     pub(in crate::session) draft_limit: usize,
+    pub(in crate::session) departed: Vec<app_window::Id>,
 }
 
 impl Default for Session {
@@ -28,6 +29,7 @@ impl Default for Session {
             windows: Vec::new(),
             next_window_id: 0,
             draft_limit: draft::DEFAULT_DRAFT_LIMIT,
+            departed: Vec::new(),
         }
     }
 }

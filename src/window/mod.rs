@@ -1,7 +1,9 @@
+mod departed;
 mod facts;
 mod id;
 mod options;
 
+pub use departed::Departed;
 pub use facts::Facts;
 pub use id::Id;
 pub use options::{Kind, Options};
