@@ -1805,6 +1805,89 @@ fn native_popup_accent_realization_is_settle_rate() {
 }
 
 #[test]
+fn popup_border_has_one_theme_datum_for_scene_and_windows() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let theme = std::fs::read_to_string(root.join("src").join("theme").join("mod.rs"))
+        .expect("theme source should read");
+    let theme_toml = std::fs::read_to_string(root.join("src").join("theme").join("toml.rs"))
+        .expect("theme TOML source should read");
+    let scene =
+        std::fs::read_to_string(root.join("src").join("scene").join("paint").join("mod.rs"))
+            .expect("scene paint source should read");
+    let runtime = std::fs::read_to_string(root.join("src").join("runtime").join("presentation.rs"))
+        .expect("runtime presentation source should read");
+    let popup = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("popup.rs"),
+    )
+    .expect("native popup source should read");
+    let native_mod = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("mod.rs"),
+    )
+    .expect("native module source should read");
+    let sys = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("sys")
+            .join("mod.rs"),
+    )
+    .expect("native sys source should read");
+    let windows = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("sys")
+            .join("windows.rs"),
+    )
+    .expect("Windows sys source should read");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    assert!(
+        theme.contains("pub(crate) border: scene::Color")
+            && theme_toml.contains("floating-panel.border")
+            && scene.contains("Outline::new(frame.rect(), panel.border)"),
+        "FloatingPanel.border must own both theme persistence and in-frame outline paint"
+    );
+    assert!(
+        runtime.contains("layer.popup_border()") && popup.contains("presentation.border()"),
+        "native popup presentation must carry the same border datum"
+    );
+    let desire = popup
+        .find("popup.border.set_desired(presentation.border(), now)")
+        .expect("native popup should record desired border");
+    let show = popup[desire..]
+        .find("if !popup.visible")
+        .map(|offset| desire + offset)
+        .expect("native popup should show after border realization");
+    assert!(
+        popup[desire..show].contains("apply_popup_border(key, popup, reason)"),
+        "the creation border must apply before first show"
+    );
+    assert!(
+        native_mod.contains("POPUP_BORDER_SETTLE_DELAY")
+            && popup.contains("apply_due_popup_borders")
+            && windows.contains("DWMWA_BORDER_COLOR"),
+        "theme border changes must use settle-rate Windows application"
+    );
+    assert!(
+        sys.contains("crate::color::bbggrr(r, g, b)"),
+        "Windows COLORREF byte order must live in the color owner"
+    );
+    assert!(
+        master.contains("`FloatingPanel.border` is the one popup border datum")
+            && master.contains("`COLORREF` (`0x00BBGGRR`)"),
+        "master design must retain popup border ownership and byte order"
+    );
+}
+
+#[test]
 fn native_popup_first_present_is_visible_traced_and_confirmed_once() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let popup = std::fs::read_to_string(

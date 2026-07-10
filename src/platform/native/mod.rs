@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::{geometry, interaction, overlay, render};
+use crate::{geometry, interaction, overlay, render, scene};
 
 use super::super::{session, window as app_window};
 
@@ -42,6 +42,7 @@ struct PopupWindow {
     bounds: geometry::Rect,
     geometry: PopupGeometryState,
     accent: PopupAccentState,
+    border: PopupBorderState,
     visible: bool,
     first_present: PopupFirstPresentTrace,
     material: Option<overlay::PopupMaterial>,
@@ -82,8 +83,21 @@ struct PopupAccentState {
     desired_changed_at: Option<Instant>,
 }
 
+#[derive(Debug, Default)]
+struct PopupBorderState {
+    desired: Option<scene::Color>,
+    applied: Option<scene::Color>,
+    desired_changed_at: Option<Instant>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PopupAccentDue {
+    Immediate,
+    Settled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PopupBorderDue {
     Immediate,
     Settled,
 }
@@ -125,6 +139,7 @@ impl PopupWindow {
             bounds: geometry::Rect::new(0, 0, 0, 0),
             geometry: PopupGeometryState::default(),
             accent: PopupAccentState::default(),
+            border: PopupBorderState::default(),
             visible: false,
             first_present: PopupFirstPresentTrace::new(),
             material: None,
@@ -161,6 +176,7 @@ impl PopupEventTarget {
 // Windows accent re-application rebuilds compositor-side material state. Keep
 // parameter churn settle-rate while preserving instant material presence.
 const POPUP_ACCENT_SETTLE_DELAY: Duration = Duration::from_millis(150);
+const POPUP_BORDER_SETTLE_DELAY: Duration = Duration::from_millis(150);
 
 impl PopupGeometryState {
     fn needs_apply(&self, desired: PopupGeometry) -> bool {
@@ -209,6 +225,51 @@ impl PopupAccentState {
     fn mark_applied(&mut self, material: sys::PopupAccentMaterial) {
         self.applied = Some(material);
         self.desired = Some(material);
+        self.desired_changed_at = None;
+    }
+
+    fn pending(&self) -> bool {
+        self.desired.is_some() && self.desired != self.applied
+    }
+
+    fn changed_instant(&self) -> Option<Instant> {
+        self.desired_changed_at
+    }
+}
+
+impl PopupBorderState {
+    fn set_desired(&mut self, desired: scene::Color, now: Instant) -> bool {
+        if self.desired == Some(desired) {
+            return false;
+        }
+
+        self.desired = Some(desired);
+        self.desired_changed_at = (self.applied != Some(desired)).then_some(now);
+        true
+    }
+
+    fn due(&self, now: Instant) -> Option<PopupBorderDue> {
+        let desired = self.desired?;
+        if self.applied == Some(desired) {
+            return None;
+        }
+
+        if self.applied.is_none() {
+            return Some(PopupBorderDue::Immediate);
+        }
+
+        let changed_at = self.desired_changed_at.unwrap_or(now);
+        (now.duration_since(changed_at) >= POPUP_BORDER_SETTLE_DELAY)
+            .then_some(PopupBorderDue::Settled)
+    }
+
+    fn desired(&self) -> Option<scene::Color> {
+        self.desired
+    }
+
+    fn mark_applied(&mut self, border: scene::Color) {
+        self.applied = Some(border);
+        self.desired = Some(border);
         self.desired_changed_at = None;
     }
 
@@ -376,8 +437,9 @@ impl Default for Native {
 #[cfg(test)]
 mod tests {
     use super::{
-        POPUP_ACCENT_SETTLE_DELAY, PopupAccentDue, PopupAccentState, PopupGeometry,
-        PopupGeometryState, PopupMaterialRealization, PopupPresentationMode,
+        POPUP_ACCENT_SETTLE_DELAY, POPUP_BORDER_SETTLE_DELAY, PopupAccentDue, PopupAccentState,
+        PopupBorderDue, PopupBorderState, PopupGeometry, PopupGeometryState,
+        PopupMaterialRealization, PopupPresentationMode,
     };
     use crate::overlay::PopupMaterialPreference;
     use crate::platform::native::sys::PopupAccentMaterial;
@@ -526,6 +588,31 @@ mod tests {
         assert!(state.set_desired(first, now + Duration::from_millis(2)));
         assert_eq!(state.due(now + POPUP_ACCENT_SETTLE_DELAY), None);
         assert!(!state.pending());
+    }
+
+    #[test]
+    fn popup_border_state_applies_creation_then_settles_theme_changes() {
+        let now = Instant::now();
+        let mut state = PopupBorderState::default();
+        let first = scene::Color::rgb(0x11, 0x22, 0x33);
+        let second = scene::Color::rgb(0x44, 0x55, 0x66);
+
+        assert!(state.set_desired(first, now));
+        assert_eq!(state.due(now), Some(PopupBorderDue::Immediate));
+        state.mark_applied(first);
+        assert!(!state.pending());
+
+        assert!(state.set_desired(second, now + Duration::from_millis(1)));
+        assert_eq!(state.due(now + Duration::from_millis(1)), None);
+        assert!(state.pending());
+        let changed_at = state.changed_instant();
+        assert!(!state.set_desired(second, now + Duration::from_millis(100)));
+        assert_eq!(state.changed_instant(), changed_at);
+        assert_eq!(
+            state.due(now + Duration::from_millis(1) + POPUP_BORDER_SETTLE_DELAY),
+            Some(PopupBorderDue::Settled)
+        );
+        assert_eq!(state.desired(), Some(second));
     }
 
     #[test]

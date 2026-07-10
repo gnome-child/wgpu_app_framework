@@ -4181,13 +4181,15 @@ fn scene_preserves_popup_paint_order_after_base_content() {
             .any(|shadow| shadow.color().channels() == (0, 0, 0, 96)),
         "popup paint should include theme-owned elevation"
     );
-    assert!(
-        !scene
-            .outlines()
-            .iter()
-            .any(|outline| outline.rect() == popup.rect()),
-        "menu popup should not paint a default outline"
-    );
+    let border = scene
+        .outlines()
+        .into_iter()
+        .find(|outline| {
+            outline.rect() == popup.rect() && outline.color() == theme.floating_panel().border()
+        })
+        .expect("menu popup should paint the theme border datum");
+    assert_eq!(border.width(), 1.0);
+    assert_eq!(border.rounding(), theme.floating_panel().rounding);
 
     let popup_shadow = scene
         .primitives()
@@ -4218,6 +4220,18 @@ fn scene_preserves_popup_paint_order_after_base_content() {
             )
         })
         .expect("popup pane should be painted");
+    let popup_border = scene
+        .primitives()
+        .iter()
+        .position(|primitive| {
+            matches!(
+                primitive,
+                scene::Primitive::Outline(outline)
+                    if outline.rect() == popup.rect()
+                        && outline.color() == theme.floating_panel().border()
+            )
+        })
+        .expect("popup border should be painted");
     let file_menu_text = scene
         .primitives()
         .iter()
@@ -4276,6 +4290,8 @@ fn scene_preserves_popup_paint_order_after_base_content() {
         .expect("popup exit shortcut key text should be painted");
 
     assert!(popup_shadow < popup_pane);
+    assert!(popup_pane < popup_border);
+    assert!(popup_border < open_command_text);
     assert!(popup_pane < open_command_text);
     assert!(popup_pane < open_command_clip);
     assert!(open_command_clip < open_command_text);

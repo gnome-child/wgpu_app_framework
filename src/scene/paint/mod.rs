@@ -90,6 +90,7 @@ fn paint_overlay_entries(
                 overlay::Draft::new(id, panel.rect(), scene)
                     .prefer(overlay::Preference::NativePopup)
                     .popup_material_preference(popup_material_preference(panel))
+                    .popup_border(theme.floating_panel().border())
                     .force_group_at_full_opacity(panel.force_overlay_group())
             })
         })
@@ -165,6 +166,7 @@ fn paint_frame(
     let rounding = role_rounding(frame, theme);
     if is_floating_panel_role(frame.role()) {
         paint_floating_panel_material(frame, scene, theme);
+        paint_floating_panel_border(frame, scene, theme);
     } else if let Some(fill) = frame.background() {
         paint_brush_quad(scene, frame.rect(), fill, rounding);
     } else if let Some(fill) = role_fill(frame, theme) {
@@ -431,6 +433,19 @@ fn paint_floating_panel_material(frame: &layout::Frame, scene: &mut Scene, theme
                 .with_rounding(role_rounding(frame, theme)),
         ),
     }
+}
+
+fn paint_floating_panel_border(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
+    let panel = theme.floating_panel();
+    if panel.border.channels().3 == 0 {
+        return;
+    }
+
+    scene.push_outline(
+        Outline::new(frame.rect(), panel.border)
+            .with_width(1.0)
+            .with_rounding(role_rounding(frame, theme)),
+    );
 }
 
 fn paint_menu_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {

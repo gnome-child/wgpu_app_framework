@@ -33,6 +33,10 @@ pub(crate) fn aabbggrr(r: u8, g: u8, b: u8, a: u8) -> u32 {
     ((a as u32) << 24) | ((b as u32) << 16) | ((g as u32) << 8) | r as u32
 }
 
+pub(crate) fn bbggrr(r: u8, g: u8, b: u8) -> u32 {
+    ((b as u32) << 16) | ((g as u32) << 8) | r as u32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -54,6 +58,11 @@ mod tests {
     #[test]
     fn accent_gradient_uses_named_aabbggrr_order() {
         assert_eq!(aabbggrr(0x11, 0x22, 0x33, 0x44), 0x4433_2211);
+    }
+
+    #[test]
+    fn windows_colorref_uses_named_bbggrr_order() {
+        assert_eq!(bbggrr(0x11, 0x22, 0x33), 0x0033_2211);
     }
 
     #[test]

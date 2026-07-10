@@ -6,7 +6,7 @@ use crate::{geometry, overlay, paint, render, window as app_window};
 use super::surface::native_logical_area;
 use super::window::{InitialSize, Options, Window as NativeWindow};
 use super::{
-    Native, NativeContext, NativeError, PopupAccentDue, PopupFirstPresentState,
+    Native, NativeContext, NativeError, PopupAccentDue, PopupBorderDue, PopupFirstPresentState,
     PopupFirstPresentTrace, PopupGeometry, PopupKey, PopupPresentationMode, PopupWindow,
 };
 
@@ -40,6 +40,7 @@ impl Native {
             }
         }
         redraw_parents.extend(self.apply_due_popup_accents(now));
+        self.apply_due_popup_borders(now);
         self.request_popup_parent_redraws(&redraw_parents);
 
         Ok(())
@@ -169,6 +170,17 @@ impl Native {
         }
         if let Some(reason) = popup.accent.due(now) {
             apply_popup_accent(key, popup, reason);
+        }
+        if popup.border.set_desired(presentation.border(), now) {
+            log::debug!(
+                target: "wgpu_l3::native_popup",
+                "recorded native popup border desire {:?}: border={:?}",
+                presentation.id(),
+                presentation.border()
+            );
+        }
+        if let Some(reason) = popup.border.due(now) {
+            apply_popup_border(key, popup, reason);
         }
         let source_scene = if realization.uses_native_material_scene() {
             presentation.scene()
@@ -478,6 +490,29 @@ impl Native {
         redraw_parents
     }
 
+    pub(in crate::platform::native) fn apply_due_popup_borders(&mut self, now: Instant) {
+        let mut pending = false;
+        for (key, popup) in &mut self.popups {
+            let Some(reason) = popup.border.due(now) else {
+                if popup.border.pending() && popup.border.changed_instant() != Some(now) {
+                    pending = true;
+                    log::trace!(
+                        target: "wgpu_l3::native_popup",
+                        "native popup border pending {:?}: desired={:?}",
+                        key.id,
+                        popup.border.desired()
+                    );
+                }
+                continue;
+            };
+            apply_popup_border(*key, popup, reason);
+        }
+
+        if pending {
+            self.schedule_poll_request();
+        }
+    }
+
     pub(in crate::platform::native) fn request_popup_parent_redraws(
         &self,
         parents: &HashSet<app_window::Id>,
@@ -513,6 +548,22 @@ fn apply_popup_accent(key: PopupKey, popup: &mut PopupWindow, reason: PopupAccen
     );
     popup.window.set_popup_accent_material(accent);
     popup.accent.mark_applied(accent);
+}
+
+fn apply_popup_border(key: PopupKey, popup: &mut PopupWindow, reason: PopupBorderDue) {
+    let border = popup
+        .border
+        .desired()
+        .expect("due border should have a desired color");
+    log::debug!(
+        target: "wgpu_l3::native_popup",
+        "applying native popup border {:?}: reason={:?}, border={:?}",
+        key.id,
+        reason,
+        border
+    );
+    popup.window.set_popup_border_color(border);
+    popup.border.mark_applied(border);
 }
 
 impl PopupFirstPresentTrace {

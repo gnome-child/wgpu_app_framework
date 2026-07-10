@@ -187,6 +187,7 @@ struct TextInputPatch {
 struct FloatingPanelPatch {
     material: Option<MaterialToml>,
     rounding: Option<RoundingToml>,
+    border: Option<String>,
     shadow: Option<String>,
     shadow_blur: Option<f32>,
     shadow_spread: Option<f32>,
@@ -427,6 +428,7 @@ struct TextInputExport {
 struct FloatingPanelExport {
     material: MaterialToml,
     rounding: RoundingToml,
+    border: String,
     shadow: String,
     shadow_blur: f32,
     shadow_spread: f32,
@@ -853,6 +855,12 @@ fn apply_floating_panel(
         &mut floating_panel.rounding,
         patch.rounding,
         "floating-panel.rounding",
+    )?;
+    apply_color(
+        &mut floating_panel.border,
+        patch.border,
+        palette,
+        "floating-panel.border",
     )?;
     apply_color(
         &mut floating_panel.shadow,
@@ -1364,6 +1372,7 @@ impl ThemeExport {
                     "floating-panel.rounding",
                     theme.floating_panel.rounding,
                 )?,
+                border: color_string(theme.floating_panel.border, theme.palette),
                 shadow: color_string(theme.floating_panel.shadow, theme.palette),
                 shadow_blur: theme.floating_panel.shadow_blur,
                 shadow_spread: theme.floating_panel.shadow_spread,
@@ -1553,6 +1562,7 @@ impl ThemeExport {
         push_header(&mut out, "floating-panel");
         push_material_field(&mut out, "material", &self.floating_panel.material);
         push_rounding_field(&mut out, "rounding", &self.floating_panel.rounding);
+        push_string_field(&mut out, "border", &self.floating_panel.border);
         push_string_field(&mut out, "shadow", &self.floating_panel.shadow);
         push_f32_field(&mut out, "shadow-blur", self.floating_panel.shadow_blur);
         push_f32_field(&mut out, "shadow-spread", self.floating_panel.shadow_spread);

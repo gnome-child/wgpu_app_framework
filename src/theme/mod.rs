@@ -149,6 +149,7 @@ pub struct TextInput {
 pub struct FloatingPanel {
     pub(crate) material: scene::Material,
     pub(crate) rounding: scene::Rounding,
+    pub(crate) border: scene::Color,
     pub(crate) shadow: scene::Color,
     pub(crate) shadow_blur: f32,
     pub(crate) shadow_spread: f32,
@@ -170,6 +171,14 @@ impl FloatingPanel {
 
     pub fn set_material(&mut self, material: scene::Material) {
         self.material = material;
+    }
+
+    pub fn border(&self) -> scene::Color {
+        self.border
+    }
+
+    pub fn set_border(&mut self, border: scene::Color) {
+        self.border = border;
     }
 }
 
@@ -316,6 +325,7 @@ impl Theme {
             floating_panel: FloatingPanel {
                 material: scene::Material::glass(scene::Glass::panel_dark()),
                 rounding: scene::Rounding::fixed(10.0),
+                border: scene::Color::rgb(58, 58, 60),
                 shadow: scene::Color::rgba(0, 0, 0, 96),
                 shadow_blur: 24.0,
                 shadow_spread: 0.5,
@@ -452,6 +462,7 @@ impl Theme {
             floating_panel: FloatingPanel {
                 material: scene::Material::glass(scene::Glass::panel_light()),
                 rounding: scene::Rounding::fixed(10.0),
+                border: scene::Color::rgb(185, 193, 204),
                 shadow: scene::Color::rgba(20, 22, 25, 48),
                 shadow_blur: 24.0,
                 shadow_spread: 0.5,

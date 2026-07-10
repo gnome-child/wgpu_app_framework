@@ -3,7 +3,9 @@ use crate::paint;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows_sys::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
+use windows_sys::Win32::Graphics::Dwm::{
+    DWMWA_BORDER_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute,
+};
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -247,6 +249,33 @@ pub(super) fn set_popup_accent_material(
         log::debug!(
             target: "wgpu_l3::native_popup",
             "set popup accent material {material:?} gradient={gradient_color:#x}"
+        );
+    }
+}
+
+pub(super) fn set_popup_border_color(window: &winit::window::Window, colorref: u32) {
+    let Some(hwnd) = hwnd(window) else {
+        log::warn!(target: "wgpu_l3::native_popup", "cannot set popup border color without HWND");
+        return;
+    };
+    let result = unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_BORDER_COLOR as u32,
+            &colorref as *const _ as *const core::ffi::c_void,
+            std::mem::size_of::<u32>() as u32,
+        )
+    };
+
+    if result < 0 {
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "failed to set popup border COLORREF {colorref:#08x}: HRESULT {result:#x}"
+        );
+    } else {
+        log::trace!(
+            target: "wgpu_l3::native_popup",
+            "set popup border COLORREF {colorref:#08x}"
         );
     }
 }

@@ -412,11 +412,16 @@ focus-independent accent policy (`SetWindowCompositionAttribute` with
 `GradientColor` is ABGR/AABBGGRR and comes from the popup material tint, so tint
 alpha remains a theme/material dial rather than a platform constant.
 OS-side realizations are settle-rate, not event-rate. Geometry, accent material,
-future border color, and similar native attributes are desired state with an
+border color, and similar native attributes are desired state with an
 applied snapshot; they coalesce to the latest value and cross into the OS only
 after a meaningful geometry change, material-presence change, or short settled
 quiet period. Drag-rate parameter changes must not build a queue of native
 compositor calls.
+`FloatingPanel.border` is the one popup border datum. In-frame popups paint it
+as their outline; native Windows popups convert the same sRGB bytes to
+`COLORREF` (`0x00BBGGRR`) for `DWMWA_BORDER_COLOR`. Creation applies the border
+before first show, while later theme changes use the settle-rate maintenance
+path.
 Native popup first presentation follows platform-visible causality: create and
 configure the nonactivating HWND, realize any immediately due material, show
 the contentless glass, then acquire and present its content. Presenting into a

@@ -84,7 +84,9 @@ impl Backend for Native {
     }
 
     fn maintain(&mut self, _context: &mut Self::Context<'_>) -> Result<(), Self::Error> {
-        let redraw_parents = self.apply_due_popup_accents(std::time::Instant::now());
+        let now = std::time::Instant::now();
+        let redraw_parents = self.apply_due_popup_accents(now);
+        self.apply_due_popup_borders(now);
         self.request_popup_parent_redraws(&redraw_parents);
         Ok(())
     }

@@ -707,6 +707,7 @@ fn append_or_present_overlay_layer(
                     tint: local.accent_tint(),
                     preference: layer.popup_material_preference(),
                 },
+                layer.popup_border(),
             ));
         }
     }

@@ -95,7 +95,26 @@ pub(in crate::platform::native) fn set_popup_accent_material(
     }
 }
 
+pub(in crate::platform::native) fn set_popup_border_color(
+    window: &winit::window::Window,
+    color: scene::Color,
+) {
+    #[cfg(target_os = "windows")]
+    windows::set_popup_border_color(window, popup_border_colorref(color));
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+        let _ = color;
+    }
+}
+
 pub(in crate::platform::native) fn accent_gradient_abgr(color: scene::Color) -> u32 {
     let (r, g, b, a) = color.channels();
     crate::color::aabbggrr(r, g, b, a)
+}
+
+pub(in crate::platform::native) fn popup_border_colorref(color: scene::Color) -> u32 {
+    let (r, g, b, _) = color.channels();
+    crate::color::bbggrr(r, g, b)
 }
