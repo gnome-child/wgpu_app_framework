@@ -225,8 +225,8 @@ impl Native {
         popup
             .first_present
             .record_acquire(key, report.acquire_outcome);
-        let request_confirmation = if let Some(timing) = report.present_timing {
-            let request_confirmation = popup.first_present.record_presented(key, timing);
+        let request_redraw = if let Some(timing) = report.present_timing {
+            let request_redraw = popup.first_present.record_presented(key, timing);
             log::debug!(
                 target: "wgpu_l3::native_popup",
                 "presented native popup {:?} for parent {:?}: draw={}us acquire={}us groups={}",
@@ -236,7 +236,7 @@ impl Native {
                 timing.acquire_wait().as_micros(),
                 report.stats.group_composites
             );
-            request_confirmation
+            request_redraw
         } else {
             log::debug!(
                 target: "wgpu_l3::native_popup",
@@ -246,10 +246,10 @@ impl Native {
                 draw.as_micros(),
                 popup.visible
             );
-            false
+            popup.first_present.needs_redraw()
         };
 
-        Ok(request_confirmation)
+        Ok(request_redraw)
     }
 
     fn ensure_popup_window(
@@ -626,20 +626,24 @@ impl PopupFirstPresentTrace {
     }
 
     fn record_presented(&mut self, key: PopupKey, timing: render::PresentTiming) -> bool {
-        let (stage, request_confirmation) = match self.state {
+        let (stage, request_confirmation, synchronization) = match self.state {
             PopupFirstPresentState::AwaitingFirst => {
-                self.state = PopupFirstPresentState::AwaitingConfirmation;
-                ("presented", true)
+                let started = Instant::now();
+                let result = super::sys::synchronize_popup_presentation();
+                let elapsed = started.elapsed();
+                let (state, stage, request_redraw) = first_present_follow_up(result);
+                self.state = state;
+                (stage, request_redraw, Some((result, elapsed)))
             }
             PopupFirstPresentState::AwaitingConfirmation => {
                 self.state = PopupFirstPresentState::Complete;
-                ("confirmed", false)
+                ("confirmed", false, None)
             }
             PopupFirstPresentState::Complete => return false,
         };
         log::debug!(
             target: "wgpu_l3::native_popup",
-            "first-present stage={stage} popup={:?} parent={:?} elapsed_us={} attempt={} acquire_us={}",
+            "first-present stage={stage} popup={:?} parent={:?} elapsed_us={} attempt={} acquire_us={} synchronization={synchronization:?}",
             key.id,
             key.parent,
             self.elapsed_micros(),
@@ -647,6 +651,24 @@ impl PopupFirstPresentTrace {
             timing.acquire_wait().as_micros()
         );
         request_confirmation
+    }
+
+    fn needs_redraw(&self) -> bool {
+        self.state != PopupFirstPresentState::Complete
+    }
+}
+
+fn first_present_follow_up(
+    synchronization: Result<(), i32>,
+) -> (PopupFirstPresentState, &'static str, bool) {
+    if synchronization.is_ok() {
+        (PopupFirstPresentState::Complete, "synchronized", false)
+    } else {
+        (
+            PopupFirstPresentState::AwaitingConfirmation,
+            "visibility-sync-failed",
+            true,
+        )
     }
 }
 
@@ -678,7 +700,10 @@ fn native_popups_supported() -> bool {
 mod tests {
     use std::collections::HashSet;
 
-    use super::{PopupKey, popup_is_stale, queue_popup_parent_redraw};
+    use super::{
+        PopupFirstPresentState, PopupFirstPresentTrace, PopupKey, first_present_follow_up,
+        popup_is_stale, queue_popup_parent_redraw,
+    };
     use crate::{interaction, window};
 
     #[test]
@@ -692,6 +717,32 @@ mod tests {
         queue_popup_parent_redraw(&mut parents, second);
 
         assert_eq!(parents, HashSet::from([first, second]));
+    }
+
+    #[test]
+    fn popup_first_present_redraws_only_for_evidenced_failures() {
+        assert_eq!(
+            first_present_follow_up(Ok(())),
+            (PopupFirstPresentState::Complete, "synchronized", false),
+            "a compositor-synchronized present needs no policy confirmation frame"
+        );
+        assert_eq!(
+            first_present_follow_up(Err(-1)),
+            (
+                PopupFirstPresentState::AwaitingConfirmation,
+                "visibility-sync-failed",
+                true,
+            ),
+            "an explicit compositor synchronization failure earns one fallback redraw"
+        );
+
+        let mut trace = PopupFirstPresentTrace::new();
+        assert!(
+            trace.needs_redraw(),
+            "a skipped first acquire must retry because no present occurred"
+        );
+        trace.state = PopupFirstPresentState::Complete;
+        assert!(!trace.needs_redraw());
     }
 
     #[test]

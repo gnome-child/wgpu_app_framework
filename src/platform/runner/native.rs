@@ -41,9 +41,12 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
         let popup = self.platform.backend().popup_for_raw(raw_window)?;
         log::trace!(
             target: "wgpu_l3::native_popup",
-            "routing popup event {:?} for parent {:?}",
+            "routing popup event {:?} for parent {:?}: kind={} first_present_stage={} elapsed_us={}",
             popup.id(),
-            popup.parent()
+            popup.parent(),
+            popup_window_event_kind(event),
+            popup.first_present_stage(),
+            popup.first_present_elapsed_micros()
         );
         self.events
             .popup_window_event(popup.parent(), popup.bounds(), popup.scale_factor(), event)
@@ -144,6 +147,26 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
         } else {
             false
         }
+    }
+}
+
+fn popup_window_event_kind(event: &WinitWindowEvent) -> &'static str {
+    match event {
+        WinitWindowEvent::RedrawRequested => "redraw-requested",
+        WinitWindowEvent::Occluded(true) => "occluded",
+        WinitWindowEvent::Occluded(false) => "unoccluded",
+        WinitWindowEvent::Resized(_) => "resized",
+        WinitWindowEvent::Moved(_) => "moved",
+        WinitWindowEvent::ScaleFactorChanged { .. } => "scale-factor-changed",
+        WinitWindowEvent::CursorEntered { .. } => "cursor-entered",
+        WinitWindowEvent::CursorMoved { .. } => "cursor-moved",
+        WinitWindowEvent::CursorLeft { .. } => "cursor-left",
+        WinitWindowEvent::MouseInput { .. } => "mouse-input",
+        WinitWindowEvent::MouseWheel { .. } => "mouse-wheel",
+        WinitWindowEvent::Focused(true) => "focused",
+        WinitWindowEvent::Focused(false) => "unfocused",
+        WinitWindowEvent::Destroyed => "destroyed",
+        _ => "other",
     }
 }
 

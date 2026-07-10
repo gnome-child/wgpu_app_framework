@@ -268,6 +268,8 @@ impl Native {
             id: key.id,
             bounds: popup.bounds,
             scale_factor: popup.window.scale_factor(),
+            first_present_elapsed_micros: popup.first_present.elapsed_micros(),
+            first_present_stage: popup.first_present.stage(),
         })
     }
 

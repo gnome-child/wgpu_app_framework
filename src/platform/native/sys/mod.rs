@@ -70,6 +70,14 @@ pub(in crate::platform::native) fn set_popup_visible(
     window.set_visible(visible);
 }
 
+pub(in crate::platform::native) fn synchronize_popup_presentation() -> Result<(), i32> {
+    #[cfg(target_os = "windows")]
+    return windows::synchronize_popup_presentation();
+
+    #[cfg(not(target_os = "windows"))]
+    Ok(())
+}
+
 pub(in crate::platform::native) fn set_popup_dark_mode(window: &winit::window::Window, dark: bool) {
     #[cfg(target_os = "windows")]
     windows::set_popup_dark_mode(window, dark);

@@ -4,7 +4,7 @@ use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{
-    DWMWA_BORDER_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute,
+    DWMWA_BORDER_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE, DwmFlush, DwmSetWindowAttribute,
 };
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
@@ -173,6 +173,11 @@ pub(super) fn set_popup_visible(window: &winit::window::Window, visible: bool) {
             ShowWindow(hwnd, SW_HIDE);
         }
     }
+}
+
+pub(super) fn synchronize_popup_presentation() -> Result<(), i32> {
+    let result = unsafe { DwmFlush() };
+    if result < 0 { Err(result) } else { Ok(()) }
 }
 
 pub(super) fn set_popup_dark_mode(window: &winit::window::Window, dark: bool) {

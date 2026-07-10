@@ -1941,7 +1941,7 @@ fn sys_side_realizations_share_one_settle_applicator() {
 }
 
 #[test]
-fn native_popup_first_present_is_visible_traced_and_confirmed_once() {
+fn native_popup_first_present_is_visible_traced_and_compositor_synchronized() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let popup = std::fs::read_to_string(
         root.join("src")
@@ -1959,6 +1959,14 @@ fn native_popup_first_present_is_visible_traced_and_confirmed_once() {
     .expect("native module source should read");
     let surface = std::fs::read_to_string(root.join("src").join("render").join("surface.rs"))
         .expect("render surface source should read");
+    let windows = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("sys")
+            .join("windows.rs"),
+    )
+    .expect("Windows native source should read");
     let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
         .expect("master design should read");
 
@@ -1989,11 +1997,11 @@ fn native_popup_first_present_is_visible_traced_and_confirmed_once() {
             && native_mod.contains("AwaitingFirst")
             && native_mod.contains("AwaitingConfirmation")
             && native_mod.contains("Complete"),
-        "the successful first present must request exactly one lifecycle-owned confirmation frame"
+        "first-present lifecycle must retain one evidence-gated fallback redraw"
     );
     assert!(
         native_mod.contains("PopupFirstPresentTrace") && !native_mod.contains("PopupFrameRecovery"),
-        "confirmation must be a finite first-present state, not a retry budget"
+        "fallback confirmation must remain finite, not become a retry budget"
     );
     for stage in ["created", "configured", "shown"] {
         assert!(
@@ -2004,14 +2012,25 @@ fn native_popup_first_present_is_visible_traced_and_confirmed_once() {
     for transition in [
         "\"acquire\"",
         "\"confirmation-acquire\"",
-        "(\"presented\", true)",
-        "(\"confirmed\", false)",
+        "\"synchronized\"",
+        "\"visibility-sync-failed\"",
+        "(\"confirmed\", false, None)",
     ] {
         assert!(
             popup.contains(transition),
             "first-present trace must retain transition {transition}"
         );
     }
+    assert!(
+        popup.contains("super::sys::synchronize_popup_presentation()")
+            && windows.contains("DwmFlush()")
+            && popup.contains("popup.first_present.needs_redraw()"),
+        "the first successful present must synchronize with DWM, while a no-present outcome retries"
+    );
+    assert!(
+        !popup.contains("(\"presented\", true)"),
+        "a successful first present must not request a blind confirmation frame"
+    );
     for outcome in [
         "Suboptimal",
         "Outdated",
@@ -2037,8 +2056,8 @@ fn native_popup_first_present_is_visible_traced_and_confirmed_once() {
     for phrase in [
         "contentless glass",
         "hidden redirected window",
-        "despite `Success` acquisition",
-        "receipted compositor",
+        "More presents are therefore not the",
+        "`DwmFlush` is the one",
     ] {
         assert!(
             master.contains(phrase),

@@ -442,14 +442,20 @@ Native popup first presentation follows platform-visible causality: create and
 configure the nonactivating HWND, realize any immediately due material, show
 the contentless glass, then acquire and present its content. Presenting into a
 hidden redirected window is not an allowed optimization. `PopupFirstPresentTrace`
-records timestamped created, configured, shown, acquire-outcome, and presented
-stages under `wgpu_l3::native_popup`. Field evidence showed a blank first frame
-despite `Success` acquisition and a completed present, so Windows redirected
-popups advance once through `AwaitingFirst -> AwaitingConfirmation -> Complete`
-and request exactly one confirmation frame. This is a receipted compositor
-pickup workaround, not a retry budget. Accent application from maintenance,
-where no draw follows immediately, requests one parent redraw so compositor
-material changes cannot strand stale foreground content.
+records timestamped created, configured, shown, acquire-outcome, present, and
+native popup event-kind stages under `wgpu_l3::native_popup`. Field evidence
+showed a blank first frame despite successful first and confirmation presents;
+the event trace then proved the confirmation followed the popup's own redraw
+request and that an explicit parent redraw could submit a third frame before
+the compositor picked any of them up. More presents are therefore not the
+answer. After the first successful Windows present, `DwmFlush` is the one
+compositor-pickup barrier: success completes the lifecycle without a policy
+confirmation frame, an explicit flush failure earns one fallback confirmation,
+and an acquire outcome that produced no present earns a retry. OS-requested
+popup redraws remain legitimate redraws rather than lifecycle redundancy.
+Accent application from maintenance, where no draw follows immediately,
+requests one parent redraw so compositor material changes cannot strand stale
+foreground content.
 Windows popup acrylic is not tied to the DX12 DirectComposition Visual path:
 Vulkan redirected popups can realize accent acrylic when the surface reports
 premultiplied alpha. The backend mask therefore stays `wgpu::Backends::all()`

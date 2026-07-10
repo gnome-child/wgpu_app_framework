@@ -72,6 +72,8 @@ pub(in crate::platform) struct PopupEventTarget {
     id: interaction::Id,
     bounds: geometry::Rect,
     scale_factor: f64,
+    first_present_elapsed_micros: u128,
+    first_present_stage: &'static str,
 }
 
 type PopupGeometryState = SysApplicator<PopupGeometry>;
@@ -147,6 +149,14 @@ impl PopupEventTarget {
     pub(in crate::platform) fn scale_factor(self) -> f64 {
         self.scale_factor
     }
+
+    pub(in crate::platform) fn first_present_elapsed_micros(self) -> u128 {
+        self.first_present_elapsed_micros
+    }
+
+    pub(in crate::platform) fn first_present_stage(self) -> &'static str {
+        self.first_present_stage
+    }
 }
 
 // Windows accent re-application rebuilds compositor-side material state. Keep
@@ -165,6 +175,14 @@ impl PopupFirstPresentTrace {
 
     fn elapsed_micros(&self) -> u128 {
         self.created_at.elapsed().as_micros()
+    }
+
+    fn stage(&self) -> &'static str {
+        match self.state {
+            PopupFirstPresentState::AwaitingFirst => "awaiting-first",
+            PopupFirstPresentState::AwaitingConfirmation => "awaiting-confirmation",
+            PopupFirstPresentState::Complete => "complete",
+        }
     }
 }
 
