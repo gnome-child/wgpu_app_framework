@@ -1,13 +1,12 @@
 use crate::{
-    composition, diagnostics, diagnostics::Diagnostics, session, state, state::Store, task,
-    timeline::Timeline, window,
+    diagnostics, diagnostics::Diagnostics, session, state, state::Store, task, timeline::Timeline,
+    window,
 };
 
 pub struct Context<'a, M: state::State> {
     store: &'a mut Store<M>,
     timeline: &'a mut Timeline<M>,
     session: &'a mut session::Session,
-    composition: &'a mut composition::Store,
     diagnostics: &'a mut diagnostics::Store,
     tasks: task::Sink,
 }
@@ -17,7 +16,6 @@ impl<'a, M: state::State> Context<'a, M> {
         store: &'a mut Store<M>,
         timeline: &'a mut Timeline<M>,
         session: &'a mut session::Session,
-        composition: &'a mut composition::Store,
         diagnostics: &'a mut diagnostics::Store,
         tasks: task::Sink,
     ) -> Self {
@@ -25,7 +23,6 @@ impl<'a, M: state::State> Context<'a, M> {
             store,
             timeline,
             session,
-            composition,
             diagnostics,
             tasks,
         }
@@ -64,13 +61,7 @@ impl<'a, M: state::State> Context<'a, M> {
     }
 
     pub fn close_window(&mut self, id: window::Id) -> bool {
-        if !self.session.close_window(id) {
-            return false;
-        }
-
-        self.composition.remove_window(id);
-        self.diagnostics.remove_window(id);
-        true
+        self.session.close_window(id)
     }
 
     pub fn diagnostics(&self, id: window::Id) -> Option<&Diagnostics> {

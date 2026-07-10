@@ -58,7 +58,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 Ok(self.window_outcome(window, false, effect))
             }
             input::Input::PointerDown(target) => {
-                self.begin_pointer_gesture(&target);
+                self.begin_pointer_gesture(window, &target);
                 let effect =
                     if self
                         .session
@@ -72,7 +72,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 Ok(self.window_outcome(window, false, effect))
             }
             input::Input::PointerManipulate(target) => {
-                self.begin_pointer_gesture(&target);
+                self.begin_pointer_gesture(window, &target);
                 let effect = if self.session.pointer_down(
                     window,
                     target,

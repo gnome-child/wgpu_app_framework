@@ -17,12 +17,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             &mut self.store,
             &mut self.timeline,
             &mut self.session,
-            &mut self.composition,
             &mut self.diagnostics,
             task_sink,
         );
 
         started(&mut cx);
+        self.deliver_departed();
     }
 
     pub fn emit(&mut self, event: E) {
@@ -35,12 +35,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             &mut self.store,
             &mut self.timeline,
             &mut self.session,
-            &mut self.composition,
             &mut self.diagnostics,
             task_sink,
         );
 
         handler(&mut cx, event);
+        self.deliver_departed();
 
         if self.revision() != before {
             self.request_all_redraws();

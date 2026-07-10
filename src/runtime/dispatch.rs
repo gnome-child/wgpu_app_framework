@@ -20,7 +20,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             &mut self.timeline,
             &mut self.session,
             &mut self.composition,
-            &mut self.diagnostics,
             None,
         );
         let mut chain = self
@@ -51,7 +50,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             &mut self.timeline,
             &mut self.session,
             &mut self.composition,
-            &mut self.diagnostics,
             Some(window),
         );
         let mut chain = self

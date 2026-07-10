@@ -1,6 +1,6 @@
 use super::super::{Backend, NativeError, Window};
 use super::{Native, NativeContext};
-use crate::{diagnostics, overlay, pointer, session, shell, window as app_window};
+use crate::{diagnostics, notification, overlay, pointer, session, shell, window as app_window};
 
 impl Backend for Native {
     type Error = NativeError;
@@ -32,17 +32,7 @@ impl Backend for Native {
             return Err(NativeError::MissingWindow { window });
         };
         self.raw_windows.remove(&native_window.raw_id());
-        let stale = self
-            .popups
-            .keys()
-            .filter(|key| key.parent == window)
-            .copied()
-            .collect::<Vec<_>>();
-        for key in stale {
-            if let Some(popup) = self.popups.remove(&key) {
-                self.raw_popups.remove(&popup.window.raw_id());
-            }
-        }
+        <Self as notification::Listener<app_window::Departed>>::notify(self, &window);
         log::debug!("closed native window: {window:?}");
         Ok(())
     }
@@ -97,5 +87,23 @@ impl Backend for Native {
         let redraw_parents = self.apply_due_popup_accents(std::time::Instant::now());
         self.request_popup_parent_redraws(&redraw_parents);
         Ok(())
+    }
+}
+
+impl notification::Listener<app_window::Departed> for Native {
+    fn notify(&mut self, window: &app_window::Id) -> notification::Reaction {
+        let stale = self
+            .popups
+            .keys()
+            .filter(|key| key.parent == *window)
+            .copied()
+            .collect::<Vec<_>>();
+        for key in stale {
+            if let Some(popup) = self.popups.remove(&key) {
+                self.raw_popups.remove(&popup.window.raw_id());
+            }
+        }
+
+        notification::Reaction::ignored()
     }
 }

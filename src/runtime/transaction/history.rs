@@ -38,6 +38,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             if let Some(before) = before {
                 self.store.restore_prepared_snapshot(before);
             }
+            self.deliver_departed();
             return;
         }
 
@@ -64,6 +65,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 }
             }
         }
+
+        self.deliver_departed();
     }
 
     pub(in crate::runtime::transaction) fn coalesces_history_group(

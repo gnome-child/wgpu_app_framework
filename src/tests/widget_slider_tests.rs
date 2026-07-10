@@ -147,6 +147,88 @@ fn captured_slider_drag_coalesces_into_one_undo_entry() {
 }
 
 #[test]
+fn closing_mid_drag_purges_window_residues_and_releases_history_gesture() {
+    let mut app = Runtime::new(SliderValueState::default())
+        .commands(|commands| {
+            commands.register::<SetLevel>(command::Spec::new("Set Level"));
+        })
+        .responders(|responders| {
+            responders.app().target::<SetLevel>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Departing Slider"));
+            cx.open_window(window::Options::new("Remaining Slider"));
+        })
+        .view(|state, _| {
+            widget::view(|ui| {
+                ui.slider(
+                    widget::Slider::new("Level", state.value, 0.0..=10.0).on_change::<SetLevel>(),
+                );
+            })
+        });
+
+    app.start();
+
+    let departing = app.session().windows()[0].id();
+    let remaining = app.session().windows()[1].id();
+    let size = geometry::Size::new(240, 80);
+    let departing_scene = app
+        .render_scene(departing, size)
+        .expect("departing slider should render");
+    let track = slider_track_rect(only_slider(departing_scene.layout()));
+    app.render_scene(remaining, size)
+        .expect("remaining slider should render");
+    let quarter = geometry::Point::new(track.x() + track.width() / 4, track.y() + 1);
+
+    pointer_down_then_present(&mut app, departing, size, quarter);
+    let value_after_departing_edit = app.state().value;
+    let before = app.window_residues(departing);
+    assert!(before.layout_cache > 0, "layout cache should be seeded");
+    assert!(before.overlays > 0, "overlay state should be seeded");
+    assert!(
+        before.animation_schedules > 0,
+        "animation schedule should be seeded"
+    );
+    assert!(
+        before.visual_animations > 0,
+        "visual animation state should be seeded"
+    );
+    assert!(before.composition > 0, "composition should be seeded");
+    assert!(before.diagnostics > 0, "diagnostics should be seeded");
+    assert!(before.gesture > 0, "pointer gesture should be active");
+
+    let close = app.invoke_focused(departing, app.trigger::<session::CloseWindow>(()));
+
+    close.output.expect("window close should succeed");
+    assert!(!app.session().contains(departing));
+    assert_eq!(
+        app.window_residues(departing).total(),
+        0,
+        "every registered per-window store should purge itself"
+    );
+    assert_eq!(
+        app.timeline().undo_depth(),
+        0,
+        "an abandoned gesture must not publish partial history"
+    );
+
+    let remaining_scene = app
+        .render_scene(remaining, size)
+        .expect("remaining slider should refresh");
+    let remaining_track = slider_track_rect(only_slider(remaining_scene.layout()));
+    let end = geometry::Point::new(remaining_track.right() - 1, remaining_track.y() + 1);
+    pointer_down_then_present(&mut app, remaining, size, end);
+    pointer_up_then_present(&mut app, remaining, size, end);
+
+    assert_eq!(app.timeline().undo_depth(), 1);
+    assert!(
+        app.undo(),
+        "the next gesture should remain independently undoable"
+    );
+    assert_near(app.state().value, value_after_departing_edit);
+}
+
+#[test]
 fn slider_trigger_with_maps_layout_value_into_custom_command_args() {
     let mut app = Runtime::new(MappedSliderState::default())
         .commands(|commands| {

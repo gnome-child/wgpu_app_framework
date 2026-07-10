@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use super::{
     clipboard::Clipboard,
     command, composition, diagnostics, document, geometry, keymap, layout, overlay, responder,
@@ -7,12 +5,13 @@ use super::{
     state::{self, Store},
     task, theme,
     timeline::{self, Timeline},
-    view, window,
+    view,
 };
 use crate::animation;
 mod access;
 mod builder;
 mod context;
+mod departed;
 mod dispatch;
 mod fuzzy;
 mod input;
@@ -65,11 +64,11 @@ pub struct Runtime<M: state::State, E: Send + 'static = (), V = ()> {
     theme: Option<ThemeCallback<M>>,
     view: Option<ViewCallback<M, V>>,
     started_ran: bool,
-    animation_schedules: HashMap<window::Id, animation::Schedule>,
+    animation_schedules: departed::WindowMap<animation::Schedule>,
     visual_animations: visual::Animations,
     overlays: overlay::Store,
     overlay_capabilities: overlay::Capabilities,
-    layout_cache: HashMap<window::Id, CachedLayout>,
+    layout_cache: departed::WindowMap<CachedLayout>,
 }
 
 impl<M: state::State> Runtime<M> {
@@ -99,11 +98,11 @@ impl<M: state::State> Runtime<M> {
             theme: None,
             view: None,
             started_ran: false,
-            animation_schedules: HashMap::new(),
+            animation_schedules: departed::WindowMap::default(),
             visual_animations: visual::Animations::default(),
             overlays: overlay::Store::new(),
             overlay_capabilities: overlay::Capabilities::default(),
-            layout_cache: HashMap::new(),
+            layout_cache: departed::WindowMap::default(),
         }
     }
 }

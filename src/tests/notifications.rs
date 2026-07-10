@@ -55,6 +55,20 @@ impl notification::Listener<TestNotice> for NotificationState {
     }
 }
 
+#[derive(Clone, Default)]
+struct DepartedState {
+    windows: Vec<window::Id>,
+}
+
+impl State for DepartedState {}
+
+impl notification::Listener<window::Departed> for DepartedState {
+    fn notify(&mut self, window: &window::Id) -> notification::Reaction {
+        self.windows.push(*window);
+        notification::Reaction::changed()
+    }
+}
+
 fn notification_app() -> Runtime<NotificationState> {
     Runtime::new(NotificationState::default())
         .responders(|responders| {
@@ -121,4 +135,25 @@ fn notification_changes_commit_notification_reason_without_undo_snapshot() {
     );
     assert!(!app.undo());
     assert_eq!(*app.state().events.borrow(), vec!["app:change".to_owned()]);
+}
+
+#[test]
+fn departed_is_delivered_to_registered_application_listeners() {
+    let mut app = Runtime::new(DepartedState::default())
+        .responders(|responders| {
+            responders.app().listen::<window::Departed>();
+        })
+        .started(|cx| {
+            let window = cx.open_window(window::Options::new("Ephemeral"));
+            assert!(cx.close_window(window));
+        });
+
+    app.start();
+
+    assert_eq!(app.state().windows.len(), 1);
+    assert!(app.session().windows().is_empty());
+    assert_eq!(
+        app.store().changes()[0].reason(),
+        &state::Reason::Notification(<window::Departed as notification::Notification>::NAME,)
+    );
 }

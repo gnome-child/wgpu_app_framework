@@ -1,7 +1,6 @@
 use super::super::{
-    command, composition,
+    command,
     context::Context,
-    diagnostics,
     error::Error,
     response::{self, Response},
     target::Target,
@@ -15,8 +14,6 @@ pub struct OpenCommandPalette;
 
 pub(crate) struct Service<'a> {
     session: &'a mut Session,
-    composition: &'a mut composition::Store,
-    diagnostics: &'a mut diagnostics::Store,
     window: Option<window::Id>,
 }
 
@@ -37,18 +34,8 @@ impl command::Command for OpenCommandPalette {
 }
 
 impl<'a> Service<'a> {
-    pub(crate) fn new(
-        session: &'a mut Session,
-        composition: &'a mut composition::Store,
-        diagnostics: &'a mut diagnostics::Store,
-        window: Option<window::Id>,
-    ) -> Self {
-        Self {
-            session,
-            composition,
-            diagnostics,
-            window,
-        }
+    pub(crate) fn new(session: &'a mut Session, window: Option<window::Id>) -> Self {
+        Self { session, window }
     }
 
     fn target_window(&self) -> Option<window::Id> {
@@ -66,14 +53,6 @@ impl<'a> Service<'a> {
     fn session_mut(&mut self) -> &mut Session {
         &mut *self.session
     }
-
-    fn composition_mut(&mut self) -> &mut composition::Store {
-        &mut *self.composition
-    }
-
-    fn diagnostics_mut(&mut self) -> &mut diagnostics::Store {
-        &mut *self.diagnostics
-    }
 }
 
 impl Target<CloseWindow> for Service<'_> {
@@ -89,8 +68,6 @@ impl Target<CloseWindow> for Service<'_> {
         };
 
         self.session_mut().close_window(window);
-        self.composition_mut().remove_window(window);
-        self.diagnostics_mut().remove_window(window);
 
         Response::output(()).with_effect(response::Effect::Rebuild)
     }

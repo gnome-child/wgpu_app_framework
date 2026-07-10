@@ -340,7 +340,6 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 &mut self.timeline,
                 &mut self.session,
                 &mut self.composition,
-                &mut self.diagnostics,
                 Some(window),
             );
             let mut chain = self

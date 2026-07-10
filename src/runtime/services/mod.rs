@@ -4,8 +4,8 @@ use std::{
 };
 
 use super::super::{
-    composition, context, diagnostics, error::Error, responder, response::AnyResponse, session,
-    state, timeline::Timeline, window,
+    composition, context, error::Error, responder, response::AnyResponse, session, state,
+    timeline::Timeline, window,
 };
 use super::Runtime;
 
@@ -17,7 +17,6 @@ pub(super) struct Services<'a, M: state::State> {
     timeline: &'a mut Timeline<M>,
     session: &'a mut session::Session,
     composition: &'a mut composition::Store,
-    diagnostics: &'a mut diagnostics::Store,
     window: Option<window::Id>,
 }
 
@@ -26,14 +25,12 @@ impl<'a, M: state::State> Services<'a, M> {
         timeline: &'a mut Timeline<M>,
         session: &'a mut session::Session,
         composition: &'a mut composition::Store,
-        diagnostics: &'a mut diagnostics::Store,
         window: Option<window::Id>,
     ) -> Self {
         Self {
             timeline,
             session,
             composition,
-            diagnostics,
             window,
         }
     }

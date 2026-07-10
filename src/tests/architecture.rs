@@ -1149,6 +1149,50 @@ fn history_coalescing_is_scoped_to_the_runtime_target() {
 }
 
 #[test]
+fn per_window_state_owns_departed_cleanup() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = root.join("src");
+    let departed = std::fs::read_to_string(src.join("runtime").join("departed.rs"))
+        .expect("runtime departed source should read");
+    let session_service = std::fs::read_to_string(src.join("session").join("service.rs"))
+        .expect("session service should read");
+    let runtime_context = std::fs::read_to_string(src.join("runtime").join("context.rs"))
+        .expect("runtime context should read");
+    let native_adapter =
+        std::fs::read_to_string(src.join("platform").join("native").join("adapter.rs"))
+            .expect("native adapter should read");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    for listener in [
+        "self.layout_cache",
+        "self.overlays",
+        "self.animation_schedules",
+        "self.visual_animations",
+        "self.composition",
+        "self.diagnostics",
+        "self.gesture",
+    ] {
+        assert!(
+            departed.contains(listener),
+            "Departed publisher must retain registered listener {listener}"
+        );
+    }
+    assert!(
+        native_adapter.contains("Listener<app_window::Departed> for Native"),
+        "the native popup manager must own its Departed purge"
+    );
+    assert!(
+        !session_service.contains("remove_window") && !runtime_context.contains("remove_window"),
+        "close paths must publish Departed instead of carrying cleanup checklists"
+    );
+    assert!(
+        master.contains("Per-window state subscribes to `window::Departed` or documents why not"),
+        "master design must state the per-window lifecycle rule"
+    );
+}
+
+#[test]
 fn snapshot_restore_has_one_transient_state_reset() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let snapshot = std::fs::read_to_string(root.join("runtime").join("snapshot.rs"))

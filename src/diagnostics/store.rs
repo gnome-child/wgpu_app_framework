@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::Diagnostics;
-use crate::{session, window};
+use crate::{notification, session, window};
 
 #[derive(Default)]
 pub(crate) struct Store {
@@ -30,5 +30,12 @@ impl Store {
 
     pub(crate) fn get_mut(&mut self, window: window::Id) -> &mut Diagnostics {
         self.windows.entry(window).or_default()
+    }
+}
+
+impl notification::Listener<window::Departed> for Store {
+    fn notify(&mut self, window: &window::Id) -> notification::Reaction {
+        self.remove_window(*window);
+        notification::Reaction::ignored()
     }
 }

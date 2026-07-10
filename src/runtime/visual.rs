@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::animation::{self, Easing, Transition};
-use crate::text;
+use crate::{notification, text};
 
 use super::super::{interaction, layout, scene, theme, view, window};
 
@@ -367,6 +367,37 @@ impl Animations {
         }
 
         (value, motion)
+    }
+}
+
+impl notification::Listener<window::Departed> for Animations {
+    fn notify(&mut self, window: &window::Id) -> notification::Reaction {
+        self.transitions.retain(|key, _| key.window != *window);
+        self.scrollbar_activity
+            .retain(|key, _| key.window != *window);
+        self.scrollbar_offsets
+            .retain(|key, _| key.window != *window);
+        notification::Reaction::ignored()
+    }
+}
+
+#[cfg(test)]
+impl Animations {
+    pub(super) fn residue_count(&self, window: window::Id) -> usize {
+        self.transitions
+            .keys()
+            .filter(|key| key.window == window)
+            .count()
+            + self
+                .scrollbar_activity
+                .keys()
+                .filter(|key| key.window == window)
+                .count()
+            + self
+                .scrollbar_offsets
+                .keys()
+                .filter(|key| key.window == window)
+                .count()
     }
 }
 

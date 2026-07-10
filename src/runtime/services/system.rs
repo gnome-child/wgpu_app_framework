@@ -40,12 +40,7 @@ impl<M: state::State> target::Provider<session::CloseWindow> for ServiceContext<
         Self: 'target;
 
     fn target(&mut self) -> Self::Target<'_> {
-        session::Service::new(
-            &mut *self.services.session,
-            &mut *self.services.composition,
-            &mut *self.services.diagnostics,
-            self.services.window,
-        )
+        session::Service::new(&mut *self.services.session, self.services.window)
     }
 }
 
@@ -56,12 +51,7 @@ impl<M: state::State> target::Provider<session::OpenCommandPalette> for ServiceC
         Self: 'target;
 
     fn target(&mut self) -> Self::Target<'_> {
-        session::Service::new(
-            &mut *self.services.session,
-            &mut *self.services.composition,
-            &mut *self.services.diagnostics,
-            self.services.window,
-        )
+        session::Service::new(&mut *self.services.session, self.services.window)
     }
 }
 

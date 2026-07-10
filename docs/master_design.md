@@ -646,6 +646,14 @@ history-bearing content change, the listener should speak an imperative
 command. Internal framework notifications are also distinct from future
 OS-facing toasts or user-visible system alerts.
 
+`window::Departed` is the single past-tense close fact. Runtime publication is
+only a listener registry: layout caches, overlay entries and ghosts, animation
+schedules, visual animations, composition, diagnostics, pointer gestures, and
+the native popup manager each own their own purge.
+Per-window state subscribes to `window::Departed` or documents why not.
+Close paths must not grow local
+cleanup checklists; a new per-window store joins the notification instead.
+
 Document dialog-cancel notifications live under `document` in v1 because the
 current dialog kinds are document-shaped. Future generic dialogs should let the
 opener declare which fact a dialog outcome emits instead of treating that

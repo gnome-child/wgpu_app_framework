@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{animation, geometry, interaction, scene, theme, window};
+use crate::{animation, geometry, interaction, notification, scene, theme, window};
 
 const DEFAULT_GHOST_LIMIT: usize = 8;
 
@@ -551,6 +551,20 @@ impl Store {
             .get(&window)
             .map(|state| state.ghosts.iter().map(Ghost::id).collect())
             .unwrap_or_default()
+    }
+}
+
+impl notification::Listener<window::Departed> for Store {
+    fn notify(&mut self, window: &window::Id) -> notification::Reaction {
+        self.windows.remove(window);
+        notification::Reaction::ignored()
+    }
+}
+
+#[cfg(test)]
+impl Store {
+    pub(crate) fn residue_count(&self, window: window::Id) -> usize {
+        usize::from(self.windows.contains_key(&window))
     }
 }
 

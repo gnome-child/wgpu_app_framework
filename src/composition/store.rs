@@ -1,5 +1,5 @@
 use super::{Changes, Composition, Tree};
-use crate::{view, window};
+use crate::{notification, view, window};
 
 #[derive(Default)]
 pub(crate) struct Store {
@@ -76,5 +76,12 @@ impl Store {
         self.compositions
             .iter()
             .position(|composition| composition.window() == window)
+    }
+}
+
+impl notification::Listener<window::Departed> for Store {
+    fn notify(&mut self, window: &window::Id) -> notification::Reaction {
+        self.remove_window(*window);
+        notification::Reaction::ignored()
     }
 }

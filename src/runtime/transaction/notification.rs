@@ -12,7 +12,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         self.transact_notification::<N>(focus, Some(window), payload, source)
     }
 
-    fn transact_notification<N: notification::Notification>(
+    pub(in crate::runtime) fn transact_notification<N: notification::Notification>(
         &mut self,
         focus: Option<crate::session::Focus>,
         window: Option<window::Id>,
