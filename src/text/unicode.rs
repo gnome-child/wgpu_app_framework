@@ -105,23 +105,6 @@ pub(super) fn ceil_grapheme_boundary(text: &str, index: usize) -> usize {
         .unwrap_or(text.len())
 }
 
-pub(super) fn previous_grapheme_boundary(text: &str, index: usize) -> usize {
-    let index = floor_boundary(text, index);
-    source_grapheme_boundaries(text)
-        .into_iter()
-        .take_while(|boundary| *boundary < index)
-        .last()
-        .unwrap_or(0)
-}
-
-pub(super) fn next_grapheme_boundary(text: &str, index: usize) -> usize {
-    let index = floor_boundary(text, index);
-    source_grapheme_boundaries(text)
-        .into_iter()
-        .find(|boundary| *boundary > index)
-        .unwrap_or(text.len())
-}
-
 pub(super) fn word_boundaries(text: &str) -> Vec<usize> {
     let mut boundaries = vec![0];
     for (index, word) in text.split_word_bound_indices() {

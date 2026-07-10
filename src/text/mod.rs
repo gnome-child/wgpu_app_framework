@@ -9,4 +9,6 @@ pub use buffer::Buffer;
 pub use color::Color;
 pub use document::Document;
 #[cfg(test)]
+mod acceptance;
+#[cfg(test)]
 mod tests;

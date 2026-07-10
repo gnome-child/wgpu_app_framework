@@ -1,9 +1,6 @@
 use std::{fs, io, path::Path, rc::Rc, sync::Arc};
 
-use super::super::unicode::{
-    ceil_grapheme_boundary, floor_grapheme_boundary, next_grapheme_boundary, next_word_boundary,
-    previous_grapheme_boundary, previous_word_boundary,
-};
+use super::super::unicode::{next_word_boundary, previous_word_boundary};
 use super::{Cursor, LineLayoutIdentity, Mark, MarkGravity, MarkRange, Position, Range, Selection};
 
 mod line_index;
@@ -322,8 +319,8 @@ impl TextDocument {
         }
         let (line, local) = self.line_and_local_for_index(index);
         if local > 0 {
-            let text = self.line_text(line);
-            self.line_start(line) + previous_grapheme_boundary(&text, local)
+            self.tree
+                .previous_grapheme_boundary(self.line_start(line) + local)
         } else if line == 0 {
             0
         } else {
@@ -334,9 +331,9 @@ impl TextDocument {
     pub(in crate::text) fn next_grapheme_boundary_index(&self, index: usize) -> usize {
         let index = index.min(self.text_len());
         let (line, local) = self.line_and_local_for_index(index);
-        let text = self.line_text(line);
-        if local < text.len() {
-            self.line_start(line) + next_grapheme_boundary(&text, local)
+        if local < self.line_text_len(line) {
+            self.tree
+                .next_grapheme_boundary(self.line_start(line) + local)
         } else if line + 1 < self.line_count() {
             self.line_start(line + 1)
         } else {
@@ -379,13 +376,17 @@ impl TextDocument {
     }
 
     fn floor_grapheme_in_line(&self, line: usize, local: usize) -> usize {
-        let text = self.line_text(line);
-        floor_grapheme_boundary(&text, local)
+        let start = self.line_start(line);
+        self.tree
+            .floor_grapheme_boundary(start + local.min(self.line_text_len(line)))
+            .saturating_sub(start)
     }
 
     fn ceil_grapheme_in_line(&self, line: usize, local: usize) -> usize {
-        let text = self.line_text(line);
-        ceil_grapheme_boundary(&text, local)
+        let start = self.line_start(line);
+        self.tree
+            .ceil_grapheme_boundary(start + local.min(self.line_text_len(line)))
+            .saturating_sub(start)
     }
 
     pub(in crate::text) fn write_to(&self, writer: &mut dyn io::Write) -> io::Result<()> {

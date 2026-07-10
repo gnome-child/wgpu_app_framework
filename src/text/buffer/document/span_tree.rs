@@ -3,6 +3,7 @@ use std::{
     ops::Range,
     sync::Arc,
 };
+use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete};
 
 pub(in crate::text) const TARGET_LEAF_BYTES: usize = 8 * 1024;
 
@@ -197,6 +198,34 @@ impl SpanTree {
         starts
     }
 
+    pub(super) fn floor_grapheme_boundary(&self, index: usize) -> usize {
+        let index = self.floor_char_boundary(index.min(self.len()));
+        if self.is_grapheme_boundary(index) {
+            index
+        } else {
+            self.previous_grapheme_boundary(index)
+        }
+    }
+
+    pub(super) fn ceil_grapheme_boundary(&self, index: usize) -> usize {
+        let index = self.floor_char_boundary(index.min(self.len()));
+        if self.is_grapheme_boundary(index) {
+            index
+        } else {
+            self.next_grapheme_boundary(index)
+        }
+    }
+
+    pub(super) fn previous_grapheme_boundary(&self, index: usize) -> usize {
+        self.grapheme_boundary(index.min(self.len()), Direction::Previous)
+            .unwrap_or(0)
+    }
+
+    pub(super) fn next_grapheme_boundary(&self, index: usize) -> usize {
+        self.grapheme_boundary(index.min(self.len()), Direction::Next)
+            .unwrap_or(self.len())
+    }
+
     pub(super) fn text(&self) -> String {
         let mut text = String::with_capacity(self.len());
         self.for_each_span(|span| text.push_str(span));
@@ -275,7 +304,129 @@ impl SpanTree {
             .flatten()
     }
 
-    #[cfg(debug_assertions)]
+    fn floor_char_boundary(&self, index: usize) -> usize {
+        if index == self.len() {
+            return index;
+        }
+        let Some((chunk, start)) = self.chunk_at(index) else {
+            return 0;
+        };
+        let mut local = index - start;
+        while local > 0 && !chunk.is_char_boundary(local) {
+            local -= 1;
+        }
+        start + local
+    }
+
+    fn is_grapheme_boundary(&self, index: usize) -> bool {
+        if self.is_empty_text() {
+            return true;
+        }
+        let mut cursor = GraphemeCursor::new(index, self.len(), true);
+        let Some((mut chunk, mut chunk_start)) = self.chunk_for_cursor(index, Direction::Next)
+        else {
+            return true;
+        };
+        loop {
+            match cursor.is_boundary(chunk, chunk_start) {
+                Ok(boundary) => return boundary,
+                Err(GraphemeIncomplete::PreContext(context_end)) => {
+                    let Some((context, context_start)) = self.context_before(context_end) else {
+                        return false;
+                    };
+                    cursor.provide_context(context, context_start);
+                }
+                Err(GraphemeIncomplete::PrevChunk) => {
+                    let Some((previous, previous_start)) = self.context_before(chunk_start) else {
+                        return false;
+                    };
+                    chunk = previous;
+                    chunk_start = previous_start;
+                }
+                Err(GraphemeIncomplete::NextChunk) => {
+                    let next_start = chunk_start + chunk.len();
+                    let Some((next, start)) = self.chunk_at(next_start) else {
+                        return false;
+                    };
+                    chunk = next;
+                    chunk_start = start;
+                }
+                Err(GraphemeIncomplete::InvalidOffset) => {
+                    debug_assert!(
+                        false,
+                        "grapheme cursor received a non-containing span chunk"
+                    );
+                    return false;
+                }
+            }
+        }
+    }
+
+    fn grapheme_boundary(&self, index: usize, direction: Direction) -> Option<usize> {
+        if self.is_empty_text() {
+            return None;
+        }
+        let index = self.floor_char_boundary(index);
+        let mut cursor = GraphemeCursor::new(index, self.len(), true);
+        let (mut chunk, mut chunk_start) = self.chunk_for_cursor(index, direction)?;
+        loop {
+            let result = match direction {
+                Direction::Previous => cursor.prev_boundary(chunk, chunk_start),
+                Direction::Next => cursor.next_boundary(chunk, chunk_start),
+            };
+            match result {
+                Ok(boundary) => return boundary,
+                Err(GraphemeIncomplete::PreContext(context_end)) => {
+                    let (context, context_start) = self.context_before(context_end)?;
+                    cursor.provide_context(context, context_start);
+                }
+                Err(GraphemeIncomplete::PrevChunk) => {
+                    let (previous, previous_start) = self.context_before(chunk_start)?;
+                    chunk = previous;
+                    chunk_start = previous_start;
+                }
+                Err(GraphemeIncomplete::NextChunk) => {
+                    let next_start = chunk_start + chunk.len();
+                    let (next, start) = self.chunk_at(next_start)?;
+                    chunk = next;
+                    chunk_start = start;
+                }
+                Err(GraphemeIncomplete::InvalidOffset) => {
+                    debug_assert!(
+                        false,
+                        "grapheme cursor received a non-containing span chunk"
+                    );
+                    return None;
+                }
+            }
+        }
+    }
+
+    fn is_empty_text(&self) -> bool {
+        self.root.is_none()
+    }
+
+    fn chunk_for_cursor(&self, index: usize, direction: Direction) -> Option<(&str, usize)> {
+        match direction {
+            Direction::Previous if index > 0 => self.chunk_at(index - 1),
+            _ => self.chunk_at(index),
+        }
+    }
+
+    fn chunk_at(&self, index: usize) -> Option<(&str, usize)> {
+        let root = self.root.as_ref()?;
+        chunk_at(root, index.min(self.len()), 0)
+    }
+
+    fn context_before(&self, end: usize) -> Option<(&str, usize)> {
+        if end == 0 {
+            return None;
+        }
+        let (chunk, start) = self.chunk_at(end - 1)?;
+        Some((&chunk[..end - start], start))
+    }
+
+    #[cfg(any(debug_assertions, test))]
     pub(super) fn assert_invariants(&self) {
         if let Some(root) = &self.root {
             validate(root);
@@ -299,6 +450,12 @@ impl SpanTree {
         collect_leaf_ptrs(other.root.as_ref(), &mut right);
         left.iter().filter(|ptr| right.contains(ptr)).count()
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Direction {
+    Previous,
+    Next,
 }
 
 fn summary(node: Option<&Arc<Node>>) -> Summary {
@@ -510,6 +667,19 @@ fn byte_at(node: &Arc<Node>, index: usize) -> Option<u8> {
     }
 }
 
+fn chunk_at(node: &Arc<Node>, index: usize, base: usize) -> Option<(&str, usize)> {
+    match &node.kind {
+        NodeKind::Leaf { span, .. } => (index <= span.len).then(|| (span.text(), base)),
+        NodeKind::Branch { left, right } => {
+            if index < left.summary.bytes {
+                chunk_at(left, index, base)
+            } else {
+                chunk_at(right, index - left.summary.bytes, base + left.summary.bytes)
+            }
+        }
+    }
+}
+
 fn visit_leaves(
     node: &Arc<Node>,
     visit: &mut dyn FnMut(&SourceSpan, &[u32]) -> io::Result<()>,
@@ -526,7 +696,7 @@ fn visit_leaves(
     }
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 fn validate(node: &Arc<Node>) -> Summary {
     let actual = match &node.kind {
         NodeKind::Leaf {
@@ -652,6 +822,26 @@ mod tests {
             "second"
         );
         tree.assert_invariants();
+    }
+
+    #[test]
+    fn source_span_grapheme_queries_cross_leaf_and_edit_boundaries() {
+        let prefix = "x".repeat(TARGET_LEAF_BYTES - 1);
+        let text: Arc<str> = Arc::from(format!("{prefix}e\u{301}z"));
+        let tree = SpanTree::from_original(text);
+        let base = prefix.len();
+        let cluster_end = base + "e\u{301}".len();
+
+        assert_eq!(tree.floor_grapheme_boundary(base + 1), base);
+        assert_eq!(tree.ceil_grapheme_boundary(base + 1), cluster_end);
+        assert_eq!(tree.previous_grapheme_boundary(cluster_end), base);
+        assert_eq!(tree.next_grapheme_boundary(base), cluster_end);
+
+        let split_tree = SpanTree::from_original(Arc::from("e"))
+            .replace(1..1, SpanTree::from_addition(Arc::from("\u{301}z")));
+        assert_eq!(split_tree.floor_grapheme_boundary(1), 0);
+        assert_eq!(split_tree.ceil_grapheme_boundary(1), "e\u{301}".len());
+        split_tree.assert_invariants();
     }
 
     #[test]

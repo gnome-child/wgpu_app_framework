@@ -135,7 +135,7 @@ impl LineIndex {
         }
     }
 
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, test))]
     pub(super) fn assert_invariants(&self) {
         if let Some(root) = &self.root {
             validate(root);
@@ -329,7 +329,7 @@ fn split_node(node: Option<&Arc<Node>>, line: usize) -> (Option<Arc<Node>>, Opti
     }
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 fn validate(node: &Arc<Node>) -> Summary {
     let actual = match &node.kind {
         NodeKind::Leaf(lines) => {
