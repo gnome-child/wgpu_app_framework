@@ -389,9 +389,16 @@ RenderDoc capture on Windows may need the explicit
 OS-material transparency for the older HWND presentation path. Premultiplied
 surfaces require premultiplied content: alpha diagnostics must use a real
 half-alpha primitive or premultiplied clear, never a straight-alpha clear as
-evidence. Premultiplied native popup surfaces render directly to the popup
+evidence. The authoritative alpha witness is a standalone primitive over a
+transparent clear with readback that proves both alpha and premultiplied RGB;
+clear-only witnesses and visuals nested inside panel body content are
+contaminated evidence. Premultiplied native popup surfaces render directly to the popup
 surface; they do not take the ordinary composition-texture plus final-blit path,
 because that path exists for opaque app windows and framework backdrop filters.
+`native_alpha_probe` is the permanent Windows instrument for backend and popup
+attribute bisection: start with a boring transparent window, compare DX12
+`DxgiFromVisual` against Vulkan, test single popup attributes first, and only
+then test suspicious pairs such as owner+toolwindow or no-redirection+backdrop.
 If valid premultiplied transparency works and a DirectComposition popup still
 shows no acrylic, the next single-call Windows experiment is
 `DwmExtendFrameIntoClientArea` with sheet-of-glass margins, not a return to

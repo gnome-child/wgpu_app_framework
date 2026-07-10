@@ -902,6 +902,7 @@ fn intersect_scissor(a: render::Scissor, b: render::Scissor) -> Option<render::S
 #[cfg(test)]
 mod tests {
     use crate::paint::{self, Rect};
+    use crate::render;
     use crate::text;
 
     use super::*;
@@ -1123,5 +1124,185 @@ mod tests {
         assert!(encode_group.contains("viewport: render::Viewport::from_logical_area"));
         assert!(encode_group.contains("target: self.output_target"));
         assert!(encode_group.contains("source_rect: Some(group_layer_source_rect(group.bounds))"));
+    }
+
+    #[test]
+    #[ignore = "GPU readback diagnostic for native popup alpha investigation"]
+    fn direct_premultiplied_alpha_witness_preserves_alpha_and_rgb() {
+        let sample = pollster::block_on(read_direct_premultiplied_alpha_witness())
+            .expect("alpha witness should render and read back");
+
+        assert!(
+            (sample[3] - 0.5).abs() <= 0.03,
+            "alpha should survive as half coverage, got rgba={sample:?}"
+        );
+        assert!(
+            (sample[0] - 0.5).abs() <= 0.03,
+            "red channel should be premultiplied to half intensity, got rgba={sample:?}"
+        );
+        assert!(
+            sample[1].abs() <= 0.01 && sample[2].abs() <= 0.01,
+            "green/blue channels should remain zero, got rgba={sample:?}"
+        );
+    }
+
+    async fn read_direct_premultiplied_alpha_witness() -> Result<[f32; 4], String> {
+        let context = render::Context::new(render::ContextOptions {
+            device_label: "wgpu_l3 alpha witness",
+            backends: wgpu::Backends::PRIMARY,
+            power_preference: wgpu::PowerPreference::default(),
+            force_fallback_adapter: false,
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::downlevel_defaults(),
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+
+        let width = 16;
+        let height = 16;
+        let format = wgpu::TextureFormat::Rgba8Unorm;
+        let texture = context.device().create_texture(&wgpu::TextureDescriptor {
+            label: Some("Alpha Witness Target"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut renderer = Renderer::new(&context, format);
+        let mut scene = paint::Scene::new();
+        scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0));
+        scene.push_quad(paint::Quad::unchecked_for_test(
+            Rect::new(
+                paint::point::logical(2.0, 2.0),
+                paint::area::logical(12.0, 12.0),
+            ),
+            paint::Style {
+                fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::rgba(
+                    1.0, 0.0, 0.0, 0.5,
+                )))),
+                stroke: None,
+                tint: None,
+            },
+            paint::Rasterization {
+                edge_mode: paint::EdgeMode::Hard,
+            },
+            paint::Transform::identity(),
+        ));
+
+        let viewport = render::Viewport::from_logical_area(
+            paint::area::logical(width as f32, height as f32),
+            1.0,
+        );
+        let item_batch_list = item_batches(scene.items());
+        let mut text_renderer_index = 0;
+        let prepared_scene = renderer
+            .prepare_scene_batches(
+                &context,
+                viewport,
+                &item_batch_list,
+                &mut text_renderer_index,
+            )
+            .map_err(|error| error.to_string())?;
+        let mut text_render_error = None;
+        let mut encoder =
+            context
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Alpha Witness Encoder"),
+                });
+        {
+            let _clear = begin_main_pass(&mut encoder, &view, wgpu::Color::TRANSPARENT, true);
+        }
+        let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
+            render_context: &context,
+            quad_pipeline: &renderer.quad_pipeline,
+            filter_renderer: &renderer.filter_renderer,
+            text_renderer: &mut renderer.text_renderer,
+            encoder: &mut encoder,
+            base_view: &view,
+            backdrop_view: &view,
+            backdrop_target: render::filter::Target::from_viewport(viewport),
+            clear_color: wgpu::Color::TRANSPARENT,
+            viewport,
+            base_dirty: true,
+            inside_group: false,
+            text_render_error: &mut text_render_error,
+        });
+        scene_encoder.encode(&prepared_scene.render_batches);
+
+        let bytes_per_pixel = 4u32;
+        let unpadded_bytes_per_row = width * bytes_per_pixel;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
+        let output_buffer_size = padded_bytes_per_row as u64 * height as u64;
+        let output = context.device().create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Alpha Witness Readback"),
+            size: output_buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &output,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        context.queue().submit(Some(encoder.finish()));
+
+        let slice = output.slice(..);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        context
+            .device()
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            })
+            .map_err(|error| error.to_string())?;
+        receiver
+            .recv()
+            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())?;
+
+        let data = slice.get_mapped_range();
+        let x = 8usize;
+        let y = 8usize;
+        let offset = y * padded_bytes_per_row as usize + x * bytes_per_pixel as usize;
+        let pixel = [
+            data[offset] as f32 / 255.0,
+            data[offset + 1] as f32 / 255.0,
+            data[offset + 2] as f32 / 255.0,
+            data[offset + 3] as f32 / 255.0,
+        ];
+        drop(data);
+        output.unmap();
+
+        Ok(pixel)
     }
 }

@@ -1527,21 +1527,81 @@ fn premultiplied_surfaces_render_directly_without_final_blit() {
 }
 
 #[test]
-fn glass_tuner_has_native_popup_half_alpha_primitive_witness() {
+fn native_alpha_readback_uses_clean_premultiplied_primitive_witness() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let view = std::fs::read_to_string(
-        root.join("examples")
-            .join("glass_tuner")
-            .join("app")
-            .join("view.rs"),
-    )
-    .expect("glass tuner view should read");
+    let renderer = std::fs::read_to_string(root.join("src").join("render").join("renderer.rs"))
+        .expect("renderer source should read");
 
-    assert!(view.contains("Alpha witness"));
-    assert!(
-        view.contains("scene::Color::rgba(255, 0, 255, 128)"),
-        "alpha witness must be a half-alpha primitive, not a clear color"
-    );
+    for phrase in [
+        "direct_premultiplied_alpha_witness_preserves_alpha_and_rgb",
+        "scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0))",
+        "paint::Color::rgba(\n                    1.0, 0.0, 0.0, 0.5,",
+        "copy_texture_to_buffer",
+        "(sample[3] - 0.5).abs()",
+        "(sample[0] - 0.5).abs()",
+    ] {
+        assert!(
+            renderer.contains(phrase),
+            "native alpha readback diagnostic must include {phrase}"
+        );
+    }
+}
+
+#[test]
+fn native_alpha_probe_exposes_backend_and_attribute_bisection_knobs() {
+    let probe = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples")
+            .join("native_alpha_probe")
+            .join("main.rs"),
+    )
+    .expect("native alpha probe source should read");
+
+    for phrase in [
+        "Dx12Visual",
+        "Vulkan",
+        "KeyCode::KeyV | KeyCode::KeyD",
+        "with_no_redirection_bitmap(config.no_redirection_bitmap)",
+        "with_owner_window",
+        "WS_EX_NOACTIVATE",
+        "WS_EX_TOOLWINDOW",
+        "WS_POPUP",
+        "with_system_backdrop",
+        "with_corner_preference",
+        "with_undecorated_shadow",
+        "owner+toolwindow",
+        "nrb+backdrop",
+        "wgpu_l3::native_alpha_probe",
+    ] {
+        assert!(
+            probe.contains(phrase),
+            "native alpha probe must expose/log {phrase}"
+        );
+    }
+}
+
+#[test]
+fn native_popup_alpha_doctrine_rejects_contaminated_witnesses() {
+    let master = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("docs")
+            .join("master_design.md"),
+    )
+    .expect("master design should read");
+
+    for phrase in [
+        "standalone primitive over a",
+        "transparent clear",
+        "readback that proves both alpha and premultiplied RGB",
+        "clear-only witnesses",
+        "nested inside panel body content",
+        "native_alpha_probe",
+    ] {
+        assert!(
+            master.contains(phrase),
+            "native alpha doctrine must mention {phrase}"
+        );
+    }
 }
 
 #[test]

@@ -15,6 +15,10 @@ path = "examples/control_gallery/main.rs"
 name = "glass_tuner"
 path = "examples/glass_tuner/main.rs"
 
+[[example]]
+name = "native_alpha_probe"
+path = "examples/native_alpha_probe/main.rs"
+
 [dependencies]
 arboard = "3.6.1"
 bytemuck = "1.25.0"
