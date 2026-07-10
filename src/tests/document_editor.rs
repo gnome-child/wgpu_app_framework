@@ -404,6 +404,88 @@ fn document_save_to_and_open_path_keep_document_clean() {
 }
 
 #[test]
+fn document_save_snapshot_keeps_identity_and_captured_revision_together() {
+    let path = temp_text_path("document_versioned_save.txt");
+    let mut document = TextDocument::from_text("alpha");
+    let identity = document.identity();
+    let snapshot = document.save_snapshot();
+    let version = snapshot.version();
+
+    assert_eq!(version.identity(), identity);
+    assert_eq!(version.revision(), document.buffer_revision());
+    assert_eq!(document.clone().identity(), identity);
+
+    document.apply_edit(text::edit::Edit::insert("!"));
+    snapshot
+        .write_to(&path)
+        .expect("snapshot save should succeed");
+    assert!(document.record_saved_version_at(version, path.clone()));
+
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("saved snapshot should be readable"),
+        "alpha"
+    );
+    assert_eq!(document.path(), Some(path.as_path()));
+    assert_eq!(document.saved_buffer_revision(), version.revision());
+    assert!(
+        document.is_dirty(),
+        "the post-snapshot edit must remain dirty"
+    );
+
+    let other = TextDocument::from_text("other");
+    assert_ne!(other.identity(), identity);
+    assert!(!document.record_saved_version_at(other.version(), path.clone()));
+
+    let before_new = document.identity();
+    document.new_file();
+    assert_ne!(document.identity(), before_new);
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn document_save_replaces_existing_file_without_leaving_temporary_sibling() {
+    let path = temp_text_path("document_atomic_replace.txt");
+    std::fs::write(&path, "old contents").expect("old fixture should be writable");
+    let mut document = TextDocument::from_text("new contents");
+
+    document
+        .save_to(path.clone())
+        .expect("atomic replacement should succeed");
+
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("replacement should be readable"),
+        "new contents"
+    );
+    let temporary_prefix = format!(
+        ".{}.wgpu_l3-save-",
+        path.file_name()
+            .expect("test path should name a file")
+            .to_string_lossy()
+    );
+    let leftovers = std::fs::read_dir(
+        path.parent()
+            .expect("temporary test path should have a parent"),
+    )
+    .expect("temporary directory should be readable")
+    .filter_map(Result::ok)
+    .filter(|entry| {
+        entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with(&temporary_prefix)
+    })
+    .collect::<Vec<_>>();
+    assert!(
+        leftovers.is_empty(),
+        "temporary save siblings must be cleaned"
+    );
+    assert!(!document.is_dirty());
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn text_editor_file_commands_flow_through_runtime_responders() {
     let path = temp_text_path("runtime_file_commands.txt");
     std::fs::write(&path, "opened").expect("fixture file should be writable");

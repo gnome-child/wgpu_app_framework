@@ -10,6 +10,7 @@ mod edit;
 mod file;
 mod notification;
 mod outcome;
+mod save;
 
 pub(crate) use command::register;
 pub use command::{
@@ -18,9 +19,11 @@ pub use command::{
 };
 pub use notification::{OpenDialogCanceled, SaveDialogCanceled};
 pub use outcome::Outcome;
+pub use save::{Identity, SaveSnapshot, Version};
 
 #[derive(Clone)]
 pub struct Document {
+    identity: Identity,
     buffer: text::Buffer,
     text_state: text::edit::State,
     path: Option<PathBuf>,
@@ -46,6 +49,7 @@ impl Document {
         let text_state = buffer.initial_state();
 
         Self {
+            identity: Identity::next(),
             buffer,
             text_state,
             path: None,
@@ -59,6 +63,7 @@ impl Document {
     }
 
     pub fn replace_unsaved_text(&mut self, text: impl Into<String>) {
+        self.identity = Identity::next();
         self.buffer = text::Buffer::from_multiline_text(text);
         self.text_state = self.buffer.initial_state();
         self.path = None;
@@ -71,6 +76,7 @@ impl Document {
         let buffer = text::Buffer::from_multiline_text(std::fs::read_to_string(&path)?);
         let saved_buffer_revision = buffer.revision();
 
+        self.identity = Identity::next();
         self.buffer = buffer;
         self.text_state = self.buffer.initial_state();
         self.path = Some(path);
@@ -82,12 +88,25 @@ impl Document {
 
     pub fn save_to(&mut self, path: impl Into<PathBuf>) -> io::Result<()> {
         let path = path.into();
+        let snapshot = self.save_snapshot();
 
-        std::fs::write(&path, self.buffer.text())?;
-        self.path = Some(path);
-        self.mark_saved();
+        snapshot.write_to(&path)?;
+        let accepted = self.record_saved_version_at(snapshot.version(), path);
+        debug_assert!(accepted, "a synchronous save keeps its document identity");
 
         Ok(())
+    }
+
+    pub fn identity(&self) -> Identity {
+        self.identity
+    }
+
+    pub fn version(&self) -> Version {
+        Version::new(self.identity, self.buffer.revision())
+    }
+
+    pub fn save_snapshot(&self) -> SaveSnapshot {
+        SaveSnapshot::new(self.version(), self.buffer.text())
     }
 
     pub fn buffer(&self) -> &text::Buffer {
@@ -153,6 +172,16 @@ impl Document {
     pub fn mark_saved_at(&mut self, path: impl Into<PathBuf>) {
         self.path = Some(path.into());
         self.mark_saved();
+    }
+
+    pub fn record_saved_version_at(&mut self, version: Version, path: impl Into<PathBuf>) -> bool {
+        if version.identity() != self.identity {
+            return false;
+        }
+
+        self.path = Some(path.into());
+        self.saved_buffer_revision = version.revision();
+        true
     }
 
     pub fn apply_edit(&mut self, edit: text::edit::Edit) -> Outcome {
