@@ -53,14 +53,7 @@ impl Target<document::Cut> for FocusedTextBox<'_> {
 
 impl Target<document::Paste> for FocusedTextBox<'_> {
     fn state(&self, _: &(), cx: &command_context::Context) -> command::State {
-        if cx
-            .clipboard()
-            .is_some_and(|clipboard| clipboard.has_text().unwrap_or(true))
-        {
-            command::State::enabled()
-        } else {
-            command::State::disabled()
-        }
+        document::Paste::availability(cx)
     }
 
     fn invoke(&mut self, _: (), cx: &mut command_context::Context) -> Response<document::Outcome> {

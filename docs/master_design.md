@@ -769,6 +769,11 @@ confirmed. Copy reports that result, Cut deletes only after `Ok(())`, and Paste
 keeps empty distinct from failed. No adapter may log an OS failure and then
 report success to its caller.
 
+The `Paste` command also owns its availability policy. No configured clipboard
+or a confirmed empty clipboard disables it; confirmed text enables it. A probe
+failure keeps it enabled so invocation can report the unavailable outcome
+instead of each text target silently inventing a different fallback.
+
 `runtime`
 
 Owns orchestration. Runtime may know about state, timeline, session,

@@ -327,6 +327,25 @@ fn clipboard_failures_preserve_cut_text_and_differ_from_empty_paste() {
 }
 
 #[test]
+fn paste_command_owns_optimistic_clipboard_availability() {
+    let without_clipboard = Context::default();
+    assert!(!document::Paste::availability(&without_clipboard).is_enabled());
+
+    let mut empty = Clipboard::default();
+    let empty_context = Context::with_clipboard(&mut empty);
+    assert!(!document::Paste::availability(&empty_context).is_enabled());
+
+    empty
+        .put(&clipboard::Text::new("available"))
+        .expect("in-memory clipboard write should succeed");
+    assert!(document::Paste::availability(&empty_context).is_enabled());
+
+    let mut unavailable = Clipboard::unavailable_system();
+    let unavailable_context = Context::with_clipboard(&mut unavailable);
+    assert!(document::Paste::availability(&unavailable_context).is_enabled());
+}
+
+#[test]
 fn document_owns_text_state_separately_from_text_storage() {
     let mut document = TextDocument::from_multiline_text("alpha beta");
     let initial = document.text_state();

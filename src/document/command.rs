@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::text;
+use crate::{clipboard, context::Context, text};
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::Outcome;
@@ -59,6 +59,19 @@ impl Command for Delete {
 }
 
 pub struct Paste;
+
+impl Paste {
+    pub(crate) fn availability(cx: &Context) -> command::State {
+        if cx
+            .clipboard()
+            .is_some_and(|clipboard| clipboard.contains::<clipboard::Text>().unwrap_or(true))
+        {
+            command::State::enabled()
+        } else {
+            command::State::disabled()
+        }
+    }
+}
 
 impl Command for Paste {
     type Args = ();

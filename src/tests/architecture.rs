@@ -1033,6 +1033,10 @@ fn clipboard_outcomes_flow_from_system_to_text_commands() {
         .expect("clipboard source should read");
     let system = std::fs::read_to_string(src.join("clipboard").join("system.rs"))
         .expect("system clipboard source should read");
+    let command = std::fs::read_to_string(src.join("document").join("command.rs"))
+        .expect("document command source should read");
+    let document_target = std::fs::read_to_string(src.join("document").join("edit.rs"))
+        .expect("document edit target source should read");
     let document = std::fs::read_to_string(src.join("text").join("edit").join("editor.rs"))
         .expect("text editor source should read");
     let focused = std::fs::read_to_string(
@@ -1072,6 +1076,14 @@ fn clipboard_outcomes_flow_from_system_to_text_commands() {
     assert!(
         focused.contains("Ok(None)") && focused.contains("Err(_)"),
         "Paste must distinguish an empty clipboard from a failed read"
+    );
+    assert!(
+        command.matches("unwrap_or(true)").count() == 1
+            && document_target.contains("Paste::availability(cx)")
+            && focused.contains("document::Paste::availability(cx)")
+            && !document_target.contains("unwrap_or(true)")
+            && !focused.contains("unwrap_or(true)"),
+        "Paste availability policy must have one command-owned computer"
     );
     assert!(
         master.contains("Cut deletes only after `Ok(())`")

@@ -1,7 +1,7 @@
 use crate::text;
 
 use super::{ApplyEdit, Copy, Cut, Delete, Document, Outcome, Paste, SelectAll};
-use crate::{clipboard, command, context::Context, response::Response, target::Target};
+use crate::{command, context::Context, response::Response, target::Target};
 
 impl Target<ApplyEdit> for Document {
     fn state(&self, _: &text::edit::Edit, _: &Context) -> command::State {
@@ -80,14 +80,7 @@ impl Target<Delete> for Document {
 
 impl Target<Paste> for Document {
     fn state(&self, _: &(), cx: &Context) -> command::State {
-        if cx
-            .clipboard()
-            .is_some_and(|clipboard| clipboard.contains::<clipboard::Text>().unwrap_or(true))
-        {
-            command::State::enabled()
-        } else {
-            command::State::disabled()
-        }
+        Paste::availability(cx)
     }
 
     fn invoke(&mut self, _: (), cx: &mut Context) -> Response<Outcome> {
