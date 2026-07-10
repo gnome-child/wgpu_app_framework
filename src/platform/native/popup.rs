@@ -69,7 +69,7 @@ impl Native {
         let realization = popup.presentation_mode.realization_for(alpha_mode);
         if popup.material_realization != Some(realization) {
             if realization.uses_os_material() {
-                log::debug!(
+                log::info!(
                     target: "wgpu_l3::native_popup",
                     "native popup {:?} uses OS material: mode={:?}, alpha={:?}",
                     presentation.id(),
@@ -182,12 +182,13 @@ impl Native {
         let popup = NativeWindow::new(handle, canvas);
         log::debug!(
             target: "wgpu_l3::native_popup",
-            "created native popup {:?} for parent {:?}: raw={:?}, mode={:?}, no_redirection_bitmap={}, size={:?}, scale={}",
+            "created native popup {:?} for parent {:?}: raw={:?}, mode={:?}, no_redirection_bitmap={}, backend={:?}, size={:?}, scale={}",
             presentation.id(),
             presentation.parent(),
             popup.raw_id(),
             presentation_mode,
             presentation_mode.no_redirection_bitmap(),
+            render_context.adapter().get_info().backend,
             presentation.scene().size(),
             popup.scale_factor()
         );

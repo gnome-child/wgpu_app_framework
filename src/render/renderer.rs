@@ -167,40 +167,71 @@ impl Renderer {
         stats.add(prepared_scene.stats);
         stats.scene_items = scene.items().len();
 
-        let filter_target = self.filter_renderer.prepare(render_context, canvas);
+        let preserve_surface_alpha =
+            canvas.composite_alpha_mode() == wgpu::CompositeAlphaMode::PreMultiplied;
+        let filter_target = if preserve_surface_alpha {
+            render::filter::Target::from_viewport(main_viewport)
+        } else {
+            self.filter_renderer.prepare(render_context, canvas)
+        };
         let quad_pipeline = &self.quad_pipeline;
         let filter_renderer = &self.filter_renderer;
         let text_renderer = &mut self.text_renderer;
         let mut text_render_error = None;
 
-        let present_timing = canvas.draw(render_context, |encoder, frame| {
-            let view = frame.create_view();
-            filter_renderer.clear_composition(encoder, clear_color);
-            let Some(composition_view) = filter_renderer.composition_view() else {
-                return;
-            };
-            let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
-                render_context,
-                quad_pipeline,
-                filter_renderer,
-                text_renderer,
-                encoder,
-                base_view: composition_view,
-                backdrop_view: composition_view,
-                backdrop_target: render::filter::Target::from_viewport(main_viewport),
-                clear_color,
-                viewport: main_viewport,
-                base_dirty: true,
-                inside_group: false,
-                text_render_error: &mut text_render_error,
-            });
-            scene_encoder.encode(&prepared_scene.render_batches);
-            if text_render_error.is_some() {
-                return;
-            }
+        let present_timing = if preserve_surface_alpha {
+            canvas.draw(render_context, |encoder, frame| {
+                let view = frame.create_view();
+                {
+                    let _clear = begin_main_pass(encoder, &view, clear_color, true);
+                }
+                let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
+                    render_context,
+                    quad_pipeline,
+                    filter_renderer,
+                    text_renderer,
+                    encoder,
+                    base_view: &view,
+                    backdrop_view: &view,
+                    backdrop_target: filter_target,
+                    clear_color,
+                    viewport: main_viewport,
+                    base_dirty: true,
+                    inside_group: false,
+                    text_render_error: &mut text_render_error,
+                });
+                scene_encoder.encode(&prepared_scene.render_batches);
+            })?
+        } else {
+            canvas.draw(render_context, |encoder, frame| {
+                let view = frame.create_view();
+                filter_renderer.clear_composition(encoder, clear_color);
+                let Some(composition_view) = filter_renderer.composition_view() else {
+                    return;
+                };
+                let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
+                    render_context,
+                    quad_pipeline,
+                    filter_renderer,
+                    text_renderer,
+                    encoder,
+                    base_view: composition_view,
+                    backdrop_view: composition_view,
+                    backdrop_target: render::filter::Target::from_viewport(main_viewport),
+                    clear_color,
+                    viewport: main_viewport,
+                    base_dirty: true,
+                    inside_group: false,
+                    text_render_error: &mut text_render_error,
+                });
+                scene_encoder.encode(&prepared_scene.render_batches);
+                if text_render_error.is_some() {
+                    return;
+                }
 
-            filter_renderer.blit_to_view(render_context, encoder, &view, filter_target);
-        })?;
+                filter_renderer.blit_to_view(render_context, encoder, &view, filter_target);
+            })?
+        };
 
         if let Some(error) = text_render_error {
             return Err(error.into());

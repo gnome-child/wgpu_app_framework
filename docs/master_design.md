@@ -389,8 +389,11 @@ RenderDoc capture on Windows may need the explicit
 OS-material transparency for the older HWND presentation path. Premultiplied
 surfaces require premultiplied content: alpha diagnostics must use a real
 half-alpha primitive or premultiplied clear, never a straight-alpha clear as
-evidence. If valid premultiplied transparency works and a DirectComposition
-popup still shows no acrylic, the next single-call Windows experiment is
+evidence. Premultiplied native popup surfaces render directly to the popup
+surface; they do not take the ordinary composition-texture plus final-blit path,
+because that path exists for opaque app windows and framework backdrop filters.
+If valid premultiplied transparency works and a DirectComposition popup still
+shows no acrylic, the next single-call Windows experiment is
 `DwmExtendFrameIntoClientArea` with sheet-of-glass margins, not a return to
 framework glass inside native popups.
 

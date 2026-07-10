@@ -1498,6 +1498,35 @@ fn native_popup_presentations_defer_overlay_fade_until_premultiplied_audit() {
 }
 
 #[test]
+fn premultiplied_surfaces_render_directly_without_final_blit() {
+    let renderer = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("render")
+            .join("renderer.rs"),
+    )
+    .expect("renderer source should read");
+
+    assert!(
+        renderer.contains("preserve_surface_alpha")
+            && renderer.contains(
+                "canvas.composite_alpha_mode() == wgpu::CompositeAlphaMode::PreMultiplied"
+            ),
+        "renderer must explicitly detect premultiplied surfaces"
+    );
+    assert!(
+        renderer.contains("base_view: &view")
+            && renderer.contains("begin_main_pass(encoder, &view, clear_color, true)"),
+        "premultiplied surfaces should render scene content directly to the surface view"
+    );
+    assert!(
+        renderer.contains("filter_renderer.blit_to_view")
+            && renderer.contains("} else {\n            canvas.draw"),
+        "opaque/default surfaces should keep the composition texture plus final blit path"
+    );
+}
+
+#[test]
 fn glass_tuner_has_native_popup_half_alpha_primitive_witness() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let view = std::fs::read_to_string(
