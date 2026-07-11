@@ -63,8 +63,8 @@ through the remaining campaign or redefining completion.
 | 1 | Text overflow and three text kinds | Complete | 824 passed + 8 ignored in 0.87 s; three smokes; release text gate held |
 | 2 | Typed `FrameContent` over the existing roles | Complete | One content discriminant; 825/8 in 0.88 s; three smokes; release gate held |
 | 3 | Uniform virtual region/list | Complete | Stable provider keys, bounded two-pass materialization, pin/deletion laws, 832/8 and three smokes |
-| 4 | Keyed selection and active item | In progress | Reinspect the landed virtual-list seam, then record the state-machine census |
-| 5 | Read-only record table | Pending | Large gallery table with tracks, headers, resize, sort intent, selection and public cells |
+| 4 | Keyed selection and active item | Complete | Window/list-scoped stable keys, all-except select-all, bounded reveal, 840/8 and three smokes |
+| 5 | Read-only record table | In progress | Reinspect the landed list/selection grammar, then census tracks, headers, sort and resize |
 | 6 | Editable cells | Pending | Numeric plus textual/enumerated editors with stable cell identity |
 
 ## API flags
@@ -102,6 +102,25 @@ compatibility aliases:
 row-widget species. Runtime materialization and logical focus preparation are
 crate-internal. The names follow the module doctrine and compiled in the honest
 control-gallery caller without aliases; no checkpoint-3 API flag remains.
+
+Checkpoint 4 added one public module and root re-export:
+
+- module and root type `selection::Selection` / `Selection`;
+- `Selection::{new, len, is_empty, contains, is_all, anchor, active}` and
+  `Default`;
+- `VirtualList::selectable()`;
+- read-only `Session::selection(window, list_id)`;
+- `view::Node::is_active_item()` for projected-view inspection;
+- modifier-aware `Runtime::pointer_down_at_with_modifiers` and
+  `Shell::pointer_down_with_modifiers`;
+- current modifiers on host/shell `PointerDown`, so native input reaches the
+  same toggle/range state machine as headless input.
+
+Mutation remains input-owned and there is no public setter, duplicate app
+model, selection callback, prefixed alias, or table-specific selection type.
+The host event field is a deliberate source-level contract addition required
+to make modifier selection real on the native path; it remains a morning API
+review flag because downstream event constructors must now supply modifiers.
 
 ## Pending eyes
 
@@ -311,22 +330,22 @@ admitted.
 
 | Cell | Scenario | Required result | Existing owner / missing seam | Status |
 | --- | --- | --- | --- | --- |
-| C4-01 | Empty | New selectable list has no members, anchor, or active key | Session interaction exists; keyed selection store is missing | Planned |
-| C4-02 | Single | Plain click replaces membership and sets anchor/active | Pointer hit/layout ancestry exists; provider-row lookup is missing | Planned |
-| C4-03 | Modifier toggle | Primary-modified click toggles one stable key without index identity | Input modifiers and provider keys exist | Planned |
-| C4-04 | Range | Shift selection spans current provider order from stable anchor to target | Provider reverse lookup/key construction exist | Planned |
-| C4-05 | Select all | Primary+A selects one million rows without one million stored keys or views | Keymap doctrine exists; all-except membership is missing | Planned |
-| C4-06 | Anchor and active | Anchor survives ordinary extension; active follows the navigation endpoint | Palette has only an index; reusable stable-key state is missing | Planned |
-| C4-07 | Keyboard navigation | Arrows/Home/End/Page move active by provider order and optionally extend | Key input and viewport geometry exist; list scope routing is missing | Planned |
-| C4-08 | Reorder persistence | Membership, anchor, and active follow keys while indices change | Provider keys and reverse lookup exist | Planned |
-| C4-09 | Growth/shrink | Growth preserves state; deleted selected/anchor/active keys reconcile deterministically | Runtime rebuild sees current provider; reconciliation is missing | Planned |
-| C4-10 | Departure/restoration | Window/list scoping survives runtime snapshot restore and clears on actual window departure | Window snapshot/departure owners exist | Planned |
-| C4-11 | Unmaterialized movement | Navigation can target a logical offscreen key without scanning or constructing intervening rows | C3 keyed pre-materialization seam exists | Planned |
-| C4-12 | Focus ordering | Any focus transfer happens only after target materialization; active item itself does not steal focus | Focus/active-item doctrine and C3 seam exist | Planned |
-| C4-13 | Selection non-pin | Large offscreen selection remains unmaterialized; only focus/capture/edit pin | C3 pin collector has no selection input | Planned |
-| C4-14 | Large complexity | Million-row select-all and navigation keep state, view, frame, paint, and provider work bounded | All-except state and deterministic counters are missing | Planned |
-| C4-15 | Independence | Two list ids and two windows never share membership/anchor/active | Interaction is already per-window; keyed list store is missing | Planned |
-| C4-16 | Visual projection | Materialized selected/active rows use existing selected visual truth without a parallel paint system | Node/Frame/Visual selected path exists | Planned |
+| C4-01 | Empty | New selectable list has no members, anchor, or active key | Present installs an empty session selection | Held |
+| C4-02 | Single | Plain click replaces membership and sets anchor/active | Uniform coordinate or retained row ancestry resolves the key | Held |
+| C4-03 | Modifier toggle | Primary-modified click toggles one stable key without index identity | Host pointer modifiers reach the shared state machine | Held |
+| C4-04 | Range | Shift selection spans current provider order from stable anchor to target | Provider order constructs the stable-key range | Held |
+| C4-05 | Select all | Primary+A selects one million rows without one million stored keys or views | All-except membership is constant state | Held |
+| C4-06 | Anchor and active | Anchor survives ordinary extension; active follows the navigation endpoint | Public stable-key facts are independent from membership | Held |
+| C4-07 | Keyboard navigation | Arrows/Home/End/Page move active by provider order and optionally extend | List focus scope plus real viewport page size | Held |
+| C4-08 | Reorder persistence | Membership, anchor, and active follow keys while indices change | Reverse lookup refreshes cached indices without changing keys | Held |
+| C4-09 | Growth/shrink | Growth preserves state; deleted selected/anchor/active keys reconcile deterministically | Explicit/all-except membership and nearest selected fallback | Held |
+| C4-10 | Departure/restoration | Window/list scoping survives runtime snapshot restore and clears on actual window departure | Window snapshots carry selections; departure owns the window | Held |
+| C4-11 | Unmaterialized movement | Navigation can target a logical offscreen key without scanning or constructing intervening rows | One active key is temporarily materialized for reveal | Held |
+| C4-12 | Focus ordering | Any focus transfer happens only after target materialization; active item itself does not steal focus | List retains focus; C3 focus-before-move witness remains green | Held |
+| C4-13 | Selection non-pin | Large offscreen selection remains unmaterialized; only focus/capture/edit pin | C3 collector excludes selection; pending reveal pins only active once | Held |
+| C4-14 | Large complexity | Million-row select-all and navigation keep state, view, frame, paint, and provider work bounded | Constant all state and bounded frame/provider counters | Held |
+| C4-15 | Independence | Two list ids and two windows never share membership/anchor/active | Per-window interaction store keyed by list id | Held |
+| C4-16 | Visual projection | Materialized selected/active rows use existing selected visual truth without a parallel paint system | Transient projection feeds existing Frame/Visual row tint | Held |
 
 ## Execution ledger
 
@@ -349,6 +368,8 @@ admitted.
 | E-014 | C3 deletion reduction | Failed and reduced | Deleted id-less TextBox row emitted retained removal but not its focus element, leaving the draft orphaned |
 | E-015 | C3 first full library gate | Failed and reduced | Empty materialization state compared `None` with an empty map, falsely requesting an endless second rebuild in ordinary apps |
 | E-016 | C3 repeated full boundary gate | Held | 840 discovered: 832 passed, 8 deliberately ignored, 0 failed in 0.91 s; three smokes, fmt, diff, and protected state held |
+| E-017 | C4 state-machine and integration matrix | Held | Four pure keyed-state witnesses plus click/toggle/range, million select-all, offscreen End reveal, reorder/delete, snapshot, two-window and two-list journeys |
+| E-018 | C4 full boundary gate | Held | 848 discovered: 840 passed, 8 deliberately ignored, 0 failed in 0.88 s; three smokes, fmt, diff, and protected state held |
 
 ## Failure and reduction ledger
 
@@ -381,6 +402,12 @@ debug fixed-point assertion to fail across ordinary applications. The reduced
 ordinary TextArea witness held after normalizing absence and empty state. The
 repeated 832/8 gate then passed. No unexplained failure crosses checkpoint 3.
 
+Checkpoint 4 produced no framework contradiction. Its first pointer-range test
+attempted to click logical row 5 at y=110 in a 100-pixel viewport; reduction
+showed the expected clip boundary correctly rejected the hit. Moving the
+witness wholly inside the viewport held without a framework change. No failure
+or parallel selection representation crosses the checkpoint boundary.
+
 ## Commit ledger
 
 | Checkpoint | Commit | Files | Insertions | Deletions | Outcome |
@@ -401,6 +428,9 @@ repeated 832/8 gate then passed. No unexplained failure crosses checkpoint 3.
 | 3 | `1010098d` | 1 | 70 | 0 | Current-tree virtual-list census and provider contract recorded |
 | 3 | `df35e116` | 23 | 1228 | 10 | Uniform keyed virtualization, bounded fixed point, pins, deletion laws, and deterministic witnesses |
 | 3 | `f223d454` | 2 | 62 | 3 | Doctrine and honest one-million-row control-gallery caller |
+| 4 | `acd87094` | 1 | 45 | 0 | Current-tree selection ownership and scenario census |
+| 4 | `116cde39` | 32 | 1306 | 18 | Keyed selection, active item, native modifiers, snapshot scoping, bounded reveal and tests |
+| 4 | `cd91ad95` | 2 | 20 | 0 | Selection doctrine and honest selectable gallery caller |
 
 ## Final fixed-point sweep
 
