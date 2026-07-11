@@ -31,7 +31,7 @@ impl Widget for Checkbox {
     fn into_node(self) -> view::Node {
         let mut node = view::Node::checkbox(self.label, self.checked);
         if let Some(binding) = self.binding {
-            node = node.bind_trigger(binding.trigger, binding.source);
+            node = binding.bind(node);
         }
         node
     }

@@ -44,7 +44,7 @@ impl Widget for Button {
             view::Button::new(self.label).reserve_labels(self.reserved_labels),
         );
         if let Some(binding) = self.binding {
-            node = node.bind_trigger(binding.trigger, binding.source);
+            node = binding.bind(node);
         }
         node
     }

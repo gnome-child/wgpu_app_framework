@@ -1,8 +1,8 @@
 use super::super::{command, context::Source, view};
 
 pub(super) struct TriggerBinding {
-    pub(super) trigger: command::AnyTrigger,
-    pub(super) source: Source,
+    trigger: command::AnyTrigger,
+    source: Source,
 }
 
 pub(super) enum SliderBinding {
@@ -31,12 +31,16 @@ impl TriggerBinding {
             source,
         }
     }
+
+    pub(super) fn bind(self, node: view::Node) -> view::Node {
+        node.bind_trigger(self.trigger, self.source)
+    }
 }
 
 impl SliderBinding {
     pub(super) fn bind(self, node: view::Node, value: f64) -> view::Node {
         match self {
-            Self::Fixed(binding) => node.bind_trigger(binding.trigger, binding.source),
+            Self::Fixed(binding) => binding.bind(node),
             Self::Change(binding) => binding.bind(node, value),
         }
     }
