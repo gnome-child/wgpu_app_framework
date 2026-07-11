@@ -37,6 +37,13 @@ pub trait EditToggle: Value + Sized {
     fn toggled(&self) -> Self;
 }
 
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Presentation {
+    #[default]
+    Compact,
+    Expanded,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortDirection {
     Ascending,
@@ -153,7 +160,7 @@ impl<R> Source<R> {
     }
 }
 
-type CellProjection<R> = dyn Fn(&R, Cell) -> view::Node;
+type CellProjection<R> = dyn Fn(&R, Cell, Presentation) -> view::Node;
 type RecordOrder<R> = dyn Fn(&R, &R) -> Ordering;
 type ValueValidation<V> = dyn Fn(&V) -> Result<(), String> + Send + Sync;
 
@@ -206,6 +213,7 @@ struct TypedProvider<R> {
     source: Source<R>,
     cells: HashMap<interaction::Id, Rc<CellProjection<R>>>,
     projected_record: RefCell<Option<(usize, R)>>,
+    presentation: Rc<std::cell::Cell<Presentation>>,
 }
 
 #[derive(Clone)]
@@ -229,6 +237,8 @@ pub struct Table {
     max_height: Option<i32>,
     background: Option<scene::Brush>,
     sort: Option<SortState>,
+    presentation: Presentation,
+    presentation_projection: Option<Rc<std::cell::Cell<Presentation>>>,
 }
 
 pub struct TextEditor {
@@ -393,7 +403,7 @@ impl Column {
     {
         TypedColumn {
             column: Self::new(id, label, width),
-            cell: Rc::new(cell),
+            cell: Rc::new(move |record, identity, _| cell(record, identity)),
             order: None,
         }
     }
@@ -420,7 +430,12 @@ impl Column {
             .map_or(self.width, view::Dimension::fixed)
     }
 
-    fn header_node(&self, table: interaction::Id, sort: Option<SortState>) -> view::Node {
+    fn header_node(
+        &self,
+        table: interaction::Id,
+        sort: Option<SortState>,
+        presentation: Presentation,
+    ) -> view::Node {
         let identity = HeaderCell {
             table,
             column: self.id,
@@ -441,11 +456,14 @@ impl Column {
                 context::Source::Button,
             )
         });
+        let ordinary = || match presentation {
+            Presentation::Compact => view::Node::label(self.label.clone()),
+            Presentation::Expanded => {
+                view::Node::wrapped_world_text(self.label.clone(), view::Wrap::Word)
+            }
+        };
         sized(
-            self.header
-                .clone()
-                .or(derived)
-                .unwrap_or_else(|| view::Node::label(self.label.clone())),
+            self.header.clone().or(derived).unwrap_or_else(ordinary),
             self.effective_width(),
         )
         .with_table_header_cell(identity)
@@ -474,9 +492,9 @@ where
         let accessor = Rc::clone(&self.accessor);
         let overflow = self.overflow;
         let cell = self.cell.unwrap_or_else(|| {
-            Rc::new(move |record, _| {
+            Rc::new(move |record, _, presentation| {
                 let value = accessor(record);
-                value_node(value, overflow)
+                value_node(value, overflow, presentation)
             })
         });
         TypedColumn {
@@ -515,7 +533,7 @@ where
         let accessor = Rc::clone(&self.accessor);
         let validation = Arc::clone(&self.validation);
         let map = Arc::new(map);
-        self.cell = Some(Rc::new(move |record, cell| {
+        self.cell = Some(Rc::new(move |record, cell, _| {
             let value = accessor(record);
             let draft_validation = Arc::clone(&validation);
             let commit_validation = Arc::clone(&validation);
@@ -552,7 +570,7 @@ where
     {
         let accessor = Rc::clone(&self.accessor);
         let map = Rc::new(map);
-        self.cell = Some(Rc::new(move |record, cell| {
+        self.cell = Some(Rc::new(move |record, cell, _| {
             let next = accessor(record).toggled();
             widget::Widget::into_node(
                 widget::Checkbox::new("", false).trigger::<C>(map(cell, next)),
@@ -580,6 +598,8 @@ impl Table {
             max_height: None,
             background: None,
             sort: None,
+            presentation: Presentation::Compact,
+            presentation_projection: None,
         }
     }
 
@@ -597,17 +617,21 @@ impl Table {
             .iter()
             .map(|column| (column.column.id, Rc::clone(&column.cell)))
             .collect();
+        let presentation = Rc::new(std::cell::Cell::new(Presentation::Compact));
         let provider = TypedProvider {
             source,
             cells,
             projected_record: RefCell::new(None),
+            presentation: Rc::clone(&presentation),
         };
-        Self::new(
+        let mut table = Self::new(
             id,
             row_height,
             columns.into_iter().map(|column| column.column),
             provider,
-        )
+        );
+        table.presentation_projection = Some(presentation);
+        table
     }
 
     /// Projects application-owned sort state into derived header controls.
@@ -617,6 +641,14 @@ impl Table {
         direction: SortDirection,
     ) -> Self {
         self.sort = Some(SortState::new(column, direction));
+        self
+    }
+
+    pub fn presentation(mut self, presentation: Presentation) -> Self {
+        self.presentation = presentation;
+        if let Some(projection) = self.presentation_projection.as_ref() {
+            projection.set(presentation);
+        }
         self
     }
 
@@ -649,22 +681,31 @@ impl Table {
 impl widget::Widget for Table {
     fn into_node(self) -> view::Node {
         let model = Model::new(self.id, self.columns);
+        let header_height = match self.presentation {
+            Presentation::Compact => view::Dimension::fixed(self.header_height),
+            Presentation::Expanded => view::Dimension::fit(),
+        };
         let header = model.columns.borrow().iter().fold(
             view::Node::stack(view::Axis::Horizontal).with_style(
                 view::Style::new()
                     .with_width(view::Dimension::grow())
-                    .with_height(view::Dimension::fixed(self.header_height)),
+                    .with_height(header_height),
             ),
-            |header, column| header.child(column.header_node(self.id, self.sort)),
+            |header, column| {
+                header.child(column.header_node(self.id, self.sort, self.presentation))
+            },
         );
         let rows = Rows {
             table: self.id,
             model: model.clone(),
             provider: self.provider,
         };
+        let list = match self.presentation {
+            Presentation::Compact => crate::VirtualList::new(self.id, self.row_height, rows),
+            Presentation::Expanded => crate::VirtualList::variable(self.id, self.row_height, rows),
+        };
         let body = widget::Widget::into_node(
-            crate::VirtualList::new(self.id, self.row_height, rows)
-                .selectable()
+            list.selectable()
                 .width(view::Dimension::grow())
                 .height(view::Dimension::grow()),
         );
@@ -945,7 +986,11 @@ impl<R> Provider for TypedProvider<R> {
             .1;
         self.cells
             .get(&cell.column)
-            .expect("typed table declares a projection for every column")(record, cell)
+            .expect("typed table declares a projection for every column")(
+            record,
+            cell,
+            self.presentation.get(),
+        )
     }
 }
 
@@ -975,8 +1020,16 @@ fn editor_node(
     node.with_table_edit(Edit { cell, validation })
 }
 
-fn value_node<V: Value>(value: &V, overflow: text::Overflow) -> view::Node {
-    let label = view::Node::world_text(value.text().into_owned(), overflow);
+fn value_node<V: Value>(
+    value: &V,
+    overflow: text::Overflow,
+    presentation: Presentation,
+) -> view::Node {
+    let text = value.text().into_owned();
+    let label = match presentation {
+        Presentation::Compact => view::Node::world_text(text, overflow),
+        Presentation::Expanded => view::Node::wrapped_world_text(text, view::Wrap::Word),
+    };
     match V::align() {
         view::Align::Start | view::Align::Stretch => label,
         align @ (view::Align::Center | view::Align::End) => {
@@ -1164,7 +1217,7 @@ mod tests {
             .map(|id| {
                 (
                     id,
-                    Rc::new(|record: &usize, _| view::Node::label(record.to_string()))
+                    Rc::new(|record: &usize, _, _| view::Node::label(record.to_string()))
                         as Rc<CellProjection<usize>>,
                 )
             })
@@ -1173,6 +1226,7 @@ mod tests {
             source,
             cells,
             projected_record: RefCell::new(None),
+            presentation: Rc::new(std::cell::Cell::new(Presentation::Compact)),
         };
         let key = virtual_list::Key::new(0);
         Provider::cell(&provider, 0, Cell::new(table, key, first));

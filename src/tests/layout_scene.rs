@@ -6105,6 +6105,82 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
 }
 
 #[test]
+fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 700);
+    let compact = app
+        .render_scene(window, size)
+        .expect("compact gallery table");
+    let compact_tracks = compact
+        .layout()
+        .table_tracks()
+        .iter()
+        .filter(|track| track.axis() == layout::TableTrackAxis::Column)
+        .map(layout::TableTrack::boundary)
+        .collect::<Vec<_>>();
+    assert!(
+        compact
+            .layout()
+            .frames()
+            .iter()
+            .filter(|frame| frame.table_row().is_some())
+            .all(|frame| frame.rect().height() == 24)
+    );
+    assert!(compact.scene().texts().iter().any(|value| {
+        value.value().contains('…')
+            && value.overflow() == text::Overflow::EllipsisMiddle
+            && value.wrap() == scene::TextWrap::None
+    }));
+    let toggle = compact
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.role() == view::Role::Checkbox && frame.label_text() == Some("Expanded rows")
+        })
+        .expect("visible presentation toggle");
+    let point = frame_point_at(layout::choice_mark_rect(toggle.rect(), &Theme::default()));
+    drop(compact);
+    app.pointer_down_at(window, size, point)
+        .expect("presentation toggle press");
+    app.pointer_up_at(window, size, point)
+        .expect("presentation toggle release");
+    assert!(app.state().expanded_rows);
+
+    let expanded = app
+        .render_scene(window, size)
+        .expect("expanded gallery table");
+    let expanded_tracks = expanded
+        .layout()
+        .table_tracks()
+        .iter()
+        .filter(|track| track.axis() == layout::TableTrackAxis::Column)
+        .map(layout::TableTrack::boundary)
+        .collect::<Vec<_>>();
+    assert_eq!(expanded_tracks, compact_tracks);
+    assert!(
+        expanded
+            .layout()
+            .frames()
+            .iter()
+            .filter(|frame| frame.table_row().is_some())
+            .any(|frame| frame.rect().height() > 24)
+    );
+    assert!(expanded.scene().texts().iter().any(|value| {
+        value
+            .value()
+            .starts_with("Application-owned detail for record 0")
+            && value.wrap() == scene::TextWrap::WordOrGlyph
+            && value.overflow() == text::Overflow::Clip
+    }));
+    assert!(expanded.layout().frames().iter().any(|frame| {
+        frame.table_part() == Some(view::TablePart::HeaderControl) && frame.rect().height() > 28
+    }));
+}
+
+#[test]
 fn table_participation_changes_chrome_without_changing_control_behavior() {
     let mut gallery = control_gallery::app(control_gallery::State::default());
     gallery.start();

@@ -3,7 +3,7 @@ use super::{
     command::{
         EditRecordCount, EditRecordCountArgs, EditRecordNote, EditRecordNoteArgs, IncrementClicks,
         ResetControls, SelectMode, SetLevel, SetRecordEnabled, SetRecordEnabledArgs, SubmitQuery,
-        ToggleAdvanced, ToggleGrid, ToggleWrap,
+        ToggleAdvanced, ToggleExpandedRows, ToggleGrid, ToggleWrap,
     },
 };
 use wgpu_l3::{Context, Response, Target, command};
@@ -167,6 +167,18 @@ impl Target<SetRecordEnabled> for State {
         let key = args.cell.row().value();
         self.record_enabled.insert(key, args.value);
         self.last_status = format!("record {key}: enabled {}", on_off(args.value));
+        Response::changed(())
+    }
+}
+
+impl Target<ToggleExpandedRows> for State {
+    fn state(&self, _: &(), _: &Context) -> command::State {
+        command::State::enabled().checked(self.expanded_rows)
+    }
+
+    fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
+        self.expanded_rows = !self.expanded_rows;
+        self.last_status = format!("expanded rows {}", on_off(self.expanded_rows));
         Response::changed(())
     }
 }

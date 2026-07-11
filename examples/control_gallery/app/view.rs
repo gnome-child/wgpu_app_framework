@@ -3,7 +3,7 @@ use super::{
     command::{
         EditRecordCount, EditRecordCountArgs, EditRecordNote, EditRecordNoteArgs, IncrementClicks,
         ResetControls, SelectMode, SetLevel, SetRecordEnabled, SetRecordEnabledArgs, SubmitQuery,
-        ToggleAdvanced, ToggleGrid, ToggleWrap,
+        ToggleAdvanced, ToggleExpandedRows, ToggleGrid, ToggleWrap,
     },
 };
 use wgpu_l3::{
@@ -107,6 +107,10 @@ pub fn view(state: &State, _: ViewContext) -> View {
                         }
 
                         ui.label("One million provided records");
+                        ui.checkbox(
+                            widget::Checkbox::new("Expanded rows", state.expanded_rows)
+                                .trigger::<ToggleExpandedRows>(()),
+                        );
                         let descending = state.record_sort.direction()
                             == table::SortDirection::Descending;
                         let source = table::Source::new(
@@ -232,6 +236,11 @@ pub fn view(state: &State, _: ViewContext) -> View {
                                 state.record_sort.column(),
                                 state.record_sort.direction(),
                             )
+                            .presentation(if state.expanded_rows {
+                                table::Presentation::Expanded
+                            } else {
+                                table::Presentation::Compact
+                            })
                             .width(Dimension::grow())
                             .height(Dimension::fixed(136)),
                         );

@@ -54,8 +54,8 @@ vocabularies are admitted.
 | 4 | General whole-draft `text::Input` policies | Complete | `cbd7aeea`; 864 passed, 8 ignored; policy, paste, history, IME, benchmark, and full ritual green |
 | 5 | Typed columns from `table::{Value, Sort, EditText, EditToggle}` | Complete | `d1c55dd7`; 867 passed, 8 ignored; compile-fail capability, typed gallery, bounded projection, three smokes, release benchmark, and all boundary checks green |
 | 6 | Measurable read-only world-text wrapping | Complete | `1a452f7e`; 868 passed, 8 ignored; standalone measure/paint fixture, cache witnesses, three smokes, release benchmark, and all boundary checks green |
-| 7 | Independently proven variable-height virtual region | Complete | 874 passed, 8 ignored; sparse-index and mixed-row runtime witnesses, three smokes, and all boundary checks green |
-| 8 | Compact/expanded table presentation and gallery toggle | Pending | — |
+| 7 | Independently proven variable-height virtual region | Complete | `1309e3ea`; 874 passed, 8 ignored; sparse-index and mixed-row runtime witnesses, three smokes, and all boundary checks green |
+| 8 | Compact/expanded table presentation and gallery toggle | Complete | 875 passed, 8 ignored; shared-track gallery comparison, three smokes, release benchmark, and all boundary checks green |
 
 ## Boundary ritual
 
@@ -415,6 +415,48 @@ Further flags append here as public names are proposed and resolved.
 - Public API flag: `VirtualList::variable` is the sole general constructor;
   sparse region, entries, prefix deltas, anchors, measurement generation, and
   persistence plumbing remain internal. No table metric vocabulary was added.
+- Commit receipt: `1309e3ea` (`Add anchored variable-height virtualization`),
+  7 files, 718 insertions, 16 deletions.
+
+### Checkpoint 8 — compact and expanded table presentation
+
+- Public concept: `table::Presentation::{Compact, Expanded}` is defaulted to
+  `Compact` and selected by `Table::presentation`. No parallel table type,
+  schema, track model, row-height declaration, or overflow vocabulary exists.
+- Shared structure: both presentations consume the same columns, typed value
+  accessors, provider/source, early track projection, horizontal scroll owner,
+  rules, divider hit zones, command bindings, selection, and cell identities.
+  The typed provider receives presentation as a projection rather than owning a
+  second schema.
+- Compact law: the existing fixed header and uniform arithmetic virtual-list
+  path remain unchanged. Typed values stay single-line with `EllipsisEnd` or
+  their per-column `EllipsisMiddle` override. The million-row bounded witnesses
+  remain green.
+- Expanded law: typed values and ordinary headers select checkpoint-6 wrapped
+  world text; ellipsis is absent. Header height is fit from the maximum hosted
+  cell height. Rows use checkpoint-7 variable virtualization and measure the
+  maximum intrinsic hosted-cell height at resolved track width. Table theme
+  padding contributes to intrinsic hosted height. Custom actions, text editors,
+  toggles, and sortable headers retain their existing behavior and chrome.
+- Gallery: one visible `Expanded rows` checkbox, one application field, and one
+  `ToggleExpandedRows` command select presentation over the same six-column
+  typed schema. Default remains false.
+- Focused comparison: compact rows were uniformly 24 pixels and detail used
+  middle ellipsis; expanded detail preserved full source and painted
+  `WordOrGlyph`, at least one row grew, and the header grew beyond 28 pixels.
+  All six column boundary coordinates were identical between modes.
+- Full library: 875 passed, 8 ignored, 0 failed in 0.90 s. Existing horizontal
+  reveal, resize, four-scale seam, sorting/reorder, edit/reject/cancel, toggle,
+  selection, focus, capture, draft pin, and million-row witnesses remained
+  green. All three smokes, formatting, all-target compilation, diff whitespace,
+  and protected `comparison_open: true` passed.
+- Release text acceptance: passed in 0.68 s. Witnesses: 8 MiB load 30.006 ms;
+  10-byte typing 2.576 us/edit; 2.5/5/10 MB typing
+  3.263/3.593/3.468 us/edit; 10 B / 10 MB clone 36.858/36.169 ns.
+- Pending eyes: use the gallery toggle to compare header glyph balance, editor
+  focus/rejection chrome, boolean hit affordance, row selection, far-right
+  reveal, and divider feel in both modes. Geometry and behavior are pinned;
+  visual taste remains manual.
 
 ## Pending eyes
 

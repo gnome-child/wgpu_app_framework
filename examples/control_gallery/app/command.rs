@@ -12,6 +12,7 @@ pub struct ResetControls;
 pub struct EditRecordNote;
 pub struct EditRecordCount;
 pub struct SetRecordEnabled;
+pub struct ToggleExpandedRows;
 
 #[derive(Clone)]
 pub struct EditRecordNoteArgs {
@@ -110,4 +111,11 @@ impl Command for SetRecordEnabled {
     type Output = ();
 
     const NAME: &'static str = "control_gallery.set_record_enabled";
+}
+
+impl Command for ToggleExpandedRows {
+    type Args = ();
+    type Output = ();
+
+    const NAME: &'static str = "control_gallery.toggle_expanded_rows";
 }

@@ -6,7 +6,7 @@ is next.
 
 ## In flight
 
-No tables checkpoint remains in flight; the six-checkpoint campaign is green.
+No implementation campaign is currently in flight.
 
 ## Specced and ready
 
@@ -86,35 +86,6 @@ No tables checkpoint remains in flight; the six-checkpoint campaign is green.
     relationships and logical row/column indices are reserved now for
     AccessKit. Sheet species still waits for a real caller. Items 25/26 do
     not block: a table is a provided container, not a custom leaf.
-27. **Table grammar campaign** — in flight; eight checkpoints, contract settled 2026-07-13:
-    1. **One sizing truth** — `view::Dimension` gains general minimum
-       expression and the shared allocator gains minimum-preserving overflow
-       pressure; `table::Width` is deleted rather than becoming a second
-       public sizing vocabulary.
-    2. **Resolved-track projection + horizontal scrolling** — resolve one
-       ephemeral track projection before placement from declarations,
-       available extent, and session overrides; placement/rules/hit zones/
-       editors/scroll extent consume it; one horizontal offset owns header
-       and body; deficit scrolls rather than crushing the far-right track.
-    3. **Participation/chrome** — census menu and palette host dress before
-       admitting a table marker; behavior unchanged, `Theme::table()` owns
-       truthful header, editor, passive-boolean, toggle, and action dress.
-    4. **`text::Input`** — general whole-draft text-entry policy: `""` and
-       signed `"-"` intermediates, paste normalization, and uninterrupted IME
-       preedit; syntax parsing and domain validation remain separate.
-    5. **Typed columns** — open `table::{Value, Sort, EditText, EditToggle}`;
-       trait = capability, column verb = policy, sorting emits intent, text
-       edits reuse drafts, toggles do not; gallery deletes its schema switch
-       and hand-built table controls.
-    6. **Read-only world-text wrapping** — provider-authored labels gain
-       measurable word wrapping through the existing text system, independently
-       proven before table consumption.
-    7. **Variable-height virtual region** — keyed measurements, estimates,
-       cumulative index, stable anchoring, jump scrolling, and bounded work;
-       the compact uniform arithmetic path remains intact.
-    8. **Expanded presentation** — `table::Presentation::{Compact, Expanded}`;
-       compact remains default, expanded headers and rows wrap/grow inside
-       resolved tracks, and the gallery gains a visible comparison toggle.
 11. **Accessibility (AccessKit)** — after tables; seams reserved
     (`composition::Changes::removed_elements`, subject labels, roles,
     active-item concept). The widget grammar audit added the missing field

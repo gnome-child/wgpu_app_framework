@@ -12,6 +12,7 @@ pub struct State {
     pub record_notes: HashMap<u64, String>,
     pub record_counts: HashMap<u64, i64>,
     pub record_enabled: HashMap<u64, bool>,
+    pub expanded_rows: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +57,7 @@ impl Default for State {
             record_notes: HashMap::new(),
             record_counts: HashMap::new(),
             record_enabled: HashMap::new(),
+            expanded_rows: false,
         }
     }
 }

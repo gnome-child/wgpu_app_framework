@@ -2,7 +2,7 @@ use super::{
     State,
     command::{
         EditRecordCount, EditRecordNote, IncrementClicks, ResetControls, SelectMode, SetLevel,
-        SetRecordEnabled, SubmitQuery, ToggleAdvanced, ToggleGrid, ToggleWrap,
+        SetRecordEnabled, SubmitQuery, ToggleAdvanced, ToggleExpandedRows, ToggleGrid, ToggleWrap,
     },
     view,
     view::{CANVAS_COLOR, WINDOW_TITLE, window_size},
@@ -25,7 +25,8 @@ pub fn app(state: State) -> Runtime<State, (), View> {
                 .register::<wgpu_l3::table::SortBy>(command::Spec::new("Sort table"))
                 .register::<EditRecordNote>(command::Spec::new("Edit record note"))
                 .register::<EditRecordCount>(command::Spec::new("Edit record count"))
-                .register::<SetRecordEnabled>(command::Spec::new("Set record enabled"));
+                .register::<SetRecordEnabled>(command::Spec::new("Set record enabled"))
+                .register::<ToggleExpandedRows>(command::Spec::new("Expanded rows"));
         })
         .responders(|responders| {
             responders
@@ -41,7 +42,8 @@ pub fn app(state: State) -> Runtime<State, (), View> {
                 .target::<wgpu_l3::table::SortBy>()
                 .target::<EditRecordNote>()
                 .target::<EditRecordCount>()
-                .target::<SetRecordEnabled>();
+                .target::<SetRecordEnabled>()
+                .target::<ToggleExpandedRows>();
         })
         .started(|cx| {
             cx.open_window(

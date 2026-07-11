@@ -83,7 +83,7 @@ pub(in crate::layout) fn intrinsic_height_for_width(
     profile: keymap::Profile,
 ) -> i32 {
     let control_height = theme.control().height;
-    match node.role() {
+    let height = match node.role() {
         view::Role::FloatingPanel => {
             floating_panel_height_for_width(node, width, engine, theme, profile)
         }
@@ -91,15 +91,20 @@ pub(in crate::layout) fn intrinsic_height_for_width(
             if node.label_text().is_some() && node.children().is_empty() =>
         {
             if node.world_text_overflow().is_some() {
-                return body_line_height(theme);
+                body_line_height(theme)
+            } else {
+                node.label_text()
+                    .map(|label| {
+                        engine
+                            .label_size_for_width_with_style(
+                                label,
+                                width,
+                                theme.typography().body(),
+                            )
+                            .height()
+                    })
+                    .unwrap_or_else(|| body_line_height(theme))
             }
-            node.label_text()
-                .map(|label| {
-                    engine
-                        .label_size_for_width_with_style(label, width, theme.typography().body())
-                        .height()
-                })
-                .unwrap_or_else(|| body_line_height(theme))
         }
         view::Role::SectionHeader => node
             .label_text()
@@ -130,6 +135,11 @@ pub(in crate::layout) fn intrinsic_height_for_width(
             stack_intrinsic_height_for_width(node, width, engine, theme, profile)
         }
         _ => intrinsic_height(node, theme),
+    };
+    if matches!(node.participation(), Some(view::Participation::Table(_))) {
+        height.saturating_add(theme.table().cell_padding.max(0).saturating_mul(2))
+    } else {
+        height
     }
 }
 
