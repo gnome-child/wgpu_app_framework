@@ -43,15 +43,48 @@ is next.
 
 ## Named arcs
 
-9. **Text overflow** — `Overflow::{Clip, EllipsisEnd, EllipsisMiddle}`, the
-   three-kinds-of-text doctrine (author text must fit; world text declares
-   overflow; user text scrolls), a required-overflow world-text node, and the
-   inline cache `TextKey` amendment. Prerequisite for tables.
-10. **Tables** — track layout, lazy view regions/virtualization (uniform row
-    height v1), record-table v1 (sticky sortable resizable headers, row
-    multi-selection, striping, rules, truncation), cell editing via drafts,
-    sheet species when a real caller arrives. Row providers carry total count
-    and stable row identity as the accessibility seam.
+9. **Text overflow** (tables slice 1) — `Overflow::{Clip, EllipsisEnd,
+   EllipsisMiddle}`, the three-kinds-of-text doctrine (author text must fit;
+   world text declares overflow; user text scrolls), a required-overflow
+   world-text node, and the inline cache `TextKey` amendment.
+10. **Tables arc** — assembly of proven citizens; six independently green
+    slices, each its own goal, in order:
+    1. Text overflow (item 9).
+    2. **`FrameContent` decomposition** — one `Frame` keeps common
+       geometry/identity/clip/presentation; role payloads become a typed
+       content enum (the `view::Node`/`Control` idiom), over the existing
+       17 roles. Success condition: incompatible payload combinations are
+       unrepresentable while all roles keep identical behavior. Cashes the
+       Examen R-02 flag.
+    3. **Virtual region/list** — the provided-container species, v1 flat:
+       uniform row height, stable provider keys, overscan, jump scrolling,
+       provider shrink/reorder, bounded materialization. Doctrine:
+       dematerialization is not removal. Pinning rule: focused, captured,
+       or actively edited rows stay materialized (may be clipped); selected
+       rows do NOT pin. Drafts survive ordinary scrolling and die on actual
+       row deletion. Complexity witnesses: one million logical rows produce
+       bounded nodes, frames, paint items, and work per scroll.
+    4. **Keyed selection + active item** — separate state machine from
+       virtualization: anchor/extend, reorder persistence, departure,
+       keyboard navigation that can target an unmaterialized row and
+       materialize it before focus moves.
+    5. **Read-only record table** — track layout with explicit/weighted
+       widths; resizing owns presentation state independently of provider
+       data; headers; sorting emits intent (the table never reorders
+       application data); striping, rules, truncation; cells host public
+       widgets — Table must not become a giant specialized leaf.
+    6. **Editable cells** — typed edit policies derived from at least two
+       real column types (numeric, textual/enumerated); display formatting,
+       text parsing, domain validation, and commit/rejection policy remain
+       separable meanings until the evidence converges them.
+    Identity doctrine: row identity = provider key; column identity =
+    column id; cell identity = (table id, row key, column id) — drafts,
+    focus restoration, selection, retained layout, and accessibility all
+    key on that tuple. Only visible rows participate in measurement; v1
+    never scans the provider for intrinsic column widths. Header/cell
+    relationships and logical row/column indices are reserved now for
+    AccessKit. Sheet species still waits for a real caller. Items 25/26 do
+    not block: a table is a provided container, not a custom leaf.
 11. **Accessibility (AccessKit)** — after tables; seams reserved
     (`composition::Changes::removed_elements`, subject labels, roles,
     active-item concept). The widget grammar audit added the missing field
