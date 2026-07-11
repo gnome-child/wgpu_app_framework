@@ -758,6 +758,25 @@ descendant operated on by navigation while focus remains elsewhere, such as a
 command palette result while the query text box keeps focus. Active items may
 request viewport reveal; they do not become focus.
 
+Provided-list selection is window-local interaction state keyed by list id and
+`virtual_list::Key`; it is not application data, does not dirty documents, and
+does not enter application history. `selection::Selection` exposes read-only
+membership, anchor, and active facts through `Session`. Plain pointer input
+replaces membership, Primary-click toggles, Shift extends from the stable
+anchor, and list-scoped keyboard navigation moves the active key in current
+provider order. Host pointer-down events carry current modifiers so native and
+headless paths execute the same state machine.
+
+Select-all uses all-except membership, so selecting one million logical rows is
+constant state. Selected offscreen rows do not pin and do not become view or
+layout nodes. A pending active-item reveal may materialize its one target for a
+single rebuild; after viewport feedback includes it in the ordinary visible
+range, that temporary pin disappears. Provider reorder preserves keys;
+deletion reconciles selected membership and deterministically moves deleted
+anchor/active facts to the nearest remaining selected key. Selections are
+scoped independently by window and list and participate in runtime snapshot
+restore; window departure deletes them with the window.
+
 Keyboard input belongs to the palette scope first and is consumed there; the
 list describes the captured world beneath it. The query is an ordinary text
 box in that transient scope, so text commands resolve through the standard

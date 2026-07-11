@@ -107,6 +107,7 @@ pub fn view(state: &State, _: ViewContext) -> View {
                         ui.label("One million provided rows");
                         ui.add(
                             VirtualList::new("control_gallery.virtual_rows", 24, GalleryRows)
+                                .selectable()
                                 .width(Dimension::grow())
                                 .height(Dimension::fixed(112)),
                         );
