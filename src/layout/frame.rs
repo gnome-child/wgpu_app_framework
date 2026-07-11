@@ -51,7 +51,7 @@ enum FrameContent {
     Button,
     Choice(ChoiceContent),
     Slider(SliderContent),
-    Scroll,
+    Scroll(ScrollContent),
     FloatingPanel,
 }
 
@@ -93,6 +93,11 @@ struct SliderContent {
     track_rect: Rect,
 }
 
+#[derive(Clone, Copy)]
+struct ScrollContent {
+    viewport: Option<Viewport>,
+}
+
 #[derive(Clone)]
 pub(crate) struct Frame {
     node_id: composition::NodeId,
@@ -110,7 +115,6 @@ pub(crate) struct Frame {
     floating_layer: bool,
     background: Option<scene::Brush>,
     clip: Option<Clip>,
-    viewport: Option<Viewport>,
     target: Option<interaction::Target>,
     binding: Option<view::Binding>,
     action: Option<view::Action>,
@@ -231,7 +235,6 @@ impl Frame {
             floating_layer,
             background: node.style().background(),
             clip,
-            viewport: None,
             target,
             binding,
             action: action_for(node),
@@ -242,7 +245,10 @@ impl Frame {
     }
 
     pub(super) fn with_viewport(mut self, viewport: Viewport) -> Self {
-        self.viewport = Some(viewport);
+        match &mut self.content {
+            FrameContent::Scroll(content) => content.viewport = Some(viewport),
+            _ => panic!("only Scroll frame content accepts a viewport"),
+        }
         self
     }
 
@@ -341,7 +347,8 @@ impl Frame {
     pub(crate) fn viewport(&self) -> Option<Viewport> {
         match &self.content {
             FrameContent::Text(TextContent::Area { layout, .. }) => Some(layout.viewport()),
-            _ => self.viewport,
+            FrameContent::Scroll(content) => content.viewport,
+            _ => None,
         }
     }
 
@@ -607,7 +614,7 @@ impl FrameContent {
                     .flatten()
                     .map(str::to_owned),
             }),
-            view::Role::Scroll => Self::Scroll,
+            view::Role::Scroll => Self::Scroll(ScrollContent { viewport: None }),
             view::Role::Panel => Self::Structural(StructuralRole::Panel),
             view::Role::FloatingPanel => Self::FloatingPanel,
             view::Role::SectionHeader => Self::Text(TextContent::SectionHeader),
@@ -632,7 +639,7 @@ impl FrameContent {
             Self::Choice(ChoiceContent::Radio(_)) => view::Role::Radio,
             Self::Slider(_) => view::Role::Slider,
             Self::Text(TextContent::Field { .. }) => view::Role::TextBox,
-            Self::Scroll => view::Role::Scroll,
+            Self::Scroll(_) => view::Role::Scroll,
             Self::FloatingPanel => view::Role::FloatingPanel,
             Self::Text(TextContent::SectionHeader) => view::Role::SectionHeader,
             Self::Text(TextContent::Label { .. }) => view::Role::Label,
