@@ -133,6 +133,14 @@ impl Node {
         Self::new(Role::Label).with_label(label)
     }
 
+    /// Creates text supplied by the world outside the program. Its overflow
+    /// behavior must be explicit because the program cannot promise it fits.
+    pub fn world_text(label: impl Into<String>, overflow: crate::text::Overflow) -> Self {
+        Self::new(Role::Label)
+            .with_label(label)
+            .with_text_kind(super::TextKind::World(overflow))
+    }
+
     pub(crate) fn section_header(label: impl Into<String>) -> Self {
         Self::new(Role::SectionHeader).with_label(label)
     }
@@ -148,6 +156,11 @@ impl Node {
 
     pub(crate) fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
+        self
+    }
+
+    fn with_text_kind(mut self, text_kind: super::TextKind) -> Self {
+        self.text_kind = text_kind;
         self
     }
 
@@ -247,6 +260,7 @@ impl Node {
             native_popup_material_preference: NativePopupMaterialPreference::System,
             subject: None,
             label: None,
+            text_kind: super::TextKind::Author,
             binding: None,
             control: None,
             focused: false,

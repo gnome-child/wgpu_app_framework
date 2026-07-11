@@ -101,6 +101,7 @@ mod tests {
             document: text::document::Document::plain("Label"),
             wrap: paint::TextWrap::WordOrGlyph,
             vertical_align: paint::TextVerticalAlign::Center,
+            overflow: crate::text::Overflow::Clip,
         }
     }
 

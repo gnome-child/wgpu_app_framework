@@ -38,6 +38,27 @@ impl Engine {
             .label_size_for_width_with_style(label, width, style)
     }
 
+    pub(super) fn resolve_label_overflow(
+        &self,
+        label: &str,
+        width: i32,
+        style: super::super::theme::TypeStyle,
+        overflow: text_engine::Overflow,
+    ) -> String {
+        self.text.resolve_overflow(label, width, style, overflow)
+    }
+
+    pub(super) fn diagnose_author_text_overflow(
+        &self,
+        label: &str,
+        width: i32,
+        height: i32,
+        style: super::super::theme::TypeStyle,
+    ) {
+        self.text
+            .diagnose_author_overflow(label, width, height, style);
+    }
+
     pub(super) fn text_area_size_for_width(
         &self,
         text_area: &view::TextArea,

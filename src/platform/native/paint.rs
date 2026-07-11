@@ -120,6 +120,7 @@ fn to_paint_text(text: &scene::Text, grid: paint::Grid) -> paint::Text {
         document: text::document::Document::from_block(block),
         wrap: into_paint_text_wrap(text.wrap()),
         vertical_align: paint::TextVerticalAlign::Center,
+        overflow: text.overflow(),
     }
 }
 

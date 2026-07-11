@@ -87,6 +87,9 @@ pub(in crate::layout) fn intrinsic_height_for_width(
         view::Role::Label | view::Role::Panel
             if node.label_text().is_some() && node.children().is_empty() =>
         {
+            if node.world_text_overflow().is_some() {
+                return body_line_height(theme);
+            }
             node.label_text()
                 .map(|label| {
                     engine

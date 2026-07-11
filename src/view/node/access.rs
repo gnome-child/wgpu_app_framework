@@ -39,6 +39,13 @@ impl Node {
         self.label.as_deref()
     }
 
+    pub(crate) fn world_text_overflow(&self) -> Option<crate::text::Overflow> {
+        match self.text_kind {
+            super::TextKind::Author => None,
+            super::TextKind::World(overflow) => Some(overflow),
+        }
+    }
+
     pub fn binding(&self) -> Option<&Binding> {
         self.binding.as_ref()
     }

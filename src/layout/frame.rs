@@ -6,7 +6,7 @@ use super::super::{
     view,
 };
 use super::{Viewport, control, engine, measure, path, text, typography};
-use crate::animation;
+use crate::{animation, text as text_model};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Clip {
@@ -50,6 +50,7 @@ pub(crate) struct Frame {
     active_rect: Rect,
     label: Option<String>,
     label_width: i32,
+    world_text_overflow: Option<text_model::Overflow>,
     text: Option<String>,
     text_wrap: Option<view::Wrap>,
     focused: bool,
@@ -104,20 +105,42 @@ impl Frame {
         let text_box_layout = text_box
             .as_ref()
             .map(|text_box| engine.text_field_layout(text_box, text_box_text_rect, theme, now));
-        let label = label_for(node).map(str::to_owned);
+        let label_style = typography::label_style(node, theme);
+        let world_text_overflow = node.world_text_overflow();
+        let label = label_for(node).map(|label| match world_text_overflow {
+            Some(overflow) => {
+                engine.resolve_label_overflow(label, rect.width(), label_style, overflow)
+            }
+            None => label.to_owned(),
+        });
         let label_width = label
             .as_deref()
             .map(|label| {
                 if node.role() == view::Role::SectionHeader {
                     engine.label_width_with_style(
                         &typography::section_header_text(label),
-                        typography::label_style(node, theme),
+                        label_style,
                     )
                 } else {
-                    engine.label_width_with_style(label, typography::label_style(node, theme))
+                    engine.label_width_with_style(label, label_style)
                 }
             })
             .unwrap_or_default();
+        if world_text_overflow.is_none() {
+            if let Some(label) = label.as_deref() {
+                let diagnostic_label = if node.role() == view::Role::SectionHeader {
+                    typography::section_header_text(label)
+                } else {
+                    label.to_owned()
+                };
+                engine.diagnose_author_text_overflow(
+                    &diagnostic_label,
+                    rect.width(),
+                    rect.height(),
+                    label_style,
+                );
+            }
+        }
         let shortcut_display = binding
             .as_ref()
             .and_then(view::Binding::shortcut)
@@ -155,6 +178,7 @@ impl Frame {
             active_rect,
             label,
             label_width,
+            world_text_overflow,
             text: node
                 .label_text()
                 .is_none()
@@ -237,6 +261,10 @@ impl Frame {
 
     pub(crate) fn label_width(&self) -> i32 {
         self.label_width
+    }
+
+    pub(crate) fn world_text_overflow(&self) -> Option<text_model::Overflow> {
+        self.world_text_overflow
     }
 
     pub(crate) fn text(&self) -> Option<&str> {

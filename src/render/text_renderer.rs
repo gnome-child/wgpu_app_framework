@@ -224,7 +224,13 @@ fn prepare_text(
     let grid = paint::Grid::new(scale_factor);
     let width = text.rect.area.width().max(0.0);
     let height = text.rect.area.height().max(0.0);
-    let prepared = inline_cache.prepare_text(&text.document, width, height, wrap(text.wrap))?;
+    let prepared = inline_cache.prepare_text(
+        &text.document,
+        width,
+        height,
+        wrap(text.wrap),
+        text.overflow,
+    )?;
 
     let clip_left = text.rect.origin.x() * scale_factor;
     let clip_top = text.rect.origin.y() * scale_factor;
@@ -361,6 +367,7 @@ mod tests {
             document,
             wrap: paint::TextWrap::None,
             vertical_align: paint::TextVerticalAlign::Center,
+            overflow: crate::text::Overflow::Clip,
         }
     }
 
@@ -388,6 +395,7 @@ mod tests {
             document: text::document::Document::from_block(block),
             wrap: paint::TextWrap::None,
             vertical_align: paint::TextVerticalAlign::Center,
+            overflow: crate::text::Overflow::Clip,
         }
     }
 
@@ -503,6 +511,7 @@ mod tests {
             document: text::document::Document::from_block(block),
             wrap: paint::TextWrap::None,
             vertical_align: paint::TextVerticalAlign::Center,
+            overflow: crate::text::Overflow::Clip,
         };
 
         let first = prepare_text(&mut cache, &rich, 1.0).expect("rich text should prepare");

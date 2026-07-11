@@ -66,6 +66,7 @@ struct TextKey {
     wrap: WrapKey,
     width: u32,
     height: u32,
+    overflow: text::Overflow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -101,8 +102,9 @@ impl InlineCache {
         width: f32,
         height: f32,
         wrap: glyphon::Wrap,
+        overflow: text::Overflow,
     ) -> Option<PreparedText> {
-        let Some((key, color)) = TextKey::new(document, width, height, wrap) else {
+        let Some((key, color)) = TextKey::new(document, width, height, wrap, overflow) else {
             let prepared = system::prepare_document_buffer(
                 &mut self.font_system,
                 document,
@@ -201,6 +203,7 @@ impl TextKey {
         width: f32,
         height: f32,
         wrap: glyphon::Wrap,
+        overflow: text::Overflow,
     ) -> Option<(Self, text::Color)> {
         let block = single_non_empty_block(document)?;
         let run = single_non_empty_run(block)?;
@@ -217,6 +220,7 @@ impl TextKey {
                 wrap: WrapKey::from_glyphon(wrap),
                 width: finite_bits(width.max(0.0)),
                 height: finite_bits(height.max(0.0)),
+                overflow,
             },
             style.color(),
         ))
@@ -361,10 +365,16 @@ mod tests {
         let black = document("Label", Color::BLACK, 12.0, Weight::Normal);
 
         let first = cache
-            .prepare_text(&red, 120.0, 22.0, glyphon::Wrap::None)
+            .prepare_text(&red, 120.0, 22.0, glyphon::Wrap::None, text::Overflow::Clip)
             .expect("text should prepare");
         let second = cache
-            .prepare_text(&black, 120.0, 22.0, glyphon::Wrap::None)
+            .prepare_text(
+                &black,
+                120.0,
+                22.0,
+                glyphon::Wrap::None,
+                text::Overflow::Clip,
+            )
             .expect("text should prepare");
 
         assert_eq!(first.stats.text_cache_misses, 1);
@@ -380,9 +390,21 @@ mod tests {
         let normal = document("Label", Color::BLACK, 12.0, Weight::Normal);
         let bold = document("Label", Color::BLACK, 12.0, Weight::Bold);
 
-        let _ = cache.prepare_text(&normal, 120.0, 22.0, glyphon::Wrap::None);
+        let _ = cache.prepare_text(
+            &normal,
+            120.0,
+            22.0,
+            glyphon::Wrap::None,
+            text::Overflow::Clip,
+        );
         let changed = cache
-            .prepare_text(&bold, 120.0, 22.0, glyphon::Wrap::None)
+            .prepare_text(
+                &bold,
+                120.0,
+                22.0,
+                glyphon::Wrap::None,
+                text::Overflow::Clip,
+            )
             .expect("text should prepare");
 
         assert_eq!(changed.stats.text_cache_misses, 1);
@@ -404,10 +426,22 @@ mod tests {
         let document = Document::from_block(block);
 
         let first = cache
-            .prepare_text(&document, 120.0, 22.0, glyphon::Wrap::None)
+            .prepare_text(
+                &document,
+                120.0,
+                22.0,
+                glyphon::Wrap::None,
+                text::Overflow::Clip,
+            )
             .expect("text should prepare");
         let second = cache
-            .prepare_text(&document, 120.0, 22.0, glyphon::Wrap::None)
+            .prepare_text(
+                &document,
+                120.0,
+                22.0,
+                glyphon::Wrap::None,
+                text::Overflow::Clip,
+            )
             .expect("text should prepare");
 
         assert_eq!(first.stats.text_cache_hits, 0);
@@ -433,5 +467,31 @@ mod tests {
         assert_eq!(first.stats.icon_shape_calls, 1);
         assert_eq!(second.stats.icon_cache_hits, 1);
         assert_eq!(second.stats.icon_shape_calls, 0);
+    }
+
+    #[test]
+    fn text_cache_misses_when_overflow_mode_changes() {
+        let mut cache = InlineCache::new();
+        let label = document("Label", Color::BLACK, 12.0, Weight::Normal);
+
+        let _ = cache.prepare_text(
+            &label,
+            120.0,
+            22.0,
+            glyphon::Wrap::None,
+            text::Overflow::Clip,
+        );
+        let changed = cache
+            .prepare_text(
+                &label,
+                120.0,
+                22.0,
+                glyphon::Wrap::None,
+                text::Overflow::EllipsisEnd,
+            )
+            .expect("text should prepare");
+
+        assert_eq!(changed.stats.text_cache_misses, 1);
+        assert_eq!(changed.stats.text_shape_calls, 1);
     }
 }

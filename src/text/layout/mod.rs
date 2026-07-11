@@ -21,6 +21,7 @@ mod key;
 mod map;
 mod measure_cache;
 mod output;
+mod overflow;
 mod shaping_cache;
 mod system;
 mod text_area;

@@ -190,6 +190,7 @@ pub struct Text {
     pub document: text::document::Document,
     pub wrap: TextWrap,
     pub vertical_align: TextVerticalAlign,
+    pub overflow: text::Overflow,
 }
 
 #[derive(Clone)]
@@ -1168,6 +1169,7 @@ mod tests {
             document: text::document::Document::plain("Label"),
             wrap: TextWrap::WordOrGlyph,
             vertical_align: TextVerticalAlign::Center,
+            overflow: text::Overflow::Clip,
         };
         let icon = Icon {
             rect: Rect::new(point::logical(1.6, 0.0), area::logical(10.0, 10.0)),
@@ -1470,6 +1472,7 @@ mod tests {
             document: text::document::Document::plain(""),
             wrap: TextWrap::WordOrGlyph,
             vertical_align: TextVerticalAlign::Center,
+            overflow: text::Overflow::Clip,
         });
 
         assert!(scene.items().is_empty());

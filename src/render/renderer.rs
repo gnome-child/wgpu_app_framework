@@ -1094,6 +1094,7 @@ mod tests {
             document: text::document::Document::plain("hello"),
             wrap: paint::TextWrap::WordOrGlyph,
             vertical_align: paint::TextVerticalAlign::Center,
+            overflow: crate::text::Overflow::Clip,
         });
         scene.push_icon(paint::Icon {
             rect: Rect::new(
@@ -1139,6 +1140,7 @@ mod tests {
                     document: text::document::Document::plain("group"),
                     wrap: paint::TextWrap::WordOrGlyph,
                     vertical_align: paint::TextVerticalAlign::Center,
+                    overflow: crate::text::Overflow::Clip,
                 }),
             ],
         });
@@ -1254,6 +1256,7 @@ mod tests {
                 .with_size(24.0),
             wrap: paint::TextWrap::None,
             vertical_align: paint::TextVerticalAlign::Center,
+            overflow: crate::text::Overflow::Clip,
         });
 
         let pixels = pollster::block_on(read_premultiplied_scene_pixels(scene, 64, 32))

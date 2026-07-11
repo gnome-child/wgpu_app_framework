@@ -1,4 +1,9 @@
-use std::{cell::RefCell, fmt, rc::Rc, time::Instant};
+use std::{
+    cell::{Cell, RefCell},
+    fmt,
+    rc::Rc,
+    time::Instant,
+};
 
 use crate::text as text_engine;
 
@@ -14,6 +19,7 @@ use super::Viewport;
 #[derive(Clone)]
 pub(crate) struct Service {
     inner: Rc<RefCell<text_engine::layout::Engine>>,
+    author_text_overflows: Rc<Cell<usize>>,
 }
 
 #[derive(Clone)]
@@ -37,6 +43,36 @@ impl Service {
     pub(super) fn new() -> Self {
         Self {
             inner: Rc::new(RefCell::new(text_engine::layout::Engine::new())),
+            author_text_overflows: Rc::new(Cell::new(0)),
+        }
+    }
+
+    pub(super) fn resolve_overflow(
+        &self,
+        label: &str,
+        width: i32,
+        style: super::super::theme::TypeStyle,
+        overflow: text_engine::Overflow,
+    ) -> String {
+        self.inner.borrow_mut().resolve_overflow(
+            label,
+            style.document_style(text_engine::Color::BLACK),
+            width.max(0) as f32,
+            overflow,
+        )
+    }
+
+    pub(super) fn diagnose_author_overflow(
+        &self,
+        label: &str,
+        width: i32,
+        height: i32,
+        style: super::super::theme::TypeStyle,
+    ) {
+        let measured = self.label_size_for_width_with_style(label, width, style);
+        if measured.width() > width.max(0) || measured.height() > height.max(0) {
+            self.author_text_overflows
+                .set(self.author_text_overflows.get().saturating_add(1));
         }
     }
 
@@ -96,6 +132,7 @@ impl Service {
         let mut diagnostics = diagnostics::Text::default();
         diagnostics.add_text_layout(engine.diagnostics());
         engine.reset_diagnostics();
+        diagnostics.author_text_overflows = self.author_text_overflows.replace(0);
         diagnostics
     }
 

@@ -57,6 +57,59 @@ impl Target<DisabledTextSubmit> for SourceState {
 }
 
 #[test]
+fn world_text_resolves_overflow_during_layout_before_scene_paint() {
+    let source = "C:/very/long/provider/path/to/report.csv";
+    let view = View::new(view::Node::world_text(
+        source,
+        text::Overflow::EllipsisMiddle,
+    ));
+    let mut layout_engine = layout::Engine::new();
+    let layout = layout::Layout::compose(&view, geometry::Size::new(96, 24), &mut layout_engine);
+    let frame = layout
+        .find_role(view::Role::Label)
+        .into_iter()
+        .next()
+        .expect("world text frame should exist");
+    let resolved = frame.label_text().expect("world text should be resolved");
+
+    assert_ne!(resolved, source);
+    assert!(resolved.contains('…'));
+    assert_eq!(
+        frame.world_text_overflow(),
+        Some(text::Overflow::EllipsisMiddle)
+    );
+
+    let scene = scene::Scene::paint(&layout);
+    let painted = scene.texts().into_iter().next().expect("text should paint");
+    assert_eq!(painted.value(), resolved);
+    assert_eq!(painted.overflow(), text::Overflow::EllipsisMiddle);
+    assert_eq!(painted.wrap(), scene::TextWrap::None);
+    assert_eq!(
+        layout_engine.take_text_diagnostics().author_text_overflows,
+        0
+    );
+}
+
+#[test]
+fn overflowing_author_text_is_reported_without_mutating_its_value() {
+    let source = "This authored sentence cannot fit in one short frame.";
+    let view = View::new(view::Node::label(source));
+    let mut layout_engine = layout::Engine::new();
+    let layout = layout::Layout::compose(&view, geometry::Size::new(48, 16), &mut layout_engine);
+    let frame = layout
+        .find_role(view::Role::Label)
+        .into_iter()
+        .next()
+        .expect("author text frame should exist");
+
+    assert_eq!(frame.label_text(), Some(source));
+    assert_eq!(
+        layout_engine.take_text_diagnostics().author_text_overflows,
+        1
+    );
+}
+
+#[test]
 fn text_editor_view_composes_to_layout_without_runtime_mutation() {
     let mut app = text_editor::app(text_editor::State::default());
 

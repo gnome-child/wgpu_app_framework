@@ -2,6 +2,7 @@ use crate::text;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Text {
+    pub author_text_overflows: usize,
     pub text_area_paint_layout_calls: usize,
     pub text_area_metrics_layout_calls: usize,
     pub text_area_visible_logical_lines: usize,
@@ -21,6 +22,7 @@ pub struct Text {
 
 impl Text {
     pub(crate) fn add(&mut self, diagnostics: Self) {
+        self.author_text_overflows += diagnostics.author_text_overflows;
         self.text_area_paint_layout_calls += diagnostics.text_area_paint_layout_calls;
         self.text_area_metrics_layout_calls += diagnostics.text_area_metrics_layout_calls;
         self.text_area_visible_logical_lines += diagnostics.text_area_visible_logical_lines;

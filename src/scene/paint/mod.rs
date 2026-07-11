@@ -241,7 +241,8 @@ fn paint_frame(
                 text_wrap_for(frame),
             )
             .with_style(text_style_for(frame, theme))
-            .with_align(text_align_for(frame)),
+            .with_align(text_align_for(frame))
+            .with_overflow(frame.world_text_overflow().unwrap_or_default()),
         );
     }
 
@@ -734,6 +735,9 @@ fn scene_text_style(style: crate::theme::TypeStyle) -> TextStyle {
 }
 
 fn text_wrap_for(frame: &layout::Frame) -> TextWrap {
+    if frame.world_text_overflow().is_some() {
+        return TextWrap::None;
+    }
     if matches!(
         frame.role(),
         view::Role::Checkbox | view::Role::Radio | view::Role::Slider

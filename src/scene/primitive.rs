@@ -86,6 +86,7 @@ pub struct Text {
     style: TextStyle,
     wrap: TextWrap,
     align: TextAlign,
+    overflow: text_model::Overflow,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -574,6 +575,7 @@ impl Text {
             style: TextStyle::default(),
             wrap,
             align: TextAlign::Start,
+            overflow: text_model::Overflow::Clip,
         }
     }
 
@@ -584,6 +586,11 @@ impl Text {
 
     pub(in crate::scene) fn with_align(mut self, align: TextAlign) -> Self {
         self.align = align;
+        self
+    }
+
+    pub(in crate::scene) fn with_overflow(mut self, overflow: text_model::Overflow) -> Self {
+        self.overflow = overflow;
         self
     }
 
@@ -611,6 +618,10 @@ impl Text {
         self.align
     }
 
+    pub fn overflow(&self) -> text_model::Overflow {
+        self.overflow
+    }
+
     pub(crate) fn translated(&self, dx: i32, dy: i32) -> Self {
         Self {
             rect: translate_rect(self.rect, dx, dy),
@@ -619,6 +630,7 @@ impl Text {
             style: self.style,
             wrap: self.wrap,
             align: self.align,
+            overflow: self.overflow,
         }
     }
 }
