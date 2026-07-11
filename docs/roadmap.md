@@ -6,7 +6,18 @@ is next.
 
 ## In flight
 
-(nothing)
+25. **Prepared frame recipe** — give staleness, layout, feedback, visual
+    animation, scene paint, overlay consequences, and scheduling one owner;
+    physical realization follows capabilities without caller-mode booleans.
+26. **Document-to-widget projection** — name the value-semantics projection
+    from `document::Document` to `widget::TextArea` while preserving the
+    general buffer constructor and the widget-to-document dependency direction.
+27. **Standard editing set** — install the enumerable, individually declinable
+    standard edit-command specs in one line while keeping targets and observers
+    explicit.
+28. **Application ceiling** — one blessed platform launch sentence replaces
+    the repeated app-to-shell-to-runner fold, with an honest native clipboard
+    default that never overwrites an explicit choice.
 
 ## Specced and ready
 
