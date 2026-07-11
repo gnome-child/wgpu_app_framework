@@ -46,7 +46,7 @@ enum FrameContent {
     Structural(StructuralRole),
     Menu,
     Binding,
-    Separator,
+    Separator(SeparatorContent),
     Text(TextContent),
     Button,
     Choice(ChoiceContent),
@@ -99,6 +99,19 @@ struct ScrollContent {
 }
 
 #[derive(Clone)]
+struct BoundContent {
+    binding: view::Binding,
+    shortcut_width: Option<i32>,
+    shortcut_content_width: i32,
+    shortcut_display: Option<Vec<ShortcutPart>>,
+}
+
+#[derive(Clone, Copy)]
+struct SeparatorContent {
+    shortcut_width: Option<i32>,
+}
+
+#[derive(Clone)]
 pub(crate) struct Frame {
     node_id: composition::NodeId,
     path: path::Path,
@@ -116,11 +129,8 @@ pub(crate) struct Frame {
     background: Option<scene::Brush>,
     clip: Option<Clip>,
     target: Option<interaction::Target>,
-    binding: Option<view::Binding>,
+    binding: Option<BoundContent>,
     action: Option<view::Action>,
-    shortcut_width: Option<i32>,
-    shortcut_content_width: i32,
-    shortcut_display: Option<Vec<ShortcutPart>>,
 }
 
 impl Frame {
@@ -219,6 +229,12 @@ impl Frame {
             world_text_overflow,
             slider_track_rect,
         );
+        let binding = binding.map(|binding| BoundContent {
+            binding,
+            shortcut_width,
+            shortcut_content_width,
+            shortcut_display,
+        });
         Self {
             path,
             node_id,
@@ -238,9 +254,6 @@ impl Frame {
             target,
             binding,
             action: action_for(node),
-            shortcut_width,
-            shortcut_content_width,
-            shortcut_display,
         }
     }
 
@@ -253,7 +266,14 @@ impl Frame {
     }
 
     pub(super) fn with_shortcut_width(mut self, width: i32) -> Self {
-        self.shortcut_width = Some(width.max(0));
+        let width = width.max(0);
+        match (&mut self.content, self.binding.as_mut()) {
+            (FrameContent::Separator(content), _) => content.shortcut_width = Some(width),
+            (_, Some(content)) if content.binding.source() == context::Source::Menu => {
+                content.shortcut_width = Some(width);
+            }
+            _ => panic!("only menu-row frame content accepts a shortcut width"),
+        }
         self
     }
 
@@ -357,23 +377,31 @@ impl Frame {
     }
 
     pub(crate) fn is_enabled(&self) -> bool {
-        self.binding.as_ref().is_none_or(view::Binding::is_enabled)
+        self.binding().is_none_or(view::Binding::is_enabled)
     }
 
     pub(crate) fn checked(&self) -> Option<bool> {
-        self.binding.as_ref().and_then(view::Binding::checked)
+        self.binding().and_then(view::Binding::checked)
     }
 
     pub(crate) fn shortcut_display(&self) -> Option<&[ShortcutPart]> {
-        self.shortcut_display.as_deref()
+        self.binding
+            .as_ref()
+            .and_then(|content| content.shortcut_display.as_deref())
     }
 
     pub(crate) fn shortcut_width(&self) -> i32 {
-        self.shortcut_width.unwrap_or_default()
+        match (&self.content, &self.binding) {
+            (FrameContent::Separator(content), _) => content.shortcut_width.unwrap_or_default(),
+            (_, Some(content)) => content.shortcut_width.unwrap_or_default(),
+            _ => 0,
+        }
     }
 
     pub(crate) fn shortcut_content_width(&self) -> i32 {
-        self.shortcut_content_width
+        self.binding
+            .as_ref()
+            .map_or(0, |content| content.shortcut_content_width)
     }
 
     pub(crate) fn checkbox(&self) -> Option<&view::Checkbox> {
@@ -458,13 +486,17 @@ impl Frame {
         self.target.as_ref()
     }
 
+    fn binding(&self) -> Option<&view::Binding> {
+        self.binding.as_ref().map(|content| &content.binding)
+    }
+
     #[cfg(test)]
     pub(crate) fn action(&self) -> Option<&view::Action> {
         self.action.as_ref()
     }
 
     pub(crate) fn binding_source(&self) -> Option<context::Source> {
-        self.binding.as_ref().map(view::Binding::source)
+        self.binding().map(view::Binding::source)
     }
 
     pub(crate) fn is_menu_row(&self) -> bool {
@@ -487,8 +519,7 @@ impl Frame {
         if self.role() == view::Role::Slider {
             let value = self.slider_value_at(point)?;
             if let Some(action) = self
-                .binding
-                .as_ref()
+                .binding()
                 .and_then(|binding| binding.slider_action(value))
             {
                 return Some(action);
@@ -574,7 +605,9 @@ impl FrameContent {
             view::Role::MenuBar => Self::Structural(StructuralRole::MenuBar),
             view::Role::Menu => Self::Menu,
             view::Role::Binding => Self::Binding,
-            view::Role::Separator => Self::Separator,
+            view::Role::Separator => Self::Separator(SeparatorContent {
+                shortcut_width: None,
+            }),
             view::Role::TextArea => Self::Text(TextContent::Area {
                 model: node
                     .text_area_model()
@@ -632,7 +665,7 @@ impl FrameContent {
             Self::Structural(StructuralRole::Panel) => view::Role::Panel,
             Self::Menu => view::Role::Menu,
             Self::Binding => view::Role::Binding,
-            Self::Separator => view::Role::Separator,
+            Self::Separator(_) => view::Role::Separator,
             Self::Text(TextContent::Area { .. }) => view::Role::TextArea,
             Self::Button => view::Role::Button,
             Self::Choice(ChoiceContent::Checkbox(_)) => view::Role::Checkbox,

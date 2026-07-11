@@ -940,6 +940,49 @@ fn structural_layout_paths_stay_internal() {
 }
 
 #[test]
+fn frame_content_is_the_single_role_payload_representation() {
+    let frame = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("layout")
+            .join("frame.rs"),
+    )
+    .expect("layout frame module should read");
+    let fields = frame
+        .split("pub(crate) struct Frame {")
+        .nth(1)
+        .expect("Frame declaration should exist")
+        .split("\n}")
+        .next()
+        .expect("Frame fields should end");
+
+    assert!(
+        fields.contains("content: FrameContent"),
+        "Frame must carry one typed role payload"
+    );
+    for displaced in [
+        "role: view::Role",
+        "checkbox: Option<view::Checkbox>",
+        "radio: Option<view::Radio>",
+        "slider: Option<view::Slider>",
+        "slider_track_rect: Option<Rect>",
+        "text_area: Option<view::TextArea>",
+        "text_area_layout: Option<text::Area>",
+        "text_box: Option<view::TextBox>",
+        "text_box_layout: Option<text::Field>",
+        "text_box_text_rect: Rect",
+        "viewport: Option<Viewport>",
+        "shortcut_display: Option<Vec<ShortcutPart>>",
+        "shortcut_width: Option<i32>",
+    ] {
+        assert!(
+            !fields.contains(displaced),
+            "legacy Frame payload field must stay absent: {displaced}"
+        );
+    }
+}
+
+#[test]
 fn layout_reveal_stays_palette_agnostic() {
     let layout_mod = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src")
