@@ -565,6 +565,8 @@ No unexplained failure crosses checkpoint 6.
 | 5 | `83aab550` | 1 | 48 | 0 | Current-tree table census and ownership decision |
 | 5 | `da8e0c41` | 6 | 139 | 7 | Shared weighted flow allocation landed before Table composition |
 | 5 | `d7d8cd98` | 39 | 1731 | 90 | Read-only Table composition, identities, resize/sort/grid/scale matrices, gallery, doctrine and full gate |
+| 5 | `7283a85d` | 2 | 4 | 1 | Read-only checkpoint hash and roadmap closure |
+| 6 | `2daf1ab7` | 33 | 1113 | 63 | Tuple-native text/integer editors, validation lifecycle, keyboard/history/deletion matrices, integrated gallery and full gate |
 
 ## Final fixed-point sweep
 

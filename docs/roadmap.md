@@ -71,7 +71,7 @@ No tables checkpoint remains in flight; the six-checkpoint campaign is green.
        data; headers; sorting emits intent (the table never reorders
        application data); striping, rules, truncation; cells host public
        widgets — Table must not become a giant specialized leaf.
-    6. **Editable cells** (complete; closure commit recorded in the campaign ledger) — typed edit policies derived from at least two
+    6. **Editable cells** (complete at `2daf1ab7`) — typed edit policies derived from at least two
        real column types (numeric, textual/enumerated); display formatting,
        text parsing, domain validation, and commit/rejection policy remain
        separable meanings until the evidence converges them.
