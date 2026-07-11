@@ -150,7 +150,7 @@ impl Node {
 
         Some(Action::sequence([
             Action::pointer_down(target),
-            text_area.pointer_focus_action()?,
+            Action::text_pointer_focus(text_area.focus())?,
             Action::text_edit(text::edit::Edit::pointer(
                 text::edit::PointerEditKind::Click,
                 position,

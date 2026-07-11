@@ -113,4 +113,32 @@ impl Action {
     pub(crate) fn text_edit(edit: text::edit::Edit) -> Self {
         Self::TextEdit(edit)
     }
+
+    pub(crate) fn text_focus(focus: Option<session::Focus>) -> Option<Self> {
+        focus.map(Self::focus)
+    }
+
+    pub(crate) fn text_pointer_focus(focus: Option<session::Focus>) -> Option<Self> {
+        focus.map(|focus| Self::focus(focus.pointer()))
+    }
+
+    pub(crate) fn text_click(
+        focus: Option<session::Focus>,
+        position: text::buffer::Position,
+    ) -> Option<Self> {
+        Some(Self::sequence([
+            Self::text_pointer_focus(focus)?,
+            Self::text_edit(text::edit::Edit::pointer(
+                text::edit::PointerEditKind::Click,
+                position,
+            )),
+        ]))
+    }
+
+    pub(crate) fn text_drag(position: text::buffer::Position) -> Self {
+        Self::text_edit(text::edit::Edit::pointer(
+            text::edit::PointerEditKind::Drag,
+            position,
+        ))
+    }
 }

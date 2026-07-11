@@ -109,28 +109,15 @@ impl TextArea {
     }
 
     pub(crate) fn focus_action(&self) -> Option<Action> {
-        self.focus.map(Action::focus)
-    }
-
-    pub(crate) fn pointer_focus_action(&self) -> Option<Action> {
-        self.focus.map(|focus| Action::focus(focus.pointer()))
+        Action::text_focus(self.focus)
     }
 
     pub(crate) fn click_action(&self, position: text::buffer::Position) -> Option<Action> {
-        Some(Action::sequence([
-            self.pointer_focus_action()?,
-            Action::text_edit(text::edit::Edit::pointer(
-                text::edit::PointerEditKind::Click,
-                position,
-            )),
-        ]))
+        Action::text_click(self.focus, position)
     }
 
     pub(crate) fn drag_action(&self, position: text::buffer::Position) -> Action {
-        Action::text_edit(text::edit::Edit::pointer(
-            text::edit::PointerEditKind::Drag,
-            position,
-        ))
+        Action::text_drag(position)
     }
 
     pub(in crate::view) fn project_layout_interaction(
