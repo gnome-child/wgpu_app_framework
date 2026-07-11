@@ -42,10 +42,36 @@ pub(super) struct Input<'a> {
 }
 
 #[derive(Clone)]
+enum FrameContent {
+    Structural(StructuralRole),
+    Menu,
+    Binding,
+    Separator,
+    TextArea,
+    Button,
+    Checkbox,
+    Radio,
+    Slider,
+    TextBox,
+    Scroll,
+    FloatingPanel,
+    SectionHeader,
+    Label,
+}
+
+#[derive(Clone, Copy)]
+enum StructuralRole {
+    Root,
+    Stack,
+    MenuBar,
+    Panel,
+}
+
+#[derive(Clone)]
 pub(crate) struct Frame {
     node_id: composition::NodeId,
     path: path::Path,
-    role: view::Role,
+    content: FrameContent,
     rect: Rect,
     active_rect: Rect,
     label: Option<String>,
@@ -173,7 +199,7 @@ impl Frame {
         Self {
             path,
             node_id,
-            role: node.role(),
+            content: FrameContent::for_role(node.role()),
             rect,
             active_rect,
             label,
@@ -244,7 +270,7 @@ impl Frame {
     }
 
     pub(crate) fn role(&self) -> view::Role {
-        self.role
+        self.content.role()
     }
 
     pub(crate) fn rect(&self) -> Rect {
@@ -400,7 +426,7 @@ impl Frame {
     }
 
     pub(crate) fn is_menu_row(&self) -> bool {
-        self.role == view::Role::Binding && self.binding_source() == Some(context::Source::Menu)
+        self.role() == view::Role::Binding && self.binding_source() == Some(context::Source::Menu)
     }
 
     pub(crate) fn is_palette_row(&self) -> bool {
@@ -416,7 +442,7 @@ impl Frame {
     }
 
     pub(crate) fn action_at(&self, point: Point) -> Option<view::Action> {
-        if self.role == view::Role::Slider {
+        if self.role() == view::Role::Slider {
             let value = self.slider_value_at(point)?;
             if let Some(action) = self
                 .binding
@@ -435,7 +461,7 @@ impl Frame {
         point: Point,
         engine: &mut engine::Engine,
     ) -> Option<view::Action> {
-        if self.role == view::Role::TextArea {
+        if self.role() == view::Role::TextArea {
             let text_area = self.text_area.as_ref()?;
             let layout = self.text_area_layout.as_ref()?;
             let position = engine.text_area_position_at(text_area, layout, self.rect, point)?;
@@ -443,7 +469,7 @@ impl Frame {
             return text_area.click_action(position);
         }
 
-        if self.role == view::Role::TextBox {
+        if self.role() == view::Role::TextBox {
             let text_box = self.text_box.as_ref()?;
             let layout = self.text_box_layout.as_ref()?;
             let text_rect = self.text_box_text_rect();
@@ -460,7 +486,7 @@ impl Frame {
         point: Point,
         engine: &mut engine::Engine,
     ) -> Option<view::Action> {
-        if self.role == view::Role::TextArea {
+        if self.role() == view::Role::TextArea {
             let text_area = self.text_area.as_ref()?;
             let layout = self.text_area_layout.as_ref()?;
             let position = engine.text_area_position_at(text_area, layout, self.rect, point)?;
@@ -468,7 +494,7 @@ impl Frame {
             return Some(text_area.drag_action(position));
         }
 
-        if self.role == view::Role::TextBox {
+        if self.role() == view::Role::TextBox {
             let text_box = self.text_box.as_ref()?;
             let layout = self.text_box_layout.as_ref()?;
             let text_rect = self.text_box_text_rect();
@@ -488,6 +514,52 @@ impl Frame {
         let fraction = offset / width;
 
         Some(slider.value_at_fraction(fraction))
+    }
+}
+
+impl FrameContent {
+    fn for_role(role: view::Role) -> Self {
+        match role {
+            view::Role::Root => Self::Structural(StructuralRole::Root),
+            view::Role::Stack => Self::Structural(StructuralRole::Stack),
+            view::Role::MenuBar => Self::Structural(StructuralRole::MenuBar),
+            view::Role::Menu => Self::Menu,
+            view::Role::Binding => Self::Binding,
+            view::Role::Separator => Self::Separator,
+            view::Role::TextArea => Self::TextArea,
+            view::Role::Button => Self::Button,
+            view::Role::Checkbox => Self::Checkbox,
+            view::Role::Radio => Self::Radio,
+            view::Role::Slider => Self::Slider,
+            view::Role::TextBox => Self::TextBox,
+            view::Role::Scroll => Self::Scroll,
+            view::Role::Panel => Self::Structural(StructuralRole::Panel),
+            view::Role::FloatingPanel => Self::FloatingPanel,
+            view::Role::SectionHeader => Self::SectionHeader,
+            view::Role::Label => Self::Label,
+        }
+    }
+
+    fn role(&self) -> view::Role {
+        match self {
+            Self::Structural(StructuralRole::Root) => view::Role::Root,
+            Self::Structural(StructuralRole::Stack) => view::Role::Stack,
+            Self::Structural(StructuralRole::MenuBar) => view::Role::MenuBar,
+            Self::Structural(StructuralRole::Panel) => view::Role::Panel,
+            Self::Menu => view::Role::Menu,
+            Self::Binding => view::Role::Binding,
+            Self::Separator => view::Role::Separator,
+            Self::TextArea => view::Role::TextArea,
+            Self::Button => view::Role::Button,
+            Self::Checkbox => view::Role::Checkbox,
+            Self::Radio => view::Role::Radio,
+            Self::Slider => view::Role::Slider,
+            Self::TextBox => view::Role::TextBox,
+            Self::Scroll => view::Role::Scroll,
+            Self::FloatingPanel => view::Role::FloatingPanel,
+            Self::SectionHeader => view::Role::SectionHeader,
+            Self::Label => view::Role::Label,
+        }
     }
 }
 
