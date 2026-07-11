@@ -6,9 +6,9 @@ use super::{
     },
 };
 use wgpu_l3::{
-    View, document, geometry, interaction, scene, timeline,
+    View, VirtualList, document, geometry, interaction, scene, text, timeline,
     view::{Align, Context as ViewContext, Dimension, Padding},
-    widget, window,
+    virtual_list, widget, window,
 };
 
 const MENU_CONTROLS: interaction::Id = interaction::Id::new("control_gallery.menu.controls");
@@ -20,7 +20,39 @@ pub const WINDOW_TITLE: &str = "wgpu_l3 Control Gallery";
 pub const CANVAS_COLOR: scene::Color = window::DEFAULT_CANVAS_COLOR;
 
 pub fn window_size() -> geometry::Size {
-    geometry::Size::new(760, 520)
+    geometry::Size::new(760, 660)
+}
+
+#[derive(Clone, Copy)]
+struct GalleryRows;
+
+impl virtual_list::Provider for GalleryRows {
+    fn len(&self) -> usize {
+        1_000_000
+    }
+
+    fn key(&self, index: usize) -> virtual_list::Key {
+        virtual_list::Key::new(index as u64)
+    }
+
+    fn index_of(&self, key: virtual_list::Key) -> Option<usize> {
+        let index = key.value() as usize;
+        (index < self.len()).then_some(index)
+    }
+
+    fn row(&self, index: usize) -> wgpu_l3::view::Node {
+        wgpu_l3::Widget::into_node(
+            widget::Element::new()
+                .row()
+                .layout(|layout| layout.padding(Padding::symmetric(8, 2)))
+                .child(widget::Label::world(
+                    format!(
+                        "Provider row {index}: application-owned content with a deliberately long value"
+                    ),
+                    text::Overflow::EllipsisEnd,
+                )),
+        )
+    }
 }
 
 pub fn view(state: &State, _: ViewContext) -> View {
@@ -71,6 +103,13 @@ pub fn view(state: &State, _: ViewContext) -> View {
                         if state.show_advanced {
                             ui.add(advanced_panel(state));
                         }
+
+                        ui.label("One million provided rows");
+                        ui.add(
+                            VirtualList::new("control_gallery.virtual_rows", 24, GalleryRows)
+                                .width(Dimension::grow())
+                                .height(Dimension::fixed(112)),
+                        );
                     }),
             );
         });

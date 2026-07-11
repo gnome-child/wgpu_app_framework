@@ -274,6 +274,26 @@ collide with retained composition identity. Subject segment names are strings
 for grouping, display/debug output, and future serialization, not routing
 identity.
 
+Provided containers derive a bounded public child composition from application
+data rather than requiring the application to declare every logical child.
+`virtual_list::Provider` is the first species: it supplies a logical length,
+stable `virtual_list::Key`, efficient reverse lookup, and an ordinary public
+`view::Node` for a requested row. Provider keys extend retained sibling
+reconciliation; they do not create a second identity runtime. Uniform row
+height lets layout derive the visible range arithmetically from the existing
+viewport. Runtime reaches a bounded fixed point by materializing that range
+plus overscan and pins, then laying out once more.
+
+Dematerialization is not removal. A row outside the range still exists while
+its key remains in the provider, so composition does not emit removal facts and
+bounded inactive drafts may survive. Focused, pointer-captured, and actively
+edited rows pin and may remain clipped; selection never pins. When reverse
+lookup no longer finds a key, ordinary composition removal prunes its focus,
+capture, active edit, and draft state. Logical focus movement first
+materializes the keyed row and only then transfers focus. V1 is synchronous,
+flat, uniform-height, and bounded to visible rows plus overscan and pins; it has
+no variable-height, streaming, async, selection, header, or table-track policy.
+
 `layout`
 
 Owns measurement, frame construction, text measurement integration, and
