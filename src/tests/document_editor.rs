@@ -1304,6 +1304,7 @@ fn text_editor_debug_panel_reads_framework_diagnostics_from_view_context() {
     let diagnostics: &mut Diagnostics = app
         .diagnostics_mut(window)
         .expect("window should have framework diagnostics");
+    diagnostics.text.author_text_overflows = 2;
     diagnostics.text.text_area_paint_layout_calls = 7;
     diagnostics.text.text_area_metrics_layout_calls = 3;
     diagnostics.scroll.wheel_events = 5;
@@ -1323,7 +1324,7 @@ fn text_editor_debug_panel_reads_framework_diagnostics_from_view_context() {
     assert!(
         labels
             .iter()
-            .any(|label| label.contains("Text layout: paint 7, metrics 3"))
+            .any(|label| label.contains("Text layout: author overflows 2, paint 7, metrics 3"))
     );
     assert!(labels.iter().any(|label| label.contains("Scroll: wheel 5")));
     assert!(
@@ -1385,7 +1386,7 @@ fn text_editor_render_records_live_text_and_frame_diagnostics() {
     assert!(
         labels
             .iter()
-            .any(|label| label.contains("Text layout: paint "))
+            .any(|label| label.contains("Text layout: author overflows "))
     );
 }
 

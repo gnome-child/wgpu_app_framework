@@ -1144,7 +1144,13 @@ fn text_editor_file_menu_load_stress_text_updates_document_and_status() {
         projected
             .labels()
             .iter()
-            .any(|label| label.contains("File: Untitled (modified) | Wrap: on"))
+            .any(|label| label == &"File: Untitled")
+    );
+    assert!(
+        projected
+            .labels()
+            .iter()
+            .any(|label| label.contains("modified | Wrap: on"))
     );
     assert!(
         projected
