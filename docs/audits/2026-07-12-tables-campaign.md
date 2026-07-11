@@ -511,6 +511,9 @@ the actual geometry contract. No unexplained failure crosses checkpoint 5.
 | 4 | `acd87094` | 1 | 45 | 0 | Current-tree selection ownership and scenario census |
 | 4 | `116cde39` | 32 | 1306 | 18 | Keyed selection, active item, native modifiers, snapshot scoping, bounded reveal and tests |
 | 4 | `cd91ad95` | 2 | 20 | 0 | Selection doctrine and honest selectable gallery caller |
+| 5 | `83aab550` | 1 | 48 | 0 | Current-tree table census and ownership decision |
+| 5 | `da8e0c41` | 6 | 139 | 7 | Shared weighted flow allocation landed before Table composition |
+| 5 | `d7d8cd98` | 39 | 1731 | 90 | Read-only Table composition, identities, resize/sort/grid/scale matrices, gallery, doctrine and full gate |
 
 ## Final fixed-point sweep
 

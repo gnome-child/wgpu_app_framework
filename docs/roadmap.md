@@ -69,7 +69,7 @@ is next.
        virtualization: anchor/extend, reorder persistence, departure,
        keyboard navigation that can target an unmaterialized row and
        materialize it before focus moves.
-    5. **Read-only record table** (complete; closure commit recorded in the campaign ledger) — track layout with explicit/weighted
+    5. **Read-only record table** (complete at `d7d8cd98`) — track layout with explicit/weighted
        widths; resizing owns presentation state independently of provider
        data; headers; sorting emits intent (the table never reorders
        application data); striping, rules, truncation; cells host public
