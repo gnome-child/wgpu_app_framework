@@ -103,6 +103,7 @@ struct ScrollContent {
 struct VirtualListContent {
     viewport: Option<Viewport>,
     request: Option<crate::virtual_list::Request>,
+    row_height: i32,
 }
 
 #[derive(Clone)]
@@ -130,6 +131,8 @@ pub(crate) struct Frame {
     focused: bool,
     focus_visible: bool,
     selected: bool,
+    active_item: bool,
+    provided_row: Option<view::ProvidedRow>,
     force_overlay_group: bool,
     native_popup_material_preference: view::NativePopupMaterialPreference,
     floating_layer: bool,
@@ -253,6 +256,8 @@ impl Frame {
             focused: node.is_focused(),
             focus_visible: node.focus_visible(),
             selected: node.is_selected(),
+            active_item: node.is_active_item(),
+            provided_row: node.provided_row(),
             force_overlay_group: node.force_overlay_group(),
             native_popup_material_preference: node.native_popup_material_preference(),
             floating_layer,
@@ -366,6 +371,14 @@ impl Frame {
         self.selected
     }
 
+    pub(crate) fn is_active_item(&self) -> bool {
+        self.active_item
+    }
+
+    pub(crate) fn provided_row(&self) -> Option<view::ProvidedRow> {
+        self.provided_row
+    }
+
     pub(crate) fn force_overlay_group(&self) -> bool {
         self.force_overlay_group
     }
@@ -400,6 +413,22 @@ impl Frame {
             FrameContent::VirtualList(content) => content.request.as_ref(),
             _ => None,
         }
+    }
+
+    pub(crate) fn virtual_row_index_at(&self, point: Point) -> Option<usize> {
+        let FrameContent::VirtualList(content) = &self.content else {
+            return None;
+        };
+        let viewport = content.viewport?;
+        if !viewport.rect().contains(point) {
+            return None;
+        }
+        let logical_y = point
+            .y()
+            .saturating_sub(viewport.rect().y())
+            .saturating_add(viewport.resolved_scroll().y())
+            .max(0);
+        Some((logical_y / content.row_height.max(1)) as usize)
     }
 
     pub(crate) fn resolved_scroll(&self) -> Option<interaction::ScrollOffset> {
@@ -681,6 +710,10 @@ impl FrameContent {
             view::Role::VirtualList => Self::VirtualList(VirtualListContent {
                 viewport: None,
                 request: None,
+                row_height: node
+                    .virtual_list_model()
+                    .expect("VirtualList role must carry provider content")
+                    .row_height(),
             }),
             view::Role::Panel => Self::Structural(StructuralRole::Panel),
             view::Role::FloatingPanel => Self::FloatingPanel,

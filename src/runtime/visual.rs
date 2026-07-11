@@ -290,7 +290,7 @@ impl Animations {
                 palette_row = palette_row.saturating_add(1);
                 selected
             } else {
-                frame.is_selected()
+                frame.is_selected() || frame.is_active_item()
             };
             let active = match frame.role() {
                 view::Role::MenuBar => open_menu.is_some(),

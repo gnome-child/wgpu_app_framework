@@ -29,6 +29,7 @@ pub enum WindowEvent {
     PointerDown {
         point: geometry::Point,
         button: pointer::Button,
+        modifiers: input::Modifiers,
     },
     PointerUp {
         point: geometry::Point,
@@ -65,10 +66,15 @@ impl WindowEvent {
             Self::RedrawRequested => shell::Event::RedrawRequested { window },
             Self::CloseRequested => shell::Event::CloseRequested { window },
             Self::PointerMoved { point } => shell::Event::PointerMoved { window, point },
-            Self::PointerDown { point, button } => shell::Event::PointerDown {
+            Self::PointerDown {
+                point,
+                button,
+                modifiers,
+            } => shell::Event::PointerDown {
                 window,
                 point,
                 button,
+                modifiers,
             },
             Self::PointerUp { point, button } => shell::Event::PointerUp {
                 window,

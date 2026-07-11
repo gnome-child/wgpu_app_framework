@@ -36,6 +36,7 @@ pub(crate) struct Model {
     row_height: i32,
     overscan: usize,
     provider: Rc<dyn Provider>,
+    selectable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,6 +106,11 @@ impl VirtualList {
         self.background = Some(background);
         self
     }
+
+    pub fn selectable(mut self) -> Self {
+        self.model.selectable = true;
+        self
+    }
 }
 
 impl Widget for VirtualList {
@@ -134,6 +140,7 @@ impl Model {
             row_height: row_height.max(1),
             overscan: DEFAULT_OVERSCAN,
             provider,
+            selectable: false,
         }
     }
 
@@ -155,6 +162,42 @@ impl Model {
 
     pub(crate) fn contains_key(&self, key: Key) -> bool {
         self.provider.index_of(key).is_some()
+    }
+
+    pub(crate) fn is_selectable(&self) -> bool {
+        self.selectable
+    }
+
+    pub(crate) fn reconcile_selection(&self, selection: &mut crate::selection::Selection) -> bool {
+        selection.reconcile(self.provider.as_ref())
+    }
+
+    pub(crate) fn select_row(
+        &self,
+        selection: &mut crate::selection::Selection,
+        key: Key,
+        index: usize,
+        extend: bool,
+        toggle: bool,
+    ) -> bool {
+        selection.click(self.provider.as_ref(), key, index, extend, toggle)
+    }
+
+    pub(crate) fn select_all(&self, selection: &mut crate::selection::Selection) -> bool {
+        selection.select_all(self.provider.as_ref())
+    }
+
+    pub(crate) fn move_selection(
+        &self,
+        selection: &mut crate::selection::Selection,
+        movement: crate::selection::Move,
+        extend: bool,
+    ) -> bool {
+        selection.move_active(self.provider.as_ref(), movement, extend)
+    }
+
+    pub(crate) fn key_at(&self, index: usize) -> Option<Key> {
+        (index < self.len()).then(|| self.provider.key(index))
     }
 
     pub(crate) fn initial_materialization(&self) -> Materialization {

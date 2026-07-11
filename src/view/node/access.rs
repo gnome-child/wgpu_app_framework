@@ -81,6 +81,10 @@ impl Node {
         self.selected
     }
 
+    pub fn is_active_item(&self) -> bool {
+        self.active_item
+    }
+
     pub(crate) fn scroll_offset(&self) -> interaction::ScrollOffset {
         self.scroll_offset
     }

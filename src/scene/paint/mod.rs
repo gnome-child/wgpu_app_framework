@@ -626,7 +626,7 @@ fn visual_tint_for(
         return None;
     }
 
-    if frame.is_menu_row() || frame.is_palette_row() {
+    if frame.is_menu_row() || frame.is_palette_row() || frame.provided_row().is_some() {
         return row_highlight_tint_for(frame, theme, visuals);
     }
 
@@ -654,7 +654,7 @@ fn row_highlight_tint_for(
     theme: &Theme,
     visuals: &Visuals,
 ) -> Option<super::Color> {
-    if !frame.is_menu_row() && !frame.is_palette_row() {
+    if !frame.is_menu_row() && !frame.is_palette_row() && frame.provided_row().is_none() {
         return None;
     }
     let target_visual = frame
@@ -668,6 +668,8 @@ fn row_highlight_tint_for(
 
     let highlighted = target_visual.hovered()
         || frame.focus_visible()
+        || frame.is_selected()
+        || frame.is_active_item()
         || (frame.is_palette_row() && target_visual.selected());
 
     highlighted.then_some(theme.menu().row_hover_tint)

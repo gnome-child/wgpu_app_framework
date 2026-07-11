@@ -36,12 +36,30 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         size: geometry::Size,
         point: geometry::Point,
     ) -> std::result::Result<input::Outcome, Error> {
+        self.pointer_down_at_with_modifiers(window, size, point, input::Modifiers::default())
+    }
+
+    pub fn pointer_down_at_with_modifiers(
+        &mut self,
+        window: window::Id,
+        size: geometry::Size,
+        point: geometry::Point,
+        modifiers: input::Modifiers,
+    ) -> std::result::Result<input::Outcome, Error> {
         let Some(hit) = self.hit_test(window, size, point) else {
             self.set_pointer_cursor(window, pointer::Cursor::Default);
             return self.clear_pointer_focus(window);
         };
+        let selection_change = self.select_virtual_row_for_hit(window, &hit, point, modifiers);
+        let selection_row = selection_change.is_some();
+        let selection_changed = selection_change.unwrap_or(false);
         self.set_cursor_for_hit(window, Some(&hit));
         let Some(target) = hit.target().cloned() else {
+            if selection_changed {
+                self.session
+                    .request_invalidation(window, response::Invalidation::Layout);
+                return Ok(input::Outcome::handled(false, response::Effect::Layout));
+            }
             return self.clear_pointer_focus(window);
         };
         let dismissed_overlays = self.dismiss_overlays_for_hit(window, Some(&hit));
@@ -71,7 +89,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                         view::Action::pointer_manipulate(target),
                     ])
                 })
-        } else if is_pointer_focusable(hit.frame()) {
+        } else if is_pointer_focusable(hit.frame())
+            || (selection_row && hit.frame().role() == view::Role::VirtualList)
+        {
             view::Action::sequence([
                 view::Action::focus(session::Focus::control(&target).pointer()),
                 view::Action::pointer_down(target),
@@ -80,8 +100,48 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             view::Action::pointer_down(target)
         };
 
-        let outcome = self.handle_view(window, action)?;
+        let mut outcome = self.handle_view(window, action)?;
+        if selection_changed {
+            self.session
+                .request_invalidation(window, response::Invalidation::Layout);
+            outcome = input::Outcome::handled(
+                outcome.changed_state(),
+                outcome.effect().clone().then(response::Effect::Layout),
+            );
+        }
         Ok(self.with_overlay_dismissal(window, outcome, dismissed_overlays))
+    }
+
+    fn select_virtual_row_for_hit(
+        &mut self,
+        window: window::Id,
+        hit: &layout::Hit,
+        point: geometry::Point,
+        modifiers: input::Modifiers,
+    ) -> Option<bool> {
+        let composition = self.composition.get(window)?;
+        let row = composition.provided_row_for_node(hit.frame().node_id());
+        let (list, key, index) = if let Some(row) = row {
+            (row.list(), row.key(), row.index())
+        } else {
+            let list = hit.frame().target()?.element_id()?;
+            let model = composition.virtual_list_model(list)?;
+            if !model.is_selectable() {
+                return None;
+            }
+            let index = hit.frame().virtual_row_index_at(point)?;
+            let key = model.key_at(index)?;
+            (list, key, index)
+        };
+        let model = composition.virtual_list_model(list)?.clone();
+        if !model.is_selectable() {
+            return None;
+        }
+        let toggle = modifiers.control() || modifiers.super_key();
+        Some(
+            self.session
+                .select_virtual_row(window, &model, key, index, modifiers.shift(), toggle),
+        )
     }
 
     fn clear_pointer_focus(

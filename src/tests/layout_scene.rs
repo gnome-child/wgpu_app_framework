@@ -571,6 +571,335 @@ fn virtual_list_materializes_logical_target_before_focus_transfer() {
 }
 
 #[test]
+fn selectable_virtual_list_handles_click_toggle_range_and_bounded_select_all() {
+    let row_calls = Rc::new(Cell::new(0));
+    let provider = MillionRowProvider {
+        row_calls: Rc::clone(&row_calls),
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Selectable million rows"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::VirtualList::new("selectable.million", 20, provider.clone())
+                    .selectable()
+                    .width(view::Dimension::grow())
+                    .height(view::Dimension::fixed(100)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let list_id = interaction::Id::new("selectable.million");
+    let size = geometry::Size::new(260, 100);
+    let initial = app
+        .render_scene(window, size)
+        .expect("selectable virtual list should render");
+    let viewport = initial.layout().find_role(view::Role::VirtualList)[0]
+        .viewport()
+        .expect("selectable list should own a viewport")
+        .rect();
+    let row_point = |index: i32| {
+        geometry::Point::new(
+            viewport.x().saturating_add(8),
+            viewport
+                .y()
+                .saturating_add(index.saturating_mul(20))
+                .saturating_add(10),
+        )
+    };
+    assert!(
+        app.session()
+            .selection(window, list_id)
+            .expect("selectable list should install empty state")
+            .is_empty()
+    );
+
+    app.pointer_down_at(window, size, row_point(1))
+        .expect("plain click should select a row");
+    let primary = input::Modifiers::new(false, true, false, false);
+    app.pointer_down_at_with_modifiers(window, size, row_point(2), primary)
+        .expect("primary click should toggle a row");
+    let extend = input::Modifiers::new(true, false, false, false);
+    app.pointer_down_at_with_modifiers(window, size, row_point(4), extend)
+        .expect("shift click should extend from the toggle anchor");
+    let selection = app
+        .session()
+        .selection(window, list_id)
+        .expect("selection should remain installed");
+    assert_eq!(selection.len(), 3);
+    assert!(!selection.contains(crate::virtual_list::Key::new(1)));
+    assert!(selection.contains(crate::virtual_list::Key::new(2)));
+    assert!(selection.contains(crate::virtual_list::Key::new(3)));
+    assert!(selection.contains(crate::virtual_list::Key::new(4)));
+    assert_eq!(selection.anchor(), Some(crate::virtual_list::Key::new(2)));
+    assert_eq!(selection.active(), Some(crate::virtual_list::Key::new(4)));
+
+    let selected_scene = app
+        .render_scene(window, size)
+        .expect("selected rows should render");
+    assert_eq!(
+        selected_scene
+            .layout()
+            .frames()
+            .iter()
+            .filter(|frame| frame.provided_row().is_some() && frame.is_selected())
+            .count(),
+        3
+    );
+    assert_eq!(
+        selected_scene
+            .layout()
+            .frames()
+            .iter()
+            .filter(|frame| frame.is_active_item())
+            .count(),
+        1
+    );
+
+    app.handle_input(window, Input::key_down(input::Key::Character('a'), primary))
+        .expect("primary+A should select all logical rows");
+    let selection = app
+        .session()
+        .selection(window, list_id)
+        .expect("selection should remain installed");
+    assert!(selection.is_all());
+    assert_eq!(selection.len(), 1_000_000);
+    let calls_before = row_calls.get();
+    let all_scene = app
+        .render_scene(window, size)
+        .expect("select-all should remain renderable");
+    assert!(all_scene.layout().frames().len() <= 10);
+    assert!(row_calls.get().saturating_sub(calls_before) <= 16);
+
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::End, input::Modifiers::default()),
+    )
+    .expect("End should move the active item to the final logical row");
+    let moved = app
+        .render_scene(window, size)
+        .expect("offscreen active row should reveal");
+    let selection = app
+        .session()
+        .selection(window, list_id)
+        .expect("selection should remain installed");
+    assert_eq!(selection.len(), 1);
+    assert_eq!(
+        selection.active(),
+        Some(crate::virtual_list::Key::new(999_999))
+    );
+    assert!(
+        moved
+            .scene()
+            .texts()
+            .iter()
+            .any(|text| text.value() == "Provider row 999999")
+    );
+    assert!(moved.layout().frames().len() <= 10);
+}
+
+#[test]
+fn selectable_virtual_list_reconciles_reorder_and_deleted_active_key() {
+    let keys = Rc::new(RefCell::new((0..20).collect::<Vec<_>>()));
+    let provider = MutableKeyProvider {
+        keys: Rc::clone(&keys),
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Mutable selection"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::VirtualList::new("mutable.selection", 20, provider.clone())
+                    .selectable()
+                    .width(view::Dimension::grow())
+                    .height(view::Dimension::fixed(100)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let list = interaction::Id::new("mutable.selection");
+    let size = geometry::Size::new(240, 100);
+    let initial = app
+        .render_scene(window, size)
+        .expect("mutable selection should render");
+    let viewport = initial.layout().find_role(view::Role::VirtualList)[0]
+        .viewport()
+        .expect("mutable selection should have a viewport")
+        .rect();
+    let point = |row: i32| {
+        geometry::Point::new(
+            viewport.x().saturating_add(8),
+            viewport.y().saturating_add(row * 20 + 10),
+        )
+    };
+    app.pointer_down_at(window, size, point(1))
+        .expect("first selection should succeed");
+    app.pointer_down_at_with_modifiers(
+        window,
+        size,
+        point(3),
+        input::Modifiers::new(false, true, false, false),
+    )
+    .expect("toggle selection should succeed");
+
+    keys.borrow_mut()[..5].reverse();
+    app.request_redraw(window);
+    app.render_scene(window, size)
+        .expect("reordered selection should render");
+    let selection = app
+        .session()
+        .selection(window, list)
+        .expect("selection should remain installed");
+    assert!(selection.contains(crate::virtual_list::Key::new(1)));
+    assert!(selection.contains(crate::virtual_list::Key::new(3)));
+    assert_eq!(selection.active(), Some(crate::virtual_list::Key::new(3)));
+
+    keys.borrow_mut().retain(|key| *key != 3);
+    app.request_redraw(window);
+    app.render_scene(window, size)
+        .expect("selection should reconcile provider deletion");
+    let selection = app
+        .session()
+        .selection(window, list)
+        .expect("selection should remain installed");
+    assert_eq!(selection.len(), 1);
+    assert!(selection.contains(crate::virtual_list::Key::new(1)));
+    assert_eq!(selection.active(), Some(crate::virtual_list::Key::new(1)));
+    assert_eq!(selection.anchor(), Some(crate::virtual_list::Key::new(1)));
+}
+
+#[test]
+fn virtual_selection_is_window_local_and_survives_runtime_snapshot_restore() {
+    let provider = MillionRowProvider {
+        row_calls: Rc::new(Cell::new(0)),
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Selection one"));
+            cx.open_window(window::Options::new("Selection two"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::VirtualList::new("window.selection", 20, provider.clone())
+                    .selectable()
+                    .width(view::Dimension::grow())
+                    .height(view::Dimension::fixed(100)),
+            )
+        });
+    app.start();
+    let first_window = app.session().windows()[0].id();
+    let second_window = app.session().windows()[1].id();
+    let list = interaction::Id::new("window.selection");
+    let size = geometry::Size::new(240, 100);
+    app.render_scene(first_window, size)
+        .expect("first selection window should render");
+    app.render_scene(second_window, size)
+        .expect("second selection window should render");
+
+    app.pointer_down_at(first_window, size, geometry::Point::new(8, 30))
+        .expect("first window should select row one");
+    app.pointer_down_at(second_window, size, geometry::Point::new(8, 50))
+        .expect("second window should select row two");
+    assert!(
+        app.session()
+            .selection(first_window, list)
+            .expect("first selection should exist")
+            .contains(crate::virtual_list::Key::new(1))
+    );
+    assert!(
+        app.session()
+            .selection(second_window, list)
+            .expect("second selection should exist")
+            .contains(crate::virtual_list::Key::new(2))
+    );
+
+    let snapshot = app.snapshot();
+    app.pointer_down_at(first_window, size, geometry::Point::new(8, 70))
+        .expect("first window should temporarily select row three");
+    app.restore(snapshot);
+    app.render_scene(first_window, size)
+        .expect("restored first selection window should render");
+    app.render_scene(second_window, size)
+        .expect("restored second selection window should render");
+    assert!(
+        app.session()
+            .selection(first_window, list)
+            .expect("restored first selection should exist")
+            .contains(crate::virtual_list::Key::new(1))
+    );
+    assert!(
+        app.session()
+            .selection(second_window, list)
+            .expect("restored second selection should exist")
+            .contains(crate::virtual_list::Key::new(2))
+    );
+}
+
+#[test]
+fn virtual_selection_is_list_local_within_one_window() {
+    let first_provider = MillionRowProvider {
+        row_calls: Rc::new(Cell::new(0)),
+    };
+    let second_provider = first_provider.clone();
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Two selections"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.column(|ui| {
+                    ui.add(
+                        crate::VirtualList::new("selection.first", 20, first_provider.clone())
+                            .selectable()
+                            .height(view::Dimension::fixed(80)),
+                    );
+                    ui.add(
+                        crate::VirtualList::new("selection.second", 20, second_provider.clone())
+                            .selectable()
+                            .height(view::Dimension::fixed(80)),
+                    );
+                });
+            })
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 160);
+    let initial = app
+        .render_scene(window, size)
+        .expect("two selectable lists should render");
+    let lists = initial.layout().find_role(view::Role::VirtualList);
+    let first_viewport = lists[0].viewport().expect("first viewport").rect();
+    let second_viewport = lists[1].viewport().expect("second viewport").rect();
+    app.pointer_down_at(
+        window,
+        size,
+        geometry::Point::new(first_viewport.x() + 8, first_viewport.y() + 30),
+    )
+    .expect("first list should select row one");
+    app.pointer_down_at(
+        window,
+        size,
+        geometry::Point::new(second_viewport.x() + 8, second_viewport.y() + 50),
+    )
+    .expect("second list should select row two");
+
+    let first = app
+        .session()
+        .selection(window, interaction::Id::new("selection.first"))
+        .expect("first list selection should exist");
+    let second = app
+        .session()
+        .selection(window, interaction::Id::new("selection.second"))
+        .expect("second list selection should exist");
+    assert_eq!(first.len(), 1);
+    assert!(first.contains(crate::virtual_list::Key::new(1)));
+    assert_eq!(second.len(), 1);
+    assert!(second.contains(crate::virtual_list::Key::new(2)));
+}
+
+#[test]
 fn world_text_resolves_overflow_during_layout_before_scene_paint() {
     let source = "C:/very/long/provider/path/to/report.csv";
     let view = View::new(view::Node::world_text(

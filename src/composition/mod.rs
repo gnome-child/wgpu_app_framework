@@ -50,6 +50,8 @@ impl Composition {
     ) {
         let tree = self.tree.clone();
         if let Some(interaction) = interaction {
+            let selections = interaction.selections().snapshot();
+            self.view.project_virtual_selections(&selections);
             self.view
                 .project_layout_interaction_retained(interaction, &tree);
         }
@@ -83,6 +85,21 @@ impl Composition {
             .virtual_list_pins_retained(&self.tree, focus, targets)
     }
 
+    pub(crate) fn virtual_list_model(
+        &self,
+        id: interaction::Id,
+    ) -> Option<&crate::virtual_list::Model> {
+        self.view.virtual_list_model(id)
+    }
+
+    pub(crate) fn selectable_virtual_list_for_focus(
+        &self,
+        focus: session::Focus,
+    ) -> Option<&crate::virtual_list::Model> {
+        self.view
+            .selectable_virtual_list_for_focus(&self.tree, focus)
+    }
+
     pub(crate) fn focus_action(&self, focus: &session::Focus) -> Option<view::Action> {
         self.view.focus_action_retained(focus, &self.tree)
     }
@@ -110,5 +127,17 @@ impl Composition {
         }
 
         false
+    }
+
+    pub(crate) fn provided_row_for_node(&self, node_id: NodeId) -> Option<view::ProvidedRow> {
+        let mut current = Some(node_id);
+        while let Some(id) = current {
+            let node = self.tree.node(id)?;
+            if let Some(row) = node.provided_row() {
+                return Some(row);
+            }
+            current = node.parent();
+        }
+        None
     }
 }

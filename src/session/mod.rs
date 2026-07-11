@@ -1,6 +1,7 @@
 mod focus;
 mod interaction;
 mod request;
+mod selection;
 mod service;
 mod snapshot;
 mod window;

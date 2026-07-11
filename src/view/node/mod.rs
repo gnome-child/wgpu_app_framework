@@ -50,13 +50,14 @@ pub struct Node {
     focused: bool,
     focus_visible: bool,
     selected: bool,
+    active_item: bool,
     scroll_offset: interaction::ScrollOffset,
     virtual_list: Option<virtual_list::Model>,
     provided_row: Option<ProvidedRow>,
     children: Vec<Node>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct ProvidedRow {
     list: interaction::Id,
     key: virtual_list::Key,

@@ -3,4 +3,5 @@ mod dispatch;
 mod effect;
 mod focus;
 mod key;
+mod selection;
 mod text;

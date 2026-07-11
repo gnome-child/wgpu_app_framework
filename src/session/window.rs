@@ -18,6 +18,7 @@ pub struct Window {
 pub struct WindowSnapshot {
     pub(super) facts: app_window::Facts,
     pub(super) focus: Option<Focus>,
+    pub(super) selections: Vec<(interaction::Id, crate::selection::Selection)>,
 }
 
 impl Window {
@@ -36,6 +37,8 @@ impl Window {
     }
 
     pub(super) fn restore(snapshot: WindowSnapshot, draft_limit: usize) -> Self {
+        let mut interaction = interaction::Interaction::new(draft_limit);
+        interaction.selections_mut().restore(snapshot.selections);
         Self {
             facts: snapshot.facts,
             invalidation: Some(response::Invalidation::Rebuild),
@@ -45,7 +48,7 @@ impl Window {
             focus: snapshot.focus,
             menu_restore_focus: None,
             file_dialog: None,
-            interaction: interaction::Interaction::new(draft_limit),
+            interaction,
         }
     }
 
@@ -109,6 +112,7 @@ impl WindowSnapshot {
                 app_window::Kind::Application,
             ),
             focus,
+            selections: Vec::new(),
         }
     }
 
@@ -116,6 +120,7 @@ impl WindowSnapshot {
         Self {
             facts: window.facts.clone(),
             focus: window.focus,
+            selections: window.interaction.selections().snapshot(),
         }
     }
 

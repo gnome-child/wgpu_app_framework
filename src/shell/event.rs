@@ -27,6 +27,7 @@ pub enum Event {
         window: window::Id,
         point: geometry::Point,
         button: pointer::Button,
+        modifiers: input::Modifiers,
     },
     PointerUp {
         window: window::Id,
@@ -89,8 +90,9 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 window,
                 point,
                 button,
+                modifiers,
             } => {
-                self.pointer_down(window, point, button)?;
+                self.pointer_down_with_modifiers(window, point, button, modifiers)?;
                 Ok(self.drain())
             }
             Event::PointerUp {

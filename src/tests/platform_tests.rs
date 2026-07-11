@@ -98,7 +98,7 @@ fn platform_events_translate_winit_window_events_to_host_events() {
         .expect("left press should map");
     match pressed {
         host::Event::Window {
-            event: host::WindowEvent::PointerDown { point, button },
+            event: host::WindowEvent::PointerDown { point, button, .. },
             ..
         } => {
             assert_eq!(point, geometry::Point::new(11, 16));
@@ -119,7 +119,7 @@ fn platform_events_translate_winit_window_events_to_host_events() {
         .expect("secondary press should map");
     match secondary {
         host::Event::Window {
-            event: host::WindowEvent::PointerDown { point, button },
+            event: host::WindowEvent::PointerDown { point, button, .. },
             ..
         } => {
             assert_eq!(point, geometry::Point::new(11, 16));
@@ -265,7 +265,7 @@ fn platform_events_keep_pointer_and_scale_per_window() {
     match second_press {
         host::Event::Window {
             window: event_window,
-            event: host::WindowEvent::PointerDown { point, button },
+            event: host::WindowEvent::PointerDown { point, button, .. },
         } => {
             assert_eq!(event_window, second);
             assert_eq!(point, geometry::Point::new(0, 0));
@@ -332,7 +332,7 @@ fn popup_window_events_map_to_parent_overlay_coordinates() {
     match pressed {
         host::Event::Window {
             window: event_window,
-            event: host::WindowEvent::PointerDown { point, button },
+            event: host::WindowEvent::PointerDown { point, button, .. },
         } => {
             assert_eq!(event_window, parent);
             assert_eq!(point, geometry::Point::new(110, 70));
@@ -453,7 +453,7 @@ fn popup_window_event_adapter_forwards_non_left_buttons() {
             .expect("popup mouse button should be forwarded");
         match event {
             host::Event::Window {
-                event: host::WindowEvent::PointerDown { point, button },
+                event: host::WindowEvent::PointerDown { point, button, .. },
                 ..
             } => {
                 assert_eq!(point, geometry::Point::new(50, 17));
@@ -932,6 +932,7 @@ fn menu_dropdown_uses_native_popup_work_when_backend_supports_it() {
             host::WindowEvent::PointerDown {
                 point,
                 button: pointer::Button::Primary,
+                modifiers: input::Modifiers::default(),
             },
         ))
         .expect("pointer down should be handled");
@@ -1054,6 +1055,7 @@ fn popup_pointer_motion_without_presentation_does_not_close_native_popups() {
             host::WindowEvent::PointerDown {
                 point,
                 button: pointer::Button::Primary,
+                modifiers: input::Modifiers::default(),
             },
         ))
         .expect("pointer down should be handled");

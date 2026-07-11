@@ -3,6 +3,7 @@ mod id;
 mod menu;
 mod pointer;
 mod scroll;
+mod selection;
 mod target;
 
 pub(crate) use command_palette::CommandPalette;
@@ -11,6 +12,7 @@ pub use menu::Menu;
 pub(crate) use pointer::{Capture, Pointer, PressIntent};
 pub(crate) use scroll::Scroll;
 pub use scroll::{ScrollDelta, ScrollOffset};
+pub(crate) use selection::Selections;
 pub use target::{Kind, Target};
 
 use crate::text;
@@ -25,6 +27,7 @@ pub(crate) struct Interaction {
     pointer: Pointer,
     scroll: Scroll,
     text_input: draft::Input,
+    selections: Selections,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -68,6 +71,14 @@ impl Interaction {
 
     pub(crate) fn text_input(&self) -> &draft::Input {
         &self.text_input
+    }
+
+    pub(crate) fn selections(&self) -> &Selections {
+        &self.selections
+    }
+
+    pub(crate) fn selections_mut(&mut self) -> &mut Selections {
+        &mut self.selections
     }
 
     pub(super) fn open_menu_with(&mut self, menu: Menu) -> bool {

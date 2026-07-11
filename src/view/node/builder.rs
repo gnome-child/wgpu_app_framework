@@ -288,6 +288,7 @@ impl Node {
             focused: false,
             focus_visible: false,
             selected: false,
+            active_item: false,
             scroll_offset: interaction::ScrollOffset::default(),
             virtual_list: None,
             provided_row: None,

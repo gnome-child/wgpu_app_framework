@@ -61,6 +61,7 @@ fn host_window_event_mapper_routes_common_window_events() {
         host::WindowEvent::PointerDown {
             point,
             button: pointer::Button::Primary,
+            modifiers: input::Modifiers::default(),
         },
     ))
     .expect("pointer down should focus and capture text area");
@@ -233,6 +234,7 @@ fn host_drops_stale_window_and_dialog_events_after_departure() {
             host::WindowEvent::PointerDown {
                 point: geometry::Point::new(10, 10),
                 button: pointer::Button::Primary,
+                modifiers: input::Modifiers::default(),
             },
         ),
         host::Event::window(

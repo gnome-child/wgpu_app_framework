@@ -140,6 +140,19 @@ impl Layout {
         &self.virtual_list_requests
     }
 
+    pub(crate) fn virtual_list_page(&self, id: interaction::Id, row_height: i32) -> Option<usize> {
+        self.frames
+            .iter()
+            .find(|frame| {
+                frame.role() == view::Role::VirtualList
+                    && frame.target().and_then(interaction::Target::element_id) == Some(id)
+            })
+            .and_then(Frame::viewport)
+            .map(|viewport| {
+                (viewport.rect().height().max(1) as usize / row_height.max(1) as usize).max(1)
+            })
+    }
+
     pub(crate) fn text_caret_rect(&self) -> Option<Rect> {
         self.frames.iter().find_map(Frame::text_caret_rect)
     }

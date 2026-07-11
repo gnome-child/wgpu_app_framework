@@ -32,6 +32,76 @@ impl Node {
         }
     }
 
+    pub(in crate::view) fn collect_selectable_virtual_lists(
+        &self,
+        models: &mut Vec<crate::virtual_list::Model>,
+    ) {
+        if let Some(model) = self
+            .virtual_list_model()
+            .filter(|model| model.is_selectable())
+        {
+            models.push(model.clone());
+        }
+        for child in &self.children {
+            child.collect_selectable_virtual_lists(models);
+        }
+    }
+
+    pub(in crate::view) fn virtual_list_model_for_id(
+        &self,
+        id: interaction::Id,
+    ) -> Option<&crate::virtual_list::Model> {
+        if let Some(model) = self.virtual_list_model().filter(|model| model.id() == id) {
+            return Some(model);
+        }
+        self.children
+            .iter()
+            .find_map(|child| child.virtual_list_model_for_id(id))
+    }
+
+    pub(in crate::view) fn selectable_virtual_list_for_focus_retained(
+        &self,
+        focus: session::Focus,
+        retained: &composition::Node,
+    ) -> Option<&crate::virtual_list::Model> {
+        if let Some(model) = self
+            .virtual_list_model()
+            .filter(|model| model.is_selectable())
+            && self.contains_focus_retained(focus, retained)
+        {
+            return Some(model);
+        }
+        self.children.iter().enumerate().find_map(|(index, child)| {
+            child.selectable_virtual_list_for_focus_retained(focus, retained_child(retained, index))
+        })
+    }
+
+    pub(in crate::view) fn project_virtual_selections(
+        &mut self,
+        selections: &[(interaction::Id, crate::selection::Selection)],
+    ) {
+        if let Some(model) = self
+            .virtual_list_model()
+            .filter(|model| model.is_selectable())
+        {
+            let selection = selections
+                .iter()
+                .find(|(list, _)| *list == model.id())
+                .map(|(_, selection)| selection);
+            for child in &mut self.children {
+                let row = child
+                    .provided_row()
+                    .expect("selectable VirtualList children carry provider identity");
+                child.selected = selection.is_some_and(|selection| selection.contains(row.key()));
+                child.active_item =
+                    selection.is_some_and(|selection| selection.active() == Some(row.key()));
+            }
+        }
+        for child in &mut self.children {
+            child.project_virtual_selections(selections);
+        }
+    }
+
     #[cfg(test)]
     pub(in crate::view) fn collect_bindings<'a>(&'a self, bindings: &mut Vec<&'a Binding>) {
         if let Some(binding) = &self.binding {
@@ -584,11 +654,13 @@ impl Node {
             | Role::MenuBar
             | Role::Separator
             | Role::Scroll
-            | Role::VirtualList
             | Role::Panel
             | Role::FloatingPanel
             | Role::SectionHeader
             | Role::Label => false,
+            Role::VirtualList => self
+                .virtual_list_model()
+                .is_some_and(crate::virtual_list::Model::is_selectable),
         }
     }
 }

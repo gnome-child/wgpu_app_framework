@@ -42,6 +42,7 @@ pub(crate) struct Node {
     key: Key,
     element_id: Option<interaction::Id>,
     subject: Option<subject::Segment>,
+    provided_row: Option<view::ProvidedRow>,
     parent: Option<Identity>,
     children: Vec<Node>,
 }
@@ -294,6 +295,7 @@ impl Node {
             key: Key::for_view(view),
             element_id: element_id_for(view),
             subject: subject_for(view),
+            provided_row: view.provided_row(),
             parent,
             children: Vec::new(),
         }
@@ -349,6 +351,10 @@ impl Node {
 
     pub(crate) fn subject(&self) -> Option<&subject::Segment> {
         self.subject.as_ref()
+    }
+
+    pub(crate) fn provided_row(&self) -> Option<view::ProvidedRow> {
+        self.provided_row
     }
 
     pub(crate) fn children(&self) -> &[Node] {

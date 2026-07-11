@@ -47,6 +47,10 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return Ok(outcome);
         }
 
+        if let Some(outcome) = self.handle_virtual_selection_key(window, key, modifiers) {
+            return Ok(outcome);
+        }
+
         if let Some(outcome) = self.handle_text_box_key_shortcut(window, key, modifiers)? {
             return Ok(outcome);
         }

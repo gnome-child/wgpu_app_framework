@@ -50,6 +50,25 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
         self.runtime.pointer_down_at(window, size, point)
     }
 
+    pub fn pointer_down_with_modifiers(
+        &mut self,
+        window: app_window::Id,
+        point: geometry::Point,
+        button: pointer::Button,
+        modifiers: input::Modifiers,
+    ) -> Result<input::Outcome, Error> {
+        if button != pointer::Button::Primary {
+            return Ok(input::Outcome::ignored());
+        }
+
+        let Some(size) = self.window_size(window) else {
+            return Ok(input::Outcome::ignored());
+        };
+
+        self.runtime
+            .pointer_down_at_with_modifiers(window, size, point, modifiers)
+    }
+
     pub fn pointer_up(
         &mut self,
         window: app_window::Id,

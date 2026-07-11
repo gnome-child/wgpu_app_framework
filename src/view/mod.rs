@@ -49,6 +49,35 @@ impl View {
         self.root.materialize_virtual_lists(requests);
     }
 
+    pub(crate) fn selectable_virtual_lists(&self) -> Vec<crate::virtual_list::Model> {
+        let mut models = Vec::new();
+        self.root.collect_selectable_virtual_lists(&mut models);
+        models
+    }
+
+    pub(crate) fn virtual_list_model(
+        &self,
+        id: interaction::Id,
+    ) -> Option<&crate::virtual_list::Model> {
+        self.root.virtual_list_model_for_id(id)
+    }
+
+    pub(crate) fn selectable_virtual_list_for_focus(
+        &self,
+        tree: &composition::Tree,
+        focus: session::Focus,
+    ) -> Option<&crate::virtual_list::Model> {
+        self.root
+            .selectable_virtual_list_for_focus_retained(focus, tree.root())
+    }
+
+    pub(crate) fn project_virtual_selections(
+        &mut self,
+        selections: &[(interaction::Id, crate::selection::Selection)],
+    ) {
+        self.root.project_virtual_selections(selections);
+    }
+
     #[cfg(test)]
     pub(crate) fn bindings(&self) -> Vec<&Binding> {
         let mut bindings = Vec::new();

@@ -453,7 +453,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         self.present_with_virtual_pin(window, None)
     }
 
-    fn present_with_virtual_pin(
+    pub(in crate::runtime) fn present_with_virtual_pin(
         &mut self,
         window: window::Id,
         virtual_pin: Option<(crate::interaction::Id, crate::virtual_list::Key)>,
@@ -479,12 +479,17 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         if let Some(palette) = self.command_palette_projection(window) {
             view.project_command_palette(palette);
         }
+        let selectable_virtual_lists = view.selectable_virtual_lists();
+        self.session
+            .reconcile_virtual_selections(window, &selectable_virtual_lists);
         let virtual_materializations = self
             .virtual_materializations
             .get(&window)
             .cloned()
             .unwrap_or_default();
         view.materialize_virtual_lists(&virtual_materializations);
+        let virtual_selections = self.session.virtual_selection_snapshot(window);
+        view.project_virtual_selections(&virtual_selections);
         let mut focus = self.session.focused(window);
         if focus.is_some_and(|focus| focus.target_id().is_some() && !view.contains_focus(focus)) {
             log::debug!("clearing stale focus before command resolution for window {window:?}");
@@ -600,11 +605,23 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .into_iter()
             .chain(interaction.text_input().target().cloned())
             .collect::<Vec<_>>();
-        let pins = self
+        let mut pins = self
             .composition
             .get(window)
             .map(|composition| composition.virtual_list_pins(focus, &targets))
             .unwrap_or_default();
+        for target in interaction.scroll().active_descendant_targets() {
+            let Some(list) = target.element_id() else {
+                continue;
+            };
+            if let Some(active) = self
+                .session
+                .selection(window, list)
+                .and_then(crate::selection::Selection::active)
+            {
+                pins.entry(list).or_default().push(active);
+            }
+        }
         let Some(materializations) = self.virtual_materializations.get(&window).cloned() else {
             return;
         };
@@ -839,7 +856,11 @@ fn active_descendant_reveal_offset(
             return selected;
         }
 
-        frame.is_selected()
+        if frame.provided_row().is_some() {
+            frame.is_active_item()
+        } else {
+            frame.is_selected()
+        }
     })
 }
 

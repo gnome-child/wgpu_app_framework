@@ -415,6 +415,7 @@ fn text_editor_shell_event_surface_drives_save_flow() {
             window,
             point,
             button: pointer::Button::Primary,
+            modifiers: input::Modifiers::default(),
         })
         .expect("pointer down event should focus the text area");
     shell
@@ -566,6 +567,7 @@ fn text_editor_host_adapter_consumes_shell_work_end_to_end() {
         host::WindowEvent::PointerDown {
             point,
             button: pointer::Button::Primary,
+            modifiers: input::Modifiers::default(),
         },
     ))
     .expect("pointer down should focus text area");

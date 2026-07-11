@@ -89,6 +89,7 @@ impl Events {
                 ElementState::Pressed => host::WindowEvent::PointerDown {
                     point: self.pointer(window),
                     button: pointer_button(*button),
+                    modifiers: self.modifiers,
                 },
                 ElementState::Released => host::WindowEvent::PointerUp {
                     point: self.pointer(window),
@@ -138,6 +139,7 @@ impl Events {
                 ElementState::Pressed => host::WindowEvent::PointerDown {
                     point: self.pointer(parent),
                     button: pointer_button(*button),
+                    modifiers: self.modifiers,
                 },
                 ElementState::Released => host::WindowEvent::PointerUp {
                     point: self.pointer(parent),
