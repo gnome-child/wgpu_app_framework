@@ -598,6 +598,26 @@ fn platform_error_exposes_wrapped_source_errors() {
 }
 
 #[test]
+fn platform_propagates_operational_backend_failure_at_the_failing_boundary() {
+    let runtime = Runtime::new(EditorState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Failing Backend"));
+        })
+        .view(|_, _| View::new(view::Node::root()));
+    let mut platform = Platform::new(Shell::new(runtime), FakeBackend::default().failing_open());
+
+    let error = platform
+        .start()
+        .expect_err("backend open failure should cross the Platform boundary");
+
+    assert!(matches!(error, platform::Error::Backend("open failed")));
+    assert!(
+        platform.backend().events().is_empty(),
+        "a failed open must not be recorded as completed backend work"
+    );
+}
+
+#[test]
 fn native_platform_runner_is_winit_application_handler_without_starting_wgpu() {
     fn assert_handler<
         A: winit::application::ApplicationHandler<platform::RunnerEvent<text_editor::Event>>,

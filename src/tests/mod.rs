@@ -246,6 +246,7 @@ struct FakeBackend {
     events: Vec<BackendEvent>,
     popup_sync_counts: Vec<usize>,
     native_popups: bool,
+    fail_open: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -304,6 +305,11 @@ impl FakeBackend {
         self.native_popups = true;
         self
     }
+
+    fn failing_open(mut self) -> Self {
+        self.fail_open = true;
+        self
+    }
 }
 
 impl platform::Backend for FakeBackend {
@@ -315,6 +321,9 @@ impl platform::Backend for FakeBackend {
         _context: &mut Self::Context<'_>,
         window: &platform::Window,
     ) -> Result<(), Self::Error> {
+        if self.fail_open {
+            return Err("open failed");
+        }
         self.events.push(BackendEvent::OpenWindow {
             id: window.id(),
             title: window.title().to_owned(),

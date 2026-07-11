@@ -208,3 +208,55 @@ fn text_editor_host_drains_scene_work() {
         session::RequestKind::FileDialog(session::FileDialog::Open)
     );
 }
+
+#[test]
+fn host_drops_stale_window_and_dialog_events_after_departure() {
+    let mut host = Host::new(text_editor::shell(text_editor::State::default()));
+
+    host.start().expect("host should start shell");
+    let window = host.windows()[0].id();
+    host.handle_event(host::Event::window(
+        window,
+        host::WindowEvent::CloseRequested,
+    ))
+    .expect("close should depart the host window");
+
+    assert!(!host.shell().runtime().session().contains(window));
+    assert!(host.windows().is_empty());
+    assert!(host.presentations().is_empty());
+    let revision = host.shell().runtime().revision();
+    let status = host.shell().runtime().state().last_status.clone();
+
+    for event in [
+        host::Event::window(
+            window,
+            host::WindowEvent::PointerDown {
+                point: geometry::Point::new(10, 10),
+                button: pointer::Button::Primary,
+            },
+        ),
+        host::Event::window(
+            window,
+            host::WindowEvent::KeyDown {
+                key: input::Key::Character('x'),
+                modifiers: input::Modifiers::default(),
+                text: Some("x".to_owned()),
+            },
+        ),
+        host::Event::window(window, host::WindowEvent::RedrawRequested),
+        host::Event::FilePathSelected {
+            window,
+            path: Some(temp_text_path("stale_dialog_result.txt")),
+        },
+    ] {
+        let work = host
+            .handle_event(event)
+            .expect("stale host event should be ignored safely");
+        assert!(work.is_empty(), "stale event must not create host work");
+    }
+
+    assert_eq!(host.shell().runtime().revision(), revision);
+    assert_eq!(host.shell().runtime().state().last_status, status);
+    assert!(host.windows().is_empty());
+    assert!(host.presentations().is_empty());
+}
