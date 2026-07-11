@@ -138,6 +138,60 @@ these cells.
   bounded eviction, and repeated measurement. Existing widget/layout tests
   witness label wrap and user-text behavior.
 
+## Checkpoint 2 census — typed `FrameContent`
+
+Current-tree ownership claim: `Frame` has one common envelope for node identity,
+path, geometry, active geometry, focus/selection presentation, overlay policy,
+background, clip, generic target/binding/action, and the label projection shared
+by many roles. Role-specific semantic payload belongs in one `FrameContent`.
+The current parallel cluster is `viewport`, `text_area_layout`,
+`text_box_layout`, `text_box_text_rect`, `slider_track_rect`, `checkbox`,
+`radio`, `text_area`, `text_box`, `slider`, and the three shortcut fields;
+`text`, `text_wrap`, and `world_text_overflow` are derived text-family payload.
+
+The existing house pattern is `view::Control`: one enum owns mutually exclusive
+typed leaf models and narrow accessors project them. `FrameContent` will use the
+same pattern. `Frame::role()` will derive from content, deleting the independent
+role discriminant so role/payload disagreement is structurally impossible.
+Generic binding/action remains common because `Element` may truthfully bind
+structural presentation roles; it is not a leaf-role payload.
+
+### Family migration map
+
+| Migration family | Roles | Truthful payload after migration | Existing downstream consumers |
+| --- | --- | --- | --- |
+| Structural | Root, Stack, MenuBar, Panel | restricted structural discriminator; no leaf payload | layout algorithm, composition identity, generic background/children paint |
+| Choice | Checkbox, Radio | one choice enum carrying exactly one typed model | active rect, shared choice paint, checked/selected state |
+| Text | Label, SectionHeader, TextArea, TextBox | label kind/overflow or typed area/field model plus owned layout geometry | measurement, hit/drag caret mapping, runtime text projection, scene text paint |
+| Slider | Slider | model plus derived track rect | hit value mapping, capture/gesture action, scene paint, native presentation transform |
+| Scroll and floating | Scroll, FloatingPanel | scroll viewport only on Scroll; floating remains a unit semantic variant | reveal/wheel/chrome and overlay/native layer routing |
+| Remaining specialized | Menu, Binding, Separator, Button | binding shortcut payload only on Binding; other roles are unit variants | menu/palette row paint, shortcuts, menu actions, button paint |
+
+The complete widget-audit downstream index remains the migration navigation
+map: `layout/algorithm`, `layout/measure`, `layout/frame`, `layout/chrome`,
+`runtime/{pointer,visual,presentation}`, `scene/paint` and its choice/slider/text
+modules, and Slider's native-paint branch. No phase-local policy is being
+consolidated merely because it also inspects a role.
+
+| Cell | Scenario | Required result | Current mechanism / migration proof | Status |
+| --- | --- | --- | --- | --- |
+| C2-01 | One discriminant | `Frame` stores `content: FrameContent`; `role()` derives from it | Independent `role` plus optional cluster exists today | Planned |
+| C2-02 | Structural family | Root/Stack/MenuBar/Panel cannot carry leaf payload | Roles are currently only a copied enum value | Planned |
+| C2-03 | Choice family | Checkbox and Radio share geometry/paint family but carry exactly one correct model | Separate optional `checkbox` and `radio` can coexist | Planned |
+| C2-04 | Text family | Label/header/area/field payloads are exclusive; user-text layout and world overflow retain behavior | Seven optional/derived text fields coexist | Planned |
+| C2-05 | Slider | Slider model and track geometry travel together and no other role can hold them | Two independent slider optionals exist | Planned |
+| C2-06 | Scroll/floating | Viewport mutation is legal only for Scroll; floating behavior stays unit/common presentation | Generic optional viewport currently also serves TextArea | Planned |
+| C2-07 | Remaining specialized | Shortcut display/width mutation is legal only for Binding; unit roles gain no ornamental structs | Three shortcut fields are generic Frame optionals | Planned |
+| C2-08 | Interaction equivalence | Hit, action, drag, focus, capture and reveal journeys remain byte-for-behavior equivalent | Narrow Frame accessors already centralize consumers | Planned |
+| C2-09 | Presentation equivalence | Paint, overlay, chrome and Slider native transform retain exact branches | Downstream branch index and full suite are authoritative | Planned |
+| C2-10 | Single representation | Legacy role and optional payload cluster are absent; one source witness pins this | No structural absence witness exists | Planned |
+| C2-11 | Performance/non-scope | Suite gauge and release text benchmark hold; no table role/API/feature appears | C1 gate is 824/8 in 0.88 s and 31.167 ms load | Planned |
+
+Expected exclusions: no public API, role, widget, table behavior, capability
+table, generic property bag, or phase-policy consolidation. Family commits may
+temporarily coexist with unmigrated legacy fields, but every family commit must
+be green and the checkpoint boundary may contain only `FrameContent`.
+
 ## Execution ledger
 
 | Run | Checkpoint / cells | Result | Evidence |
