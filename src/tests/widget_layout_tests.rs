@@ -20,14 +20,14 @@ fn widget_closure_api_models_layout_controls_and_trigger_bindings() {
         element.layout_state().padding_value(),
         view::Padding::symmetric(8, 4)
     );
-    assert_eq!(element.width_state(), Some(view::Dimension::Grow));
+    assert_eq!(element.width_state(), Some(view::Dimension::grow()));
     assert_eq!(element.height_state(), Some(view::Dimension::Fixed(44)));
 
     let styled_node = widget::Widget::into_node(element);
     assert_eq!(styled_node.style().gap(), 12);
     assert_eq!(styled_node.style().padding().left(), 8);
     assert_eq!(styled_node.style().padding().top(), 4);
-    assert_eq!(styled_node.style().width(), Some(view::Dimension::Grow));
+    assert_eq!(styled_node.style().width(), Some(view::Dimension::grow()));
     assert_eq!(
         styled_node.style().height(),
         Some(view::Dimension::Fixed(44))
@@ -69,6 +69,22 @@ fn widget_closure_api_models_layout_controls_and_trigger_bindings() {
     assert_eq!(view.text_boxes().len(), 1);
     assert_eq!(view.text_boxes()[0].text(), "");
     assert_eq!(view.text_boxes()[0].display_text(), "Find");
+}
+
+#[test]
+fn flexible_dimensions_carry_a_clamped_minimum() {
+    assert_eq!(
+        view::Dimension::weight(3).minimum(72),
+        view::Dimension::Flexible {
+            weight: 3,
+            minimum: 72,
+        }
+    );
+    assert_eq!(view::Dimension::grow().minimum(-8), view::Dimension::grow());
+    assert_eq!(
+        view::Dimension::fixed(48).minimum(96),
+        view::Dimension::fixed(48)
+    );
 }
 
 #[test]

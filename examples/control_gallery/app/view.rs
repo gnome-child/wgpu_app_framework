@@ -170,23 +170,16 @@ pub fn view(state: &State, _: ViewContext) -> View {
                                 "control_gallery.records",
                                 24,
                                 [
-                                    table::Column::new(
-                                        "record",
-                                        "Record",
-                                        table::Width::fixed(110),
-                                    )
-                                    .header(
-                                        widget::Button::new("Record ↕").trigger::<SortRecords>(()),
-                                    ),
-                                    table::Column::new("detail", "Detail", table::Width::weight(2)),
-                                    table::Column::new("note", "Note", table::Width::weight(1)),
-                                    table::Column::new("count", "Count", table::Width::fixed(72)),
-                                    table::Column::new(
-                                        "enabled",
-                                        "Enabled",
-                                        table::Width::fixed(100),
-                                    ),
-                                    table::Column::new("action", "Action", table::Width::fixed(72)),
+                                    table::Column::new("record", "Record", Dimension::fixed(110))
+                                        .header(
+                                            widget::Button::new("Record ↕")
+                                                .trigger::<SortRecords>(()),
+                                        ),
+                                    table::Column::new("detail", "Detail", Dimension::weight(2)),
+                                    table::Column::new("note", "Note", Dimension::weight(1)),
+                                    table::Column::new("count", "Count", Dimension::fixed(72)),
+                                    table::Column::new("enabled", "Enabled", Dimension::fixed(100)),
+                                    table::Column::new("action", "Action", Dimension::fixed(72)),
                                 ],
                                 GalleryRecords {
                                     descending: state.records_descending,

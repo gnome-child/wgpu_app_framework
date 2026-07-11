@@ -60,7 +60,7 @@ fn panel_node(palette: CommandPalette) -> Node {
         .with_layout_axis(view::Axis::Vertical)
         .with_style(
             view::Style::new()
-                .with_width(view::Dimension::Grow)
+                .with_width(view::Dimension::grow())
                 .with_height(view::Dimension::fit())
                 .with_max_height(palette.max_results_height)
                 .with_gap(0),
@@ -88,7 +88,7 @@ fn query_node(query: &str) -> Node {
 
 fn section_node(label: &str) -> Node {
     Node::section_header(label.to_owned())
-        .with_style(view::Style::new().with_width(view::Dimension::Grow))
+        .with_style(view::Style::new().with_width(view::Dimension::grow()))
 }
 
 fn result_node(selected: bool, entry: Entry) -> Node {
@@ -98,6 +98,6 @@ fn result_node(selected: bool, entry: Entry) -> Node {
         .with_style(
             view::Style::new()
                 .with_height(view::Dimension::fixed(26))
-                .with_width(view::Dimension::Grow),
+                .with_width(view::Dimension::grow()),
         )
 }

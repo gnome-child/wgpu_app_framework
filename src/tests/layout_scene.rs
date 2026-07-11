@@ -211,12 +211,8 @@ fn editable_table_app(state: EditableTableState) -> Runtime<EditableTableState, 
                     "editable.table",
                     24,
                     [
-                        crate::table::Column::new("name", "Name", crate::table::Width::weight(1)),
-                        crate::table::Column::new(
-                            "count",
-                            "Count",
-                            crate::table::Width::fixed(100),
-                        ),
+                        crate::table::Column::new("name", "Name", view::Dimension::weight(1)),
+                        crate::table::Column::new("count", "Count", view::Dimension::fixed(100)),
                     ],
                     EditableTableProvider {
                         records: state.records.clone(),
@@ -503,17 +499,9 @@ fn million_row_table_composes_public_cells_with_bounded_aligned_tracks() {
                     "records",
                     20,
                     [
-                        crate::table::Column::new("name", "Name", crate::table::Width::fixed(80)),
-                        crate::table::Column::new(
-                            "detail",
-                            "Detail",
-                            crate::table::Width::weight(1),
-                        ),
-                        crate::table::Column::new(
-                            "action",
-                            "Action",
-                            crate::table::Width::weight(2),
-                        ),
+                        crate::table::Column::new("name", "Name", view::Dimension::fixed(80)),
+                        crate::table::Column::new("detail", "Detail", view::Dimension::weight(1)),
+                        crate::table::Column::new("action", "Action", view::Dimension::weight(2)),
                     ],
                     provider.clone(),
                 )
@@ -650,12 +638,8 @@ fn table_header_stays_fixed_while_keyed_rows_scroll_reorder_and_shrink() {
                     "mutable.table",
                     20,
                     [
-                        crate::table::Column::new("first", "First", crate::table::Width::fixed(90)),
-                        crate::table::Column::new(
-                            "second",
-                            "Second",
-                            crate::table::Width::weight(1),
-                        ),
+                        crate::table::Column::new("first", "First", view::Dimension::fixed(90)),
+                        crate::table::Column::new("second", "Second", view::Dimension::weight(1)),
                     ],
                     provider.clone(),
                 )
@@ -749,12 +733,8 @@ fn table_column_resize_uses_capture_and_stays_window_local() {
                     "resizable.table",
                     20,
                     [
-                        crate::table::Column::new("first", "First", crate::table::Width::fixed(80)),
-                        crate::table::Column::new(
-                            "second",
-                            "Second",
-                            crate::table::Width::weight(1),
-                        ),
+                        crate::table::Column::new("first", "First", view::Dimension::fixed(80)),
+                        crate::table::Column::new("second", "Second", view::Dimension::weight(1)),
                     ],
                     provider.clone(),
                 )
@@ -937,15 +917,11 @@ fn table_column_resize_stays_table_local_in_one_window() {
                         id,
                         20,
                         [
-                            crate::table::Column::new(
-                                "first",
-                                "First",
-                                crate::table::Width::fixed(80),
-                            ),
+                            crate::table::Column::new("first", "First", view::Dimension::fixed(80)),
                             crate::table::Column::new(
                                 "second",
                                 "Second",
-                                crate::table::Width::weight(1),
+                                view::Dimension::weight(1),
                             ),
                         ],
                         provider.clone(),
@@ -1018,12 +994,12 @@ fn removing_a_column_releases_its_synthetic_resize_capture() {
             let mut columns = vec![crate::table::Column::new(
                 "second",
                 "Second",
-                crate::table::Width::weight(1),
+                view::Dimension::weight(1),
             )];
             if *view_show_first.borrow() {
                 columns.insert(
                     0,
-                    crate::table::Column::new("first", "First", crate::table::Width::fixed(80)),
+                    crate::table::Column::new("first", "First", view::Dimension::fixed(80)),
                 );
             }
             widget::view_node(
@@ -1090,17 +1066,9 @@ fn table_keyboard_tracks_a_keyed_logical_row_and_column_without_scanning() {
                     "keyboard.table",
                     20,
                     [
-                        crate::table::Column::new("name", "Name", crate::table::Width::fixed(80)),
-                        crate::table::Column::new(
-                            "detail",
-                            "Detail",
-                            crate::table::Width::fixed(100),
-                        ),
-                        crate::table::Column::new(
-                            "action",
-                            "Action",
-                            crate::table::Width::weight(1),
-                        ),
+                        crate::table::Column::new("name", "Name", view::Dimension::fixed(80)),
+                        crate::table::Column::new("detail", "Detail", view::Dimension::fixed(100)),
+                        crate::table::Column::new("action", "Action", view::Dimension::weight(1)),
                     ],
                     provider.clone(),
                 )

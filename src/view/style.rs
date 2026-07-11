@@ -15,8 +15,7 @@ pub struct Style {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Dimension {
     Fit,
-    Grow,
-    Weight(u16),
+    Flexible { weight: u16, minimum: i32 },
     Fixed(i32),
     Percent(f32),
 }
@@ -140,11 +139,17 @@ impl Dimension {
     }
 
     pub fn grow() -> Self {
-        Self::Grow
+        Self::Flexible {
+            weight: 1,
+            minimum: 0,
+        }
     }
 
     pub fn weight(value: u16) -> Self {
-        Self::Weight(value.max(1))
+        Self::Flexible {
+            weight: value.max(1),
+            minimum: 0,
+        }
     }
 
     pub fn fixed(value: i32) -> Self {
@@ -153,6 +158,25 @@ impl Dimension {
 
     pub fn percent(value: f32) -> Self {
         Self::Percent(value.clamp(0.0, 1.0))
+    }
+
+    /// Preserves at least `minimum` logical pixels when this flexible
+    /// dimension is allocated under overflow pressure.
+    pub fn minimum(self, minimum: i32) -> Self {
+        match self {
+            Self::Flexible { weight, .. } => Self::Flexible {
+                weight,
+                minimum: minimum.max(0),
+            },
+            _ => self,
+        }
+    }
+
+    pub(crate) fn flexible(self) -> Option<(u16, i32)> {
+        match self {
+            Self::Flexible { weight, minimum } => Some((weight, minimum)),
+            _ => None,
+        }
     }
 }
 

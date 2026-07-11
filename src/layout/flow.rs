@@ -21,6 +21,12 @@ pub(crate) struct Item {
     weight: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Pressure {
+    Fit,
+    Overflow,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Row {
     items: Vec<Item>,
@@ -28,6 +34,7 @@ pub(crate) struct Row {
     padding: view::Padding,
     align_items: view::Align,
     justify_content: view::Align,
+    pressure: Pressure,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +44,7 @@ pub(crate) struct Column {
     padding: view::Padding,
     align_items: view::Align,
     justify_content: view::Align,
+    pressure: Pressure,
 }
 
 impl Constraints {
@@ -115,6 +123,7 @@ impl Row {
             padding: view::Padding::zero(),
             align_items: view::Align::Stretch,
             justify_content: view::Align::Start,
+            pressure: Pressure::Fit,
         }
     }
 
@@ -135,6 +144,11 @@ impl Row {
 
     pub(crate) fn justify_content(mut self, align: view::Align) -> Self {
         self.justify_content = align;
+        self
+    }
+
+    pub(crate) fn pressure(mut self, pressure: Pressure) -> Self {
+        self.pressure = pressure;
         self
     }
 
@@ -181,7 +195,13 @@ impl Row {
 
     pub(crate) fn layout(&self, rect: Rect) -> Vec<Rect> {
         let content = inset_rect(rect, self.padding);
-        let widths = allocate_main(content.width(), self.gap, &self.items, MainAxis::Width);
+        let widths = allocate_main(
+            content.width(),
+            self.gap,
+            &self.items,
+            MainAxis::Width,
+            self.pressure,
+        );
         let content_width = widths
             .iter()
             .copied()
@@ -223,6 +243,7 @@ impl Column {
             padding: view::Padding::zero(),
             align_items: view::Align::Stretch,
             justify_content: view::Align::Start,
+            pressure: Pressure::Fit,
         }
     }
 
@@ -243,6 +264,11 @@ impl Column {
 
     pub(crate) fn justify_content(mut self, align: view::Align) -> Self {
         self.justify_content = align;
+        self
+    }
+
+    pub(crate) fn pressure(mut self, pressure: Pressure) -> Self {
+        self.pressure = pressure;
         self
     }
 
@@ -289,7 +315,13 @@ impl Column {
 
     pub(crate) fn layout(&self, rect: Rect) -> Vec<Rect> {
         let content = inset_rect(rect, self.padding);
-        let heights = allocate_main(content.height(), self.gap, &self.items, MainAxis::Height);
+        let heights = allocate_main(
+            content.height(),
+            self.gap,
+            &self.items,
+            MainAxis::Height,
+            self.pressure,
+        );
         let content_height = heights
             .iter()
             .copied()
@@ -329,7 +361,13 @@ enum MainAxis {
     Height,
 }
 
-fn allocate_main(available: i32, gap: i32, items: &[Item], axis: MainAxis) -> Vec<i32> {
+fn allocate_main(
+    available: i32,
+    gap: i32,
+    items: &[Item],
+    axis: MainAxis,
+    pressure: Pressure,
+) -> Vec<i32> {
     if items.is_empty() {
         return Vec::new();
     }
@@ -388,10 +426,15 @@ fn allocate_main(available: i32, gap: i32, items: &[Item], axis: MainAxis) -> Ve
         return preferred;
     }
 
-    shrink_to_available(preferred, min, available)
+    shrink_to_available(preferred, min, available, pressure)
 }
 
-fn shrink_to_available(mut sizes: Vec<i32>, min: Vec<i32>, available: i32) -> Vec<i32> {
+fn shrink_to_available(
+    mut sizes: Vec<i32>,
+    min: Vec<i32>,
+    available: i32,
+    pressure: Pressure,
+) -> Vec<i32> {
     let mut shortage = sizes.iter().copied().sum::<i32>().saturating_sub(available);
 
     for index in (0..sizes.len()).rev() {
@@ -404,14 +447,16 @@ fn shrink_to_available(mut sizes: Vec<i32>, min: Vec<i32>, available: i32) -> Ve
         shortage = shortage.saturating_sub(shrink);
     }
 
-    for index in (0..sizes.len()).rev() {
-        if shortage == 0 {
-            break;
-        }
+    if pressure == Pressure::Fit {
+        for index in (0..sizes.len()).rev() {
+            if shortage == 0 {
+                break;
+            }
 
-        let shrink = sizes[index].min(shortage);
-        sizes[index] = sizes[index].saturating_sub(shrink);
-        shortage = shortage.saturating_sub(shrink);
+            let shrink = sizes[index].min(shortage);
+            sizes[index] = sizes[index].saturating_sub(shrink);
+            shortage = shortage.saturating_sub(shrink);
+        }
     }
 
     sizes
@@ -514,6 +559,61 @@ mod tests {
                 Rect::new(20, 0, 20, 10),
                 Rect::new(40, 0, 60, 10),
             ]
+        );
+    }
+
+    #[test]
+    fn overflow_pressure_preserves_weighted_minimums_under_deficit() {
+        let row = Row::new()
+            .pressure(Pressure::Overflow)
+            .item(Item::weighted(
+                SizeHint::new(Size::new(40, 10), Size::new(40, 10)),
+                1,
+            ))
+            .item(Item::weighted(
+                SizeHint::new(Size::new(60, 10), Size::new(60, 10)),
+                2,
+            ));
+
+        assert_eq!(
+            row.layout(Rect::new(0, 0, 50, 10)),
+            vec![Rect::new(0, 0, 40, 10), Rect::new(40, 0, 60, 10)]
+        );
+    }
+
+    #[test]
+    fn fit_pressure_retains_emergency_compression() {
+        let row = Row::new()
+            .item(Item::fixed(SizeHint::new(
+                Size::new(40, 10),
+                Size::new(40, 10),
+            )))
+            .item(Item::fixed(SizeHint::new(
+                Size::new(60, 10),
+                Size::new(60, 10),
+            )));
+
+        assert_eq!(
+            row.layout(Rect::new(0, 0, 50, 10)),
+            vec![Rect::new(0, 0, 40, 10), Rect::new(40, 0, 10, 10)]
+        );
+    }
+
+    #[test]
+    fn weighted_surplus_starts_after_minimums_and_rounds_deterministically() {
+        let row = Row::new()
+            .item(Item::weighted(
+                SizeHint::new(Size::new(20, 10), Size::new(20, 10)),
+                1,
+            ))
+            .item(Item::weighted(
+                SizeHint::new(Size::new(30, 10), Size::new(30, 10)),
+                2,
+            ));
+
+        assert_eq!(
+            row.layout(Rect::new(0, 0, 60, 10)),
+            vec![Rect::new(0, 0, 24, 10), Rect::new(24, 0, 36, 10)]
         );
     }
 

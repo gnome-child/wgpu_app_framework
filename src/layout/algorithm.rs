@@ -479,7 +479,12 @@ fn vertical_stack_placement(
     let mut column = flow::Column::new()
         .gap(layout_gap(node, theme))
         .padding(padding)
-        .align_items(node.style().align_items());
+        .align_items(node.style().align_items())
+        .pressure(if scroll_axis {
+            flow::Pressure::Overflow
+        } else {
+            flow::Pressure::Fit
+        });
 
     for child in children {
         let width = cross_axis_width(
@@ -490,6 +495,7 @@ fn vertical_stack_placement(
             theme,
             profile,
         );
+        let flexible = child.style().height().and_then(view::Dimension::flexible);
         let height = if scroll_axis {
             scroll_axis_child_height(child, width, content_height, engine, theme, profile)
         } else {
@@ -507,8 +513,11 @@ fn vertical_stack_placement(
                 measured.preferred().height()
             }
         };
-        let hint = flow::SizeHint::new(Size::new(width, 0), Size::new(width, height));
-        let item = if !scroll_axis && grows_vertical_space(child) {
+        let minimum = flexible.map_or(0, |(_, minimum)| minimum);
+        let hint = flow::SizeHint::new(Size::new(width, minimum), Size::new(width, height));
+        let item = if !scroll_axis && let Some((weight, _)) = flexible {
+            flow::Item::weighted(hint, weight)
+        } else if !scroll_axis && grows_vertical_space(child) {
             flow::Item::grow(hint)
         } else {
             flow::Item::fixed(hint)
@@ -565,17 +574,18 @@ fn horizontal_stack_placement(
     let mut row = flow::Row::new()
         .gap(layout_gap(node, theme))
         .padding(padding)
-        .align_items(node.style().align_items());
+        .align_items(node.style().align_items())
+        .pressure(if scroll_axis {
+            flow::Pressure::Overflow
+        } else {
+            flow::Pressure::Fit
+        });
 
     for child in children {
-        let growth_weight = match child.style().width() {
-            Some(view::Dimension::Grow) => Some(1),
-            Some(view::Dimension::Weight(weight)) => Some(weight),
-            _ => None,
-        };
+        let flexible = child.style().width().and_then(view::Dimension::flexible);
         let width = if scroll_axis {
             scroll_axis_child_width(child, content_width, engine, theme, profile)
-        } else if growth_weight.is_some() {
+        } else if flexible.is_some() {
             0
         } else {
             resolved_row_width(child, content_width, engine, theme, profile)
@@ -589,8 +599,9 @@ fn horizontal_stack_placement(
             theme,
             profile,
         );
-        let hint = flow::SizeHint::new(Size::new(0, height), Size::new(width, height));
-        let item = if !scroll_axis && let Some(weight) = growth_weight {
+        let minimum = flexible.map_or(0, |(_, minimum)| minimum);
+        let hint = flow::SizeHint::new(Size::new(minimum, height), Size::new(width, height));
+        let item = if !scroll_axis && let Some((weight, _)) = flexible {
             flow::Item::weighted(hint, weight)
         } else {
             flow::Item::fixed(hint)
@@ -721,9 +732,7 @@ fn scroll_axis_child_width(
     profile: keymap::Profile,
 ) -> i32 {
     match child.style().width() {
-        Some(view::Dimension::Grow | view::Dimension::Weight(_)) => {
-            intrinsic_width(child, engine, theme, profile)
-        }
+        Some(view::Dimension::Flexible { .. }) => intrinsic_width(child, engine, theme, profile),
         Some(view::Dimension::Percent(percent)) => {
             ((viewport_content_width.max(0) as f32) * percent).round() as i32
         }

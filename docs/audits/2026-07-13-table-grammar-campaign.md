@@ -48,7 +48,7 @@ vocabularies are admitted.
 
 | Checkpoint | Contract | Status | Boundary proof |
 | --- | --- | --- | --- |
-| 1 | One sizing truth: shared `view::Dimension`, minimum-preserving overflow pressure, delete `table::Width` | In progress | Census pending |
+| 1 | One sizing truth: shared `view::Dimension`, minimum-preserving overflow pressure, delete `table::Width` | Green; commit pending | 855 passed, 8 ignored; three smokes and all boundary checks green |
 | 2 | Resolve the track projection before placement; one horizontal scroll owner | Pending | — |
 | 3 | Host-derived participation and truthful table chrome | Pending | — |
 | 4 | General whole-draft `text::Input` policies | Pending | — |
@@ -82,6 +82,14 @@ must disappear rather than coexist with a third track-sizing vocabulary.
 general minimum expression the census proves fits its existing callers. No
 compatibility alias is permitted.
 
+Checkpoint 1 resolved the flag by replacing the raw `Grow` and `Weight`
+variants with `Dimension::Flexible { weight, minimum }` while preserving the
+`grow()` and `weight()` constructors. The fluent `minimum()` operation applies
+to flexible dimensions; fixed, fit, and percentage declarations retain their
+old meanings. `layout::flow::Pressure` is internal because it describes
+allocator policy rather than application sizing intent. `table::Width` and its
+conversion helper were deleted without aliases.
+
 Further flags append here as public names are proposed and resolved.
 
 ## Census and case law
@@ -97,6 +105,39 @@ Further flags append here as public names are proposed and resolved.
   arithmetic.
 - Keep declared column sizing distinct from session resize overrides even when
   both feed the effective projection.
+
+### Checkpoint 1 — verdict and boundary
+
+- Census: all table widths were fixed or weighted declarations immediately
+  converted into `view::Dimension`; there was no independent table sizing
+  policy worth preserving. All declarations now use `view::Dimension`
+  directly.
+- Reuse: `flow::{SizeHint, Item, Row, Column}` remains the only allocator.
+  `Pressure::Fit` retains ordinary emergency compression, while
+  `Pressure::Overflow` stops after shrinking to declared minima. Both horizontal
+  and vertical scroll axes select overflow pressure through the existing stack
+  path.
+- Ownership: `Column::width()` remains the application declaration. A separate
+  internal resize override is refreshed from session state and only
+  `effective_width()` combines the two; resize no longer overwrites the
+  declaration.
+- Focused witnesses: 10 allocator tests passed, including deterministic
+  weighted remainder, minimum-first surplus, fit deficit, and overflow deficit.
+  The public dimension witness pins clamping and confirms that non-flexible
+  dimensions are unchanged.
+- Absence witness: `rg` finds no `table::Width`, `Width::fixed`,
+  `Width::weight`, `enum Width`, `Dimension::Grow`, or `Dimension::Weight` in
+  Rust sources.
+- Full library: 855 passed, 8 ignored, 0 failed in 0.94 s. The compact
+  million-row table witness passed inside that suite.
+- Smokes: `text_editor`, `control_gallery`, and `glass_tuner` all passed.
+- Checks: formatting, all-target compilation, diff whitespace, and protected
+  `comparison_open: true` all passed. No unrelated worktree changes were
+  present or absorbed.
+- Pending eyes: none added; this checkpoint changes declaration and deficit
+  law without introducing new table visuals.
+- Commit receipt: pending checkpoint commit; the next ledger boundary records
+  its hash and statistics.
 
 ## Pending eyes
 
@@ -116,4 +157,3 @@ Further flags append here as public names are proposed and resolved.
 - Float sorting, `Option<T>` policy, `EditChoice`, line clamping, sheet models,
   column virtualization, async providers, locale collation, and generalized
   checkbox value triggers remain excluded without callers and doctrine.
-

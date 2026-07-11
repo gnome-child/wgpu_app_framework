@@ -14,17 +14,12 @@ pub trait Provider {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Width {
-    Fixed(i32),
-    Weight(u16),
-}
-
 #[derive(Clone)]
 pub struct Column {
     id: interaction::Id,
     label: String,
-    width: Width,
+    width: view::Dimension,
+    resize_override: Option<i32>,
     header: Option<view::Node>,
 }
 
@@ -109,12 +104,10 @@ impl Model {
 
     pub(crate) fn project_widths(&self, tables: &crate::interaction::Tables) {
         for column in self.columns.borrow_mut().iter_mut() {
-            if let Some(width) = tables.width(HeaderCell {
+            column.resize_override = tables.width(HeaderCell {
                 table: self.table,
                 column: column.id,
-            }) {
-                column.width = Width::Fixed(width);
-            }
+            });
         }
     }
 
@@ -141,29 +134,17 @@ struct Rows {
     provider: Rc<dyn Provider>,
 }
 
-impl Width {
-    pub fn fixed(value: i32) -> Self {
-        Self::Fixed(value.max(0))
-    }
-
-    pub fn weight(value: u16) -> Self {
-        Self::Weight(value.max(1))
-    }
-
-    fn dimension(self) -> view::Dimension {
-        match self {
-            Self::Fixed(value) => view::Dimension::fixed(value),
-            Self::Weight(value) => view::Dimension::weight(value),
-        }
-    }
-}
-
 impl Column {
-    pub fn new(id: impl Into<interaction::Id>, label: impl Into<String>, width: Width) -> Self {
+    pub fn new(
+        id: impl Into<interaction::Id>,
+        label: impl Into<String>,
+        width: view::Dimension,
+    ) -> Self {
         Self {
             id: id.into(),
             label: label.into(),
             width,
+            resize_override: None,
             header: None,
         }
     }
@@ -181,8 +162,13 @@ impl Column {
         &self.label
     }
 
-    pub fn width(&self) -> Width {
+    pub fn width(&self) -> view::Dimension {
         self.width
+    }
+
+    fn effective_width(&self) -> view::Dimension {
+        self.resize_override
+            .map_or(self.width, view::Dimension::fixed)
     }
 
     fn header_node(&self, table: interaction::Id) -> view::Node {
@@ -194,7 +180,7 @@ impl Column {
             self.header
                 .clone()
                 .unwrap_or_else(|| view::Node::label(self.label.clone())),
-            self.width,
+            self.effective_width(),
         )
         .with_table_header_cell(identity)
     }
@@ -480,7 +466,8 @@ impl virtual_list::Provider for Rows {
                     row: key,
                     column: column.id,
                 };
-                sized(self.provider.cell(index, cell), column.width).with_table_cell(cell)
+                sized(self.provider.cell(index, cell), column.effective_width())
+                    .with_table_cell(cell)
             })
             .collect();
         children.into_iter().fold(
@@ -494,8 +481,8 @@ impl virtual_list::Provider for Rows {
     }
 }
 
-fn sized(node: view::Node, width: Width) -> view::Node {
-    let style = node.style().clone().with_width(width.dimension());
+fn sized(node: view::Node, width: view::Dimension) -> view::Node {
+    let style = node.style().clone().with_width(width);
     node.with_style(style)
 }
 
