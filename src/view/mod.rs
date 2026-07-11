@@ -49,6 +49,10 @@ impl View {
         self.root.materialize_virtual_lists(requests);
     }
 
+    pub(crate) fn project_table_widths(&mut self, tables: &interaction::Tables) {
+        self.root.project_table_widths(tables);
+    }
+
     pub(crate) fn selectable_virtual_lists(&self) -> Vec<crate::virtual_list::Model> {
         let mut models = Vec::new();
         self.root.collect_selectable_virtual_lists(&mut models);
@@ -60,6 +64,13 @@ impl View {
         id: interaction::Id,
     ) -> Option<&crate::virtual_list::Model> {
         self.root.virtual_list_model_for_id(id)
+    }
+
+    pub(crate) fn table_columns(&self, id: interaction::Id) -> Vec<interaction::Id> {
+        self.root
+            .table_model_for_id(id)
+            .map(crate::table::Model::column_ids)
+            .unwrap_or_default()
     }
 
     pub(crate) fn selectable_virtual_list_for_focus(
@@ -76,6 +87,14 @@ impl View {
         selections: &[(interaction::Id, crate::selection::Selection)],
     ) {
         self.root.project_virtual_selections(selections);
+    }
+
+    pub(crate) fn project_active_table_cells(
+        &mut self,
+        tables: &interaction::Tables,
+        selections: &[(interaction::Id, crate::selection::Selection)],
+    ) {
+        self.root.project_active_table_cells(tables, selections);
     }
 
     #[cfg(test)]

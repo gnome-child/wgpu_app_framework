@@ -290,9 +290,28 @@ bounded inactive drafts may survive. Focused, pointer-captured, and actively
 edited rows pin and may remain clipped; selection never pins. When reverse
 lookup no longer finds a key, ordinary composition removal prunes its focus,
 capture, active edit, and draft state. Logical focus movement first
-materializes the keyed row and only then transfers focus. V1 is synchronous,
-flat, uniform-height, and bounded to visible rows plus overscan and pins; it has
-no variable-height, streaming, async, selection, header, or table-track policy.
+materializes the keyed row and only then transfers focus. V1 virtualization is
+synchronous, flat, uniform-height, and bounded to visible rows plus overscan
+and pins; it has no variable-height, streaming, or async provider policy.
+
+`Table` is the record-table species of provided container. It composes one
+ordinary sticky header with one selectable `VirtualList`; its provider returns
+ordinary public cell nodes, so buttons, choices, labels, overflow, focus, and
+commands keep their existing owners. A `table::Column` supplies a stable column
+id and either fixed or weighted width. The shared horizontal flow allocator
+distributes weighted tracks for both headers and visible rows; table code does
+not scan provider data for intrinsic widths or own a parallel track solver.
+
+Table identity is `(table id, provider row key, column id)`. Retained cell
+matching, active-cell presentation, and future editing/accessibility use that
+tuple rather than row or column indices. Selection remains keyed row state;
+table navigation adds only a window-local active column id. Column-resize
+widths are also window-local session presentation keyed by table and column,
+projected into the table model before visible rows materialize, and never
+mutate provider data. Header widgets emit ordinary application commands;
+sorting occurs only when the application changes provider order. Table paint
+derives striping and rules from layout row/cell facts, and the shared `Rule`
+rasterizer owns physical-pixel snapping across scale factors.
 
 `layout`
 

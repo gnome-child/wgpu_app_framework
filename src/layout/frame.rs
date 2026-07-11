@@ -62,6 +62,7 @@ enum StructuralRole {
     Stack,
     MenuBar,
     Panel,
+    Table,
 }
 
 #[derive(Clone)]
@@ -133,6 +134,10 @@ pub(crate) struct Frame {
     selected: bool,
     active_item: bool,
     provided_row: Option<view::ProvidedRow>,
+    table_row: Option<crate::table::Row>,
+    table_cell: Option<crate::table::Cell>,
+    table_header_cell: Option<crate::table::HeaderCell>,
+    table_divider: Option<crate::table::Divider>,
     force_overlay_group: bool,
     native_popup_material_preference: view::NativePopupMaterialPreference,
     floating_layer: bool,
@@ -258,6 +263,10 @@ impl Frame {
             selected: node.is_selected(),
             active_item: node.is_active_item(),
             provided_row: node.provided_row(),
+            table_row: node.table_row(),
+            table_cell: node.table_cell(),
+            table_header_cell: node.table_header_cell(),
+            table_divider: node.table_divider(),
             force_overlay_group: node.force_overlay_group(),
             native_popup_material_preference: node.native_popup_material_preference(),
             floating_layer,
@@ -377,6 +386,22 @@ impl Frame {
 
     pub(crate) fn provided_row(&self) -> Option<view::ProvidedRow> {
         self.provided_row
+    }
+
+    pub(crate) fn table_row(&self) -> Option<crate::table::Row> {
+        self.table_row
+    }
+
+    pub(crate) fn table_cell(&self) -> Option<crate::table::Cell> {
+        self.table_cell
+    }
+
+    pub(crate) fn table_header_cell(&self) -> Option<crate::table::HeaderCell> {
+        self.table_header_cell
+    }
+
+    pub(crate) fn table_divider(&self) -> Option<crate::table::Divider> {
+        self.table_divider
     }
 
     pub(crate) fn force_overlay_group(&self) -> bool {
@@ -661,6 +686,7 @@ impl FrameContent {
         match node.role() {
             view::Role::Root => Self::Structural(StructuralRole::Root),
             view::Role::Stack => Self::Structural(StructuralRole::Stack),
+            view::Role::Table => Self::Structural(StructuralRole::Table),
             view::Role::MenuBar => Self::Structural(StructuralRole::MenuBar),
             view::Role::Menu => Self::Menu,
             view::Role::Binding => Self::Binding,
@@ -730,6 +756,7 @@ impl FrameContent {
             Self::Structural(StructuralRole::Stack) => view::Role::Stack,
             Self::Structural(StructuralRole::MenuBar) => view::Role::MenuBar,
             Self::Structural(StructuralRole::Panel) => view::Role::Panel,
+            Self::Structural(StructuralRole::Table) => view::Role::Table,
             Self::Menu => view::Role::Menu,
             Self::Binding => view::Role::Binding,
             Self::Separator(_) => view::Role::Separator,
@@ -835,6 +862,7 @@ fn action_for(node: &view::Node) -> Option<view::Action> {
         view::Role::TextBox => node.text_box_model().and_then(view::TextBox::focus_action),
         view::Role::Root
         | view::Role::Stack
+        | view::Role::Table
         | view::Role::MenuBar
         | view::Role::Binding
         | view::Role::Separator

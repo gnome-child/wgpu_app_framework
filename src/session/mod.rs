@@ -4,6 +4,7 @@ mod request;
 mod selection;
 mod service;
 mod snapshot;
+mod table;
 mod window;
 
 pub use focus::{Focus, Reason, Visibility};

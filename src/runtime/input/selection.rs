@@ -12,11 +12,35 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         if focus.target_id().is_some() {
             return None;
         }
-        let model = self
-            .composition
-            .get(window)?
+        let composition = self.composition.get(window)?;
+        let model = composition
             .selectable_virtual_list_for_focus(focus)?
             .clone();
+        let table_columns = composition.view().table_columns(model.id());
+
+        if !table_columns.is_empty()
+            && matches!(key, input::Key::ArrowLeft | input::Key::ArrowRight)
+        {
+            let delta = if key == input::Key::ArrowLeft { -1 } else { 1 };
+            let changed =
+                self.session
+                    .move_active_table_column(window, model.id(), &table_columns, delta);
+            if changed {
+                self.session
+                    .request_invalidation(window, response::Invalidation::Rebuild);
+            }
+            return Some(input::Outcome::handled(
+                false,
+                changed
+                    .then_some(response::Effect::Rebuild)
+                    .unwrap_or_default(),
+            ));
+        }
+
+        if let Some(first) = table_columns.first().copied() {
+            self.session
+                .ensure_active_table_column(window, model.id(), first);
+        }
 
         let primary = modifiers.control() || modifiers.super_key();
         let changed =

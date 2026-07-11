@@ -19,6 +19,8 @@ pub struct WindowSnapshot {
     pub(super) facts: app_window::Facts,
     pub(super) focus: Option<Focus>,
     pub(super) selections: Vec<(interaction::Id, crate::selection::Selection)>,
+    pub(super) table_widths: Vec<(crate::table::HeaderCell, i32)>,
+    pub(super) table_active_columns: Vec<(interaction::Id, interaction::Id)>,
 }
 
 impl Window {
@@ -39,6 +41,9 @@ impl Window {
     pub(super) fn restore(snapshot: WindowSnapshot, draft_limit: usize) -> Self {
         let mut interaction = interaction::Interaction::new(draft_limit);
         interaction.selections_mut().restore(snapshot.selections);
+        interaction
+            .tables_mut()
+            .restore(snapshot.table_widths, snapshot.table_active_columns);
         Self {
             facts: snapshot.facts,
             invalidation: Some(response::Invalidation::Rebuild),
@@ -113,14 +118,19 @@ impl WindowSnapshot {
             ),
             focus,
             selections: Vec::new(),
+            table_widths: Vec::new(),
+            table_active_columns: Vec::new(),
         }
     }
 
     pub(super) fn from_window(window: &Window) -> Self {
+        let (table_widths, table_active_columns) = window.interaction.tables().snapshot();
         Self {
             facts: window.facts.clone(),
             focus: window.focus,
             selections: window.interaction.selections().snapshot(),
+            table_widths,
+            table_active_columns,
         }
     }
 

@@ -132,6 +132,12 @@ impl Node {
             .with_virtual_list(model)
     }
 
+    pub(crate) fn table(id: interaction::Id) -> Self {
+        Self::new(Role::Table)
+            .with_axis(Axis::Vertical)
+            .with_interaction_id(id)
+    }
+
     pub fn floating_panel(id: impl Into<interaction::Id>) -> Self {
         Self::new(Role::FloatingPanel).with_id(id)
     }
@@ -168,6 +174,31 @@ impl Node {
         index: usize,
     ) -> Self {
         self.provided_row = Some(super::ProvidedRow { list, key, index });
+        self
+    }
+
+    pub(crate) fn with_table_row(mut self, row: crate::table::Row) -> Self {
+        self.table_row = Some(row);
+        self
+    }
+
+    pub(crate) fn with_table_cell(mut self, cell: crate::table::Cell) -> Self {
+        self.table_cell = Some(cell);
+        self
+    }
+
+    pub(crate) fn with_table_header_cell(mut self, cell: crate::table::HeaderCell) -> Self {
+        self.table_header_cell = Some(cell);
+        self
+    }
+
+    pub(crate) fn with_table_divider(mut self, divider: crate::table::Divider) -> Self {
+        self.table_divider = Some(divider);
+        self
+    }
+
+    pub(crate) fn with_table_model(mut self, model: crate::table::Model) -> Self {
+        self.table_model = Some(model);
         self
     }
 
@@ -292,6 +323,11 @@ impl Node {
             scroll_offset: interaction::ScrollOffset::default(),
             virtual_list: None,
             provided_row: None,
+            table_row: None,
+            table_cell: None,
+            table_header_cell: None,
+            table_divider: None,
+            table_model: None,
             children: Vec::new(),
         }
     }

@@ -59,6 +59,8 @@ struct Key {
     role: view::Role,
     axis: Option<view::Axis>,
     provided: Option<crate::virtual_list::Key>,
+    table_cell: Option<crate::table::Cell>,
+    table_header_cell: Option<crate::table::HeaderCell>,
 }
 
 impl NodeId {
@@ -311,6 +313,20 @@ impl Node {
         view: &view::Node,
         used: &HashSet<Identity>,
     ) -> Option<&'a Node> {
+        if let Some(cell) = view.table_cell() {
+            return self
+                .children
+                .iter()
+                .filter(|child| !used.contains(&child.id))
+                .find(|child| child.key.table_cell == Some(cell) && child.matches(view));
+        }
+        if let Some(cell) = view.table_header_cell() {
+            return self
+                .children
+                .iter()
+                .filter(|child| !used.contains(&child.id))
+                .find(|child| child.key.table_header_cell == Some(cell) && child.matches(view));
+        }
         if let Some(row) = view.provided_row() {
             return self
                 .children
@@ -390,6 +406,8 @@ impl Key {
             role: view.role(),
             axis: view.axis(),
             provided: view.provided_row().map(view::ProvidedRow::key),
+            table_cell: view.table_cell(),
+            table_header_cell: view.table_header_cell(),
         }
     }
 }
@@ -417,7 +435,7 @@ fn subject_for(view: &view::Node) -> Option<subject::Segment> {
         view::Role::Menu | view::Role::FloatingPanel | view::Role::Panel => {
             view.label_text().map(subject::Segment::from_label)
         }
-        view::Role::Scroll | view::Role::VirtualList => None,
+        view::Role::Scroll | view::Role::VirtualList | view::Role::Table => None,
         view::Role::Stack
         | view::Role::MenuBar
         | view::Role::Binding

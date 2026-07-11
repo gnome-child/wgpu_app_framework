@@ -158,6 +158,16 @@ impl Layout {
     }
 
     pub(crate) fn hit_test(&self, point: Point) -> Option<Hit> {
+        let table_cell = self
+            .frames
+            .iter()
+            .rev()
+            .find(|frame| {
+                frame.table_cell().is_some()
+                    && frame.rect().contains(point)
+                    && frame.clip_contains(point)
+            })
+            .and_then(Frame::table_cell);
         if let Some((owner, chrome)) = self
             .chrome
             .iter()
@@ -172,7 +182,7 @@ impl Layout {
                 owner.clip_contains(point).then_some((owner, chrome))
             })
         {
-            return Some(Hit::chrome(owner.clone(), chrome.clone()));
+            return Some(Hit::chrome(owner.clone(), chrome.clone()).with_table_cell(table_cell));
         }
 
         self.frames
@@ -181,6 +191,7 @@ impl Layout {
             .find(|frame| frame.accepts_hit(point))
             .cloned()
             .map(Hit::new)
+            .map(|hit| hit.with_table_cell(table_cell))
     }
 
     pub(crate) fn drag_action_for_target(
@@ -196,6 +207,26 @@ impl Layout {
                     chrome.scroll_target().clone(),
                     chrome.scroll_offset_at(point),
                 )),
+            ));
+        }
+
+        if let Some(divider_frame) = self
+            .frames
+            .iter()
+            .find(|frame| frame.target() == Some(target) && frame.table_divider().is_some())
+        {
+            let divider = divider_frame.table_divider()?;
+            let header = self
+                .frames
+                .iter()
+                .find(|frame| frame.table_header_cell() == Some(divider.column()))?;
+            let width = point
+                .x()
+                .saturating_sub(header.rect().x())
+                .max(divider.minimum());
+            return Some((
+                view::Role::Label,
+                Some(view::Action::resize_table_column(divider.column(), width)),
             ));
         }
 

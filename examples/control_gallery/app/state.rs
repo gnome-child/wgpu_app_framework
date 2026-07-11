@@ -8,6 +8,7 @@ pub struct State {
     pub query: String,
     pub show_advanced: bool,
     pub last_status: String,
+    pub records_descending: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,6 +46,7 @@ impl Default for State {
             query: String::new(),
             show_advanced: true,
             last_status: "ready".to_owned(),
+            records_descending: false,
         }
     }
 }

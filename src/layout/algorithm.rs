@@ -126,7 +126,7 @@ fn layout_node(
 
     match node.role() {
         view::Role::Root => layout_root(node, retained, &path, rect, clip, ctx),
-        view::Role::Stack => match node.axis() {
+        view::Role::Stack | view::Role::Table => match node.axis() {
             Some(view::Axis::Horizontal) => {
                 layout_horizontal_stack(node, retained, &path, rect, floating_layer, clip, ctx)
             }

@@ -157,6 +157,18 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 ))
             }
             view::Action::PointerLeft => self.handle_input(window, input::Input::pointer_left()),
+            view::Action::ResizeTableColumn { column, width } => {
+                let changed = self.session.resize_table_column(window, column, width);
+                Ok(self.window_outcome(
+                    window,
+                    false,
+                    if changed {
+                        response::Effect::Rebuild
+                    } else {
+                        response::Effect::None
+                    },
+                ))
+            }
             view::Action::Scroll { target, delta } => {
                 self.handle_input(window, input::Input::scroll(target, delta))
             }

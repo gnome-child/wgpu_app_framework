@@ -49,6 +49,7 @@ pub enum Kind {
     Scrollbar,
     FloatingPanel,
     Label,
+    TableDivider,
 }
 
 impl Target {
@@ -122,6 +123,10 @@ impl Target {
 
     pub fn label(id: impl Into<Id>, label: impl Into<String>) -> Self {
         Self::new(Kind::Label, id, label)
+    }
+
+    pub(crate) fn table_divider_node(node: composition::NodeId, label: impl Into<String>) -> Self {
+        Self::node(Kind::TableDivider, node, None, label).with_capture()
     }
 
     pub fn kind(&self) -> Kind {

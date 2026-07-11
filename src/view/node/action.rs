@@ -17,6 +17,13 @@ impl Node {
         &self,
         node_id: composition::NodeId,
     ) -> Option<interaction::Target> {
+        if self.table_divider().is_some() {
+            return Some(interaction::Target::table_divider_node(
+                node_id,
+                "Resize table column",
+            ));
+        }
+
         if let Some(target) = self.text_control_target() {
             return Some(target);
         }
@@ -85,6 +92,7 @@ impl Node {
                 .map(|(id, label)| interaction::Target::label(id, label.clone())),
             Role::Root
             | Role::Stack
+            | Role::Table
             | Role::MenuBar
             | Role::Binding
             | Role::Separator
@@ -207,6 +215,7 @@ impl Node {
             Role::Menu => self.menu_action(),
             Role::Root
             | Role::Stack
+            | Role::Table
             | Role::MenuBar
             | Role::Binding
             | Role::Separator
@@ -234,6 +243,7 @@ impl Node {
                 .and_then(|binding| binding.is_enabled().then(|| Action::activate(binding))),
             Role::Root
             | Role::Stack
+            | Role::Table
             | Role::MenuBar
             | Role::Separator
             | Role::TextArea

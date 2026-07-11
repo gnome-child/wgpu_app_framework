@@ -476,6 +476,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         }
         let view = self.view.as_ref()?;
         let mut view = view(self.store.model(), self.view_context(window));
+        let interaction = self.session.interaction(window).cloned();
+        if let Some(interaction) = interaction.as_ref() {
+            view.project_table_widths(interaction.tables());
+        }
         if let Some(palette) = self.command_palette_projection(window) {
             view.project_command_palette(palette);
         }
@@ -490,6 +494,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         view.materialize_virtual_lists(&virtual_materializations);
         let virtual_selections = self.session.virtual_selection_snapshot(window);
         view.project_virtual_selections(&virtual_selections);
+        if let Some(interaction) = interaction.as_ref() {
+            view.project_active_table_cells(interaction.tables(), &virtual_selections);
+        }
         let mut focus = self.session.focused(window);
         if focus.is_some_and(|focus| focus.target_id().is_some() && !view.contains_focus(focus)) {
             log::debug!("clearing stale focus before command resolution for window {window:?}");
@@ -518,7 +525,6 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 
             view.resolve_commands(&self.registry, &mut chain, &cx);
         }
-        let interaction = self.session.interaction(window).cloned();
         if let Some(interaction) = interaction.as_ref() {
             view.project_surfaces(interaction);
         }

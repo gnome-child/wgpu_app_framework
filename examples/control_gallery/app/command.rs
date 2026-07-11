@@ -9,6 +9,7 @@ pub struct SetLevel;
 pub struct SubmitQuery;
 pub struct ToggleAdvanced;
 pub struct ResetControls;
+pub struct SortRecords;
 
 impl Command for IncrementClicks {
     type Args = ();
@@ -68,4 +69,11 @@ impl Command for ResetControls {
     type Output = ();
 
     const NAME: &'static str = "control_gallery.reset_controls";
+}
+
+impl Command for SortRecords {
+    type Args = ();
+    type Output = ();
+
+    const NAME: &'static str = "control_gallery.sort_records";
 }

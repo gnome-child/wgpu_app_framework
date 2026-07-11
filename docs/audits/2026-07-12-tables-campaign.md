@@ -64,8 +64,8 @@ through the remaining campaign or redefining completion.
 | 2 | Typed `FrameContent` over the existing roles | Complete | One content discriminant; 825/8 in 0.88 s; three smokes; release gate held |
 | 3 | Uniform virtual region/list | Complete | Stable provider keys, bounded two-pass materialization, pin/deletion laws, 832/8 and three smokes |
 | 4 | Keyed selection and active item | Complete | Window/list-scoped stable keys, all-except select-all, bounded reveal, 840/8 and three smokes |
-| 5 | Read-only record table | In progress | Reinspect the landed list/selection grammar, then census tracks, headers, sort and resize |
-| 6 | Editable cells | Pending | Numeric plus textual/enumerated editors with stable cell identity |
+| 5 | Read-only record table | Complete | Public-node cells over selectable VirtualList; weighted tracks, resize/sort/grid/scale matrices, 847/8 and three smokes |
+| 6 | Editable cells | In progress | Numeric plus textual/enumerated editors with stable cell identity |
 
 ## API flags
 
@@ -122,6 +122,29 @@ The host event field is a deliberate source-level contract addition required
 to make modifier selection real on the native path; it remains a morning API
 review flag because downstream event constructors must now supply modifiers.
 
+Checkpoint 5 added one public module and root concept, plus two narrow shared
+vocabulary additions:
+
+- module `table` and root re-export `Table`;
+- synchronous `table::Provider::{len, key, index_of, cell, is_empty}`, where
+  `cell` returns an ordinary public `view::Node`;
+- `table::Column::{new, header, id, label, width}`;
+- `table::Width::{Fixed, Weight}` plus `fixed` and `weight` constructors;
+- `Table::new(id, row_height, columns, provider)` and ordinary
+  `header_height`, `width`, `height`, `max_height`, and `background` builders;
+- public stable `table::Cell` with `table`, `row`, and `column` accessors;
+- read-only `Session::active_table_cell(window, table)`;
+- weighted shared layout vocabulary `view::Dimension::Weight` and
+  `Dimension::weight`;
+- `pointer::Cursor::ResizeHorizontal`.
+
+Header dividers, row/header metadata, track projection, and mutation of active
+columns/resized widths remain crate-internal. The public provider does not own
+sorting, resizing, selection, or edit state. Morning review flags are whether
+`Width` should remain a table-facing declaration beside public weighted
+`Dimension`, and whether every v1 column being resizable by default is the
+right minimal policy. No compatibility aliases were added.
+
 ## Pending eyes
 
 - Checkpoint 1 (implemented, morning eyes remain non-blocking): ellipsis glyph
@@ -129,7 +152,8 @@ review flag because downstream event constructors must now supply modifiers.
   source-order bidi behavior.
 - Checkpoint 3 (implemented, morning eyes remain non-blocking): scrollbar feel
   and row density in the one-million-row control-gallery witness.
-- Checkpoint 5: striping, rules, sticky-header behavior, resize feel, selection
+- Checkpoint 5 (implemented, morning eyes remain non-blocking): striping,
+  rules, sticky-header behavior, resize feel, selection
   visuals, and density.
 - Checkpoint 6: editor placement, rejection presentation, focus transitions,
   and keyboard commit/cancel feel.
@@ -374,22 +398,22 @@ public header widget; Table emits that intent and never reorders provider data.
 
 | Cell | Scenario | Required result | Existing owner / missing seam | Status |
 | --- | --- | --- | --- | --- |
-| C5-01 | Public composition | Table provider returns ordinary public cell nodes; no table-only cell widget hierarchy | Virtual provider/Widget/Node exist; table adapter is missing | Planned |
-| C5-02 | Identity | Table, row, column and cell retain `(table, row key, column)` truth through reorder | Provider keys exist; column/cell metadata is missing | Planned |
-| C5-03 | Explicit tracks | Fixed widths align header and every visible row | Fixed Dimension and row layout exist | Planned |
-| C5-04 | Weighted tracks | Remaining width distributes by declared weights with deterministic remainder | Grow is equal-only; weighted allocation is missing | Planned |
-| C5-05 | Resize | Captured divider drag changes one window/table/column presentation width without provider mutation | Capture and session interaction exist; divider/width store is missing | Planned |
-| C5-06 | Sticky header | Vertical body scroll never moves the header | Ordinary column plus VirtualList viewport can compose this directly | Planned |
-| C5-07 | Sort intent | Header activation emits an application command and provider order changes only if the app changes it | Public button bindings exist; column header composition is missing | Planned |
-| C5-08 | Striping and rules | Visible rows stripe deterministically and cell boundaries use scene/layout truth | Background and Rule exist; table projection is missing | Planned |
-| C5-09 | Cell overflow | Provider world text declares and obeys overflow within the allocated track | C1 world text is already complete | Planned |
-| C5-10 | Public widget cells | Buttons, choices, labels and other public nodes retain normal action/focus behavior in cells | Provider row construction and retained descendants exist | Planned |
-| C5-11 | Keyboard grid | Logical row/column active position navigates without scanning unmaterialized rows | C4 active row exists; active column state/routing is missing | Planned |
-| C5-12 | Visible measurement | No intrinsic scan of unmaterialized provider rows occurs | C3 uniform arithmetic and provider-call witnesses exist | Planned |
-| C5-13 | Reorder/shrink | Row selection and cell identity follow keys; deleted rows reconcile normally | C3/C4 laws exist; table tuple witness is missing | Planned |
-| C5-14 | Independence | Two tables and two windows never share selection or resized tracks | Session is per-window/list; table/column width key is missing | Planned |
-| C5-15 | Scale matrix | 1.0, 1.25, 1.5 and 2.0 preserve logical track alignment and stable device snapping | Logical layout/native paint scale boundary exists | Planned |
-| C5-16 | Honest large caller | Control gallery exercises large data, sort intent, resize, selection, widget cells, truncation and sticky header | Gallery has selectable million-row list; real table is missing | Planned |
+| C5-01 | Public composition | Table provider returns ordinary public cell nodes; no table-only cell widget hierarchy | `table::Provider::cell` returns Node; rows compose through VirtualList | Held |
+| C5-02 | Identity | Table, row, column and cell retain `(table, row key, column)` truth through reorder | Composition keys include cell/header tuples under provider-keyed rows | Held |
+| C5-03 | Explicit tracks | Fixed widths align header and every visible row | Header and row use the same fixed Dimension declarations | Held |
+| C5-04 | Weighted tracks | Remaining width distributes by declared weights with deterministic remainder | Shared flow allocator owns weighted remainder distribution | Held |
+| C5-05 | Resize | Captured divider drag changes one window/table/column presentation width without provider mutation | Existing capture route updates session table presentation before materialization | Held |
+| C5-06 | Sticky header | Vertical body scroll never moves the header | Ordinary header is outside the VirtualList viewport | Held |
+| C5-07 | Sort intent | Header activation emits an application command and provider order changes only if the app changes it | Gallery Button emits `SortRecords`; app state reverses provider mapping | Held |
+| C5-08 | Striping and rules | Visible rows stripe deterministically and cell boundaries use scene/layout truth | Scene reads row index and cell/header frame metadata; Rule remains raster owner | Held |
+| C5-09 | Cell overflow | Provider world text declares and obeys overflow within the allocated track | C1 overflow passes unchanged through public cell nodes | Held |
+| C5-10 | Public widget cells | Buttons, choices, labels and other public nodes retain normal action/focus behavior in cells | Gallery and tests use Button, Checkbox and world Label cells | Held |
+| C5-11 | Keyboard grid | Logical row/column active position navigates without scanning unmaterialized rows | C4 owns row; session stores one column id; End witness stays bounded | Held |
+| C5-12 | Visible measurement | No intrinsic scan of unmaterialized provider rows occurs | Million-row provider-call witness remains bounded to visible rows/columns | Held |
+| C5-13 | Reorder/shrink | Row selection and cell identity follow keys; deleted rows reconcile normally | Reorder emits no retained churn; shrink follows C3/C4 reconciliation | Held |
+| C5-14 | Independence | Two tables and two windows never share selection or resized tracks | Runtime witnesses isolate identical columns by window and table id | Held |
+| C5-15 | Scale matrix | 1.0, 1.25, 1.5 and 2.0 preserve logical track alignment and stable device snapping | Integer logical alignment plus shared Rule matrix at all four scales | Held |
+| C5-16 | Honest large caller | Control gallery exercises large data, sort intent, resize, selection, widget cells, truncation and sticky header | Real million-record Table is the gallery caller and sort journey | Held |
 
 ## Execution ledger
 
@@ -414,6 +438,8 @@ public header widget; Table emits that intent and never reorders provider data.
 | E-016 | C3 repeated full boundary gate | Held | 840 discovered: 832 passed, 8 deliberately ignored, 0 failed in 0.91 s; three smokes, fmt, diff, and protected state held |
 | E-017 | C4 state-machine and integration matrix | Held | Four pure keyed-state witnesses plus click/toggle/range, million select-all, offscreen End reveal, reorder/delete, snapshot, two-window and two-list journeys |
 | E-018 | C4 full boundary gate | Held | 848 discovered: 840 passed, 8 deliberately ignored, 0 failed in 0.88 s; three smokes, fmt, diff, and protected state held |
+| E-019 | C5 focused composition matrix | Held | Million-row tracks/calls, sticky scroll, reorder/shrink, capture resize, two-window/two-table isolation, keyed grid navigation, sort intent and four-scale Rule snapping passed |
+| E-020 | C5 full boundary gate | Held | 855 discovered: 847 passed, 8 deliberately ignored, 0 failed in 0.98 s; three smokes, fmt, diff, and protected state held |
 
 ## Failure and reduction ledger
 
@@ -451,6 +477,16 @@ attempted to click logical row 5 at y=110 in a 100-pixel viewport; reduction
 showed the expected clip boundary correctly rejected the hit. Moving the
 witness wholly inside the viewport held without a framework change. No failure
 or parallel selection representation crosses the checkpoint boundary.
+
+Checkpoint 5's first sort-intent journey found that the gallery declared and
+targeted `SortRecords` but had not registered the command/responder in its
+runtime. Command resolution therefore correctly hid the unsupported bound
+header while the other headers and rows rendered. Registering the existing
+typed intent made the ordinary Button header visible and the reduced journey
+proved that only application state changes provider order. The first resize
+assertion also assumed a center click while the shared helper chooses one pixel
+inside a frame; expressing expected width as pointer x minus header x proved
+the actual geometry contract. No unexplained failure crosses checkpoint 5.
 
 ## Commit ledger
 

@@ -119,6 +119,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         point: geometry::Point,
         modifiers: input::Modifiers,
     ) -> Option<bool> {
+        let table_cell = hit.table_cell();
         let composition = self.composition.get(window)?;
         let row = composition.provided_row_for_node(hit.frame().node_id());
         let (list, key, index) = if let Some(row) = row {
@@ -138,10 +139,14 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             return None;
         }
         let toggle = modifiers.control() || modifiers.super_key();
-        Some(
+        let selected =
             self.session
-                .select_virtual_row(window, &model, key, index, modifiers.shift(), toggle),
-        )
+                .select_virtual_row(window, &model, key, index, modifiers.shift(), toggle);
+        let column_changed = table_cell.is_some_and(|cell| {
+            self.session
+                .set_active_table_column(window, cell.table(), cell.column())
+        });
+        Some(selected || column_changed)
     }
 
     fn clear_pointer_focus(
@@ -206,7 +211,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             self.keymap,
         );
         let hit = layout.hit_test(point);
-        let captured_text = self
+        let captured_target = self
             .session
             .interaction(window)
             .and_then(|interaction| {
@@ -216,9 +221,11 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                     .map(|capture| capture.target())
                     .or_else(|| interaction.pointer().pressed())
             })
-            .is_some_and(is_text_target);
-        if captured_text {
+            .map(interaction::Target::kind);
+        if captured_target == Some(interaction::Kind::TextArea) {
             self.set_pointer_cursor(window, pointer::Cursor::Text);
+        } else if captured_target == Some(interaction::Kind::TableDivider) {
+            self.set_pointer_cursor(window, pointer::Cursor::ResizeHorizontal);
         } else {
             self.set_cursor_for_hit(window, hit.as_ref());
         }
@@ -260,17 +267,17 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         &mut self,
         window: window::Id,
     ) -> std::result::Result<input::Outcome, Error> {
-        let text_capture = self
+        let captured_kind = self
             .session
             .interaction(window)
             .and_then(|interaction| interaction.pointer().capture())
-            .is_some_and(|capture| is_text_target(capture.target()));
+            .map(|capture| capture.target().kind());
         self.set_pointer_cursor(
             window,
-            if text_capture {
-                pointer::Cursor::Text
-            } else {
-                pointer::Cursor::Default
+            match captured_kind {
+                Some(interaction::Kind::TextArea) => pointer::Cursor::Text,
+                Some(interaction::Kind::TableDivider) => pointer::Cursor::ResizeHorizontal,
+                _ => pointer::Cursor::Default,
             },
         );
 
@@ -383,8 +390,16 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     fn set_cursor_for_hit(&mut self, window: window::Id, hit: Option<&layout::Hit>) {
         let cursor = hit
-            .filter(|hit| hit_promises_text_edit(hit))
-            .map_or(pointer::Cursor::Default, |_| pointer::Cursor::Text);
+            .map(|hit| {
+                if hit_promises_text_edit(hit) {
+                    pointer::Cursor::Text
+                } else if hit.frame().table_divider().is_some() {
+                    pointer::Cursor::ResizeHorizontal
+                } else {
+                    pointer::Cursor::Default
+                }
+            })
+            .unwrap_or(pointer::Cursor::Default);
         self.set_pointer_cursor(window, cursor);
     }
 
@@ -400,10 +415,6 @@ fn hit_promises_text_edit(hit: &layout::Hit) -> bool {
             hit.frame().role(),
             view::Role::TextArea | view::Role::TextBox
         )
-}
-
-fn is_text_target(target: &interaction::Target) -> bool {
-    target.kind() == interaction::Kind::TextArea
 }
 
 fn text_pointer_down_action(frame: &layout::Frame, target: interaction::Target) -> view::Action {

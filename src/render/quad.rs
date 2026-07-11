@@ -1112,7 +1112,7 @@ mod tests {
             paint::area::logical(40.0, 1.0),
         );
 
-        for scale_factor in [1.25, 2.0] {
+        for scale_factor in [1.0, 1.25, 1.5, 2.0] {
             let first_rect = rasterized_rule_rect(&first, scale_factor);
             let second_rect = rasterized_rule_rect(&second, scale_factor);
 

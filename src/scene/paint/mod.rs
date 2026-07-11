@@ -196,6 +196,22 @@ fn paint_frame(
         );
     }
 
+    if frame.table_row().is_some_and(|row| row.index() % 2 == 1) {
+        scene.push_quad(Quad::new(frame.rect(), theme.control().hover_tint));
+    }
+    if frame.table_cell().is_some() || frame.table_header_cell().is_some() {
+        scene.push_rule(super::Rule::vertical(
+            frame.rect(),
+            theme.menu().separator,
+            1,
+        ));
+        scene.push_rule(super::Rule::horizontal(
+            frame.rect(),
+            theme.menu().separator,
+            1,
+        ));
+    }
+
     match frame.role() {
         view::Role::Binding if frame.is_menu_row() => paint_menu_row(frame, scene, theme),
         _ if frame.is_palette_row() => paint_palette_row(frame, scene, theme),
@@ -301,7 +317,9 @@ fn role_fill(frame: &layout::Frame, theme: &Theme) -> Option<super::Color> {
         view::Role::TextBox => Some(theme.text_input().field_background),
         view::Role::Scroll | view::Role::VirtualList => None,
         view::Role::Panel => visible_fill(theme.surfaces().panel),
-        view::Role::SectionHeader | view::Role::Label | view::Role::Stack => None,
+        view::Role::SectionHeader | view::Role::Label | view::Role::Stack | view::Role::Table => {
+            None
+        }
     }
 }
 

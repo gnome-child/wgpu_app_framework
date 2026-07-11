@@ -1,8 +1,8 @@
 use super::{
     State,
     command::{
-        IncrementClicks, ResetControls, SelectMode, SetLevel, SubmitQuery, ToggleAdvanced,
-        ToggleGrid, ToggleWrap,
+        IncrementClicks, ResetControls, SelectMode, SetLevel, SortRecords, SubmitQuery,
+        ToggleAdvanced, ToggleGrid, ToggleWrap,
     },
     view,
     view::{CANVAS_COLOR, WINDOW_TITLE, window_size},
@@ -21,7 +21,8 @@ pub fn app(state: State) -> Runtime<State, (), View> {
                 .register::<SetLevel>(command::Spec::new("Set level"))
                 .register::<SubmitQuery>(command::Spec::new("Submit query"))
                 .register::<ToggleAdvanced>(command::Spec::new("Advanced"))
-                .register::<ResetControls>(command::Spec::new("Reset").shortcut("Primary+R"));
+                .register::<ResetControls>(command::Spec::new("Reset").shortcut("Primary+R"))
+                .register::<SortRecords>(command::Spec::new("Sort records"));
         })
         .responders(|responders| {
             responders
@@ -33,7 +34,8 @@ pub fn app(state: State) -> Runtime<State, (), View> {
                 .target::<SetLevel>()
                 .target::<SubmitQuery>()
                 .target::<ToggleAdvanced>()
-                .target::<ResetControls>();
+                .target::<ResetControls>()
+                .target::<SortRecords>();
         })
         .started(|cx| {
             cx.open_window(

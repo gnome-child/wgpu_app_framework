@@ -15,6 +15,35 @@ use crate::{
 use std::collections::HashMap;
 
 impl Node {
+    pub(in crate::view) fn table_model_for_id(
+        &self,
+        id: interaction::Id,
+    ) -> Option<&crate::table::Model> {
+        if let Some(model) = self.table_model().filter(|model| model.id() == id) {
+            return Some(model);
+        }
+        self.children
+            .iter()
+            .find_map(|child| child.table_model_for_id(id))
+    }
+
+    pub(in crate::view) fn project_table_widths(&mut self, tables: &interaction::Tables) {
+        if let Some(model) = self.table_model() {
+            model.project_widths(tables);
+        }
+        if let Some(header) = self.table_header_cell()
+            && let Some(width) = tables.width(header)
+        {
+            self.style = self
+                .style
+                .clone()
+                .with_width(super::super::Dimension::fixed(width));
+        }
+        for child in &mut self.children {
+            child.project_table_widths(tables);
+        }
+    }
+
     pub(in crate::view) fn materialize_virtual_lists(
         &mut self,
         requests: &HashMap<interaction::Id, crate::virtual_list::Materialization>,
@@ -99,6 +128,24 @@ impl Node {
         }
         for child in &mut self.children {
             child.project_virtual_selections(selections);
+        }
+    }
+
+    pub(in crate::view) fn project_active_table_cells(
+        &mut self,
+        tables: &interaction::Tables,
+        selections: &[(interaction::Id, crate::selection::Selection)],
+    ) {
+        if let Some(cell) = self.table_cell() {
+            let active_row = selections
+                .iter()
+                .find(|(table, _)| *table == cell.table())
+                .and_then(|(_, selection)| selection.active());
+            self.active_item = active_row == Some(cell.row())
+                && tables.active_column(cell.table()) == Some(cell.column());
+        }
+        for child in &mut self.children {
+            child.project_active_table_cells(tables, selections);
         }
     }
 
@@ -651,6 +698,7 @@ impl Node {
             Role::TextArea | Role::TextBox => true,
             Role::Root
             | Role::Stack
+            | Role::Table
             | Role::MenuBar
             | Role::Separator
             | Role::Scroll

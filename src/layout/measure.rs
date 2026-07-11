@@ -67,9 +67,11 @@ pub(in crate::layout) fn intrinsic_height(node: &view::Node, theme: &theme::Them
         view::Role::Separator => theme.menu().row_height,
         view::Role::SectionHeader => section_header_height(theme),
         view::Role::Label => body_line_height(theme),
-        view::Role::TextArea | view::Role::Panel | view::Role::Root | view::Role::Stack => {
-            control_height
-        }
+        view::Role::TextArea
+        | view::Role::Panel
+        | view::Role::Root
+        | view::Role::Stack
+        | view::Role::Table => control_height,
     }
 }
 
@@ -124,7 +126,7 @@ pub(in crate::layout) fn intrinsic_height_for_width(
         view::Role::Scroll => {
             scroll_intrinsic_height_for_width(node, width, engine, theme, profile)
         }
-        view::Role::Panel | view::Role::Root | view::Role::Stack => {
+        view::Role::Panel | view::Role::Root | view::Role::Stack | view::Role::Table => {
             stack_intrinsic_height_for_width(node, width, engine, theme, profile)
         }
         _ => intrinsic_height(node, theme),
@@ -620,7 +622,11 @@ pub(in crate::layout) fn grows_vertical_space(node: &view::Node) -> bool {
         }
         None => matches!(
             node.role(),
-            view::Role::TextArea | view::Role::Panel | view::Role::Scroll | view::Role::Stack
+            view::Role::TextArea
+                | view::Role::Panel
+                | view::Role::Scroll
+                | view::Role::Stack
+                | view::Role::Table
         ),
     }
 }

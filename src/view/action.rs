@@ -33,6 +33,10 @@ pub(crate) enum Action {
     },
     ToggleMenu(interaction::Menu),
     TextEdit(text::edit::Edit),
+    ResizeTableColumn {
+        column: crate::table::HeaderCell,
+        width: i32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,6 +116,10 @@ impl Action {
 
     pub(crate) fn text_edit(edit: text::edit::Edit) -> Self {
         Self::TextEdit(edit)
+    }
+
+    pub(crate) fn resize_table_column(column: crate::table::HeaderCell, width: i32) -> Self {
+        Self::ResizeTableColumn { column, width }
     }
 
     pub(crate) fn text_focus(focus: Option<session::Focus>) -> Option<Self> {

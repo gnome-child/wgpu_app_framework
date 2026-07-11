@@ -6,9 +6,10 @@ is next.
 
 ## In flight
 
-10. **Tables arc — checkpoint 5, read-only record table.** Assemble tracks,
-    sticky headers, resize presentation, sort intent, rules and public widget
-    cells from the landed overflow, virtual-list and keyed-selection citizens.
+10. **Tables arc — checkpoint 6, editable cells.** Add typed numeric and
+    textual/enumerated editing policies to the independently green read-only
+    table lifecycle without merging display, parse, validation, commit, and
+    rejection meanings.
 
 ## Specced and ready
 
@@ -68,7 +69,7 @@ is next.
        virtualization: anchor/extend, reorder persistence, departure,
        keyboard navigation that can target an unmaterialized row and
        materialize it before focus moves.
-    5. **Read-only record table** (in flight) — track layout with explicit/weighted
+    5. **Read-only record table** (complete; closure commit recorded in the campaign ledger) — track layout with explicit/weighted
        widths; resizing owns presentation state independently of provider
        data; headers; sorting emits intent (the table never reorders
        application data); striping, rules, truncation; cells host public

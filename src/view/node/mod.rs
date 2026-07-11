@@ -54,6 +54,11 @@ pub struct Node {
     scroll_offset: interaction::ScrollOffset,
     virtual_list: Option<virtual_list::Model>,
     provided_row: Option<ProvidedRow>,
+    table_row: Option<crate::table::Row>,
+    table_cell: Option<crate::table::Cell>,
+    table_header_cell: Option<crate::table::HeaderCell>,
+    table_divider: Option<crate::table::Divider>,
+    table_model: Option<crate::table::Model>,
     children: Vec<Node>,
 }
 

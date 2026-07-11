@@ -139,6 +139,7 @@ impl Window {
         let icon = match cursor {
             pointer::Cursor::Default => CursorIcon::Default,
             pointer::Cursor::Text => CursorIcon::Text,
+            pointer::Cursor::ResizeHorizontal => CursorIcon::EwResize,
         };
         self.handle.set_cursor(icon);
     }

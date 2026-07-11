@@ -5,6 +5,7 @@ pub enum Cursor {
     #[default]
     Default,
     Text,
+    ResizeHorizontal,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]

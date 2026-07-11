@@ -5,6 +5,7 @@ use super::{chrome, engine, frame::Frame};
 pub(crate) struct Hit {
     frame: Frame,
     chrome: Option<chrome::Chrome>,
+    table_cell: Option<crate::table::Cell>,
 }
 
 impl Hit {
@@ -12,6 +13,7 @@ impl Hit {
         Self {
             frame,
             chrome: None,
+            table_cell: None,
         }
     }
 
@@ -19,7 +21,17 @@ impl Hit {
         Self {
             frame,
             chrome: Some(chrome),
+            table_cell: None,
         }
+    }
+
+    pub(super) fn with_table_cell(mut self, cell: Option<crate::table::Cell>) -> Self {
+        self.table_cell = cell;
+        self
+    }
+
+    pub(crate) fn table_cell(&self) -> Option<crate::table::Cell> {
+        self.table_cell
     }
 
     pub(crate) fn frame(&self) -> &Frame {

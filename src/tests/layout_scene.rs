@@ -26,6 +26,68 @@ impl crate::virtual_list::Provider for MillionRowProvider {
 }
 
 #[derive(Clone)]
+struct MillionTableProvider {
+    cell_calls: Rc<Cell<usize>>,
+}
+
+impl crate::table::Provider for MillionTableProvider {
+    fn len(&self) -> usize {
+        1_000_000
+    }
+
+    fn key(&self, row: usize) -> crate::virtual_list::Key {
+        crate::virtual_list::Key::new(row as u64)
+    }
+
+    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+        let row = key.value() as usize;
+        (row < self.len()).then_some(row)
+    }
+
+    fn cell(&self, row: usize, column: interaction::Id) -> view::Node {
+        self.cell_calls.set(self.cell_calls.get() + 1);
+        match column.as_str() {
+            "action" => widget::Widget::into_node(widget::Button::new(format!("Open {row}"))),
+            "detail" => view::Node::world_text(
+                format!("A deliberately long record detail for logical row {row}"),
+                text::Overflow::EllipsisMiddle,
+            ),
+            _ => view::Node::world_text(format!("Record {row}"), text::Overflow::EllipsisEnd),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct MutableTableProvider {
+    keys: Rc<RefCell<Vec<u64>>>,
+}
+
+impl crate::table::Provider for MutableTableProvider {
+    fn len(&self) -> usize {
+        self.keys.borrow().len()
+    }
+
+    fn key(&self, row: usize) -> crate::virtual_list::Key {
+        crate::virtual_list::Key::new(self.keys.borrow()[row])
+    }
+
+    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+        self.keys
+            .borrow()
+            .iter()
+            .position(|candidate| *candidate == key.value())
+    }
+
+    fn cell(&self, row: usize, column: interaction::Id) -> view::Node {
+        let key = self.keys.borrow()[row];
+        view::Node::world_text(
+            format!("{} {key}", column.as_str()),
+            text::Overflow::EllipsisEnd,
+        )
+    }
+}
+
+#[derive(Clone)]
 struct MutableKeyProvider {
     keys: Rc<RefCell<Vec<u64>>>,
 }
@@ -258,6 +320,507 @@ fn million_row_virtual_list_jump_scroll_and_resize_stay_bounded() {
         .expect("resized virtual list should render");
     assert!(tall.scene().texts().len() <= 13);
     assert!(tall.layout().frames().len() <= 14);
+}
+
+#[test]
+fn million_row_table_composes_public_cells_with_bounded_aligned_tracks() {
+    let cell_calls = Rc::new(Cell::new(0));
+    let provider = MillionTableProvider {
+        cell_calls: Rc::clone(&cell_calls),
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Million-row table"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::Table::new(
+                    "records",
+                    20,
+                    [
+                        crate::table::Column::new("name", "Name", crate::table::Width::fixed(80)),
+                        crate::table::Column::new(
+                            "detail",
+                            "Detail",
+                            crate::table::Width::weight(1),
+                        ),
+                        crate::table::Column::new(
+                            "action",
+                            "Action",
+                            crate::table::Width::weight(2),
+                        ),
+                    ],
+                    provider.clone(),
+                )
+                .header_height(28)
+                .width(view::Dimension::grow())
+                .height(view::Dimension::fixed(128)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 128);
+    let rendered = app
+        .render_scene(window, size)
+        .expect("record table should render");
+
+    let headers = rendered
+        .layout()
+        .frames()
+        .iter()
+        .filter_map(|frame| frame.table_header_cell().map(|cell| (cell, frame.rect())))
+        .collect::<Vec<_>>();
+    let cells = rendered
+        .layout()
+        .frames()
+        .iter()
+        .filter_map(|frame| {
+            frame
+                .table_cell()
+                .map(|cell| (cell, frame.rect(), frame.role()))
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(headers.len(), 3);
+    assert!(!cells.is_empty());
+    assert!(
+        cells.len() <= 27,
+        "visible cells plus overscan stay bounded"
+    );
+    assert!(
+        cell_calls.get() <= 144,
+        "table work must not scale with provider length"
+    );
+    assert_eq!(headers[0].1.width(), 80);
+    assert_eq!(headers[1].1.width(), 80);
+    assert_eq!(headers[2].1.width(), 160);
+    for (header, header_rect) in &headers {
+        let first_row = cells
+            .iter()
+            .find(|(cell, _, _)| {
+                cell.row() == crate::virtual_list::Key::new(0) && cell.column() == header.column()
+            })
+            .expect("every header track should align to a first-row cell");
+        assert_eq!(first_row.1.x(), header_rect.x());
+        assert_eq!(first_row.1.width(), header_rect.width());
+    }
+    assert!(cells.iter().any(|(_, _, role)| *role == view::Role::Button));
+    assert!(
+        rendered
+            .layout()
+            .frames()
+            .iter()
+            .any(|frame| frame.world_text_overflow() == Some(text::Overflow::EllipsisMiddle))
+    );
+    assert!(rendered.scene().rules().len() >= headers.len() * 2 + cells.len() * 2);
+}
+
+#[test]
+fn table_header_stays_fixed_while_keyed_rows_scroll_reorder_and_shrink() {
+    let keys = Rc::new(RefCell::new((0..100).collect::<Vec<_>>()));
+    let provider = MutableTableProvider {
+        keys: Rc::clone(&keys),
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Mutable table"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::Table::new(
+                    "mutable.table",
+                    20,
+                    [
+                        crate::table::Column::new("first", "First", crate::table::Width::fixed(90)),
+                        crate::table::Column::new(
+                            "second",
+                            "Second",
+                            crate::table::Width::weight(1),
+                        ),
+                    ],
+                    provider.clone(),
+                )
+                .height(view::Dimension::fixed(128)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(260, 128);
+    let initial = app
+        .render_scene(window, size)
+        .expect("mutable table should render");
+    let header_y = initial
+        .layout()
+        .frames()
+        .iter()
+        .find_map(|frame| frame.table_header_cell().map(|_| frame.rect().y()))
+        .expect("header should render");
+    let list = initial.layout().find_role(view::Role::VirtualList)[0];
+
+    app.scroll_at(
+        window,
+        size,
+        frame_point_at(list.rect()),
+        interaction::ScrollDelta::vertical(400),
+    )
+    .expect("body scroll should be handled");
+    let scrolled = app
+        .render_scene(window, size)
+        .expect("scrolled table should render");
+    assert!(
+        scrolled
+            .scene()
+            .texts()
+            .iter()
+            .any(|text| text.value() == "first 20")
+    );
+    assert!(
+        scrolled
+            .layout()
+            .frames()
+            .iter()
+            .filter_map(|frame| frame.table_header_cell().map(|_| frame.rect().y()))
+            .all(|y| y == header_y)
+    );
+
+    keys.borrow_mut()[18..27].reverse();
+    app.request_redraw(window);
+    app.render_scene(window, size)
+        .expect("reordered table should render");
+    assert!(
+        app.composition(window)
+            .expect("table composition should remain installed")
+            .changes()
+            .is_empty(),
+        "row and cell identity should follow provider keys through reorder"
+    );
+
+    keys.borrow_mut().truncate(3);
+    app.request_redraw(window);
+    let shrunk = app
+        .render_scene(window, size)
+        .expect("shrunk table should render");
+    let visible_rows = shrunk
+        .layout()
+        .frames()
+        .iter()
+        .filter_map(|frame| frame.table_row())
+        .collect::<Vec<_>>();
+    assert_eq!(visible_rows.len(), 3);
+    assert!(
+        visible_rows
+            .iter()
+            .all(|row| row.table() == interaction::Id::new("mutable.table"))
+    );
+    assert_eq!(visible_rows[0].key(), crate::virtual_list::Key::new(0));
+}
+
+#[test]
+fn table_column_resize_uses_capture_and_stays_window_local() {
+    let keys = Rc::new(RefCell::new((0..20).collect::<Vec<_>>()));
+    let provider = MutableTableProvider { keys };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Table width one"));
+            cx.open_window(window::Options::new("Table width two"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::Table::new(
+                    "resizable.table",
+                    20,
+                    [
+                        crate::table::Column::new("first", "First", crate::table::Width::fixed(80)),
+                        crate::table::Column::new(
+                            "second",
+                            "Second",
+                            crate::table::Width::weight(1),
+                        ),
+                    ],
+                    provider.clone(),
+                )
+                .height(view::Dimension::fixed(108)),
+            )
+        });
+    app.start();
+    let first_window = app.session().windows()[0].id();
+    let second_window = app.session().windows()[1].id();
+    let size = geometry::Size::new(260, 108);
+    let initial = app
+        .render_scene(first_window, size)
+        .expect("first table should render");
+    let divider = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame
+                .table_divider()
+                .is_some_and(|divider| divider.column().column() == interaction::Id::new("first"))
+        })
+        .expect("first column should expose a resize divider");
+    let first_header_x = initial
+        .layout()
+        .frames()
+        .iter()
+        .find_map(|frame| {
+            frame
+                .table_header_cell()
+                .filter(|cell| cell.column() == interaction::Id::new("first"))
+                .map(|_| frame.rect().x())
+        })
+        .expect("first header should render");
+    let start = frame_point_at(divider.rect());
+    let dragged = geometry::Point::new(start.x().saturating_add(44), start.y());
+    let expected_width = dragged.x().saturating_sub(first_header_x);
+
+    app.pointer_move_at(first_window, size, start)
+        .expect("divider hover should be handled");
+    assert_eq!(
+        app.session().window(first_window).expect("window").cursor(),
+        crate::pointer::Cursor::ResizeHorizontal
+    );
+    app.pointer_down_at(first_window, size, start)
+        .expect("divider press should capture");
+    app.pointer_move_at(first_window, size, dragged)
+        .expect("captured divider should resize beyond its old bounds");
+    app.pointer_up_at(first_window, size, dragged)
+        .expect("divider release should finish resize");
+
+    let resized = app
+        .render_scene(first_window, size)
+        .expect("resized table should render");
+    let untouched = app
+        .render_scene(second_window, size)
+        .expect("second table should render independently");
+    let width_for =
+        |rendered: &scene::Presentation, table: interaction::Id, column: interaction::Id| {
+            rendered
+                .layout()
+                .frames()
+                .iter()
+                .find_map(|frame| {
+                    frame
+                        .table_header_cell()
+                        .filter(|cell| cell.table() == table && cell.column() == column)
+                        .map(|_| frame.rect().width())
+                })
+                .expect("requested table header should render")
+        };
+    assert_eq!(
+        width_for(
+            &resized,
+            interaction::Id::new("resizable.table"),
+            interaction::Id::new("first")
+        ),
+        expected_width
+    );
+    assert_eq!(
+        width_for(
+            &untouched,
+            interaction::Id::new("resizable.table"),
+            interaction::Id::new("first")
+        ),
+        80
+    );
+    assert!(resized.layout().frames().iter().any(|frame| {
+        frame.table_cell().is_some_and(|cell| {
+            cell.column() == interaction::Id::new("first") && frame.rect().width() == expected_width
+        })
+    }));
+}
+
+#[test]
+fn table_column_resize_stays_table_local_in_one_window() {
+    let keys = Rc::new(RefCell::new((0..20).collect::<Vec<_>>()));
+    let provider = MutableTableProvider { keys };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Independent tables"));
+        })
+        .view(move |_, _| {
+            let table = |id: &'static str| {
+                widget::Widget::into_node(
+                    crate::Table::new(
+                        id,
+                        20,
+                        [
+                            crate::table::Column::new(
+                                "first",
+                                "First",
+                                crate::table::Width::fixed(80),
+                            ),
+                            crate::table::Column::new(
+                                "second",
+                                "Second",
+                                crate::table::Width::weight(1),
+                            ),
+                        ],
+                        provider.clone(),
+                    )
+                    .height(view::Dimension::fixed(108)),
+                )
+            };
+            View::new(
+                view::Node::root().child(
+                    view::Node::stack(view::Axis::Vertical)
+                        .child(table("table.one"))
+                        .child(table("table.two")),
+                ),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(260, 216);
+    let initial = app
+        .render_scene(window, size)
+        .expect("tables should render");
+    let divider = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_divider().is_some_and(|divider| {
+                divider.column().table() == interaction::Id::new("table.one")
+                    && divider.column().column() == interaction::Id::new("first")
+            })
+        })
+        .expect("first table divider should render");
+    let start = frame_point_at(divider.rect());
+    let dragged = geometry::Point::new(start.x() + 30, start.y());
+    app.pointer_down_at(window, size, start)
+        .expect("first table divider should capture");
+    app.pointer_move_at(window, size, dragged)
+        .expect("first table divider should resize");
+    app.pointer_up_at(window, size, dragged)
+        .expect("resize should finish");
+    let resized = app
+        .render_scene(window, size)
+        .expect("independent tables should rerender");
+    let widths = resized
+        .layout()
+        .frames()
+        .iter()
+        .filter_map(|frame| {
+            frame
+                .table_header_cell()
+                .filter(|cell| cell.column() == interaction::Id::new("first"))
+                .map(|cell| (cell.table(), frame.rect().width()))
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    assert!(widths[&interaction::Id::new("table.one")] > 80);
+    assert_eq!(widths[&interaction::Id::new("table.two")], 80);
+}
+
+#[test]
+fn table_keyboard_tracks_a_keyed_logical_row_and_column_without_scanning() {
+    let cell_calls = Rc::new(Cell::new(0));
+    let provider = MillionTableProvider {
+        cell_calls: Rc::clone(&cell_calls),
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Keyboard table"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::Table::new(
+                    "keyboard.table",
+                    20,
+                    [
+                        crate::table::Column::new("name", "Name", crate::table::Width::fixed(80)),
+                        crate::table::Column::new(
+                            "detail",
+                            "Detail",
+                            crate::table::Width::fixed(100),
+                        ),
+                        crate::table::Column::new(
+                            "action",
+                            "Action",
+                            crate::table::Width::weight(1),
+                        ),
+                    ],
+                    provider.clone(),
+                )
+                .height(view::Dimension::fixed(128)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let table = interaction::Id::new("keyboard.table");
+    let size = geometry::Size::new(320, 128);
+    let initial = app
+        .render_scene(window, size)
+        .expect("keyboard table should render");
+    let detail_row_one = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(1)
+                    && cell.column() == interaction::Id::new("detail")
+            })
+        })
+        .expect("second-row detail cell should render");
+    app.pointer_down_at(window, size, frame_point_at(detail_row_one.rect()))
+        .expect("cell click should choose row and column");
+    assert_eq!(
+        app.session().active_table_cell(window, table),
+        Some(crate::table::Cell::new(
+            table,
+            crate::virtual_list::Key::new(1),
+            interaction::Id::new("detail")
+        ))
+    );
+
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::ArrowRight, input::Modifiers::default()),
+    )
+    .expect("Right should move across declared columns");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::ArrowDown, input::Modifiers::default()),
+    )
+    .expect("Down should reuse keyed row movement");
+    assert_eq!(
+        app.session().active_table_cell(window, table),
+        Some(crate::table::Cell::new(
+            table,
+            crate::virtual_list::Key::new(2),
+            interaction::Id::new("action")
+        ))
+    );
+
+    let calls_before_end = cell_calls.get();
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::End, input::Modifiers::default()),
+    )
+    .expect("End should move to the final logical row");
+    let moved = app
+        .render_scene(window, size)
+        .expect("distant active table cell should materialize");
+    assert_eq!(
+        app.session().active_table_cell(window, table),
+        Some(crate::table::Cell::new(
+            table,
+            crate::virtual_list::Key::new(999_999),
+            interaction::Id::new("action")
+        ))
+    );
+    assert!(moved.layout().frames().iter().any(|frame| {
+        frame.is_active_item()
+            && frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(999_999)
+                    && cell.column() == interaction::Id::new("action")
+            })
+    }));
+    assert!(
+        cell_calls.get().saturating_sub(calls_before_end) <= 48,
+        "logical navigation must materialize only a bounded row window"
+    );
 }
 
 #[test]
@@ -4523,6 +5086,67 @@ fn control_gallery_example_renders_interactive_widget_scene() {
         quad.fill().channels() == (10, 132, 255, 255)
             && quad.rounding() == scene::Rounding::relative(1.0)
     }));
+}
+
+#[test]
+fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
+    let mut state = control_gallery::State::default();
+    state.show_advanced = false;
+    let mut app = control_gallery::app(state);
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 660);
+    let initial = app
+        .render_scene(window, size)
+        .expect("gallery record table should render");
+    assert!(
+        initial
+            .scene()
+            .texts()
+            .iter()
+            .any(|text| text.value() == "Record 0")
+    );
+    let sort_text = initial
+        .scene()
+        .texts()
+        .into_iter()
+        .find(|text| text.value() == "Record ↕")
+        .unwrap_or_else(|| {
+            panic!(
+                "gallery should paint its sort header; painted={:?}",
+                initial
+                    .scene()
+                    .texts()
+                    .iter()
+                    .map(|text| text.value())
+                    .collect::<Vec<_>>()
+            )
+        });
+    let sort_point = frame_point_at(sort_text.rect());
+    let sort_header = initial
+        .layout()
+        .find_role(view::Role::Button)
+        .into_iter()
+        .find(|frame| frame.rect().contains(sort_point))
+        .expect("gallery should provide an ordinary command-bound sort header");
+    let point = frame_point_at(sort_header.rect());
+    app.pointer_down_at(window, size, point)
+        .expect("sort header press should be handled");
+    app.pointer_up_at(window, size, point)
+        .expect("sort header release should emit its command");
+
+    assert!(app.state().records_descending);
+    let sorted = app
+        .render_scene(window, size)
+        .expect("application-updated provider order should render");
+    assert!(
+        sorted
+            .scene()
+            .texts()
+            .iter()
+            .any(|text| text.value() == "Record 999999")
+    );
 }
 
 #[test]

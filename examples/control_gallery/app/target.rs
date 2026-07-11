@@ -1,8 +1,8 @@
 use super::{
     State,
     command::{
-        IncrementClicks, ResetControls, SelectMode, SetLevel, SubmitQuery, ToggleAdvanced,
-        ToggleGrid, ToggleWrap,
+        IncrementClicks, ResetControls, SelectMode, SetLevel, SortRecords, SubmitQuery,
+        ToggleAdvanced, ToggleGrid, ToggleWrap,
     },
 };
 use wgpu_l3::{Context, Response, Target, command};
@@ -102,6 +102,22 @@ impl Target<ResetControls> for State {
 
     fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
         self.reset();
+        Response::changed(())
+    }
+}
+
+impl Target<SortRecords> for State {
+    fn state(&self, _: &(), _: &Context) -> command::State {
+        command::State::enabled().checked(self.records_descending)
+    }
+
+    fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
+        self.records_descending = !self.records_descending;
+        self.last_status = if self.records_descending {
+            "records: descending".to_owned()
+        } else {
+            "records: ascending".to_owned()
+        };
         Response::changed(())
     }
 }

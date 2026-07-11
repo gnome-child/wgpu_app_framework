@@ -1,12 +1,12 @@
 use super::{
     Mode, State,
     command::{
-        IncrementClicks, ResetControls, SelectMode, SetLevel, SubmitQuery, ToggleAdvanced,
-        ToggleGrid, ToggleWrap,
+        IncrementClicks, ResetControls, SelectMode, SetLevel, SortRecords, SubmitQuery,
+        ToggleAdvanced, ToggleGrid, ToggleWrap,
     },
 };
 use wgpu_l3::{
-    View, VirtualList, document, geometry, interaction, scene, text, timeline,
+    Table, View, document, geometry, interaction, scene, table, text, timeline,
     view::{Align, Context as ViewContext, Dimension, Padding},
     virtual_list, widget, window,
 };
@@ -14,6 +14,7 @@ use wgpu_l3::{
 const MENU_CONTROLS: interaction::Id = interaction::Id::new("control_gallery.menu.controls");
 const MENU_EDIT: interaction::Id = interaction::Id::new("control_gallery.menu.edit");
 const MENU_VIEW: interaction::Id = interaction::Id::new("control_gallery.menu.view");
+const RECORD_COUNT: usize = 1_000_000;
 pub(super) const QUERY_FOCUS: interaction::Id = interaction::Id::new("control_gallery.query");
 
 pub const WINDOW_TITLE: &str = "wgpu_l3 Control Gallery";
@@ -24,34 +25,61 @@ pub fn window_size() -> geometry::Size {
 }
 
 #[derive(Clone, Copy)]
-struct GalleryRows;
+struct GalleryRecords {
+    descending: bool,
+}
 
-impl virtual_list::Provider for GalleryRows {
+impl table::Provider for GalleryRecords {
     fn len(&self) -> usize {
-        1_000_000
+        RECORD_COUNT
     }
 
     fn key(&self, index: usize) -> virtual_list::Key {
-        virtual_list::Key::new(index as u64)
+        virtual_list::Key::new(self.record(index) as u64)
     }
 
     fn index_of(&self, key: virtual_list::Key) -> Option<usize> {
-        let index = key.value() as usize;
-        (index < self.len()).then_some(index)
+        let record = key.value() as usize;
+        (record < self.len()).then(|| {
+            if self.descending {
+                self.len() - record - 1
+            } else {
+                record
+            }
+        })
     }
 
-    fn row(&self, index: usize) -> wgpu_l3::view::Node {
-        wgpu_l3::Widget::into_node(
-            widget::Element::new()
-                .row()
-                .layout(|layout| layout.padding(Padding::symmetric(8, 2)))
-                .child(widget::Label::world(
-                    format!(
-                        "Provider row {index}: application-owned content with a deliberately long value"
-                    ),
-                    text::Overflow::EllipsisEnd,
-                )),
-        )
+    fn cell(&self, row: usize, column: interaction::Id) -> wgpu_l3::view::Node {
+        let record = self.record(row);
+        match column.as_str() {
+            "record" => wgpu_l3::Widget::into_node(widget::Label::world(
+                format!("Record {record}"),
+                text::Overflow::EllipsisEnd,
+            )),
+            "detail" => wgpu_l3::Widget::into_node(widget::Label::world(
+                format!(
+                    "Application-owned detail for record {record} with a deliberately long value"
+                ),
+                text::Overflow::EllipsisMiddle,
+            )),
+            "enabled" => {
+                wgpu_l3::Widget::into_node(widget::Checkbox::new("Enabled", record % 2 == 0))
+            }
+            "action" => wgpu_l3::Widget::into_node(
+                widget::Button::new("Open").trigger::<IncrementClicks>(()),
+            ),
+            _ => unreachable!("gallery table declares every provider column"),
+        }
+    }
+}
+
+impl GalleryRecords {
+    fn record(self, index: usize) -> usize {
+        if self.descending {
+            RECORD_COUNT - index - 1
+        } else {
+            index
+        }
     }
 }
 
@@ -104,12 +132,34 @@ pub fn view(state: &State, _: ViewContext) -> View {
                             ui.add(advanced_panel(state));
                         }
 
-                        ui.label("One million provided rows");
+                        ui.label("One million provided records");
                         ui.add(
-                            VirtualList::new("control_gallery.virtual_rows", 24, GalleryRows)
-                                .selectable()
-                                .width(Dimension::grow())
-                                .height(Dimension::fixed(112)),
+                            Table::new(
+                                "control_gallery.records",
+                                24,
+                                [
+                                    table::Column::new(
+                                        "record",
+                                        "Record",
+                                        table::Width::fixed(110),
+                                    )
+                                    .header(
+                                        widget::Button::new("Record ↕").trigger::<SortRecords>(()),
+                                    ),
+                                    table::Column::new("detail", "Detail", table::Width::weight(2)),
+                                    table::Column::new(
+                                        "enabled",
+                                        "Enabled",
+                                        table::Width::fixed(100),
+                                    ),
+                                    table::Column::new("action", "Action", table::Width::fixed(72)),
+                                ],
+                                GalleryRecords {
+                                    descending: state.records_descending,
+                                },
+                            )
+                            .width(Dimension::grow())
+                            .height(Dimension::fixed(136)),
                         );
                     }),
             );

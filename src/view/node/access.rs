@@ -97,6 +97,26 @@ impl Node {
         self.provided_row
     }
 
+    pub(crate) fn table_row(&self) -> Option<crate::table::Row> {
+        self.table_row
+    }
+
+    pub(crate) fn table_cell(&self) -> Option<crate::table::Cell> {
+        self.table_cell
+    }
+
+    pub(crate) fn table_header_cell(&self) -> Option<crate::table::HeaderCell> {
+        self.table_header_cell
+    }
+
+    pub(crate) fn table_divider(&self) -> Option<crate::table::Divider> {
+        self.table_divider
+    }
+
+    pub(crate) fn table_model(&self) -> Option<&crate::table::Model> {
+        self.table_model.as_ref()
+    }
+
     pub fn button_model(&self) -> Option<&Button> {
         match self.control.as_ref()? {
             Control::Button(button) => Some(button),

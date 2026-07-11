@@ -1,0 +1,379 @@
+use std::{cell::RefCell, rc::Rc};
+
+use crate::{interaction, scene, view, virtual_list, widget};
+
+/// Synchronous record source for a read-only virtual table.
+pub trait Provider {
+    fn len(&self) -> usize;
+    fn key(&self, row: usize) -> virtual_list::Key;
+    fn index_of(&self, key: virtual_list::Key) -> Option<usize>;
+    fn cell(&self, row: usize, column: interaction::Id) -> view::Node;
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Width {
+    Fixed(i32),
+    Weight(u16),
+}
+
+#[derive(Clone)]
+pub struct Column {
+    id: interaction::Id,
+    label: String,
+    width: Width,
+    header: Option<view::Node>,
+}
+
+pub struct Table {
+    id: interaction::Id,
+    row_height: i32,
+    header_height: i32,
+    columns: Vec<Column>,
+    provider: Rc<dyn Provider>,
+    width: Option<view::Dimension>,
+    height: Option<view::Dimension>,
+    max_height: Option<i32>,
+    background: Option<scene::Brush>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Cell {
+    table: interaction::Id,
+    row: virtual_list::Key,
+    column: interaction::Id,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct HeaderCell {
+    table: interaction::Id,
+    column: interaction::Id,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct Divider {
+    column: HeaderCell,
+    minimum: i32,
+}
+
+#[derive(Clone)]
+pub(crate) struct Model {
+    table: interaction::Id,
+    columns: Rc<RefCell<Vec<Column>>>,
+}
+
+impl HeaderCell {
+    #[cfg(test)]
+    pub(crate) fn table(self) -> interaction::Id {
+        self.table
+    }
+
+    #[cfg(test)]
+    pub(crate) fn column(self) -> interaction::Id {
+        self.column
+    }
+}
+
+impl Divider {
+    pub(crate) fn column(self) -> HeaderCell {
+        self.column
+    }
+
+    pub(crate) fn minimum(self) -> i32 {
+        self.minimum
+    }
+}
+
+impl Model {
+    fn new(table: interaction::Id, columns: Vec<Column>) -> Self {
+        Self {
+            table,
+            columns: Rc::new(RefCell::new(columns)),
+        }
+    }
+
+    pub(crate) fn project_widths(&self, tables: &crate::interaction::Tables) {
+        for column in self.columns.borrow_mut().iter_mut() {
+            if let Some(width) = tables.width(HeaderCell {
+                table: self.table,
+                column: column.id,
+            }) {
+                column.width = Width::Fixed(width);
+            }
+        }
+    }
+
+    pub(crate) fn id(&self) -> interaction::Id {
+        self.table
+    }
+
+    pub(crate) fn column_ids(&self) -> Vec<interaction::Id> {
+        self.columns.borrow().iter().map(Column::id).collect()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct Row {
+    table: interaction::Id,
+    key: virtual_list::Key,
+    index: usize,
+}
+
+#[derive(Clone)]
+struct Rows {
+    table: interaction::Id,
+    model: Model,
+    provider: Rc<dyn Provider>,
+}
+
+impl Width {
+    pub fn fixed(value: i32) -> Self {
+        Self::Fixed(value.max(0))
+    }
+
+    pub fn weight(value: u16) -> Self {
+        Self::Weight(value.max(1))
+    }
+
+    fn dimension(self) -> view::Dimension {
+        match self {
+            Self::Fixed(value) => view::Dimension::fixed(value),
+            Self::Weight(value) => view::Dimension::weight(value),
+        }
+    }
+}
+
+impl Column {
+    pub fn new(id: impl Into<interaction::Id>, label: impl Into<String>, width: Width) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            width,
+            header: None,
+        }
+    }
+
+    pub fn header(mut self, header: impl widget::Widget) -> Self {
+        self.header = Some(header.into_node());
+        self
+    }
+
+    pub fn id(&self) -> interaction::Id {
+        self.id
+    }
+
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    pub fn width(&self) -> Width {
+        self.width
+    }
+
+    fn header_node(&self, table: interaction::Id) -> view::Node {
+        let identity = HeaderCell {
+            table,
+            column: self.id,
+        };
+        let content = grow(
+            self.header
+                .clone()
+                .unwrap_or_else(|| view::Node::label(self.label.clone())),
+        );
+        let divider = view::Node::label("")
+            .with_style(
+                view::Style::new()
+                    .with_width(view::Dimension::fixed(6))
+                    .with_height(view::Dimension::grow()),
+            )
+            .with_table_divider(Divider {
+                column: identity,
+                minimum: 24,
+            });
+        sized(
+            view::Node::stack(view::Axis::Horizontal)
+                .child(content)
+                .child(divider),
+            self.width,
+        )
+        .with_table_header_cell(identity)
+    }
+}
+
+impl Table {
+    pub fn new(
+        id: impl Into<interaction::Id>,
+        row_height: i32,
+        columns: impl IntoIterator<Item = Column>,
+        provider: impl Provider + 'static,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            row_height: row_height.max(1),
+            header_height: 28,
+            columns: columns.into_iter().collect(),
+            provider: Rc::new(provider),
+            width: None,
+            height: None,
+            max_height: None,
+            background: None,
+        }
+    }
+
+    pub fn header_height(mut self, height: i32) -> Self {
+        self.header_height = height.max(1);
+        self
+    }
+
+    pub fn width(mut self, width: view::Dimension) -> Self {
+        self.width = Some(width);
+        self
+    }
+
+    pub fn height(mut self, height: view::Dimension) -> Self {
+        self.height = Some(height);
+        self
+    }
+
+    pub fn max_height(mut self, height: i32) -> Self {
+        self.max_height = Some(height.max(0));
+        self
+    }
+
+    pub fn background(mut self, background: scene::Brush) -> Self {
+        self.background = Some(background);
+        self
+    }
+}
+
+impl widget::Widget for Table {
+    fn into_node(self) -> view::Node {
+        let model = Model::new(self.id, self.columns);
+        let header = model.columns.borrow().iter().fold(
+            view::Node::stack(view::Axis::Horizontal).with_style(
+                view::Style::new()
+                    .with_width(view::Dimension::grow())
+                    .with_height(view::Dimension::fixed(self.header_height)),
+            ),
+            |header, column| header.child(column.header_node(self.id)),
+        );
+        let rows = Rows {
+            table: self.id,
+            model: model.clone(),
+            provider: self.provider,
+        };
+        let body = widget::Widget::into_node(
+            crate::VirtualList::new(self.id, self.row_height, rows)
+                .selectable()
+                .width(view::Dimension::grow())
+                .height(view::Dimension::grow()),
+        );
+        let mut style = view::Style::new();
+        if let Some(width) = self.width {
+            style = style.with_width(width);
+        }
+        if let Some(height) = self.height {
+            style = style.with_height(height);
+        }
+        if let Some(max_height) = self.max_height {
+            style = style.with_max_height(max_height);
+        }
+        if let Some(background) = self.background {
+            style = style.with_background(background);
+        }
+
+        view::Node::table(self.id)
+            .with_table_model(model)
+            .with_style(style)
+            .child(header)
+            .child(body)
+    }
+}
+
+impl Cell {
+    pub(crate) fn new(
+        table: interaction::Id,
+        row: virtual_list::Key,
+        column: interaction::Id,
+    ) -> Self {
+        Self { table, row, column }
+    }
+
+    pub fn table(self) -> interaction::Id {
+        self.table
+    }
+
+    pub fn row(self) -> virtual_list::Key {
+        self.row
+    }
+
+    pub fn column(self) -> interaction::Id {
+        self.column
+    }
+}
+
+impl Row {
+    #[cfg(test)]
+    pub(crate) fn table(self) -> interaction::Id {
+        self.table
+    }
+
+    #[cfg(test)]
+    pub(crate) fn key(self) -> virtual_list::Key {
+        self.key
+    }
+
+    pub(crate) fn index(self) -> usize {
+        self.index
+    }
+}
+
+impl virtual_list::Provider for Rows {
+    fn len(&self) -> usize {
+        self.provider.len()
+    }
+
+    fn key(&self, index: usize) -> virtual_list::Key {
+        self.provider.key(index)
+    }
+
+    fn index_of(&self, key: virtual_list::Key) -> Option<usize> {
+        self.provider.index_of(key)
+    }
+
+    fn row(&self, index: usize) -> view::Node {
+        let key = self.provider.key(index);
+        let columns = self.model.columns.borrow();
+        let children: Vec<view::Node> = columns
+            .iter()
+            .map(|column| {
+                sized(self.provider.cell(index, column.id), column.width).with_table_cell(Cell {
+                    table: self.table,
+                    row: key,
+                    column: column.id,
+                })
+            })
+            .collect();
+        children.into_iter().fold(
+            view::Node::stack(view::Axis::Horizontal).with_table_row(Row {
+                table: self.table,
+                key,
+                index,
+            }),
+            view::Node::child,
+        )
+    }
+}
+
+fn sized(node: view::Node, width: Width) -> view::Node {
+    let style = node.style().clone().with_width(width.dimension());
+    node.with_style(style)
+}
+
+fn grow(node: view::Node) -> view::Node {
+    let style = node.style().clone().with_width(view::Dimension::grow());
+    node.with_style(style)
+}
