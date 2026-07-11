@@ -49,8 +49,7 @@ enum FrameContent {
     Separator,
     TextArea,
     Button,
-    Checkbox,
-    Radio,
+    Choice(ChoiceContent),
     Slider,
     TextBox,
     Scroll,
@@ -65,6 +64,12 @@ enum StructuralRole {
     Stack,
     MenuBar,
     Panel,
+}
+
+#[derive(Clone)]
+enum ChoiceContent {
+    Checkbox(view::Checkbox),
+    Radio(view::Radio),
 }
 
 #[derive(Clone)]
@@ -92,8 +97,6 @@ pub(crate) struct Frame {
     text_box_layout: Option<text::Field>,
     text_box_text_rect: Rect,
     slider_track_rect: Option<Rect>,
-    checkbox: Option<view::Checkbox>,
-    radio: Option<view::Radio>,
     text_area: Option<view::TextArea>,
     text_box: Option<view::TextBox>,
     slider: Option<view::Slider>,
@@ -124,8 +127,6 @@ impl Frame {
         let text_area_layout =
             text_area.map(|text_area| engine.text_area_layout(text_area, rect, theme, now));
         let viewport = text_area_layout.as_ref().map(text::Area::viewport);
-        let checkbox = node.checkbox_model().cloned();
-        let radio = node.radio_model().cloned();
         let text_box = node.text_box_model().cloned();
         let text_box_text_rect = text_box_text_rect_for(rect, theme);
         let text_box_layout = text_box
@@ -199,7 +200,7 @@ impl Frame {
         Self {
             path,
             node_id,
-            content: FrameContent::for_role(node.role()),
+            content: FrameContent::for_node(node),
             rect,
             active_rect,
             label,
@@ -232,8 +233,6 @@ impl Frame {
             text_box_layout,
             text_box_text_rect,
             slider_track_rect,
-            checkbox,
-            radio,
             text_area: text_area.cloned(),
             text_box,
             slider,
@@ -362,11 +361,17 @@ impl Frame {
     }
 
     pub(crate) fn checkbox(&self) -> Option<&view::Checkbox> {
-        self.checkbox.as_ref()
+        match &self.content {
+            FrameContent::Choice(ChoiceContent::Checkbox(checkbox)) => Some(checkbox),
+            _ => None,
+        }
     }
 
     pub(crate) fn radio(&self) -> Option<&view::Radio> {
-        self.radio.as_ref()
+        match &self.content {
+            FrameContent::Choice(ChoiceContent::Radio(radio)) => Some(radio),
+            _ => None,
+        }
     }
 
     pub(crate) fn slider(&self) -> Option<&view::Slider> {
@@ -518,8 +523,8 @@ impl Frame {
 }
 
 impl FrameContent {
-    fn for_role(role: view::Role) -> Self {
-        match role {
+    fn for_node(node: &view::Node) -> Self {
+        match node.role() {
             view::Role::Root => Self::Structural(StructuralRole::Root),
             view::Role::Stack => Self::Structural(StructuralRole::Stack),
             view::Role::MenuBar => Self::Structural(StructuralRole::MenuBar),
@@ -528,8 +533,16 @@ impl FrameContent {
             view::Role::Separator => Self::Separator,
             view::Role::TextArea => Self::TextArea,
             view::Role::Button => Self::Button,
-            view::Role::Checkbox => Self::Checkbox,
-            view::Role::Radio => Self::Radio,
+            view::Role::Checkbox => Self::Choice(ChoiceContent::Checkbox(
+                node.checkbox_model()
+                    .cloned()
+                    .expect("Checkbox role must carry Checkbox content"),
+            )),
+            view::Role::Radio => Self::Choice(ChoiceContent::Radio(
+                node.radio_model()
+                    .cloned()
+                    .expect("Radio role must carry Radio content"),
+            )),
             view::Role::Slider => Self::Slider,
             view::Role::TextBox => Self::TextBox,
             view::Role::Scroll => Self::Scroll,
@@ -551,8 +564,8 @@ impl FrameContent {
             Self::Separator => view::Role::Separator,
             Self::TextArea => view::Role::TextArea,
             Self::Button => view::Role::Button,
-            Self::Checkbox => view::Role::Checkbox,
-            Self::Radio => view::Role::Radio,
+            Self::Choice(ChoiceContent::Checkbox(_)) => view::Role::Checkbox,
+            Self::Choice(ChoiceContent::Radio(_)) => view::Role::Radio,
             Self::Slider => view::Role::Slider,
             Self::TextBox => view::Role::TextBox,
             Self::Scroll => view::Role::Scroll,
