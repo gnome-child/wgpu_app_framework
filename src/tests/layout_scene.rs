@@ -1,5 +1,109 @@
 use super::*;
 
+#[derive(Clone)]
+struct MillionRowProvider {
+    row_calls: Rc<Cell<usize>>,
+}
+
+impl crate::virtual_list::Provider for MillionRowProvider {
+    fn len(&self) -> usize {
+        1_000_000
+    }
+
+    fn key(&self, index: usize) -> crate::virtual_list::Key {
+        crate::virtual_list::Key::new(index as u64)
+    }
+
+    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+        let index = key.value() as usize;
+        (index < self.len()).then_some(index)
+    }
+
+    fn row(&self, index: usize) -> view::Node {
+        self.row_calls.set(self.row_calls.get() + 1);
+        view::Node::world_text(format!("Provider row {index}"), text::Overflow::EllipsisEnd)
+    }
+}
+
+#[derive(Clone)]
+struct MutableKeyProvider {
+    keys: Rc<RefCell<Vec<u64>>>,
+}
+
+impl crate::virtual_list::Provider for MutableKeyProvider {
+    fn len(&self) -> usize {
+        self.keys.borrow().len()
+    }
+
+    fn key(&self, index: usize) -> crate::virtual_list::Key {
+        crate::virtual_list::Key::new(self.keys.borrow()[index])
+    }
+
+    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+        self.keys
+            .borrow()
+            .iter()
+            .position(|candidate| *candidate == key.value())
+    }
+
+    fn row(&self, index: usize) -> view::Node {
+        let key = self.keys.borrow()[index];
+        view::Node::world_text(format!("Key {key}"), text::Overflow::EllipsisEnd)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum PinnedRowKind {
+    Text,
+    Capture,
+}
+
+#[derive(Clone)]
+struct PinnedRowProvider {
+    keys: Rc<RefCell<Vec<u64>>>,
+    kind: PinnedRowKind,
+}
+
+impl crate::virtual_list::Provider for PinnedRowProvider {
+    fn len(&self) -> usize {
+        self.keys.borrow().len()
+    }
+
+    fn key(&self, index: usize) -> crate::virtual_list::Key {
+        crate::virtual_list::Key::new(self.keys.borrow()[index])
+    }
+
+    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+        self.keys
+            .borrow()
+            .iter()
+            .position(|candidate| *candidate == key.value())
+    }
+
+    fn row(&self, index: usize) -> view::Node {
+        let key = self.keys.borrow()[index];
+        match self.kind {
+            PinnedRowKind::Text if key == 0 => widget::Widget::into_node(
+                widget::TextBox::new("Text 0").focus(session::Focus::text("virtual.text.0")),
+            ),
+            PinnedRowKind::Text if key == 1 => widget::Widget::into_node(
+                widget::TextBox::new("Text 1").focus(session::Focus::text("virtual.text.1")),
+            ),
+            PinnedRowKind::Text => {
+                view::Node::world_text(format!("Text {key}"), text::Overflow::EllipsisEnd)
+            }
+            PinnedRowKind::Capture => widget::Widget::into_node(
+                widget::Scroll::new()
+                    .height(view::Dimension::fixed(20))
+                    .child(widget::Label::world(
+                        format!("Capture {key}"),
+                        text::Overflow::EllipsisEnd,
+                    )),
+            ),
+        }
+    }
+}
+
 macro_rules! palette_test_command {
     ($name:ident, $command:literal) => {
         struct $name;
@@ -54,6 +158,416 @@ impl Target<DisabledTextSubmit> for SourceState {
     fn invoke(&mut self, _: String, _: &mut Context) -> Response<()> {
         Response::changed(())
     }
+}
+
+#[test]
+fn million_row_virtual_list_converges_to_a_bounded_first_frame() {
+    let row_calls = Rc::new(Cell::new(0));
+    let provider = MillionRowProvider {
+        row_calls: Rc::clone(&row_calls),
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Million rows"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::VirtualList::new("million.rows", 20, provider.clone())
+                    .width(view::Dimension::grow())
+                    .height(view::Dimension::fixed(100)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+
+    let scene = app
+        .render_scene(window, geometry::Size::new(240, 100))
+        .expect("virtual list should render");
+    let values = scene
+        .scene()
+        .texts()
+        .into_iter()
+        .map(scene::Text::value)
+        .collect::<Vec<_>>();
+
+    assert!(!values.is_empty());
+    assert!(values.len() <= 9, "visible rows plus overscan stay bounded");
+    assert_eq!(values[0], "Provider row 0");
+    assert!(
+        row_calls.get() <= 48,
+        "initial bootstrap plus converged materialization must not scale with provider length"
+    );
+
+    let projected = app.present(window).expect("view should remain projectable");
+    assert!(projected.labels().len() <= 9);
+}
+
+#[test]
+fn million_row_virtual_list_jump_scroll_and_resize_stay_bounded() {
+    let row_calls = Rc::new(Cell::new(0));
+    let provider = MillionRowProvider {
+        row_calls: Rc::clone(&row_calls),
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Million-row jump"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::VirtualList::new("million.jump", 20, provider.clone())
+                    .width(view::Dimension::grow())
+                    .height(view::Dimension::grow()),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let compact = geometry::Size::new(240, 100);
+    let initial = app
+        .render_scene(window, compact)
+        .expect("initial virtual list should render");
+    let list = initial.layout().find_role(view::Role::VirtualList)[0];
+    let calls_before_jump = row_calls.get();
+
+    app.scroll_at(
+        window,
+        compact,
+        frame_point_at(list.rect()),
+        interaction::ScrollDelta::vertical(12_000_000),
+    )
+    .expect("jump scroll should be handled");
+    let jumped = app
+        .render_scene(window, compact)
+        .expect("jumped virtual list should render");
+    let jumped_values = jumped
+        .scene()
+        .texts()
+        .into_iter()
+        .map(scene::Text::value)
+        .collect::<Vec<_>>();
+
+    assert!(
+        jumped_values.iter().any(|value| value.contains("599998")),
+        "jump should derive the distant logical range arithmetically"
+    );
+    assert!(jumped_values.len() <= 9);
+    assert!(jumped.layout().frames().len() <= 10);
+    assert!(row_calls.get().saturating_sub(calls_before_jump) <= 16);
+
+    let tall = app
+        .render_scene(window, geometry::Size::new(240, 180))
+        .expect("resized virtual list should render");
+    assert!(tall.scene().texts().len() <= 13);
+    assert!(tall.layout().frames().len() <= 14);
+}
+
+#[test]
+fn virtual_list_growth_shrink_and_reorder_follow_stable_provider_keys() {
+    let keys = Rc::new(RefCell::new((0..100).collect::<Vec<_>>()));
+    let provider = MutableKeyProvider {
+        keys: Rc::clone(&keys),
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Mutable virtual rows"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::VirtualList::new("mutable.rows", 20, provider.clone())
+                    .width(view::Dimension::grow())
+                    .height(view::Dimension::fixed(100)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 100);
+    app.render_scene(window, size)
+        .expect("initial mutable list should render");
+
+    keys.borrow_mut()[..7].reverse();
+    app.request_redraw(window);
+    let reordered = app
+        .render_scene(window, size)
+        .expect("reordered list should render");
+    assert_eq!(reordered.scene().texts()[0].value(), "Key 6");
+    assert!(
+        app.composition(window)
+            .expect("composition should remain installed")
+            .changes()
+            .is_empty(),
+        "reordering materialized rows with stable keys must retain their identities"
+    );
+
+    keys.borrow_mut().extend(100..120);
+    app.request_redraw(window);
+    app.render_scene(window, size)
+        .expect("grown list should render");
+    assert!(
+        app.composition(window)
+            .expect("composition should remain installed")
+            .changes()
+            .is_empty(),
+        "offscreen growth must not churn materialized identities"
+    );
+
+    keys.borrow_mut().truncate(3);
+    app.request_redraw(window);
+    let shrunk = app
+        .render_scene(window, size)
+        .expect("shrunk list should render");
+    assert_eq!(shrunk.scene().texts().len(), 3);
+}
+
+#[test]
+fn virtual_list_focus_and_active_edit_pin_while_inactive_drafts_dematerialize() {
+    let keys = Rc::new(RefCell::new((0..50).collect::<Vec<_>>()));
+    let provider = PinnedRowProvider {
+        keys: Rc::clone(&keys),
+        kind: PinnedRowKind::Text,
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Pinned virtual text"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::VirtualList::new("pinned.text.rows", 24, provider.clone())
+                    .width(view::Dimension::grow())
+                    .height(view::Dimension::fixed(96)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(260, 96);
+    let initial = app
+        .render_scene(window, size)
+        .expect("virtual text rows should render");
+    let list_rect = initial.layout().find_role(view::Role::VirtualList)[0].rect();
+    let first = session::Focus::text("virtual.text.0");
+    let second = session::Focus::text("virtual.text.1");
+    let first_target = interaction::Target::text_area(first);
+    let second_target = interaction::Target::text_area(second);
+
+    app.handle_input(window, Input::focus(first))
+        .expect("first virtual text row should focus");
+    app.handle_input(window, Input::text_commit("draft zero"))
+        .expect("first virtual text row should own a draft");
+    app.handle_input(window, Input::focus(second))
+        .expect("second virtual text row should focus");
+    app.handle_input(window, Input::text_commit("draft one"))
+        .expect("second virtual text row should own a draft");
+
+    app.scroll_at(
+        window,
+        size,
+        frame_point_at(list_rect),
+        interaction::ScrollDelta::vertical(720),
+    )
+    .expect("virtual text rows should scroll");
+    let scrolled = app
+        .render_scene(window, size)
+        .expect("scrolled virtual text rows should render");
+    assert!(
+        app.session()
+            .focused(window)
+            .is_some_and(|focus| focus.same_target(&second))
+    );
+    assert!(
+        scrolled.layout().find_role(view::Role::TextBox).len() <= 10,
+        "visible rows plus one focused pin stay bounded"
+    );
+    let input = app
+        .session()
+        .interaction(window)
+        .expect("virtual text interaction should remain installed")
+        .text_input();
+    assert_eq!(
+        input
+            .draft_for(&first_target)
+            .expect("inactive dematerialized draft should survive")
+            .text(),
+        "Text 0draft zero"
+    );
+    assert_eq!(
+        input
+            .draft_for(&second_target)
+            .expect("focused pinned draft should survive")
+            .text(),
+        "Text 1draft one"
+    );
+
+    app.clear_focus(window);
+    let active_only = app
+        .render_scene(window, size)
+        .expect("active edit should render without focus");
+    assert!(app.session().focused(window).is_none());
+    assert!(
+        active_only.layout().find_role(view::Role::TextBox).len() <= 10,
+        "the active edit target pins independently of focus"
+    );
+
+    keys.borrow_mut().retain(|key| *key != 1);
+    app.request_redraw(window);
+    app.render_scene(window, size)
+        .expect("provider deletion should reconcile");
+    let input = app
+        .session()
+        .interaction(window)
+        .expect("interaction should remain installed")
+        .text_input();
+    assert!(
+        input.draft_for(&second_target).is_none(),
+        "actual provider deletion ends the row draft"
+    );
+    assert!(
+        input.draft_for(&first_target).is_some(),
+        "an existing dematerialized row keeps its inactive draft"
+    );
+
+    app.scroll_at(
+        window,
+        size,
+        frame_point_at(list_rect),
+        interaction::ScrollDelta::vertical(-720),
+    )
+    .expect("virtual text rows should scroll back");
+    app.render_scene(window, size)
+        .expect("rematerialized draft row should render");
+    let projected = app.present(window).expect("virtual rows should project");
+    assert!(projected.text_boxes().iter().any(|text_box| {
+        text_box
+            .focus()
+            .is_some_and(|focus| focus.same_target(&first))
+            && text_box.text() == "Text 0draft zero"
+    }));
+}
+
+#[test]
+fn virtual_list_pointer_capture_pins_until_provider_deletion() {
+    let keys = Rc::new(RefCell::new((0..50).collect::<Vec<_>>()));
+    let provider = PinnedRowProvider {
+        keys: Rc::clone(&keys),
+        kind: PinnedRowKind::Capture,
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Pinned virtual capture"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::VirtualList::new("pinned.capture.rows", 24, provider.clone())
+                    .width(view::Dimension::grow())
+                    .height(view::Dimension::fixed(96)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(260, 96);
+    let initial = app
+        .render_scene(window, size)
+        .expect("virtual capture rows should render");
+    let nested_rect = initial.layout().find_role(view::Role::Scroll)[0].rect();
+    let list_rect = initial.layout().find_role(view::Role::VirtualList)[0].rect();
+
+    app.pointer_down_at(window, size, frame_point_at(nested_rect))
+        .expect("nested scroll should capture the pointer");
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().capture())
+            .is_some()
+    );
+    app.scroll_at(
+        window,
+        size,
+        frame_point_at(list_rect),
+        interaction::ScrollDelta::vertical(720),
+    )
+    .expect("outer virtual list should scroll");
+    let scrolled = app
+        .render_scene(window, size)
+        .expect("captured row should remain materialized");
+    assert!(scrolled.layout().find_role(view::Role::Scroll).len() <= 10);
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().capture())
+            .is_some(),
+        "capture should survive ordinary row dematerialization"
+    );
+
+    keys.borrow_mut().retain(|key| *key != 0);
+    app.request_redraw(window);
+    app.render_scene(window, size)
+        .expect("deleted captured row should reconcile");
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().capture())
+            .is_none(),
+        "provider deletion must release capture"
+    );
+}
+
+#[test]
+fn virtual_list_materializes_logical_target_before_focus_transfer() {
+    let keys = Rc::new(RefCell::new((0..50).collect::<Vec<_>>()));
+    let provider = PinnedRowProvider {
+        keys,
+        kind: PinnedRowKind::Text,
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Virtual focus transfer"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::VirtualList::new("logical.focus.rows", 24, provider.clone())
+                    .width(view::Dimension::grow())
+                    .height(view::Dimension::fixed(96)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(260, 96);
+    let initial = app
+        .render_scene(window, size)
+        .expect("logical focus list should render");
+    let list_rect = initial.layout().find_role(view::Role::VirtualList)[0].rect();
+    app.scroll_at(
+        window,
+        size,
+        frame_point_at(list_rect),
+        interaction::ScrollDelta::vertical(720),
+    )
+    .expect("logical focus list should scroll");
+    app.render_scene(window, size)
+        .expect("offscreen logical focus list should render");
+    let first = session::Focus::text("virtual.text.0");
+    assert!(
+        !app.composition(window)
+            .expect("composition should be installed")
+            .view()
+            .contains_focus(first)
+    );
+
+    assert!(app.focus_virtual_row(
+        window,
+        interaction::Id::new("logical.focus.rows"),
+        crate::virtual_list::Key::new(0),
+        first,
+    ));
+    assert!(
+        app.composition(window)
+            .expect("composition should remain installed")
+            .view()
+            .contains_focus(first)
+    );
+    assert!(
+        app.session()
+            .focused(window)
+            .is_some_and(|focus| focus.same_target(&first)),
+        "focus changes only after the keyed row exists in the composition"
+    );
 }
 
 #[test]

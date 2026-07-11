@@ -274,6 +274,39 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         Some(())
     }
 
+    fn update_virtual_materializations(
+        &mut self,
+        window: window::Id,
+        layout: &layout::Layout,
+    ) -> bool {
+        let mut next = self
+            .virtual_materializations
+            .get(&window)
+            .cloned()
+            .unwrap_or_default();
+        let mut seen = std::collections::HashSet::new();
+
+        for request in layout.virtual_list_requests() {
+            seen.insert(request.id());
+            let current = next.get(&request.id()).cloned().unwrap_or_else(|| {
+                crate::virtual_list::Materialization::new(request.range(), Vec::new())
+            });
+            next.insert(request.id(), current.with_range(request.range()));
+        }
+        next.retain(|id, _| seen.contains(id));
+
+        let previous = self.virtual_materializations.get(&window);
+        let changed = previous.map_or(!next.is_empty(), |previous| previous != &next);
+        if changed {
+            if next.is_empty() {
+                self.virtual_materializations.remove(&window);
+            } else {
+                self.virtual_materializations.insert(window, next);
+            }
+        }
+        changed
+    }
+
     fn compose_layout_for_scene(
         &mut self,
         window: window::Id,
@@ -293,6 +326,24 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 self.keymap,
             )
         };
+
+        if self.update_virtual_materializations(window, &layout) {
+            self.present(window)?;
+            self.refresh_presented_projection(window)?;
+            let composition = self.composition.get(window)?;
+            layout = layout::Layout::compose_composition_with_theme_at(
+                composition,
+                size,
+                &mut self.layout,
+                theme,
+                frame,
+                self.keymap,
+            );
+            debug_assert!(
+                !self.update_virtual_materializations(window, &layout),
+                "virtual materialization must converge after one bounded rebuild"
+            );
+        }
 
         if self.apply_active_descendant_reveals(window, &layout, theme) {
             self.refresh_presented_projection(window)?;
@@ -399,6 +450,14 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     }
 
     pub(crate) fn present(&mut self, window: window::Id) -> Option<view::View> {
+        self.present_with_virtual_pin(window, None)
+    }
+
+    fn present_with_virtual_pin(
+        &mut self,
+        window: window::Id,
+        virtual_pin: Option<(crate::interaction::Id, crate::virtual_list::Key)>,
+    ) -> Option<view::View> {
         if !self.session.contains(window) {
             log::debug!("skipping present for unknown window {window:?}");
             return None;
@@ -407,11 +466,25 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         log::debug!("rebuilding view projection for window {window:?}");
         self.layout_cache.remove(&window);
         self.record_view_rebuild(window);
+        self.refresh_virtual_pins(window);
+        if let Some((list, key)) = virtual_pin {
+            let materializations = self.virtual_materializations.get(&window)?.clone();
+            let materialization = materializations.get(&list)?.with_pin(key);
+            let mut next = materializations;
+            next.insert(list, materialization);
+            self.virtual_materializations.insert(window, next);
+        }
         let view = self.view.as_ref()?;
         let mut view = view(self.store.model(), self.view_context(window));
         if let Some(palette) = self.command_palette_projection(window) {
             view.project_command_palette(palette);
         }
+        let virtual_materializations = self
+            .virtual_materializations
+            .get(&window)
+            .cloned()
+            .unwrap_or_default();
+        view.materialize_virtual_lists(&virtual_materializations);
         let mut focus = self.session.focused(window);
         if focus.is_some_and(|focus| focus.target_id().is_some() && !view.contains_focus(focus)) {
             log::debug!("clearing stale focus before command resolution for window {window:?}");
@@ -495,6 +568,54 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         self.session.mark_presented(window, self.revision());
 
         Some(presented)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn focus_virtual_row(
+        &mut self,
+        window: window::Id,
+        list: crate::interaction::Id,
+        key: crate::virtual_list::Key,
+        focus: session::Focus,
+    ) -> bool {
+        let Some(view) = self.present_with_virtual_pin(window, Some((list, key))) else {
+            return false;
+        };
+        if !view.contains_focus(focus) {
+            return false;
+        }
+
+        self.focus(window, focus)
+    }
+
+    fn refresh_virtual_pins(&mut self, window: window::Id) {
+        let focus = self.session.focused(window);
+        let Some(interaction) = self.session.interaction(window) else {
+            return;
+        };
+        let targets = interaction
+            .pointer()
+            .capture()
+            .map(|capture| capture.target().clone())
+            .into_iter()
+            .chain(interaction.text_input().target().cloned())
+            .collect::<Vec<_>>();
+        let pins = self
+            .composition
+            .get(window)
+            .map(|composition| composition.virtual_list_pins(focus, &targets))
+            .unwrap_or_default();
+        let Some(materializations) = self.virtual_materializations.get(&window).cloned() else {
+            return;
+        };
+        let next = materializations
+            .into_iter()
+            .map(|(id, materialization)| {
+                let keys = pins.get(&id).cloned().unwrap_or_default();
+                (id, materialization.with_pins(keys))
+            })
+            .collect();
+        self.virtual_materializations.insert(window, next);
     }
 
     #[cfg(test)]

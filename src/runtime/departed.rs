@@ -40,8 +40,9 @@ impl<T> notification::Listener<window::Departed> for WindowMap<T> {
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(super) fn deliver_departed(&mut self) {
         for window in self.session.take_departed() {
-            let listeners: [&mut dyn notification::Listener<window::Departed>; 7] = [
+            let listeners: [&mut dyn notification::Listener<window::Departed>; 8] = [
                 &mut self.layout_cache,
+                &mut self.virtual_materializations,
                 &mut self.overlays,
                 &mut self.animation_schedules,
                 &mut self.visual_animations,
@@ -71,6 +72,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct WindowResidues {
     pub(crate) layout_cache: usize,
+    pub(crate) virtual_materializations: usize,
     pub(crate) overlays: usize,
     pub(crate) animation_schedules: usize,
     pub(crate) visual_animations: usize,
@@ -83,6 +85,7 @@ pub(crate) struct WindowResidues {
 impl WindowResidues {
     pub(crate) fn total(&self) -> usize {
         self.layout_cache
+            + self.virtual_materializations
             + self.overlays
             + self.animation_schedules
             + self.visual_animations
@@ -97,6 +100,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(crate) fn window_residues(&self, window: window::Id) -> WindowResidues {
         WindowResidues {
             layout_cache: usize::from(self.layout_cache.contains_key(&window)),
+            virtual_materializations: usize::from(
+                self.virtual_materializations.contains_key(&window),
+            ),
             overlays: self.overlays.residue_count(window),
             animation_schedules: usize::from(self.animation_schedules.contains_key(&window)),
             visual_animations: self.visual_animations.residue_count(window),

@@ -57,6 +57,7 @@ enum Identity {
 struct Key {
     role: view::Role,
     axis: Option<view::Axis>,
+    provided: Option<crate::virtual_list::Key>,
 }
 
 impl NodeId {
@@ -262,8 +263,23 @@ impl Node {
         }
 
         if let Some(old) = old {
+            let materialized_keys = view
+                .children()
+                .iter()
+                .filter_map(view::Node::provided_row)
+                .map(view::ProvidedRow::key)
+                .collect::<HashSet<_>>();
             for child in &old.children {
                 if !used_old.contains(&child.id) {
+                    let dematerialized = child.key.provided.is_some_and(|key| {
+                        !materialized_keys.contains(&key)
+                            && view
+                                .virtual_list_model()
+                                .is_some_and(|model| model.contains_key(key))
+                    });
+                    if dematerialized {
+                        continue;
+                    }
                     changes.add_removed_subtree(child);
                 }
             }
@@ -276,7 +292,7 @@ impl Node {
         Self {
             id,
             key: Key::for_view(view),
-            element_id: view.id(),
+            element_id: element_id_for(view),
             subject: subject_for(view),
             parent,
             children: Vec::new(),
@@ -284,7 +300,7 @@ impl Node {
     }
 
     fn matches(&self, view: &view::Node) -> bool {
-        self.key == Key::for_view(view) && self.element_id == view.id()
+        self.key == Key::for_view(view) && self.element_id == element_id_for(view)
     }
 
     fn match_child<'a>(
@@ -293,7 +309,15 @@ impl Node {
         view: &view::Node,
         used: &HashSet<Identity>,
     ) -> Option<&'a Node> {
-        if let Some(id) = view.id() {
+        if let Some(row) = view.provided_row() {
+            return self
+                .children
+                .iter()
+                .filter(|child| !used.contains(&child.id))
+                .find(|child| child.key.provided == Some(row.key()) && child.matches(view));
+        }
+
+        if let Some(id) = element_id_for(view) {
             return self
                 .children
                 .iter()
@@ -340,11 +364,26 @@ impl Node {
     }
 }
 
+fn element_id_for(view: &view::Node) -> Option<interaction::Id> {
+    view.id()
+        .or_else(|| {
+            view.text_area_model()
+                .and_then(view::TextArea::focus)
+                .and_then(|focus| focus.target_id())
+        })
+        .or_else(|| {
+            view.text_box_model()
+                .and_then(view::TextBox::focus)
+                .and_then(|focus| focus.target_id())
+        })
+}
+
 impl Key {
     fn for_view(view: &view::Node) -> Self {
         Self {
             role: view.role(),
             axis: view.axis(),
+            provided: view.provided_row().map(view::ProvidedRow::key),
         }
     }
 }
@@ -372,7 +411,7 @@ fn subject_for(view: &view::Node) -> Option<subject::Segment> {
         view::Role::Menu | view::Role::FloatingPanel | view::Role::Panel => {
             view.label_text().map(subject::Segment::from_label)
         }
-        view::Role::Scroll => None,
+        view::Role::Scroll | view::Role::VirtualList => None,
         view::Role::Stack
         | view::Role::MenuBar
         | view::Role::Binding

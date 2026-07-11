@@ -7,7 +7,10 @@ use super::{
     view,
 };
 use crate::animation;
-use std::ops::{Deref, DerefMut};
+use std::{
+    collections::HashMap,
+    ops::{Deref, DerefMut},
+};
 mod access;
 mod builder;
 mod context;
@@ -44,6 +47,9 @@ struct CachedLayout {
     layout: layout::Layout,
 }
 
+type VirtualMaterializations =
+    HashMap<crate::interaction::Id, crate::virtual_list::Materialization>;
+
 pub struct Runtime<M: state::State, E: Send + 'static = (), V = ()> {
     store: Store<M>,
     timeline: Timeline<M>,
@@ -69,6 +75,7 @@ pub struct Runtime<M: state::State, E: Send + 'static = (), V = ()> {
     overlays: overlay::Store,
     overlay_capabilities: overlay::Capabilities,
     layout_cache: departed::WindowMap<CachedLayout>,
+    virtual_materializations: departed::WindowMap<VirtualMaterializations>,
 }
 
 impl<M: state::State> Runtime<M> {
@@ -102,6 +109,7 @@ impl<M: state::State> Runtime<M> {
             overlays: overlay::Store::new(),
             overlay_capabilities: overlay::Capabilities::default(),
             layout_cache: departed::WindowMap::default(),
+            virtual_materializations: departed::WindowMap::default(),
         }
     }
 }

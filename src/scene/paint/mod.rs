@@ -299,7 +299,7 @@ fn role_fill(frame: &layout::Frame, theme: &Theme) -> Option<super::Color> {
         view::Role::Checkbox | view::Role::Radio => visible_fill(theme.choice().background),
         view::Role::Slider => visible_fill(theme.slider().background),
         view::Role::TextBox => Some(theme.text_input().field_background),
-        view::Role::Scroll => None,
+        view::Role::Scroll | view::Role::VirtualList => None,
         view::Role::Panel => visible_fill(theme.surfaces().panel),
         view::Role::SectionHeader | view::Role::Label | view::Role::Stack => None,
     }

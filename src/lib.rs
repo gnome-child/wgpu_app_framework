@@ -29,6 +29,7 @@ pub mod text;
 pub mod theme;
 pub mod timeline;
 pub mod view;
+pub mod virtual_list;
 pub mod widget;
 pub mod window;
 
@@ -75,6 +76,7 @@ pub use task::Task;
 pub use theme::Theme;
 pub use timeline::Timeline;
 pub use view::View;
+pub use virtual_list::VirtualList;
 pub use widget::Widget;
 
 #[cfg(test)]

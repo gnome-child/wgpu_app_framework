@@ -52,6 +52,7 @@ enum FrameContent {
     Choice(ChoiceContent),
     Slider(SliderContent),
     Scroll(ScrollContent),
+    VirtualList(VirtualListContent),
     FloatingPanel,
 }
 
@@ -96,6 +97,12 @@ struct SliderContent {
 #[derive(Clone, Copy)]
 struct ScrollContent {
     viewport: Option<Viewport>,
+}
+
+#[derive(Clone)]
+struct VirtualListContent {
+    viewport: Option<Viewport>,
+    request: Option<crate::virtual_list::Request>,
 }
 
 #[derive(Clone)]
@@ -265,6 +272,21 @@ impl Frame {
         self
     }
 
+    pub(super) fn with_virtual_list(
+        mut self,
+        viewport: Viewport,
+        request: crate::virtual_list::Request,
+    ) -> Self {
+        match &mut self.content {
+            FrameContent::VirtualList(content) => {
+                content.viewport = Some(viewport);
+                content.request = Some(request);
+            }
+            _ => panic!("only VirtualList frame content accepts virtual geometry"),
+        }
+        self
+    }
+
     pub(super) fn with_shortcut_width(mut self, width: i32) -> Self {
         let width = width.max(0);
         match (&mut self.content, self.binding.as_mut()) {
@@ -368,6 +390,14 @@ impl Frame {
         match &self.content {
             FrameContent::Text(TextContent::Area { layout, .. }) => Some(layout.viewport()),
             FrameContent::Scroll(content) => content.viewport,
+            FrameContent::VirtualList(content) => content.viewport,
+            _ => None,
+        }
+    }
+
+    pub(crate) fn virtual_list_request(&self) -> Option<&crate::virtual_list::Request> {
+        match &self.content {
+            FrameContent::VirtualList(content) => content.request.as_ref(),
             _ => None,
         }
     }
@@ -648,6 +678,10 @@ impl FrameContent {
                     .map(str::to_owned),
             }),
             view::Role::Scroll => Self::Scroll(ScrollContent { viewport: None }),
+            view::Role::VirtualList => Self::VirtualList(VirtualListContent {
+                viewport: None,
+                request: None,
+            }),
             view::Role::Panel => Self::Structural(StructuralRole::Panel),
             view::Role::FloatingPanel => Self::FloatingPanel,
             view::Role::SectionHeader => Self::Text(TextContent::SectionHeader),
@@ -673,6 +707,7 @@ impl FrameContent {
             Self::Slider(_) => view::Role::Slider,
             Self::Text(TextContent::Field { .. }) => view::Role::TextBox,
             Self::Scroll(_) => view::Role::Scroll,
+            Self::VirtualList(_) => view::Role::VirtualList,
             Self::FloatingPanel => view::Role::FloatingPanel,
             Self::Text(TextContent::SectionHeader) => view::Role::SectionHeader,
             Self::Text(TextContent::Label { .. }) => view::Role::Label,
@@ -775,6 +810,7 @@ fn action_for(node: &view::Node) -> Option<view::Action> {
         | view::Role::Radio
         | view::Role::Slider
         | view::Role::Scroll
+        | view::Role::VirtualList
         | view::Role::Panel
         | view::Role::FloatingPanel
         | view::Role::SectionHeader

@@ -41,7 +41,7 @@ impl Node {
             });
         }
 
-        if self.role == Role::Scroll {
+        if matches!(self.role, Role::Scroll | Role::VirtualList) {
             let label = self.label.as_deref().unwrap_or("Scroll");
             return Some(self.id.map_or_else(
                 || interaction::Target::scroll_node(node_id, None, label),
@@ -93,6 +93,7 @@ impl Node {
             | Role::Radio
             | Role::Slider
             | Role::Scroll
+            | Role::VirtualList
             | Role::Panel
             | Role::SectionHeader => None,
         }
@@ -215,6 +216,7 @@ impl Node {
             | Role::Radio
             | Role::Slider
             | Role::Scroll
+            | Role::VirtualList
             | Role::Panel
             | Role::FloatingPanel
             | Role::TextBox
@@ -237,6 +239,7 @@ impl Node {
             | Role::TextArea
             | Role::TextBox
             | Role::Scroll
+            | Role::VirtualList
             | Role::Panel
             | Role::FloatingPanel
             | Role::SectionHeader

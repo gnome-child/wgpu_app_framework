@@ -105,6 +105,24 @@ fn removed_nodes_and_elements_are_reported_for_pruning() {
 }
 
 #[test]
+fn removed_idless_text_box_reports_its_focus_element_for_draft_pruning() {
+    let mut store = composition::Store::default();
+    let window = window::Id::new(1);
+    let focus = session::Focus::text("conditional.text");
+    let first = View::new(view::Node::root().child(view::Node::text_box_state(
+        view::TextBox::new("").with_focus(focus),
+    )));
+    store.install(window, first);
+
+    let second = store.install(window, View::new(view::Node::root()));
+
+    assert_eq!(
+        second.changes().removed_elements(),
+        &[interaction::Id::new("conditional.text")]
+    );
+}
+
+#[test]
 fn idless_binding_hit_targets_use_retained_identity() {
     let mut store = composition::Store::default();
     let window = window::Id::new(1);

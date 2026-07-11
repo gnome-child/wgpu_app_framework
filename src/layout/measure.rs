@@ -63,6 +63,7 @@ pub(in crate::layout) fn intrinsic_height(node: &view::Node, theme: &theme::Them
         | view::Role::Slider
         | view::Role::TextBox => control_height,
         view::Role::Scroll => scroll_intrinsic_height(node, theme),
+        view::Role::VirtualList => control_height,
         view::Role::Separator => theme.menu().row_height,
         view::Role::SectionHeader => section_header_height(theme),
         view::Role::Label => body_line_height(theme),

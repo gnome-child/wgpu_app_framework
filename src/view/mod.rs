@@ -5,6 +5,7 @@ use super::{
     command, composition, context::Context as CommandContext, interaction, responder, session,
     subject,
 };
+use std::collections::HashMap;
 
 mod action;
 mod binding;
@@ -21,8 +22,8 @@ pub use binding::Binding;
 pub(crate) use command_palette::{CommandPalette, Entry as CommandPaletteEntry};
 pub use context::Context;
 pub use control::{Button, Checkbox, Radio, Slider, TextArea, TextBox, Wrap};
-pub(crate) use node::Role;
 pub use node::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node};
+pub(crate) use node::{ProvidedRow, Role};
 #[cfg(test)]
 pub(crate) use presentation::Presentation;
 pub use style::{Align, Dimension, Padding, Style};
@@ -39,6 +40,13 @@ impl View {
 
     pub fn root(&self) -> &Node {
         &self.root
+    }
+
+    pub(crate) fn materialize_virtual_lists(
+        &mut self,
+        requests: &HashMap<interaction::Id, crate::virtual_list::Materialization>,
+    ) {
+        self.root.materialize_virtual_lists(requests);
     }
 
     #[cfg(test)]
@@ -109,6 +117,18 @@ impl View {
     ) -> bool {
         self.root
             .contains_enabled_focus_retained(focus, tree.root())
+    }
+
+    pub(crate) fn virtual_list_pins_retained(
+        &self,
+        tree: &composition::Tree,
+        focus: Option<session::Focus>,
+        targets: &[interaction::Target],
+    ) -> HashMap<interaction::Id, Vec<crate::virtual_list::Key>> {
+        let mut pins = HashMap::new();
+        self.root
+            .collect_virtual_list_pins_retained(tree.root(), focus, targets, &mut pins);
+        pins
     }
 
     pub(crate) fn focus_order_retained(&self, tree: &composition::Tree) -> Vec<session::Focus> {

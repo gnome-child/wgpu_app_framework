@@ -39,6 +39,7 @@ pub(crate) struct Layout {
     size: Size,
     frames: Vec<Frame>,
     chrome: Vec<Chrome>,
+    virtual_list_requests: Vec<crate::virtual_list::Request>,
 }
 
 impl Layout {
@@ -109,11 +110,17 @@ impl Layout {
         let frames =
             algorithm::compose_frames(view.root(), tree.root(), size, engine, theme, frame, keymap);
         let chrome = chrome::project(&frames, theme);
+        let virtual_list_requests = frames
+            .iter()
+            .filter_map(Frame::virtual_list_request)
+            .cloned()
+            .collect();
 
         Self {
             size,
             frames,
             chrome,
+            virtual_list_requests,
         }
     }
 
@@ -127,6 +134,10 @@ impl Layout {
 
     pub(crate) fn chrome(&self) -> &[Chrome] {
         &self.chrome
+    }
+
+    pub(crate) fn virtual_list_requests(&self) -> &[crate::virtual_list::Request] {
+        &self.virtual_list_requests
     }
 
     pub(crate) fn text_caret_rect(&self) -> Option<Rect> {

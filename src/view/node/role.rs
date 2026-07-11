@@ -13,6 +13,7 @@ pub enum Role {
     Slider,
     TextBox,
     Scroll,
+    VirtualList,
     Panel,
     FloatingPanel,
     SectionHeader,

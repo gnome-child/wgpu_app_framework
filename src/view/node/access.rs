@@ -85,6 +85,14 @@ impl Node {
         self.scroll_offset
     }
 
+    pub(crate) fn virtual_list_model(&self) -> Option<&crate::virtual_list::Model> {
+        self.virtual_list.as_ref()
+    }
+
+    pub(crate) fn provided_row(&self) -> Option<super::ProvidedRow> {
+        self.provided_row
+    }
+
     pub fn button_model(&self) -> Option<&Button> {
         match self.control.as_ref()? {
             Control::Button(button) => Some(button),

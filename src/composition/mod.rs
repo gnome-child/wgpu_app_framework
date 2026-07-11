@@ -74,6 +74,15 @@ impl Composition {
             .next_focus_retained(&self.tree, current, direction)
     }
 
+    pub(crate) fn virtual_list_pins(
+        &self,
+        focus: Option<session::Focus>,
+        targets: &[interaction::Target],
+    ) -> std::collections::HashMap<interaction::Id, Vec<crate::virtual_list::Key>> {
+        self.view
+            .virtual_list_pins_retained(&self.tree, focus, targets)
+    }
+
     pub(crate) fn focus_action(&self, focus: &session::Focus) -> Option<view::Action> {
         self.view.focus_action_retained(focus, &self.tree)
     }

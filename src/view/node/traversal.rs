@@ -12,8 +12,26 @@ use crate::{
     command, composition, context::Context as CommandContext, interaction, responder, session,
     state, subject,
 };
+use std::collections::HashMap;
 
 impl Node {
+    pub(in crate::view) fn materialize_virtual_lists(
+        &mut self,
+        requests: &HashMap<interaction::Id, crate::virtual_list::Materialization>,
+    ) {
+        if let Some(model) = self.virtual_list.as_mut() {
+            let request = requests
+                .get(&model.id())
+                .cloned()
+                .unwrap_or_else(|| model.initial_materialization());
+            self.children = model.materialize(&request);
+        }
+
+        for child in &mut self.children {
+            child.materialize_virtual_lists(requests);
+        }
+    }
+
     #[cfg(test)]
     pub(in crate::view) fn collect_bindings<'a>(&'a self, bindings: &mut Vec<&'a Binding>) {
         if let Some(binding) = &self.binding {
@@ -101,6 +119,53 @@ impl Node {
         retained: &composition::Node,
     ) -> bool {
         self.contains_focus_retained_at(&focus, retained, true)
+    }
+
+    pub(in crate::view) fn contains_focus_retained(
+        &self,
+        focus: session::Focus,
+        retained: &composition::Node,
+    ) -> bool {
+        self.contains_focus_retained_at(&focus, retained, false)
+    }
+
+    pub(in crate::view) fn contains_target_retained(
+        &self,
+        target: &interaction::Target,
+        retained: &composition::Node,
+    ) -> bool {
+        self.node_pointer_target(retained.node_id()).as_ref() == Some(target)
+            || self.children.iter().enumerate().any(|(index, child)| {
+                child.contains_target_retained(target, retained_child(retained, index))
+            })
+    }
+
+    pub(in crate::view) fn collect_virtual_list_pins_retained(
+        &self,
+        retained: &composition::Node,
+        focus: Option<session::Focus>,
+        targets: &[interaction::Target],
+        pins: &mut std::collections::HashMap<interaction::Id, Vec<crate::virtual_list::Key>>,
+    ) {
+        if self.virtual_list_model().is_some() {
+            for (child, retained_child) in self.children.iter().zip(retained.children()) {
+                let Some(row) = child.provided_row() else {
+                    continue;
+                };
+                let pinned_by_focus =
+                    focus.is_some_and(|focus| child.contains_focus_retained(focus, retained_child));
+                let pinned_by_target = targets
+                    .iter()
+                    .any(|target| child.contains_target_retained(target, retained_child));
+                if pinned_by_focus || pinned_by_target {
+                    pins.entry(row.list()).or_default().push(row.key());
+                }
+            }
+        }
+
+        for (child, retained_child) in self.children.iter().zip(retained.children()) {
+            child.collect_virtual_list_pins_retained(retained_child, focus, targets, pins);
+        }
     }
 
     pub(in crate::view) fn collect_focus_order_retained(
@@ -249,7 +314,7 @@ impl Node {
         retained: &composition::Node,
     ) {
         let pointer_target = self.node_pointer_target(require_retained_id(retained));
-        self.scroll_offset = if self.role == Role::Scroll {
+        self.scroll_offset = if matches!(self.role, Role::Scroll | Role::VirtualList) {
             pointer_target
                 .as_ref()
                 .map(|target| interaction.scroll().offset(target))
@@ -519,6 +584,7 @@ impl Node {
             | Role::MenuBar
             | Role::Separator
             | Role::Scroll
+            | Role::VirtualList
             | Role::Panel
             | Role::FloatingPanel
             | Role::SectionHeader

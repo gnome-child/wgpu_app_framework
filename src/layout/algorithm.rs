@@ -109,6 +109,10 @@ fn layout_node(
         layout_scroll(node, retained, path, rect, floating_layer, clip, ctx);
         return;
     }
+    if node.role() == view::Role::VirtualList {
+        layout_virtual_list(node, retained, path, rect, floating_layer, clip, ctx);
+        return;
+    }
 
     let frame = ctx.frame(
         node,
@@ -150,6 +154,7 @@ fn layout_node(
         | view::Role::Slider
         | view::Role::TextBox
         | view::Role::Scroll
+        | view::Role::VirtualList
         | view::Role::SectionHeader
         | view::Role::Label => {}
     }
@@ -206,6 +211,77 @@ fn layout_scroll(
         child_clip,
         ctx,
     );
+}
+
+fn layout_virtual_list(
+    node: &view::Node,
+    retained: &composition::Node,
+    path: path::Path,
+    rect: Rect,
+    floating_layer: bool,
+    clip: Option<Clip>,
+    ctx: &mut LayoutContext<'_>,
+) {
+    let model = node
+        .virtual_list_model()
+        .expect("VirtualList role must carry provider content");
+    let viewport_rect = scroll_viewport_rect(node, rect, ctx.theme);
+    let row_height = model.row_height().max(1);
+    let content_height = (model.len() as i64)
+        .saturating_mul(row_height as i64)
+        .min(i32::MAX as i64) as i32;
+    let viewport = Viewport::new(
+        viewport_rect,
+        Size::new(
+            viewport_rect.width(),
+            content_height.max(viewport_rect.height()),
+        ),
+        node.scroll_offset(),
+    );
+    let offset = viewport.resolved_scroll();
+    let visible_start = (offset.y().max(0) / row_height) as usize;
+    let visible_end =
+        ((offset.y().max(0) as i64 + viewport_rect.height().max(0) as i64 + row_height as i64 - 1)
+            / row_height as i64) as usize;
+    let range = visible_start.saturating_sub(model.overscan())
+        ..visible_end
+            .saturating_add(model.overscan())
+            .min(model.len());
+    let request = crate::virtual_list::Request::new(model.id(), range);
+    let row_clip =
+        Some(intersect_clip(clip, viewport_rect).unwrap_or_else(|| Clip::new(viewport_rect)));
+    let frame = ctx
+        .frame(
+            node,
+            retained.node_id(),
+            path.clone(),
+            rect,
+            floating_layer,
+            clip,
+        )
+        .with_virtual_list(viewport, request);
+    ctx.frames.push(frame);
+
+    for (index, child) in node.children().iter().enumerate() {
+        let row = child
+            .provided_row()
+            .expect("materialized VirtualList children must carry provider identity");
+        let logical_y = (row.index() as i64).saturating_mul(row_height as i64);
+        let y = (viewport_rect.y() as i64)
+            .saturating_add(logical_y)
+            .saturating_sub(offset.y() as i64)
+            .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        let child_rect = Rect::new(viewport_rect.x(), y, viewport_rect.width(), row_height);
+        layout_node(
+            child,
+            retained_child(retained, index),
+            path.child(index),
+            child_rect,
+            floating_layer,
+            child_clip(child, row_clip),
+            ctx,
+        );
+    }
 }
 
 fn scroll_viewport_rect(node: &view::Node, rect: Rect, theme: &theme::Theme) -> Rect {

@@ -125,6 +125,13 @@ impl Node {
         Self::new(Role::Scroll).with_axis(Axis::Vertical)
     }
 
+    pub(crate) fn virtual_list(model: crate::virtual_list::Model) -> Self {
+        Self::new(Role::VirtualList)
+            .with_id(model.id())
+            .with_axis(Axis::Vertical)
+            .with_virtual_list(model)
+    }
+
     pub fn floating_panel(id: impl Into<interaction::Id>) -> Self {
         Self::new(Role::FloatingPanel).with_id(id)
     }
@@ -152,6 +159,16 @@ impl Node {
 
     pub(in crate::view) fn push_child(&mut self, child: Node) {
         self.children.push(child);
+    }
+
+    pub(crate) fn with_provided_row(
+        mut self,
+        list: interaction::Id,
+        key: crate::virtual_list::Key,
+        index: usize,
+    ) -> Self {
+        self.provided_row = Some(super::ProvidedRow { list, key, index });
+        self
     }
 
     pub(crate) fn with_label(mut self, label: impl Into<String>) -> Self {
@@ -244,6 +261,11 @@ impl Node {
         self
     }
 
+    fn with_virtual_list(mut self, model: crate::virtual_list::Model) -> Self {
+        self.virtual_list = Some(model);
+        self
+    }
+
     pub fn with_interaction_id(mut self, id: impl Into<interaction::Id>) -> Self {
         self.id = Some(id.into());
         self
@@ -267,6 +289,8 @@ impl Node {
             focus_visible: false,
             selected: false,
             scroll_offset: interaction::ScrollOffset::default(),
+            virtual_list: None,
+            provided_row: None,
             children: Vec::new(),
         }
     }

@@ -1,5 +1,6 @@
 use super::super::interaction;
 use super::{binding::Binding, control::Control, style::Style};
+use crate::virtual_list;
 use crate::{subject, text};
 
 mod access;
@@ -50,5 +51,28 @@ pub struct Node {
     focus_visible: bool,
     selected: bool,
     scroll_offset: interaction::ScrollOffset,
+    virtual_list: Option<virtual_list::Model>,
+    provided_row: Option<ProvidedRow>,
     children: Vec<Node>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ProvidedRow {
+    list: interaction::Id,
+    key: virtual_list::Key,
+    index: usize,
+}
+
+impl ProvidedRow {
+    pub(crate) fn list(self) -> interaction::Id {
+        self.list
+    }
+
+    pub(crate) fn key(self) -> virtual_list::Key {
+        self.key
+    }
+
+    pub(crate) fn index(self) -> usize {
+        self.index
+    }
 }
