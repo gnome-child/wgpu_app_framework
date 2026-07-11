@@ -11,7 +11,7 @@ pub fn runtime(state: State) -> Runtime<State, Event> {
     Runtime::new(state)
         .commands(|commands| {
             commands
-                .register::<document::ApplyEdit>(command::Spec::new("Edit"))
+                .install(document::Editing::standard())
                 .register::<document::NewFile>(command::Spec::new("New").shortcut("Primary+N"))
                 .register::<document::OpenFile>(command::Spec::new("Open").shortcut("Primary+O"))
                 .register::<document::OpenPath>(command::Spec::new("Open Path"))
@@ -20,23 +20,6 @@ pub fn runtime(state: State) -> Runtime<State, Event> {
                     command::Spec::new("Save As").shortcut("Primary+Shift+S"),
                 )
                 .register::<document::SaveToPath>(command::Spec::new("Save To Path"))
-                .register::<document::Cut>(
-                    command::Spec::new("Cut")
-                        .key_chord(command::KeyChord::standard(command::Standard::Cut)),
-                )
-                .register::<document::Copy>(
-                    command::Spec::new("Copy")
-                        .key_chord(command::KeyChord::standard(command::Standard::Copy)),
-                )
-                .register::<document::Paste>(
-                    command::Spec::new("Paste")
-                        .key_chord(command::KeyChord::standard(command::Standard::Paste)),
-                )
-                .register::<document::Delete>(command::Spec::new("Delete"))
-                .register::<document::SelectAll>(
-                    command::Spec::new("Select All")
-                        .key_chord(command::KeyChord::standard(command::Standard::SelectAll)),
-                )
                 .register::<LoadStressText>(command::Spec::new("Load Stress Text"))
                 .register::<ToggleWrapText>(command::Spec::new("Wrap text"))
                 .register::<ToggleDebugPanel>(command::Spec::new("Debug panel"));

@@ -157,6 +157,14 @@ impl Spec {
         self.listing = listing;
         self
     }
+
+    pub fn display_name(&self) -> &'static str {
+        self.display_name
+    }
+
+    pub fn declared_key_chord(&self) -> Option<KeyChord> {
+        self.shortcut
+    }
 }
 
 impl ParsedKeyChord {

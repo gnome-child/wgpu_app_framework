@@ -6,9 +6,6 @@ is next.
 
 ## In flight
 
-27. **Standard editing set** — install the enumerable, individually declinable
-    standard edit-command specs in one line while keeping targets and observers
-    explicit.
 28. **Application ceiling** — one blessed platform launch sentence replaces
     the repeated app-to-shell-to-runner fold, with an honest native clipboard
     default that never overwrites an explicit choice.

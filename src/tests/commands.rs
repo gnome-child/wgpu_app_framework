@@ -1,6 +1,44 @@
 use super::*;
 
 #[test]
+fn standard_editing_is_an_enumerable_declinable_set() {
+    let editing = document::Editing::standard();
+    let members = editing
+        .members()
+        .map(|member| {
+            (
+                member.command_name(),
+                member.spec().display_name(),
+                member
+                    .spec()
+                    .declared_key_chord()
+                    .map(|chord| chord.as_str()),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        members,
+        vec![
+            ("document.apply_edit", "Edit", None),
+            ("edit.cut", "Cut", Some("Standard::Cut")),
+            ("edit.copy", "Copy", Some("Standard::Copy")),
+            ("edit.paste", "Paste", Some("Standard::Paste")),
+            ("edit.delete", "Delete", None),
+            ("edit.select_all", "Select All", Some("Standard::SelectAll")),
+        ]
+    );
+
+    let declined = document::Editing::standard()
+        .without::<document::Delete>()
+        .members()
+        .map(command::Member::command_name)
+        .collect::<Vec<_>>();
+    assert!(!declined.contains(&"edit.delete"));
+    assert_eq!(declined.len(), members.len() - 1);
+}
+
+#[test]
 fn typing_history_group_carries_the_text_owned_coalesce_window() {
     let typing =
         <document::ApplyEdit as Command>::history_group(&text::edit::Edit::Insert("a".to_owned()))
@@ -359,6 +397,9 @@ fn palette_scope_gives_standard_text_commands_to_query_and_rows_to_captured_docu
     let mut app = Runtime::new(text_editor::State {
         document: TextDocument::from_multiline_text("alpha beta"),
         ..text_editor::State::default()
+    })
+    .commands(|commands| {
+        commands.install(document::Editing::standard());
     })
     .responders(|responders| {
         responders

@@ -1,7 +1,6 @@
 use super::{
     clipboard::Clipboard,
-    command, composition, diagnostics, document, geometry, keymap, layout, overlay, responder,
-    session,
+    command, composition, diagnostics, geometry, keymap, layout, overlay, responder, session,
     state::{self, Store},
     task, theme,
     timeline::{self, Timeline},
@@ -76,7 +75,6 @@ impl<M: state::State> Runtime<M> {
         let mut registry = command::Registry::default();
         session::register(&mut registry);
         timeline::register(&mut registry);
-        document::register(&mut registry);
 
         Self {
             store: Store::new(model),

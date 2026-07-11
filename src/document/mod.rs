@@ -12,10 +12,9 @@ mod notification;
 mod outcome;
 mod save;
 
-pub(crate) use command::register;
 pub use command::{
-    ApplyEdit, Copy, Cut, Delete, NewFile, OpenFile, OpenPath, Paste, SaveAsFile, SaveFile,
-    SaveToPath, SelectAll,
+    ApplyEdit, Copy, Cut, Delete, Editing, NewFile, OpenFile, OpenPath, Paste, SaveAsFile,
+    SaveFile, SaveToPath, SelectAll,
 };
 pub use notification::{OpenDialogCanceled, SaveDialogCanceled};
 pub use outcome::Outcome;

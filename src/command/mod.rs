@@ -1,5 +1,6 @@
 mod observer;
 mod registry;
+mod set;
 mod spec;
 mod state;
 mod trigger;
@@ -10,6 +11,7 @@ pub use observer::Observation;
 pub(crate) use observer::Observers;
 pub use registry::Registry;
 pub(crate) use registry::ResolvedCommand;
+pub use set::{Member, Set};
 pub(crate) use spec::KeyChordKind;
 pub use spec::{KeyChord, Listing, Spec, Standard};
 pub(crate) use state::Availability;

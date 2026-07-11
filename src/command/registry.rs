@@ -10,7 +10,7 @@ use super::super::{
     response::{AnyResponse, Response},
     state,
 };
-use super::{AnyTrigger, Command, History, HistoryGroup, KeyChord, Spec, State};
+use super::{AnyTrigger, Command, History, HistoryGroup, KeyChord, Set, Spec, State};
 #[derive(Default)]
 pub struct Registry {
     commands: HashMap<TypeId, AnyCommand>,
@@ -98,6 +98,13 @@ impl ResolvedCommand {
 }
 
 impl Registry {
+    pub fn install(&mut self, set: Set) -> &mut Self {
+        for entry in set.entries {
+            (entry.install)(self, entry.spec);
+        }
+        self
+    }
+
     pub fn register<C>(&mut self, spec: Spec) -> &mut Self
     where
         C: Command,

@@ -630,7 +630,9 @@ fn text_box_ctrl_a_then_cut_updates_bound_text_and_clipboard() {
         ..TextBoxSubmitState::default()
     })
     .commands(|commands| {
-        commands.register::<SubmitText>(command::Spec::new("Submit Text"));
+        commands
+            .install(document::Editing::standard())
+            .register::<SubmitText>(command::Spec::new("Submit Text"));
     })
     .responders(|responders| {
         responders.app().target::<SubmitText>();
@@ -733,6 +735,9 @@ fn text_box_cut_waits_for_confirmed_clipboard_write() {
         ..TextBoxSubmitState::default()
     })
     .with_clipboard(Clipboard::unavailable_system())
+    .commands(|commands| {
+        commands.install(document::Editing::standard());
+    })
     .started(|cx| {
         cx.open_window(window::Options::new("Failed Text Box Cut"));
     })
@@ -778,7 +783,9 @@ fn text_box_paste_replaces_selection_and_truncates_to_first_line() {
         ..TextBoxSubmitState::default()
     })
     .commands(|commands| {
-        commands.register::<SubmitText>(command::Spec::new("Submit Text"));
+        commands
+            .install(document::Editing::standard())
+            .register::<SubmitText>(command::Spec::new("Submit Text"));
     })
     .responders(|responders| {
         responders.app().target::<SubmitText>();
@@ -1078,6 +1085,9 @@ fn text_box_shift_arrow_selection_is_replaced_by_typing() {
 fn text_box_selection_and_caret_are_painted_as_widget_chrome() {
     let focus = session::Focus::text("find");
     let mut app = Runtime::new(TextBoxSubmitState::default())
+        .commands(|commands| {
+            commands.install(document::Editing::standard());
+        })
         .started(|cx| {
             cx.open_window(window::Options::new("Text Box Paint"));
         })

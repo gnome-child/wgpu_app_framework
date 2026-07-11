@@ -734,6 +734,11 @@ availability, history policy, observers, registry metadata, and triggers.
 Commands describe what can be asked. They do not decide which concrete target
 is currently meant by focus, capture, or app state.
 
+`command::Set` is an enumerable bundle of command specs, not an editing mode.
+The standard document editing set owns its members, labels, and chords; apps
+install it in one line and may decline members individually. Sets never attach
+responders, choose focus, create editing state, or install observers.
+
 Commands are imperative requests. Past-tense facts are notifications, not
 commands. A past-tense command is a classification error because facts have no
 availability, no history policy, no registry spec, and no advertised command
