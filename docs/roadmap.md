@@ -14,10 +14,6 @@ is next.
    popup show cycle must be a freshly presented current frame. Fixes the
    stale-swapchain silhouette on reused popup windows and is expected to close
    the unresolved first-frame skip recorded in `master_design.md`.
-3. **Palette input/listing scoping** — the palette search box joins the
-   standard text machinery at palette rank and consumes edit commands; the
-   listing stays anchored to the captured scope, excluding palette-scope
-   claims and the palette command itself.
 4. **Context menu** — right-click → hit-scoped claims → derived command menu
    at the pointer, on the native popup backend. The popup arc's original
    payoff feature.

@@ -123,18 +123,6 @@ impl Interaction {
             .is_some_and(|palette| palette.select_page_previous(len, page))
     }
 
-    pub(super) fn select_command_palette_first(&mut self, len: usize) -> bool {
-        self.command_palette
-            .as_mut()
-            .is_some_and(|palette| palette.select_first(len))
-    }
-
-    pub(super) fn select_command_palette_last(&mut self, len: usize) -> bool {
-        self.command_palette
-            .as_mut()
-            .is_some_and(|palette| palette.select_last(len))
-    }
-
     pub(super) fn pointer_move(&mut self, target: Option<Target>) -> bool {
         let changed = self.pointer.hovered != target;
         self.pointer.hovered = target;

@@ -122,6 +122,16 @@ struct ParsedModifiers {
 pub struct Spec {
     pub(in crate::command) display_name: &'static str,
     pub(in crate::command) shortcut: Option<KeyChord>,
+    pub(in crate::command) listing: Listing,
+}
+
+/// Whether a command may appear in surfaces that describe the current command world.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Listing {
+    #[default]
+    Included,
+    /// The command opens the describing surface and is not part of its description.
+    Describer,
 }
 
 impl Spec {
@@ -129,6 +139,7 @@ impl Spec {
         Self {
             display_name,
             shortcut: None,
+            listing: Listing::Included,
         }
     }
 
@@ -139,6 +150,11 @@ impl Spec {
 
     pub fn key_chord(mut self, shortcut: KeyChord) -> Self {
         self.shortcut = Some(shortcut);
+        self
+    }
+
+    pub fn listing(mut self, listing: Listing) -> Self {
+        self.listing = listing;
         self
     }
 }

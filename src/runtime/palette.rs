@@ -60,12 +60,18 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         ))
     }
 
-    pub(in crate::runtime) fn handle_command_palette_key(
+    pub(in crate::runtime) fn handle_command_palette_scope_key(
         &mut self,
         window: window::Id,
         key: input::Key,
         modifiers: input::Modifiers,
     ) -> std::result::Result<Option<input::Outcome>, Error> {
+        let scope = self
+            .session
+            .command_scope(window, self.session.focused(window));
+        if scope.kind() != responder::Kind::Transient {
+            return Ok(None);
+        }
         let Some(query) = self.session.command_palette_query(window) else {
             return Ok(None);
         };
@@ -84,8 +90,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             input::Key::PageUp => self
                 .session
                 .select_command_palette_page_previous(window, len, PAGE_SIZE),
-            input::Key::Home => self.session.select_command_palette_first(window, len),
-            input::Key::End => self.session.select_command_palette_last(window, len),
             input::Key::Enter => return self.activate_command_palette_selection(window).map(Some),
             _ => return Ok(None),
         };
@@ -197,9 +201,10 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     }
 
     fn command_palette_matches(&mut self, window: window::Id, query: &str) -> Vec<Match> {
-        let Some(focus) = self.session.command_palette_captured_focus(window) else {
+        let Some(scope) = self.session.command_palette_captured_scope(window) else {
             return Vec::new();
         };
+        let focus = scope.focus();
         let cx = command_context::Context::with_clipboard_source(
             &mut self.clipboard,
             command_context::Source::Palette,
@@ -209,6 +214,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             &mut self.session,
             &mut self.composition,
             Some(window),
+            scope,
         );
         let mut chain = self
             .responders

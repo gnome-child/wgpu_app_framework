@@ -11,7 +11,7 @@ pub(crate) use observer::Observers;
 pub use registry::Registry;
 pub(crate) use registry::ResolvedCommand;
 pub(crate) use spec::KeyChordKind;
-pub use spec::{KeyChord, Spec, Standard};
+pub use spec::{KeyChord, Listing, Spec, Standard};
 pub(crate) use state::Availability;
 pub use state::State;
 pub use trigger::Trigger;

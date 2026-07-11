@@ -18,6 +18,7 @@ pub(super) struct Services<'a, M: state::State> {
     session: &'a mut session::Session,
     composition: &'a mut composition::Store,
     window: Option<window::Id>,
+    scope: responder::Scope,
 }
 
 impl<'a, M: state::State> Services<'a, M> {
@@ -26,12 +27,14 @@ impl<'a, M: state::State> Services<'a, M> {
         session: &'a mut session::Session,
         composition: &'a mut composition::Store,
         window: Option<window::Id>,
+        scope: responder::Scope,
     ) -> Self {
         Self {
             timeline,
             session,
             composition,
             window,
+            scope,
         }
     }
 }
@@ -42,7 +45,10 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         window: window::Id,
         command_type: TypeId,
     ) -> bool {
-        text::owns_command(&self.session, &self.composition, Some(window), command_type)
+        let scope = self
+            .session
+            .command_scope(window, self.session.focused(window));
+        text::owns_command(&self.composition, Some(window), scope.focus(), command_type)
     }
 }
 
@@ -59,6 +65,8 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
             self.session,
             self.composition,
             self.window,
+            self.scope.focus(),
+            self.scope.kind(),
             command_type,
             command_name,
             args,
@@ -86,6 +94,7 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
             self.session,
             self.composition,
             self.window,
+            self.scope.focus(),
             command_type,
             command_name,
             args.as_ref(),
@@ -101,6 +110,7 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
                 self.session,
                 self.composition,
                 self.window,
+                self.scope.focus(),
                 command_type,
                 command_name,
                 args,

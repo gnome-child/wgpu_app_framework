@@ -179,6 +179,7 @@ fn command_palette_opens_filters_and_invokes_unit_commands() {
     let labels = projected.labels();
     assert!(labels.contains(&"Record"));
     assert!(labels.contains(&"System"));
+    assert!(!labels.contains(&"Command Palette"));
     assert!(!labels.contains(&"Hidden"));
     assert!(!labels.contains(&"Disabled"));
     assert!(!labels.contains(&"Open Named"));
@@ -333,22 +334,6 @@ fn command_palette_navigation_and_escape_restore_captured_focus() {
 
     app.handle_input(
         window,
-        Input::key_down(input::Key::End, input::Modifiers::default()),
-    )
-    .expect("end should clamp to the last result");
-    let projected = app.present(window).expect("palette should project");
-    assert_eq!(selected_palette_labels(&projected), vec!["Command Palette"]);
-
-    app.handle_input(
-        window,
-        Input::key_down(input::Key::Home, input::Modifiers::default()),
-    )
-    .expect("home should move to the first result");
-    let projected = app.present(window).expect("palette should project");
-    assert_eq!(selected_palette_labels(&projected), vec!["Save"]);
-
-    app.handle_input(
-        window,
         Input::key_down(input::Key::Escape, input::Modifiers::default()),
     )
     .expect("escape should close the palette");
@@ -362,6 +347,157 @@ fn command_palette_navigation_and_escape_restore_captured_focus() {
         app.session().focused(window),
         Some(session::Focus::text("document"))
     );
+}
+
+#[test]
+fn palette_scope_gives_standard_text_commands_to_query_and_rows_to_captured_document() {
+    let clipboard = Clipboard::default();
+    clipboard
+        .put(&clipboard::Text::new("first\r\nsecond"))
+        .expect("test clipboard should accept text");
+    let document_focus = session::Focus::text("document");
+    let mut app = Runtime::new(text_editor::State {
+        document: TextDocument::from_multiline_text("alpha beta"),
+        ..text_editor::State::default()
+    })
+    .responders(|responders| {
+        responders
+            .object("document", |state: &mut text_editor::State| {
+                &mut state.document
+            })
+            .target::<document::SelectAll>();
+    })
+    .started(|cx| {
+        cx.open_window(window::Options::new("Palette Scope"));
+    })
+    .view(move |state, _| {
+        widget::view(|ui| {
+            ui.text_area(
+                widget::TextArea::from_buffer(
+                    state.document.buffer().clone(),
+                    state.document.text_state(),
+                )
+                .focus(document_focus),
+            );
+        })
+    })
+    .with_clipboard(clipboard);
+
+    app.start();
+    let window = app.session().windows()[0].id();
+    let projected = app.present(window).expect("editor should present");
+    assert!(text_area_node(projected.root()).is_some());
+    app.handle_input(window, Input::focus(document_focus))
+        .expect("document should focus");
+    assert_eq!(app.state().document.selected_text(), None);
+
+    app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
+        .expect("palette should open");
+    app.present(window).expect("palette should project");
+    app.handle_input(window, Input::text_commit("cut"))
+        .expect("typing should edit the query");
+    app.handle_input(window, Input::shortcut("Ctrl+A"))
+        .expect("select all should select the query");
+    let projected = app.present(window).expect("selected query should project");
+    let labels = projected.labels();
+    assert!(!labels.contains(&"Cut"));
+    assert!(!labels.contains(&"Copy"));
+    app.handle_input(window, Input::text_commit("select all"))
+        .expect("IME commit should edit the standard query box");
+
+    app.handle_input(window, Input::shortcut("Ctrl+A"))
+        .expect("select all should belong to the palette query scope");
+    let query_focus = interaction::CommandPalette::query_focus();
+    assert_eq!(
+        text_draft(&app, window, query_focus).selection(),
+        Some(0..10)
+    );
+    assert_eq!(app.state().document.selected_text(), None);
+    assert_eq!(app.timeline().undo_depth(), 0);
+
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Home, input::Modifiers::default()),
+    )
+    .expect("home should move the query caret");
+    assert_eq!(text_draft(&app, window, query_focus).cursor(), 0);
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::End, input::Modifiers::default()),
+    )
+    .expect("end should move the query caret");
+    assert_eq!(text_draft(&app, window, query_focus).cursor(), 10);
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::ArrowLeft, input::Modifiers::default()),
+    )
+    .expect("left should move the query caret");
+    assert_eq!(text_draft(&app, window, query_focus).cursor(), 9);
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::ArrowRight, input::Modifiers::default()),
+    )
+    .expect("right should move the query caret");
+    assert_eq!(text_draft(&app, window, query_focus).cursor(), 10);
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::ArrowDown, input::Modifiers::default()),
+    )
+    .expect("down should be consumed by palette result navigation");
+    assert_eq!(text_draft(&app, window, query_focus).cursor(), 10);
+
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Enter, input::Modifiers::default()),
+    )
+    .expect("enter should invoke Select All from the captured listing");
+    assert_eq!(
+        app.state().document.selected_text().as_deref(),
+        Some("alpha beta")
+    );
+    let app_undo_depth = app.timeline().undo_depth();
+
+    app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
+        .expect("palette should reopen");
+    app.present(window)
+        .expect("reopened palette should project");
+    app.handle_input(window, Input::shortcut("Ctrl+V"))
+        .expect("paste should use the standard query text service");
+    assert_eq!(text_draft(&app, window, query_focus).text(), "first");
+    assert_eq!(app.timeline().undo_depth(), app_undo_depth);
+    app.handle_input(window, Input::shortcut("Ctrl+A"))
+        .expect("select all should select pasted query text");
+    app.handle_input(window, Input::shortcut("Ctrl+C"))
+        .expect("copy should use the query selection");
+    app.handle_input(window, Input::shortcut("Ctrl+X"))
+        .expect("cut should delete the query selection");
+    assert_eq!(text_draft(&app, window, query_focus).text(), "");
+    assert_eq!(
+        app.state().document.selected_text().as_deref(),
+        Some("alpha beta")
+    );
+    app.handle_input(window, Input::shortcut("Ctrl+V"))
+        .expect("paste should restore copied query text");
+    assert_eq!(text_draft(&app, window, query_focus).text(), "first");
+    app.handle_input(window, Input::shortcut("Ctrl+Z"))
+        .expect("undo should use query draft history");
+    assert_eq!(text_draft(&app, window, query_focus).text(), "");
+    assert_eq!(app.timeline().undo_depth(), app_undo_depth);
+
+    let preedit = text::edit::Preedit::new("界", Some((0, 3)));
+    app.handle_input(window, Input::text_preedit(preedit.clone()))
+        .expect("palette query should accept IME preedit");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("palette should keep interaction state")
+            .text_input()
+            .preedit(),
+        Some(&preedit)
+    );
+    app.handle_input(window, Input::text_commit("界"))
+        .expect("palette query should accept IME commit");
+    assert_eq!(text_draft(&app, window, query_focus).text(), "界");
 }
 
 fn selected_palette_labels(view: &View) -> Vec<&str> {

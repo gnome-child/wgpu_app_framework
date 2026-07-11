@@ -712,6 +712,13 @@ descendant operated on by navigation while focus remains elsewhere, such as a
 command palette result while the query text box keeps focus. Active items may
 request viewport reveal; they do not become focus.
 
+Keyboard input belongs to the palette scope first and is consumed there; the
+list describes the captured world beneath it. The query is an ordinary text
+box in that transient scope, so text commands resolve through the standard
+focused-text service, while a selected row invokes its command against the
+captured scope. Command descriptions omit commands marked `Listing::Describer`:
+a description does not include the act of describing.
+
 Target labels are debug and presentation data, not identity. Target identity
 is its kind, stable id or retained node identity, and routing source. Changing
 a target label or capture behavior must not fork hover, scroll, draft, or

@@ -180,6 +180,9 @@ impl Registry {
                 if !command.accepts_shortcut_args() {
                     return None;
                 }
+                if command.spec.listing == super::Listing::Describer {
+                    return None;
+                }
                 let claim =
                     match chain.claim_any(command.command_type, command.command_name, &args, cx) {
                         Ok(Some(claim)) => claim,

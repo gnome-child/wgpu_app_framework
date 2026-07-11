@@ -1,6 +1,6 @@
 use super::super::{
-    context as command_context, geometry, interaction, layout, response, scene, session, state,
-    view, window,
+    context as command_context, geometry, interaction, layout, responder, response, scene, session,
+    state, view, window,
 };
 use super::{CachedLayout, Runtime, services::Services, work};
 use crate::{animation, ime, text};
@@ -335,6 +335,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         }
 
         let command_focus = self.session.command_focus(window);
+        let command_scope = self
+            .session
+            .command_palette_captured_scope(window)
+            .unwrap_or_else(|| responder::Scope::focused(command_focus));
         let cx = command_context::Context::with_clipboard(&mut self.clipboard);
         {
             let services = Services::new(
@@ -342,6 +346,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 &mut self.session,
                 &mut self.composition,
                 Some(window),
+                command_scope,
             );
             let mut chain = self
                 .responders

@@ -97,9 +97,13 @@ pub(crate) fn register(commands: &mut command::Registry) {
             command::Spec::new("Exit")
                 .key_chord(command::KeyChord::standard(command::Standard::CloseWindow)),
         )
-        .register::<OpenCommandPalette>(command::Spec::new("Command Palette").key_chord(
-            command::KeyChord::standard(command::Standard::CommandPalette),
-        ));
+        .register::<OpenCommandPalette>(
+            command::Spec::new("Command Palette")
+                .key_chord(command::KeyChord::standard(
+                    command::Standard::CommandPalette,
+                ))
+                .listing(command::Listing::Describer),
+        );
 }
 
 fn window_state(enabled: bool) -> command::State {

@@ -2136,7 +2136,7 @@ fn palette_arrow_navigation_reaches_last_command() {
         .expect("results should expose viewport")
         .rect();
 
-    assert_eq!(selected.label_text(), Some("Command Palette"));
+    assert_eq!(selected.label_text(), Some("Exit"));
     assert!(selected.rect().y() >= viewport.y());
     assert!(selected.rect().bottom() <= viewport.bottom());
 }

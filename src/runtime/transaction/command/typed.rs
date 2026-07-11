@@ -1,7 +1,7 @@
 use super::super::super::{Runtime, services::Services};
 use crate::{
     command::{self, Command},
-    context as command_context,
+    context as command_context, responder,
     response::Response,
     session, state, window,
 };
@@ -30,6 +30,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let before = self.snapshot_before_transaction(history);
         let revision_before = self.revision();
         let task_sink = self.tasks.sink();
+        let scope = window
+            .map(|window| self.session.command_scope(window, focus))
+            .unwrap_or_else(|| responder::Scope::focused(focus));
         let mut cx =
             command_context::Context::with_services_source(&mut self.clipboard, task_sink, source)
                 .with_text_service(self.layout.text_service());
@@ -38,6 +41,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             &mut self.session,
             &mut self.composition,
             window,
+            scope,
         );
         let mut chain = self
             .responders

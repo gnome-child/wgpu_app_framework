@@ -43,7 +43,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return self.handle_tab_focus(window, modifiers.shift());
         }
 
-        if let Some(outcome) = self.handle_command_palette_key(window, key, modifiers)? {
+        if let Some(outcome) = self.handle_command_palette_scope_key(window, key, modifiers)? {
             return Ok(outcome);
         }
 

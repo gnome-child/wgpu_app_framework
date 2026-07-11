@@ -618,6 +618,32 @@ fn fuzzy_matching_stays_with_palette_runtime() {
 }
 
 #[test]
+fn palette_query_does_not_reimplement_text_input() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let palette = std::fs::read_to_string(src_dir.join("runtime/palette.rs"))
+        .expect("palette runtime source should read");
+    let projection = std::fs::read_to_string(src_dir.join("view/command_palette.rs"))
+        .expect("palette projection source should read");
+
+    for forbidden in [
+        "document::SelectAll",
+        "document::Copy",
+        "document::Cut",
+        "document::Paste",
+        "text::edit::Edit",
+    ] {
+        assert!(
+            !palette.contains(forbidden),
+            "palette runtime must not implement standard text behavior: {forbidden}"
+        );
+    }
+    assert!(
+        projection.contains("Node::text_box_state") && projection.contains("TextBox::new(query)"),
+        "the palette query must remain an ordinary standard text box projection"
+    );
+}
+
+#[test]
 fn runtime_services_use_typed_provider_targets() {
     let services_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src")

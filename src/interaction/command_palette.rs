@@ -69,14 +69,6 @@ impl CommandPalette {
         self.select_offset(len, -(page.max(1) as isize))
     }
 
-    pub(crate) fn select_first(&mut self, len: usize) -> bool {
-        self.select_index(len, 0)
-    }
-
-    pub(crate) fn select_last(&mut self, len: usize) -> bool {
-        self.select_index(len, len.saturating_sub(1))
-    }
-
     fn select_offset(&mut self, len: usize, offset: isize) -> bool {
         if len == 0 {
             return self.select_index(0, 0);

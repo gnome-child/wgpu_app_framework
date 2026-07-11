@@ -38,12 +38,13 @@ pub(super) fn state(
     session: &mut session::Session,
     composition: &composition::Store,
     window: Option<window::Id>,
+    focus: Option<session::Focus>,
     command_type: TypeId,
     command_name: &'static str,
     args: &dyn Any,
     cx: &command_context::Context,
 ) -> crate::error::Result<Option<command::State>> {
-    let Some((window, focus)) = base_text_for(session, composition, window) else {
+    let Some((window, focus)) = base_text_for(composition, window, focus) else {
         return Ok(None);
     };
     let mut text = Text {
@@ -69,12 +70,14 @@ pub(super) fn claim(
     session: &mut session::Session,
     composition: &composition::Store,
     window: Option<window::Id>,
+    focus: Option<session::Focus>,
+    scope_kind: responder::Kind,
     command_type: TypeId,
     command_name: &'static str,
     args: &dyn Any,
     cx: &command_context::Context,
 ) -> crate::error::Result<Option<responder::Claim>> {
-    let Some((window, focus)) = base_text_for(session, composition, window) else {
+    let Some((window, focus)) = base_text_for(composition, window, focus) else {
         return Ok(None);
     };
     let mut text = Text {
@@ -94,25 +97,26 @@ pub(super) fn claim(
         args,
         cx,
     )?
-    .map(|claim| responder::Claim::service(responder::Kind::Focused, RESPONDER_NAME, claim.state)))
+    .map(|claim| responder::Claim::service(scope_kind, RESPONDER_NAME, claim.state)))
 }
 
 pub(super) fn owns_command(
-    session: &session::Session,
     composition: &composition::Store,
     window: Option<window::Id>,
+    focus: Option<session::Focus>,
     command_type: TypeId,
 ) -> bool {
     let targets = targets();
 
     service_target::handles(&targets, command_type)
-        && base_text_for(session, composition, window).is_some()
+        && base_text_for(composition, window, focus).is_some()
 }
 
 pub(super) fn invoke(
     session: &mut session::Session,
     composition: &composition::Store,
     window: Option<window::Id>,
+    focus: Option<session::Focus>,
     command_type: TypeId,
     command_name: &'static str,
     args: Box<dyn Any + Send>,
@@ -123,7 +127,7 @@ pub(super) fn invoke(
         return None;
     }
 
-    let (window, focus) = base_text_for(session, composition, window)?;
+    let (window, focus) = base_text_for(composition, window, focus)?;
 
     if !session
         .focused(window)
@@ -151,12 +155,12 @@ pub(super) fn invoke(
 }
 
 fn base_text_for(
-    session: &session::Session,
     composition: &composition::Store,
     window: Option<window::Id>,
+    focus: Option<session::Focus>,
 ) -> Option<(window::Id, session::Focus)> {
     let window = window?;
-    let focus = session.command_focus(window)?;
+    let focus = focus?;
     composition.get(window)?.view().text_box_text(focus)?;
 
     Some((window, focus))

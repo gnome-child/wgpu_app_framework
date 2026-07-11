@@ -1,4 +1,4 @@
-use crate::{interaction, window as app_window};
+use crate::{interaction, responder, window as app_window};
 
 use super::super::{Session, Window};
 
@@ -91,6 +91,36 @@ impl Session {
         )
     }
 
+    pub(crate) fn command_scope(
+        &self,
+        id: app_window::Id,
+        focus: Option<super::super::Focus>,
+    ) -> responder::Scope {
+        let Some(_) = self
+            .window(id)
+            .and_then(|window| window.interaction.command_palette())
+        else {
+            return responder::Scope::focused(focus);
+        };
+
+        if focus.is_some_and(|focus| focus.same_target(&interaction::CommandPalette::query_focus()))
+        {
+            responder::Scope::transient(interaction::CommandPalette::query_focus())
+        } else {
+            responder::Scope::focused(focus)
+        }
+    }
+
+    pub(crate) fn command_palette_captured_scope(
+        &self,
+        id: app_window::Id,
+    ) -> Option<responder::Scope> {
+        self.window(id)?
+            .interaction
+            .command_palette()
+            .map(|palette| responder::Scope::captured(palette.captured_focus()))
+    }
+
     pub(crate) fn reset_command_palette_selection(&mut self, id: app_window::Id) -> bool {
         self.window_mut(id)
             .is_some_and(|window| window.interaction.reset_command_palette_selection())
@@ -134,16 +164,6 @@ impl Session {
                 .interaction
                 .select_command_palette_page_previous(len, page)
         })
-    }
-
-    pub(crate) fn select_command_palette_first(&mut self, id: app_window::Id, len: usize) -> bool {
-        self.window_mut(id)
-            .is_some_and(|window| window.interaction.select_command_palette_first(len))
-    }
-
-    pub(crate) fn select_command_palette_last(&mut self, id: app_window::Id, len: usize) -> bool {
-        self.window_mut(id)
-            .is_some_and(|window| window.interaction.select_command_palette_last(len))
     }
 }
 

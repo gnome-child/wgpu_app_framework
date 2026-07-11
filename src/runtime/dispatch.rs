@@ -1,6 +1,6 @@
 use super::super::{
     command::{self, Command},
-    context as command_context,
+    context as command_context, responder,
     response::Response,
     state, window,
 };
@@ -21,6 +21,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             &mut self.session,
             &mut self.composition,
             None,
+            responder::Scope::focused(None),
         );
         let mut chain = self
             .responders
@@ -42,6 +43,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
 
         let focus = self.session.focused(window);
+        let scope = self.session.command_scope(window, focus);
         let cx = command_context::Context::with_clipboard_source(
             &mut self.clipboard,
             command_context::Source::Programmatic,
@@ -51,6 +53,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             &mut self.session,
             &mut self.composition,
             Some(window),
+            scope,
         );
         let mut chain = self
             .responders

@@ -1,6 +1,7 @@
 mod builder;
 mod chain;
 mod kind;
+mod scope;
 
 pub use builder::Builder;
 pub use builder::Object;
@@ -8,6 +9,7 @@ pub use chain::Chain;
 pub(crate) use chain::Service;
 pub(crate) use chain::{Claim, Provenance};
 pub use kind::Kind;
+pub(crate) use scope::Scope;
 
 use super::{interaction, notification, session, state, target::AnyTarget};
 
