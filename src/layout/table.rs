@@ -12,6 +12,21 @@ pub(crate) enum Axis {
 }
 
 #[derive(Clone)]
+pub(crate) struct Projection {
+    table: interaction::Id,
+    viewport_rect: Rect,
+    surface_rect: Rect,
+    columns: Vec<ResolvedColumn>,
+}
+
+#[derive(Clone)]
+struct ResolvedColumn {
+    identity: crate::table::HeaderCell,
+    origin: i32,
+    width: i32,
+}
+
+#[derive(Clone)]
 pub(crate) struct Track {
     axis: Axis,
     boundary: i32,
@@ -31,9 +46,20 @@ struct Column {
 }
 
 impl Track {
-    fn column(header: &Frame, table: &Frame, identity: crate::table::HeaderCell) -> Self {
-        let boundary = header.rect().right();
-        Self {
+    fn column(
+        header: &Frame,
+        table: &Frame,
+        projection: &Projection,
+        identity: crate::table::HeaderCell,
+    ) -> Option<Self> {
+        let resolved = projection.column(identity)?;
+        let boundary = projection
+            .surface_rect
+            .x()
+            .saturating_add(resolved.origin)
+            .saturating_add(resolved.width);
+        debug_assert_eq!(header.rect().right(), boundary);
+        Some(Self {
             axis: Axis::Column,
             boundary,
             rule_rect: Rect::new(
@@ -42,26 +68,26 @@ impl Track {
                 2,
                 table.rect().height(),
             ),
-            clip: table.clip(),
+            clip: header.clip(),
             floating_layer: table.is_floating_layer(),
             table_node: table.node_id(),
             column: Some(Column {
                 identity,
                 header_node: header.node_id(),
                 header_rect: header.rect(),
-                table_rect: table.rect(),
+                table_rect: projection.viewport_rect,
             }),
-        }
+        })
     }
 
-    fn row(row: &Frame, table: &Frame, boundary: i32) -> Self {
+    fn row(row: &Frame, table: &Frame, projection: &Projection, boundary: i32) -> Self {
         Self {
             axis: Axis::Row,
             boundary,
             rule_rect: Rect::new(
-                table.rect().x(),
+                projection.surface_rect.x(),
                 boundary.saturating_sub(1),
-                table.rect().width(),
+                projection.surface_rect.width(),
                 2,
             ),
             clip: row.clip(),
@@ -132,16 +158,73 @@ impl Track {
         if width <= 0 {
             return None;
         }
-        let x = self.boundary.saturating_sub(width / 2).clamp(
-            column.table_rect.x(),
-            column.table_rect.right().saturating_sub(width),
-        );
+        let centered = self.boundary.saturating_sub(width / 2);
+        let x = if self.boundary >= column.table_rect.x()
+            && self.boundary <= column.table_rect.right()
+        {
+            centered.clamp(
+                column.table_rect.x(),
+                column.table_rect.right().saturating_sub(width),
+            )
+        } else {
+            centered
+        };
         Some(Rect::new(
             x,
             column.header_rect.y(),
             width,
             column.header_rect.height(),
         ))
+    }
+}
+
+impl Projection {
+    pub(crate) fn new(
+        table: interaction::Id,
+        viewport_rect: Rect,
+        surface_rect: Rect,
+        columns: impl IntoIterator<Item = (crate::table::HeaderCell, Rect)>,
+    ) -> Self {
+        Self {
+            table,
+            viewport_rect,
+            surface_rect,
+            columns: columns
+                .into_iter()
+                .map(|(identity, rect)| ResolvedColumn {
+                    identity,
+                    origin: rect.x(),
+                    width: rect.width(),
+                })
+                .collect(),
+        }
+    }
+
+    pub(crate) fn table(&self) -> interaction::Id {
+        self.table
+    }
+
+    pub(crate) fn content_width(&self) -> i32 {
+        self.surface_rect.width()
+    }
+
+    pub(crate) fn cell_rect(&self, column: interaction::Id, row_rect: Rect) -> Option<Rect> {
+        let resolved = self
+            .columns
+            .iter()
+            .find(|resolved| resolved.identity.column() == column)?;
+        Some(Rect::new(
+            self.surface_rect.x().saturating_add(resolved.origin),
+            row_rect.y(),
+            resolved.width,
+            row_rect.height(),
+        ))
+    }
+
+    fn column(&self, identity: crate::table::HeaderCell) -> Option<&ResolvedColumn> {
+        self.columns
+            .iter()
+            .find(|resolved| resolved.identity == identity)
     }
 }
 
@@ -155,20 +238,37 @@ pub(crate) fn project(frames: &[Frame]) -> Vec<Track> {
             let Some(table) = owner_table(frame, frames) else {
                 continue;
             };
-            tracks.push(Track::column(frame, table, identity));
+            let Some(projection) = owner_projection(frame, frames) else {
+                continue;
+            };
+            let Some(track) = Track::column(frame, table, projection, identity) else {
+                continue;
+            };
+            tracks.push(track);
             if !header_rows.contains(&table.node_id()) {
-                tracks.push(Track::row(frame, table, frame.rect().bottom()));
+                tracks.push(Track::row(frame, table, projection, frame.rect().bottom()));
                 header_rows.push(table.node_id());
             }
         } else if frame.table_row().is_some() {
             let Some(table) = owner_table(frame, frames) else {
                 continue;
             };
-            tracks.push(Track::row(frame, table, frame.rect().bottom()));
+            let Some(projection) = owner_projection(frame, frames) else {
+                continue;
+            };
+            tracks.push(Track::row(frame, table, projection, frame.rect().bottom()));
         }
     }
 
     tracks
+}
+
+fn owner_projection<'a>(frame: &Frame, frames: &'a [Frame]) -> Option<&'a Projection> {
+    frames
+        .iter()
+        .filter(|candidate| frame.is_descendant_of(candidate))
+        .filter_map(Frame::table_projection)
+        .last()
 }
 
 fn owner_table<'a>(frame: &Frame, frames: &'a [Frame]) -> Option<&'a Frame> {

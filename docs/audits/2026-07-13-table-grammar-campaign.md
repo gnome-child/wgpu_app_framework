@@ -48,8 +48,8 @@ vocabularies are admitted.
 
 | Checkpoint | Contract | Status | Boundary proof |
 | --- | --- | --- | --- |
-| 1 | One sizing truth: shared `view::Dimension`, minimum-preserving overflow pressure, delete `table::Width` | Green; commit pending | 855 passed, 8 ignored; three smokes and all boundary checks green |
-| 2 | Resolve the track projection before placement; one horizontal scroll owner | Pending | — |
+| 1 | One sizing truth: shared `view::Dimension`, minimum-preserving overflow pressure, delete `table::Width` | Complete | `9f5e73d7`; 855 passed, 8 ignored; three smokes and all boundary checks green |
+| 2 | Resolve the track projection before placement; one horizontal scroll owner | Green; commit pending | 857 passed, 8 ignored; focused horizontal-scroll/resize/scale witnesses and full ritual green |
 | 3 | Host-derived participation and truthful table chrome | Pending | — |
 | 4 | General whole-draft `text::Input` policies | Pending | — |
 | 5 | Typed columns from `table::{Value, Sort, EditText, EditToggle}` | Pending | — |
@@ -136,8 +136,54 @@ Further flags append here as public names are proposed and resolved.
   present or absorbed.
 - Pending eyes: none added; this checkpoint changes declaration and deficit
   law without introducing new table visuals.
+- Commit receipt: `9f5e73d7` (`Unify table sizing with shared dimensions`),
+  10 files, 282 insertions, 145 deletions.
+
+### Checkpoint 2 — projection and horizontal-scroll verdict
+
+- Census: the seam prerequisite projected `Track` values only after every frame
+  was placed. Generic `Scroll`, `Viewport`, scrollbar chrome, scroll targeting,
+  clipping, and axis-aware delta consumption already supplied the horizontal
+  mechanics; only the table surface and early projection were missing.
+- Structure: table view data now composes one horizontal `Scroll` owner around
+  one surface containing the sticky header and vertical virtual body. The
+  ordinary scroll target, viewport, clipping, scrollbar projection, wheel and
+  drag paths remain the mechanics owners.
+- Projection: the horizontal owner resolves every declaration and session
+  override once through `flow::Row` under overflow pressure. Its ephemeral
+  projection supplies surface extent and the exact x/width used by header and
+  body placement. Rules, divider targets, resize math, editors, compact text,
+  and hit zones consume the resulting boundaries. Frame-derived geometry is a
+  debug witness, not a second allocator.
+- Overflow: a 240-pixel viewport with 100 fixed, 120 minimum-flex, and 90 fixed
+  tracks projects 310 pixels of content and a 70-pixel maximum offset. The
+  rightmost track remains 90 pixels wide offscreen, then ends exactly at the
+  viewport after scrolling. Its offscreen divider does not clamp into a false
+  edge target; once revealed, its final hit zone clamps inside the viewport.
+- Interaction: one horizontal delta moves headers, body cells, rules, editor
+  bounds, and divider seams by the same 70 pixels. A divider resize while
+  scrolled moves header edge, body edge, rule, and hit anchor by the full
+  20-pixel delta. Existing vertical sticky-header, selection, edit pinning,
+  removal-during-capture, and table-local resize witnesses remain green.
+- Scale: the shared `Rule` raster path now pins one physical pixel for vertical
+  separators at 1.0, 1.25, 1.5, and 2.0; the existing horizontal witness covers
+  the same scales. Logical track center remains the input seam.
+- Doctrine: `docs/master_design.md` now records projection-before-consumption
+  and source-directed interaction under `One Truth, One Owner`.
+- Public API: none. `layout::table::Projection` and all resolved geometry remain
+  internal; the existing public `Table` and `view::Dimension` contracts suffice.
+- Focused tests: 24 table-filtered tests plus the four-scale vertical-rule
+  witness passed. The compact million-row table stayed bounded.
+- Full library: 857 passed, 8 ignored, 0 failed in 0.84 s.
+- Smokes and checks: all three examples, formatting, all-target compilation,
+  diff whitespace, and `comparison_open: true` passed. No unrelated changes
+  were present or absorbed.
+- Pending eyes: horizontal thumb discoverability and the visual balance of the
+  fully revealed right edge remain explicit manual checks during checkpoint
+  3's chrome comparison; geometry and hit behavior are pinned here.
 - Commit receipt: pending checkpoint commit; the next ledger boundary records
-  its hash and statistics.
+  its hash and statistics (current implementation diff before ledger: 7 files,
+  558 insertions, 25 deletions).
 
 ## Pending eyes
 

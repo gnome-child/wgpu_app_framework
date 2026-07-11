@@ -6,7 +6,7 @@ use super::super::{
 use super::{
     Viewport, control, engine, flow,
     frame::{Clip, Frame, Input as FrameInput},
-    measure, path,
+    measure, path, table,
 };
 use crate::animation;
 use measure::{
@@ -47,6 +47,7 @@ struct LayoutContext<'a> {
     animation_frame: animation::Frame,
     keymap: keymap::Profile,
     frames: Vec<Frame>,
+    table_projection: Option<table::Projection>,
 }
 
 impl<'a> LayoutContext<'a> {
@@ -62,6 +63,7 @@ impl<'a> LayoutContext<'a> {
             animation_frame,
             keymap,
             frames: Vec::new(),
+            table_projection: None,
         }
     }
 
@@ -173,6 +175,11 @@ fn layout_scroll(
     clip: Option<Clip>,
     ctx: &mut LayoutContext<'_>,
 ) {
+    if node.table_model().is_some() {
+        layout_table_scroll(node, retained, path, rect, floating_layer, clip, ctx);
+        return;
+    }
+
     let viewport_rect = scroll_viewport_rect(node, rect, ctx.theme);
     let placement = scroll_stack_placement(node, viewport_rect, ctx.engine, ctx.theme, ctx.keymap);
     let viewport = Viewport::new(viewport_rect, placement.content, node.scroll_offset());
@@ -211,6 +218,102 @@ fn layout_scroll(
         child_clip,
         ctx,
     );
+}
+
+fn layout_table_scroll(
+    node: &view::Node,
+    retained: &composition::Node,
+    path: path::Path,
+    rect: Rect,
+    floating_layer: bool,
+    clip: Option<Clip>,
+    ctx: &mut LayoutContext<'_>,
+) {
+    let model = node
+        .table_model()
+        .expect("table scroll owner must carry its table model");
+    let surface = node
+        .children()
+        .first()
+        .expect("table scroll owner must carry one surface");
+    let header = surface
+        .children()
+        .first()
+        .expect("table surface must carry its header");
+    let columns = model.column_dimensions();
+    debug_assert_eq!(columns.len(), header.children().len());
+
+    let viewport_rect = scroll_viewport_rect(node, rect, ctx.theme);
+    let mut allocation = flow::Row::new().pressure(flow::Pressure::Overflow);
+    for ((_, dimension), header_cell) in columns.iter().copied().zip(header.children()) {
+        let item = match dimension {
+            view::Dimension::Fit => flow::Item::fixed(flow::SizeHint::fixed(Size::new(
+                intrinsic_width(header_cell, ctx.engine, ctx.theme, ctx.keymap),
+                1,
+            ))),
+            view::Dimension::Flexible { weight, minimum } => flow::Item::weighted(
+                flow::SizeHint::new(Size::new(minimum, 1), Size::new(minimum, 1)),
+                weight,
+            ),
+            view::Dimension::Fixed(width) => {
+                flow::Item::fixed(flow::SizeHint::fixed(Size::new(width, 1)))
+            }
+            view::Dimension::Percent(percent) => {
+                let width = ((viewport_rect.width().max(0) as f32) * percent).round() as i32;
+                flow::Item::fixed(flow::SizeHint::fixed(Size::new(width, 1)))
+            }
+        };
+        allocation = allocation.item(item);
+    }
+    let allocated = allocation.layout(Rect::new(0, 0, viewport_rect.width(), 1));
+    let content_width = allocated
+        .last()
+        .map_or(viewport_rect.width(), |rect| rect.right())
+        .max(viewport_rect.width());
+    let viewport = Viewport::new(
+        viewport_rect,
+        Size::new(content_width, viewport_rect.height()),
+        node.scroll_offset(),
+    );
+    let offset = viewport.resolved_scroll();
+    let surface_rect = Rect::new(
+        viewport_rect.x().saturating_sub(offset.x()),
+        viewport_rect.y(),
+        content_width,
+        viewport_rect.height(),
+    );
+    let projection = table::Projection::new(
+        model.id(),
+        viewport_rect,
+        surface_rect,
+        columns.iter().map(|(identity, _)| *identity).zip(allocated),
+    );
+    let table_clip =
+        Some(intersect_clip(clip, viewport_rect).unwrap_or_else(|| Clip::new(viewport_rect)));
+    let frame = ctx
+        .frame(
+            node,
+            retained.node_id(),
+            path.clone(),
+            rect,
+            floating_layer,
+            clip,
+        )
+        .with_viewport(viewport)
+        .with_table_projection(projection.clone());
+    ctx.frames.push(frame);
+
+    let previous = ctx.table_projection.replace(projection);
+    layout_node(
+        surface,
+        retained_child(retained, 0),
+        path.child(0),
+        surface_rect,
+        floating_layer,
+        child_clip(surface, table_clip),
+        ctx,
+    );
+    ctx.table_projection = previous;
 }
 
 fn layout_virtual_list(
@@ -837,8 +940,14 @@ fn layout_horizontal_stack(
     clip: Option<Clip>,
     ctx: &mut LayoutContext<'_>,
 ) {
-    let placement =
-        horizontal_stack_placement(node, rect, ctx.engine, ctx.theme, ctx.keymap, false);
+    let projection = ctx.table_projection.clone();
+    let placement = projection
+        .as_ref()
+        .filter(|projection| table_stack_matches(node, projection))
+        .map(|projection| table_stack_placement(node, rect, projection, ctx))
+        .unwrap_or_else(|| {
+            horizontal_stack_placement(node, rect, ctx.engine, ctx.theme, ctx.keymap, false)
+        });
     emit_stack_children(
         node,
         retained,
@@ -848,6 +957,61 @@ fn layout_horizontal_stack(
         clip,
         ctx,
     );
+}
+
+fn table_stack_matches(node: &view::Node, projection: &table::Projection) -> bool {
+    node.children().first().is_some_and(|child| {
+        child
+            .table_header_cell()
+            .is_some_and(|cell| cell.table() == projection.table())
+            || child
+                .table_cell()
+                .is_some_and(|cell| cell.table() == projection.table())
+    })
+}
+
+fn table_stack_placement(
+    node: &view::Node,
+    rect: Rect,
+    projection: &table::Projection,
+    ctx: &mut LayoutContext<'_>,
+) -> StackPlacement {
+    let content_height = rect
+        .height()
+        .saturating_sub(node.style().padding().vertical());
+    let content_y = rect.y().saturating_add(node.style().padding().top());
+    let child_rects = node
+        .children()
+        .iter()
+        .filter_map(|child| {
+            let column = child
+                .table_header_cell()
+                .map(crate::table::HeaderCell::column)
+                .or_else(|| child.table_cell().map(crate::table::Cell::column))?;
+            let track_rect = projection.cell_rect(column, rect)?;
+            let height = cross_axis_height_for_width(
+                child,
+                track_rect.width(),
+                content_height,
+                ctx.engine,
+                node.style().align_items(),
+                ctx.theme,
+                ctx.keymap,
+            );
+            let y = cross_axis_offset(
+                content_y,
+                content_height,
+                height,
+                node.style().align_items(),
+            );
+            Some(Rect::new(track_rect.x(), y, track_rect.width(), height))
+        })
+        .collect::<Vec<_>>();
+
+    StackPlacement {
+        child_rects,
+        content: Size::new(projection.content_width(), rect.height()),
+    }
 }
 
 fn layout_overlay_stack(

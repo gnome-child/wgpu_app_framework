@@ -1198,6 +1198,13 @@ consume it. Layout owns viewport clips for paint, hit testing, and wheel
 targeting. Viewport geometry owns scrollbars, reveal, and scroll consumption.
 The paint `Grid` owns device-scale snapping.
 
+Derived geometry is projected once from its owning truths and consumed
+everywhere, placement included. Interaction may target a projection, but its
+effects mutate the projection's sources. A table track is projected from the
+application dimension, session resize override, and available layout extent;
+cells, rules, resize zones, editors, and horizontal scroll extent consume that
+projection rather than re-deriving it.
+
 Enforce by deleting parallel computations. Add tests only where a duplicate
 has already returned or where the owner boundary is easy to regress.
 

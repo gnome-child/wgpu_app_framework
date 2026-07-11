@@ -623,6 +623,200 @@ fn million_row_table_composes_public_cells_with_bounded_aligned_tracks() {
 }
 
 #[test]
+fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together() {
+    let provider = MillionTableProvider {
+        cell_calls: Rc::new(Cell::new(0)),
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Horizontally scrolling table"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::Table::new(
+                    "wide.records",
+                    20,
+                    [
+                        crate::table::Column::new("name", "Name", view::Dimension::fixed(100)),
+                        crate::table::Column::new(
+                            "detail",
+                            "Detail",
+                            view::Dimension::weight(1).minimum(120),
+                        ),
+                        crate::table::Column::new("action", "Action", view::Dimension::fixed(90)),
+                    ],
+                    provider.clone(),
+                )
+                .height(view::Dimension::fixed(108)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 108);
+    let initial = app
+        .render_scene(window, size)
+        .expect("wide table should render");
+    let horizontal = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.role() == view::Role::Scroll && frame.label_text() == Some("Table columns")
+        })
+        .expect("table should compose one horizontal scroll owner");
+    let viewport = horizontal.viewport().expect("horizontal viewport");
+    assert_eq!(viewport.content().width(), 310);
+    assert_eq!(viewport.max_scroll(), interaction::ScrollOffset::new(70, 0));
+    assert!(initial.layout().chrome().iter().any(|chrome| {
+        matches!(
+            chrome.kind(),
+            layout::ChromeKind::Scrollbar(scrollbar)
+                if scrollbar.viewport() == viewport
+        )
+    }));
+
+    let geometry_for = |rendered: &scene::Presentation, column: &'static str| {
+        let column = interaction::Id::new(column);
+        let header = rendered
+            .layout()
+            .frames()
+            .iter()
+            .find(|frame| {
+                frame
+                    .table_header_cell()
+                    .is_some_and(|cell| cell.column() == column)
+            })
+            .expect("header geometry")
+            .rect();
+        let body = rendered
+            .layout()
+            .frames()
+            .iter()
+            .find(|frame| {
+                frame.table_cell().is_some_and(|cell| {
+                    cell.row() == crate::virtual_list::Key::new(0) && cell.column() == column
+                })
+            })
+            .expect("body geometry")
+            .rect();
+        let boundary = rendered
+            .layout()
+            .table_tracks()
+            .iter()
+            .find(|track| {
+                track
+                    .column_identity()
+                    .is_some_and(|cell| cell.column() == column)
+            })
+            .expect("track geometry")
+            .boundary();
+        (header, body, boundary)
+    };
+    let initial_name = geometry_for(&initial, "name");
+    let initial_detail = geometry_for(&initial, "detail");
+    let initial_action = geometry_for(&initial, "action");
+    assert_eq!(initial_name.0.width(), 100);
+    assert_eq!(initial_detail.0.width(), 120);
+    assert_eq!(initial_action.0.width(), 90);
+    for (header, body, boundary) in [initial_name, initial_detail, initial_action] {
+        assert_eq!(header.x(), body.x());
+        assert_eq!(header.width(), body.width());
+        assert_eq!(header.right(), boundary);
+    }
+    assert_eq!(initial_action.0.right(), 310);
+    let initial_action_track = initial
+        .layout()
+        .table_tracks()
+        .iter()
+        .find(|track| {
+            track
+                .column_identity()
+                .is_some_and(|cell| cell.column() == interaction::Id::new("action"))
+        })
+        .expect("far-right track");
+    assert!(
+        initial_action_track
+            .divider_hit_rect()
+            .expect("projected far-right hit zone")
+            .x()
+            >= 240,
+        "an offscreen divider must not clamp into a false viewport-edge target"
+    );
+
+    app.scroll_at(
+        window,
+        size,
+        frame_point_at(initial_name.0),
+        interaction::ScrollDelta::horizontal(70),
+    )
+    .expect("horizontal delta should be consumed by the table scroll owner");
+    let scrolled = app
+        .render_scene(window, size)
+        .expect("scrolled wide table should render");
+    let scrolled_name = geometry_for(&scrolled, "name");
+    let scrolled_detail = geometry_for(&scrolled, "detail");
+    let scrolled_action = geometry_for(&scrolled, "action");
+    for (before, after) in [
+        (initial_name, scrolled_name),
+        (initial_detail, scrolled_detail),
+        (initial_action, scrolled_action),
+    ] {
+        assert_eq!(after.0.x(), before.0.x() - 70);
+        assert_eq!(after.1.x(), before.1.x() - 70);
+        assert_eq!(after.2, before.2 - 70);
+        assert_eq!(after.0.width(), before.0.width());
+        assert_eq!(after.1.width(), before.1.width());
+    }
+    assert_eq!(scrolled_action.0.right(), 240);
+    assert_eq!(
+        scrolled
+            .layout()
+            .table_tracks()
+            .iter()
+            .find(|track| {
+                track
+                    .column_identity()
+                    .is_some_and(|cell| cell.column() == interaction::Id::new("action"))
+            })
+            .and_then(layout::TableTrack::divider_hit_rect)
+            .expect("revealed far-right hit zone")
+            .right(),
+        240
+    );
+
+    let detail_track = scrolled
+        .layout()
+        .table_tracks()
+        .iter()
+        .find(|track| {
+            track
+                .column_identity()
+                .is_some_and(|cell| cell.column() == interaction::Id::new("detail"))
+        })
+        .expect("visible detail divider");
+    let resize_start = frame_point_at(
+        detail_track
+            .divider_hit_rect()
+            .expect("visible detail hit zone"),
+    );
+    let resize_end = geometry::Point::new(resize_start.x() + 20, resize_start.y());
+    app.pointer_down_at(window, size, resize_start)
+        .expect("scrolled divider should capture");
+    app.pointer_move_at(window, size, resize_end)
+        .expect("scrolled divider should resize from projected header origin");
+    app.pointer_up_at(window, size, resize_end)
+        .expect("scrolled divider resize should finish");
+    let resized = app
+        .render_scene(window, size)
+        .expect("resized scrolled table should render");
+    let resized_detail = geometry_for(&resized, "detail");
+    assert_eq!(resized_detail.0.width(), 140);
+    assert_eq!(resized_detail.1.width(), 140);
+    assert_eq!(resized_detail.0.right(), resized_detail.2);
+    assert_eq!(resized_detail.2 - scrolled_detail.2, 20);
+}
+
+#[test]
 fn table_header_stays_fixed_while_keyed_rows_scroll_reorder_and_shrink() {
     let keys = Rc::new(RefCell::new((0..100).collect::<Vec<_>>()));
     let provider = MutableTableProvider {

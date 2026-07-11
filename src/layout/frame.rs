@@ -5,7 +5,7 @@ use super::super::{
     theme::Theme,
     view,
 };
-use super::{Viewport, control, engine, measure, path, text, typography};
+use super::{Viewport, control, engine, measure, path, table, text, typography};
 use crate::{animation, text as text_model};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -137,6 +137,7 @@ pub(crate) struct Frame {
     table_row: Option<crate::table::Row>,
     table_cell: Option<crate::table::Cell>,
     table_header_cell: Option<crate::table::HeaderCell>,
+    table_projection: Option<table::Projection>,
     table_edit_error: Option<String>,
     force_overlay_group: bool,
     native_popup_material_preference: view::NativePopupMaterialPreference,
@@ -266,6 +267,7 @@ impl Frame {
             table_row: node.table_row(),
             table_cell: node.table_cell(),
             table_header_cell: node.table_header_cell(),
+            table_projection: None,
             table_edit_error: node.table_edit_error().map(str::to_owned),
             force_overlay_group: node.force_overlay_group(),
             native_popup_material_preference: node.native_popup_material_preference(),
@@ -283,6 +285,12 @@ impl Frame {
             FrameContent::Scroll(content) => content.viewport = Some(viewport),
             _ => panic!("only Scroll frame content accepts a viewport"),
         }
+        self
+    }
+
+    pub(super) fn with_table_projection(mut self, projection: table::Projection) -> Self {
+        assert!(matches!(self.content, FrameContent::Scroll(_)));
+        self.table_projection = Some(projection);
         self
     }
 
@@ -398,6 +406,10 @@ impl Frame {
 
     pub(crate) fn table_header_cell(&self) -> Option<crate::table::HeaderCell> {
         self.table_header_cell
+    }
+
+    pub(crate) fn table_projection(&self) -> Option<&table::Projection> {
+        self.table_projection.as_ref()
     }
 
     pub(crate) fn table_edit_error(&self) -> Option<&str> {

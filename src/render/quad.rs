@@ -1096,6 +1096,31 @@ mod tests {
     }
 
     #[test]
+    fn vertical_rules_keep_one_physical_pixel_at_common_scales() {
+        let rule = paint::Rule {
+            axis: paint::Axis::Vertical,
+            rect: Rect::new(
+                paint::point::logical(79.0, 20.0),
+                paint::area::logical(2.0, 100.0),
+            ),
+            brush: paint::Brush::solid(paint::Color::BLACK),
+            thickness_px: 1,
+        };
+
+        for scale_factor in [1.0, 1.25, 1.5, 2.0] {
+            let rect = rasterized_rule_rect(&rule, scale_factor);
+            let physical_center = 80.0 * scale_factor;
+            let raster_center = (rect.origin.x() + rect.area.width() / 2.0) * scale_factor;
+
+            assert_approx_eq(rect.area.width() * scale_factor, 1.0);
+            assert!(
+                (raster_center - physical_center).abs() <= 0.5,
+                "one-pixel rule must remain centered on the nearest physical pixel"
+            );
+        }
+    }
+
+    #[test]
     fn horizontal_rules_keep_equal_physical_thickness_across_positions() {
         let first = paint::Rule {
             axis: paint::Axis::Horizontal,

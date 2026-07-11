@@ -83,12 +83,10 @@ pub(crate) struct Model {
 }
 
 impl HeaderCell {
-    #[cfg(test)]
     pub(crate) fn table(self) -> interaction::Id {
         self.table
     }
 
-    #[cfg(test)]
     pub(crate) fn column(self) -> interaction::Id {
         self.column
     }
@@ -117,6 +115,22 @@ impl Model {
 
     pub(crate) fn column_ids(&self) -> Vec<interaction::Id> {
         self.columns.borrow().iter().map(Column::id).collect()
+    }
+
+    pub(crate) fn column_dimensions(&self) -> Vec<(HeaderCell, view::Dimension)> {
+        self.columns
+            .borrow()
+            .iter()
+            .map(|column| {
+                (
+                    HeaderCell {
+                        table: self.table,
+                        column: column.id,
+                    },
+                    column.effective_width(),
+                )
+            })
+            .collect()
     }
 }
 
@@ -268,11 +282,28 @@ impl widget::Widget for Table {
             style = style.with_background(background);
         }
 
-        view::Node::table(self.id)
-            .with_table_model(model)
-            .with_style(style)
+        let surface = view::Node::stack(view::Axis::Vertical)
+            .with_style(
+                view::Style::new()
+                    .with_width(view::Dimension::grow())
+                    .with_height(view::Dimension::grow()),
+            )
             .child(header)
-            .child(body)
+            .child(body);
+        let horizontal_scroll = view::Node::scroll()
+            .with_label("Table columns")
+            .with_layout_axis(view::Axis::Horizontal)
+            .with_table_model(model)
+            .with_style(
+                view::Style::new()
+                    .with_width(view::Dimension::grow())
+                    .with_height(view::Dimension::grow()),
+            )
+            .child(surface);
+
+        view::Node::table(self.id)
+            .with_style(style)
+            .child(horizontal_scroll)
     }
 }
 
