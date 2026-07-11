@@ -203,4 +203,72 @@ mod tests {
         assert!(transition.is_animating_at(now + Duration::from_millis(75)));
         assert!(!transition.is_animating_at(now + Duration::from_millis(200)));
     }
+
+    #[test]
+    fn schedule_and_transition_laws_hold_through_10000_deterministic_cases() {
+        let epoch = Instant::now();
+        let mut random = 0x6a09_e667_f3bc_c909_u64;
+
+        for case in 0..10_000_u64 {
+            random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let deadline_a = epoch + Duration::from_millis(random % 1_000);
+            random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let deadline_b = epoch + Duration::from_millis(random % 1_000);
+            let a = match case % 3 {
+                0 => Schedule::Idle,
+                1 => Schedule::At(deadline_a),
+                _ => Schedule::NextFrame,
+            };
+            let b = match (case / 3) % 3 {
+                0 => Schedule::Idle,
+                1 => Schedule::At(deadline_b),
+                _ => Schedule::NextFrame,
+            };
+            let c = match (case / 9) % 3 {
+                0 => Schedule::Idle,
+                1 => Schedule::At(epoch + Duration::from_millis(case % 997)),
+                _ => Schedule::NextFrame,
+            };
+
+            assert_eq!(a.merge(Schedule::Idle), a, "schedule identity case {case}");
+            assert_eq!(a.merge(b), b.merge(a), "schedule symmetry case {case}");
+            assert_eq!(
+                a.merge(b).merge(c),
+                a.merge(b.merge(c)),
+                "schedule associativity case {case}"
+            );
+
+            random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let from = (random % 20_001) as f32 / 100.0 - 100.0;
+            random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let to = (random % 20_001) as f32 / 100.0 - 100.0;
+            let duration = Duration::from_millis(case % 1_001);
+            let transition = Transition::new(from, to, epoch, duration, Easing::EaseOutCubic);
+            let end = epoch + duration;
+            let start_value = transition.value_at(epoch);
+            let end_value = transition.value_at(end);
+
+            if duration.is_zero() {
+                assert!(
+                    (start_value - to).abs() <= 0.0001,
+                    "zero-duration case {case}: {start_value} != {to}"
+                );
+            } else {
+                assert_eq!(start_value, from, "transition start case {case}");
+            }
+            assert!(
+                (end_value - to).abs() <= 0.0001,
+                "transition endpoint case {case}: {end_value} != {to}"
+            );
+            assert!(!transition.is_animating_at(end), "settled case {case}");
+
+            let sample = transition.value_at(epoch + duration / 2);
+            let low = from.min(to);
+            let high = from.max(to);
+            assert!(
+                sample.is_finite() && sample >= low && sample <= high,
+                "bounded interpolation case {case}: {sample} outside {low}..={high}"
+            );
+        }
+    }
 }

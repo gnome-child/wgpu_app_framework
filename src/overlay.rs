@@ -1258,4 +1258,100 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn overlay_lifecycle_laws_hold_through_10000_deterministic_updates() {
+        const IDS: [&str; 8] = [
+            "stress.0", "stress.1", "stress.2", "stress.3", "stress.4", "stress.5", "stress.6",
+            "stress.7",
+        ];
+
+        let mut store = Store::new();
+        let window = window::Id::new(90);
+        let epoch = Instant::now();
+        let theme = overlay_theme(7, 11);
+        let mut random = 0x3c6e_f372_fe94_f82b_u64;
+
+        for operation in 0..10_000_u64 {
+            random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let capabilities = if random & 1 == 0 {
+                Capabilities::in_frame_only()
+            } else {
+                Capabilities::with_native_popups()
+            };
+            let mut selected = Vec::new();
+            let count = ((random >> 8) % 4) as usize;
+            for slot in 0..count {
+                random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let id = IDS[((random as usize) + slot) % IDS.len()];
+                if selected.contains(&id) {
+                    continue;
+                }
+                selected.push(id);
+            }
+            let drafts = selected
+                .into_iter()
+                .enumerate()
+                .map(|(index, id)| {
+                    if (random >> (index + 16)) & 1 == 0 {
+                        draft(id)
+                    } else {
+                        popup_draft(id)
+                    }
+                })
+                .collect::<Vec<_>>();
+            let update = store.update_window(
+                window,
+                drafts,
+                theme,
+                capabilities,
+                epoch + Duration::from_millis(operation),
+            );
+
+            assert!(
+                update
+                    .layers
+                    .windows(2)
+                    .all(|pair| pair[0].order <= pair[1].order),
+                "layer order operation {operation}"
+            );
+            for layer in &update.layers {
+                assert!(
+                    layer.opacity().is_finite() && layer.opacity() >= 0.0 && layer.opacity() <= 1.0,
+                    "opacity operation {operation}: {}",
+                    layer.opacity()
+                );
+                match layer.kind() {
+                    LayerKind::Live => {
+                        if layer.state() == Some(State::Live) {
+                            assert_eq!(layer.opacity(), 1.0);
+                        }
+                    }
+                    LayerKind::Ghost => assert_eq!(layer.backend(), Backend::InFrame),
+                    LayerKind::RetiringPopup => {
+                        assert_eq!(layer.backend(), Backend::NativePopup)
+                    }
+                }
+            }
+            assert!(store.ghost_count(window) <= DEFAULT_AFTERLIFE_LIMIT);
+            assert!(store.retiring_popup_count(window) <= DEFAULT_AFTERLIFE_LIMIT);
+            let needs_frame = update.layers.iter().any(|layer| {
+                layer.kind() != LayerKind::Live || layer.state() == Some(State::Entering)
+            });
+            assert_eq!(
+                update.schedule,
+                if needs_frame {
+                    animation::Schedule::NextFrame
+                } else {
+                    animation::Schedule::Idle
+                },
+                "schedule operation {operation}"
+            );
+
+            if operation % 997 == 996 {
+                <Store as notification::Listener<window::Departed>>::notify(&mut store, &window);
+                assert_eq!(store.residue_count(window), 0);
+            }
+        }
+    }
 }

@@ -395,4 +395,52 @@ mod tests {
         assert_approx_eq(outer_right - inner_right, 1.0);
         assert_approx_eq(outer_bottom - inner_bottom, 1.0);
     }
+
+    #[test]
+    fn coordinate_laws_hold_through_10000_deterministic_scale_cases() {
+        let scales = [1.0_f32, 1.25, 1.5, 2.0];
+        let mut random = 0xbb67_ae85_84ca_a73b_u64;
+
+        for case in 0..10_000_usize {
+            let scale = scales[case % scales.len()];
+            let grid = Grid::new(scale);
+            random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let x = (random % 200_001) as f32 / 137.0 - 730.0;
+            random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let y = (random % 200_001) as f32 / 131.0 - 760.0;
+            random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let width = (random % 20_000) as f32 / 113.0;
+            random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let height = (random % 20_000) as f32 / 109.0;
+            let rect = rect::Rect::new(point::logical(x, y), area::logical(width, height));
+
+            let snapped = grid.snap_rect(rect);
+            assert!(grid.rect_is_aligned(snapped), "aligned rect case {case}");
+            assert!(
+                snapped.area.width() + 0.0001 >= grid.logical_pixel()
+                    && snapped.area.height() + 0.0001 >= grid.logical_pixel(),
+                "minimum physical extent case {case}"
+            );
+
+            let stable = grid.snap_rect_with_stable_size(rect);
+            assert!(grid.rect_is_aligned(stable), "stable rect case {case}");
+
+            let logical_area = area::logical(width, height);
+            let area_round_trip = logical_area.to_physical(scale).to_logical(scale);
+            let tolerance = 0.5 / scale + 0.0001;
+            assert!(
+                (area_round_trip.width() - width).abs() <= tolerance
+                    && (area_round_trip.height() - height).abs() <= tolerance,
+                "area round trip case {case} at {scale}x"
+            );
+
+            let logical_point = point::logical(x, y);
+            let point_round_trip = logical_point.to_physical(scale).to_logical(scale);
+            assert!(
+                (point_round_trip.x() - x).abs() <= 0.0001
+                    && (point_round_trip.y() - y).abs() <= 0.0001,
+                "point round trip case {case} at {scale}x"
+            );
+        }
+    }
 }

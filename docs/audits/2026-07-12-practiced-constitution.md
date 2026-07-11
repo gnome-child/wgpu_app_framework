@@ -192,10 +192,10 @@ restoration (`S`), coordinates/scale (`K`), and concurrent/deferred completion
 | --- | --- | --- |
 | Full lifecycle table for all seven constellations | 7 | Pending |
 | Adversarial sequence for every meaningful lifecycle axis | Complete census | Pending |
-| Deterministic operations per applicable pure state machine | At least 10,000 | Pending |
+| Deterministic operations per applicable pure state machine | At least 10,000 | Held for five newly exercised owners plus the existing 10k span-tree witness; the separate ignored 100k text oracle remains to execute |
 | Multi-step application/platform traces | At least 25 | Pending |
-| Coordinate scale matrix | 1.0, 1.25, 1.5, 2.0 | Pending |
-| Transition boundary matrix | Immediately before, at, and after endpoints | Pending |
+| Coordinate scale matrix | 1.0, 1.25, 1.5, 2.0 | Held: 2,500 deterministic coordinate cases at each scale, in addition to focused existing cases |
+| Transition boundary matrix | Immediately before, at, and after endpoints | Held: exact overlay 4999/5000/5001 witnesses plus 10,000 schedule/transition endpoint cases |
 | Existing library suite | Full | Pending |
 | Example smokes | 3 | Pending |
 | Ignored 100k text reference property | 1 | Pending |
@@ -243,6 +243,7 @@ restoration (`S`), coordinates/scale (`K`), and concurrent/deferred completion
 | E-001 | X-01 removal during active command capture | Reduced four-step sequence: press slider → command changes model → rebuild omits slider → inspect interaction/gesture | Failed deterministically | Pointer hover/press/capture were pruned, but `window_residues(window).gesture` remained 1. Focused test: `tests::interaction_tests::rebuilding_away_captured_command_prunes_pointer_and_history_gesture`. |
 | E-002 | X-01 replay and C-01 ritual | Same reduced sequence; full library and three examples | Held | Reduced test passed. Library: 805 passed, 8 ignored. All example checks, formatting, diff check, and protected-state check passed. |
 | E-003 | X-02/X-03 application absence and failure | Four stale post-departure events; one backend open failure | Held | Stale pointer, key, redraw, and dialog-result events each produced empty work and no state resurrection. Backend `open_window` failure crossed as `platform::Error::Backend("open failed")` without recording completed backend work. |
+| E-004 | X-04/X-06 deterministic law tier | 10,000 cases each for animation/schedule (`0x6a09_e667_f3bc_c909`), overlay (`0x3c6e_f372_fe94_f82b`), paint coordinates (`0xbb67_ae85_84ca_a73b`), response effects (case enumeration), and native settle state (case enumeration) | Held after oracle reduction | 50,000 new cases passed in 0.11 s. The scale family cycles 1.0/1.25/1.5/2.0. Overlay includes periodic `Departed` resets. Two initial animation assertions demanded bit equality from algebraically equivalent `f32` endpoint expressions; fixed 1e-4 equivalence passed without framework change. |
 
 ## Failure and reduction ledger
 

@@ -110,4 +110,42 @@ mod tests {
             Some(Invalidation::Rebuild)
         );
     }
+
+    #[test]
+    fn effect_composition_laws_hold_through_10000_deterministic_cases() {
+        fn effect(index: usize) -> Effect {
+            match index % 7 {
+                0 => Effect::None,
+                1 => Effect::Paint,
+                2 => Effect::Layout,
+                3 => Effect::Rebuild,
+                4 => Effect::CloseFloatingPanel,
+                5 => Effect::OpenFileDialog,
+                _ => Effect::SaveFileDialog,
+            }
+        }
+
+        for case in 0..10_000_usize {
+            let a = effect(case);
+            let b = effect(case / 7 + 3);
+            let c = effect(case / 49 + 5);
+            let left = a.clone().then(b.clone()).then(c.clone());
+            let right = a.clone().then(b.clone().then(c.clone()));
+
+            assert_eq!(left, right, "effect associativity case {case}");
+            assert_eq!(
+                a.clone().then(Effect::None),
+                a,
+                "right identity case {case}"
+            );
+            assert_eq!(Effect::None.then(b.clone()), b, "left identity case {case}");
+
+            let expected_invalidation = [a, b, c].iter().filter_map(Effect::invalidation).max();
+            assert_eq!(
+                left.invalidation(),
+                expected_invalidation,
+                "maximum invalidation case {case}"
+            );
+        }
+    }
 }
