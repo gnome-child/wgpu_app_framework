@@ -26,8 +26,11 @@ command::Command
 command::History
 command::HistoryGroup
 command::KeyChord
+command::Listing
+command::Member
 command::Observation
 command::Registry
+command::Set
 command::Spec
 command::Standard
 command::State
@@ -60,11 +63,20 @@ history policy, and optional history grouping.
 
 `command::Spec`
 
-Registration-time presentation metadata: display label and semantic shortcut.
+Registration-time presentation metadata: display label, semantic shortcut, and
+`Listing` policy for command-describing surfaces.
 Shortcut declarations stay semantic (`Primary+S`, `Standard::Save`) and are
 resolved through the active keymap profile at match and presentation time.
-`Spec::new`, `.shortcut(...)`, and `.key_chord(...)` are public because apps
-register commands through `Runtime::commands(...)`.
+`Spec::new`, `.shortcut(...)`, `.key_chord(...)`, and `.listing(...)` are public
+because apps register commands through `Runtime::commands(...)`.
+
+`command::Set` and `command::Member`
+
+A `Set` is an app-owned, enumerable bundle of typed command registrations.
+Including the same command again replaces its earlier member, and `without`
+narrows the bundle before registration. `Member` exposes each command's stable
+name and `Spec` for inspection without exposing the registry's erased dispatch
+storage.
 
 `command::Registry`
 
