@@ -86,6 +86,35 @@ No tables checkpoint remains in flight; the six-checkpoint campaign is green.
     relationships and logical row/column indices are reserved now for
     AccessKit. Sheet species still waits for a real caller. Items 25/26 do
     not block: a table is a provided container, not a custom leaf.
+27. **Table grammar campaign** — five checkpoints, contract settled 2026-07-12:
+    1. **Resolved tracks + horizontal scrolling** — promote the post-layout
+       track projection to the single pre-placement `ResolvedTrack` owner
+       (fixed / flex-with-minimum, resolved once via the existing flow
+       allocator); one horizontal scroll owner wraps header and body; the
+       overflow law: surplus distributes, deficit scrolls, the far-right
+       track never shrinks at the viewport edge, ellipsis only from a
+       value's own resolved track.
+    2. **Table participation/chrome** — internal part marker (header /
+       cell / cell-editor / cell-toggle) orthogonal to widget role;
+       `Theme::table()` recipes; behavior unchanged, appearance derived;
+       read-only booleans paint passive (kills the affordance lie).
+    3. **`text::Input`** — general whole-draft text-entry policy (never
+       per-character): intermediate drafts like "" and "-" valid, paste
+       normalized, IME composition never broken; text-constellation
+       citizen consumed by table editors later.
+    4. **Typed columns** — `table::{Value, Sort, EditText, EditToggle}`
+       exactly as settled (String rejection vocabulary; `view::Align`
+       reused; trait = capability, column verb = policy, erased spec
+       derives behavior and chrome; sorting still emits intent); built-ins
+       String / integers / bool, floats Value-only, `Option<T>` deferred;
+       gallery migrates and deletes its schema switch, sort button, and
+       inert checkbox.
+    5. **Variable-height virtualization + expanded presentation** —
+       general variable-height virtual region below tables (measured
+       height cache, cumulative index, estimates, stable anchoring,
+       bounded materialization); `Compact`/`Expanded` presentation;
+       compact keeps the uniform arithmetic path and its million-row
+       witnesses; gallery gains an "Expanded rows" toggle.
 11. **Accessibility (AccessKit)** — after tables; seams reserved
     (`composition::Changes::removed_elements`, subject labels, roles,
     active-item concept). The widget grammar audit added the missing field
