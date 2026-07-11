@@ -66,36 +66,50 @@ tests will be added during the constellation sweep.
 
 | Cell | Constellation | Verdict | Receipts and notes |
 | --- | --- | --- | --- |
-| C-01 | Document truth | Pending | |
-| C-02 | Capability | Pending | |
-| C-03 | Interface | Pending | |
-| C-04 | Presentation | Pending | |
-| C-05 | Application | Pending | |
-| C-06 | Native boundary | Pending | |
-| C-07 | Root vocabulary | Pending | |
-| C-08 | Overlay housing examination | Pending | File size is not evidence; semantic seams must earn any split. |
+| C-01 | Document truth | Verified | `document::Outcome` and `text::edit::ActionResult` are adjacent projections rather than competing engines: document commands project edit availability/changes into command outcomes in `src/document/edit.rs`, while the text engine owns mutation in `src/text/edit/editor.rs`. Save identity is unforgeable outside the document implementation (`src/document/save.rs`) and is practiced by deferred, out-of-order completion cases in `src/tests/document_editor.rs:430-775`. Clipboard absence/failure and draft submission remain distinct meanings (`src/clipboard/system.rs`, `src/draft/mod.rs`). The sole mismatch is the already-recorded `State`/`ViewState` doctrine drift in D-11. |
+| C-02 | Capability | Verified, with stale doctrine | Commands remain imperative and notifications past-tense across `src/document/command.rs`, `src/timeline/command.rs`, `src/session/service.rs`, `src/document/notification.rs`, and `src/window/departed.rs`. Registry metadata, enumerable sets, responders, erased targets, observations, and effects each have a named owner (`src/command`, `src/responder`, `src/target`, `src/command/observer.rs`, `src/response`). The two `AnyTarget` representations are the declared non-merge in roadmap item 22. D-11 records the only gap: narrow command doctrine omits `Set`, `Member`, and `Listing`. |
+| C-03 | Interface | Flag | Ordinary callers build widgets and views while `composition`, `layout`, and `session` retain identity, geometry, and interaction; the external-style gallery scene at `src/tests/layout_scene.rs:3600` practices that sentence. The palette-specific scope predicate at `src/interaction/target.rs:178-182` names a real command-scope distinction, not a paint/layout exception. However, `layout::Frame` is a role tag plus a broad optional-field cluster (`src/layout/frame.rs:11-78`), so combinations such as text-only layout data on unrelated roles remain representable. Splitting it now would be broad internal redesign without a behavioral contradiction or concrete caller, so this remains a state-integrity flag. |
+| C-04 | Presentation | Verified | `PreparedFrame` remains the one logical recipe (`src/runtime/presentation.rs`) and scene opacity/group composition has one owner (`src/scene/mod.rs:114-137`). The forced-full-opacity group bit is an explicitly named diagnostic request from `widget::Floating::diagnostic_force_promoted_at_full_opacity` (`src/widget/panel.rs:52-55`) through overlay projection to scene composition, with endpoint tests at `src/overlay.rs:985-1002` and `src/scene/mod.rs:570-576`; it is not an accidental boolean protocol. Overlay backend selection and fade scheduling remain owned by the overlay state machine. |
+| C-05 | Application | Verified | Runtime produces render work, shell projects it into public `Work`, host maintains framework-facing snapshots, and platform alone synchronizes backend effects (`src/runtime/work.rs`, `src/shell/work.rs:24-45`, `src/host/mod.rs:99-151`, `src/platform/mod.rs:139-210`). Repeated window/request/cursor collections have different stage lifetimes rather than competing authority. `platform::launch` is the ordinary ceiling (`src/platform/mod.rs:22-31`), while `Platform`/`Runner` remain deliberate advanced seams and are behaviorally distinguished at `src/tests/platform_tests.rs:619-663`. Departure reaches runtime, overlay, host, platform, and native stores through one `window::Departed` fact. |
+| C-06 | Native boundary | Verified | OS events normalize physical coordinates and scale once in `src/platform/event.rs:14-167` and `src/platform/event.rs:228-290`; paint owns typed logical/physical areas, points, and grid snapping (`src/paint/area.rs`, `src/paint/point.rs`, `src/paint/grid.rs`). Scene-to-paint conversion is concentrated in `src/platform/native/paint.rs`, while renderer formats, premultiplication, and popup packing remain below that boundary (`src/render/alpha.rs`, `src/render/popup_pack.rs`). Platform-specific cfg branches concern realization and adapter selection, not framework semantics. The documented scene-transform sanitization duplicate remains roadmap item 22's intentional non-merge. |
+| C-07 | Root vocabulary | Verified | The crate root exports named central concepts and keeps realization modules private (`src/lib.rs:1-78`). Geometry, color, theme, keymap, subject, icon, animation, pointer, response, and state each have a domain owner; recursive architecture witnesses guard dependency direction and privacy (`src/tests/architecture.rs:94-349`, `src/color.rs:70-89`). No new `util`, `common`, `manager`, `helper`, or empty root bucket was found. Similar names such as `Platform`, `Presentation`, `Frame`, and `Surface` have distinct scopes and no concrete import collision. |
+| C-08 | Overlay housing examination | Resistance; no correction admitted | `src/overlay.rs` already contains visible semantic regions: policy (`Preference`, `Backend`, `Capabilities`, `resolve_backend`), portable/native payloads (`Draft`, `Layer`, `PopupPresentation`, `PopupMaterial`), lifetime representations (`Live`, `Entry`, `Ghost`, `RetiringPopup`), and the per-window `Store`. The apparent lifetime pieces are one transition engine: `Store::update_window` creates and orders all of them, resolves backend, carries fade state, caps afterlife, and emits one schedule (`src/overlay.rs:488-649`). Extracting policy/payload types would primarily widen private fields or add constructors so that same owner could keep assembling them; it would delete no competing decision path. Size and navigation cost alone therefore do not satisfy candidate admission. |
 
 ## Phase C — instruments and memory
 
 | Cell | Instrument | Verdict | Receipts and notes |
 | --- | --- | --- | --- |
-| I-01 | Architecture and source-string witnesses | Pending | |
-| I-02 | Behavioral, tombstone, and ignored tests | Pending | |
-| I-03 | Examples and smokes as external-style callers | Pending | |
-| I-04 | Roadmap revalidation | Pending | |
+| I-01 | Architecture and source-string witnesses | Verified, with brittleness cost | `src/tests/architecture.rs` contains 63 named boundary witnesses covering absence, privacy, dependency direction, unique owners, and previously escaped native failures. Source-string checks are appropriate for structural absence and cfg/FFI facts that Rust's type system cannot observe, but their 223 file reads make housing changes costly. No witness was found recomputing a production algorithm as an alternate authority; behavioral tests carry endpoints where available. The cost is acknowledged, but wholesale witness abstraction would be new machinery rather than a demonstrated correction. |
+| I-02 | Behavioral, tombstone, and ignored tests | Verified | Tombstones protect promoted/retired shapes beginning at `src/tests/architecture.rs:2`, `src/tests/architecture.rs:236`, and `src/tests/architecture.rs:366`. The eight ignored tests are deliberate tiers, not dead concerns: six require GPU adapter/readback (`src/render/silhouette.rs:383`, `src/render/renderer.rs:1191-1311`), one is a 100k-operation reference property, and one is a release-mode measured benchmark (`src/text/acceptance.rs:53-142`). The ordinary suite retains smaller deterministic behavioral counterparts. |
+| I-03 | Examples and smokes as external-style callers | Verified | All three example mains call `wgpu_l3::platform::launch`, and their runtime construction does not name `Runner`, `Platform`, or `Host` (`src/tests/architecture.rs:47-68`). The control gallery practices the widget-to-scene sentence (`src/tests/layout_scene.rs:3600`); the text editor crosses runtime, shell, host, and platform with persistence and task behavior (`src/tests/host_shell_tests.rs:87-619`, `src/tests/platform_tests.rs:827-1247`); glass tuner is a deliberate native-presentation diagnostic fixture (`src/platform/native/paint.rs:760-795`). |
+| I-04 | Roadmap revalidation | Verified, with open manual/hardware flags | Items 2/21 still correspond to the explicit unresolved first-frame-skip note and trace (`docs/master_design.md:515-518`, `src/platform/native/popup.rs:617-744`). Context menu, text overflow, tables, accessibility, targeted redraw, and the other named arcs remain absent rather than half-implemented. Product-taste and hardware items still require their declared inputs. Item 22's two `AnyTarget` shapes and scene-transform sanitization duplicate remain real non-merges. Item 6 still names the protected glass-tuner tuning state; this run leaves `comparison_open: true` unchanged. |
 
 ## Candidate ledger
 
-No candidate is admitted until the initial census is complete.
+The initial census is complete. Findings are admitted only when the existing
+tree supplies both a contradiction and a smaller truthful owner.
 
 | ID | Finding | Evidence | Admission | Rank | Disposition |
 | --- | --- | --- | --- | --- | --- |
+| R-01 | Narrow command/view doctrine names retired ownership and omits live public command concepts. | D-11: `text::edit::State` versus `ViewState`; `command::Set`/`Member`/`Listing` versus the two narrow docs. | Admitted: direct doctrine/tree contradiction; documentation is the sole owner; correction narrows stale claims without behavior or API change. | 1 | Correct the two narrow doctrine files and add no framework mechanism. |
+| R-02 | `layout::Frame` permits role/optional-field contradictions. | C-03; `src/layout/frame.rs:11-78` and role-specific access throughout layout/scene paint. | Not admitted: no observed wrong behavior, and a split would span layout, interaction, scene paint, and inspection APIs. | Flag | Await a concrete invalid combination or accessibility/table caller. |
+| R-03 | Overlay policy, payload, and lifetime concepts share one large source file. | C-08; `src/overlay.rs:11-735`. | Not admitted: the one `Store::update_window` transition owns the supposedly separate pieces, and extraction deletes no competing path. | Resistance | Keep the state machine colocated; reconsider only when an independent owner emerges. |
 
 ## Health scores
 
 Scores are 0–4 for ownership, compression, state integrity, boundary truth,
-and practiced evidence. Baseline scores remain pending until the complete
-constellation census provides receipts.
+and practiced evidence. `O/C/S/B/P` abbreviate those dimensions.
+
+| Constellation | Baseline O/C/S/B/P | Total | Receipt and justification |
+| --- | --- | --- | --- |
+| Document truth | 4/4/4/4/4 | 20 | Save/version identity, edit mutation, persistence, clipboard absence, and history each have typed owners and end-to-end document tests (C-01; `src/tests/document_editor.rs`). |
+| Capability | 4/3/4/4/4 | 19 | Resolution and execution are strongly owned and practiced; compression loses one point because the narrow public doctrine omits live `Set`/`Member`/`Listing` vocabulary (C-02, D-11). |
+| Interface | 3/4/2/4/4 | 17 | Public widget sentences and boundaries are strong, but the role-tagged optional `Frame` weakens ownership locality and permits contradictory internal states (C-03). |
+| Presentation | 3/4/4/4/4 | 19 | Frame preparation, scene composition, native handoff, and scheduling are singular; overlay's coupled concepts are truthful but costly to navigate (C-04, C-08). |
+| Application | 4/4/4/4/4 | 20 | Runtime → shell → host → platform is a complete staged lifecycle with an application-altitude launch and end-to-end tests (C-05). |
+| Native boundary | 4/4/4/4/3 | 19 | Coordinates, paint projection, formats, and OS facts cross at named seams; the remaining point is withheld because hardware GPU/readback witnesses are necessarily outside the default suite (C-06, I-02). |
+| Root vocabulary | 4/4/4/4/4 | 20 | Central names, privacy, and dependency direction are explicit and structurally guarded (C-07). |
+| **Total** |  | **134/140** | The principal deficits are one stale public explanation, one internal invalid-state cluster, overlay navigation cost, and hardware-only evidence. |
 
 ## Correction ledger
 
@@ -104,7 +118,16 @@ constellation census provides receipts.
 
 ## Flags
 
-Flags will be ranked by architectural consequence after the initial census.
+1. `layout::Frame`'s role-tagged optional cluster is the clearest state-integrity
+   debt, but it lacks a demonstrated behavioral contradiction and would exceed
+   an overnight correction (R-02).
+2. The popup show-cycle first-frame contract remains open and explicitly belongs
+   to roadmap items 2/21; it requires feature work and native verification.
+3. Glass-tuner tuning state remains a manual-session concern under roadmap item
+   6. The protected `comparison_open: true` value is unchanged.
+4. Theme TOML datum grammar, session/interaction articulation, and the roadmap
+   item 22 non-merges retain their standing flag/non-merge dispositions; the
+   census found no new evidence authorizing work.
 
 ## Final fixed-point sweep
 
