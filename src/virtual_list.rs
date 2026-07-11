@@ -1,6 +1,9 @@
-use std::{collections::HashSet, ops::Range, rc::Rc};
+use std::{cell::RefCell, collections::HashSet, ops::Range, rc::Rc};
 
 use crate::{interaction, scene, view, widget::Widget};
+
+mod variable;
+pub(crate) use variable::Region as VariableRegion;
 
 const DEFAULT_OVERSCAN: usize = 2;
 const INITIAL_ROWS: usize = 32;
@@ -33,22 +36,30 @@ pub struct VirtualList {
 #[derive(Clone)]
 pub(crate) struct Model {
     id: interaction::Id,
-    row_height: i32,
+    heights: Heights,
     overscan: usize,
     provider: Rc<dyn Provider>,
     selectable: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
+enum Heights {
+    Uniform(i32),
+    Variable(Rc<RefCell<variable::Region>>),
+}
+
+#[derive(Clone)]
 pub(crate) struct Materialization {
     range: Range<usize>,
     pins: Vec<Key>,
+    variable: Option<Rc<RefCell<variable::Region>>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub(crate) struct Request {
     id: interaction::Id,
     range: Range<usize>,
+    variable: Option<Rc<RefCell<variable::Region>>>,
 }
 
 impl Key {
@@ -75,6 +86,21 @@ impl VirtualList {
     ) -> Self {
         Self {
             model: Model::new(id.into(), row_height, Rc::new(provider)),
+            width: None,
+            height: None,
+            max_height: None,
+            background: None,
+        }
+    }
+
+    /// Creates a virtual list whose materialized rows determine their heights.
+    pub fn variable(
+        id: impl Into<interaction::Id>,
+        estimated_row_height: i32,
+        provider: impl Provider + 'static,
+    ) -> Self {
+        Self {
+            model: Model::variable(id.into(), estimated_row_height, Rc::new(provider)),
             width: None,
             height: None,
             max_height: None,
@@ -137,7 +163,17 @@ impl Model {
     fn new(id: interaction::Id, row_height: i32, provider: Rc<dyn Provider>) -> Self {
         Self {
             id,
-            row_height: row_height.max(1),
+            heights: Heights::Uniform(row_height.max(1)),
+            overscan: DEFAULT_OVERSCAN,
+            provider,
+            selectable: false,
+        }
+    }
+
+    fn variable(id: interaction::Id, estimate: i32, provider: Rc<dyn Provider>) -> Self {
+        Self {
+            id,
+            heights: Heights::Variable(Rc::new(RefCell::new(variable::Region::new(estimate)))),
             overscan: DEFAULT_OVERSCAN,
             provider,
             selectable: false,
@@ -153,7 +189,28 @@ impl Model {
     }
 
     pub(crate) fn row_height(&self) -> i32 {
-        self.row_height
+        match &self.heights {
+            Heights::Uniform(height) => *height,
+            Heights::Variable(region) => region.borrow().estimate(),
+        }
+    }
+
+    pub(crate) fn variable_region(&self) -> Option<Rc<RefCell<variable::Region>>> {
+        match &self.heights {
+            Heights::Uniform(_) => None,
+            Heights::Variable(region) => Some(Rc::clone(region)),
+        }
+    }
+
+    pub(crate) fn provider(&self) -> &dyn Provider {
+        self.provider.as_ref()
+    }
+
+    pub(crate) fn index_at_offset(&self, offset: i32) -> usize {
+        match &self.heights {
+            Heights::Uniform(height) => (offset.max(0) / (*height).max(1)) as usize,
+            Heights::Variable(region) => region.borrow().index_for_offset(offset),
+        }
     }
 
     pub(crate) fn overscan(&self) -> usize {
@@ -205,6 +262,11 @@ impl Model {
     }
 
     pub(crate) fn materialize(&mut self, requested: &Materialization) -> Vec<view::Node> {
+        if matches!(self.heights, Heights::Variable(_))
+            && let Some(region) = requested.variable.as_ref()
+        {
+            self.heights = Heights::Variable(Rc::clone(region));
+        }
         let len = self.len();
         let start = requested.range.start.min(len);
         let end = requested.range.end.max(start).min(len);
@@ -238,11 +300,19 @@ impl Materialization {
     pub(crate) fn new(range: Range<usize>, mut pins: Vec<Key>) -> Self {
         pins.sort_unstable();
         pins.dedup();
-        Self { range, pins }
+        Self {
+            range,
+            pins,
+            variable: None,
+        }
     }
 
     pub(crate) fn with_range(&self, range: Range<usize>) -> Self {
         Self::new(range, self.pins.clone())
+    }
+
+    pub(crate) fn range(&self) -> Range<usize> {
+        self.range.clone()
     }
 
     pub(crate) fn with_pins(&self, pins: Vec<Key>) -> Self {
@@ -254,11 +324,40 @@ impl Materialization {
         pins.push(pin);
         Self::new(self.range.clone(), pins)
     }
+
+    pub(crate) fn with_variable(mut self, variable: Option<Rc<RefCell<variable::Region>>>) -> Self {
+        self.variable = variable;
+        self
+    }
 }
+
+impl PartialEq for Materialization {
+    fn eq(&self, other: &Self) -> bool {
+        self.range == other.range && self.pins == other.pins
+    }
+}
+
+impl Eq for Materialization {}
 
 impl Request {
     pub(crate) fn new(id: interaction::Id, range: Range<usize>) -> Self {
-        Self { id, range }
+        Self {
+            id,
+            range,
+            variable: None,
+        }
+    }
+
+    pub(crate) fn variable(
+        id: interaction::Id,
+        range: Range<usize>,
+        variable: Rc<RefCell<variable::Region>>,
+    ) -> Self {
+        Self {
+            id,
+            range,
+            variable: Some(variable),
+        }
     }
 
     pub(crate) fn id(&self) -> interaction::Id {
@@ -267,5 +366,9 @@ impl Request {
 
     pub(crate) fn range(&self) -> Range<usize> {
         self.range.clone()
+    }
+
+    pub(crate) fn variable_region(&self) -> Option<Rc<RefCell<variable::Region>>> {
+        self.variable.as_ref().map(Rc::clone)
     }
 }

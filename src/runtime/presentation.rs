@@ -291,7 +291,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             let current = next.get(&request.id()).cloned().unwrap_or_else(|| {
                 crate::virtual_list::Materialization::new(request.range(), Vec::new())
             });
-            next.insert(request.id(), current.with_range(request.range()));
+            next.insert(
+                request.id(),
+                current
+                    .with_range(request.range())
+                    .with_variable(request.variable_region()),
+            );
         }
         next.retain(|id, _| seen.contains(id));
 

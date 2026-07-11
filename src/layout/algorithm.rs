@@ -1,7 +1,7 @@
 use super::super::{
     composition,
     geometry::{Rect, Size},
-    keymap, theme, view,
+    interaction, keymap, theme, view,
 };
 use super::{
     Viewport, control, engine, flow,
@@ -329,6 +329,21 @@ fn layout_virtual_list(
         .virtual_list_model()
         .expect("VirtualList role must carry provider content");
     let viewport_rect = scroll_viewport_rect(node, rect, ctx.theme);
+    if let Some(region) = model.variable_region() {
+        layout_variable_virtual_list(
+            node,
+            retained,
+            path,
+            rect,
+            viewport_rect,
+            floating_layer,
+            clip,
+            model,
+            region,
+            ctx,
+        );
+        return;
+    }
     let row_height = model.row_height().max(1);
     let content_height = (model.len() as i64)
         .saturating_mul(row_height as i64)
@@ -375,6 +390,112 @@ fn layout_virtual_list(
             .saturating_sub(offset.y() as i64)
             .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
         let child_rect = Rect::new(viewport_rect.x(), y, viewport_rect.width(), row_height);
+        layout_node(
+            child,
+            retained_child(retained, index),
+            path.child(index),
+            child_rect,
+            floating_layer,
+            child_clip(child, row_clip),
+            ctx,
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn layout_variable_virtual_list(
+    node: &view::Node,
+    retained: &composition::Node,
+    path: path::Path,
+    rect: Rect,
+    viewport_rect: Rect,
+    floating_layer: bool,
+    clip: Option<Clip>,
+    model: &crate::virtual_list::Model,
+    region: std::rc::Rc<std::cell::RefCell<crate::virtual_list::VariableRegion>>,
+    ctx: &mut LayoutContext<'_>,
+) {
+    let provider = model.provider();
+    let requested_offset = node.scroll_offset();
+    {
+        let mut region = region.borrow_mut();
+        region.set_width(viewport_rect.width(), provider);
+        region.request(
+            requested_offset.y(),
+            viewport_rect.height(),
+            model.overscan(),
+            Vec::new(),
+            provider,
+        );
+    }
+
+    let measurements = node.children().iter().filter_map(|child| {
+        let row = child.provided_row()?;
+        Some((
+            row.key(),
+            resolved_height_for_width(
+                child,
+                viewport_rect.width(),
+                i32::MAX,
+                ctx.engine,
+                ctx.theme,
+                ctx.keymap,
+            )
+            .max(1),
+        ))
+    });
+    let (offset_y, content_height, request) = {
+        let mut region = region.borrow_mut();
+        let offset_y = region.refine(measurements, provider);
+        let request = region.request(
+            offset_y,
+            viewport_rect.height(),
+            model.overscan(),
+            Vec::new(),
+            provider,
+        );
+        (offset_y, region.content_height(), request)
+    };
+    let viewport = Viewport::new(
+        viewport_rect,
+        Size::new(
+            viewport_rect.width(),
+            content_height.max(viewport_rect.height()),
+        ),
+        interaction::ScrollOffset::new(requested_offset.x(), offset_y),
+    );
+    let offset = viewport.resolved_scroll();
+    let request =
+        crate::virtual_list::Request::variable(model.id(), request.range(), region.clone());
+    let row_clip =
+        Some(intersect_clip(clip, viewport_rect).unwrap_or_else(|| Clip::new(viewport_rect)));
+    let frame = ctx
+        .frame(
+            node,
+            retained.node_id(),
+            path.clone(),
+            rect,
+            floating_layer,
+            clip,
+        )
+        .with_virtual_list(viewport, request);
+    ctx.frames.push(frame);
+
+    let region = region.borrow();
+    for (index, child) in node.children().iter().enumerate() {
+        let row = child
+            .provided_row()
+            .expect("materialized VirtualList children must carry provider identity");
+        let y = viewport_rect
+            .y()
+            .saturating_add(region.offset_for_index(row.index()))
+            .saturating_sub(offset.y());
+        let child_rect = Rect::new(
+            viewport_rect.x(),
+            y,
+            viewport_rect.width(),
+            region.height_for(row.key()),
+        );
         layout_node(
             child,
             retained_child(retained, index),

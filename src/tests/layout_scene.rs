@@ -5,6 +5,38 @@ struct MillionRowProvider {
     row_calls: Rc<Cell<usize>>,
 }
 
+#[derive(Clone)]
+struct VariableRowProvider {
+    row_calls: Rc<Cell<usize>>,
+}
+
+impl crate::virtual_list::Provider for VariableRowProvider {
+    fn len(&self) -> usize {
+        10_000
+    }
+
+    fn key(&self, index: usize) -> crate::virtual_list::Key {
+        crate::virtual_list::Key::new(index as u64)
+    }
+
+    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+        let index = key.value() as usize;
+        (index < self.len()).then_some(index)
+    }
+
+    fn row(&self, index: usize) -> view::Node {
+        self.row_calls.set(self.row_calls.get() + 1);
+        view::Node::world_text(format!("Variable row {index}"), text::Overflow::EllipsisEnd)
+            .with_style(
+                view::Style::new().with_height(view::Dimension::fixed(match index % 3 {
+                    0 => 18,
+                    1 => 32,
+                    _ => 47,
+                })),
+            )
+    }
+}
+
 impl crate::virtual_list::Provider for MillionRowProvider {
     fn len(&self) -> usize {
         1_000_000
@@ -481,6 +513,50 @@ fn million_row_virtual_list_jump_scroll_and_resize_stay_bounded() {
         .expect("resized virtual list should render");
     assert!(tall.scene().texts().len() <= 13);
     assert!(tall.layout().frames().len() <= 14);
+}
+
+#[test]
+fn variable_virtual_list_measures_mixed_rows_with_bounded_runtime_work() {
+    let row_calls = Rc::new(Cell::new(0));
+    let provider = VariableRowProvider {
+        row_calls: Rc::clone(&row_calls),
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Variable rows"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::VirtualList::variable("variable.rows", 24, provider.clone())
+                    .width(view::Dimension::grow())
+                    .height(view::Dimension::fixed(120)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let rendered = app
+        .render_scene(window, geometry::Size::new(240, 120))
+        .expect("variable list should converge");
+    let rows = rendered
+        .layout()
+        .frames()
+        .iter()
+        .filter_map(|frame| frame.provided_row().map(|row| (row.index(), frame.rect())))
+        .collect::<Vec<_>>();
+
+    assert!(!rows.is_empty());
+    assert!(rows.len() <= 12);
+    for (index, rect) in rows {
+        assert_eq!(
+            rect.height(),
+            match index % 3 {
+                0 => 18,
+                1 => 32,
+                _ => 47,
+            }
+        );
+    }
+    assert!(row_calls.get() <= 64);
 }
 
 #[test]

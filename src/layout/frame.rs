@@ -105,7 +105,7 @@ struct ScrollContent {
 struct VirtualListContent {
     viewport: Option<Viewport>,
     request: Option<crate::virtual_list::Request>,
-    row_height: i32,
+    model: crate::virtual_list::Model,
 }
 
 #[derive(Clone)]
@@ -477,7 +477,7 @@ impl Frame {
             .saturating_sub(viewport.rect().y())
             .saturating_add(viewport.resolved_scroll().y())
             .max(0);
-        Some((logical_y / content.row_height.max(1)) as usize)
+        Some(content.model.index_at_offset(logical_y))
     }
 
     pub(crate) fn resolved_scroll(&self) -> Option<interaction::ScrollOffset> {
@@ -768,10 +768,10 @@ impl FrameContent {
             view::Role::VirtualList => Self::VirtualList(VirtualListContent {
                 viewport: None,
                 request: None,
-                row_height: node
+                model: node
                     .virtual_list_model()
                     .expect("VirtualList role must carry provider content")
-                    .row_height(),
+                    .clone(),
             }),
             view::Role::Panel => Self::Structural(StructuralRole::Panel),
             view::Role::FloatingPanel => Self::FloatingPanel,

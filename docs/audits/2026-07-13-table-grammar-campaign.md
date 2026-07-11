@@ -53,8 +53,8 @@ vocabularies are admitted.
 | 3 | Host-derived participation and truthful table chrome | Complete | `637109ef`; 858 passed, 8 ignored; host-dress census, chrome witnesses, and full ritual green |
 | 4 | General whole-draft `text::Input` policies | Complete | `cbd7aeea`; 864 passed, 8 ignored; policy, paste, history, IME, benchmark, and full ritual green |
 | 5 | Typed columns from `table::{Value, Sort, EditText, EditToggle}` | Complete | `d1c55dd7`; 867 passed, 8 ignored; compile-fail capability, typed gallery, bounded projection, three smokes, release benchmark, and all boundary checks green |
-| 6 | Measurable read-only world-text wrapping | Complete | 868 passed, 8 ignored; standalone measure/paint fixture, cache witnesses, three smokes, release benchmark, and all boundary checks green |
-| 7 | Independently proven variable-height virtual region | Pending | — |
+| 6 | Measurable read-only world-text wrapping | Complete | `1a452f7e`; 868 passed, 8 ignored; standalone measure/paint fixture, cache witnesses, three smokes, release benchmark, and all boundary checks green |
+| 7 | Independently proven variable-height virtual region | Complete | 874 passed, 8 ignored; sparse-index and mixed-row runtime witnesses, three smokes, and all boundary checks green |
 | 8 | Compact/expanded table presentation and gallery toggle | Pending | — |
 
 ## Boundary ritual
@@ -374,6 +374,47 @@ Further flags append here as public names are proposed and resolved.
   3.380/3.891/4.303 us/edit; 10 B / 10 MB clone 38.012/37.654 ns.
 - Pending eyes: checkpoint 8 will exercise wrapped table headers and values at
   real track widths; this checkpoint intentionally adds no table caller.
+- Commit receipt: `1a452f7e` (`Add measurable wrapped world labels`), 8 files,
+  159 insertions, 10 deletions.
+
+### Checkpoint 7 — variable-height virtual region
+
+- Census and non-merge: uniform virtualization remains a direct
+  `index × row_height` calculation with no sparse-index branch, lookup, or
+  allocation added to it. Variable rows use a separate general path selected
+  by `VirtualList::variable`; both share providers, stable keys,
+  materialization, overscan, pins, selection, focus, capture, and draft
+  retention rather than duplicating those mechanics.
+- Projection: unseen rows use one estimated height. Measured heights are keyed
+  by stable row key and reconciled into a sorted index plus prefix deltas. An
+  index offset is arithmetic estimate plus a binary-searched measured prefix;
+  distant offset lookup binary-searches logical indices and never scans
+  preceding rows.
+- Anchoring: each request records the visible anchor key, relative offset, and
+  fallback index. Refinement above, within, or below the viewport rebuilds the
+  sparse projection and routes to an anchor-preserving scroll offset. Reorder,
+  insertion, deletion, and shrink reconcile measured keys through provider
+  `index_of`; a deleted anchor falls back deterministically.
+- Runtime ownership: the variable region is carried by the existing persisted
+  materialization record, so measurements survive ordinary application view
+  rebuilds. Layout measures only materialized rows, refines the projection,
+  places each row from cumulative offsets, and emits another bounded request.
+  Width is the measurement-generation token; a change clears stale measured
+  heights while preserving the visible anchor.
+- Standalone witnesses: mixed deterministic heights; refinement above, within,
+  and below the viewport; stable reorder; measured and anchor deletion;
+  out-of-range focus/capture/selection/draft-shaped pins with deduplication;
+  logarithmic jump past row 800,000 with fewer than 64 provider lookups;
+  bounded visible range and measurement count; and width invalidation all
+  passed. A real 10,000-row variable widget converged to exact 18/32/47-pixel
+  rows with bounded runtime work.
+- Full library: 874 passed, 8 ignored, 0 failed in 0.87 s. Existing uniform
+  million-row first-frame, jump, resize, table, focus, capture, selection, and
+  draft witnesses remained green. All three smokes, formatting, all-target
+  compilation, diff whitespace, and protected `comparison_open: true` passed.
+- Public API flag: `VirtualList::variable` is the sole general constructor;
+  sparse region, entries, prefix deltas, anchors, measurement generation, and
+  persistence plumbing remain internal. No table metric vocabulary was added.
 
 ## Pending eyes
 
