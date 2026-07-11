@@ -306,7 +306,7 @@ fn text_editor_shell_entrypoint_runs_host_loop_step() {
     assert!(path.exists());
     assert_eq!(
         shell.runtime().state().last_status,
-        format!("saved {}", text_editor::compact_path(&path))
+        format!("saved {}", text_editor::display_path(&path))
     );
 
     let _ = std::fs::remove_file(path);
@@ -350,7 +350,7 @@ fn text_editor_shell_handles_file_dialog_selection() {
     );
     assert_eq!(
         shell.runtime().state().last_status,
-        format!("opened {}", text_editor::compact_path(&path))
+        format!("opened {}", text_editor::display_path(&path))
     );
     assert!(!shell.drain().presentations().is_empty());
 
@@ -453,7 +453,7 @@ fn text_editor_shell_event_surface_drives_save_flow() {
     assert_eq!(selected.pending_tasks(), 1);
     assert_eq!(
         shell.runtime().state().last_status,
-        format!("saving {}", text_editor::compact_path(&path))
+        format!("saving {}", text_editor::display_path(&path))
     );
     assert!(!selected.needs_poll());
     assert!(
@@ -474,7 +474,7 @@ fn text_editor_shell_event_surface_drives_save_flow() {
     assert!(!shell.runtime().state().document.is_dirty());
     assert_eq!(
         shell.runtime().state().last_status,
-        format!("saved {}", text_editor::compact_path(&path))
+        format!("saved {}", text_editor::display_path(&path))
     );
 
     let _ = std::fs::remove_file(path);
@@ -616,7 +616,7 @@ fn text_editor_host_adapter_consumes_shell_work_end_to_end() {
     );
     assert_eq!(
         host.shell().runtime().state().last_status,
-        format!("saved {}", text_editor::compact_path(&path))
+        format!("saved {}", text_editor::display_path(&path))
     );
     assert!(host.presentation(window).is_some());
 

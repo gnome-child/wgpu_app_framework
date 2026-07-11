@@ -17,4 +17,4 @@ pub use state::STRESS_TEXT;
 pub use state::State;
 pub use view::window_size;
 #[cfg(test)]
-pub use view::{CANVAS_COLOR, WINDOW_TITLE, compact_path};
+pub use view::{CANVAS_COLOR, WINDOW_TITLE, display_path};

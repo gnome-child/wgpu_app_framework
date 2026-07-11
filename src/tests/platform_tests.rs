@@ -1264,7 +1264,7 @@ fn text_editor_platform_deduplicates_dialogs_and_poll_scheduling() {
     assert!(path.exists());
     assert_eq!(
         platform.host().shell().runtime().state().last_status,
-        format!("saved {}", text_editor::compact_path(&path))
+        format!("saved {}", text_editor::display_path(&path))
     );
     assert!(!platform.host().needs_poll());
 

@@ -551,7 +551,7 @@ fn text_editor_file_commands_flow_through_runtime_responders() {
     assert!(!app.state().document.is_dirty());
     assert_eq!(
         app.state().last_status,
-        format!("opened {}", text_editor::compact_path(&path))
+        format!("opened {}", text_editor::display_path(&path))
     );
     assert_eq!(app.revision().get(), 1);
 
@@ -578,7 +578,7 @@ fn text_editor_file_commands_flow_through_runtime_responders() {
     assert_eq!(app.pending_tasks(), 1);
     assert_eq!(
         app.state().last_status,
-        format!("saving {}", text_editor::compact_path(&path))
+        format!("saving {}", text_editor::display_path(&path))
     );
     assert_eq!(
         std::fs::read_to_string(&path).expect("file should not be rewritten before task runs"),
@@ -598,7 +598,7 @@ fn text_editor_file_commands_flow_through_runtime_responders() {
     assert!(!app.state().document.is_dirty());
     assert_eq!(
         app.state().last_status,
-        format!("saved {}", text_editor::compact_path(&path))
+        format!("saved {}", text_editor::display_path(&path))
     );
     assert_eq!(app.revision().get(), 4);
 
@@ -659,7 +659,7 @@ fn text_editor_save_completion_keeps_newer_edits_dirty() {
         app.state().last_status,
         format!(
             "saved {}; newer edits remain unsaved",
-            text_editor::compact_path(&path)
+            text_editor::display_path(&path)
         )
     );
 
@@ -738,7 +738,7 @@ fn text_editor_latest_save_generation_owns_completion() {
         .expect("second save command should resolve")
         .expect("second save should schedule");
     assert!(app.state().save_generation > first_generation);
-    let waiting_status = format!("saving {}", text_editor::compact_path(&second_path));
+    let waiting_status = format!("saving {}", text_editor::display_path(&second_path));
 
     let stale = app
         .run_next_task()
@@ -766,7 +766,7 @@ fn text_editor_latest_save_generation_owns_completion() {
     );
     assert_eq!(
         app.state().last_status,
-        format!("saved {}", text_editor::compact_path(&second_path))
+        format!("saved {}", text_editor::display_path(&second_path))
     );
 
     let _ = std::fs::remove_file(first_path);
@@ -936,7 +936,7 @@ fn text_editor_open_menu_requests_dialog_and_selected_path_opens_document() {
     assert!(!app.state().document.is_dirty());
     assert_eq!(
         app.state().last_status,
-        format!("opened {}", text_editor::compact_path(&path))
+        format!("opened {}", text_editor::display_path(&path))
     );
     assert_eq!(app.session().file_dialog(window), None);
     assert!(app.requests().is_empty());
@@ -1086,7 +1086,7 @@ fn text_editor_save_menu_for_untitled_dirty_document_requests_save_dialog() {
     assert!(app.state().document.is_dirty());
     assert_eq!(
         app.state().last_status,
-        format!("saving {}", text_editor::compact_path(&path))
+        format!("saving {}", text_editor::display_path(&path))
     );
     assert_eq!(app.session().file_dialog(window), None);
     assert!(app.requests().is_empty());
@@ -1105,7 +1105,7 @@ fn text_editor_save_menu_for_untitled_dirty_document_requests_save_dialog() {
     assert!(!app.state().document.is_dirty());
     assert_eq!(
         app.state().last_status,
-        format!("saved {}", text_editor::compact_path(&path))
+        format!("saved {}", text_editor::display_path(&path))
     );
     assert_eq!(app.revision().get(), 4);
     assert!(app.session().windows()[0].redraw_requested());

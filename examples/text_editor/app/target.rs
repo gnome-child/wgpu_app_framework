@@ -5,7 +5,7 @@ use super::{
     command::{LoadStressText, ToggleDebugPanel, ToggleWrapText},
     event::Event,
     state::STRESS_TEXT,
-    view::compact_path,
+    view::display_path,
 };
 use wgpu_l3::{
     Response, Target, Task, command,
@@ -93,7 +93,7 @@ impl Target<document::OpenPath> for State {
     fn invoke(&mut self, path: PathBuf, _: &mut Context) -> Response<Result<(), String>> {
         match self.document.open_path(path.clone()) {
             Ok(()) => {
-                self.last_status = format!("opened {}", compact_path(&path));
+                self.last_status = format!("opened {}", display_path(&path));
                 Response::changed(Ok(()))
             }
             Err(error) => {
@@ -162,7 +162,7 @@ fn queue_save(state: &mut State, path: PathBuf, cx: &mut Context) -> Response<Re
     let snapshot = state.document.save_snapshot();
     let version = snapshot.version();
     let generation = state.save_generation.wrapping_add(1);
-    state.last_status = format!("saving {}", compact_path(&path));
+    state.last_status = format!("saving {}", display_path(&path));
     let scheduled = cx.spawn(Task::new(move || {
         let result = snapshot.write_to(&path).map_err(|error| error.to_string());
         Event::FileSaved {
@@ -206,9 +206,9 @@ pub(super) fn finish_save(
                 "save completion identity was checked before mutation"
             );
             state.last_status = if state.document.is_dirty() {
-                format!("saved {}; newer edits remain unsaved", compact_path(&path))
+                format!("saved {}; newer edits remain unsaved", display_path(&path))
             } else {
-                format!("saved {}", compact_path(&path))
+                format!("saved {}", display_path(&path))
             };
         }
         Err(error) => {

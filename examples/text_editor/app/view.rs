@@ -147,20 +147,6 @@ pub fn view(state: &State, cx: ViewContext) -> View {
     })
 }
 
-pub fn compact_path(path: &Path) -> String {
-    let path = path.display().to_string();
-    let max_chars = 120;
-    if path.chars().count() <= max_chars {
-        return path;
-    }
-
-    let suffix = path
-        .chars()
-        .rev()
-        .take(max_chars - 3)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect::<String>();
-    format!("...{suffix}")
+pub fn display_path(path: &Path) -> String {
+    path.display().to_string()
 }
