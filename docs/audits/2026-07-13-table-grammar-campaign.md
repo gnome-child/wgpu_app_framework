@@ -51,8 +51,8 @@ vocabularies are admitted.
 | 1 | One sizing truth: shared `view::Dimension`, minimum-preserving overflow pressure, delete `table::Width` | Complete | `9f5e73d7`; 855 passed, 8 ignored; three smokes and all boundary checks green |
 | 2 | Resolve the track projection before placement; one horizontal scroll owner | Complete | `555ef0a8`; 857 passed, 8 ignored; focused horizontal-scroll/resize/scale witnesses and full ritual green |
 | 3 | Host-derived participation and truthful table chrome | Complete | `637109ef`; 858 passed, 8 ignored; host-dress census, chrome witnesses, and full ritual green |
-| 4 | General whole-draft `text::Input` policies | Green; commit pending | 864 passed, 8 ignored; policy, paste, history, IME, benchmark, and full ritual green |
-| 5 | Typed columns from `table::{Value, Sort, EditText, EditToggle}` | Pending | — |
+| 4 | General whole-draft `text::Input` policies | Complete | `cbd7aeea`; 864 passed, 8 ignored; policy, paste, history, IME, benchmark, and full ritual green |
+| 5 | Typed columns from `table::{Value, Sort, EditText, EditToggle}` | Contract resistance | `EditToggle::toggled` cannot project truthful checked state; minimal amendment required before code |
 | 6 | Measurable read-only world-text wrapping | Pending | — |
 | 7 | Independently proven variable-height virtual region | Pending | — |
 | 8 | Compact/expanded table presentation and gallery toggle | Pending | — |
@@ -275,8 +275,57 @@ Further flags append here as public names are proposed and resolved.
 - Public API flags: `text::Input` is the simply named supporting concept in its
   owning namespace; its representation and decision enum remain private. The
   standard TextBox builder consumes it. No crate-root re-export is warranted.
-- Commit receipt: pending checkpoint commit; the next ledger boundary records
-  its hash and statistics.
+- Commit receipt: `cbd7aeea` (`Add whole-draft text input policies`), 13
+  files, 430 insertions, 17 deletions.
+
+### Checkpoint 5 — constitution-level resistance
+
+The declared `EditToggle` contract is insufficient for the declared control:
+
+```rust
+pub trait EditToggle: Value + Sized {
+    fn toggled(&self) -> Self;
+}
+```
+
+`toggled()` determines the next value but supplies no orientation for the
+current value. For two values `A` and `B`, both laws `A.toggled() == B` and
+`B.toggled() == A` hold while neither identifies which value paints a checked
+mark. The table therefore cannot derive a truthful checkbox state from this
+trait.
+
+The rejected workarounds each violate campaign law:
+
+- Comparing `Value::text()` with `"true"` makes a display projection own domain
+  state and fails for open third-party toggle types.
+- Runtime `TypeId` detection for `bool` violates the explicit ban on optional
+  trait detection and specialization tricks.
+- Requiring unadvertised `Default`, `PartialEq`, or `Into<bool>` bounds means
+  `EditToggle` no longer means the capability promised by the public contract.
+- Painting every toggle checked, or falling back to a button, violates the
+  truthful checkbox acceptance contract.
+- Making the table store or flip an independent boolean violates application
+  ownership and the rule that interaction mutates the value source.
+
+The smallest honest amendment is one additional required projection on the
+same capability:
+
+```rust
+pub trait EditToggle: Value + Sized {
+    fn checked(&self) -> bool;
+    fn toggled(&self) -> Self;
+}
+```
+
+`bool` then implements `checked()` as identity, and third-party two-state types
+explicitly declare their checked orientation. This adds no trait, state store,
+runtime detection, or table-owned behavior. A differently named `is_on()` is
+semantically equivalent; `checked()` best matches the actual derived control.
+
+Per the campaign stop law, no checkpoint-5 implementation was started and the
+last green implementation commit remains `cbd7aeea`. Checkpoints 5–8 remain
+unmodified until this public-contract amendment is accepted or replaced by an
+equally truthful orientation law.
 
 ## Pending eyes
 
