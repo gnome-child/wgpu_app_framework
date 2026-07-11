@@ -36,6 +36,10 @@ is next.
    relevant if long fades ever ship.
 24. **Escape with a non-empty palette query** — immediate dismissal (current)
     vs clear-query-first, dismiss-second (common palette UX).
+25. **Panel layout contract** — `Panel::row/column/overlay` silently converts
+    the node to Stack, dropping Panel's surface presentation (widget grammar
+    audit R-11). Decide whether Panel is a persistent surface or Element's
+    default column form; the contract has no whole witness today.
 
 ## Named arcs
 
@@ -50,7 +54,9 @@ is next.
     and stable row identity as the accessibility seam.
 11. **Accessibility (AccessKit)** — after tables; seams reserved
     (`composition::Changes::removed_elements`, subject labels, roles,
-    active-item concept).
+    active-item concept). The widget grammar audit added the missing field
+    concept: semantic label/description/error association (`label-for`),
+    demonstrated by the compound labeled-field experiment.
 12. **Music player** (flagship one) — remaining framework blockers: image /
     texture primitive, virtualized table (item 10), file drag-and-drop, media
     keys / SMTC. Cleared: task executor, native menus, async atomic saves.
@@ -77,6 +83,13 @@ is next.
 20. Micro-parked: density presets, menu mnemonics, user rebinding,
     reveal-margin theme datum, Mac Home/End viewport scroll, Ctrl+A/E field
     bindings.
+26. **Application-authored semantic leaf controls** — the widget catalog is a
+    good structural grammar but a closed semantic leaf catalog: apps cannot
+    author a new keyboard-focusable, themed, accessibility-ready control
+    without an internal role (~14 coordinated touch points). Decide openness
+    when the music player demands its first custom control (seek bar with
+    buffering, rating); until then closure is coherent and safer than a
+    property bag.
 
 ## Watch items
 
