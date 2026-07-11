@@ -347,6 +347,50 @@ admitted.
 | C4-15 | Independence | Two list ids and two windows never share membership/anchor/active | Per-window interaction store keyed by list id | Held |
 | C4-16 | Visual projection | Materialized selected/active rows use existing selected visual truth without a parallel paint system | Transient projection feeds existing Frame/Visual row tint | Held |
 
+## Checkpoint 5 census — read-only record table
+
+Current-tree composition claim: Table is a provided-container composition, not
+a monolithic semantic leaf. Its sticky header is an ordinary horizontal
+container outside the existing selectable `VirtualList`; each materialized row
+is an ordinary horizontal container; each cell is the public `view::Node`
+returned by the table provider. Table owns track declaration and cell identity,
+while existing layout, composition, selection, overflow, focus, scene, runtime,
+and provider mechanics keep their current jobs.
+
+The missing reusable primitive is weighted grow allocation. Add weight to the
+existing `Dimension`/flow allocator rather than implementing separate table
+width arithmetic. Explicit columns use fixed dimensions; weighted columns use
+the same row allocator for header and materialized rows. Window-local resized
+width overrides belong to session interaction presentation, keyed by table and
+column id, and are projected into the table before rows materialize. Provider
+data is never mutated.
+
+Stable identities are exactly the campaign tuple. The virtual-list provider key
+owns the row. A column owns a stable `interaction::Id`. Table tags each public
+cell with `(table id, row key, column id)` so retained composition can match
+cells independently of current row/column indices. Headers use `(table id,
+column id)`. Sorting is an ordinary typed command bound by the application to a
+public header widget; Table emits that intent and never reorders provider data.
+
+| Cell | Scenario | Required result | Existing owner / missing seam | Status |
+| --- | --- | --- | --- | --- |
+| C5-01 | Public composition | Table provider returns ordinary public cell nodes; no table-only cell widget hierarchy | Virtual provider/Widget/Node exist; table adapter is missing | Planned |
+| C5-02 | Identity | Table, row, column and cell retain `(table, row key, column)` truth through reorder | Provider keys exist; column/cell metadata is missing | Planned |
+| C5-03 | Explicit tracks | Fixed widths align header and every visible row | Fixed Dimension and row layout exist | Planned |
+| C5-04 | Weighted tracks | Remaining width distributes by declared weights with deterministic remainder | Grow is equal-only; weighted allocation is missing | Planned |
+| C5-05 | Resize | Captured divider drag changes one window/table/column presentation width without provider mutation | Capture and session interaction exist; divider/width store is missing | Planned |
+| C5-06 | Sticky header | Vertical body scroll never moves the header | Ordinary column plus VirtualList viewport can compose this directly | Planned |
+| C5-07 | Sort intent | Header activation emits an application command and provider order changes only if the app changes it | Public button bindings exist; column header composition is missing | Planned |
+| C5-08 | Striping and rules | Visible rows stripe deterministically and cell boundaries use scene/layout truth | Background and Rule exist; table projection is missing | Planned |
+| C5-09 | Cell overflow | Provider world text declares and obeys overflow within the allocated track | C1 world text is already complete | Planned |
+| C5-10 | Public widget cells | Buttons, choices, labels and other public nodes retain normal action/focus behavior in cells | Provider row construction and retained descendants exist | Planned |
+| C5-11 | Keyboard grid | Logical row/column active position navigates without scanning unmaterialized rows | C4 active row exists; active column state/routing is missing | Planned |
+| C5-12 | Visible measurement | No intrinsic scan of unmaterialized provider rows occurs | C3 uniform arithmetic and provider-call witnesses exist | Planned |
+| C5-13 | Reorder/shrink | Row selection and cell identity follow keys; deleted rows reconcile normally | C3/C4 laws exist; table tuple witness is missing | Planned |
+| C5-14 | Independence | Two tables and two windows never share selection or resized tracks | Session is per-window/list; table/column width key is missing | Planned |
+| C5-15 | Scale matrix | 1.0, 1.25, 1.5 and 2.0 preserve logical track alignment and stable device snapping | Logical layout/native paint scale boundary exists | Planned |
+| C5-16 | Honest large caller | Control gallery exercises large data, sort intent, resize, selection, widget cells, truncation and sticky header | Gallery has selectable million-row list; real table is missing | Planned |
+
 ## Execution ledger
 
 | Run | Checkpoint / cells | Result | Evidence |
