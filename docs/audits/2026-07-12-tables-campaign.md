@@ -62,8 +62,8 @@ through the remaining campaign or redefining completion.
 | --- | --- | --- | --- |
 | 1 | Text overflow and three text kinds | Complete | 824 passed + 8 ignored in 0.87 s; three smokes; release text gate held |
 | 2 | Typed `FrameContent` over the existing roles | Complete | One content discriminant; 825/8 in 0.88 s; three smokes; release gate held |
-| 3 | Uniform virtual region/list | In progress | Current-tree provider/viewport/pinning census is the next action |
-| 4 | Keyed selection and active item | Pending | Independent long state-machine and virtualization journeys |
+| 3 | Uniform virtual region/list | Complete | Stable provider keys, bounded two-pass materialization, pin/deletion laws, 832/8 and three smokes |
+| 4 | Keyed selection and active item | In progress | Reinspect the landed virtual-list seam, then record the state-machine census |
 | 5 | Read-only record table | Pending | Large gallery table with tracks, headers, resize, sort intent, selection and public cells |
 | 6 | Editable cells | Pending | Numeric plus textual/enumerated editors with stable cell identity |
 
@@ -87,11 +87,29 @@ carried into checkpoint 2.
 Checkpoint 2 added no public API. `FrameContent`, its family payloads, and the
 single-representation witness are crate-internal layout structure.
 
+Checkpoint 3 added one public module, one re-exported central concept, and no
+compatibility aliases:
+
+- module `virtual_list`;
+- root re-export `VirtualList`;
+- supporting `virtual_list::Key` with `new`, `value`, and `From<u64>`;
+- synchronous `virtual_list::Provider` with `len`, `key`, `index_of`, `row`,
+  and default `is_empty`;
+- `VirtualList::new(id, row_height, provider)` plus bounded `overscan`, and the
+  ordinary `width`, `height`, `max_height`, and `background` style builders.
+
+`Provider::row` returns an ordinary public `view::Node`; there is no parallel
+row-widget species. Runtime materialization and logical focus preparation are
+crate-internal. The names follow the module doctrine and compiled in the honest
+control-gallery caller without aliases; no checkpoint-3 API flag remains.
+
 ## Pending eyes
 
 - Checkpoint 1 (implemented, morning eyes remain non-blocking): ellipsis glyph
   appearance, cut spacing, end/middle appearance in both themes, and logical
   source-order bidi behavior.
+- Checkpoint 3 (implemented, morning eyes remain non-blocking): scrollbar feel
+  and row density in the one-million-row control-gallery witness.
 - Checkpoint 5: striping, rules, sticky-header behavior, resize feel, selection
   visuals, and density.
 - Checkpoint 6: editor placement, rejection presentation, focus transitions,
@@ -228,7 +246,7 @@ view node without contributing removed node/element identities while its key
 still exists in the provider. If `Provider::index_of(key)` says the key no
 longer exists, normal removed-subtree reporting and session pruning apply.
 
-### Planned public contract
+### Shipped public contract
 
 The narrow v1 provider surface is synchronous and flat:
 
@@ -242,28 +260,28 @@ The narrow v1 provider surface is synchronous and flat:
 The list constructor requires a stable list id, uniform positive row height,
 and a provider. Overscan is a small bounded setting. Variable heights, async or
 streaming rows, selection, headers, tracks, and table semantics are excluded.
-The exact module/re-export names remain an API flag until the first honest
-caller compiles.
+The honest control-gallery caller compiles against `VirtualList` and
+`virtual_list::{Provider, Key}`. No alternate or prefixed naming path exists.
 
 | Cell | Scenario | Required result | Existing owner / missing seam | Status |
 | --- | --- | --- | --- | --- |
-| C3-01 | Structural grammar | One provided-container node derives public row children; no exhaustive app-authored child list | Node/Widget/Composition exist; provider payload and role are missing | Planned |
-| C3-02 | Initial viewport | First frame materializes only visible rows plus bounded overscan | Viewport exists; range request/rebuild fixed point is missing | Planned |
-| C3-03 | Small and jump scroll | Nearby and million-row jumps request correct ranges with bounded provider calls | Scroll offset/clamping exists; uniform range math is missing | Planned |
-| C3-04 | Growth and shrink | Content extent follows count; offsets clamp; stale rows do not survive true shrink | Viewport feedback and provider reverse lookup are reusable | Planned |
-| C3-05 | Stable-key reorder | Visible retained row identity follows provider key rather than logical index | Composition keyed-sibling matching exists only for static ids | Planned |
-| C3-06 | Viewport resize and scale | Logical range updates for new viewport height; scale-only changes preserve logical identity | Layout rebuild/scale boundary exists; request comparison is missing | Planned |
-| C3-07 | Measurement bound | Only materialized visible/pinned rows produce nodes and frames; no provider-wide intrinsic scan | Fixed uniform height permits arithmetic content extent | Planned |
-| C3-08 | Paint bound | Paint items and per-scroll work remain proportional to viewport rows plus overscan/pins | Clip and scene projection already consume frames | Planned |
-| C3-09 | Focus pin | Focused row remains materialized and may be clipped when scrolled away | Focus projection exists; row-key association/pin collection is missing | Planned |
-| C3-10 | Capture pin | Captured row remains materialized until capture ends | Pointer capture target exists; row-key association is missing | Planned |
-| C3-11 | Active edit pin | Text row with active draft/preedit remains materialized | Draft input exposes active target; row-key association is missing | Planned |
-| C3-12 | Selection non-pin | No selection concept or accidental pin appears in checkpoint 3 | Selection is deliberately deferred to C4 | Planned |
-| C3-13 | Dematerialized draft | Inactive TextBox draft survives ordinary scroll out/back | Bounded draft store exists; composition must suppress false removal | Planned |
-| C3-14 | Provider deletion | Deleted key ends focus/capture/edit/draft through normal pruning | Removed-subtree path exists; provider key existence decides truth | Planned |
-| C3-15 | Focus-before-move | A logical target is materialized before focus transfer | Runtime focus owner exists; keyed pre-materialization seam is missing | Planned |
-| C3-16 | Million-row witness | Node/frame/paint/provider-call counts stay bounded across initial, jump, reorder, shrink and resize journeys | Deterministic counter provider and inspection tests are missing | Planned |
-| C3-17 | Honest caller | Control gallery exercises a real large provided list made of public widgets | Gallery and external smokes exist | Planned |
+| C3-01 | Structural grammar | One provided-container node derives public row children; no exhaustive app-authored child list | `VirtualList` materializes ordinary provider-built nodes | Held |
+| C3-02 | Initial viewport | First frame materializes only visible rows plus bounded overscan | Bounded bootstrap converges to the layout-requested range in one rebuild | Held |
+| C3-03 | Small and jump scroll | Nearby and million-row jumps request correct ranges with bounded provider calls | Uniform range arithmetic and 600,000-row jump witness | Held |
+| C3-04 | Growth and shrink | Content extent follows count; offsets clamp; stale rows do not survive true shrink | Provider count/reverse lookup drives extent and deletion | Held |
+| C3-05 | Stable-key reorder | Visible retained row identity follows provider key rather than logical index | Provided keys extend local retained sibling matching | Held |
+| C3-06 | Viewport resize and scale | Logical range updates for new viewport height; scale-only changes preserve logical identity | Resize witness updates bounds; platform keeps layout in logical units across scale | Held |
+| C3-07 | Measurement bound | Only materialized visible/pinned rows produce nodes and frames; no provider-wide intrinsic scan | Uniform height computes extent without provider row construction | Held |
+| C3-08 | Paint bound | Paint items and per-scroll work remain proportional to viewport rows plus overscan/pins | Scene/frame/provider-call counters remain bounded | Held |
+| C3-09 | Focus pin | Focused row remains materialized and may be clipped when scrolled away | Retained focus target maps to provider key | Held |
+| C3-10 | Capture pin | Captured row remains materialized until capture ends | Retained pointer capture maps to provider key; deletion releases it | Held |
+| C3-11 | Active edit pin | Text row with active draft/preedit remains materialized | Draft input target pins independently after focus clears | Held |
+| C3-12 | Selection non-pin | No selection concept or accidental pin appears in checkpoint 3 | Selection remains absent and deferred to C4 | Held |
+| C3-13 | Dematerialized draft | Inactive TextBox draft survives ordinary scroll out/back | Dematerialization suppresses removal; rematerialization restores the draft | Held |
+| C3-14 | Provider deletion | Deleted key ends focus/capture/edit/draft through normal pruning | Missing reverse lookup emits ordinary retained/element removal | Held |
+| C3-15 | Focus-before-move | A logical target is materialized before focus transfer | Keyed pin is installed and presented before runtime focus changes | Held |
+| C3-16 | Million-row witness | Node/frame/paint/provider-call counts stay bounded across initial, jump, reorder, shrink and resize journeys | Six deterministic virtual-list journeys bound all new work | Held |
+| C3-17 | Honest caller | Control gallery exercises a real large provided list made of public widgets | One-million-row gallery provider builds ordinary Element/Label rows | Held |
 
 ## Execution ledger
 
@@ -282,6 +300,10 @@ caller compiles.
 | E-010 | C2 reduced remaining family | Held | Four exact failures plus complete menu-popup and command-palette families passed |
 | E-011 | C2 full library and smoke gate | Held | 833 discovered: 825 passed, 8 deliberately ignored, 0 failed in 0.88 s; three smokes exited 0 |
 | E-012 | C2 release text gate | Held | 30.158 ms load; 2.730 / 3.702 / 3.872 / 3.621 µs typing; 35.557 / 37.060 ns clones; 0.67 s benchmark work |
+| E-013 | C3 bounded mechanics | Held | Six virtual-list journeys cover initial frame, jump, resize, reorder, growth/shrink, all pin species, draft dematerialization/deletion, and focus-before-move |
+| E-014 | C3 deletion reduction | Failed and reduced | Deleted id-less TextBox row emitted retained removal but not its focus element, leaving the draft orphaned |
+| E-015 | C3 first full library gate | Failed and reduced | Empty materialization state compared `None` with an empty map, falsely requesting an endless second rebuild in ordinary apps |
+| E-016 | C3 repeated full boundary gate | Held | 840 discovered: 832 passed, 8 deliberately ignored, 0 failed in 0.91 s; three smokes, fmt, diff, and protected state held |
 
 ## Failure and reduction ledger
 
@@ -300,6 +322,20 @@ typed bound presentation common to any bound role and gives Separator only its
 reserved width. Four exact failures and both complete families passed after the
 correction. No failed representation crosses the checkpoint boundary.
 
+The C3 deletion journey exposed an existing composition seam: id-less
+TextBoxes use their focus element as draft identity, but retained composition
+reported only explicit node ids as removable elements. The reduced ordinary
+conditional-TextBox witness failed for the same reason. Composition now treats
+text focus elements as reconciliation/removal identity, so real deletion prunes
+drafts while ordinary dematerialization remains silent.
+
+The first C3 full gate exposed an absence-normalization bug in the new runtime
+coordinator: a window with no virtual lists represented state as `None`, while
+the derived request set was an empty map. Treating those as unequal caused the
+debug fixed-point assertion to fail across ordinary applications. The reduced
+ordinary TextArea witness held after normalizing absence and empty state. The
+repeated 832/8 gate then passed. No unexplained failure crosses checkpoint 3.
+
 ## Commit ledger
 
 | Checkpoint | Commit | Files | Insertions | Deletions | Outcome |
@@ -317,6 +353,9 @@ correction. No failed representation crosses the checkpoint boundary.
 | 2 | `0acfa2c4` | 1 | 27 | 11 | Slider model and track migrated together |
 | 2 | `e0964c13` | 1 | 14 | 7 | Scroll viewport restricted to Scroll content |
 | 2 | `35736441` | 2 | 95 | 19 | Bound/specialized family finished; absence witness added |
+| 3 | `1010098d` | 1 | 70 | 0 | Current-tree virtual-list census and provider contract recorded |
+| 3 | `df35e116` | 23 | 1228 | 10 | Uniform keyed virtualization, bounded fixed point, pins, deletion laws, and deterministic witnesses |
+| 3 | `f223d454` | 2 | 62 | 3 | Doctrine and honest one-million-row control-gallery caller |
 
 ## Final fixed-point sweep
 

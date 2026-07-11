@@ -6,10 +6,9 @@ is next.
 
 ## In flight
 
-10. **Tables arc — checkpoint 3, virtual region/list.** Establish the flat,
-    uniform-height provided-container grammar with stable provider keys,
-    bounded materialization, pinning, and one-million-row complexity evidence
-    before adding selection or table tracks.
+10. **Tables arc — checkpoint 4, keyed selection and active item.** Build the
+    selection state machine on the landed virtual-list identity and
+    materialize-before-focus seam without making selected rows pin.
 
 ## Specced and ready
 
@@ -57,7 +56,7 @@ is next.
        17 roles. Success condition: incompatible payload combinations are
        unrepresentable while all roles keep identical behavior. Cashes the
        Examen R-02 flag.
-    3. **Virtual region/list** (in flight) — the provided-container species, v1 flat:
+    3. **Virtual region/list** (complete at `f223d454`) — the provided-container species, v1 flat:
        uniform row height, stable provider keys, overscan, jump scrolling,
        provider shrink/reorder, bounded materialization. Doctrine:
        dematerialization is not removal. Pinning rule: focused, captured,
@@ -65,7 +64,7 @@ is next.
        rows do NOT pin. Drafts survive ordinary scrolling and die on actual
        row deletion. Complexity witnesses: one million logical rows produce
        bounded nodes, frames, paint items, and work per scroll.
-    4. **Keyed selection + active item** — separate state machine from
+    4. **Keyed selection + active item** (in flight) — separate state machine from
        virtualization: anchor/extend, reorder persistence, departure,
        keyboard navigation that can target an unmaterialized row and
        materialize it before focus moves.
