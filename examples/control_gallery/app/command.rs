@@ -10,6 +10,20 @@ pub struct SubmitQuery;
 pub struct ToggleAdvanced;
 pub struct ResetControls;
 pub struct SortRecords;
+pub struct EditRecordNote;
+pub struct EditRecordCount;
+
+#[derive(Clone)]
+pub struct EditRecordNoteArgs {
+    pub cell: wgpu_l3::table::Cell,
+    pub value: String,
+}
+
+#[derive(Clone)]
+pub struct EditRecordCountArgs {
+    pub cell: wgpu_l3::table::Cell,
+    pub value: i64,
+}
 
 impl Command for IncrementClicks {
     type Args = ();
@@ -76,4 +90,18 @@ impl Command for SortRecords {
     type Output = ();
 
     const NAME: &'static str = "control_gallery.sort_records";
+}
+
+impl Command for EditRecordNote {
+    type Args = EditRecordNoteArgs;
+    type Output = ();
+
+    const NAME: &'static str = "control_gallery.edit_record_note";
+}
+
+impl Command for EditRecordCount {
+    type Args = EditRecordCountArgs;
+    type Output = ();
+
+    const NAME: &'static str = "control_gallery.edit_record_count";
 }

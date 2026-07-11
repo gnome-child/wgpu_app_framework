@@ -34,6 +34,7 @@ impl Hash for Target {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum Identity {
     Element(Id),
+    TableCell(crate::table::Cell),
     Node {
         id: composition::NodeId,
         element: Option<Id>,
@@ -86,6 +87,16 @@ impl Target {
         focus.into_target()
     }
 
+    pub(crate) fn table_cell_editor(cell: crate::table::Cell) -> Self {
+        Self {
+            kind: Kind::TextArea,
+            identity: Identity::TableCell(cell),
+            label: "Editable table cell".to_owned(),
+            source: None,
+            captures: true,
+        }
+    }
+
     pub fn text_area_id(id: impl Into<Id>) -> Self {
         let id = id.into();
         Self {
@@ -136,13 +147,14 @@ impl Target {
     pub fn element_id(&self) -> Option<Id> {
         match self.identity {
             Identity::Element(id) => Some(id),
+            Identity::TableCell(_) => None,
             Identity::Node { element, .. } => element,
         }
     }
 
     pub(crate) fn node_id(&self) -> Option<composition::NodeId> {
         match self.identity {
-            Identity::Element(_) => None,
+            Identity::Element(_) | Identity::TableCell(_) => None,
             Identity::Node { id, .. } => Some(id),
         }
     }
@@ -151,11 +163,20 @@ impl Target {
         &self,
         removed_nodes: &[composition::NodeId],
         removed_elements: &[Id],
+        removed_table_cells: &[crate::table::Cell],
     ) -> bool {
         self.node_id().is_some_and(|id| removed_nodes.contains(&id))
             || self
                 .element_id()
                 .is_some_and(|id| removed_elements.contains(&id))
+            || matches!(self.identity, Identity::TableCell(cell) if removed_table_cells.contains(&cell))
+    }
+
+    pub(crate) fn table_cell(&self) -> Option<crate::table::Cell> {
+        match self.identity {
+            Identity::TableCell(cell) => Some(cell),
+            Identity::Element(_) | Identity::Node { .. } => None,
+        }
     }
 
     pub fn focus_key(&self) -> u64 {

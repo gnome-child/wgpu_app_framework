@@ -58,6 +58,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             handled |= outcome.is_handled();
             changed_state |= outcome.changed_state();
             effect = effect.then(outcome.effect().clone());
+            if current
+                .table_cell_identity()
+                .is_some_and(|cell| self.session.table_edit_error(window, cell).is_some())
+            {
+                return Ok(input::Outcome::handled(changed_state, effect));
+            }
         }
 
         let focus_changed = self.focus(window, focus);
@@ -80,10 +86,18 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let mut changed_state = false;
         let mut effect = response::Effect::None;
 
+        let current = self.session.focused(window);
         if let Some(outcome) = self.commit_and_deactivate_focused_text_box(window)? {
             handled |= outcome.is_handled();
             changed_state |= outcome.changed_state();
             effect = effect.then(outcome.effect().clone());
+        }
+
+        if current
+            .and_then(session::Focus::table_cell_identity)
+            .is_some_and(|cell| self.session.table_edit_error(window, cell).is_some())
+        {
+            return Ok(input::Outcome::handled(changed_state, effect));
         }
 
         let focus_changed = self.clear_focus(window);
@@ -117,6 +131,16 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             handled |= outcome.is_handled();
             changed_state |= outcome.changed_state();
             effect = effect.then(outcome.effect().clone());
+        }
+
+        if current
+            .table_cell_identity()
+            .is_some_and(|cell| self.session.table_edit_error(window, cell).is_some())
+        {
+            if handled {
+                return Ok(Some(input::Outcome::handled(changed_state, effect)));
+            }
+            return Ok(None);
         }
 
         if self.session.deactivate_text_draft(window, current) {

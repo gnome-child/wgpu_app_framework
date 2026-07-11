@@ -138,6 +138,7 @@ pub(crate) struct Frame {
     table_cell: Option<crate::table::Cell>,
     table_header_cell: Option<crate::table::HeaderCell>,
     table_divider: Option<crate::table::Divider>,
+    table_edit_error: Option<String>,
     force_overlay_group: bool,
     native_popup_material_preference: view::NativePopupMaterialPreference,
     floating_layer: bool,
@@ -267,6 +268,7 @@ impl Frame {
             table_cell: node.table_cell(),
             table_header_cell: node.table_header_cell(),
             table_divider: node.table_divider(),
+            table_edit_error: node.table_edit_error().map(str::to_owned),
             force_overlay_group: node.force_overlay_group(),
             native_popup_material_preference: node.native_popup_material_preference(),
             floating_layer,
@@ -402,6 +404,10 @@ impl Frame {
 
     pub(crate) fn table_divider(&self) -> Option<crate::table::Divider> {
         self.table_divider
+    }
+
+    pub(crate) fn table_edit_error(&self) -> Option<&str> {
+        self.table_edit_error.as_deref()
     }
 
     pub(crate) fn force_overlay_group(&self) -> bool {

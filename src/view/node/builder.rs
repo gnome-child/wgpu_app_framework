@@ -202,6 +202,11 @@ impl Node {
         self
     }
 
+    pub(crate) fn with_table_edit(mut self, edit: crate::table::Edit) -> Self {
+        self.table_edit = Some(edit);
+        self
+    }
+
     pub(crate) fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
         self
@@ -328,6 +333,8 @@ impl Node {
             table_header_cell: None,
             table_divider: None,
             table_model: None,
+            table_edit: None,
+            table_edit_error: None,
             children: Vec::new(),
         }
     }

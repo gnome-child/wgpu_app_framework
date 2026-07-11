@@ -1,8 +1,9 @@
 use super::{
     State,
     command::{
-        IncrementClicks, ResetControls, SelectMode, SetLevel, SortRecords, SubmitQuery,
-        ToggleAdvanced, ToggleGrid, ToggleWrap,
+        EditRecordCount, EditRecordCountArgs, EditRecordNote, EditRecordNoteArgs, IncrementClicks,
+        ResetControls, SelectMode, SetLevel, SortRecords, SubmitQuery, ToggleAdvanced, ToggleGrid,
+        ToggleWrap,
     },
 };
 use wgpu_l3::{Context, Response, Target, command};
@@ -118,6 +119,32 @@ impl Target<SortRecords> for State {
         } else {
             "records: ascending".to_owned()
         };
+        Response::changed(())
+    }
+}
+
+impl Target<EditRecordNote> for State {
+    fn state(&self, _: &EditRecordNoteArgs, _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, args: EditRecordNoteArgs, _: &mut Context) -> Response<()> {
+        self.record_notes
+            .insert(args.cell.row().value(), args.value);
+        self.last_status = format!("edited note for record {}", args.cell.row().value());
+        Response::changed(())
+    }
+}
+
+impl Target<EditRecordCount> for State {
+    fn state(&self, _: &EditRecordCountArgs, _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, args: EditRecordCountArgs, _: &mut Context) -> Response<()> {
+        self.record_counts
+            .insert(args.cell.row().value(), args.value);
+        self.last_status = format!("edited count for record {}", args.cell.row().value());
         Response::changed(())
     }
 }

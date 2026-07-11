@@ -113,6 +113,10 @@ impl Binding {
         Some(Action::Activate(self.with_text_value(text)?))
     }
 
+    pub(crate) fn validated_text_action(&self, text: String) -> Option<Action> {
+        self.text_action(text)
+    }
+
     pub(super) fn element_pointer_target(&self, id: interaction::Id) -> interaction::Target {
         interaction::Target::command_element(id, self.command_name(), self.source)
     }

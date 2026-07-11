@@ -268,15 +268,18 @@ impl Input {
         &mut self,
         removed_nodes: &[crate::composition::NodeId],
         removed_elements: &[crate::interaction::Id],
+        removed_table_cells: &[crate::table::Cell],
     ) -> bool {
-        let store_changed = self.drafts.prune_removed(removed_nodes, removed_elements);
+        let store_changed =
+            self.drafts
+                .prune_removed(removed_nodes, removed_elements, removed_table_cells);
         let before_epochs = self.caret_epochs.len();
-        self.caret_epochs
-            .retain(|target, _| !target.matches_removed_identity(removed_nodes, removed_elements));
-        let active_removed = self
-            .target
-            .as_ref()
-            .is_some_and(|target| target.matches_removed_identity(removed_nodes, removed_elements));
+        self.caret_epochs.retain(|target, _| {
+            !target.matches_removed_identity(removed_nodes, removed_elements, removed_table_cells)
+        });
+        let active_removed = self.target.as_ref().is_some_and(|target| {
+            target.matches_removed_identity(removed_nodes, removed_elements, removed_table_cells)
+        });
         if active_removed {
             self.target = None;
             self.preedit = None;

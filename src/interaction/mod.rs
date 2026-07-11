@@ -306,9 +306,11 @@ impl Interaction {
         &mut self,
         removed_nodes: &[super::composition::NodeId],
         removed_elements: &[Id],
+        removed_table_cells: &[crate::table::Cell],
     ) -> Pruned {
-        let removed =
-            |target: &Target| target.matches_removed_identity(removed_nodes, removed_elements);
+        let removed = |target: &Target| {
+            target.matches_removed_identity(removed_nodes, removed_elements, removed_table_cells)
+        };
         let hovered_changed = self.pointer.hovered.as_ref().is_some_and(removed);
         if hovered_changed {
             self.pointer.hovered = None;
@@ -328,16 +330,18 @@ impl Interaction {
         }
 
         let scroll_changed = self.scroll.prune_removed(removed_nodes, removed_elements);
-        let text_changed = self
-            .text_input
-            .prune_removed(removed_nodes, removed_elements);
+        let text_changed =
+            self.text_input
+                .prune_removed(removed_nodes, removed_elements, removed_table_cells);
+        let tables_changed = self.tables.prune_removed(removed_table_cells);
 
         Pruned {
             changed: hovered_changed
                 || pressed_changed
                 || capture_changed
                 || scroll_changed
-                || text_changed,
+                || text_changed
+                || tables_changed,
             capture_removed: capture_changed,
         }
     }

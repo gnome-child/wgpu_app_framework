@@ -150,11 +150,29 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         };
         let base = draft.base_text().to_owned();
         let text = draft.text().to_owned();
-        let action = self.composition.get(window).and_then(|composition| {
-            composition
-                .view()
-                .text_commit_action(focus, text.to_owned())
-        });
+        let table_action = self
+            .composition
+            .get(window)
+            .and_then(|composition| composition.view().table_edit_action(focus, text.to_owned()));
+        let action = match table_action {
+            Some(Err((cell, reason))) => {
+                self.session.reject_table_edit(window, cell, reason);
+                return Ok(Some(self.window_outcome(
+                    window,
+                    false,
+                    response::Effect::Layout,
+                )));
+            }
+            Some(Ok((cell, action))) => {
+                self.session.clear_table_edit_error(window, cell);
+                Some(action)
+            }
+            None => self.composition.get(window).and_then(|composition| {
+                composition
+                    .view()
+                    .text_commit_action(focus, text.to_owned())
+            }),
+        };
         let Some(action) = action else {
             return Ok(None);
         };

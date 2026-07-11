@@ -211,6 +211,13 @@ fn paint_frame(
             1,
         ));
     }
+    if frame.table_edit_error().is_some() {
+        scene.push_quad(
+            Quad::new(frame.rect(), super::Color::rgba(0, 0, 0, 0)).with_stroke(
+                super::Stroke::new(super::Brush::solid(theme.focus().outline), 2.0),
+            ),
+        );
+    }
 
     match frame.role() {
         view::Role::Binding if frame.is_menu_row() => paint_menu_row(frame, scene, theme),

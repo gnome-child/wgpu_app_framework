@@ -6,6 +6,7 @@ use crate::table;
 pub(crate) struct Tables {
     widths: HashMap<table::HeaderCell, i32>,
     active_columns: HashMap<crate::interaction::Id, crate::interaction::Id>,
+    rejections: HashMap<table::Cell, String>,
 }
 
 impl Tables {
@@ -39,6 +40,28 @@ impl Tables {
         }
         self.active_columns.insert(table, column);
         true
+    }
+
+    pub(crate) fn reject(&mut self, cell: table::Cell, reason: String) -> bool {
+        if self.rejections.get(&cell) == Some(&reason) {
+            return false;
+        }
+        self.rejections.insert(cell, reason);
+        true
+    }
+
+    pub(crate) fn clear_rejection(&mut self, cell: table::Cell) -> bool {
+        self.rejections.remove(&cell).is_some()
+    }
+
+    pub(crate) fn rejection(&self, cell: table::Cell) -> Option<&str> {
+        self.rejections.get(&cell).map(String::as_str)
+    }
+
+    pub(crate) fn prune_removed(&mut self, cells: &[table::Cell]) -> bool {
+        let before = self.rejections.len();
+        self.rejections.retain(|cell, _| !cells.contains(cell));
+        before != self.rejections.len()
     }
 
     pub(crate) fn snapshot(

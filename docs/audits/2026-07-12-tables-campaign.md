@@ -65,7 +65,7 @@ through the remaining campaign or redefining completion.
 | 3 | Uniform virtual region/list | Complete | Stable provider keys, bounded two-pass materialization, pin/deletion laws, 832/8 and three smokes |
 | 4 | Keyed selection and active item | Complete | Window/list-scoped stable keys, all-except select-all, bounded reveal, 840/8 and three smokes |
 | 5 | Read-only record table | Complete | Public-node cells over selectable VirtualList; weighted tracks, resize/sort/grid/scale matrices, 847/8 and three smokes |
-| 6 | Editable cells | In progress | Numeric plus textual/enumerated editors with stable cell identity |
+| 6 | Editable cells | Complete | Text and integer editors, typed commands, validation/rejection/cancel, tuple drafts, keyboard and lifecycle matrices; 850/8 and three smokes |
 
 ## API flags
 
@@ -145,6 +145,24 @@ sorting, resizing, selection, or edit state. Morning review flags are whether
 `Dimension`, and whether every v1 column being resizable by default is the
 right minimal policy. No compatibility aliases were added.
 
+Checkpoint 6 added supporting table vocabulary rather than another root
+concept:
+
+- `table::TextEditor::{new, placeholder, validate, on_commit}`;
+- `table::NumberEditor::{new, placeholder, validate, on_commit}`;
+- `session::Focus::table_cell(cell)` for tuple-native editable focus;
+- read-only `Session::table_edit_error(window, cell)`;
+- `table::Provider::cell(row, cell)` now receives the authoritative Cell tuple
+  rather than a duplicate column id, so providers can bind typed editors
+  without reconstructing identity.
+
+Both `on_commit` methods preserve typed command args through the existing
+typed-to-erased trigger boundary. Text and number remain separate concrete
+editor species; there is no universal value trait, edit callback catalog, or
+generic form policy. Morning review flags are the intentionally fixed `i64`
+numeric parser and whether rejection reason needs a future semantic
+description seam when accessibility lands.
+
 ## Pending eyes
 
 - Checkpoint 1 (implemented, morning eyes remain non-blocking): ellipsis glyph
@@ -155,8 +173,9 @@ right minimal policy. No compatibility aliases were added.
 - Checkpoint 5 (implemented, morning eyes remain non-blocking): striping,
   rules, sticky-header behavior, resize feel, selection
   visuals, and density.
-- Checkpoint 6: editor placement, rejection presentation, focus transitions,
-  and keyboard commit/cancel feel.
+- Checkpoint 6 (implemented, morning eyes remain non-blocking): editor
+  placement, rejection outline/presentation, focus transitions, and keyboard
+  commit/cancel feel.
 
 ## Checkpoint 1 census — text overflow
 
@@ -415,6 +434,29 @@ public header widget; Table emits that intent and never reorders provider data.
 | C5-15 | Scale matrix | 1.0, 1.25, 1.5 and 2.0 preserve logical track alignment and stable device snapping | Integer logical alignment plus shared Rule matrix at all four scales | Held |
 | C5-16 | Honest large caller | Control gallery exercises large data, sort intent, resize, selection, widget cells, truncation and sticky header | Real million-record Table is the gallery caller and sort journey | Held |
 
+## Checkpoint 6 census — editable cells
+
+Editing remains TextBox lifecycle plus typed application commands. The only
+new identity fact is that text focus/target/draft can be a `table::Cell`
+directly. Text and integer editors share draft/focus/command transport but keep
+display text, integer parsing, domain validation, commit args, and rejection
+reason as distinct steps.
+
+| Cell | Scenario | Required result | Evidence | Status |
+| --- | --- | --- | --- | --- |
+| C6-01 | Two species | Genuine text and integer policies do not collapse into a universal value trait | Separate TextEditor and NumberEditor public types | Held |
+| C6-02 | Tuple identity | Focus, target, draft, rejection and command args use `(table,row key,column)` | Cell-native Focus/Target and provider-passed Cell | Held |
+| C6-03 | Typed commit | Valid text and parsed integer reach typed application commands | SetRecordName/Count and gallery EditRecordNote/Count | Held |
+| C6-04 | Parse vs validate | Numeric syntax failure and domain failure retain distinct reasons | Fixed integer parse precedes caller validator | Held |
+| C6-05 | Rejection | Invalid draft, focus and reason remain; provider value is unchanged | Public error query plus outlined rejected frame | Held |
+| C6-06 | Cancel | Escape restores committed provider display and clears rejection | Table cancel promotes to rebuild | Held |
+| C6-07 | Focus policy | Leaving commits; rejection blocks focus loss | Focus transition journey | Held |
+| C6-08 | Scroll/reorder | Active draft pins through scroll and follows provider key reorder | Focused row pin and tuple draft witness | Held |
+| C6-09 | Deletion | Actual provider deletion removes focus, draft and rejection | Removed Cell identities join ordinary pruning | Held |
+| C6-10 | Keyboard | Grid reveal materializes; Enter enters/commits; Tab leaves to next editor | Distant row-49 journey | Held |
+| C6-11 | History/isolation | Commits use app history; windows/tables do not share errors or drafts | Undo/redo, second-window and distinct-target witnesses | Held |
+| C6-12 | Honest integrated caller | Million-record gallery has text and numeric editors with the C5 citizens | Gallery Note/Count cells plus sort/resize/selection/widgets | Held |
+
 ## Execution ledger
 
 | Run | Checkpoint / cells | Result | Evidence |
@@ -440,6 +482,8 @@ public header widget; Table emits that intent and never reorders provider data.
 | E-018 | C4 full boundary gate | Held | 848 discovered: 840 passed, 8 deliberately ignored, 0 failed in 0.88 s; three smokes, fmt, diff, and protected state held |
 | E-019 | C5 focused composition matrix | Held | Million-row tracks/calls, sticky scroll, reorder/shrink, capture resize, two-window/two-table isolation, keyed grid navigation, sort intent and four-scale Rule snapping passed |
 | E-020 | C5 full boundary gate | Held | 855 discovered: 847 passed, 8 deliberately ignored, 0 failed in 0.98 s; three smokes, fmt, diff, and protected state held |
+| E-021 | C6 editing/lifecycle matrix | Held | Typed text/integer commit, parse/domain rejection, cancel, focus policy, history, scroll/reorder/delete, distant keyboard entry and isolation passed |
+| E-022 | C6 and campaign full boundary gate | Held | 858 discovered: 850 passed, 8 deliberately ignored, 0 failed in 1.02 s; three smokes, fmt, diff, and protected state held |
 
 ## Failure and reduction ledger
 
@@ -488,6 +532,13 @@ assertion also assumed a center click while the shared helper chooses one pixel
 inside a frame; expressing expected width as pointer x minus header x proved
 the actual geometry contract. No unexplained failure crosses checkpoint 5.
 
+Checkpoint 6's cancel witness initially retained the rejected projected string
+after clearing its draft. Reduction showed the session state was correct but a
+layout-only invalidation reused the already projected TextBox value. Table-cell
+cancel now requests an ordinary rebuild so fresh provider truth restores the
+committed value; ordinary TextBox cancellation keeps its existing layout path.
+No unexplained failure crosses checkpoint 6.
+
 ## Commit ledger
 
 | Checkpoint | Commit | Files | Insertions | Deletions | Outcome |
@@ -517,6 +568,18 @@ the actual geometry contract. No unexplained failure crosses checkpoint 5.
 
 ## Final fixed-point sweep
 
-Pending all six independently green checkpoints, cross-checkpoint replay,
-public API review, performance comparison, pending-eyes transfer, full ritual,
-and clean-worktree proof.
+All six independently green matrices replayed inside the 858-test library
+gate. The final integrated gallery contains one million logical records with
+declared truncation, bounded keyed virtualization, multi-selection, active
+row/column keyboard navigation, captured resizing, app-owned sorting, public
+Button/Checkbox cells, and typed text/integer editors. Existing text and table
+performance gauges remained at the approximately one-second boundary (1.02 s
+final harness work). All three smokes, formatting, diff checks, four-scale Rule
+snapping, protected `comparison_open: true`, and public-name review held.
+
+Remaining work is deliberately outside this campaign: variable-height or
+async providers, intrinsic full-provider sizing, sheets/formulas/merged cells,
+general forms, and AccessKit. Reserved accessibility seams are stable Cell
+identity, logical row/column indices, active item, header/cell relationships,
+and retained removal facts. Pending human-eyes items above remain non-blocking
+and belong to roadmap item 5.

@@ -9,7 +9,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         modifiers: input::Modifiers,
     ) -> Option<input::Outcome> {
         let focus = self.session.focused(window)?;
-        if focus.target_id().is_some() {
+        if focus.is_text_input() {
             return None;
         }
         let composition = self.composition.get(window)?;
@@ -17,6 +17,22 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .selectable_virtual_list_for_focus(focus)?
             .clone();
         let table_columns = composition.view().table_columns(model.id());
+
+        if !table_columns.is_empty() && key == input::Key::Enter {
+            let cell = self.session.active_table_cell(window, model.id())?;
+            let cell_focus = crate::session::Focus::table_cell(cell).keyboard();
+            let focused = self
+                .composition
+                .get(window)
+                .is_some_and(|composition| composition.view().contains_focus(cell_focus))
+                && self.focus(window, cell_focus);
+            return Some(input::Outcome::handled(
+                false,
+                focused
+                    .then_some(response::Effect::Layout)
+                    .unwrap_or_default(),
+            ));
+        }
 
         if !table_columns.is_empty()
             && matches!(key, input::Key::ArrowLeft | input::Key::ArrowRight)

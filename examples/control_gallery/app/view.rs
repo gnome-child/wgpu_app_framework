@@ -1,8 +1,9 @@
 use super::{
     Mode, State,
     command::{
-        IncrementClicks, ResetControls, SelectMode, SetLevel, SortRecords, SubmitQuery,
-        ToggleAdvanced, ToggleGrid, ToggleWrap,
+        EditRecordCount, EditRecordCountArgs, EditRecordNote, EditRecordNoteArgs, IncrementClicks,
+        ResetControls, SelectMode, SetLevel, SortRecords, SubmitQuery, ToggleAdvanced, ToggleGrid,
+        ToggleWrap,
     },
 };
 use wgpu_l3::{
@@ -24,9 +25,11 @@ pub fn window_size() -> geometry::Size {
     geometry::Size::new(760, 660)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct GalleryRecords {
     descending: bool,
+    notes: std::collections::HashMap<u64, String>,
+    counts: std::collections::HashMap<u64, i64>,
 }
 
 impl table::Provider for GalleryRecords {
@@ -49,9 +52,9 @@ impl table::Provider for GalleryRecords {
         })
     }
 
-    fn cell(&self, row: usize, column: interaction::Id) -> wgpu_l3::view::Node {
+    fn cell(&self, row: usize, cell: table::Cell) -> wgpu_l3::view::Node {
         let record = self.record(row);
-        match column.as_str() {
+        match cell.column().as_str() {
             "record" => wgpu_l3::Widget::into_node(widget::Label::world(
                 format!("Record {record}"),
                 text::Overflow::EllipsisEnd,
@@ -62,6 +65,35 @@ impl table::Provider for GalleryRecords {
                 ),
                 text::Overflow::EllipsisMiddle,
             )),
+            "note" => wgpu_l3::Widget::into_node(
+                table::TextEditor::new(
+                    cell,
+                    self.notes
+                        .get(&(record as u64))
+                        .cloned()
+                        .unwrap_or_default(),
+                )
+                .placeholder("Note")
+                .validate(|value| {
+                    (value.chars().count() <= 40)
+                        .then_some(())
+                        .ok_or_else(|| "Note must be 40 characters or fewer".to_owned())
+                })
+                .on_commit::<EditRecordNote>(|cell, value| EditRecordNoteArgs { cell, value }),
+            ),
+            "count" => wgpu_l3::Widget::into_node(
+                table::NumberEditor::new(
+                    cell,
+                    self.counts.get(&(record as u64)).copied().unwrap_or(0),
+                )
+                .validate(|value| {
+                    (0..=999)
+                        .contains(&value)
+                        .then_some(())
+                        .ok_or_else(|| "Count must be from 0 to 999".to_owned())
+                })
+                .on_commit::<EditRecordCount>(|cell, value| EditRecordCountArgs { cell, value }),
+            ),
             "enabled" => {
                 wgpu_l3::Widget::into_node(widget::Checkbox::new("Enabled", record % 2 == 0))
             }
@@ -74,7 +106,7 @@ impl table::Provider for GalleryRecords {
 }
 
 impl GalleryRecords {
-    fn record(self, index: usize) -> usize {
+    fn record(&self, index: usize) -> usize {
         if self.descending {
             RECORD_COUNT - index - 1
         } else {
@@ -147,6 +179,8 @@ pub fn view(state: &State, _: ViewContext) -> View {
                                         widget::Button::new("Record ↕").trigger::<SortRecords>(()),
                                     ),
                                     table::Column::new("detail", "Detail", table::Width::weight(2)),
+                                    table::Column::new("note", "Note", table::Width::weight(1)),
+                                    table::Column::new("count", "Count", table::Width::fixed(72)),
                                     table::Column::new(
                                         "enabled",
                                         "Enabled",
@@ -156,6 +190,8 @@ pub fn view(state: &State, _: ViewContext) -> View {
                                 ],
                                 GalleryRecords {
                                     descending: state.records_descending,
+                                    notes: state.record_notes.clone(),
+                                    counts: state.record_counts.clone(),
                                 },
                             )
                             .width(Dimension::grow())

@@ -9,6 +9,8 @@ pub struct State {
     pub show_advanced: bool,
     pub last_status: String,
     pub records_descending: bool,
+    pub record_notes: HashMap<u64, String>,
+    pub record_counts: HashMap<u64, i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,8 +49,11 @@ impl Default for State {
             show_advanced: true,
             last_status: "ready".to_owned(),
             records_descending: false,
+            record_notes: HashMap::new(),
+            record_counts: HashMap::new(),
         }
     }
 }
 
 impl wgpu_l3::state::State for State {}
+use std::collections::HashMap;

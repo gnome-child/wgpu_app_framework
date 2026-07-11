@@ -44,9 +44,9 @@ impl crate::table::Provider for MillionTableProvider {
         (row < self.len()).then_some(row)
     }
 
-    fn cell(&self, row: usize, column: interaction::Id) -> view::Node {
+    fn cell(&self, row: usize, cell: crate::table::Cell) -> view::Node {
         self.cell_calls.set(self.cell_calls.get() + 1);
-        match column.as_str() {
+        match cell.column().as_str() {
             "action" => widget::Widget::into_node(widget::Button::new(format!("Open {row}"))),
             "detail" => view::Node::world_text(
                 format!("A deliberately long record detail for logical row {row}"),
@@ -60,6 +60,171 @@ impl crate::table::Provider for MillionTableProvider {
 #[derive(Clone)]
 struct MutableTableProvider {
     keys: Rc<RefCell<Vec<u64>>>,
+}
+
+#[derive(Debug, Clone)]
+struct EditableRecord {
+    key: u64,
+    name: String,
+    count: i64,
+}
+
+#[derive(Debug, Clone)]
+struct EditableTableState {
+    records: Vec<EditableRecord>,
+}
+
+impl State for EditableTableState {}
+
+#[derive(Clone)]
+struct EditableTableProvider {
+    records: Vec<EditableRecord>,
+}
+
+#[derive(Clone)]
+struct SetRecordNameArgs {
+    cell: crate::table::Cell,
+    value: String,
+}
+
+#[derive(Clone)]
+struct SetRecordCountArgs {
+    cell: crate::table::Cell,
+    value: i64,
+}
+
+struct SetRecordName;
+struct SetRecordCount;
+
+impl Command for SetRecordName {
+    type Args = SetRecordNameArgs;
+    type Output = ();
+
+    const NAME: &'static str = "test.set_record_name";
+}
+
+impl Command for SetRecordCount {
+    type Args = SetRecordCountArgs;
+    type Output = ();
+
+    const NAME: &'static str = "test.set_record_count";
+}
+
+impl Target<SetRecordName> for EditableTableState {
+    fn state(&self, _: &SetRecordNameArgs, _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, args: SetRecordNameArgs, _: &mut Context) -> Response<()> {
+        let Some(record) = self
+            .records
+            .iter_mut()
+            .find(|record| record.key == args.cell.row().value())
+        else {
+            return Response::output(());
+        };
+        record.name = args.value;
+        Response::changed(())
+    }
+}
+
+impl Target<SetRecordCount> for EditableTableState {
+    fn state(&self, _: &SetRecordCountArgs, _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, args: SetRecordCountArgs, _: &mut Context) -> Response<()> {
+        let Some(record) = self
+            .records
+            .iter_mut()
+            .find(|record| record.key == args.cell.row().value())
+        else {
+            return Response::output(());
+        };
+        record.count = args.value;
+        Response::changed(())
+    }
+}
+
+impl crate::table::Provider for EditableTableProvider {
+    fn len(&self) -> usize {
+        self.records.len()
+    }
+
+    fn key(&self, row: usize) -> crate::virtual_list::Key {
+        crate::virtual_list::Key::new(self.records[row].key)
+    }
+
+    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+        self.records
+            .iter()
+            .position(|record| record.key == key.value())
+    }
+
+    fn cell(&self, row: usize, cell: crate::table::Cell) -> view::Node {
+        let record = &self.records[row];
+        match cell.column().as_str() {
+            "name" => widget::Widget::into_node(
+                crate::table::TextEditor::new(cell, record.name.clone())
+                    .validate(|value| {
+                        (!value.trim().is_empty())
+                            .then_some(())
+                            .ok_or_else(|| "Name is required".to_owned())
+                    })
+                    .on_commit::<SetRecordName>(|cell, value| SetRecordNameArgs { cell, value }),
+            ),
+            "count" => widget::Widget::into_node(
+                crate::table::NumberEditor::new(cell, record.count)
+                    .validate(|value| {
+                        (0..=100)
+                            .contains(&value)
+                            .then_some(())
+                            .ok_or_else(|| "Count must be from 0 to 100".to_owned())
+                    })
+                    .on_commit::<SetRecordCount>(|cell, value| SetRecordCountArgs { cell, value }),
+            ),
+            _ => unreachable!("editable test table declares both columns"),
+        }
+    }
+}
+
+fn editable_table_app(state: EditableTableState) -> Runtime<EditableTableState, (), View> {
+    Runtime::new(state)
+        .commands(|commands| {
+            commands
+                .register::<SetRecordName>(command::Spec::new("Set record name"))
+                .register::<SetRecordCount>(command::Spec::new("Set record count"));
+        })
+        .responders(|responders| {
+            responders
+                .app()
+                .target::<SetRecordName>()
+                .target::<SetRecordCount>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Editable table"));
+            cx.open_window(window::Options::new("Editable table second window"));
+        })
+        .view(|state, _| {
+            widget::view_node(
+                crate::Table::new(
+                    "editable.table",
+                    24,
+                    [
+                        crate::table::Column::new("name", "Name", crate::table::Width::weight(1)),
+                        crate::table::Column::new(
+                            "count",
+                            "Count",
+                            crate::table::Width::fixed(100),
+                        ),
+                    ],
+                    EditableTableProvider {
+                        records: state.records.clone(),
+                    },
+                )
+                .height(view::Dimension::fixed(124)),
+            )
+        })
 }
 
 impl crate::table::Provider for MutableTableProvider {
@@ -78,10 +243,10 @@ impl crate::table::Provider for MutableTableProvider {
             .position(|candidate| *candidate == key.value())
     }
 
-    fn cell(&self, row: usize, column: interaction::Id) -> view::Node {
+    fn cell(&self, row: usize, cell: crate::table::Cell) -> view::Node {
         let key = self.keys.borrow()[row];
         view::Node::world_text(
-            format!("{} {key}", column.as_str()),
+            format!("{} {key}", cell.column().as_str()),
             text::Overflow::EllipsisEnd,
         )
     }
@@ -820,6 +985,282 @@ fn table_keyboard_tracks_a_keyed_logical_row_and_column_without_scanning() {
     assert!(
         cell_calls.get().saturating_sub(calls_before_end) <= 48,
         "logical navigation must materialize only a bounded row window"
+    );
+}
+
+#[test]
+fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identity() {
+    let mut app = editable_table_app(EditableTableState {
+        records: vec![EditableRecord {
+            key: 7,
+            name: String::new(),
+            count: 4,
+        }],
+    });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let other_window = app.session().windows()[1].id();
+    let size = geometry::Size::new(320, 124);
+    app.render_scene(window, size)
+        .expect("editable table should render");
+    let name = crate::table::Cell::new(
+        interaction::Id::new("editable.table"),
+        crate::virtual_list::Key::new(7),
+        interaction::Id::new("name"),
+    );
+    let count = crate::table::Cell::new(
+        interaction::Id::new("editable.table"),
+        crate::virtual_list::Key::new(7),
+        interaction::Id::new("count"),
+    );
+
+    app.handle_input(window, Input::focus(session::Focus::table_cell(name)))
+        .expect("text cell should focus");
+    app.handle_input(window, Input::text_commit("Ada"))
+        .expect("text cell should accept a draft");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Enter, input::Modifiers::default()),
+    )
+    .expect("Enter should commit the typed text command");
+    assert_eq!(app.state().records[0].name, "Ada");
+
+    app.handle_input(window, Input::focus(session::Focus::table_cell(count)))
+        .expect("numeric cell should focus");
+    app.handle_input(window, Input::text_commit("2"))
+        .expect("numeric cell should accept draft text");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Enter, input::Modifiers::default()),
+    )
+    .expect("Enter should parse and commit the typed numeric command");
+    assert_eq!(app.state().records[0].count, 42);
+    assert!(app.undo());
+    assert_eq!(app.state().records[0].count, 4);
+    assert!(app.redo());
+    assert_eq!(app.state().records[0].count, 42);
+
+    app.handle_input(window, Input::text_commit("x"))
+        .expect("invalid numeric draft should remain editable");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Enter, input::Modifiers::default()),
+    )
+    .expect("invalid numeric submit should be handled as rejection");
+    assert_eq!(app.state().records[0].count, 42);
+    assert_eq!(
+        app.session().table_edit_error(window, count),
+        Some("Enter a whole number")
+    );
+    assert_eq!(app.session().table_edit_error(other_window, count), None);
+    assert_ne!(
+        interaction::Target::text_area(session::Focus::table_cell(count)),
+        interaction::Target::text_area(session::Focus::table_cell(crate::table::Cell::new(
+            interaction::Id::new("other.table"),
+            count.row(),
+            count.column(),
+        )))
+    );
+    assert!(
+        app.session()
+            .focused(window)
+            .is_some_and(|focus| focus.same_target(&session::Focus::table_cell(count)))
+    );
+    assert_eq!(
+        text_draft(&app, window, session::Focus::table_cell(count)).text(),
+        "42x"
+    );
+    app.handle_input(window, Input::focus(session::Focus::table_cell(name)))
+        .expect("focus movement should apply the chosen commit-before-leave policy");
+    assert!(
+        app.session()
+            .focused(window)
+            .is_some_and(|focus| focus.same_target(&session::Focus::table_cell(count)))
+    );
+    let rejected = app
+        .render_scene(window, size)
+        .expect("rejected editor should retain visible presentation");
+    assert!(rejected.layout().frames().iter().any(|frame| {
+        frame.table_cell() == Some(count)
+            && frame.table_edit_error() == Some("Enter a whole number")
+    }));
+
+    app.handle_input(window, Input::cancel())
+        .expect("Escape should cancel the rejected draft");
+    assert_eq!(app.session().table_edit_error(window, count), None);
+    let cancelled = app
+        .render_scene(window, size)
+        .expect("cancelled committed value should render");
+    assert!(
+        cancelled
+            .layout()
+            .frames()
+            .iter()
+            .any(|frame| { frame.table_cell() == Some(count) && frame.text() == Some("42") })
+    );
+}
+
+#[test]
+fn editable_table_draft_pins_through_scroll_follows_reorder_and_dies_on_deletion() {
+    let mut app = editable_table_app(EditableTableState {
+        records: (0..50)
+            .map(|key| EditableRecord {
+                key,
+                name: String::new(),
+                count: key as i64,
+            })
+            .collect(),
+    });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 124);
+    let initial = app
+        .render_scene(window, size)
+        .expect("editable records should render");
+    let cell = crate::table::Cell::new(
+        interaction::Id::new("editable.table"),
+        crate::virtual_list::Key::new(0),
+        interaction::Id::new("name"),
+    );
+    let focus = session::Focus::table_cell(cell);
+    app.handle_input(window, Input::focus(focus))
+        .expect("editable cell should focus");
+    app.handle_input(window, Input::text_commit("draft"))
+        .expect("editable cell should retain draft");
+    let list = initial.layout().find_role(view::Role::VirtualList)[0];
+    app.scroll_at(
+        window,
+        size,
+        frame_point_at(list.rect()),
+        interaction::ScrollDelta::vertical(720),
+    )
+    .expect("table body should scroll");
+    let scrolled = app
+        .render_scene(window, size)
+        .expect("focused edited row should remain pinned");
+    assert!(
+        scrolled
+            .layout()
+            .frames()
+            .iter()
+            .any(|frame| frame.table_cell() == Some(cell))
+    );
+    assert_eq!(text_draft(&app, window, focus).text(), "draft");
+
+    app.change(
+        state::Reason::programmatic("reorder editable rows"),
+        |state| {
+            state.records.reverse();
+        },
+    );
+    app.render_scene(window, size)
+        .expect("reordered edited row should render by key");
+    assert_eq!(text_draft(&app, window, focus).text(), "draft");
+
+    app.change(state::Reason::programmatic("delete edited row"), |state| {
+        state.records.retain(|record| record.key != 0);
+    });
+    app.render_scene(window, size)
+        .expect("provider deletion should reconcile edited identity");
+    let target = interaction::Target::text_area(focus);
+    assert!(
+        app.session()
+            .interaction(window)
+            .expect("window interaction")
+            .text_input()
+            .draft_for(&target)
+            .is_none()
+    );
+    assert!(app.session().focused(window).is_none());
+}
+
+#[test]
+fn editable_table_keyboard_enters_commits_leaves_and_materializes_cells() {
+    let mut app = editable_table_app(EditableTableState {
+        records: (0..50)
+            .map(|key| EditableRecord {
+                key,
+                name: String::new(),
+                count: key as i64,
+            })
+            .collect(),
+    });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 124);
+    let initial = app
+        .render_scene(window, size)
+        .expect("editable keyboard table should render");
+    let first_name = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(0)
+                    && cell.column() == interaction::Id::new("name")
+            })
+        })
+        .expect("first editable name should render");
+    app.pointer_down_at(window, size, frame_point_at(first_name.rect()))
+        .expect("pointer should establish table row/column activity");
+    assert!(app.focus(
+        window,
+        session::Focus::control(&interaction::Target::scroll(
+            "editable.table",
+            "Editable rows",
+        )),
+    ));
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::End, input::Modifiers::default()),
+    )
+    .expect("End should select and reveal the distant row");
+    app.render_scene(window, size)
+        .expect("reveal should materialize the distant active row before entry");
+    assert_eq!(
+        app.session()
+            .active_table_cell(window, interaction::Id::new("editable.table"))
+            .map(crate::table::Cell::row),
+        Some(crate::virtual_list::Key::new(49))
+    );
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Enter, input::Modifiers::default()),
+    )
+    .expect("Enter should materialize and enter the active editor");
+    let last_name = crate::table::Cell::new(
+        interaction::Id::new("editable.table"),
+        crate::virtual_list::Key::new(49),
+        interaction::Id::new("name"),
+    );
+    assert!(
+        app.session()
+            .focused(window)
+            .is_some_and(|focus| focus.same_target(&session::Focus::table_cell(last_name)))
+    );
+    app.handle_input(window, Input::text_commit("X"))
+        .expect("entered cell should accept text");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Enter, input::Modifiers::default()),
+    )
+    .expect("Enter should commit while keeping the editor active");
+    assert_eq!(app.state().records[49].name, "X");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Tab, input::Modifiers::default()),
+    )
+    .expect("Tab should leave after committing and enter the next public editor");
+    let last_count = crate::table::Cell::new(
+        interaction::Id::new("editable.table"),
+        crate::virtual_list::Key::new(49),
+        interaction::Id::new("count"),
+    );
+    assert!(
+        app.session()
+            .focused(window)
+            .is_some_and(|focus| focus.same_target(&session::Focus::table_cell(last_count)))
     );
 }
 

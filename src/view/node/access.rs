@@ -117,6 +117,14 @@ impl Node {
         self.table_model.as_ref()
     }
 
+    pub(crate) fn table_edit(&self) -> Option<&crate::table::Edit> {
+        self.table_edit.as_ref()
+    }
+
+    pub(crate) fn table_edit_error(&self) -> Option<&str> {
+        self.table_edit_error.as_deref()
+    }
+
     pub fn button_model(&self) -> Option<&Button> {
         match self.control.as_ref()? {
             Control::Button(button) => Some(button),

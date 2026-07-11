@@ -73,19 +73,27 @@ impl Store {
         &mut self,
         removed_nodes: &[crate::composition::NodeId],
         removed_elements: &[crate::interaction::Id],
+        removed_table_cells: &[crate::table::Cell],
     ) -> bool {
         let stale = self
             .order
             .iter()
-            .filter(|target| target.matches_removed_identity(removed_nodes, removed_elements))
+            .filter(|target| {
+                target.matches_removed_identity(
+                    removed_nodes,
+                    removed_elements,
+                    removed_table_cells,
+                )
+            })
             .cloned()
             .collect::<Vec<_>>();
         let changed = !stale.is_empty();
         for target in stale {
             self.drafts.remove(&target);
         }
-        self.order
-            .retain(|target| !target.matches_removed_identity(removed_nodes, removed_elements));
+        self.order.retain(|target| {
+            !target.matches_removed_identity(removed_nodes, removed_elements, removed_table_cells)
+        });
         changed
     }
 

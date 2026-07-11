@@ -544,6 +544,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 window,
                 changes.removed(),
                 changes.removed_elements(),
+                changes.removed_table_cells(),
             )
         };
         if pruned.capture_removed() {

@@ -251,6 +251,7 @@ impl Session {
         id: app_window::Id,
         removed_nodes: &[super::super::composition::NodeId],
         removed_elements: &[interaction::Id],
+        removed_table_cells: &[crate::table::Cell],
     ) -> interaction::Pruned {
         let Some(window) = self.window_mut(id) else {
             return interaction::Pruned::default();
@@ -258,7 +259,7 @@ impl Session {
 
         window
             .interaction
-            .prune_removed(removed_nodes, removed_elements)
+            .prune_removed(removed_nodes, removed_elements, removed_table_cells)
     }
 
     pub fn windows(&self) -> &[Window] {

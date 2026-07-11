@@ -1,8 +1,8 @@
 use super::{
     State,
     command::{
-        IncrementClicks, ResetControls, SelectMode, SetLevel, SortRecords, SubmitQuery,
-        ToggleAdvanced, ToggleGrid, ToggleWrap,
+        EditRecordCount, EditRecordNote, IncrementClicks, ResetControls, SelectMode, SetLevel,
+        SortRecords, SubmitQuery, ToggleAdvanced, ToggleGrid, ToggleWrap,
     },
     view,
     view::{CANVAS_COLOR, WINDOW_TITLE, window_size},
@@ -22,7 +22,9 @@ pub fn app(state: State) -> Runtime<State, (), View> {
                 .register::<SubmitQuery>(command::Spec::new("Submit query"))
                 .register::<ToggleAdvanced>(command::Spec::new("Advanced"))
                 .register::<ResetControls>(command::Spec::new("Reset").shortcut("Primary+R"))
-                .register::<SortRecords>(command::Spec::new("Sort records"));
+                .register::<SortRecords>(command::Spec::new("Sort records"))
+                .register::<EditRecordNote>(command::Spec::new("Edit record note"))
+                .register::<EditRecordCount>(command::Spec::new("Edit record count"));
         })
         .responders(|responders| {
             responders
@@ -35,7 +37,9 @@ pub fn app(state: State) -> Runtime<State, (), View> {
                 .target::<SubmitQuery>()
                 .target::<ToggleAdvanced>()
                 .target::<ResetControls>()
-                .target::<SortRecords>();
+                .target::<SortRecords>()
+                .target::<EditRecordNote>()
+                .target::<EditRecordCount>();
         })
         .started(|cx| {
             cx.open_window(

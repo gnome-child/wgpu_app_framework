@@ -1,13 +1,13 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
-use crate::{interaction, scene, view, virtual_list, widget};
+use crate::{command, interaction, scene, session, view, virtual_list, widget};
 
 /// Synchronous record source for a read-only virtual table.
 pub trait Provider {
     fn len(&self) -> usize;
     fn key(&self, row: usize) -> virtual_list::Key;
     fn index_of(&self, key: virtual_list::Key) -> Option<usize>;
-    fn cell(&self, row: usize, column: interaction::Id) -> view::Node;
+    fn cell(&self, row: usize, cell: Cell) -> view::Node;
 
     fn is_empty(&self) -> bool {
         self.len() == 0
@@ -38,6 +38,31 @@ pub struct Table {
     height: Option<view::Dimension>,
     max_height: Option<i32>,
     background: Option<scene::Brush>,
+}
+
+pub struct TextEditor {
+    cell: Cell,
+    text: String,
+    placeholder: Option<String>,
+    validation: Arc<Validation>,
+    trigger: Option<command::AnyValueTrigger<String>>,
+}
+
+pub struct NumberEditor {
+    cell: Cell,
+    value: i64,
+    placeholder: Option<String>,
+    validation: Arc<NumberValidation>,
+    trigger: Option<command::AnyValueTrigger<String>>,
+}
+
+type Validation = dyn Fn(&str) -> Result<(), String> + Send + Sync;
+type NumberValidation = dyn Fn(i64) -> Result<(), String> + Send + Sync;
+
+#[derive(Clone)]
+pub(crate) struct Edit {
+    cell: Cell,
+    validation: Arc<Validation>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -315,6 +340,134 @@ impl Cell {
     }
 }
 
+impl TextEditor {
+    pub fn new(cell: Cell, text: impl Into<String>) -> Self {
+        Self {
+            cell,
+            text: text.into(),
+            placeholder: None,
+            validation: Arc::new(|_| Ok(())),
+            trigger: None,
+        }
+    }
+
+    pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
+        self.placeholder = Some(placeholder.into());
+        self
+    }
+
+    pub fn validate(
+        mut self,
+        validation: impl Fn(&str) -> Result<(), String> + Send + Sync + 'static,
+    ) -> Self {
+        self.validation = Arc::new(validation);
+        self
+    }
+
+    pub fn on_commit<C>(
+        mut self,
+        map: impl Fn(Cell, String) -> C::Args + Send + Sync + 'static,
+    ) -> Self
+    where
+        C: command::Command,
+        C::Args: Clone,
+    {
+        let cell = self.cell;
+        self.trigger = Some(command::AnyValueTrigger::command::<C>(
+            move |text: String| map(cell, text),
+        ));
+        self
+    }
+}
+
+impl NumberEditor {
+    pub fn new(cell: Cell, value: i64) -> Self {
+        Self {
+            cell,
+            value,
+            placeholder: None,
+            validation: Arc::new(|_| Ok(())),
+            trigger: None,
+        }
+    }
+
+    pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
+        self.placeholder = Some(placeholder.into());
+        self
+    }
+
+    pub fn validate(
+        mut self,
+        validation: impl Fn(i64) -> Result<(), String> + Send + Sync + 'static,
+    ) -> Self {
+        self.validation = Arc::new(validation);
+        self
+    }
+
+    pub fn on_commit<C>(
+        mut self,
+        map: impl Fn(Cell, i64) -> C::Args + Send + Sync + 'static,
+    ) -> Self
+    where
+        C: command::Command,
+        C::Args: Clone,
+    {
+        let cell = self.cell;
+        self.trigger = Some(command::AnyValueTrigger::command::<C>(
+            move |text: String| {
+                let value = text
+                    .trim()
+                    .parse::<i64>()
+                    .expect("NumberEditor validates parsing before building command args");
+                map(cell, value)
+            },
+        ));
+        self
+    }
+}
+
+impl widget::Widget for TextEditor {
+    fn into_node(self) -> view::Node {
+        editor_node(
+            self.cell,
+            self.text,
+            self.placeholder,
+            self.validation,
+            self.trigger,
+        )
+    }
+}
+
+impl widget::Widget for NumberEditor {
+    fn into_node(self) -> view::Node {
+        let domain = Arc::clone(&self.validation);
+        let validation: Arc<Validation> = Arc::new(move |text| {
+            let value = text
+                .trim()
+                .parse::<i64>()
+                .map_err(|_| "Enter a whole number".to_owned())?;
+            domain(value)
+        });
+        editor_node(
+            self.cell,
+            self.value.to_string(),
+            self.placeholder,
+            validation,
+            self.trigger,
+        )
+    }
+}
+
+impl Edit {
+    pub(crate) fn cell(&self) -> Cell {
+        self.cell
+    }
+
+    pub(crate) fn validate(&self, text: &str) -> Result<(), String> {
+        (self.validation)(text)
+    }
+}
+
 impl Row {
     #[cfg(test)]
     pub(crate) fn table(self) -> interaction::Id {
@@ -350,11 +503,12 @@ impl virtual_list::Provider for Rows {
         let children: Vec<view::Node> = columns
             .iter()
             .map(|column| {
-                sized(self.provider.cell(index, column.id), column.width).with_table_cell(Cell {
+                let cell = Cell {
                     table: self.table,
                     row: key,
                     column: column.id,
-                })
+                };
+                sized(self.provider.cell(index, cell), column.width).with_table_cell(cell)
             })
             .collect();
         children.into_iter().fold(
@@ -376,4 +530,22 @@ fn sized(node: view::Node, width: Width) -> view::Node {
 fn grow(node: view::Node) -> view::Node {
     let style = node.style().clone().with_width(view::Dimension::grow());
     node.with_style(style)
+}
+
+fn editor_node(
+    cell: Cell,
+    text: String,
+    placeholder: Option<String>,
+    validation: Arc<Validation>,
+    trigger: Option<command::AnyValueTrigger<String>>,
+) -> view::Node {
+    let mut model = view::TextBox::new(text.clone()).with_focus(session::Focus::table_cell(cell));
+    if let Some(placeholder) = placeholder {
+        model = model.with_placeholder(placeholder);
+    }
+    let mut node = view::Node::text_box_state(model);
+    if let Some(trigger) = trigger {
+        node = node.bind_text_trigger(text, crate::context::Source::Input, trigger);
+    }
+    node.with_table_edit(Edit { cell, validation })
 }

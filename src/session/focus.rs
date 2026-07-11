@@ -13,6 +13,7 @@ pub struct Focus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Kind {
     Text(interaction::Id),
+    TableCell(crate::table::Cell),
     Control(u64),
 }
 
@@ -41,6 +42,14 @@ impl Focus {
     pub fn control(target: &interaction::Target) -> Self {
         Self {
             kind: Kind::Control(target.focus_key()),
+            reason: Reason::Programmatic,
+            visibility: Visibility::Visible,
+        }
+    }
+
+    pub fn table_cell(cell: crate::table::Cell) -> Self {
+        Self {
+            kind: Kind::TableCell(cell),
             reason: Reason::Programmatic,
             visibility: Visibility::Visible,
         }
@@ -83,13 +92,17 @@ impl Focus {
     }
 
     fn accepts_keyboard_input(self) -> bool {
-        matches!(self.kind, Kind::Text(_))
+        matches!(self.kind, Kind::Text(_) | Kind::TableCell(_))
+    }
+
+    pub(crate) fn is_text_input(self) -> bool {
+        self.accepts_keyboard_input()
     }
 
     pub fn target(self) -> interaction::Id {
         match self.kind {
             Kind::Text(target) => target,
-            Kind::Control(_) => {
+            Kind::TableCell(_) | Kind::Control(_) => {
                 panic!("control focus does not have a text target id")
             }
         }
@@ -103,20 +116,31 @@ impl Focus {
     pub fn target_id(&self) -> Option<interaction::Id> {
         match self.kind {
             Kind::Text(target) => Some(target),
-            Kind::Control(_) => None,
+            Kind::TableCell(_) | Kind::Control(_) => None,
+        }
+    }
+
+    pub(crate) fn table_cell_identity(self) -> Option<crate::table::Cell> {
+        match self.kind {
+            Kind::TableCell(cell) => Some(cell),
+            Kind::Text(_) | Kind::Control(_) => None,
         }
     }
 
     pub fn text_target(self) -> Option<interaction::Target> {
         match self.kind {
             Kind::Text(target) => Some(interaction::Target::text_area_id(target)),
+            Kind::TableCell(cell) => Some(interaction::Target::table_cell_editor(cell)),
             Kind::Control(_) => None,
         }
     }
 
     pub(crate) fn from_text_target(target: &interaction::Target) -> Option<Self> {
         if target.kind() == interaction::Kind::TextArea {
-            return target.element_id().map(Self::text);
+            return target
+                .table_cell()
+                .map(Self::table_cell)
+                .or_else(|| target.element_id().map(Self::text));
         }
 
         None
@@ -127,6 +151,7 @@ impl Focus {
             Kind::Text(id) => {
                 target.kind() == interaction::Kind::TextArea && target.element_id() == Some(id)
             }
+            Kind::TableCell(cell) => target.table_cell() == Some(cell),
             Kind::Control(key) => target.focus_key() == key,
         }
     }
@@ -134,6 +159,7 @@ impl Focus {
     pub fn same_target(self, other: &Self) -> bool {
         match (self.kind, other.kind) {
             (Kind::Text(left), Kind::Text(right)) => left == right,
+            (Kind::TableCell(left), Kind::TableCell(right)) => left == right,
             (Kind::Control(left), Kind::Control(right)) => left == right,
             _ => false,
         }

@@ -15,6 +15,31 @@ use crate::{
 use std::collections::HashMap;
 
 impl Node {
+    pub(in crate::view) fn table_edit_action(
+        &self,
+        focus: session::Focus,
+        text: String,
+    ) -> Option<Result<(crate::table::Cell, Action), (crate::table::Cell, String)>> {
+        if self
+            .text_box_model()
+            .and_then(TextBox::focus)
+            .is_some_and(|candidate| candidate.same_target(&focus))
+            && let Some(edit) = self.table_edit()
+        {
+            if let Err(reason) = edit.validate(&text) {
+                return Some(Err((edit.cell(), reason)));
+            }
+            return self
+                .binding
+                .as_ref()
+                .and_then(|binding| binding.validated_text_action(text))
+                .map(|action| Ok((edit.cell(), action)));
+        }
+        self.children
+            .iter()
+            .find_map(|child| child.table_edit_action(focus, text.clone()))
+    }
+
     pub(in crate::view) fn table_model_for_id(
         &self,
         id: interaction::Id,
@@ -143,6 +168,7 @@ impl Node {
                 .and_then(|(_, selection)| selection.active());
             self.active_item = active_row == Some(cell.row())
                 && tables.active_column(cell.table()) == Some(cell.column());
+            self.table_edit_error = tables.rejection(cell).map(str::to_owned);
         }
         for child in &mut self.children {
             child.project_active_table_cells(tables, selections);

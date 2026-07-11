@@ -313,6 +313,23 @@ sorting occurs only when the application changes provider order. Table paint
 derives striping and rules from layout row/cell facts, and the shared `Rule`
 rasterizer owns physical-pixel snapping across scale factors.
 
+Editable record cells reuse TextBox editing, draft history, command mapping,
+focus, and virtual-row pinning. `table::TextEditor` keeps text validation and
+typed application commit mapping distinct. `table::NumberEditor` additionally
+owns integer parsing before an independent domain validator; it does not imply
+a universal value/editor trait. Both use `table::Cell` itself as text focus,
+target, draft, rejection, and command identity. No synthesized string id or
+index-derived identity participates.
+
+Enter commits the active editor; Tab commits before leaving; invalid input
+keeps focus and draft with a reason; Escape cancels and rebuilds from provider
+truth. A focused edited row follows the existing virtual pin law, reorder
+retains its tuple identity, and actual provider deletion prunes focus, draft,
+and rejection together. Successful commits travel through ordinary typed
+commands and therefore existing application history. Rejection presentation is
+session/window-local, exposed read-only to callers, and projected as an editor
+outline; provider data changes only when the application handles the command.
+
 `layout`
 
 Owns measurement, frame construction, text measurement integration, and

@@ -144,12 +144,12 @@ impl Scroll {
         self.offsets.retain(|entry| {
             !entry
                 .target
-                .matches_removed_identity(removed_nodes, removed_elements)
+                .matches_removed_identity(removed_nodes, removed_elements, &[])
         });
         self.reveal_requests.retain(|request| {
             !request
                 .viewport()
-                .matches_removed_identity(removed_nodes, removed_elements)
+                .matches_removed_identity(removed_nodes, removed_elements, &[])
         });
         before_offsets != self.offsets.len() || before_reveals != self.reveal_requests.len()
     }

@@ -23,8 +23,23 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                     return Ok(self.window_outcome(window, false, response::Effect::Rebuild));
                 }
 
+                let cancelled_cell = self
+                    .session
+                    .focused(window)
+                    .and_then(crate::session::Focus::table_cell_identity);
                 if self.session.clear_text_input(window) {
-                    return Ok(self.window_outcome(window, false, response::Effect::Layout));
+                    if let Some(cell) = cancelled_cell {
+                        self.session.clear_table_edit_error(window, cell);
+                    }
+                    return Ok(self.window_outcome(
+                        window,
+                        false,
+                        if cancelled_cell.is_some() {
+                            response::Effect::Rebuild
+                        } else {
+                            response::Effect::Layout
+                        },
+                    ));
                 }
 
                 if self.session.cancel_pointer(window) {

@@ -24,6 +24,7 @@ pub(crate) struct Changes {
     added: Vec<NodeId>,
     removed: Vec<NodeId>,
     removed_elements: Vec<interaction::Id>,
+    removed_table_cells: Vec<crate::table::Cell>,
 }
 
 /// Retained composition tree for one installed view.
@@ -113,6 +114,7 @@ impl Changes {
             added: Vec::new(),
             removed: Vec::new(),
             removed_elements: Vec::new(),
+            removed_table_cells: Vec::new(),
         }
     }
 
@@ -129,6 +131,10 @@ impl Changes {
         &self.removed_elements
     }
 
+    pub(crate) fn removed_table_cells(&self) -> &[crate::table::Cell] {
+        &self.removed_table_cells
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.added.is_empty() && self.removed.is_empty()
     }
@@ -143,6 +149,9 @@ impl Changes {
         }
         if let Some(id) = node.element_id {
             self.removed_elements.push(id);
+        }
+        if let Some(cell) = node.key.table_cell {
+            self.removed_table_cells.push(cell);
         }
         for child in &node.children {
             self.add_removed_subtree(child);

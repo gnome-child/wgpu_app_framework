@@ -204,6 +204,14 @@ impl View {
         self.root.text_commit_action(focus, text)
     }
 
+    pub(super) fn table_edit_action(
+        &self,
+        focus: session::Focus,
+        text: String,
+    ) -> Option<Result<(crate::table::Cell, Action), (crate::table::Cell, String)>> {
+        self.root.table_edit_action(focus, text)
+    }
+
     pub(super) fn text_box_text(&self, focus: session::Focus) -> Option<&str> {
         self.root.text_box_for_focus(focus).map(TextBox::text)
     }
