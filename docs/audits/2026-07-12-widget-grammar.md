@@ -153,6 +153,38 @@ has a fixed exhaustiveness cost plus role-specific work. Literal branch count
 is highest for Menu, TextBox, Radio/Checkbox, Slider, and Scroll, but much of
 that is their real meaning rather than duplicated construction.
 
+### Complete downstream branch index
+
+The matrix counts above are backed by this implementation branch index. These
+are all production locations that inspect a role or typed control payload; test
+role assertions are evidence consumers and are not treated as implementation
+branches.
+
+| Phase owner | Role-specific branches and meaning |
+| --- | --- |
+| `widget/control/*.rs`, `widget/{element,panel,scroll,menu,root,binding}.rs` | Public recipes choose the node role/model, copy declarative values, attach bindings, set axes/style, and add children. |
+| `view/node/builder.rs` | Exhaustive constructors establish Role, Control, label, identity, axis, binding and floating metadata. |
+| `view/node/access.rs` | Typed Control projection for Button, Checkbox, Radio, Slider, TextArea and TextBox; generic role/style/id/children access. |
+| `view/node/action.rs` | Binding/scroll/menu/floating/label/text targets, Slider capture, text target selection, menu toggle, pointer and keyboard activation families. |
+| `view/node/traversal.rs` | Menu/floating discovery, Scroll/TextArea/TextBox interaction projection, focus projection, menu/floating focus scopes, and exhaustive keyboard-focusability. |
+| `view/mod.rs`, `view/command_palette.rs` | Whole-view typed collection, focus order/action, menu-to-floating projection, and internal palette construction. |
+| `composition/tree.rs` | Exhaustive subject derivation: application root, text target identities, labeled panel/menu subjects, and explicit no-subject roles. |
+| `layout/algorithm.rs` | Root, Stack axes, MenuBar, FloatingPanel, Panel and Scroll layout algorithms; floating anchoring/escape and no-child-layout leaf roles. |
+| `layout/measure.rs` | Role-specific intrinsic width, height and height-for-width; menu/floating/scroll/control families; label/button/text/choice/slider recipes. |
+| `layout/typography.rs` | Menu/binding/control interface typography, palette label typography, SectionHeader and ordinary body roles. |
+| `layout/frame.rs` | Copies typed control payloads into derived frames; builds TextArea/TextBox layouts, Slider track, choice/slider active rects, role actions and text hit/drag actions. |
+| `layout/control.rs`, `layout/mod.rs` | Shared menu/palette row parts, shared choice mark/label geometry, slider label/track/thumb/fill geometry, and Separator/menu-panel predicates. |
+| `runtime/pointer.rs` | Role-aware pointer manipulation/capture routing, including shared command controls and text/slider distinctions. |
+| `runtime/visual.rs`, `scene/visual.rs` | Slider hover transform scheduling and MenuBar/Menu active-state projection; generic target visuals remain shared. |
+| `scene/paint/mod.rs` | Exhaustive role fill, rounding, layer, label/text rect/wrap/alignment, visual tint, focus outline and leaf-paint dispatch. |
+| `scene/paint/{choice,slider,text_area,text_box}.rs` | Typed semantic subpart paint for the shared choice family and the distinct slider/text controls. |
+| `platform/native/paint.rs` | The only role-specific native projection is Slider's presentation transform; all other scene-to-paint lowering is role-neutral. |
+
+The index also explains why a universal role-capability table was rejected:
+these branches answer different questions. Focusability, fill, subject
+derivation, capture, and typography happen to mention overlapping role sets,
+but are not one interchangeable policy.
+
 ## Repeated-logic census before candidate admission
 
 | ID | Repetition | Classification | Existing owner / evidence | Initial disposition |
