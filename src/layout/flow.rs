@@ -18,7 +18,7 @@ pub(crate) struct SizeHint {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Item {
     hint: SizeHint,
-    grow: bool,
+    weight: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,11 +92,18 @@ impl SizeHint {
 
 impl Item {
     pub(crate) fn fixed(hint: SizeHint) -> Self {
-        Self { hint, grow: false }
+        Self { hint, weight: 0 }
     }
 
     pub(crate) fn grow(hint: SizeHint) -> Self {
-        Self { hint, grow: true }
+        Self { hint, weight: 1 }
+    }
+
+    pub(crate) fn weighted(hint: SizeHint, weight: u16) -> Self {
+        Self {
+            hint,
+            weight: weight.max(1),
+        }
     }
 }
 
@@ -339,30 +346,35 @@ fn allocate_main(available: i32, gap: i32, items: &[Item], axis: MainAxis) -> Ve
     let fixed_preferred = items
         .iter()
         .zip(&preferred)
-        .filter_map(|(item, width)| (!item.grow).then_some(*width))
+        .filter_map(|(item, width)| (item.weight == 0).then_some(*width))
         .sum::<i32>();
     let grow_min = items
         .iter()
         .zip(&min)
-        .filter_map(|(item, width)| item.grow.then_some(*width))
+        .filter_map(|(item, width)| (item.weight > 0).then_some(*width))
         .sum::<i32>();
-    let grow_count = items.iter().filter(|item| item.grow).count();
+    let grow_weight = items.iter().map(|item| item.weight as i32).sum::<i32>();
 
-    if grow_count > 0 && available >= fixed_preferred.saturating_add(grow_min) {
-        let mut remaining = available
+    if grow_weight > 0 && available >= fixed_preferred.saturating_add(grow_min) {
+        let distributable = available
             .saturating_sub(fixed_preferred)
             .saturating_sub(grow_min);
-        let base = remaining / grow_count as i32;
-        remaining %= grow_count as i32;
+        let allocated = items
+            .iter()
+            .filter(|item| item.weight > 0)
+            .map(|item| distributable.saturating_mul(item.weight as i32) / grow_weight)
+            .sum::<i32>();
+        let mut remainder = distributable.saturating_sub(allocated);
 
         return items
             .iter()
             .zip(min)
             .zip(preferred)
             .map(|((item, min), preferred)| {
-                if item.grow {
-                    let extra = base + i32::from(remaining > 0);
-                    remaining = remaining.saturating_sub(1);
+                if item.weight > 0 {
+                    let weighted = distributable.saturating_mul(item.weight as i32) / grow_weight;
+                    let extra = weighted.saturating_add(i32::from(remainder > 0));
+                    remainder = remainder.saturating_sub(1);
                     min.saturating_add(extra)
                 } else {
                     preferred
@@ -486,6 +498,23 @@ mod tests {
         assert_eq!(rects[0], Rect::new(0, 0, 20, 10));
         assert_eq!(rects[1], Rect::new(25, 0, 55, 10));
         assert_eq!(rects[2], Rect::new(85, 0, 15, 10));
+    }
+
+    #[test]
+    fn row_allocates_remaining_width_by_weight() {
+        let row = Row::new()
+            .item(Item::fixed(SizeHint::fixed(Size::new(20, 10))))
+            .item(Item::weighted(SizeHint::fixed(Size::new(0, 10)), 1))
+            .item(Item::weighted(SizeHint::fixed(Size::new(0, 10)), 3));
+
+        assert_eq!(
+            row.layout(Rect::new(0, 0, 100, 10)),
+            vec![
+                Rect::new(0, 0, 20, 10),
+                Rect::new(20, 0, 20, 10),
+                Rect::new(40, 0, 60, 10),
+            ]
+        );
     }
 
     #[test]

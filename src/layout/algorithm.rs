@@ -568,10 +568,14 @@ fn horizontal_stack_placement(
         .align_items(node.style().align_items());
 
     for child in children {
-        let grows = matches!(child.style().width(), Some(view::Dimension::Grow));
+        let growth_weight = match child.style().width() {
+            Some(view::Dimension::Grow) => Some(1),
+            Some(view::Dimension::Weight(weight)) => Some(weight),
+            _ => None,
+        };
         let width = if scroll_axis {
             scroll_axis_child_width(child, content_width, engine, theme, profile)
-        } else if grows {
+        } else if growth_weight.is_some() {
             0
         } else {
             resolved_row_width(child, content_width, engine, theme, profile)
@@ -586,8 +590,8 @@ fn horizontal_stack_placement(
             profile,
         );
         let hint = flow::SizeHint::new(Size::new(0, height), Size::new(width, height));
-        let item = if !scroll_axis && grows {
-            flow::Item::grow(hint)
+        let item = if !scroll_axis && let Some(weight) = growth_weight {
+            flow::Item::weighted(hint, weight)
         } else {
             flow::Item::fixed(hint)
         };
@@ -717,7 +721,9 @@ fn scroll_axis_child_width(
     profile: keymap::Profile,
 ) -> i32 {
     match child.style().width() {
-        Some(view::Dimension::Grow) => intrinsic_width(child, engine, theme, profile),
+        Some(view::Dimension::Grow | view::Dimension::Weight(_)) => {
+            intrinsic_width(child, engine, theme, profile)
+        }
         Some(view::Dimension::Percent(percent)) => {
             ((viewport_content_width.max(0) as f32) * percent).round() as i32
         }

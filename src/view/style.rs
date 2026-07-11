@@ -16,6 +16,7 @@ pub struct Style {
 pub enum Dimension {
     Fit,
     Grow,
+    Weight(u16),
     Fixed(i32),
     Percent(f32),
 }
@@ -140,6 +141,10 @@ impl Dimension {
 
     pub fn grow() -> Self {
         Self::Grow
+    }
+
+    pub fn weight(value: u16) -> Self {
+        Self::Weight(value.max(1))
     }
 
     pub fn fixed(value: i32) -> Self {

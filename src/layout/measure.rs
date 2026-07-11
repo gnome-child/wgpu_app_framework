@@ -614,7 +614,7 @@ pub(in crate::layout) fn layout_gap(node: &view::Node, theme: &theme::Theme) -> 
 
 pub(in crate::layout) fn grows_vertical_space(node: &view::Node) -> bool {
     match node.style().height() {
-        Some(view::Dimension::Grow) => true,
+        Some(view::Dimension::Grow | view::Dimension::Weight(_)) => true,
         Some(view::Dimension::Fit | view::Dimension::Fixed(_) | view::Dimension::Percent(_)) => {
             false
         }
@@ -640,7 +640,7 @@ pub(in crate::layout) fn resolved_width(
 ) -> i32 {
     match node.style().width() {
         Some(view::Dimension::Fit) => intrinsic_width(node, engine, theme, profile),
-        Some(view::Dimension::Grow) | None => parent_width,
+        Some(view::Dimension::Grow | view::Dimension::Weight(_)) | None => parent_width,
         Some(view::Dimension::Fixed(width)) => width,
         Some(view::Dimension::Percent(percent)) => {
             ((parent_width.max(0) as f32) * percent).round() as i32
@@ -658,7 +658,7 @@ pub(in crate::layout) fn resolved_row_width(
 ) -> i32 {
     match node.style().width() {
         None | Some(view::Dimension::Fit) => intrinsic_width(node, engine, theme, profile),
-        Some(view::Dimension::Grow) => parent_width,
+        Some(view::Dimension::Grow | view::Dimension::Weight(_)) => parent_width,
         Some(view::Dimension::Fixed(width)) => width,
         Some(view::Dimension::Percent(percent)) => {
             ((parent_width.max(0) as f32) * percent).round() as i32
@@ -679,7 +679,7 @@ pub(in crate::layout) fn cross_axis_width(
         view::Align::Stretch => resolved_width(node, parent_width, engine, theme, profile),
         view::Align::Start | view::Align::Center | view::Align::End => match node.style().width() {
             None | Some(view::Dimension::Fit) => intrinsic_width(node, engine, theme, profile),
-            Some(view::Dimension::Grow) => parent_width,
+            Some(view::Dimension::Grow | view::Dimension::Weight(_)) => parent_width,
             Some(view::Dimension::Fixed(width)) => width,
             Some(view::Dimension::Percent(percent)) => {
                 ((parent_width.max(0) as f32) * percent).round() as i32
@@ -700,7 +700,7 @@ pub(in crate::layout) fn cross_axis_height_for_width(
 ) -> i32 {
     let height = match align {
         view::Align::Stretch => match node.style().height() {
-            None | Some(view::Dimension::Grow) => parent_height,
+            None | Some(view::Dimension::Grow | view::Dimension::Weight(_)) => parent_height,
             Some(view::Dimension::Fit) => {
                 intrinsic_height_for_width(node, width, engine, theme, profile)
             }
@@ -714,7 +714,7 @@ pub(in crate::layout) fn cross_axis_height_for_width(
                 None | Some(view::Dimension::Fit) => {
                     intrinsic_height_for_width(node, width, engine, theme, profile)
                 }
-                Some(view::Dimension::Grow) => parent_height,
+                Some(view::Dimension::Grow | view::Dimension::Weight(_)) => parent_height,
                 Some(view::Dimension::Fixed(height)) => height,
                 Some(view::Dimension::Percent(percent)) => {
                     ((parent_height.max(0) as f32) * percent).round() as i32
@@ -751,7 +751,7 @@ pub(in crate::layout) fn resolved_height(
 ) -> i32 {
     let height = match node.style().height() {
         Some(view::Dimension::Fit) => intrinsic_height(node, theme),
-        Some(view::Dimension::Grow) | None => {
+        Some(view::Dimension::Grow | view::Dimension::Weight(_)) | None => {
             if grows_vertical_space(node) {
                 parent_height
             } else {
@@ -779,7 +779,7 @@ pub(in crate::layout) fn resolved_height_for_width(
         Some(view::Dimension::Fit) => {
             intrinsic_height_for_width(node, width, engine, theme, profile)
         }
-        Some(view::Dimension::Grow) | None => {
+        Some(view::Dimension::Grow | view::Dimension::Weight(_)) | None => {
             if grows_vertical_space(node) {
                 parent_height
             } else {
