@@ -241,6 +241,7 @@ restoration (`S`), coordinates/scale (`K`), and concurrent/deferred completion
 | Run | Scenario cells | Seed / operations / matrix | Result | Evidence |
 | --- | --- | --- | --- | --- |
 | E-001 | X-01 removal during active command capture | Reduced four-step sequence: press slider → command changes model → rebuild omits slider → inspect interaction/gesture | Failed deterministically | Pointer hover/press/capture were pruned, but `window_residues(window).gesture` remained 1. Focused test: `tests::interaction_tests::rebuilding_away_captured_command_prunes_pointer_and_history_gesture`. |
+| E-002 | X-01 replay and C-01 ritual | Same reduced sequence; full library and three examples | Held | Reduced test passed. Library: 805 passed, 8 ignored. All example checks, formatting, diff check, and protected-state check passed. |
 
 ## Failure and reduction ledger
 
@@ -259,12 +260,13 @@ still require a reduced failing sequence.
 | P-01 | Glass-tuner smoke waits 100 ms in wall-clock time although internal presentation accepts injected time. | The attempted reduction proved `Runtime::render_scene_at` is crate-private, while the example binary deliberately exercises only the external API. | Internal injected time and the external smoke are distinct surfaces. | None without widening public API, adding a configuration mode, or weakening the overlay-content assertion. | Withdrawn. Keep the current witness and record public deterministic presentation as a limit; the no-sleep rail applies only where injected time is actually available. |
 | P-02 | Active interaction removal has production pruning but no whole-promise witness. | X-01 failed in E-001: `src/interaction/mod.rs:267-297` prunes capture, while the separate gesture in `src/runtime/transaction/gesture.rs` survives. | Runtime gesture lifecycle coordinated from reconciliation. | The path where capture disappears but `Runtime::gesture` remains `Some`. | Promoted to C-01. |
 | P-03 | Stale host events and backend failure propagation lack journeys. | X-02/X-03 and the existing branches in `src/host/mod.rs:99-116` / `src/platform/mod.rs:139-210`. | Existing Host and Platform boundaries. | None. | Add local witnesses; do not invent retry or rollback policy. |
-| C-01 | Reconciliation must cancel an unfinished command gesture when it removes that gesture's captured target. | F-01 plus existing close-mid-drag policy. The failure is deterministic and reduced. | `runtime::transaction::gesture`; interaction reconciliation reports the causal capture removal. | Ownerless gesture state after capture pruning. | Admitted. Return a narrow pruning outcome that distinguishes capture removal, discard only the same window's gesture, and keep pointer/session pruning behavior unchanged. |
+| C-01 | Reconciliation must cancel an unfinished command gesture when it removes that gesture's captured target. | F-01 plus existing close-mid-drag policy. The failure is deterministic and reduced. | `runtime::transaction::gesture`; interaction reconciliation reports the causal capture removal. | Ownerless gesture state after capture pruning. | Corrected and independently green. `interaction::Pruned` distinguishes causal capture removal; runtime discards only the gesture belonging to that window. |
 
 ## Correction ledger
 
 | ID | Commit subject | Hash | Files | Insertions | Deletions | Witness and outcome |
 | --- | --- | --- | --- | --- | --- | --- |
+| C-01 | `C-01 Cancel gestures whose capture is pruned` | Final checkpoint | 6 | 147 | 10 | `rebuilding_away_captured_command_prunes_pointer_and_history_gesture`; old belief: pruning pointer state was sufficient. New belief: the runtime gesture cannot outlive its captured command target. Owner: runtime gesture lifecycle, informed by interaction's causal prune result. |
 
 ## Deliberately untouched limits
 

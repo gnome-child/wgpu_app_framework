@@ -34,6 +34,16 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
     }
 
+    pub(in crate::runtime) fn cancel_pointer_gesture(&mut self, window: window::Id) {
+        if self
+            .gesture
+            .as_ref()
+            .is_some_and(|gesture| gesture.window == window)
+        {
+            self.gesture = None;
+        }
+    }
+
     pub(in crate::runtime::transaction) fn active_automatic_gesture(&self) -> bool {
         self.gesture.is_some()
     }

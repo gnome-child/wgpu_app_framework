@@ -236,9 +236,9 @@ impl Session {
         id: app_window::Id,
         removed_nodes: &[super::super::composition::NodeId],
         removed_elements: &[interaction::Id],
-    ) -> bool {
+    ) -> interaction::Pruned {
         let Some(window) = self.window_mut(id) else {
-            return false;
+            return interaction::Pruned::default();
         };
 
         window

@@ -453,18 +453,24 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 changes.removed_elements().len()
             );
         }
-        let interaction_pruned = !changes.is_empty()
-            && self.session.prune_removed_interaction(
+        let pruned = if changes.is_empty() {
+            crate::interaction::Pruned::default()
+        } else {
+            self.session.prune_removed_interaction(
                 window,
                 changes.removed(),
                 changes.removed_elements(),
-            );
-        let interaction = if interaction_pruned {
+            )
+        };
+        if pruned.capture_removed() {
+            self.cancel_pointer_gesture(window);
+        }
+        let interaction = if pruned.changed() {
             self.session.interaction(window).cloned()
         } else {
             interaction
         };
-        if interaction_pruned {
+        if pruned.changed() {
             log::debug!(
                 "pruned interaction state for removed composition nodes in window {window:?}"
             );

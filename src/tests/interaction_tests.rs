@@ -1,5 +1,26 @@
 use super::*;
 
+#[derive(Clone)]
+struct ReplacingInteractionState {
+    level: f64,
+    invocations: usize,
+    visible: bool,
+}
+
+impl State for ReplacingInteractionState {}
+
+impl Target<SetLevel> for ReplacingInteractionState {
+    fn state(&self, _: &f64, _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, level: f64, _: &mut Context) -> Response<f64> {
+        self.level = level;
+        self.invocations += 1;
+        Response::changed(level)
+    }
+}
+
 #[test]
 fn text_editor_menu_open_state_is_framework_owned_interaction() {
     let mut app = text_editor::app(text_editor::State::default());
@@ -367,6 +388,81 @@ fn pointer_actions_update_framework_owned_hover_and_press_state() {
     assert_eq!(interaction.pointer().pressed(), None);
     assert_eq!(interaction.pointer().capture(), None);
     assert_eq!(app.revision(), state::Revision::initial());
+}
+
+#[test]
+fn rebuilding_away_captured_command_prunes_pointer_and_history_gesture() {
+    let mut app = Runtime::new(ReplacingInteractionState {
+        level: 0.0,
+        invocations: 0,
+        visible: true,
+    })
+    .commands(|commands| {
+        commands.register::<SetLevel>(command::Spec::new("Set Level"));
+    })
+    .responders(|responders| {
+        responders.app().target::<SetLevel>();
+    })
+    .started(|cx| {
+        cx.open_window(window::Options::new("Replacing Interaction"));
+    })
+    .view(|state, _| {
+        widget::view(|ui| {
+            if state.visible {
+                ui.slider(
+                    widget::Slider::new("Level", state.level, 0.0..=10.0).on_change::<SetLevel>(),
+                );
+            } else {
+                ui.label("Control removed");
+            }
+        })
+    });
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 80);
+    let initial = app
+        .render_scene(window, size)
+        .expect("initial slider should render");
+    let slider = initial
+        .layout()
+        .find_role(view::Role::Slider)
+        .into_iter()
+        .next()
+        .expect("slider should be laid out");
+    let track = layout::slider_track_rect(slider.rect(), slider.label_width(), &Theme::default());
+    let press = geometry::Point::new(track.x() + track.width() / 2, track.y() + 1);
+
+    app.pointer_down_at(window, size, press)
+        .expect("slider press should begin a captured gesture");
+    assert_eq!(app.state().invocations, 1);
+    assert_eq!(app.window_residues(window).gesture, 1);
+
+    app.change(state::Reason::programmatic("remove_control"), |state| {
+        state.visible = false;
+    });
+    app.render_scene(window, size)
+        .expect("replacement view should reconcile");
+
+    let pointer = app
+        .session()
+        .interaction(window)
+        .expect("window should retain interaction state")
+        .pointer();
+    assert_eq!(pointer.hovered(), None);
+    assert_eq!(pointer.pressed(), None);
+    assert_eq!(pointer.capture(), None);
+    assert_eq!(
+        app.window_residues(window).gesture,
+        0,
+        "a gesture whose captured target was removed must not outlive capture"
+    );
+
+    let invocations = app.state().invocations;
+    app.pointer_up_at(window, size, press)
+        .expect("late release should be safely routed");
+    assert_eq!(app.state().invocations, invocations);
 }
 
 #[test]

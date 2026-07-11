@@ -27,6 +27,22 @@ pub(crate) struct Interaction {
     text_input: draft::Input,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Pruned {
+    changed: bool,
+    capture_removed: bool,
+}
+
+impl Pruned {
+    pub(crate) fn changed(self) -> bool {
+        self.changed
+    }
+
+    pub(crate) fn capture_removed(self) -> bool {
+        self.capture_removed
+    }
+}
+
 impl Interaction {
     pub(crate) fn new(draft_limit: usize) -> Self {
         let mut interaction = Self::default();
@@ -268,7 +284,7 @@ impl Interaction {
         &mut self,
         removed_nodes: &[super::composition::NodeId],
         removed_elements: &[Id],
-    ) -> bool {
+    ) -> Pruned {
         let removed =
             |target: &Target| target.matches_removed_identity(removed_nodes, removed_elements);
         let hovered_changed = self.pointer.hovered.as_ref().is_some_and(removed);
@@ -294,6 +310,13 @@ impl Interaction {
             .text_input
             .prune_removed(removed_nodes, removed_elements);
 
-        hovered_changed || pressed_changed || capture_changed || scroll_changed || text_changed
+        Pruned {
+            changed: hovered_changed
+                || pressed_changed
+                || capture_changed
+                || scroll_changed
+                || text_changed,
+            capture_removed: capture_changed,
+        }
     }
 }
