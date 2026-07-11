@@ -77,11 +77,11 @@ restoration (`S`), coordinates/scale (`K`), and concurrent/deferred completion
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | W-01 | Document truth | W | W | M | W | W | W | W | W | — | W | — | W |
 | W-02 | Capability | W | W | M | W | W | W | W | W | W | W | — | W |
-| W-03 | Interface | W | W | W | W | M | W | W | Gap X-01 | W | W | W | M |
-| W-04 | Presentation | W | W | W | W | W | W | W | W | W | W | M / X-04 | W |
-| W-05 | Application | W | W | W | Gap X-02 | Gap X-03 | W | W | W | W | W | — | W |
-| W-06 | Native boundary | W | W | W | H | W | — | W | W | W | W | M / X-04 | W |
-| W-07 | Root vocabulary | W | W | W | W | W | — | M / X-06 | W | — | W | M / X-04 | W |
+| W-03 | Interface | W | W | W | W | M | W | W | W / C-01 | W | W | W | M |
+| W-04 | Presentation | W | W | W | W | W | W | W | W | W | W | M / E-004 | W |
+| W-05 | Application | W | W | W | W / E-003 | W / E-003 | W | W | W | W | W | — | W |
+| W-06 | Native boundary | W | W | W | H / E-008 | W | — | W | W | W | W | M / E-004 | W |
+| W-07 | Root vocabulary | W | W | W | W | W | — | M / E-004 | W | — | W | M / E-004 | W |
 
 ### Witness receipts
 
@@ -120,10 +120,10 @@ restoration (`S`), coordinates/scale (`K`), and concurrent/deferred completion
 - Draft independence/retention and clip/reveal/scroll behavior are practiced in
   `src/tests/widget_text_box_tests.rs:418-959` and
   `src/tests/layout_scene.rs:279-2985`.
-- Gap X-01: production prunes hover, press, capture, scroll, and text drafts when
-  reconciliation removes their identities (`src/interaction/mod.rs:267-297`),
-  but no behavioral test removes the active target mid-interaction and then
-  delivers the late pointer event.
+- X-01 closed a real gap: removing an active target now prunes hover, press,
+  capture, scroll, drafts, and the causally related unfinished command gesture;
+  the late pointer release is inert. The reduced witness first failed and then
+  admitted C-01.
 
 `W-04 — Presentation`
 
@@ -145,13 +145,12 @@ restoration (`S`), coordinates/scale (`K`), and concurrent/deferred completion
   multi-window revision staleness, repeated drains, close, and restore
   (`src/tests/runtime_tests.rs`, `src/tests/host_shell_tests.rs`, and
   `src/tests/platform_tests.rs`).
-- Gap X-02: `Host` explicitly drops events and dialog results for unknown
-  windows (`src/host/mod.rs:99-116`), but no behavioral witness delivers them
-  after departure.
-- Gap X-03: public platform operations return backend errors, while the reusable
-  `FakeBackend` can only succeed. Error source formatting is tested, but an
-  operational backend failure has no journey witness. The current contract is
-  propagation and terminal handoff, not retry or rollback after failure.
+- X-02 now delivers stale pointer, key, redraw, and dialog-result events after
+  departure and proves that no state or work resurrects.
+- X-03 extends the reusable `FakeBackend` with a local failing-open mode. The
+  operational error crosses the existing public platform boundary unchanged;
+  the current contract remains propagation and terminal handoff, not retry or
+  rollback after failure.
 
 `W-06 — Native boundary`
 
@@ -178,30 +177,30 @@ restoration (`S`), coordinates/scale (`K`), and concurrent/deferred completion
 
 | Cell | Family | Census | Execution | Receipts / result |
 | --- | --- | --- | --- | --- |
-| S-01 | Document edits, history, save snapshots, out-of-order completion, persistence failure, clipboard, focus, departure | Complete | Pending | Existing whole journeys plus 10k/100k reference tiers. Document has no independent departure apart from its window/application owner. |
-| S-02 | Hidden/disabled/declined commands, nested responders, captured focus, palette, grouping, observers, target departure | Complete | Pending | Existing responder, command, notification, and close/stale-focus journeys cover the family. |
-| S-03 | Retained reorder/removal, focus traversal, pointer capture, drafts, scrolling, reveal, clipping, replacement | Complete with X-01 | Pending | Add one reduced removal-during-active-interaction witness using current reconciliation/pruning mechanics. |
-| S-04 | First/entering/live/exiting/reopened overlays, fallback, redraw-only work, multi-parent, scale, departure | Complete with X-04 | Pending | Existing overlay and popup cases cover lifecycle; run the consolidated endpoint/scale load. |
-| S-05 | Start, poll, task completion, requests, window lifecycle, stale events, repeated drain, backend failure, shutdown | Complete with X-02/X-03 | Pending | Add stale-after-departure and terminal backend-error propagation journeys; clean shutdown is window departure because no broader shutdown protocol exists. |
-| S-06 | 1.0/1.25/1.5/2.0 conversion, reconfiguration, alpha, cursor/IME hosts, fallback, hardware absence | Complete with X-04/X-05 | Pending | Run four-scale matrix and attempt all six GPU/readback witnesses. |
-| S-07 | Geometry/color/keymap/animation/effect/revision/window-fact round trips and boundary laws | Complete with X-06 | Pending | Add long deterministic law checks only for owners with stable observable invariants. |
+| S-01 | Document edits, history, save snapshots, out-of-order completion, persistence failure, clipboard, focus, departure | Complete | Held | Whole journeys, the existing 10k span-tree model, and the seeded 100k edit/undo oracle passed. Document departure remains its window/application owner's lifecycle rather than an invented independent event. |
+| S-02 | Hidden/disabled/declined commands, nested responders, captured focus, palette, grouping, observers, target departure | Complete | Held | The full responder, command, notification, history, and stale-focus families passed in the 812-test suite. |
+| S-03 | Retained reorder/removal, focus traversal, pointer capture, drafts, scrolling, reveal, clipping, replacement | Complete with X-01 | Held after C-01 | The reduced replacement-during-capture sequence found and corrected the sole production contradiction; all existing interface journeys passed. |
+| S-04 | First/entering/live/exiting/reopened overlays, fallback, redraw-only work, multi-parent, scale, departure | Complete with X-04 | Held | Existing lifecycle journeys plus 10k overlay updates and exact endpoint samples passed. |
+| S-05 | Start, poll, task completion, requests, window lifecycle, stale events, repeated drain, backend failure, shutdown | Complete with X-02/X-03 | Held | All 66 runtime/host/platform journeys passed, including the new stale-after-departure and failing-backend boundaries. Clean shutdown is window departure because no broader shutdown protocol exists. |
+| S-06 | 1.0/1.25/1.5/2.0 conversion, reconfiguration, alpha, cursor/IME hosts, fallback, hardware absence | Complete with X-04/X-05 | Held | Four-scale deterministic matrix passed; hardware was available and all six GPU/readback diagnostics passed. |
+| S-07 | Geometry/color/keymap/animation/effect/revision/window-fact round trips and boundary laws | Complete with X-06 | Held | Existing focused witnesses and 40k new animation/effect/settle/coordinate law cases passed. |
 
 ## Minimum-breadth ledger
 
 | Gate | Required | Result |
 | --- | --- | --- |
-| Full lifecycle table for all seven constellations | 7 | Pending |
-| Adversarial sequence for every meaningful lifecycle axis | Complete census | Pending |
-| Deterministic operations per applicable pure state machine | At least 10,000 | Held for five newly exercised owners plus the existing 10k span-tree witness; the separate ignored 100k text oracle remains to execute |
-| Multi-step application/platform traces | At least 25 | Pending |
+| Full lifecycle table for all seven constellations | 7 | Held: W-01 through W-07 classify every meaningful axis and name honest non-referents |
+| Adversarial sequence for every meaningful lifecycle axis | Complete census | Held: S-01 through S-07 executed; whole, mechanism, and hardware evidence remain distinguished |
+| Deterministic operations per applicable pure state machine | At least 10,000 | Held: five new 10k owners, existing 10k span-tree model, and separate seeded 100k text oracle |
+| Multi-step application/platform traces | At least 25 | Held: all 66 existing runtime/host/platform journeys plus two new adversarial journeys passed |
 | Coordinate scale matrix | 1.0, 1.25, 1.5, 2.0 | Held: 2,500 deterministic coordinate cases at each scale, in addition to focused existing cases |
 | Transition boundary matrix | Immediately before, at, and after endpoints | Held: exact overlay 4999/5000/5001 witnesses plus 10,000 schedule/transition endpoint cases |
-| Existing library suite | Full | Pending |
-| Example smokes | 3 | Pending |
-| Ignored 100k text reference property | 1 | Pending |
-| Release text acceptance benchmark | 1 | Pending |
-| GPU/native diagnostic tiers | Attempt when available | Pending |
-| Replay every reduced failure | All | Pending |
+| Existing library suite | Full | Held: 812 passed, 8 deliberately ignored, 0 failed in 0.81 s |
+| Example smokes | 3 | Held: `text_editor`, `control_gallery`, and `glass_tuner` smoke executables exited successfully |
+| Ignored 100k text reference property | 1 | Held: seed `0xd1b5_4a32_d192_ed03`, 100,000 operations, 0.57 s release execution |
+| Release text acceptance benchmark | 1 | Held: 8 MiB load 29.531 ms; large typing 3.344–3.898 µs/edit; 10 B/10 MiB clones 35.329/35.647 ns |
+| GPU/native diagnostic tiers | Attempt when available | Held: hardware available; all 6 ignored shader/readback witnesses passed in 1.35 s |
+| Replay every reduced failure | All | Held: F-01/C-01 replayed independently after the complete matrix |
 
 ## Existing mechanics inventory
 
@@ -244,6 +243,10 @@ restoration (`S`), coordinates/scale (`K`), and concurrent/deferred completion
 | E-002 | X-01 replay and C-01 ritual | Same reduced sequence; full library and three examples | Held | Reduced test passed. Library: 805 passed, 8 ignored. All example checks, formatting, diff check, and protected-state check passed. |
 | E-003 | X-02/X-03 application absence and failure | Four stale post-departure events; one backend open failure | Held | Stale pointer, key, redraw, and dialog-result events each produced empty work and no state resurrection. Backend `open_window` failure crossed as `platform::Error::Backend("open failed")` without recording completed backend work. |
 | E-004 | X-04/X-06 deterministic law tier | 10,000 cases each for animation/schedule (`0x6a09_e667_f3bc_c909`), overlay (`0x3c6e_f372_fe94_f82b`), paint coordinates (`0xbb67_ae85_84ca_a73b`), response effects (case enumeration), and native settle state (case enumeration) | Held after oracle reduction | 50,000 new cases passed in 0.11 s. The scale family cycles 1.0/1.25/1.5/2.0. Overlay includes periodic `Departed` resets. Two initial animation assertions demanded bit equality from algebraically equivalent `f32` endpoint expressions; fixed 1e-4 equivalence passed without framework change. |
+| E-005 | X-07 complete ordinary and application matrix | 820 discovered library tests; all 66 runtime/host/platform journeys; three external smoke executables | Held | Library: 812 passed, 8 ignored, 0 failed in 0.81 s. Every smoke process reached its assertions and exited 0. |
+| E-006 | X-08 text reference tier | Seed `0xd1b5_4a32_d192_ed03`; 100,000 randomized edit/undo/redo operations against the String/line-start oracle | Held | Release execution passed in 0.57 s. |
+| E-007 | X-08 release text acceptance | 8 MiB load; typing at 10 B, 2.5 MB, 5 MB, and 10 MB; clone at 10 B and 10 MB | Held | Load 29.531 ms; typing 2.705/3.344/3.898/3.679 µs per edit; clone 35.329/35.647 ns. |
+| E-008 | X-05 hardware/native diagnostics | Six ignored tests: shared shader compilation, direct alpha, quad AA, glyph coverage, group opacity, popup sRGB pack | Held | A GPU adapter was available. All six passed in 1.35 s; no simulated success or hardware waiver was used. |
 
 ## Failure and reduction ledger
 
@@ -268,7 +271,7 @@ still require a reduced failing sequence.
 
 | ID | Commit subject | Hash | Files | Insertions | Deletions | Witness and outcome |
 | --- | --- | --- | --- | --- | --- | --- |
-| C-01 | `C-01 Cancel gestures whose capture is pruned` | Final checkpoint | 6 | 147 | 10 | `rebuilding_away_captured_command_prunes_pointer_and_history_gesture`; old belief: pruning pointer state was sufficient. New belief: the runtime gesture cannot outlive its captured command target. Owner: runtime gesture lifecycle, informed by interaction's causal prune result. |
+| C-01 | `C-01 Cancel gestures whose capture is pruned` | `9ae2a2e2` | 6 | 147 | 10 | `rebuilding_away_captured_command_prunes_pointer_and_history_gesture`; old belief: pruning pointer state was sufficient. New belief: the runtime gesture cannot outlive its captured command target. Owner: runtime gesture lifecycle, informed by interaction's causal prune result. |
 
 ## Deliberately untouched limits
 
@@ -280,5 +283,50 @@ still require a reduced failing sequence.
 
 ## Fixed-point sweep
 
-Pending complete census, execution, reduction, replay, and final admission
-sweep.
+The complete matrix was replayed after C-01: 812 ordinary tests passed, all
+three example smokes passed, 50,000 new deterministic cases passed, the 100k
+text oracle and release benchmark passed, and all six hardware witnesses
+passed. F-01's reduced witness then passed independently. Formatting, diff,
+protected-state, and clean-worktree checks are the final commit gate.
+
+The final admission sweep found no second deterministic contradiction. P-01
+remains a test-surface limit, not framework authority: the external glass-tuner
+smoke must observe public wall-clock presentation because its injected-time
+entry point is intentionally crate-private. Widening that API or weakening the
+assertion would violate this audit's rails.
+
+## Remaining unpracticed beliefs
+
+- Human-perceived native popup first-frame quality and visual material tuning
+  remain manual/product evidence. The automated shader and readback semantics
+  passed, but they cannot prove a composited frame looks right to a person.
+- The document has no separate departure protocol apart from ownership by its
+  window/application. The audit records that boundary rather than inventing a
+  lifecycle event.
+- Application-wide shutdown has no stronger public promise than orderly window
+  departure and drained work. Retry or rollback after an operational backend
+  error is likewise unspecified.
+- History grouping time windows and several root vocabulary laws remain focused
+  mechanism witnesses, not independent end-to-end constellations. Their whole
+  effects are covered by the interface/document journeys that consume them.
+
+## Most surprising sequence
+
+Pressing a slider, allowing its command to rebuild the view without that
+slider, and then doing nothing else was enough to leave an unfinished history
+gesture alive. Reconciliation correctly removed hover, press, and pointer
+capture, making the interface appear clean, while the separately owned runtime
+gesture silently survived and could contaminate the next interaction. The
+smallest correction was not another cleanup pass: the existing prune operation
+now reports causal capture removal so the existing gesture owner can cancel
+only the affected window's gesture.
+
+## Final result
+
+All seven constitutional constellations now have a completed adversarial
+lifecycle census and falsifiable execution result. One of eight available
+correction slots was used. The audit added no public API, feature, visual
+change, benchmark dependency, general test framework, or roadmap work, and it
+preserved `comparison_open: true`. The highest concepts survived the complete
+matrix after C-01; the remaining uncertainties above are explicit boundaries,
+not inferred success.
