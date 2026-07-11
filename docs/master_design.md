@@ -279,6 +279,12 @@ identity.
 Owns measurement, frame construction, text measurement integration, and
 hit-testing. Layout answers "where is it?" and "what was hit?" It should not
 answer "can this command run?" or "what side effect should happen?"
+`Frame` is one common geometry/identity/clip/presentation envelope around a
+typed `FrameContent`. The content discriminant is the frame's role truth and
+owns mutually exclusive choice, text, slider, scroll, and unit-role payloads;
+there is no independent copied role or parallel optional leaf-payload cluster.
+Bound presentation remains a common typed optional because ordinary Elements,
+controls, menu bindings, and palette Labels can all truthfully carry commands.
 Its measurement contract is constraints down and size hints up: hints are
 advisory, constraints are law, and parents place children.
 Padding and gap are separate layout concepts: padding is edge inset inside a

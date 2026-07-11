@@ -6,10 +6,10 @@ is next.
 
 ## In flight
 
-10. **Tables arc — checkpoint 2, `FrameContent` decomposition.** Migrate the
-    existing role families through one typed frame payload, deleting the
-    legacy optional payload cluster at the checkpoint boundary while behavior
-    and the text performance gate remain fixed.
+10. **Tables arc — checkpoint 3, virtual region/list.** Establish the flat,
+    uniform-height provided-container grammar with stable provider keys,
+    bounded materialization, pinning, and one-million-row complexity evidence
+    before adding selection or table tracks.
 
 ## Specced and ready
 
@@ -51,13 +51,13 @@ is next.
 10. **Tables arc** — assembly of proven citizens; six independently green
     checkpoints within one persistent campaign, in order:
     1. Text overflow (complete at `dfa728f2`; item 9 pruned).
-    2. **`FrameContent` decomposition** (in flight) — one `Frame` keeps common
+    2. **`FrameContent` decomposition** (complete at `35736441`) — one `Frame` keeps common
        geometry/identity/clip/presentation; role payloads become a typed
        content enum (the `view::Node`/`Control` idiom), over the existing
        17 roles. Success condition: incompatible payload combinations are
        unrepresentable while all roles keep identical behavior. Cashes the
        Examen R-02 flag.
-    3. **Virtual region/list** — the provided-container species, v1 flat:
+    3. **Virtual region/list** (in flight) — the provided-container species, v1 flat:
        uniform row height, stable provider keys, overscan, jump scrolling,
        provider shrink/reorder, bounded materialization. Doctrine:
        dematerialization is not removal. Pinning rule: focused, captured,

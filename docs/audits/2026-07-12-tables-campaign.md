@@ -61,8 +61,8 @@ through the remaining campaign or redefining completion.
 | Checkpoint | Contract | Status | Boundary proof |
 | --- | --- | --- | --- |
 | 1 | Text overflow and three text kinds | Complete | 824 passed + 8 ignored in 0.87 s; three smokes; release text gate held |
-| 2 | Typed `FrameContent` over the existing roles | In progress | Current-tree family census is the next action; no implementation has begun |
-| 3 | Uniform virtual region/list | Pending | One million logical rows produce bounded materialization and work |
+| 2 | Typed `FrameContent` over the existing roles | Complete | One content discriminant; 825/8 in 0.88 s; three smokes; release gate held |
+| 3 | Uniform virtual region/list | In progress | Current-tree provider/viewport/pinning census is the next action |
 | 4 | Keyed selection and active item | Pending | Independent long state-machine and virtualization journeys |
 | 5 | Read-only record table | Pending | Large gallery table with tracks, headers, resize, sort intent, selection and public cells |
 | 6 | Editable cells | Pending | Numeric plus textual/enumerated editors with stable cell identity |
@@ -83,6 +83,9 @@ The names follow the house idiom: `Overflow` is supporting vocabulary
 namespaced under `text`; the existing `Label` and `Node` concepts gain narrow
 constructors rather than an alias or a new widget. No naming uncertainty is
 carried into checkpoint 2.
+
+Checkpoint 2 added no public API. `FrameContent`, its family payloads, and the
+single-representation witness are crate-internal layout structure.
 
 ## Pending eyes
 
@@ -165,7 +168,7 @@ structural presentation roles; it is not a leaf-role payload.
 | Text | Label, SectionHeader, TextArea, TextBox | label kind/overflow or typed area/field model plus owned layout geometry | measurement, hit/drag caret mapping, runtime text projection, scene text paint |
 | Slider | Slider | model plus derived track rect | hit value mapping, capture/gesture action, scene paint, native presentation transform |
 | Scroll and floating | Scroll, FloatingPanel | scroll viewport only on Scroll; floating remains a unit semantic variant | reveal/wheel/chrome and overlay/native layer routing |
-| Remaining specialized | Menu, Binding, Separator, Button | binding shortcut payload only on Binding; other roles are unit variants | menu/palette row paint, shortcuts, menu actions, button paint |
+| Remaining specialized | Menu, Binding, Separator, Button | bound presentation follows any truthfully bound role; Separator alone carries an unbound reserved menu column; roles remain unit variants | menu/palette row paint, shortcuts, menu actions, button paint |
 
 The complete widget-audit downstream index remains the migration navigation
 map: `layout/algorithm`, `layout/measure`, `layout/frame`, `layout/chrome`,
@@ -175,17 +178,17 @@ consolidated merely because it also inspects a role.
 
 | Cell | Scenario | Required result | Current mechanism / migration proof | Status |
 | --- | --- | --- | --- | --- |
-| C2-01 | One discriminant | `Frame` stores `content: FrameContent`; `role()` derives from it | Independent `role` plus optional cluster exists today | Planned |
-| C2-02 | Structural family | Root/Stack/MenuBar/Panel cannot carry leaf payload | Roles are currently only a copied enum value | Planned |
-| C2-03 | Choice family | Checkbox and Radio share geometry/paint family but carry exactly one correct model | Separate optional `checkbox` and `radio` can coexist | Planned |
-| C2-04 | Text family | Label/header/area/field payloads are exclusive; user-text layout and world overflow retain behavior | Seven optional/derived text fields coexist | Planned |
-| C2-05 | Slider | Slider model and track geometry travel together and no other role can hold them | Two independent slider optionals exist | Planned |
-| C2-06 | Scroll/floating | Viewport mutation is legal only for Scroll; floating behavior stays unit/common presentation | Generic optional viewport currently also serves TextArea | Planned |
-| C2-07 | Remaining specialized | Shortcut display/width mutation is legal only for Binding; unit roles gain no ornamental structs | Three shortcut fields are generic Frame optionals | Planned |
-| C2-08 | Interaction equivalence | Hit, action, drag, focus, capture and reveal journeys remain byte-for-behavior equivalent | Narrow Frame accessors already centralize consumers | Planned |
-| C2-09 | Presentation equivalence | Paint, overlay, chrome and Slider native transform retain exact branches | Downstream branch index and full suite are authoritative | Planned |
-| C2-10 | Single representation | Legacy role and optional payload cluster are absent; one source witness pins this | No structural absence witness exists | Planned |
-| C2-11 | Performance/non-scope | Suite gauge and release text benchmark hold; no table role/API/feature appears | C1 gate is 824/8 in 0.88 s and 31.167 ms load | Planned |
+| C2-01 | One discriminant | `Frame` stores `content: FrameContent`; `role()` derives from it | Independent role deleted in first family commit | Held |
+| C2-02 | Structural family | Root/Stack/MenuBar/Panel cannot carry leaf payload | Restricted `StructuralRole` inside `FrameContent` | Held |
+| C2-03 | Choice family | Checkbox and Radio share geometry/paint family but carry exactly one correct model | `ChoiceContent::{Checkbox, Radio}` | Held |
+| C2-04 | Text family | Label/header/area/field payloads are exclusive; user-text layout and world overflow retain behavior | `TextContent` variants own model/layout/geometry; 141 focused text/layout journeys held | Held |
+| C2-05 | Slider | Slider model and track geometry travel together and no other role can hold them | `SliderContent`; widget, scene and native-transform slider journeys held | Held |
+| C2-06 | Scroll/floating | Viewport mutation is legal only for Scroll; floating behavior stays unit/common presentation | `ScrollContent`; 41 scroll and 8 floating focused journeys held | Held |
+| C2-07 | Remaining specialized | Shortcut display/width follows truthful bound roles; Separator alone owns unbound row reservation | `BoundContent` plus `SeparatorContent`; reduced menu/palette journeys held | Held |
+| C2-08 | Interaction equivalence | Hit, action, drag, focus, capture and reveal journeys remain byte-for-behavior equivalent | Existing narrow accessors retained; full suite held | Held |
+| C2-09 | Presentation equivalence | Paint, overlay, chrome and Slider native transform retain exact branches | Downstream consumers unchanged; full suite and smokes held | Held |
+| C2-10 | Single representation | Legacy role and optional payload cluster are absent; one source witness pins this | `frame_content_is_the_single_role_payload_representation` passes | Held |
+| C2-11 | Performance/non-scope | Suite gauge and release text benchmark hold; no table role/API/feature appears | 825/8 in 0.88 s; release figures below; no public API or role added | Held |
 
 Expected exclusions: no public API, role, widget, table behavior, capability
 table, generic property bag, or phase-policy consolidation. Family commits may
@@ -204,6 +207,11 @@ be green and the checkpoint boundary may contain only `FrameContent`.
 | E-005 | C1 external smoke gate | Held | `text_editor`, `control_gallery`, and `glass_tuner` all exited 0 |
 | E-006 | C1 release text gate | Held | 31.167 ms load; 2.537 / 3.317 / 3.495 / 3.651 µs typing; 37.450 / 37.632 ns clones; 0.70 s benchmark work |
 | E-007 | C1 caller-local truncation fixed point | Held | Removed the old path substring helper; repeated full suite 824/8 in 0.88 s and all three smokes exited 0 |
+| E-008 | C2 family gates 1–5 | Held | 90 layout, 5 choice, 23 TextBox, 28 text-input, 11 slider, 41 scroll and 8 floating focused journeys passed |
+| E-009 | C2 remaining-family first gate | Failed and reduced | Menu Separator rejected shortcut width; palette Label lost bound shortcut projection |
+| E-010 | C2 reduced remaining family | Held | Four exact failures plus complete menu-popup and command-palette families passed |
+| E-011 | C2 full library and smoke gate | Held | 833 discovered: 825 passed, 8 deliberately ignored, 0 failed in 0.88 s; three smokes exited 0 |
+| E-012 | C2 release text gate | Held | 30.158 ms load; 2.730 / 3.702 / 3.872 / 3.621 µs typing; 35.557 / 37.060 ns clones; 0.67 s benchmark work |
 
 ## Failure and reduction ledger
 
@@ -213,6 +221,14 @@ that mixed authored diagnostics with file/status world data. Commit `3ef75719`
 changed those witnesses to assert the new provenance split and the added author
 overflow instrument. All three focused journeys and the repeated full suite
 then passed. No unresolved failure crosses the checkpoint boundary.
+
+The first C2 remaining-family gate disproved the census claim that shortcut
+presentation belonged only to `Role::Binding`. The reduced evidence showed two
+existing truths: palette results are bound Labels, and menu Separators reserve
+the shared shortcut column without a binding. The final model therefore keeps
+typed bound presentation common to any bound role and gives Separator only its
+reserved width. Four exact failures and both complete families passed after the
+correction. No failed representation crosses the checkpoint boundary.
 
 ## Commit ledger
 
@@ -224,6 +240,13 @@ then passed. No unresolved failure crosses the checkpoint boundary.
 | 1 | `c8deeb29` | 2 | 32 | 5 | Doctrine and honest text-editor callers |
 | 1 | `3ef75719` | 2 | 10 | 3 | Reduced full-gate expectations updated |
 | 1 | `dfa728f2` | 6 | 23 | 37 | Caller-local path truncation retired; world policy is sole display owner |
+| 2 | `873b6c5f` | 1 | 54 | 0 | Current-tree family census recorded |
+| 2 | `32c50996` | 1 | 81 | 9 | Independent role deleted; structural content introduced |
+| 2 | `23e9a8f8` | 1 | 30 | 17 | Choice models made exclusive |
+| 2 | `9afe26dc` | 1 | 110 | 62 | Text payload family migrated |
+| 2 | `0acfa2c4` | 1 | 27 | 11 | Slider model and track migrated together |
+| 2 | `e0964c13` | 1 | 14 | 7 | Scroll viewport restricted to Scroll content |
+| 2 | `35736441` | 2 | 95 | 19 | Bound/specialized family finished; absence witness added |
 
 ## Final fixed-point sweep
 
