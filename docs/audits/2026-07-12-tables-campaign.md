@@ -283,6 +283,51 @@ The honest control-gallery caller compiles against `VirtualList` and
 | C3-16 | Million-row witness | Node/frame/paint/provider-call counts stay bounded across initial, jump, reorder, shrink and resize journeys | Six deterministic virtual-list journeys bound all new work | Held |
 | C3-17 | Honest caller | Control gallery exercises a real large provided list made of public widgets | One-million-row gallery provider builds ordinary Element/Label rows | Held |
 
+## Checkpoint 4 census — keyed selection and active item
+
+Current-tree ownership decision: generic row selection is window-local runtime
+interaction state. It exists because a user is operating a presented list, does
+not dirty application data, must not enter application undo, and must not leak
+between two windows or two list ids. The existing command-palette selected
+index proves the session/interaction owner, while the master doctrine already
+separates active item from keyboard focus. Unlike the palette's small filtered
+index, the reusable model keys every durable fact by `virtual_list::Key`.
+
+The framework stores one selection per `(window, list id)`. Applications may
+inspect a read-only public `selection::Selection` through `Session`; mutations
+come from pointer/keyboard input, not a second app-owned copy. Membership uses
+explicit keys for ordinary selections and all-except for select-all, so one
+million selected logical rows require constant state and do not materialize
+rows. Anchor and active are optional stable keys. Provider reverse lookup and
+key construction remain the only order oracle.
+
+Selection reuses the landed virtual-list path: provider rows remain ordinary
+nodes; selected/active presentation projects through existing view/frame visual
+state; range and navigation use provider indices without scanning nodes;
+offscreen selected rows never enter the pin set; an offscreen active target is
+materialized before reveal or any later focus transfer. No text-selection
+mechanic, app history entry, alternate provider identity, or table role is
+admitted.
+
+| Cell | Scenario | Required result | Existing owner / missing seam | Status |
+| --- | --- | --- | --- | --- |
+| C4-01 | Empty | New selectable list has no members, anchor, or active key | Session interaction exists; keyed selection store is missing | Planned |
+| C4-02 | Single | Plain click replaces membership and sets anchor/active | Pointer hit/layout ancestry exists; provider-row lookup is missing | Planned |
+| C4-03 | Modifier toggle | Primary-modified click toggles one stable key without index identity | Input modifiers and provider keys exist | Planned |
+| C4-04 | Range | Shift selection spans current provider order from stable anchor to target | Provider reverse lookup/key construction exist | Planned |
+| C4-05 | Select all | Primary+A selects one million rows without one million stored keys or views | Keymap doctrine exists; all-except membership is missing | Planned |
+| C4-06 | Anchor and active | Anchor survives ordinary extension; active follows the navigation endpoint | Palette has only an index; reusable stable-key state is missing | Planned |
+| C4-07 | Keyboard navigation | Arrows/Home/End/Page move active by provider order and optionally extend | Key input and viewport geometry exist; list scope routing is missing | Planned |
+| C4-08 | Reorder persistence | Membership, anchor, and active follow keys while indices change | Provider keys and reverse lookup exist | Planned |
+| C4-09 | Growth/shrink | Growth preserves state; deleted selected/anchor/active keys reconcile deterministically | Runtime rebuild sees current provider; reconciliation is missing | Planned |
+| C4-10 | Departure/restoration | Window/list scoping survives runtime snapshot restore and clears on actual window departure | Window snapshot/departure owners exist | Planned |
+| C4-11 | Unmaterialized movement | Navigation can target a logical offscreen key without scanning or constructing intervening rows | C3 keyed pre-materialization seam exists | Planned |
+| C4-12 | Focus ordering | Any focus transfer happens only after target materialization; active item itself does not steal focus | Focus/active-item doctrine and C3 seam exist | Planned |
+| C4-13 | Selection non-pin | Large offscreen selection remains unmaterialized; only focus/capture/edit pin | C3 pin collector has no selection input | Planned |
+| C4-14 | Large complexity | Million-row select-all and navigation keep state, view, frame, paint, and provider work bounded | All-except state and deterministic counters are missing | Planned |
+| C4-15 | Independence | Two list ids and two windows never share membership/anchor/active | Interaction is already per-window; keyed list store is missing | Planned |
+| C4-16 | Visual projection | Materialized selected/active rows use existing selected visual truth without a parallel paint system | Node/Frame/Visual selected path exists | Planned |
+
 ## Execution ledger
 
 | Run | Checkpoint / cells | Result | Evidence |
