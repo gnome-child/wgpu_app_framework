@@ -82,6 +82,7 @@ impl Input {
         target: Target,
         base: impl Into<String>,
         edit: text::edit::Edit,
+        input: text::Input,
     ) -> Change {
         let base = base.into();
         let target_changed = self.target.as_ref() != Some(&target);
@@ -103,7 +104,7 @@ impl Input {
         let before_text = draft.text().to_owned();
         let before_cursor = draft.cursor();
         let before_selection = draft.selection();
-        let submit = draft.apply(edit);
+        let submit = draft.apply(edit, input);
         let text = draft.text().to_owned();
         let cursor = draft.cursor();
         let selection = draft.selection();

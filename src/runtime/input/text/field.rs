@@ -18,6 +18,14 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .map(str::to_owned)
     }
 
+    pub(in crate::runtime) fn text_box_input(
+        &self,
+        window: window::Id,
+        focus: session::Focus,
+    ) -> Option<text::Input> {
+        self.composition.get(window)?.view().text_box_input(focus)
+    }
+
     pub(super) fn handle_text_box_edit(
         &mut self,
         window: window::Id,
@@ -40,7 +48,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let Some(base) = self.text_box_base_text(window, focus) else {
             return Ok(None);
         };
-        let Some(change) = self.session.edit_text_draft(window, focus, base, edit) else {
+        let input = self
+            .text_box_input(window, focus)
+            .unwrap_or_else(text::Input::unrestricted);
+        let Some(change) = self
+            .session
+            .edit_text_draft(window, focus, base, edit, input)
+        else {
             return Ok(None);
         };
         if focus.same_target(&interaction::CommandPalette::query_focus())

@@ -40,6 +40,13 @@ impl<'a> FocusedTextBox<'a> {
             .map(str::to_owned)
     }
 
+    fn input(&self) -> text::Input {
+        self.composition
+            .get(self.window)
+            .and_then(|composition| composition.view().text_box_input(self.focus))
+            .unwrap_or_else(text::Input::unrestricted)
+    }
+
     fn draft(&self) -> Option<draft::State> {
         let base = self.base_text()?;
         let target = interaction::Target::text_area(self.focus);
@@ -74,9 +81,10 @@ impl<'a> FocusedTextBox<'a> {
                 clipboard_changed,
             ));
         };
+        let input = self.input();
         let Some(change) = self
             .session
-            .edit_text_draft(self.window, self.focus, base, edit)
+            .edit_text_draft(self.window, self.focus, base, edit, input)
         else {
             return Response::output(document::Outcome::from_text_change(
                 false,

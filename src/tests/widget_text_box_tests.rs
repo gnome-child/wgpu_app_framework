@@ -863,6 +863,141 @@ fn text_box_paste_replaces_selection_and_truncates_to_first_line() {
 }
 
 #[test]
+fn numeric_text_box_normalizes_paste_and_keeps_undo_redo_on_the_final_draft() {
+    let focus = session::Focus::text("unsigned-number");
+    let mut app = Runtime::new(TextBoxSubmitState::default())
+        .commands(|commands| {
+            commands.install(document::Editing::standard());
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Numeric Text Box Paste"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.text_box(
+                    widget::TextBox::new("7")
+                        .input(text::Input::unsigned_integer())
+                        .focus(focus),
+                );
+            })
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    app.present(window)
+        .expect("numeric text box should present");
+    app.handle_input(window, Input::focus(focus))
+        .expect("numeric text box should focus");
+    app.handle_input(
+        window,
+        Input::key_down(
+            input::Key::Character('a'),
+            input::Modifiers::new(false, true, false, false),
+        ),
+    )
+    .expect("ctrl-a should select the numeric draft");
+    app.clipboard()
+        .put(&clipboard::Text::new(" 42 "))
+        .expect("clipboard write should succeed");
+    app.handle_input(
+        window,
+        Input::key_down(
+            input::Key::Character('v'),
+            input::Modifiers::new(false, true, false, false),
+        ),
+    )
+    .expect("paste should run through the whole-draft policy");
+    assert_eq!(text_draft(&app, window, focus).text(), "42");
+
+    app.handle_input(
+        window,
+        Input::key_down(
+            input::Key::Character('z'),
+            input::Modifiers::new(false, true, false, false),
+        ),
+    )
+    .expect("undo should restore the pre-paste draft");
+    assert_eq!(text_draft(&app, window, focus).text(), "7");
+    app.handle_input(
+        window,
+        Input::key_down(
+            input::Key::Character('y'),
+            input::Modifiers::new(false, true, false, false),
+        ),
+    )
+    .expect("redo should restore the normalized draft");
+    assert_eq!(text_draft(&app, window, focus).text(), "42");
+
+    app.handle_input(
+        window,
+        Input::key_down(
+            input::Key::Character('a'),
+            input::Modifiers::new(false, true, false, false),
+        ),
+    )
+    .expect("ctrl-a should select the normalized draft");
+    app.clipboard()
+        .put(&clipboard::Text::new("-"))
+        .expect("clipboard write should succeed");
+    app.handle_input(
+        window,
+        Input::key_down(
+            input::Key::Character('v'),
+            input::Modifiers::new(false, true, false, false),
+        ),
+    )
+    .expect("rejected paste is still handled by the focused text box");
+    assert_eq!(text_draft(&app, window, focus).text(), "42");
+}
+
+#[test]
+fn numeric_text_box_never_filters_preedit_and_evaluates_ime_commit_once() {
+    let focus = session::Focus::text("signed-number");
+    let mut app = Runtime::new(TextBoxSubmitState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Numeric Text Box IME"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.text_box(
+                    widget::TextBox::new("")
+                        .input(text::Input::signed_integer())
+                        .focus(focus),
+                );
+            })
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    app.present(window)
+        .expect("numeric text box should present");
+    app.handle_input(window, Input::focus(focus))
+        .expect("numeric text box should focus");
+
+    app.handle_input(
+        window,
+        Input::text_preedit(text::edit::Preedit::new("composition", None)),
+    )
+    .expect("preedit should remain uninterrupted by numeric policy");
+    let target = interaction::Target::text_area(focus);
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.text_input().preedit_for(&target))
+            .map(text::edit::Preedit::text),
+        Some("composition")
+    );
+
+    app.handle_input(window, Input::text_commit(" -42 "))
+        .expect("committed IME text should evaluate as one proposed draft");
+    assert_eq!(text_draft(&app, window, focus).text(), "-42");
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.text_input().preedit_for(&target))
+            .is_none()
+    );
+}
+
+#[test]
 fn text_box_undo_redo_uses_focused_draft_history() {
     let focus = session::Focus::text("search");
     let mut app = Runtime::new(TextBoxSubmitState::default())

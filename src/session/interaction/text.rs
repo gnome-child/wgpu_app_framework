@@ -50,6 +50,7 @@ impl Session {
         focus: Focus,
         base: impl Into<String>,
         edit: text::edit::Edit,
+        input: text::Input,
     ) -> Option<draft::Change> {
         let window = self.window_mut(id)?;
         if !window
@@ -60,11 +61,12 @@ impl Session {
             return None;
         }
 
-        Some(
-            window
-                .interaction
-                .edit_text_draft(interaction::Target::text_area(focus), base, edit),
-        )
+        Some(window.interaction.edit_text_draft(
+            interaction::Target::text_area(focus),
+            base,
+            edit,
+            input,
+        ))
     }
 
     pub(crate) fn undo_text_draft(

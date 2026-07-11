@@ -216,6 +216,10 @@ impl View {
         self.root.text_box_for_focus(focus).map(TextBox::text)
     }
 
+    pub(super) fn text_box_input(&self, focus: session::Focus) -> Option<crate::text::Input> {
+        self.root.text_box_for_focus(focus).map(TextBox::input)
+    }
+
     pub(super) fn text_input_target(&self, focus: session::Focus) -> Option<interaction::Target> {
         self.root.text_input_target_for_focus(focus)
     }

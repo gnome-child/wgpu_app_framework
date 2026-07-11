@@ -1,4 +1,4 @@
-use crate::{command, context::Source, session, view};
+use crate::{command, context::Source, session, text, view};
 
 use super::super::{Widget, trigger::TextBoxBinding};
 
@@ -6,6 +6,7 @@ pub struct TextBox {
     text: String,
     placeholder: Option<String>,
     focus: Option<session::Focus>,
+    input: text::Input,
     binding: Option<TextBoxBinding>,
 }
 
@@ -15,6 +16,7 @@ impl TextBox {
             text: text.into(),
             placeholder: None,
             focus: None,
+            input: text::Input::unrestricted(),
             binding: None,
         }
     }
@@ -26,6 +28,11 @@ impl TextBox {
 
     pub fn focus(mut self, focus: session::Focus) -> Self {
         self.focus = Some(focus);
+        self
+    }
+
+    pub fn input(mut self, input: text::Input) -> Self {
+        self.input = input;
         self
     }
 
@@ -51,7 +58,7 @@ impl TextBox {
 impl Widget for TextBox {
     fn into_node(self) -> view::Node {
         let text = self.text;
-        let mut text_box = view::TextBox::new(text.clone());
+        let mut text_box = view::TextBox::new(text.clone()).with_input(self.input);
         if let Some(placeholder) = self.placeholder {
             text_box = text_box.with_placeholder(placeholder);
         }

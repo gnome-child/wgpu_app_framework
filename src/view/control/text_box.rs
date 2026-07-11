@@ -9,6 +9,7 @@ use std::time::Instant;
 pub struct TextBox {
     text: String,
     placeholder: Option<String>,
+    input: text::Input,
     focus: Option<session::Focus>,
     focused: bool,
     focus_visible: bool,
@@ -23,6 +24,7 @@ impl TextBox {
         Self {
             text: text.into(),
             placeholder: None,
+            input: text::Input::unrestricted(),
             focus: None,
             focused: false,
             focus_visible: false,
@@ -43,12 +45,21 @@ impl TextBox {
         self
     }
 
+    pub fn with_input(mut self, input: text::Input) -> Self {
+        self.input = input;
+        self
+    }
+
     pub fn text(&self) -> &str {
         &self.text
     }
 
     pub fn placeholder(&self) -> Option<&str> {
         self.placeholder.as_deref()
+    }
+
+    pub fn input(&self) -> text::Input {
+        self.input
     }
 
     pub fn display_text(&self) -> &str {

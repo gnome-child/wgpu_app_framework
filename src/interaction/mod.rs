@@ -262,8 +262,9 @@ impl Interaction {
         target: Target,
         base: impl Into<String>,
         edit: text::edit::Edit,
+        input: text::Input,
     ) -> draft::Change {
-        self.text_input.edit(target, base, edit)
+        self.text_input.edit(target, base, edit, input)
     }
 
     pub(super) fn undo_text_draft(&mut self, target: &Target) -> Option<draft::Change> {

@@ -50,8 +50,8 @@ vocabularies are admitted.
 | --- | --- | --- | --- |
 | 1 | One sizing truth: shared `view::Dimension`, minimum-preserving overflow pressure, delete `table::Width` | Complete | `9f5e73d7`; 855 passed, 8 ignored; three smokes and all boundary checks green |
 | 2 | Resolve the track projection before placement; one horizontal scroll owner | Complete | `555ef0a8`; 857 passed, 8 ignored; focused horizontal-scroll/resize/scale witnesses and full ritual green |
-| 3 | Host-derived participation and truthful table chrome | Green; commit pending | 858 passed, 8 ignored; host-dress census, chrome witnesses, and full ritual green |
-| 4 | General whole-draft `text::Input` policies | Pending | — |
+| 3 | Host-derived participation and truthful table chrome | Complete | `637109ef`; 858 passed, 8 ignored; host-dress census, chrome witnesses, and full ritual green |
+| 4 | General whole-draft `text::Input` policies | Green; commit pending | 864 passed, 8 ignored; policy, paste, history, IME, benchmark, and full ritual green |
 | 5 | Typed columns from `table::{Value, Sort, EditText, EditToggle}` | Pending | — |
 | 6 | Measurable read-only world-text wrapping | Pending | — |
 | 7 | Independently proven variable-height virtual region | Pending | — |
@@ -231,9 +231,52 @@ Further flags append here as public names are proposed and resolved.
   Ascending/descending glyphs and a live interactive boolean wait for their
   typed checkpoint-5 callers; compact/expanded side-by-side review remains a
   checkpoint-8 comparison.
+- Commit receipt: `637109ef` (`Derive table chrome from host participation`),
+  13 files, 438 insertions, 20 deletions.
+
+### Checkpoint 4 — whole-draft input policy
+
+- Census: every TextBox mutation converges on the existing per-target
+  `draft::Input`/`draft::State` history store. Runtime typing and IME commit use
+  it directly; clipboard cut/paste services use the same session edit method;
+  selection replacement, deletion, and pointer/keyboard motion are ordinary
+  `text::edit::Edit` values. IME preedit has a separate projection-only path.
+- Public concept: `text::Input` owns `unrestricted()`, `signed_integer()`, and
+  `unsigned_integer()` policies. `widget::TextBox::input(...)` and the view
+  model's corresponding builder carry the declaration to the one draft seam.
+  No integer TextBox species, character filter, table error, or parser was
+  added.
+- Policy law: the existing draft applies an edit to a candidate snapshot, then
+  evaluates the proposed complete single-line draft. Accept applies the
+  original edit to the real history, normalize applies one whole replacement,
+  and reject leaves text/history untouched. The initial implementation briefly
+  installed the candidate clone and broke typing coalescence; the full suite
+  caught it, and the final path deliberately applies accepted edits to the
+  original history owner.
+- Numeric law: empty is valid for both; `-` is a valid signed intermediate and
+  invalid unsigned input; only ASCII digits and at most one leading minus are
+  accepted. Surrounding whitespace is normalized once. Syntax conversion and
+  domain validation remain outside this policy.
+- Focused witnesses: insertion, backspace deletion, whole-candidate rejection,
+  selection replacement, normalized paste, unsigned rejection, undo/redo,
+  signed intermediate drafts, and unrestricted legacy typing all pass. A paste
+  of ` 42 ` becomes `42` as one undoable change.
+- IME: arbitrary `composition` preedit remains present under signed-integer
+  policy and never reaches evaluation; committing ` -42 ` evaluates once,
+  produces `-42`, and clears preedit through the established commit path.
+- Release text acceptance: passed in 0.68 s. Witnesses: 8 MiB load 31.874 ms;
+  10-byte typing 2.547 us/edit; 2.5/5/10 MB typing 3.165/3.556/3.340 us/edit;
+  10 B / 10 MB clone 36.114 / 36.029 ns.
+- Full library: 864 passed, 8 ignored, 0 failed in 0.89 s. Compact million-row
+  table work remained bounded.
+- Smokes and checks: all three examples, formatting, all-target compilation,
+  diff whitespace, and `comparison_open: true` passed. No unrelated changes
+  were present or absorbed.
+- Public API flags: `text::Input` is the simply named supporting concept in its
+  owning namespace; its representation and decision enum remain private. The
+  standard TextBox builder consumes it. No crate-root re-export is warranted.
 - Commit receipt: pending checkpoint commit; the next ledger boundary records
-  its hash and statistics (implementation diff before ledger: 12 files, 384
-  insertions, 16 deletions).
+  its hash and statistics.
 
 ## Pending eyes
 
