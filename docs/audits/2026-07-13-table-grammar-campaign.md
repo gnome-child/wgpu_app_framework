@@ -52,7 +52,7 @@ vocabularies are admitted.
 | 2 | Resolve the track projection before placement; one horizontal scroll owner | Complete | `555ef0a8`; 857 passed, 8 ignored; focused horizontal-scroll/resize/scale witnesses and full ritual green |
 | 3 | Host-derived participation and truthful table chrome | Complete | `637109ef`; 858 passed, 8 ignored; host-dress census, chrome witnesses, and full ritual green |
 | 4 | General whole-draft `text::Input` policies | Complete | `cbd7aeea`; 864 passed, 8 ignored; policy, paste, history, IME, benchmark, and full ritual green |
-| 5 | Typed columns from `table::{Value, Sort, EditText, EditToggle}` | Contract resistance | `EditToggle::toggled` cannot project truthful checked state; minimal amendment required before code |
+| 5 | Typed columns from `table::{Value, Sort, EditText, EditToggle}` | Complete | 867 passed, 8 ignored; compile-fail capability, typed gallery, bounded projection, three smokes, release benchmark, and all boundary checks green |
 | 6 | Measurable read-only world-text wrapping | Pending | — |
 | 7 | Independently proven variable-height virtual region | Pending | — |
 | 8 | Compact/expanded table presentation and gallery toggle | Pending | — |
@@ -278,54 +278,65 @@ Further flags append here as public names are proposed and resolved.
 - Commit receipt: `cbd7aeea` (`Add whole-draft text input policies`), 13
   files, 430 insertions, 17 deletions.
 
-### Checkpoint 5 — constitution-level resistance
+### Checkpoint 5 — typed value and capability tier
 
-The declared `EditToggle` contract is insufficient for the declared control:
-
-```rust
-pub trait EditToggle: Value + Sized {
-    fn toggled(&self) -> Self;
-}
-```
-
-`toggled()` determines the next value but supplies no orientation for the
-current value. For two values `A` and `B`, both laws `A.toggled() == B` and
-`B.toggled() == A` hold while neither identifies which value paints a checked
-mark. The table therefore cannot derive a truthful checkbox state from this
-trait.
-
-The rejected workarounds each violate campaign law:
-
-- Comparing `Value::text()` with `"true"` makes a display projection own domain
-  state and fails for open third-party toggle types.
-- Runtime `TypeId` detection for `bool` violates the explicit ban on optional
-  trait detection and specialization tricks.
-- Requiring unadvertised `Default`, `PartialEq`, or `Into<bool>` bounds means
-  `EditToggle` no longer means the capability promised by the public contract.
-- Painting every toggle checked, or falling back to a button, violates the
-  truthful checkbox acceptance contract.
-- Making the table store or flip an independent boolean violates application
-  ownership and the rule that interaction mutates the value source.
-
-The smallest honest amendment is one additional required projection on the
-same capability:
-
-```rust
-pub trait EditToggle: Value + Sized {
-    fn checked(&self) -> bool;
-    fn toggled(&self) -> Self;
-}
-```
-
-`bool` then implements `checked()` as identity, and third-party two-state types
-explicitly declare their checked orientation. This adds no trait, state store,
-runtime detection, or table-owned behavior. A differently named `is_on()` is
-semantically equivalent; `checked()` best matches the actual derived control.
-
-Per the campaign stop law, no checkpoint-5 implementation was started and the
-last green implementation commit remains `cbd7aeea`. Checkpoints 5–8 remain
-unmodified until this public-contract amendment is accepted or replaced by an
-equally truthful orientation law.
+- Resistance retracted: the first census looked only at the checkbox model and
+  incorrectly required `EditToggle` to own both current orientation and next
+  value. Existing `command::State::checked`, projected through `Binding` and
+  `Frame`, already carries application-owned current truth for any bound
+  control. `EditToggle::toggled()` therefore retains its exact declared meaning:
+  it produces the next domain value used to construct command arguments. Paint
+  now prefers resolved binding state and falls back to the checkbox model for
+  unbound controls. No trait amendment, runtime type test, or second state store
+  exists.
+- Public traits: exactly `Value`, `Sort`, `EditText`, and `EditToggle` were
+  added under `table`. `String`, signed and unsigned integers, `bool`, and
+  floats implement only their declared capabilities. `Option<T>`, float sort,
+  and generalized choice policy remain deferred. The gallery's `RecordNumber`
+  proves an application type can implement the open display/sort traits.
+- Typed tier: `Column::value` retains a borrowing accessor while capability
+  verbs remain available; `ValueColumn::build` erases it into a heterogeneous
+  `TypedColumn`. `.sortable()`, `.editable::<C>()`, and `.toggle::<C>()` exist
+  only under their corresponding trait bounds. `Column::custom` is the explicit
+  node escape hatch, and the original free `Provider` path is unchanged.
+  Compile-fail doctests prove float sorting and bool text editing are absent.
+- Sort law: derived header controls project application-owned `SortState`, emit
+  canonical `table::SortBy`/`SortIntent`, and never reorder records. The erased
+  comparator retains `Sort::order` for product policy; the gallery target owns
+  its million-row ascending/descending projection.
+- Edit law: typed text cells reuse `TextEditor`, the TextBox draft/focus/history
+  lifecycle, checkpoint-4 `text::Input`, syntax parsing, then column domain
+  validation. The legacy `NumberEditor` remains unrestricted and behaviorally
+  unchanged; the full suite caught and rejected an attempted implicit filter.
+  Typed integer columns explicitly consume signed/unsigned input policy.
+- Gallery deletion proof: the application schema switch, hand-built labels,
+  sort button, `TextEditor`, `NumberEditor`, and inert checkbox were deleted.
+  Record/count headers are derived and sortable; note/count editors are
+  derived; enabled values live in application state and change through
+  `SetRecordEnabled`; `Open` remains a deliberate custom button cell.
+- Bounded work: `table::Source` keeps key/index/record projection
+  application-owned. The erased provider caches only the currently requested
+  row, so all visible columns consume one record projection; a focused witness
+  proves one projection per row rather than one per cell. The million-row
+  compact witness, scrolling, keyed identity, resize, edit, focus, deletion,
+  and history laws remain green.
+- Focused witnesses: three typed-capability unit tests, two compile-fail
+  doctests, canonical sort activation with divider precedence, live checked
+  toggle painting and activation, and table participation chrome all passed.
+- Full library: 867 passed, 8 ignored, 0 failed in 0.94 s. All three example
+  smokes, formatting, all-target compilation, diff whitespace, and protected
+  `comparison_open: true` passed.
+- Release text acceptance: passed in 0.68 s. Witnesses: 8 MiB load 31.489 ms;
+  10-byte typing 2.674 us/edit; 2.5/5/10 MB typing
+  3.617/3.528/3.922 us/edit; 10 B / 10 MB clone 35.824/35.572 ns.
+- API flags: `ValueColumn`, `TypedColumn`, and `Source` are supporting public
+  nouns required for compile-time capability followed by heterogeneous erasure
+  and bounded records. `SortDirection`, `SortState`, `SortIntent`, and `SortBy`
+  name application-owned sorting without granting table-owned order. No crate
+  root re-exports or compatibility aliases were added.
+- Pending eyes: compare neutral/ascending/descending header glyph balance,
+  numeric right alignment, editor idle/focus/error states, and live toggle hit
+  affordance during checkpoint 8's compact/expanded gallery review.
 
 ## Pending eyes
 

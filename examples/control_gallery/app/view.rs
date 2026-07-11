@@ -2,8 +2,8 @@ use super::{
     Mode, State,
     command::{
         EditRecordCount, EditRecordCountArgs, EditRecordNote, EditRecordNoteArgs, IncrementClicks,
-        ResetControls, SelectMode, SetLevel, SortRecords, SubmitQuery, ToggleAdvanced, ToggleGrid,
-        ToggleWrap,
+        ResetControls, SelectMode, SetLevel, SetRecordEnabled, SetRecordEnabledArgs, SubmitQuery,
+        ToggleAdvanced, ToggleGrid, ToggleWrap,
     },
 };
 use wgpu_l3::{
@@ -26,92 +26,34 @@ pub fn window_size() -> geometry::Size {
 }
 
 #[derive(Clone)]
-struct GalleryRecords {
-    descending: bool,
-    notes: std::collections::HashMap<u64, String>,
-    counts: std::collections::HashMap<u64, i64>,
+struct GalleryRecord {
+    number: RecordNumber,
+    detail: String,
+    note: String,
+    count: i64,
+    enabled: bool,
 }
 
-impl table::Provider for GalleryRecords {
-    fn len(&self) -> usize {
-        RECORD_COUNT
-    }
+#[derive(Clone, Copy)]
+struct RecordNumber(usize);
 
-    fn key(&self, index: usize) -> virtual_list::Key {
-        virtual_list::Key::new(self.record(index) as u64)
-    }
-
-    fn index_of(&self, key: virtual_list::Key) -> Option<usize> {
-        let record = key.value() as usize;
-        (record < self.len()).then(|| {
-            if self.descending {
-                self.len() - record - 1
-            } else {
-                record
-            }
-        })
-    }
-
-    fn cell(&self, row: usize, cell: table::Cell) -> wgpu_l3::view::Node {
-        let record = self.record(row);
-        match cell.column().as_str() {
-            "record" => wgpu_l3::Widget::into_node(widget::Label::world(
-                format!("Record {record}"),
-                text::Overflow::EllipsisEnd,
-            )),
-            "detail" => wgpu_l3::Widget::into_node(widget::Label::world(
-                format!(
-                    "Application-owned detail for record {record} with a deliberately long value"
-                ),
-                text::Overflow::EllipsisMiddle,
-            )),
-            "note" => wgpu_l3::Widget::into_node(
-                table::TextEditor::new(
-                    cell,
-                    self.notes
-                        .get(&(record as u64))
-                        .cloned()
-                        .unwrap_or_default(),
-                )
-                .placeholder("Note")
-                .validate(|value| {
-                    (value.chars().count() <= 40)
-                        .then_some(())
-                        .ok_or_else(|| "Note must be 40 characters or fewer".to_owned())
-                })
-                .on_commit::<EditRecordNote>(|cell, value| EditRecordNoteArgs { cell, value }),
-            ),
-            "count" => wgpu_l3::Widget::into_node(
-                table::NumberEditor::new(
-                    cell,
-                    self.counts.get(&(record as u64)).copied().unwrap_or(0),
-                )
-                .validate(|value| {
-                    (0..=999)
-                        .contains(&value)
-                        .then_some(())
-                        .ok_or_else(|| "Count must be from 0 to 999".to_owned())
-                })
-                .on_commit::<EditRecordCount>(|cell, value| EditRecordCountArgs { cell, value }),
-            ),
-            "enabled" => {
-                wgpu_l3::Widget::into_node(widget::Checkbox::new("Enabled", record % 2 == 0))
-            }
-            "action" => wgpu_l3::Widget::into_node(
-                widget::Button::new("Open").trigger::<IncrementClicks>(()),
-            ),
-            _ => unreachable!("gallery table declares every provider column"),
-        }
+impl table::Value for RecordNumber {
+    fn text(&self) -> std::borrow::Cow<'_, str> {
+        std::borrow::Cow::Owned(format!("Record {}", self.0))
     }
 }
 
-impl GalleryRecords {
-    fn record(&self, index: usize) -> usize {
-        if self.descending {
-            RECORD_COUNT - index - 1
-        } else {
-            index
-        }
+impl table::Sort for RecordNumber {
+    fn order(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+
+fn record_at(index: usize, descending: bool) -> usize {
+    if descending {
+        RECORD_COUNT - index - 1
+    } else {
+        index
     }
 }
 
@@ -165,27 +107,130 @@ pub fn view(state: &State, _: ViewContext) -> View {
                         }
 
                         ui.label("One million provided records");
+                        let descending = state.record_sort.direction()
+                            == table::SortDirection::Descending;
+                        let source = table::Source::new(
+                            RECORD_COUNT,
+                            move |index| {
+                                virtual_list::Key::new(record_at(index, descending) as u64)
+                            },
+                            move |key| {
+                                let record = key.value() as usize;
+                                (record < RECORD_COUNT).then(|| {
+                                    if descending {
+                                        RECORD_COUNT - record - 1
+                                    } else {
+                                        record
+                                    }
+                                })
+                            },
+                            {
+                                let notes = state.record_notes.clone();
+                                let counts = state.record_counts.clone();
+                                let enabled = state.record_enabled.clone();
+                                move |index| {
+                                    let record = record_at(index, descending);
+                                    let key = record as u64;
+                                    GalleryRecord {
+                                        number: RecordNumber(record),
+                                        detail: format!(
+                                            "Application-owned detail for record {record} with a deliberately long value"
+                                        ),
+                                        note: notes.get(&key).cloned().unwrap_or_default(),
+                                        count: counts.get(&key).copied().unwrap_or(0),
+                                        enabled: enabled
+                                            .get(&key)
+                                            .copied()
+                                            .unwrap_or(record % 2 == 0),
+                                    }
+                                }
+                            },
+                        );
+                        let columns: Vec<table::TypedColumn<GalleryRecord>> = vec![
+                            table::Column::value(
+                                "record",
+                                "Record",
+                                Dimension::fixed(110),
+                                |record: &GalleryRecord| &record.number,
+                            )
+                            .sortable()
+                            .build(),
+                            table::Column::value(
+                                "detail",
+                                "Detail",
+                                Dimension::weight(2),
+                                |record: &GalleryRecord| &record.detail,
+                            )
+                            .overflow(text::Overflow::EllipsisMiddle)
+                            .build(),
+                            table::Column::value(
+                                "note",
+                                "Note",
+                                Dimension::weight(1),
+                                |record: &GalleryRecord| &record.note,
+                            )
+                            .validate(|value| {
+                                (value.chars().count() <= 40)
+                                    .then_some(())
+                                    .ok_or_else(|| {
+                                        "Note must be 40 characters or fewer".to_owned()
+                                    })
+                            })
+                            .editable::<EditRecordNote>(|cell, value| EditRecordNoteArgs {
+                                cell,
+                                value,
+                            })
+                            .build(),
+                            table::Column::value(
+                                "count",
+                                "Count",
+                                Dimension::fixed(72),
+                                |record: &GalleryRecord| &record.count,
+                            )
+                            .sortable()
+                            .validate(|value| {
+                                (0..=999).contains(value).then_some(()).ok_or_else(|| {
+                                    "Count must be from 0 to 999".to_owned()
+                                })
+                            })
+                            .editable::<EditRecordCount>(|cell, value| EditRecordCountArgs {
+                                cell,
+                                value,
+                            })
+                            .build(),
+                            table::Column::value(
+                                "enabled",
+                                "Enabled",
+                                Dimension::fixed(100),
+                                |record: &GalleryRecord| &record.enabled,
+                            )
+                            .toggle::<SetRecordEnabled>(|cell, value| SetRecordEnabledArgs {
+                                cell,
+                                value,
+                            })
+                            .build(),
+                            table::Column::custom(
+                                "action",
+                                "Action",
+                                Dimension::fixed(72),
+                                |_: &GalleryRecord, _| {
+                                    wgpu_l3::Widget::into_node(
+                                        widget::Button::new("Open")
+                                            .trigger::<IncrementClicks>(()),
+                                    )
+                                },
+                            ),
+                        ];
                         ui.add(
-                            Table::new(
+                            Table::typed(
                                 "control_gallery.records",
                                 24,
-                                [
-                                    table::Column::new("record", "Record", Dimension::fixed(110))
-                                        .header(
-                                            widget::Button::new("Record ↕")
-                                                .trigger::<SortRecords>(()),
-                                        ),
-                                    table::Column::new("detail", "Detail", Dimension::weight(2)),
-                                    table::Column::new("note", "Note", Dimension::weight(1)),
-                                    table::Column::new("count", "Count", Dimension::fixed(72)),
-                                    table::Column::new("enabled", "Enabled", Dimension::fixed(100)),
-                                    table::Column::new("action", "Action", Dimension::fixed(72)),
-                                ],
-                                GalleryRecords {
-                                    descending: state.records_descending,
-                                    notes: state.record_notes.clone(),
-                                    counts: state.record_counts.clone(),
-                                },
+                                columns,
+                                source,
+                            )
+                            .sorted_by(
+                                state.record_sort.column(),
+                                state.record_sort.direction(),
                             )
                             .width(Dimension::grow())
                             .height(Dimension::fixed(136)),

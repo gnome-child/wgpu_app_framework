@@ -9,9 +9,9 @@ pub struct SetLevel;
 pub struct SubmitQuery;
 pub struct ToggleAdvanced;
 pub struct ResetControls;
-pub struct SortRecords;
 pub struct EditRecordNote;
 pub struct EditRecordCount;
+pub struct SetRecordEnabled;
 
 #[derive(Clone)]
 pub struct EditRecordNoteArgs {
@@ -23,6 +23,12 @@ pub struct EditRecordNoteArgs {
 pub struct EditRecordCountArgs {
     pub cell: wgpu_l3::table::Cell,
     pub value: i64,
+}
+
+#[derive(Clone)]
+pub struct SetRecordEnabledArgs {
+    pub cell: wgpu_l3::table::Cell,
+    pub value: bool,
 }
 
 impl Command for IncrementClicks {
@@ -85,13 +91,6 @@ impl Command for ResetControls {
     const NAME: &'static str = "control_gallery.reset_controls";
 }
 
-impl Command for SortRecords {
-    type Args = ();
-    type Output = ();
-
-    const NAME: &'static str = "control_gallery.sort_records";
-}
-
 impl Command for EditRecordNote {
     type Args = EditRecordNoteArgs;
     type Output = ();
@@ -104,4 +103,11 @@ impl Command for EditRecordCount {
     type Output = ();
 
     const NAME: &'static str = "control_gallery.edit_record_count";
+}
+
+impl Command for SetRecordEnabled {
+    type Args = SetRecordEnabledArgs;
+    type Output = ();
+
+    const NAME: &'static str = "control_gallery.set_record_enabled";
 }

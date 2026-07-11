@@ -2,7 +2,7 @@ use super::{
     State,
     command::{
         EditRecordCount, EditRecordNote, IncrementClicks, ResetControls, SelectMode, SetLevel,
-        SortRecords, SubmitQuery, ToggleAdvanced, ToggleGrid, ToggleWrap,
+        SetRecordEnabled, SubmitQuery, ToggleAdvanced, ToggleGrid, ToggleWrap,
     },
     view,
     view::{CANVAS_COLOR, WINDOW_TITLE, window_size},
@@ -22,9 +22,10 @@ pub fn app(state: State) -> Runtime<State, (), View> {
                 .register::<SubmitQuery>(command::Spec::new("Submit query"))
                 .register::<ToggleAdvanced>(command::Spec::new("Advanced"))
                 .register::<ResetControls>(command::Spec::new("Reset").shortcut("Primary+R"))
-                .register::<SortRecords>(command::Spec::new("Sort records"))
+                .register::<wgpu_l3::table::SortBy>(command::Spec::new("Sort table"))
                 .register::<EditRecordNote>(command::Spec::new("Edit record note"))
-                .register::<EditRecordCount>(command::Spec::new("Edit record count"));
+                .register::<EditRecordCount>(command::Spec::new("Edit record count"))
+                .register::<SetRecordEnabled>(command::Spec::new("Set record enabled"));
         })
         .responders(|responders| {
             responders
@@ -37,9 +38,10 @@ pub fn app(state: State) -> Runtime<State, (), View> {
                 .target::<SubmitQuery>()
                 .target::<ToggleAdvanced>()
                 .target::<ResetControls>()
-                .target::<SortRecords>()
+                .target::<wgpu_l3::table::SortBy>()
                 .target::<EditRecordNote>()
-                .target::<EditRecordCount>();
+                .target::<EditRecordCount>()
+                .target::<SetRecordEnabled>();
         })
         .started(|cx| {
             cx.open_window(

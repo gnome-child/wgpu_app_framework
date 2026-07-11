@@ -94,7 +94,9 @@ fn choice_tint_for(frame: &layout::Frame, theme: &Theme, visuals: &Visuals) -> O
 
 fn selected(frame: &layout::Frame) -> Option<bool> {
     match frame.role() {
-        view::Role::Checkbox => Some(frame.checkbox()?.checked()),
+        view::Role::Checkbox => frame
+            .checked()
+            .or_else(|| frame.checkbox().map(view::Checkbox::checked)),
         view::Role::Radio => Some(frame.radio()?.selected()),
         _ => None,
     }

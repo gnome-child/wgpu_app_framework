@@ -2,8 +2,8 @@ use super::{
     State,
     command::{
         EditRecordCount, EditRecordCountArgs, EditRecordNote, EditRecordNoteArgs, IncrementClicks,
-        ResetControls, SelectMode, SetLevel, SortRecords, SubmitQuery, ToggleAdvanced, ToggleGrid,
-        ToggleWrap,
+        ResetControls, SelectMode, SetLevel, SetRecordEnabled, SetRecordEnabledArgs, SubmitQuery,
+        ToggleAdvanced, ToggleGrid, ToggleWrap,
     },
 };
 use wgpu_l3::{Context, Response, Target, command};
@@ -107,18 +107,21 @@ impl Target<ResetControls> for State {
     }
 }
 
-impl Target<SortRecords> for State {
-    fn state(&self, _: &(), _: &Context) -> command::State {
-        command::State::enabled().checked(self.records_descending)
+impl Target<wgpu_l3::table::SortBy> for State {
+    fn state(&self, _: &wgpu_l3::table::SortIntent, _: &Context) -> command::State {
+        command::State::enabled()
     }
 
-    fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
-        self.records_descending = !self.records_descending;
-        self.last_status = if self.records_descending {
-            "records: descending".to_owned()
-        } else {
-            "records: ascending".to_owned()
-        };
+    fn invoke(&mut self, intent: wgpu_l3::table::SortIntent, _: &mut Context) -> Response<()> {
+        self.record_sort = wgpu_l3::table::SortState::new(intent.column(), intent.direction());
+        self.last_status = format!(
+            "{}: {}",
+            intent.column().as_str(),
+            match intent.direction() {
+                wgpu_l3::table::SortDirection::Ascending => "ascending",
+                wgpu_l3::table::SortDirection::Descending => "descending",
+            }
+        );
         Response::changed(())
     }
 }
@@ -145,6 +148,25 @@ impl Target<EditRecordCount> for State {
         self.record_counts
             .insert(args.cell.row().value(), args.value);
         self.last_status = format!("edited count for record {}", args.cell.row().value());
+        Response::changed(())
+    }
+}
+
+impl Target<SetRecordEnabled> for State {
+    fn state(&self, args: &SetRecordEnabledArgs, _: &Context) -> command::State {
+        let key = args.cell.row().value();
+        let checked = self
+            .record_enabled
+            .get(&key)
+            .copied()
+            .unwrap_or(key % 2 == 0);
+        command::State::enabled().checked(checked)
+    }
+
+    fn invoke(&mut self, args: SetRecordEnabledArgs, _: &mut Context) -> Response<()> {
+        let key = args.cell.row().value();
+        self.record_enabled.insert(key, args.value);
+        self.last_status = format!("record {key}: enabled {}", on_off(args.value));
         Response::changed(())
     }
 }

@@ -5911,7 +5911,7 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
         .scene()
         .texts()
         .into_iter()
-        .find(|text| text.value() == "Record ↕")
+        .find(|text| text.value() == "Record ↑")
         .unwrap_or_else(|| {
             panic!(
                 "gallery should paint its sort header; painted={:?}",
@@ -5945,14 +5945,20 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
         .expect("sort boundary press should start resizing");
     app.pointer_up_at(window, size, boundary_point)
         .expect("sort boundary release should not activate the header");
-    assert!(!app.state().records_descending);
+    assert_eq!(
+        app.state().record_sort.direction(),
+        crate::table::SortDirection::Ascending
+    );
     let point = frame_point_at(sort_header.rect());
     app.pointer_down_at(window, size, point)
         .expect("sort header press should be handled");
     app.pointer_up_at(window, size, point)
         .expect("sort header release should emit its command");
 
-    assert!(app.state().records_descending);
+    assert_eq!(
+        app.state().record_sort.direction(),
+        crate::table::SortDirection::Descending
+    );
     let sorted = app
         .render_scene(window, size)
         .expect("application-updated provider order should render");
@@ -5982,7 +5988,7 @@ fn table_participation_changes_chrome_without_changing_control_behavior() {
         .iter()
         .find(|frame| {
             frame.table_part() == Some(view::TablePart::HeaderControl)
-                && frame.label_text() == Some("Record ↕")
+                && frame.label_text() == Some("Record ↑")
         })
         .expect("sortable button should participate as a header control");
     assert_eq!(sort_header.role(), view::Role::Button);
@@ -6015,33 +6021,46 @@ fn table_participation_changes_chrome_without_changing_control_behavior() {
             && quad.rounding() == theme.control().rounding
     }));
 
-    let passive = rendered
+    let toggle = rendered
         .layout()
         .frames()
         .iter()
         .find(|frame| {
-            frame.table_part() == Some(view::TablePart::PassiveToggle)
-                && frame.checkbox().is_some_and(view::Checkbox::checked)
+            frame.table_part() == Some(view::TablePart::Toggle)
+                && frame
+                    .table_cell()
+                    .is_some_and(|cell| cell.row().value() == 0)
         })
-        .expect("triggerless boolean cell should be passive");
-    assert_eq!(passive.role(), view::Role::Checkbox);
-    assert!(passive.target().is_none());
-    let passive_mark = layout::table_choice_mark_rect(passive.rect(), &theme);
+        .expect("typed boolean cell should derive an interactive toggle");
+    assert_eq!(toggle.role(), view::Role::Checkbox);
+    assert!(toggle.target().is_some());
+    assert_eq!(toggle.checked(), Some(true));
+    let toggle_rect = toggle.rect();
+    let toggle_mark = layout::table_choice_mark_rect(toggle_rect, &theme);
     assert!(
         rendered
             .scene()
             .icons()
             .iter()
-            .any(|icon| icon.rect() == passive_mark)
+            .any(|icon| icon.rect() == toggle_mark)
     );
     assert!(
         rendered
             .scene()
             .quads()
             .iter()
-            .all(|quad| quad.rect() != passive_mark),
-        "passive booleans must not paint an interactive checkbox plate"
+            .any(|quad| quad.rect() == toggle_mark),
+        "typed toggles retain interactive checkbox behavior inside table chrome"
     );
+    let toggle_point = frame_point_at(toggle_mark);
+    drop(rendered);
+    gallery
+        .pointer_down_at(window, size, toggle_point)
+        .expect("typed toggle press should be handled");
+    gallery
+        .pointer_up_at(window, size, toggle_point)
+        .expect("typed toggle release should emit its command");
+    assert_eq!(gallery.state().record_enabled.get(&0), Some(&false));
 
     let mut editable = editable_table_app(EditableTableState {
         records: vec![EditableRecord {

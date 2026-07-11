@@ -8,9 +8,10 @@ pub struct State {
     pub query: String,
     pub show_advanced: bool,
     pub last_status: String,
-    pub records_descending: bool,
+    pub record_sort: wgpu_l3::table::SortState,
     pub record_notes: HashMap<u64, String>,
     pub record_counts: HashMap<u64, i64>,
+    pub record_enabled: HashMap<u64, bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,9 +49,13 @@ impl Default for State {
             query: String::new(),
             show_advanced: true,
             last_status: "ready".to_owned(),
-            records_descending: false,
+            record_sort: wgpu_l3::table::SortState::new(
+                "record",
+                wgpu_l3::table::SortDirection::Ascending,
+            ),
             record_notes: HashMap::new(),
             record_counts: HashMap::new(),
+            record_enabled: HashMap::new(),
         }
     }
 }
