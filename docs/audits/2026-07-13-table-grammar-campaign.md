@@ -457,6 +457,68 @@ Further flags append here as public names are proposed and resolved.
   focus/rejection chrome, boolean hit affordance, row selection, far-right
   reveal, and divider feel in both modes. Geometry and behavior are pinned;
   visual taste remains manual.
+- Commit receipt: `e5888183` (`Add compact and expanded table presentation`),
+  10 files, 253 insertions, 67 deletions.
+
+## Campaign close-out
+
+All eight checkpoints are independently green and committed. The campaign ran
+from prerequisite `c7c3a341` through `e5888183`; its ten local commits (opening
+ledger, eight implementation boundaries, and the preserved/retracted resistance
+audit) changed 44 files with 3,902 insertions and 386 deletions. Nothing was
+pushed.
+
+### Final public API inventory
+
+- Shared layout: `view::Dimension::Flexible { weight, minimum }` and
+  `Dimension::minimum`; deleted `table::Width` has no alias.
+- Text entry and display: `text::Input::{unrestricted, signed_integer,
+  unsigned_integer}`, TextBox `.input(...)`, and `widget::Label::wrapped` using
+  the existing `view::Wrap::Word` vocabulary.
+- Typed tables: the four open traits `table::{Value, Sort, EditText,
+  EditToggle}`; `Column::{value, custom}`; `ValueColumn`, `TypedColumn`,
+  `Source`, and `Table::typed`; canonical `SortDirection`, `SortState`,
+  `SortIntent`, and `SortBy`; and `Presentation::{Compact, Expanded}` with
+  `Table::presentation`.
+- Variable virtualization: `VirtualList::variable`; cumulative metrics,
+  anchors, generation invalidation, and persistence remain internal.
+- No public resolved-track, table-theme, participation, draft-decision,
+  rejection, cell-alignment, editor-spec, or grid vocabulary was admitted.
+
+### Final concept and non-merge verdicts
+
+- Sizing merged: table declarations consume the one `Dimension` vocabulary and
+  shared allocator. Tracks did not become stored or public state; they remain
+  one early ephemeral projection consumed by placement, rules, hit zones,
+  resize, and scrolling.
+- Host dress merged internally across menu, palette, and table participation;
+  behavior remains role/binding/command owned. Theme table recipes remain
+  derived and internal pending a public customization caller.
+- Compact and variable virtualization deliberately did not merge: uniform
+  arithmetic stays the million-row fast path; the sparse keyed index is paid
+  only by variable callers. Both reuse materialization and pin mechanics.
+- Typed and free tables deliberately did not merge: typed columns own ordinary
+  schema capability while the original free `Provider` remains the arbitrary
+  node escape hatch. `Column::custom` bridges one exceptional cell without
+  recreating a schema switch.
+- Toggle resistance became case law, not API: next-value projection belongs to
+  `EditToggle`; current checked orientation already belongs to resolved command
+  state. The audit commit remains in history as evidence of the correction.
+
+### Performance and verification close
+
+- Library baseline moved from 851 passed / 8 ignored / 0 failed in 0.98 s to
+  875 passed / 8 ignored / 0 failed in 0.90 s.
+- Final release text acceptance passed in 0.68 s: 8 MiB load 30.006 ms;
+  10-byte and 2.5/5/10 MB typing 2.576/3.263/3.593/3.468 us per edit; 10 B /
+  10 MB clone 36.858/36.169 ns. No text performance regression emerged from
+  wrapped read-only labels.
+- Final compact million-row, distant jump, horizontal scroll, far-right reveal,
+  resize, four-scale rule, typed sort/edit/toggle, expanded wrap/height, stable
+  anchor, reorder, deletion, pin, and bounded-work witnesses are green.
+- `text_editor`, `control_gallery`, and `glass_tuner` smokes passed; formatting,
+  all-target compilation, diff whitespace, and protected
+  `comparison_open: true` passed. Roadmap item 27 was pruned in place.
 
 ## Pending eyes
 
