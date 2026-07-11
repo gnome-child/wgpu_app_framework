@@ -63,6 +63,9 @@ Each cell receives one primary classification:
 - `Duplicate` — recomputes production reasoning as a competing oracle.
 - `Missing` — no current witness reaches the required adversarial case.
 
+The lifecycle table abbreviates these as `W`, `M`, `S`, `H`, `D`, and `Gap`;
+`—` means the axis has no honest referent in that constellation.
+
 ## Lifecycle-axis census
 
 Axes: identity (`I`), ordering (`O`), time (`T`), absence (`A`), failure (`F`),
@@ -72,25 +75,116 @@ restoration (`S`), coordinates/scale (`K`), and concurrent/deferred completion
 
 | Cell | Constellation | I | O | T | A | F | C | R | X | D | S | K | Q |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| W-01 | Document truth | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | N/A | Planned |
-| W-02 | Capability | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | N/A | Planned |
-| W-03 | Interface | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
-| W-04 | Presentation | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
-| W-05 | Application | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | N/A | Planned |
-| W-06 | Native boundary | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
-| W-07 | Root vocabulary | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned | Planned |
+| W-01 | Document truth | W | W | M | W | W | W | W | W | — | W | — | W |
+| W-02 | Capability | W | W | M | W | W | W | W | W | W | W | — | W |
+| W-03 | Interface | W | W | W | W | M | W | W | Gap X-01 | W | W | W | M |
+| W-04 | Presentation | W | W | W | W | W | W | W | W | W | W | M / X-04 | W |
+| W-05 | Application | W | W | W | Gap X-02 | Gap X-03 | W | W | W | W | W | — | W |
+| W-06 | Native boundary | W | W | W | H | W | — | W | W | W | W | M / X-04 | W |
+| W-07 | Root vocabulary | W | W | W | W | W | — | M / X-06 | W | — | W | M / X-04 | W |
+
+### Witness receipts
+
+`W-01 — Document truth`
+
+- Identity, replacement, ordering, and deferred completion are whole-promise
+  witnesses in `src/tests/document_editor.rs:450`, `:619`, `:670`, and `:711`:
+  captured revisions stay dirty after newer edits, replacement identities
+  reject old completions, and the newest save generation wins.
+- Clipboard failure versus empty, optimistic paste availability, atomic replace,
+  and persistence failure are practiced at `src/tests/document_editor.rs:301`,
+  `:330`, `:426`, `:490`, and `src/tests/runtime_tests.rs:461`.
+- Focus-scoped history and restore cancellation are practiced at
+  `src/tests/document_editor.rs:194` and `:777`; the 100k acceptance property
+  supplies the long edit/undo/redo oracle.
+
+`W-02 — Capability`
+
+- Nearest, hidden-fallthrough, disabled-claiming, and ambiguous responder cases
+  are whole routing witnesses in `src/tests/responder_tests.rs:4-141`.
+- Declined sets, duplicate/replaced shortcuts, captured palette focus, state
+  queries, observers, and stale-focus clearing are practiced throughout
+  `src/tests/commands.rs:4-1146`.
+- Zero-to-many notification ordering and departure delivery are practiced at
+  `src/tests/notifications.rs:86-141`; history time windows are currently a
+  mechanism witness rather than a long boundary matrix.
+
+`W-03 — Interface`
+
+- Retained reorder/removal identity is practiced by
+  `src/tests/composition_tests.rs:4-108`; focus restoration and mixed control/text
+  history are whole journeys in `src/tests/widget_focus_tests.rs:57-631`.
+- Capture, cancel ordering, preedit, scroll, and drag routing are practiced in
+  `src/tests/interaction_tests.rs:303-1101`; close-during-slider-capture purges all
+  per-window state at `src/tests/widget_slider_tests.rs:150`.
+- Draft independence/retention and clip/reveal/scroll behavior are practiced in
+  `src/tests/widget_text_box_tests.rs:418-959` and
+  `src/tests/layout_scene.rs:279-2985`.
+- Gap X-01: production prunes hover, press, capture, scroll, and text drafts when
+  reconciliation removes their identities (`src/interaction/mod.rs:267-297`),
+  but no behavioral test removes the active target mid-interaction and then
+  delivers the late pointer event.
+
+`W-04 — Presentation`
+
+- Overlay first/entering/live/exiting/expired/reopened states, zero-duration
+  cancellation, ordering, native fallback, and afterlife caps are practiced in
+  `src/overlay.rs:778-1249`, including exact 4,999/5,000/5,001 ms boundaries.
+- Parent popup work, popup-local IME geometry, non-presentational pointer work,
+  and per-parent stale cleanup are practiced at
+  `src/tests/platform_tests.rs:888-1078` and `src/platform/native/popup.rs:725-770`.
+- Layout-to-paint scale change and moving/resting geometry have mechanism and
+  endpoint witnesses in `src/platform/native/paint.rs:549-795` and
+  `src/render/quad.rs:880-925`. X-04 will execute the required four-scale matrix
+  and long deterministic endpoint load as one recorded family.
+
+`W-05 — Application`
+
+- The suite has 31 runtime, 11 host/shell, and 24 platform test journeys. They
+  practice start-once, poll, task execution/completion/cancellation, requests,
+  multi-window revision staleness, repeated drains, close, and restore
+  (`src/tests/runtime_tests.rs`, `src/tests/host_shell_tests.rs`, and
+  `src/tests/platform_tests.rs`).
+- Gap X-02: `Host` explicitly drops events and dialog results for unknown
+  windows (`src/host/mod.rs:99-116`), but no behavioral witness delivers them
+  after departure.
+- Gap X-03: public platform operations return backend errors, while the reusable
+  `FakeBackend` can only succeed. Error source formatting is tested, but an
+  operational backend failure has no journey witness. The current contract is
+  propagation and terminal handoff, not retry or rollback after failure.
+
+`W-06 — Native boundary`
+
+- Physical input conversion, per-window scale, popup-local coordinates, cursor
+  host, popup IME routing, capability fallback, surface reconfiguration, alpha
+  convention, and popup packing all have behavioral witnesses in
+  `src/tests/platform_tests.rs:4-505`, `src/platform/native`, and `src/render`.
+- Device-grid focus outsets already cover 1.0, 1.25, 1.5, and 2.0 at
+  `src/paint/grid.rs:347`; X-04 broadens the recorded adversarial scale family
+  beyond that single decoration property.
+- Six ignored renderer/native witnesses require a GPU adapter or readback.
+  Hardware availability will be attempted and reported, never inferred.
+
+`W-07 — Root vocabulary`
+
+- Window facts, state revisions/snapshots, keymap profiles, color transfer,
+  animation endpoints, response invalidation precedence, logical/physical paint
+  types, and grid snapping each have focused mechanism witnesses.
+- X-06 will run 10,000 deterministic cases for the applicable algebraic and
+  endpoint owners instead of mistaking a handful of examples for long-sequence
+  evidence. It will assert governing laws, not duplicate their algorithms.
 
 ## Required scenario families
 
 | Cell | Family | Census | Execution | Receipts / result |
 | --- | --- | --- | --- | --- |
-| S-01 | Document edits, history, save snapshots, out-of-order completion, persistence failure, clipboard, focus, departure | Pending | Pending | |
-| S-02 | Hidden/disabled/declined commands, nested responders, captured focus, palette, grouping, observers, target departure | Pending | Pending | |
-| S-03 | Retained reorder/removal, focus traversal, pointer capture, drafts, scrolling, reveal, clipping, replacement | Pending | Pending | |
-| S-04 | First/entering/live/exiting/reopened overlays, fallback, redraw-only work, multi-parent, scale, departure | Pending | Pending | |
-| S-05 | Start, poll, task completion, requests, window lifecycle, stale events, repeated drain, backend failure, shutdown | Pending | Pending | |
-| S-06 | 1.0/1.25/1.5/2.0 conversion, reconfiguration, alpha, cursor/IME hosts, fallback, hardware absence | Pending | Pending | |
-| S-07 | Geometry/color/keymap/animation/effect/revision/window-fact round trips and boundary laws | Pending | Pending | |
+| S-01 | Document edits, history, save snapshots, out-of-order completion, persistence failure, clipboard, focus, departure | Complete | Pending | Existing whole journeys plus 10k/100k reference tiers. Document has no independent departure apart from its window/application owner. |
+| S-02 | Hidden/disabled/declined commands, nested responders, captured focus, palette, grouping, observers, target departure | Complete | Pending | Existing responder, command, notification, and close/stale-focus journeys cover the family. |
+| S-03 | Retained reorder/removal, focus traversal, pointer capture, drafts, scrolling, reveal, clipping, replacement | Complete with X-01 | Pending | Add one reduced removal-during-active-interaction witness using current reconciliation/pruning mechanics. |
+| S-04 | First/entering/live/exiting/reopened overlays, fallback, redraw-only work, multi-parent, scale, departure | Complete with X-04 | Pending | Existing overlay and popup cases cover lifecycle; run the consolidated endpoint/scale load. |
+| S-05 | Start, poll, task completion, requests, window lifecycle, stale events, repeated drain, backend failure, shutdown | Complete with X-02/X-03 | Pending | Add stale-after-departure and terminal backend-error propagation journeys; clean shutdown is window departure because no broader shutdown protocol exists. |
+| S-06 | 1.0/1.25/1.5/2.0 conversion, reconfiguration, alpha, cursor/IME hosts, fallback, hardware absence | Complete with X-04/X-05 | Pending | Run four-scale matrix and attempt all six GPU/readback witnesses. |
+| S-07 | Geometry/color/keymap/animation/effect/revision/window-fact round trips and boundary laws | Complete with X-06 | Pending | Add long deterministic law checks only for owners with stable observable invariants. |
 
 ## Minimum-breadth ledger
 
@@ -111,9 +205,36 @@ restoration (`S`), coordinates/scale (`K`), and concurrent/deferred completion
 
 ## Existing mechanics inventory
 
-Pending complete orientation. This section will name reusable fixtures,
-reference models, seeded generators, fake backends, injected-time seams, and
-example-level journeys before the scenario census closes.
+- `src/text/acceptance.rs` has the fixed seed `0xd1b5_4a32_d192_ed03`, a String
+  and line-start reference model, 100,000 edit/undo/redo operations, and a
+  release-only 8 MiB load/typing/clone benchmark.
+- `src/text/buffer/document/span_tree.rs:881` has seed
+  `0x9e37_79b9_7f4a_7c15` and 10,000 edit/reference/invariant operations.
+- `src/tests/mod.rs:245-389` supplies `FakeBackend`, backend event capture,
+  native-popup capability selection, and common input/presentation helpers.
+- `Runtime::render_scene_at`, `overlay::Store::update_window`, animation
+  transitions, and `SysApplicator::due` all accept explicit `Instant` values.
+- `platform::Events` translates winit events without a native event loop and
+  maintains per-window pointer/scale state.
+- The three examples expose `--smoke`; the text editor, gallery, and tuner are
+  also compiled into the crate as external-style fixtures.
+- Exact scale owners are `paint::Grid`, typed paint areas/points, native paint
+  projection, and `platform::Events`; no test-local conversion owner is needed.
+- Renderer diagnostics contain six ignored GPU witnesses; the text engine adds
+  the two ignored reference/benchmark tiers.
+
+## Planned execution cells
+
+| Cell | Execution |
+| --- | --- |
+| X-01 | Remove a captured/pressed/scrolling retained target during rebuild; verify reconciliation prunes all interaction state and a late release is inert. |
+| X-02 | Close a host window, then deliver stale window and dialog events; verify no state or work resurrects. |
+| X-03 | Use a local failing backend to prove an operational error crosses `Platform` exactly as `Error::Backend`; make no retry-policy claim. |
+| X-04 | Run 10,000 deterministic animation/overlay/paint endpoint cases and the 1.0/1.25/1.5/2.0 scale matrix. |
+| X-05 | Attempt the six ignored GPU/native witnesses individually and record adapter availability/failures. |
+| X-06 | Run 10,000 deterministic response-effect, transition/schedule, settle-state, and coordinate-law cases without reimplementing production algorithms. |
+| X-07 | Run all 66 existing runtime/host/platform journeys, the full suite, and all three example smokes. |
+| X-08 | Run the ignored 100k text reference property and release acceptance benchmark. |
 
 ## Execution ledger
 
@@ -127,11 +248,15 @@ example-level journeys before the scenario census closes.
 
 ## Candidate ledger
 
-No candidate is admitted before the witness map and scenario census are
-complete.
+The witness map and scenario census are complete. Test gaps X-01 through X-06
+authorize test-local evidence, not framework behavior. Framework corrections
+still require a reduced failing sequence.
 
 | ID | Finding | Admission evidence | Existing owner | Displaced path | Disposition |
 | --- | --- | --- | --- | --- | --- |
+| P-01 | Glass-tuner smoke waits 100 ms in wall-clock time although presentation accepts injected time. | Direct contradiction with this goal's no-sleep rail; `examples/glass_tuner/main.rs:20-31` is the only sleep site and already performs two frames around the fade. | The smoke journey and `Runtime::render_scene_at`. | `std::thread::sleep` plus two unrelated `Instant::now` samples. | Admitted witness correction after census: preserve the two-frame behavior with one explicit epoch and `epoch + 100 ms`. |
+| P-02 | Active interaction removal has production pruning but no whole-promise witness. | X-01, `src/interaction/mod.rs:267-297`, and reconciliation at `src/runtime/presentation.rs:450-469`. | Existing runtime reconciliation and session interaction. | None; this is missing evidence, not a competing implementation. | Add a test only; admit framework code only if the reduced sequence fails. |
+| P-03 | Stale host events and backend failure propagation lack journeys. | X-02/X-03 and the existing branches in `src/host/mod.rs:99-116` / `src/platform/mod.rs:139-210`. | Existing Host and Platform boundaries. | None. | Add local witnesses; do not invent retry or rollback policy. |
 
 ## Correction ledger
 
