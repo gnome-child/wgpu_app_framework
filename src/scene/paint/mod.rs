@@ -253,7 +253,7 @@ fn paint_frame(
     }
 
     if frame.table_row().is_some_and(|row| row.index() % 2 == 1) {
-        scene.push_quad(Quad::new(frame.rect(), theme.control().hover_tint));
+        scene.push_quad(Quad::new(frame.rect(), theme.table().alternate_row_tint));
     }
     if frame.table_edit_error().is_some() {
         scene.push_quad(
@@ -348,6 +348,21 @@ fn layer_for(frame: &layout::Frame) -> Layer {
 }
 
 fn role_fill(frame: &layout::Frame, theme: &Theme) -> Option<super::Color> {
+    if let Some(part) = frame.table_part()
+        && part != view::TablePart::Action
+    {
+        return match part {
+            view::TablePart::Header | view::TablePart::HeaderControl => {
+                visible_fill(theme.table().header_background)
+            }
+            view::TablePart::Cell
+            | view::TablePart::Editor
+            | view::TablePart::PassiveToggle
+            | view::TablePart::Toggle => visible_fill(theme.table().cell_background),
+            view::TablePart::Action => unreachable!("table actions retain control chrome"),
+        };
+    }
+
     match frame.role() {
         view::Role::Root => Some(theme.surfaces().root),
         view::Role::MenuBar => Some(theme.menu().bar_background),
@@ -464,6 +479,13 @@ fn color_with_opacity(color: super::Color, opacity: f32) -> super::Color {
 }
 
 fn role_rounding(frame: &layout::Frame, theme: &Theme) -> super::Rounding {
+    if frame
+        .table_part()
+        .is_some_and(|part| part != view::TablePart::Action)
+    {
+        return super::Rounding::none();
+    }
+
     match frame.role() {
         view::Role::FloatingPanel => theme.floating_panel().rounding,
         view::Role::Menu => theme.control().rounding,
@@ -679,6 +701,26 @@ fn visual_tint_for(
         .map(|target| visuals.target(target))
         .unwrap_or_default();
 
+    match frame.table_part() {
+        Some(view::TablePart::HeaderControl) => {
+            return if target_visual.pressed() || target_visual.active() {
+                Some(theme.table().header_pressed_tint)
+            } else if target_visual.hovered() || frame.focus_visible() {
+                Some(theme.table().header_hover_tint)
+            } else {
+                None
+            };
+        }
+        Some(
+            view::TablePart::Header
+            | view::TablePart::Cell
+            | view::TablePart::Editor
+            | view::TablePart::PassiveToggle
+            | view::TablePart::Toggle,
+        ) => return None,
+        Some(view::TablePart::Action) | None => {}
+    }
+
     if frame.role() == view::Role::Menu {
         if target_visual.pressed() {
             return Some(theme.menu().title_pressed_tint);
@@ -765,6 +807,19 @@ fn text_for(frame: &layout::Frame) -> Option<&str> {
 }
 
 fn text_rect_for(frame: &layout::Frame, theme: &Theme) -> geometry::Rect {
+    if let Some(part) = frame.table_part() {
+        return match part {
+            view::TablePart::PassiveToggle | view::TablePart::Toggle => {
+                layout::table_choice_label_rect(frame.rect(), theme)
+            }
+            view::TablePart::Editor => frame.text_box_text_rect(),
+            view::TablePart::Action => frame.rect(),
+            view::TablePart::Header | view::TablePart::HeaderControl | view::TablePart::Cell => {
+                layout::table_content_rect(frame.rect(), theme)
+            }
+        };
+    }
+
     match frame.role() {
         view::Role::Checkbox | view::Role::Radio => layout::choice_label_rect(frame.rect(), theme),
         view::Role::Slider => layout::slider_label_rect(frame.rect(), frame.label_width(), theme),
@@ -775,6 +830,9 @@ fn text_rect_for(frame: &layout::Frame, theme: &Theme) -> geometry::Rect {
 
 fn text_color_for(frame: &layout::Frame, theme: &Theme) -> super::Color {
     if !frame.is_enabled() {
+        return theme.text().muted;
+    }
+    if frame.table_part() == Some(view::TablePart::PassiveToggle) {
         return theme.text().muted;
     }
 
@@ -794,6 +852,10 @@ fn text_color_for(frame: &layout::Frame, theme: &Theme) -> super::Color {
 }
 
 fn text_style_for(frame: &layout::Frame, theme: &Theme) -> TextStyle {
+    if frame.table_part().is_some() {
+        return scene_text_style(theme.typography().interface());
+    }
+
     scene_text_style(layout::label_style_for(
         frame.role(),
         frame.binding_source(),
@@ -823,6 +885,10 @@ fn text_wrap_for(frame: &layout::Frame) -> TextWrap {
 }
 
 fn text_align_for(frame: &layout::Frame) -> TextAlign {
+    if frame.table_part() == Some(view::TablePart::HeaderControl) {
+        return TextAlign::Start;
+    }
+
     match frame.role() {
         view::Role::Button | view::Role::Menu => TextAlign::Center,
         _ => TextAlign::Start,
@@ -847,6 +913,16 @@ fn focus_outline_color_for(frame: &layout::Frame, theme: &Theme) -> Option<super
 }
 
 fn focus_outline_rect_for(frame: &layout::Frame) -> geometry::Rect {
+    if frame.table_part() == Some(view::TablePart::Editor) {
+        let rect = frame.rect();
+        return geometry::Rect::new(
+            rect.x().saturating_add(1),
+            rect.y().saturating_add(1),
+            rect.width().saturating_sub(2),
+            rect.height().saturating_sub(2),
+        );
+    }
+
     match frame.role() {
         view::Role::Checkbox | view::Role::Radio | view::Role::Slider => frame.active_rect(),
         _ => frame.rect(),

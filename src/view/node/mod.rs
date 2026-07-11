@@ -20,6 +20,24 @@ pub(crate) enum TextKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Participation {
+    MenuRow,
+    PaletteRow,
+    Table(TablePart),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TablePart {
+    Header,
+    HeaderControl,
+    Cell,
+    Editor,
+    PassiveToggle,
+    Toggle,
+    Action,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FloatingPlacement {
     Default,
     CenteredMaxEnvelope,
@@ -60,6 +78,7 @@ pub struct Node {
     table_model: Option<crate::table::Model>,
     table_edit: Option<crate::table::Edit>,
     table_edit_error: Option<String>,
+    participation: Option<Participation>,
     children: Vec<Node>,
 }
 

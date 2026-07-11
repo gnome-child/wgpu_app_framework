@@ -22,6 +22,10 @@ pub(crate) fn interface_text_style(theme: &theme::Theme) -> theme::TypeStyle {
 }
 
 pub(crate) fn label_style(node: &view::Node, theme: &theme::Theme) -> theme::TypeStyle {
+    if matches!(node.participation(), Some(view::Participation::Table(_))) {
+        return interface_text_style(theme);
+    }
+
     label_style_for(
         node.role(),
         node.binding().map(view::Binding::source),

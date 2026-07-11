@@ -3,7 +3,9 @@ use super::super::{
     control::{Button, Checkbox, Control, Radio, Slider, TextArea, TextBox},
     style::Style,
 };
-use super::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node, Role};
+use super::{
+    Axis, FloatingPlacement, NativePopupMaterialPreference, Node, Participation, Role, TablePart,
+};
 use crate::{command, context::Source, interaction, subject};
 
 impl Node {
@@ -184,11 +186,23 @@ impl Node {
 
     pub(crate) fn with_table_cell(mut self, cell: crate::table::Cell) -> Self {
         self.table_cell = Some(cell);
+        self.participation = Some(Participation::Table(match self.role {
+            Role::TextBox if self.table_edit.is_some() => TablePart::Editor,
+            Role::Checkbox if self.binding.is_some() => TablePart::Toggle,
+            Role::Checkbox => TablePart::PassiveToggle,
+            Role::Button => TablePart::Action,
+            _ => TablePart::Cell,
+        }));
         self
     }
 
     pub(crate) fn with_table_header_cell(mut self, cell: crate::table::HeaderCell) -> Self {
         self.table_header_cell = Some(cell);
+        self.participation = Some(Participation::Table(if self.binding.is_some() {
+            TablePart::HeaderControl
+        } else {
+            TablePart::Header
+        }));
         self
     }
 
@@ -199,6 +213,9 @@ impl Node {
 
     pub(crate) fn with_table_edit(mut self, edit: crate::table::Edit) -> Self {
         self.table_edit = Some(edit);
+        if self.table_cell.is_some() {
+            self.participation = Some(Participation::Table(TablePart::Editor));
+        }
         self
     }
 
@@ -253,11 +270,13 @@ impl Node {
         C: command::Command,
         C::Args: Clone,
     {
+        self.participation = participation_for_source(source);
         self.binding = Some(Binding::new::<C>(args, source));
         self
     }
 
     pub(crate) fn bind_trigger(mut self, trigger: command::AnyTrigger, source: Source) -> Self {
+        self.participation = participation_for_source(source);
         self.binding = Some(Binding::from_trigger(trigger, source));
         self
     }
@@ -273,6 +292,7 @@ impl Node {
         source: Source,
         slider_trigger: command::AnyValueTrigger<f64>,
     ) -> Self {
+        self.participation = participation_for_source(source);
         self.binding = Some(Binding::slider(value, source, slider_trigger));
         self
     }
@@ -283,6 +303,7 @@ impl Node {
         source: Source,
         text_trigger: command::AnyValueTrigger<String>,
     ) -> Self {
+        self.participation = participation_for_source(source);
         self.binding = Some(Binding::text(text, source, text_trigger));
         self
     }
@@ -329,6 +350,7 @@ impl Node {
             table_model: None,
             table_edit: None,
             table_edit_error: None,
+            participation: None,
             children: Vec::new(),
         }
     }
@@ -344,7 +366,16 @@ impl Node {
     }
 
     fn with_binding(mut self, binding: Binding) -> Self {
+        self.participation = participation_for_source(binding.source());
         self.binding = Some(binding);
         self
+    }
+}
+
+fn participation_for_source(source: Source) -> Option<Participation> {
+    match source {
+        Source::Menu => Some(Participation::MenuRow),
+        Source::Palette => Some(Participation::PaletteRow),
+        _ => None,
     }
 }

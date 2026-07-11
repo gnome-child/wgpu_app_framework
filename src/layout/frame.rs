@@ -139,6 +139,7 @@ pub(crate) struct Frame {
     table_header_cell: Option<crate::table::HeaderCell>,
     table_projection: Option<table::Projection>,
     table_edit_error: Option<String>,
+    participation: Option<view::Participation>,
     force_overlay_group: bool,
     native_popup_material_preference: view::NativePopupMaterialPreference,
     floating_layer: bool,
@@ -168,7 +169,7 @@ impl Frame {
         let text_area_layout =
             text_area.map(|text_area| engine.text_area_layout(text_area, rect, theme, now));
         let text_box = node.text_box_model().cloned();
-        let text_box_text_rect = text_box_text_rect_for(rect, theme);
+        let text_box_text_rect = text_box_text_rect_for(node, rect, theme);
         let text_box_layout = text_box
             .as_ref()
             .map(|text_box| engine.text_field_layout(text_box, text_box_text_rect, theme, now));
@@ -269,6 +270,7 @@ impl Frame {
             table_header_cell: node.table_header_cell(),
             table_projection: None,
             table_edit_error: node.table_edit_error().map(str::to_owned),
+            participation: node.participation(),
             force_overlay_group: node.force_overlay_group(),
             native_popup_material_preference: node.native_popup_material_preference(),
             floating_layer,
@@ -596,11 +598,18 @@ impl Frame {
     }
 
     pub(crate) fn is_menu_row(&self) -> bool {
-        self.role() == view::Role::Binding && self.binding_source() == Some(context::Source::Menu)
+        self.participation == Some(view::Participation::MenuRow)
     }
 
     pub(crate) fn is_palette_row(&self) -> bool {
-        self.binding_source() == Some(context::Source::Palette)
+        self.participation == Some(view::Participation::PaletteRow)
+    }
+
+    pub(crate) fn table_part(&self) -> Option<view::TablePart> {
+        match self.participation {
+            Some(view::Participation::Table(part)) => Some(part),
+            _ => None,
+        }
     }
 
     pub(crate) fn clip_contains(&self, point: Point) -> bool {
@@ -812,8 +821,13 @@ impl Clip {
     }
 }
 
-fn text_box_text_rect_for(rect: Rect, theme: &Theme) -> Rect {
-    let padding_x = theme.text_input().padding_x;
+fn text_box_text_rect_for(node: &view::Node, rect: Rect, theme: &Theme) -> Rect {
+    let padding_x =
+        if node.participation() == Some(view::Participation::Table(view::TablePart::Editor)) {
+            theme.table().cell_padding
+        } else {
+            theme.text_input().padding_x
+        };
     Rect::new(
         rect.x().saturating_add(padding_x),
         rect.y(),
@@ -845,6 +859,11 @@ fn active_rect_for(
     theme: &Theme,
 ) -> Rect {
     match node.role() {
+        view::Role::Checkbox
+            if matches!(node.participation(), Some(view::Participation::Table(_))) =>
+        {
+            control::table_choice_mark_rect(rect, theme)
+        }
         view::Role::Checkbox | view::Role::Radio => control::choice_mark_rect(rect, theme),
         view::Role::Slider => slider
             .map(|slider| control::slider_active_rect(rect, slider, label_width, theme))

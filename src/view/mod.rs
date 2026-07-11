@@ -23,7 +23,7 @@ pub(crate) use command_palette::{CommandPalette, Entry as CommandPaletteEntry};
 pub use context::Context;
 pub use control::{Button, Checkbox, Radio, Slider, TextArea, TextBox, Wrap};
 pub use node::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node};
-pub(crate) use node::{ProvidedRow, Role};
+pub(crate) use node::{Participation, ProvidedRow, Role, TablePart};
 #[cfg(test)]
 pub(crate) use presentation::Presentation;
 pub use style::{Align, Dimension, Padding, Style};

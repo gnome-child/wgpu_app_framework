@@ -49,8 +49,8 @@ vocabularies are admitted.
 | Checkpoint | Contract | Status | Boundary proof |
 | --- | --- | --- | --- |
 | 1 | One sizing truth: shared `view::Dimension`, minimum-preserving overflow pressure, delete `table::Width` | Complete | `9f5e73d7`; 855 passed, 8 ignored; three smokes and all boundary checks green |
-| 2 | Resolve the track projection before placement; one horizontal scroll owner | Green; commit pending | 857 passed, 8 ignored; focused horizontal-scroll/resize/scale witnesses and full ritual green |
-| 3 | Host-derived participation and truthful table chrome | Pending | — |
+| 2 | Resolve the track projection before placement; one horizontal scroll owner | Complete | `555ef0a8`; 857 passed, 8 ignored; focused horizontal-scroll/resize/scale witnesses and full ritual green |
+| 3 | Host-derived participation and truthful table chrome | Green; commit pending | 858 passed, 8 ignored; host-dress census, chrome witnesses, and full ritual green |
 | 4 | General whole-draft `text::Input` policies | Pending | — |
 | 5 | Typed columns from `table::{Value, Sort, EditText, EditToggle}` | Pending | — |
 | 6 | Measurable read-only world-text wrapping | Pending | — |
@@ -181,9 +181,59 @@ Further flags append here as public names are proposed and resolved.
 - Pending eyes: horizontal thumb discoverability and the visual balance of the
   fully revealed right edge remain explicit manual checks during checkpoint
   3's chrome comparison; geometry and hit behavior are pinned here.
+- Commit receipt: `555ef0a8` (`Project table tracks before horizontal
+  scrolling`), 8 files, 607 insertions, 28 deletions.
+
+### Checkpoint 3 — participation census and verdict
+
+- Menu census: menu `Binding` nodes carried `Source::Menu`; layout and paint
+  repeatedly re-read that behavioral provenance to infer menu-row sizing,
+  floating layer, fill, highlight, typography, and content layout. Separators
+  remain an intentionally structural menu species.
+- Palette census: palette result labels carried `Source::Palette`; layout and
+  paint independently inferred palette-row sizing, floating layer, highlight,
+  typography, and shortcut layout from that source.
+- Verdict: table dress is the third caller of one host-derived participation
+  concept. Internal `view::Participation` now records menu row, palette row, or
+  a typed table part. Command `Source`, role, target, binding, focus, and action
+  remain behavior owners. The marker deletes appearance inference from command
+  provenance without becoming public API.
+- Table parts: ordinary header, interactive header control, cell, editor,
+  passive toggle, interactive toggle, and explicit action are classified when
+  the table hosts their existing nodes. No provider control is replaced and no
+  binding is added or removed.
+- Recipe: internal `Theme::table()` derives a coherent header surface,
+  hover/press tints, transparent cell/editor surface, alternating-row tint,
+  passive indicator, and cell padding from existing theme truths. It adds no
+  parallel TOML vocabulary before a public customization caller exists.
+- Appearance witnesses: a sortable `Button` retains its target and action but
+  paints as a square, start-aligned table header with no button plate; a
+  `TextBox` editor retains draft, caret, selection, error, and focus behavior
+  but rests on a transparent cell and focuses with an inset square outline; a
+  triggerless checked boolean has no target or checkbox plate and paints a
+  passive check; an explicit `Open` action retains ordinary button fill and
+  rounding.
+- Behavior witnesses: header-center sorting, divider precedence, table-local
+  resize/capture, edit commit/reject/cancel, focus, keyboard navigation,
+  selection, scrolling, and deletion tests all remained green. Interactive
+  toggle classification is present; checkpoint 5 supplies its first honest
+  gallery caller and activation witness rather than arming the existing
+  display-only checkbox here.
+- Public API: none. `Participation`, `TablePart`, and the table theme recipe are
+  crate-internal supporting concepts.
+- Full library: 858 passed, 8 ignored, 0 failed in 0.90 s. Compact million-row
+  work remained bounded.
+- Smokes and checks: all three examples, formatting, all-target compilation,
+  diff whitespace, and `comparison_open: true` passed. No unrelated changes
+  were present or absorbed.
+- Pending eyes: scene-level witnesses cover idle/focused editor, sortable
+  header, passive boolean, action button, row striping, and focus/error chrome.
+  Ascending/descending glyphs and a live interactive boolean wait for their
+  typed checkpoint-5 callers; compact/expanded side-by-side review remains a
+  checkpoint-8 comparison.
 - Commit receipt: pending checkpoint commit; the next ledger boundary records
-  its hash and statistics (current implementation diff before ledger: 7 files,
-  558 insertions, 25 deletions).
+  its hash and statistics (implementation diff before ledger: 12 files, 384
+  insertions, 16 deletions).
 
 ## Pending eyes
 

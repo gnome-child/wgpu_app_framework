@@ -1,5 +1,4 @@
 use super::super::{
-    context::Source,
     geometry::{Rect, Size},
     theme, view,
 };
@@ -76,14 +75,11 @@ pub(crate) fn is_menu_panel(node: &view::Node) -> bool {
 
 pub(crate) fn is_menu_panel_row(node: &view::Node) -> bool {
     node.role() == view::Role::Separator
-        || node
-            .binding()
-            .is_some_and(|binding| binding.source() == Source::Menu)
+        || node.participation() == Some(view::Participation::MenuRow)
 }
 
 pub(crate) fn is_palette_row(node: &view::Node) -> bool {
-    node.binding()
-        .is_some_and(|binding| binding.source() == Source::Palette)
+    node.participation() == Some(view::Participation::PaletteRow)
 }
 
 pub(crate) fn palette_row_parts(
@@ -128,6 +124,29 @@ pub(crate) fn choice_mark_rect(rect: Rect, theme: &theme::Theme) -> Rect {
 
 pub(crate) fn choice_label_rect(rect: Rect, theme: &theme::Theme) -> Rect {
     row_part(choice_row(0, theme), rect, 1)
+}
+
+pub(crate) fn table_content_rect(rect: Rect, theme: &theme::Theme) -> Rect {
+    let padding = theme.table().cell_padding.max(0);
+    Rect::new(
+        rect.x().saturating_add(padding),
+        rect.y(),
+        rect.width().saturating_sub(padding.saturating_mul(2)),
+        rect.height(),
+    )
+}
+
+pub(crate) fn table_choice_mark_rect(rect: Rect, theme: &theme::Theme) -> Rect {
+    let choice = theme.choice();
+    centered_rect(
+        row_part(table_choice_row(0, theme), rect, 0),
+        choice.mark_size,
+        choice.mark_size,
+    )
+}
+
+pub(crate) fn table_choice_label_rect(rect: Rect, theme: &theme::Theme) -> Rect {
+    row_part(table_choice_row(0, theme), rect, 1)
 }
 
 pub(crate) fn slider_label_rect(
@@ -235,6 +254,23 @@ fn choice_row(label_width: i32, theme: &theme::Theme) -> Row {
             0,
             choice.mark_inset,
         ))
+        .item(Item::fixed(SizeHint::fixed(Size::new(
+            choice.mark_size,
+            row_height,
+        ))))
+        .item(Item::grow(SizeHint::new(
+            Size::new(0, row_height),
+            Size::new(label_width.max(0), row_height),
+        )))
+}
+
+fn table_choice_row(label_width: i32, theme: &theme::Theme) -> Row {
+    let choice = theme.choice();
+    let row_height = theme.control().height;
+
+    Row::new()
+        .gap(theme.table().cell_padding)
+        .padding(view::Padding::symmetric(theme.table().cell_padding, 0))
         .item(Item::fixed(SizeHint::fixed(Size::new(
             choice.mark_size,
             row_height,

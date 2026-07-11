@@ -9,7 +9,26 @@ pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme, vis
         return;
     };
     let choice = theme.choice();
-    let mark = layout::choice_mark_rect(frame.rect(), theme);
+    let table_part = frame.table_part();
+    let mark = if matches!(
+        table_part,
+        Some(view::TablePart::PassiveToggle | view::TablePart::Toggle)
+    ) {
+        layout::table_choice_mark_rect(frame.rect(), theme)
+    } else {
+        layout::choice_mark_rect(frame.rect(), theme)
+    };
+    if table_part == Some(view::TablePart::PassiveToggle) {
+        if selected {
+            scene.push_icon(Icon::new(
+                mark,
+                icons::Icon::phosphor(icons::Id::new("check")).with_style(icons::Style::Bold),
+                theme.table().passive_indicator,
+                choice.icon_size,
+            ));
+        }
+        return;
+    }
     let mark_rounding = match frame.role() {
         view::Role::Radio => Rounding::relative(1.0),
         _ => theme.control().rounding,

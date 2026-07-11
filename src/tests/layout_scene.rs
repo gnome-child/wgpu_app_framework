@@ -5966,6 +5966,142 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
 }
 
 #[test]
+fn table_participation_changes_chrome_without_changing_control_behavior() {
+    let mut gallery = control_gallery::app(control_gallery::State::default());
+    gallery.start();
+    let window = gallery.session().windows()[0].id();
+    let size = geometry::Size::new(760, 660);
+    let rendered = gallery
+        .render_scene(window, size)
+        .expect("gallery table should render");
+    let theme = Theme::default();
+
+    let sort_header = rendered
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_part() == Some(view::TablePart::HeaderControl)
+                && frame.label_text() == Some("Record ↕")
+        })
+        .expect("sortable button should participate as a header control");
+    assert_eq!(sort_header.role(), view::Role::Button);
+    assert!(sort_header.target().is_some());
+    assert!(rendered.scene().quads().iter().any(|quad| {
+        quad.rect() == sort_header.rect()
+            && quad.fill() == theme.table().header_background
+            && quad.rounding() == scene::Rounding::none()
+    }));
+    assert!(!rendered.scene().quads().iter().any(|quad| {
+        quad.rect() == sort_header.rect()
+            && quad.fill() == theme.control().button_background
+            && quad.rounding() == theme.control().rounding
+    }));
+
+    let action = rendered
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_part() == Some(view::TablePart::Action)
+                && frame.label_text() == Some("Open")
+        })
+        .expect("intentional cell action should remain a button");
+    assert_eq!(action.role(), view::Role::Button);
+    assert!(action.target().is_some());
+    assert!(rendered.scene().quads().iter().any(|quad| {
+        quad.rect() == action.rect()
+            && quad.fill() == theme.control().button_background
+            && quad.rounding() == theme.control().rounding
+    }));
+
+    let passive = rendered
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_part() == Some(view::TablePart::PassiveToggle)
+                && frame.checkbox().is_some_and(view::Checkbox::checked)
+        })
+        .expect("triggerless boolean cell should be passive");
+    assert_eq!(passive.role(), view::Role::Checkbox);
+    assert!(passive.target().is_none());
+    let passive_mark = layout::table_choice_mark_rect(passive.rect(), &theme);
+    assert!(
+        rendered
+            .scene()
+            .icons()
+            .iter()
+            .any(|icon| icon.rect() == passive_mark)
+    );
+    assert!(
+        rendered
+            .scene()
+            .quads()
+            .iter()
+            .all(|quad| quad.rect() != passive_mark),
+        "passive booleans must not paint an interactive checkbox plate"
+    );
+
+    let mut editable = editable_table_app(EditableTableState {
+        records: vec![EditableRecord {
+            key: 7,
+            name: "Ada".to_owned(),
+            count: 4,
+        }],
+    });
+    editable.start();
+    let editable_window = editable.session().windows()[0].id();
+    let editable_size = geometry::Size::new(320, 124);
+    let cell = crate::table::Cell::new(
+        interaction::Id::new("editable.table"),
+        crate::virtual_list::Key::new(7),
+        interaction::Id::new("name"),
+    );
+    let idle = editable
+        .render_scene(editable_window, editable_size)
+        .expect("idle editor should render");
+    let idle_editor = idle
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("editor frame");
+    assert_eq!(idle_editor.table_part(), Some(view::TablePart::Editor));
+    assert_eq!(idle_editor.role(), view::Role::TextBox);
+    assert!(idle.scene().quads().iter().all(|quad| {
+        quad.rect() != idle_editor.rect() || quad.fill() != theme.text_input().field_background
+    }));
+
+    editable
+        .handle_input(
+            editable_window,
+            Input::focus(session::Focus::table_cell(cell)),
+        )
+        .expect("editor should focus");
+    let focused = editable
+        .render_scene(editable_window, editable_size)
+        .expect("focused editor should render");
+    let focused_editor = focused
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("focused editor frame");
+    let inset = geometry::Rect::new(
+        focused_editor.rect().x() + 1,
+        focused_editor.rect().y() + 1,
+        focused_editor.rect().width() - 2,
+        focused_editor.rect().height() - 2,
+    );
+    assert!(focused.scene().outlines().iter().any(|outline| {
+        outline.rect() == inset
+            && outline.color() == theme.focus().color
+            && outline.rounding() == scene::Rounding::none()
+    }));
+}
+
+#[test]
 fn control_gallery_choice_labels_are_single_line_row_content() {
     let mut app = control_gallery::app(control_gallery::State::default());
 

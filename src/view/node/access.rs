@@ -121,6 +121,10 @@ impl Node {
         self.table_edit_error.as_deref()
     }
 
+    pub(crate) fn participation(&self) -> Option<super::Participation> {
+        self.participation
+    }
+
     pub fn button_model(&self) -> Option<&Button> {
         match self.control.as_ref()? {
             Control::Button(button) => Some(button),

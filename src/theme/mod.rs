@@ -30,6 +30,17 @@ pub struct Theme {
     shortcuts: Shortcuts,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Table {
+    pub(crate) header_background: scene::Color,
+    pub(crate) header_hover_tint: scene::Color,
+    pub(crate) header_pressed_tint: scene::Color,
+    pub(crate) cell_background: scene::Color,
+    pub(crate) alternate_row_tint: scene::Color,
+    pub(crate) passive_indicator: scene::Color,
+    pub(crate) cell_padding: i32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Variant {
     Dark,
@@ -564,6 +575,18 @@ impl Theme {
 
     pub(crate) fn text_input(&self) -> &TextInput {
         &self.text_input
+    }
+
+    pub(crate) fn table(&self) -> Table {
+        Table {
+            header_background: self.menu.bar_background,
+            header_hover_tint: self.control.hover_tint,
+            header_pressed_tint: self.control.pressed_tint,
+            cell_background: scene::Color::rgba(0, 0, 0, 0),
+            alternate_row_tint: self.menu.row_hover_tint,
+            passive_indicator: self.text.muted,
+            cell_padding: self.control.padding,
+        }
     }
 
     pub fn floating_panel(&self) -> &FloatingPanel {
