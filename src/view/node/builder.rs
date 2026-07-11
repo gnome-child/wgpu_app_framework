@@ -5,6 +5,7 @@ use super::super::{
 };
 use super::{
     Axis, FloatingPlacement, NativePopupMaterialPreference, Node, Participation, Role, TablePart,
+    WorldText,
 };
 use crate::{command, context::Source, interaction, subject};
 
@@ -153,7 +154,13 @@ impl Node {
     pub fn world_text(label: impl Into<String>, overflow: crate::text::Overflow) -> Self {
         Self::new(Role::Label)
             .with_label(label)
-            .with_text_kind(super::TextKind::World(overflow))
+            .with_text_kind(super::TextKind::World(WorldText::SingleLine(overflow)))
+    }
+
+    pub(crate) fn wrapped_world_text(label: impl Into<String>, wrap: super::super::Wrap) -> Self {
+        Self::new(Role::Label)
+            .with_label(label)
+            .with_text_kind(super::TextKind::World(WorldText::Wrapped(wrap)))
     }
 
     pub(crate) fn section_header(label: impl Into<String>) -> Self {

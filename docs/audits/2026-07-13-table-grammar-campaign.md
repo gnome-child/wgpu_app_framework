@@ -52,8 +52,8 @@ vocabularies are admitted.
 | 2 | Resolve the track projection before placement; one horizontal scroll owner | Complete | `555ef0a8`; 857 passed, 8 ignored; focused horizontal-scroll/resize/scale witnesses and full ritual green |
 | 3 | Host-derived participation and truthful table chrome | Complete | `637109ef`; 858 passed, 8 ignored; host-dress census, chrome witnesses, and full ritual green |
 | 4 | General whole-draft `text::Input` policies | Complete | `cbd7aeea`; 864 passed, 8 ignored; policy, paste, history, IME, benchmark, and full ritual green |
-| 5 | Typed columns from `table::{Value, Sort, EditText, EditToggle}` | Complete | 867 passed, 8 ignored; compile-fail capability, typed gallery, bounded projection, three smokes, release benchmark, and all boundary checks green |
-| 6 | Measurable read-only world-text wrapping | Pending | — |
+| 5 | Typed columns from `table::{Value, Sort, EditText, EditToggle}` | Complete | `d1c55dd7`; 867 passed, 8 ignored; compile-fail capability, typed gallery, bounded projection, three smokes, release benchmark, and all boundary checks green |
+| 6 | Measurable read-only world-text wrapping | Complete | 868 passed, 8 ignored; standalone measure/paint fixture, cache witnesses, three smokes, release benchmark, and all boundary checks green |
 | 7 | Independently proven variable-height virtual region | Pending | — |
 | 8 | Compact/expanded table presentation and gallery toggle | Pending | — |
 
@@ -337,6 +337,43 @@ Further flags append here as public names are proposed and resolved.
 - Pending eyes: compare neutral/ascending/descending header glyph balance,
   numeric right alignment, editor idle/focus/error states, and live toggle hit
   affordance during checkpoint 8's compact/expanded gallery review.
+- Commit receipt: `d1c55dd7` (`Derive typed table columns from value
+  capabilities`), 9 files, 959 insertions, 195 deletions.
+
+### Checkpoint 6 — read-only world-text wrapping
+
+- Census: bounded label measurement already uses the document shaping engine's
+  `WordOrGlyph` path and width-keyed metric cache; scene text already carries
+  `TextWrap`. The missing link was a truthful world-text declaration connecting
+  those existing owners. No table line breaker, alternate shaper, or wrapped
+  text cache was added.
+- Public API: `widget::Label::wrapped(text)` is the one new constructor. It
+  selects the existing public `view::Wrap::Word`; no `text::Wrap` alias or
+  fluent combination with ellipsis exists. `Label::world(text, overflow)`
+  remains the single-line omission constructor and ordinary authored labels
+  retain their previous behavior.
+- Representation: internal `WorldText::{SingleLine, Wrapped}` makes ellipsis
+  and wrapping mutually exclusive. Layout preserves the original wrapped
+  source, suppresses author-overflow diagnostics, measures intrinsic height at
+  allocated width, and records the wrap decision on the frame. Paint consumes
+  that same decision and the same frame bounds as `TextWrap::WordOrGlyph`.
+- Focused fixture: a provider-authored sentence remained byte-for-byte intact
+  in node, frame, and scene; narrowing from 240 to 92 logical pixels increased
+  or retained height, produced multiple-line height, painted with clipping
+  rather than omission, and emitted no author-text diagnostic. The existing
+  ellipsis and authored-overflow fixtures remained green.
+- Cache law: existing deterministic witnesses prove repeated measurement reuses
+  one metric entry, width/bounds changes create distinct keys, and color-only
+  changes reuse metrics. Existing Unicode, bidi, grapheme, line-break, and
+  non-overlap text witnesses remain the mechanics owners.
+- Full library: 868 passed, 8 ignored, 0 failed in 0.92 s. All three example
+  smokes, formatting, all-target compilation, diff whitespace, and protected
+  `comparison_open: true` passed.
+- Release text acceptance: passed in 0.71 s. Witnesses: 8 MiB load 32.606 ms;
+  10-byte typing 2.823 us/edit; 2.5/5/10 MB typing
+  3.380/3.891/4.303 us/edit; 10 B / 10 MB clone 38.012/37.654 ns.
+- Pending eyes: checkpoint 8 will exercise wrapped table headers and values at
+  real track widths; this checkpoint intentionally adds no table caller.
 
 ## Pending eyes
 

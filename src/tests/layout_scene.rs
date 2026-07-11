@@ -2297,6 +2297,63 @@ fn world_text_resolves_overflow_during_layout_before_scene_paint() {
 }
 
 #[test]
+fn wrapped_world_text_preserves_source_and_shares_width_with_measure_and_paint() {
+    let source = "Provider-authored words wrap through the shared shaping cache without omission.";
+    let compose = |width, engine: &mut layout::Engine| {
+        let label = crate::Widget::into_node(widget::Label::wrapped(source)).with_style(
+            view::Style::new()
+                .with_width(view::Dimension::fixed(width))
+                .with_height(view::Dimension::fit()),
+        );
+        let view = View::new(
+            view::Node::stack(view::Axis::Horizontal)
+                .with_style(
+                    view::Style::new()
+                        .with_width(view::Dimension::fixed(width))
+                        .with_height(view::Dimension::fit())
+                        .with_align_items(view::Align::Start),
+                )
+                .child(label),
+        );
+        layout::Layout::compose(&view, geometry::Size::new(width, 200), engine)
+    };
+    let mut layout_engine = layout::Engine::new();
+    let wide = compose(240, &mut layout_engine);
+    let narrow = compose(92, &mut layout_engine);
+    let wide_frame = wide
+        .find_role(view::Role::Label)
+        .into_iter()
+        .next()
+        .expect("wide wrapped label");
+    let narrow_frame = narrow
+        .find_role(view::Role::Label)
+        .into_iter()
+        .next()
+        .expect("narrow wrapped label");
+
+    assert_eq!(wide_frame.label_text(), Some(source));
+    assert_eq!(narrow_frame.label_text(), Some(source));
+    assert_eq!(wide_frame.world_text_wrap(), Some(view::Wrap::Word));
+    assert_eq!(narrow_frame.world_text_wrap(), Some(view::Wrap::Word));
+    assert!(narrow_frame.rect().height() >= wide_frame.rect().height());
+    assert!(narrow_frame.rect().height() > Theme::default().menu().row_height);
+
+    let narrow_scene = scene::Scene::paint(&narrow);
+    let painted = narrow_scene
+        .texts()
+        .into_iter()
+        .find(|text| text.value() == source)
+        .expect("wrapped source should paint unchanged");
+    assert_eq!(painted.rect(), narrow_frame.rect());
+    assert_eq!(painted.wrap(), scene::TextWrap::WordOrGlyph);
+    assert_eq!(painted.overflow(), text::Overflow::Clip);
+    assert_eq!(
+        layout_engine.take_text_diagnostics().author_text_overflows,
+        0
+    );
+}
+
+#[test]
 fn overflowing_author_text_is_reported_without_mutating_its_value() {
     let source = "This authored sentence cannot fit in one short frame.";
     let view = View::new(view::Node::label(source));

@@ -75,6 +75,7 @@ enum ChoiceContent {
 enum TextContent {
     Label {
         world_overflow: Option<text_model::Overflow>,
+        world_wrap: Option<view::Wrap>,
     },
     SectionHeader,
     Area {
@@ -175,6 +176,7 @@ impl Frame {
             .map(|text_box| engine.text_field_layout(text_box, text_box_text_rect, theme, now));
         let label_style = typography::label_style(node, theme);
         let world_text_overflow = node.world_text_overflow();
+        let world_text_wrap = node.world_text_wrap();
         let label = label_for(node).map(|label| match world_text_overflow {
             Some(overflow) => {
                 engine.resolve_label_overflow(label, rect.width(), label_style, overflow)
@@ -194,7 +196,7 @@ impl Frame {
                 }
             })
             .unwrap_or_default();
-        if world_text_overflow.is_none() {
+        if world_text_overflow.is_none() && world_text_wrap.is_none() {
             if let Some(label) = label.as_deref() {
                 let diagnostic_label = if node.role() == view::Role::SectionHeader {
                     typography::section_header_text(label)
@@ -244,6 +246,7 @@ impl Frame {
             text_box_layout,
             text_box_text_rect,
             world_text_overflow,
+            world_text_wrap,
             slider_track_rect,
         );
         let binding = binding.map(|binding| BoundContent {
@@ -358,7 +361,14 @@ impl Frame {
 
     pub(crate) fn world_text_overflow(&self) -> Option<text_model::Overflow> {
         match &self.content {
-            FrameContent::Text(TextContent::Label { world_overflow }) => *world_overflow,
+            FrameContent::Text(TextContent::Label { world_overflow, .. }) => *world_overflow,
+            _ => None,
+        }
+    }
+
+    pub(crate) fn world_text_wrap(&self) -> Option<view::Wrap> {
+        match &self.content {
+            FrameContent::Text(TextContent::Label { world_wrap, .. }) => *world_wrap,
             _ => None,
         }
     }
@@ -702,6 +712,7 @@ impl FrameContent {
         text_box_layout: Option<text::Field>,
         text_box_text_rect: Rect,
         world_text_overflow: Option<text_model::Overflow>,
+        world_text_wrap: Option<view::Wrap>,
         slider_track_rect: Option<Rect>,
     ) -> Self {
         match node.role() {
@@ -767,6 +778,7 @@ impl FrameContent {
             view::Role::SectionHeader => Self::Text(TextContent::SectionHeader),
             view::Role::Label => Self::Text(TextContent::Label {
                 world_overflow: world_text_overflow,
+                world_wrap: world_text_wrap,
             }),
         }
     }

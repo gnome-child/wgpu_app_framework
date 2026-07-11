@@ -16,7 +16,13 @@ pub(crate) use role::Role;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TextKind {
     Author,
-    World(text::Overflow),
+    World(WorldText),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WorldText {
+    SingleLine(text::Overflow),
+    Wrapped(super::control::Wrap),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -871,6 +871,12 @@ fn text_wrap_for(frame: &layout::Frame) -> TextWrap {
     if frame.world_text_overflow().is_some() {
         return TextWrap::None;
     }
+    if let Some(wrap) = frame.world_text_wrap() {
+        return match wrap {
+            view::Wrap::None => TextWrap::None,
+            view::Wrap::Word => TextWrap::WordOrGlyph,
+        };
+    }
     if matches!(
         frame.role(),
         view::Role::Checkbox | view::Role::Radio | view::Role::Slider

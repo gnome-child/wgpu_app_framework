@@ -42,7 +42,17 @@ impl Node {
     pub(crate) fn world_text_overflow(&self) -> Option<crate::text::Overflow> {
         match self.text_kind {
             super::TextKind::Author => None,
-            super::TextKind::World(overflow) => Some(overflow),
+            super::TextKind::World(super::WorldText::SingleLine(overflow)) => Some(overflow),
+            super::TextKind::World(super::WorldText::Wrapped(_)) => None,
+        }
+    }
+
+    pub(crate) fn world_text_wrap(&self) -> Option<super::super::Wrap> {
+        match self.text_kind {
+            super::TextKind::World(super::WorldText::Wrapped(wrap)) => Some(wrap),
+            super::TextKind::Author | super::TextKind::World(super::WorldText::SingleLine(_)) => {
+                None
+            }
         }
     }
 
