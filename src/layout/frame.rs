@@ -50,7 +50,7 @@ enum FrameContent {
     Text(TextContent),
     Button,
     Choice(ChoiceContent),
-    Slider,
+    Slider(SliderContent),
     Scroll,
     FloatingPanel,
 }
@@ -88,6 +88,12 @@ enum TextContent {
 }
 
 #[derive(Clone)]
+struct SliderContent {
+    model: view::Slider,
+    track_rect: Rect,
+}
+
+#[derive(Clone)]
 pub(crate) struct Frame {
     node_id: composition::NodeId,
     path: path::Path,
@@ -105,8 +111,6 @@ pub(crate) struct Frame {
     background: Option<scene::Brush>,
     clip: Option<Clip>,
     viewport: Option<Viewport>,
-    slider_track_rect: Option<Rect>,
-    slider: Option<view::Slider>,
     target: Option<interaction::Target>,
     binding: Option<view::Binding>,
     action: Option<view::Action>,
@@ -209,6 +213,7 @@ impl Frame {
             text_box_layout,
             text_box_text_rect,
             world_text_overflow,
+            slider_track_rect,
         );
         Self {
             path,
@@ -227,8 +232,6 @@ impl Frame {
             background: node.style().background(),
             clip,
             viewport: None,
-            slider_track_rect,
-            slider,
             target,
             binding,
             action: action_for(node),
@@ -381,11 +384,17 @@ impl Frame {
     }
 
     pub(crate) fn slider(&self) -> Option<&view::Slider> {
-        self.slider.as_ref()
+        match &self.content {
+            FrameContent::Slider(content) => Some(&content.model),
+            _ => None,
+        }
     }
 
     pub(crate) fn slider_track_rect(&self) -> Option<Rect> {
-        self.slider_track_rect
+        match &self.content {
+            FrameContent::Slider(content) => Some(content.track_rect),
+            _ => None,
+        }
     }
 
     pub(crate) fn text_box(&self) -> Option<&view::TextBox> {
@@ -533,8 +542,8 @@ impl Frame {
     }
 
     fn slider_value_at(&self, point: Point) -> Option<f64> {
-        let slider = self.slider.as_ref()?;
-        let track = self.slider_track_rect?;
+        let slider = self.slider()?;
+        let track = self.slider_track_rect()?;
         let width = track.width().max(1) as f64;
         let offset = point.x().saturating_sub(track.x()) as f64;
         let fraction = offset / width;
@@ -550,6 +559,7 @@ impl FrameContent {
         text_box_layout: Option<text::Field>,
         text_box_text_rect: Rect,
         world_text_overflow: Option<text_model::Overflow>,
+        slider_track_rect: Option<Rect>,
     ) -> Self {
         match node.role() {
             view::Role::Root => Self::Structural(StructuralRole::Root),
@@ -576,7 +586,13 @@ impl FrameContent {
                     .cloned()
                     .expect("Radio role must carry Radio content"),
             )),
-            view::Role::Slider => Self::Slider,
+            view::Role::Slider => Self::Slider(SliderContent {
+                model: node
+                    .slider_model()
+                    .cloned()
+                    .expect("Slider role must carry Slider content"),
+                track_rect: slider_track_rect.expect("Slider frame must carry track geometry"),
+            }),
             view::Role::TextBox => Self::Text(TextContent::Field {
                 model: node
                     .text_box_model()
@@ -614,7 +630,7 @@ impl FrameContent {
             Self::Button => view::Role::Button,
             Self::Choice(ChoiceContent::Checkbox(_)) => view::Role::Checkbox,
             Self::Choice(ChoiceContent::Radio(_)) => view::Role::Radio,
-            Self::Slider => view::Role::Slider,
+            Self::Slider(_) => view::Role::Slider,
             Self::Text(TextContent::Field { .. }) => view::Role::TextBox,
             Self::Scroll => view::Role::Scroll,
             Self::FloatingPanel => view::Role::FloatingPanel,
