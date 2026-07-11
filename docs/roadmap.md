@@ -23,8 +23,11 @@ No tables checkpoint remains in flight; the six-checkpoint campaign is green.
 5. Popup fade consistency (after item 2), popup-hosted cursor icon and IME
    candidate placement, fractional-alpha edge quality after the premultiplied
    audit, palette query editing feel (selection tint, caret, I-beam) after the
-   scope slice. Outstanding: post-fix `key -> present` panel reading from the
-   Mac latency incident.
+   scope slice. Tables campaign eyes: ellipsis glyph/cut spacing in both
+   themes, striping and rule weight, sticky-header feel, divider resize feel
+   and cursor, selection tint and keyboard-extend feel, editor placement,
+   rejection outline presentation, commit/cancel feel. Outstanding: post-fix
+   `key -> present` panel reading from the Mac latency incident.
 6. Local visual-test edits in `examples/glass_tuner/app/state.rs` — revert
    when tuning sessions end.
 
@@ -89,8 +92,9 @@ No tables checkpoint remains in flight; the six-checkpoint campaign is green.
     concept: semantic label/description/error association (`label-for`),
     demonstrated by the compound labeled-field experiment.
 12. **Music player** (flagship one) — remaining framework blockers: image /
-    texture primitive, virtualized table (item 10), file drag-and-drop, media
-    keys / SMTC. Cleared: task executor, native menus, async atomic saves.
+    texture primitive, file drag-and-drop, media keys / SMTC. Cleared: task
+    executor, native menus, async atomic saves, virtualized editable tables
+    (campaign closed at `bc4df416`).
 13. **Trading terminal** (flagship two) — charts primitive domain, real-time
     invalidation stress, tabular figures, kiosk-scoped BSD session.
 14. **Targeted redraw** — v0.5: overlay/fade frames skip base re-render
