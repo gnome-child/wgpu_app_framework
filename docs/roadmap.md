@@ -6,9 +6,7 @@ is next.
 
 ## In flight
 
-1. **Text buffer redesign** — persistent source-span tree (piece-tree/rope
-   lineage), mmap retirement, explicit EOL policy, streamed atomic saves,
-   measured acceptance bounds. Replaces the eager line-copy mapped buffer.
+(nothing)
 
 ## Specced and ready
 
