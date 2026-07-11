@@ -924,6 +924,13 @@ Native paint adapters carry the window scale factor into layout-to-paint
 conversion so monitor moves and fractional DPI changes re-snap the same layout
 truth to the new device grid.
 
+`platform::launch(app)` is the ordinary application ceiling: it folds a view
+runtime through Shell and the native Runner and supplies the system clipboard
+only when the runtime still carries its untouched default. `with_clipboard`
+records an explicit choice that launch preserves. Shell, Host, Platform,
+Runner, and `platform::run(shell)` remain public lower-level seams for tests and
+advanced adapters.
+
 ### Public API Rule
 
 Central concepts are re-exported. Supporting concepts stay namespaced.

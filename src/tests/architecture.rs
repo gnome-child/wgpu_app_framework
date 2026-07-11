@@ -44,6 +44,29 @@ fn root_source_tree_has_no_empty_concept_buckets() {
 }
 
 #[test]
+fn examples_launch_through_the_application_ceiling() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+
+    for example in ["text_editor", "control_gallery", "glass_tuner"] {
+        let main = std::fs::read_to_string(root.join(example).join("main.rs"))
+            .expect("example main should read");
+        let runtime = std::fs::read_to_string(root.join(example).join("app/runtime.rs"))
+            .expect("example runtime should read");
+
+        assert!(
+            main.contains("wgpu_l3::platform::launch("),
+            "{example} should launch its app through the blessed ceiling"
+        );
+        for lower_layer in ["platform::Runner", "platform::Platform", "Host"] {
+            assert!(
+                !runtime.contains(lower_layer),
+                "{example} ordinary runtime construction should not name {lower_layer}"
+            );
+        }
+    }
+}
+
+#[test]
 fn frame_preparation_has_one_recipe() {
     let presentation = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

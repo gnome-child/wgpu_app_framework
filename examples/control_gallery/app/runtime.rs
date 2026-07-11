@@ -8,8 +8,6 @@ use super::{
     view::{CANVAS_COLOR, WINDOW_TITLE, window_size},
 };
 use wgpu_l3::{Runtime, View, command, document, window};
-#[cfg(not(test))]
-use wgpu_l3::{Shell, platform};
 
 pub fn app(state: State) -> Runtime<State, (), View> {
     Runtime::new(state)
@@ -45,19 +43,4 @@ pub fn app(state: State) -> Runtime<State, (), View> {
             );
         })
         .view(view::view)
-}
-
-#[cfg(not(test))]
-pub fn shell(state: State) -> Shell<State> {
-    Shell::new(app(state))
-}
-
-#[cfg(not(test))]
-pub fn runner(state: State) -> platform::Runner<State> {
-    platform::Runner::new(shell(state))
-}
-
-#[cfg(not(test))]
-pub fn run(state: State) -> Result<(), platform::RunError<platform::NativeError>> {
-    runner(state).run()
 }

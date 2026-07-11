@@ -1,4 +1,4 @@
-use super::{host, pointer, session, shell, state::State};
+use super::{host, pointer, runtime, session, shell, state::State, view};
 use crate::animation;
 
 mod backend;
@@ -18,6 +18,18 @@ pub(crate) use runner::RunnerEvent;
 #[cfg(test)]
 pub(super) use runner::file_dialog_selected;
 pub use runner::{Runner, run};
+
+pub fn launch<M: State, E: Send + 'static>(
+    app: runtime::Runtime<M, E, view::View>,
+) -> Result<(), RunError<NativeError>> {
+    run(native_shell(app))
+}
+
+pub(crate) fn native_shell<M: State, E: Send + 'static>(
+    app: runtime::Runtime<M, E, view::View>,
+) -> shell::Shell<M, E> {
+    shell::Shell::new(app.with_system_clipboard_default())
+}
 
 pub struct Platform<M: State, E: Send + 'static = (), B = ()> {
     host: host::Host<M, E>,

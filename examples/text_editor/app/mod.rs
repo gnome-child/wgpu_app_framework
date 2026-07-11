@@ -9,9 +9,9 @@ mod view;
 pub use command::{LoadStressText, ToggleDebugPanel, ToggleWrapText};
 #[cfg(test)]
 pub use event::Event;
-pub use runtime::{app, run};
+pub use runtime::app;
 #[cfg(test)]
-pub use runtime::{native_shell, runner, runtime, shell};
+pub use runtime::{runtime, shell};
 #[cfg(test)]
 pub use state::STRESS_TEXT;
 pub use state::State;

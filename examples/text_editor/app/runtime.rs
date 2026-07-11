@@ -5,7 +5,9 @@ use super::{
     target, view,
     view::{CANVAS_COLOR, WINDOW_TITLE, window_size},
 };
-use wgpu_l3::{Clipboard, Runtime, Shell, View, command, document, platform, state, window};
+#[cfg(test)]
+use wgpu_l3::Shell;
+use wgpu_l3::{Runtime, View, command, document, state, window};
 
 pub fn runtime(state: State) -> Runtime<State, Event> {
     Runtime::new(state)
@@ -94,16 +96,4 @@ pub fn app(state: State) -> Runtime<State, Event, View> {
 #[cfg(test)]
 pub fn shell(state: State) -> Shell<State, Event> {
     Shell::new(app(state))
-}
-
-pub fn native_shell(state: State) -> Shell<State, Event> {
-    Shell::new(app(state).with_clipboard(Clipboard::system()))
-}
-
-pub fn runner(state: State) -> platform::Runner<State, Event> {
-    platform::Runner::new(native_shell(state))
-}
-
-pub fn run(state: State) -> Result<(), platform::RunError<platform::NativeError>> {
-    runner(state).run()
 }

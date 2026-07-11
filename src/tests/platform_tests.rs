@@ -616,44 +616,48 @@ fn native_platform_runner_is_winit_application_handler_without_starting_wgpu() {
 }
 
 #[test]
-fn text_editor_runner_entrypoint_builds_native_runner_without_starting_wgpu() {
-    let runner = text_editor::runner(text_editor::State::default());
-
-    assert!(!runner.started());
-    assert!(runner.error().is_none());
-    assert!(runner.platform().host().windows().is_empty());
-    assert!(!runner.platform().backend().ready());
-    assert!(
-        runner
-            .platform()
-            .host()
-            .shell()
-            .runtime()
-            .clipboard()
-            .is_system_enabled()
-    );
-}
-
-#[test]
-fn text_editor_headless_shell_keeps_in_memory_clipboard() {
+fn native_launch_defaults_to_system_clipboard_while_headless_stays_in_memory() {
     let shell = text_editor::shell(text_editor::State::default());
-    let native_shell = text_editor::native_shell(text_editor::State::default());
+    let native_shell = platform::native_shell(text_editor::app(text_editor::State::default()));
 
     assert!(!shell.runtime().clipboard().is_system_enabled());
     assert!(native_shell.runtime().clipboard().is_system_enabled());
 }
 
 #[test]
-fn text_editor_run_entrypoint_uses_platform_native_runner_signature() {
-    let text_editor_run: fn(
-        text_editor::State,
-    ) -> Result<(), platform::RunError<platform::NativeError>> = text_editor::run;
+fn native_launch_preserves_an_explicit_clipboard_choice() {
+    let explicit = Clipboard::default();
+    explicit
+        .put(&clipboard::Text::new("chosen"))
+        .expect("explicit clipboard should accept text");
+    let native_shell = platform::native_shell(
+        text_editor::app(text_editor::State::default()).with_clipboard(explicit.clone()),
+    );
+
+    assert!(!native_shell.runtime().clipboard().is_system_enabled());
+    native_shell
+        .runtime()
+        .clipboard()
+        .put(&clipboard::Text::new("shared"))
+        .expect("preserved clipboard should remain writable");
+    assert_eq!(
+        explicit.text().expect("clipboard read should succeed"),
+        Some("shared".to_owned())
+    );
+}
+
+#[test]
+fn application_launch_and_lower_level_run_signatures_stay_distinct() {
+    let platform_launch: fn(
+        Runtime<text_editor::State, text_editor::Event, View>,
+    ) -> Result<(), platform::RunError<platform::NativeError>> =
+        platform::launch::<text_editor::State, text_editor::Event>;
     let platform_run: fn(
         Shell<text_editor::State, text_editor::Event>,
     ) -> Result<(), platform::RunError<platform::NativeError>> =
         platform::run::<text_editor::State, text_editor::Event>;
 
-    let _ = text_editor_run;
+    let _ = platform_launch;
     let _ = platform_run;
 }
 

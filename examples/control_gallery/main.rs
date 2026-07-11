@@ -10,7 +10,7 @@ fn main() -> Result {
         return smoke();
     }
 
-    control_gallery::run(control_gallery::State::default())?;
+    wgpu_l3::platform::launch(control_gallery::app(control_gallery::State::default()))?;
     Ok(())
 }
 

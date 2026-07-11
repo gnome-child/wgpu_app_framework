@@ -8,7 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return smoke();
     }
 
-    glass_tuner::run(glass_tuner::State::default())?;
+    wgpu_l3::platform::launch(glass_tuner::app(glass_tuner::State::default()))?;
     Ok(())
 }
 

@@ -10,7 +10,7 @@ fn main() -> Result {
         return smoke();
     }
 
-    text_editor::run(text_editor::State::default())?;
+    wgpu_l3::platform::launch(text_editor::app(text_editor::State::default()))?;
     Ok(())
 }
 

@@ -7,6 +7,7 @@ use super::{
     view,
 };
 use crate::animation;
+use std::ops::{Deref, DerefMut};
 mod access;
 mod builder;
 mod context;
@@ -50,7 +51,7 @@ pub struct Runtime<M: state::State, E: Send + 'static = (), V = ()> {
     composition: composition::Store,
     layout: layout::Engine,
     diagnostics: diagnostics::Store,
-    clipboard: Clipboard,
+    clipboard: ConfiguredClipboard,
     tasks: task::Queue<E>,
     registry: command::Registry,
     keymap: keymap::Profile,
@@ -83,7 +84,7 @@ impl<M: state::State> Runtime<M> {
             composition: composition::Store::default(),
             layout: layout::Engine::default(),
             diagnostics: diagnostics::Store::default(),
-            clipboard: Clipboard::default(),
+            clipboard: ConfiguredClipboard::default(),
             tasks: task::Queue::default(),
             registry,
             keymap: keymap::Profile::default(),
@@ -101,6 +102,47 @@ impl<M: state::State> Runtime<M> {
             overlays: overlay::Store::new(),
             overlay_capabilities: overlay::Capabilities::default(),
             layout_cache: departed::WindowMap::default(),
+        }
+    }
+}
+
+enum ConfiguredClipboard {
+    Default(Clipboard),
+    Explicit(Clipboard),
+}
+
+impl ConfiguredClipboard {
+    fn explicit(clipboard: Clipboard) -> Self {
+        Self::Explicit(clipboard)
+    }
+
+    fn use_system_default(&mut self) {
+        if matches!(self, Self::Default(_)) {
+            *self = Self::Default(Clipboard::system());
+        }
+    }
+}
+
+impl Default for ConfiguredClipboard {
+    fn default() -> Self {
+        Self::Default(Clipboard::default())
+    }
+}
+
+impl Deref for ConfiguredClipboard {
+    type Target = Clipboard;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Default(clipboard) | Self::Explicit(clipboard) => clipboard,
+        }
+    }
+}
+
+impl DerefMut for ConfiguredClipboard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Default(clipboard) | Self::Explicit(clipboard) => clipboard,
         }
     }
 }

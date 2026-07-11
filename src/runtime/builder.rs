@@ -14,7 +14,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     }
 
     pub fn with_clipboard(mut self, clipboard: Clipboard) -> Self {
-        self.clipboard = clipboard;
+        self.clipboard = super::ConfiguredClipboard::explicit(clipboard);
+        self
+    }
+
+    pub(crate) fn with_system_clipboard_default(mut self) -> Self {
+        self.clipboard.use_system_default();
         self
     }
 

@@ -6,10 +6,6 @@ is next.
 
 ## In flight
 
-28. **Application ceiling** — one blessed platform launch sentence replaces
-    the repeated app-to-shell-to-runner fold, with an honest native clipboard
-    default that never overwrites an explicit choice.
-
 ## Specced and ready
 
 2. **Show-cycle presentation contract** — the first visible frame of every
