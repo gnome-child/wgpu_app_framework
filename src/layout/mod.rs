@@ -16,6 +16,7 @@ mod frame;
 mod hit;
 mod measure;
 mod path;
+mod table;
 mod text;
 mod typography;
 mod viewport;
@@ -28,6 +29,7 @@ pub(crate) use control::{
 pub(crate) use engine::Engine;
 pub(crate) use frame::Frame;
 pub(crate) use hit::Hit;
+pub(crate) use table::{Axis as TableTrackAxis, Track as TableTrack};
 pub(crate) use text::{Area as TextArea, Service as TextService};
 pub(crate) use typography::{
     label_style_for, section_header_text, shortcut_run_gap, shortcut_text_style,
@@ -39,6 +41,7 @@ pub(crate) struct Layout {
     size: Size,
     frames: Vec<Frame>,
     chrome: Vec<Chrome>,
+    table_tracks: Vec<TableTrack>,
     virtual_list_requests: Vec<crate::virtual_list::Request>,
 }
 
@@ -110,6 +113,7 @@ impl Layout {
         let frames =
             algorithm::compose_frames(view.root(), tree.root(), size, engine, theme, frame, keymap);
         let chrome = chrome::project(&frames, theme);
+        let table_tracks = table::project(&frames);
         let virtual_list_requests = frames
             .iter()
             .filter_map(Frame::virtual_list_request)
@@ -120,6 +124,7 @@ impl Layout {
             size,
             frames,
             chrome,
+            table_tracks,
             virtual_list_requests,
         }
     }
@@ -134,6 +139,10 @@ impl Layout {
 
     pub(crate) fn chrome(&self) -> &[Chrome] {
         &self.chrome
+    }
+
+    pub(crate) fn table_tracks(&self) -> &[TableTrack] {
+        &self.table_tracks
     }
 
     pub(crate) fn virtual_list_requests(&self) -> &[crate::virtual_list::Request] {
@@ -185,6 +194,22 @@ impl Layout {
             return Some(Hit::chrome(owner.clone(), chrome.clone()).with_table_cell(table_cell));
         }
 
+        if let Some(track) = self
+            .table_tracks
+            .iter()
+            .rev()
+            .find(|track| track.accepts_resize_hit(point))
+        {
+            let header = self
+                .frames
+                .iter()
+                .find(|frame| Some(frame.node_id()) == track.header_node())?;
+            return Some(
+                Hit::table_divider(header.clone(), track.divider_target()?)
+                    .with_table_cell(table_cell),
+            );
+        }
+
         self.frames
             .iter()
             .rev()
@@ -210,24 +235,12 @@ impl Layout {
             ));
         }
 
-        if let Some(divider_frame) = self
-            .frames
+        if let Some(track) = self
+            .table_tracks
             .iter()
-            .find(|frame| frame.target() == Some(target) && frame.table_divider().is_some())
+            .find(|track| track.divider_target().as_ref() == Some(target))
         {
-            let divider = divider_frame.table_divider()?;
-            let header = self
-                .frames
-                .iter()
-                .find(|frame| frame.table_header_cell() == Some(divider.column()))?;
-            let width = point
-                .x()
-                .saturating_sub(header.rect().x())
-                .max(divider.minimum());
-            return Some((
-                view::Role::Label,
-                Some(view::Action::resize_table_column(divider.column(), width)),
-            ));
+            return Some((view::Role::Label, track.resize_action_at(point)));
         }
 
         self.frames

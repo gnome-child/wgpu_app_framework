@@ -577,7 +577,61 @@ fn million_row_table_composes_public_cells_with_bounded_aligned_tracks() {
             .iter()
             .any(|frame| frame.world_text_overflow() == Some(text::Overflow::EllipsisMiddle))
     );
-    assert!(rendered.scene().rules().len() >= headers.len() * 2 + cells.len() * 2);
+    let column_tracks = rendered
+        .layout()
+        .table_tracks()
+        .iter()
+        .filter(|track| track.axis() == layout::TableTrackAxis::Column)
+        .collect::<Vec<_>>();
+    let row_tracks = rendered
+        .layout()
+        .table_tracks()
+        .iter()
+        .filter(|track| track.axis() == layout::TableTrackAxis::Row)
+        .collect::<Vec<_>>();
+    assert_eq!(column_tracks.len(), headers.len());
+    assert_eq!(
+        row_tracks.len(),
+        rendered
+            .layout()
+            .frames()
+            .iter()
+            .filter(|frame| frame.table_row().is_some())
+            .count()
+            + 1
+    );
+    for track in column_tracks {
+        let identity = track.column_identity().expect("column track identity");
+        let header_rect = headers
+            .iter()
+            .find_map(|(header, rect)| (*header == identity).then_some(*rect))
+            .expect("column track should resolve to its header");
+        assert_eq!(track.boundary(), header_rect.right());
+        assert_eq!(
+            track.rule_rect().x() + track.rule_rect().width() / 2,
+            track.boundary()
+        );
+        assert!(rendered.scene().rules().iter().any(|rule| {
+            rule.axis() == scene::Axis::Vertical && rule.rect() == track.rule_rect()
+        }));
+    }
+    let header_bottom = headers[0].1.bottom();
+    let row_bottoms = rendered
+        .layout()
+        .frames()
+        .iter()
+        .filter_map(|frame| frame.table_row().map(|_| frame.rect().bottom()))
+        .collect::<Vec<_>>();
+    for track in row_tracks {
+        assert_eq!(
+            track.rule_rect().y() + track.rule_rect().height() / 2,
+            track.boundary()
+        );
+        assert!(track.boundary() == header_bottom || row_bottoms.contains(&track.boundary()));
+        assert!(rendered.scene().rules().iter().any(|rule| {
+            rule.axis() == scene::Axis::Horizontal && rule.rect() == track.rule_rect()
+        }));
+    }
 }
 
 #[test]
@@ -714,16 +768,40 @@ fn table_column_resize_uses_capture_and_stays_window_local() {
     let initial = app
         .render_scene(first_window, size)
         .expect("first table should render");
+    let table_rect = initial.layout().find_role(view::Role::Table)[0].rect();
+    let final_track = initial
+        .layout()
+        .table_tracks()
+        .iter()
+        .find(|track| {
+            track
+                .column_identity()
+                .is_some_and(|column| column.column() == interaction::Id::new("second"))
+        })
+        .expect("final column should expose a resize track");
+    let final_hit_rect = final_track
+        .divider_hit_rect()
+        .expect("final resize track hit zone");
+    assert_eq!(final_hit_rect.width(), crate::table::DIVIDER_HIT_WIDTH);
+    assert_eq!(final_hit_rect.right(), table_rect.right());
+    assert_eq!(final_track.boundary(), table_rect.right());
+    assert_eq!(
+        initial
+            .layout()
+            .hit_test(frame_point_at(final_hit_rect))
+            .and_then(|hit| hit.target().map(interaction::Target::kind)),
+        Some(interaction::Kind::TableDivider)
+    );
     let divider = initial
         .layout()
-        .frames()
+        .table_tracks()
         .iter()
-        .find(|frame| {
-            frame
-                .table_divider()
-                .is_some_and(|divider| divider.column().column() == interaction::Id::new("first"))
+        .find(|track| {
+            track
+                .column_identity()
+                .is_some_and(|column| column.column() == interaction::Id::new("first"))
         })
-        .expect("first column should expose a resize divider");
+        .expect("first column should expose a resize track");
     let first_header_x = initial
         .layout()
         .frames()
@@ -735,7 +813,10 @@ fn table_column_resize_uses_capture_and_stays_window_local() {
                 .map(|_| frame.rect().x())
         })
         .expect("first header should render");
-    let start = frame_point_at(divider.rect());
+    let initial_rule_x = divider.boundary();
+    let divider_rect = divider.divider_hit_rect().expect("resize track hit zone");
+    assert_eq!(frame_point_at(divider_rect).x(), initial_rule_x);
+    let start = frame_point_at(divider_rect);
     let dragged = geometry::Point::new(start.x().saturating_add(44), start.y());
     let expected_width = dragged.x().saturating_sub(first_header_x);
 
@@ -793,6 +874,52 @@ fn table_column_resize_uses_capture_and_stays_window_local() {
             cell.column() == interaction::Id::new("first") && frame.rect().width() == expected_width
         })
     }));
+    let resized_rule_x = resized
+        .layout()
+        .table_tracks()
+        .iter()
+        .find_map(|track| {
+            track
+                .column_identity()
+                .filter(|column| column.column() == interaction::Id::new("first"))
+                .map(|_| track.boundary())
+        })
+        .expect("resized column track");
+    assert_eq!(resized_rule_x.saturating_sub(initial_rule_x), 44);
+
+    let resized_track = resized
+        .layout()
+        .table_tracks()
+        .iter()
+        .find(|track| {
+            track
+                .column_identity()
+                .is_some_and(|column| column.column() == interaction::Id::new("first"))
+        })
+        .expect("resized column track");
+    let shrink_start = frame_point_at(
+        resized_track
+            .divider_hit_rect()
+            .expect("resized track hit zone"),
+    );
+    let shrink_to = geometry::Point::new(first_header_x.saturating_sub(100), shrink_start.y());
+    app.pointer_down_at(first_window, size, shrink_start)
+        .expect("resized track should capture again");
+    app.pointer_move_at(first_window, size, shrink_to)
+        .expect("captured track should clamp at its minimum");
+    app.pointer_up_at(first_window, size, shrink_to)
+        .expect("minimum-width resize should finish");
+    let minimized = app
+        .render_scene(first_window, size)
+        .expect("minimum-width table should render");
+    assert_eq!(
+        width_for(
+            &minimized,
+            interaction::Id::new("resizable.table"),
+            interaction::Id::new("first")
+        ),
+        crate::table::COLUMN_MIN_WIDTH
+    );
 }
 
 #[test]
@@ -842,16 +969,16 @@ fn table_column_resize_stays_table_local_in_one_window() {
         .expect("tables should render");
     let divider = initial
         .layout()
-        .frames()
+        .table_tracks()
         .iter()
-        .find(|frame| {
-            frame.table_divider().is_some_and(|divider| {
-                divider.column().table() == interaction::Id::new("table.one")
-                    && divider.column().column() == interaction::Id::new("first")
+        .find(|track| {
+            track.column_identity().is_some_and(|column| {
+                column.table() == interaction::Id::new("table.one")
+                    && column.column() == interaction::Id::new("first")
             })
         })
-        .expect("first table divider should render");
-    let start = frame_point_at(divider.rect());
+        .expect("first table resize track should render");
+    let start = frame_point_at(divider.divider_hit_rect().expect("resize track hit zone"));
     let dragged = geometry::Point::new(start.x() + 30, start.y());
     app.pointer_down_at(window, size, start)
         .expect("first table divider should capture");
@@ -875,6 +1002,76 @@ fn table_column_resize_stays_table_local_in_one_window() {
         .collect::<std::collections::HashMap<_, _>>();
     assert!(widths[&interaction::Id::new("table.one")] > 80);
     assert_eq!(widths[&interaction::Id::new("table.two")], 80);
+}
+
+#[test]
+fn removing_a_column_releases_its_synthetic_resize_capture() {
+    let keys = Rc::new(RefCell::new((0..20).collect::<Vec<_>>()));
+    let provider = MutableTableProvider { keys };
+    let show_first = Rc::new(RefCell::new(true));
+    let view_show_first = Rc::clone(&show_first);
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Removable table column"));
+        })
+        .view(move |_, _| {
+            let mut columns = vec![crate::table::Column::new(
+                "second",
+                "Second",
+                crate::table::Width::weight(1),
+            )];
+            if *view_show_first.borrow() {
+                columns.insert(
+                    0,
+                    crate::table::Column::new("first", "First", crate::table::Width::fixed(80)),
+                );
+            }
+            widget::view_node(
+                crate::Table::new("removable.table", 20, columns, provider.clone())
+                    .height(view::Dimension::fixed(108)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(260, 108);
+    let initial = app
+        .render_scene(window, size)
+        .expect("removable table should render");
+    let first_track = initial
+        .layout()
+        .table_tracks()
+        .iter()
+        .find(|track| {
+            track
+                .column_identity()
+                .is_some_and(|column| column.column() == interaction::Id::new("first"))
+        })
+        .expect("removable column track");
+    let point = frame_point_at(
+        first_track
+            .divider_hit_rect()
+            .expect("removable column hit zone"),
+    );
+    app.pointer_down_at(window, size, point)
+        .expect("column resize should capture");
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().capture())
+            .is_some()
+    );
+
+    *show_first.borrow_mut() = false;
+    app.request_redraw(window);
+    app.render_scene(window, size)
+        .expect("table should rebuild without the captured column");
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().capture())
+            .is_none(),
+        "removing the header node must release synthetic divider capture"
+    );
 }
 
 #[test]
@@ -5571,6 +5768,22 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
         .into_iter()
         .find(|frame| frame.rect().contains(sort_point))
         .expect("gallery should provide an ordinary command-bound sort header");
+    let sort_track = initial
+        .layout()
+        .table_tracks()
+        .iter()
+        .find(|track| track.header_node() == Some(sort_header.node_id()))
+        .expect("sort header should own a column track");
+    let boundary_point = frame_point_at(
+        sort_track
+            .divider_hit_rect()
+            .expect("sort header resize hit zone"),
+    );
+    app.pointer_down_at(window, size, boundary_point)
+        .expect("sort boundary press should start resizing");
+    app.pointer_up_at(window, size, boundary_point)
+        .expect("sort boundary release should not activate the header");
+    assert!(!app.state().records_descending);
     let point = frame_point_at(sort_header.rect());
     app.pointer_down_at(window, size, point)
         .expect("sort header press should be handled");

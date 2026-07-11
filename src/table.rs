@@ -78,11 +78,8 @@ pub(crate) struct HeaderCell {
     column: interaction::Id,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct Divider {
-    column: HeaderCell,
-    minimum: i32,
-}
+pub(crate) const COLUMN_MIN_WIDTH: i32 = 24;
+pub(crate) const DIVIDER_HIT_WIDTH: i32 = 6;
 
 #[derive(Clone)]
 pub(crate) struct Model {
@@ -99,16 +96,6 @@ impl HeaderCell {
     #[cfg(test)]
     pub(crate) fn column(self) -> interaction::Id {
         self.column
-    }
-}
-
-impl Divider {
-    pub(crate) fn column(self) -> HeaderCell {
-        self.column
-    }
-
-    pub(crate) fn minimum(self) -> i32 {
-        self.minimum
     }
 }
 
@@ -203,25 +190,10 @@ impl Column {
             table,
             column: self.id,
         };
-        let content = grow(
+        sized(
             self.header
                 .clone()
                 .unwrap_or_else(|| view::Node::label(self.label.clone())),
-        );
-        let divider = view::Node::label("")
-            .with_style(
-                view::Style::new()
-                    .with_width(view::Dimension::fixed(6))
-                    .with_height(view::Dimension::grow()),
-            )
-            .with_table_divider(Divider {
-                column: identity,
-                minimum: 24,
-            });
-        sized(
-            view::Node::stack(view::Axis::Horizontal)
-                .child(content)
-                .child(divider),
             self.width,
         )
         .with_table_header_cell(identity)
@@ -524,11 +496,6 @@ impl virtual_list::Provider for Rows {
 
 fn sized(node: view::Node, width: Width) -> view::Node {
     let style = node.style().clone().with_width(width.dimension());
-    node.with_style(style)
-}
-
-fn grow(node: view::Node) -> view::Node {
-    let style = node.style().clone().with_width(view::Dimension::grow());
     node.with_style(style)
 }
 

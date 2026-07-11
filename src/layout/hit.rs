@@ -5,6 +5,7 @@ use super::{chrome, engine, frame::Frame};
 pub(crate) struct Hit {
     frame: Frame,
     chrome: Option<chrome::Chrome>,
+    target: Option<interaction::Target>,
     table_cell: Option<crate::table::Cell>,
 }
 
@@ -13,6 +14,7 @@ impl Hit {
         Self {
             frame,
             chrome: None,
+            target: None,
             table_cell: None,
         }
     }
@@ -21,6 +23,16 @@ impl Hit {
         Self {
             frame,
             chrome: Some(chrome),
+            target: None,
+            table_cell: None,
+        }
+    }
+
+    pub(super) fn table_divider(frame: Frame, target: interaction::Target) -> Self {
+        Self {
+            frame,
+            chrome: None,
+            target: Some(target),
             table_cell: None,
         }
     }
@@ -47,12 +59,16 @@ impl Hit {
             return Some(chrome.target());
         }
 
+        if let Some(target) = &self.target {
+            return Some(target);
+        }
+
         self.frame.target()
     }
 
     #[cfg(test)]
     pub(crate) fn action(&self) -> Option<&view::Action> {
-        if self.chrome.is_some() {
+        if self.chrome.is_some() || self.target.is_some() {
             return None;
         }
 
@@ -60,7 +76,7 @@ impl Hit {
     }
 
     pub(crate) fn action_at(&self, point: Point) -> Option<view::Action> {
-        if self.chrome.is_some() {
+        if self.chrome.is_some() || self.target.is_some() {
             return None;
         }
 
@@ -72,7 +88,7 @@ impl Hit {
         point: Point,
         engine: &mut engine::Engine,
     ) -> Option<view::Action> {
-        if self.chrome.is_some() {
+        if self.chrome.is_some() || self.target.is_some() {
             return None;
         }
 

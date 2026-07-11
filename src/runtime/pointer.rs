@@ -64,7 +64,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         };
         let dismissed_overlays = self.dismiss_overlays_for_hit(window, Some(&hit));
 
-        let action = if hit.is_chrome() {
+        let action = if target.kind() == interaction::Kind::TableDivider {
+            view::Action::pointer_down(target)
+        } else if hit.is_chrome() {
             view::Action::pointer_manipulate(target)
         } else if matches!(
             hit.frame().role(),
@@ -393,7 +395,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .map(|hit| {
                 if hit_promises_text_edit(hit) {
                     pointer::Cursor::Text
-                } else if hit.frame().table_divider().is_some() {
+                } else if hit
+                    .target()
+                    .is_some_and(|target| target.kind() == interaction::Kind::TableDivider)
+                {
                     pointer::Cursor::ResizeHorizontal
                 } else {
                     pointer::Cursor::Default

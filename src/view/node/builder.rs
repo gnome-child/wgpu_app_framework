@@ -192,11 +192,6 @@ impl Node {
         self
     }
 
-    pub(crate) fn with_table_divider(mut self, divider: crate::table::Divider) -> Self {
-        self.table_divider = Some(divider);
-        self
-    }
-
     pub(crate) fn with_table_model(mut self, model: crate::table::Model) -> Self {
         self.table_model = Some(model);
         self
@@ -331,7 +326,6 @@ impl Node {
             table_row: None,
             table_cell: None,
             table_header_cell: None,
-            table_divider: None,
             table_model: None,
             table_edit: None,
             table_edit_error: None,

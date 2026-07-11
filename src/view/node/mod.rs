@@ -57,7 +57,6 @@ pub struct Node {
     table_row: Option<crate::table::Row>,
     table_cell: Option<crate::table::Cell>,
     table_header_cell: Option<crate::table::HeaderCell>,
-    table_divider: Option<crate::table::Divider>,
     table_model: Option<crate::table::Model>,
     table_edit: Option<crate::table::Edit>,
     table_edit_error: Option<String>,

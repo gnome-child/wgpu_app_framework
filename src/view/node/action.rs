@@ -17,13 +17,6 @@ impl Node {
         &self,
         node_id: composition::NodeId,
     ) -> Option<interaction::Target> {
-        if self.table_divider().is_some() {
-            return Some(interaction::Target::table_divider_node(
-                node_id,
-                "Resize table column",
-            ));
-        }
-
         if let Some(target) = self.text_control_target() {
             return Some(target);
         }

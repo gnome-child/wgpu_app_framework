@@ -36,6 +36,14 @@ pub(super) fn paint_layout_with_theme(
             paint_frame_with_clip(frame, scene, theme, visuals, &mut focus_overlays);
         }
 
+        for track in layout
+            .table_tracks()
+            .iter()
+            .filter(|track| table_track_layer_for(track) == layer)
+        {
+            paint_table_track(track, scene, theme);
+        }
+
         for chrome in layout
             .chrome()
             .iter()
@@ -72,6 +80,14 @@ fn paint_overlay_entries(
                 .filter(|frame| frame_belongs_to_panel(frame, panel))
             {
                 paint_frame_with_clip(frame, &mut scene, theme, visuals, &mut focus_overlays);
+            }
+
+            for track in layout
+                .table_tracks()
+                .iter()
+                .filter(|track| table_track_belongs_to_panel(layout, track, panel))
+            {
+                paint_table_track(track, &mut scene, theme);
             }
 
             for chrome in layout
@@ -149,6 +165,46 @@ fn chrome_belongs_to_panel(
         .is_some_and(|frame| frame.node_id() == panel.node_id() || frame.is_descendant_of(panel))
 }
 
+fn table_track_belongs_to_panel(
+    layout: &layout::Layout,
+    track: &layout::TableTrack,
+    panel: &layout::Frame,
+) -> bool {
+    layout
+        .frames()
+        .iter()
+        .find(|frame| frame.node_id() == track.table_node())
+        .is_some_and(|frame| frame_belongs_to_panel(frame, panel))
+}
+
+fn table_track_layer_for(track: &layout::TableTrack) -> Layer {
+    if track.is_floating_layer() {
+        Layer::Floating
+    } else {
+        Layer::Base
+    }
+}
+
+fn paint_table_track(track: &layout::TableTrack, scene: &mut Scene, theme: &Theme) {
+    if let Some(clip) = track.clip() {
+        scene.push_clip(Clip::new(clip.rect()).with_rounding(clip.rounding()));
+    }
+
+    let rule = match track.axis() {
+        layout::TableTrackAxis::Column => {
+            super::Rule::vertical(track.rule_rect(), theme.menu().separator, 1)
+        }
+        layout::TableTrackAxis::Row => {
+            super::Rule::horizontal(track.rule_rect(), theme.menu().separator, 1)
+        }
+    };
+    scene.push_rule(rule);
+
+    if track.clip().is_some() {
+        scene.pop_clip();
+    }
+}
+
 fn paint_frame_with_clip(
     frame: &layout::Frame,
     scene: &mut Scene,
@@ -198,18 +254,6 @@ fn paint_frame(
 
     if frame.table_row().is_some_and(|row| row.index() % 2 == 1) {
         scene.push_quad(Quad::new(frame.rect(), theme.control().hover_tint));
-    }
-    if frame.table_cell().is_some() || frame.table_header_cell().is_some() {
-        scene.push_rule(super::Rule::vertical(
-            frame.rect(),
-            theme.menu().separator,
-            1,
-        ));
-        scene.push_rule(super::Rule::horizontal(
-            frame.rect(),
-            theme.menu().separator,
-            1,
-        ));
     }
     if frame.table_edit_error().is_some() {
         scene.push_quad(
