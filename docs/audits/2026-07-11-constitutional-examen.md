@@ -60,7 +60,7 @@ tests will be added during the constellation sweep.
 | D-08 | Keymap, state, buffer, target/responder, response, timeline, clipboard | Verified | Mac/Windows semantic shortcut resolution is behavioral at `src/tests/commands.rs:82-177`; state reasons are kept command-ignorant at `src/tests/architecture.rs:1406-1413`. Persistent source spans and line identity are guarded at `src/tests/architecture.rs:374-431`. Target/responder erasure stays private through the command boundary tests around `src/tests/architecture.rs:546-748`. Invalidation merging is owned by `src/response/effect.rs`; scoped history grouping is pinned at `src/tests/architecture.rs:1548-1604`. Clipboard result/empty/failure semantics and command-owned paste availability are guarded at `src/tests/architecture.rs:1264-1327`. |
 | D-09 | Runtime, diagnostics, platform, and public API rule | Verified | Coarse invalidation and layout reuse live in `src/runtime/presentation.rs:346-370`; snapshot restore has one transient reset (`src/tests/architecture.rs:1655-1677`); frame preparation has one paint recipe (`src/tests/architecture.rs:70-90`). Diagnostic targets are cross-checked against doctrine at `src/tests/architecture.rs:1811-1853`. Native launch versus explicit clipboard and lower seams are behavioral at `src/tests/platform_tests.rs:619-663`, with all examples consuming `platform::launch` under `src/tests/architecture.rs:47-68`. Root re-exports remain the named central concepts in `src/lib.rs:55-78`. |
 | D-10 | Implementation protocol, smells, answers, and review standard | Verified as practiced architecture | The test suite contains direct witnesses for One Truth/One Owner (frame preparation, caret conversion, refraction), Witness Demotion (renderer snap assertions), Axis Splitting (logical/physical areas, command/notification, cursor value/host), Structural Absence (notification and composition APIs), Exceptions Become Citizens (`Rule`, `Pane`, retiring popup), Endpoints Are Truth (motion/reveal), and retired-shape tombstones. This cell records practice, not a claim that every future smell is absent. |
-| D-11 | Narrow command/view doctrine | Stale doctrine | `docs/ui_command_architecture.md:153-156` says `text::edit::State` owns cursor, selection, preedit, scroll, and blink. The current `State` contains only cursor and selection (`src/text/edit/state.rs:4-24`); surface facts live in `text::edit::ViewState` (`src/text/edit/view.rs:309-390`). `docs/command_module_organization.md:27-39` also omits the now-public `command::Set`/`Member` surface, and its `Spec` description omits `Listing`, despite `src/command/mod.rs:13-17` and `src/command/spec.rs:119-170`. These are documentation candidates, not code violations. |
+| D-11 | Narrow command/view doctrine | Stale doctrine → corrected by R-01 | The initial text said `text::edit::State` owned cursor, selection, preedit, scroll, and blink, but `State` contains only cursor and selection (`src/text/edit/state.rs:4-24`) while surface facts live in `text::edit::ViewState` (`src/text/edit/view.rs:309-390`). The command guide also omitted the public `command::Set`/`Member` surface and `Listing` policy despite `src/command/mod.rs:13-17` and `src/command/spec.rs:119-170`. R-01 now records both live shapes in `docs/ui_command_architecture.md:153-168` and `docs/command_module_organization.md:22-82`. |
 
 ## Phase B — tree to doctrine
 
@@ -79,7 +79,7 @@ tests will be added during the constellation sweep.
 
 | Cell | Instrument | Verdict | Receipts and notes |
 | --- | --- | --- | --- |
-| I-01 | Architecture and source-string witnesses | Verified, with brittleness cost | `src/tests/architecture.rs` contains 63 named boundary witnesses covering absence, privacy, dependency direction, unique owners, and previously escaped native failures. Source-string checks are appropriate for structural absence and cfg/FFI facts that Rust's type system cannot observe, but their 223 file reads make housing changes costly. No witness was found recomputing a production algorithm as an alternate authority; behavioral tests carry endpoints where available. The cost is acknowledged, but wholesale witness abstraction would be new machinery rather than a demonstrated correction. |
+| I-01 | Architecture and source-string witnesses | Verified, with brittleness cost | `src/tests/architecture.rs` contains 83 named functions covering absence, privacy, dependency direction, unique owners, and previously escaped native failures. Source-string checks are appropriate for structural absence and cfg/FFI facts that Rust's type system cannot observe, but their 223 file reads make housing changes costly. No witness was found recomputing a production algorithm as an alternate authority; behavioral tests carry endpoints where available. The cost is acknowledged, but wholesale witness abstraction would be new machinery rather than a demonstrated correction. |
 | I-02 | Behavioral, tombstone, and ignored tests | Verified | Tombstones protect promoted/retired shapes beginning at `src/tests/architecture.rs:2`, `src/tests/architecture.rs:236`, and `src/tests/architecture.rs:366`. The eight ignored tests are deliberate tiers, not dead concerns: six require GPU adapter/readback (`src/render/silhouette.rs:383`, `src/render/renderer.rs:1191-1311`), one is a 100k-operation reference property, and one is a release-mode measured benchmark (`src/text/acceptance.rs:53-142`). The ordinary suite retains smaller deterministic behavioral counterparts. |
 | I-03 | Examples and smokes as external-style callers | Verified | All three example mains call `wgpu_l3::platform::launch`, and their runtime construction does not name `Runner`, `Platform`, or `Host` (`src/tests/architecture.rs:47-68`). The control gallery practices the widget-to-scene sentence (`src/tests/layout_scene.rs:3600`); the text editor crosses runtime, shell, host, and platform with persistence and task behavior (`src/tests/host_shell_tests.rs:87-619`, `src/tests/platform_tests.rs:827-1247`); glass tuner is a deliberate native-presentation diagnostic fixture (`src/platform/native/paint.rs:760-795`). |
 | I-04 | Roadmap revalidation | Verified, with open manual/hardware flags | Items 2/21 still correspond to the explicit unresolved first-frame-skip note and trace (`docs/master_design.md:515-518`, `src/platform/native/popup.rs:617-744`). Context menu, text overflow, tables, accessibility, targeted redraw, and the other named arcs remain absent rather than half-implemented. Product-taste and hardware items still require their declared inputs. Item 22's two `AnyTarget` shapes and scene-transform sanitization duplicate remain real non-merges. Item 6 still names the protected glass-tuner tuning state; this run leaves `comparison_open: true` unchanged. |
@@ -91,7 +91,7 @@ tree supplies both a contradiction and a smaller truthful owner.
 
 | ID | Finding | Evidence | Admission | Rank | Disposition |
 | --- | --- | --- | --- | --- | --- |
-| R-01 | Narrow command/view doctrine names retired ownership and omits live public command concepts. | D-11: `text::edit::State` versus `ViewState`; `command::Set`/`Member`/`Listing` versus the two narrow docs. | Admitted: direct doctrine/tree contradiction; documentation is the sole owner; correction narrows stale claims without behavior or API change. | 1 | Correct the two narrow doctrine files and add no framework mechanism. |
+| R-01 | Narrow command/view doctrine names retired ownership and omits live public command concepts. | D-11: `text::edit::State` versus `ViewState`; `command::Set`/`Member`/`Listing` versus the two narrow docs. | Admitted: direct doctrine/tree contradiction; documentation is the sole owner; correction narrows stale claims without behavior or API change. | 1 | Corrected in `3f1b2abd`; no framework mechanism added. |
 | R-02 | `layout::Frame` permits role/optional-field contradictions. | C-03; `src/layout/frame.rs:11-78` and role-specific access throughout layout/scene paint. | Not admitted: no observed wrong behavior, and a split would span layout, interaction, scene paint, and inspection APIs. | Flag | Await a concrete invalid combination or accessibility/table caller. |
 | R-03 | Overlay policy, payload, and lifetime concepts share one large source file. | C-08; `src/overlay.rs:11-735`. | Not admitted: the one `Store::update_window` transition owns the supposedly separate pieces, and extraction deletes no competing path. | Resistance | Keep the state machine colocated; reconsider only when an independent owner emerges. |
 
@@ -115,6 +115,19 @@ and practiced evidence. `O/C/S/B/P` abbreviate those dimensions.
 
 | Cell | Commit subject | Hash | Files | Insertions | Deletions | Outcome |
 | --- | --- | --- | --- | --- | --- | --- |
+| R-01 | `R-01 Align narrow doctrine with live concepts` | `3f1b2abd` | 2 | 21 | 6 | Held: the command guide now enumerates `Set`, `Member`, and `Listing`; the UI/command guide separates persistent edit state from surface view state. |
+
+Audit checkpoint history:
+
+| Checkpoint | Hash | Statistics |
+| --- | --- | --- |
+| Begin durable ledger | `03b40bdc` | 1 file, 111 insertions |
+| Record doctrine sweep | `56cdb734` | 1 file, 11 insertions, 11 deletions |
+| Complete constellation census | `6026cb31` | 1 file, 39 insertions, 16 deletions |
+
+The only admitted correction has an ID-bearing commit and is independently
+green. The run made no framework-code change and no public-API or behavior
+change.
 
 ## Flags
 
@@ -131,4 +144,72 @@ and practiced evidence. `O/C/S/B/P` abbreviate those dimensions.
 
 ## Final fixed-point sweep
 
-Pending.
+Complete. The changed capability/interface neighborhood was re-probed first:
+the public command exports and guide now agree on `Set`, `Member`, `Listing`,
+`Spec`, and the rest of the enumerated surface; the text guide now agrees with
+the separate `State` and `ViewState` representations. Searches found the stale
+claim only in this ledger's historical receipt.
+
+The subsequent complete constellation sweep admitted no new high-confidence
+correction:
+
+- Document truth still has one mutation/save/history path; adjacent outcomes
+  remain honest projections.
+- Capability now has a truthful narrow public explanation as well as one
+  routing/execution path.
+- Interface retains the `layout::Frame` state-integrity flag; no concrete
+  contradiction appeared.
+- Presentation retains one frame recipe and one overlay lifetime engine; the
+  housing examination still resists a split.
+- Application retains the runtime → shell → host → platform lifecycle and
+  application-altitude launch.
+- Native boundary retains named coordinate, paint, renderer, and OS seams;
+  hardware-only evidence remains honestly tiered.
+- Root vocabulary still has no competing bucket, leaked realization module,
+  or demonstrated naming collision.
+
+### Final health
+
+| Constellation | Baseline | Final | Change |
+| --- | --- | --- | --- |
+| Document truth | 4/4/4/4/4 | 4/4/4/4/4 | — |
+| Capability | 4/3/4/4/4 | 4/4/4/4/4 | Compression +1: narrow doctrine names the live public sentence. |
+| Interface | 3/4/2/4/4 | 3/4/2/4/4 | Flag retained; no score-driven patch. |
+| Presentation | 3/4/4/4/4 | 3/4/4/4/4 | Housing resistance retained. |
+| Application | 4/4/4/4/4 | 4/4/4/4/4 | — |
+| Native boundary | 4/4/4/4/3 | 4/4/4/4/3 | Hardware tier unchanged. |
+| Root vocabulary | 4/4/4/4/4 | 4/4/4/4/4 | — |
+| **Total** | **134/140** | **135/140** | **+1**, earned by truthful doctrine only. |
+
+### Closure accounting
+
+- Initial doctrine verdicts: 10 verified cells, 0 code violations, 0 doctrine
+  gaps, 1 stale-doctrine cell, and 1 declared open flag within a verified cell.
+  Final state: the stale cell is corrected; the native first-frame flag remains.
+- Candidates: 1 admitted and completed; 1 state-integrity flag; 1 housing
+  resistance. No candidate was half-migrated.
+- Correction statistics: 2 files, 21 insertions, 6 deletions. The pre-closing
+  audit history from baseline through R-01 spans 3 files, 155 insertions, and
+  6 deletions; this closing ledger checkpoint is intentionally not counted in
+  its own pre-commit statistics.
+- Outcomes held: public API frozen, behavior preserved, no visual collateral,
+  no roadmap feature work, no push, and `comparison_open: true` preserved.
+- Ranked flags and roadmap dispositions remain in the sections above. None is
+  disguised as permission to code.
+- Most surprising fact: the 1,200-line-looking overlay file is not many owners
+  waiting to be modularized. Its live entries, ghosts, retiring native popups,
+  backend resolution, fade timing, ordering, afterlife cap, and schedule are
+  phases of one per-window transition. Splitting by noun would improve browsing
+  while weakening the construction boundary.
+
+### Final verification
+
+- `cargo test --lib`: 804 passed, 8 deliberately ignored, 0 failed.
+- `cargo check --example text_editor`: passed.
+- `cargo check --example control_gallery`: passed.
+- `cargo check --example glass_tuner`: passed.
+- `cargo fmt --check`: passed.
+- `git diff --check`: passed.
+- Protected state: `examples/glass_tuner/app/state.rs:100` remains
+  `comparison_open: true`.
+- Final fixed-point result: no new admissible correction.
