@@ -22,8 +22,9 @@ is next.
 
 5. Popup fade consistency (after item 2), popup-hosted cursor icon and IME
    candidate placement, fractional-alpha edge quality after the premultiplied
-   audit. Outstanding: post-fix `key -> present` panel reading from the Mac
-   latency incident.
+   audit, palette query editing feel (selection tint, caret, I-beam) after the
+   scope slice. Outstanding: post-fix `key -> present` panel reading from the
+   Mac latency incident.
 6. Local visual-test edits in `examples/glass_tuner/app/state.rs` — revert
    when tuning sessions end.
 
@@ -35,6 +36,8 @@ is next.
 8. **Enter-curve on long fades** — the ease-out tail reads as a stall at
    cinematic durations; curves are designed for duration regimes. Only
    relevant if long fades ever ship.
+24. **Escape with a non-empty palette query** — immediate dismissal (current)
+    vs clear-query-first, dismiss-second (common palette UX).
 
 ## Named arcs
 
