@@ -195,6 +195,76 @@ table, generic property bag, or phase-policy consolidation. Family commits may
 temporarily coexist with unmigrated legacy fields, but every family commit must
 be green and the checkpoint boundary may contain only `FrameContent`.
 
+## Checkpoint 3 census — uniform virtual region/list
+
+Ownership claim after inspecting the current tree: virtualization is not a
+second widget runtime. A provided list remains a view node and uses the normal
+retained composition, command resolution, transient interaction projection,
+layout frames, viewport/chrome, scene paint, and runtime pruning sentence. The
+new coordination seam is a bounded two-pass fixed point: layout derives a
+logical visible range from real viewport geometry; runtime rebuilds the normal
+view with only that range plus pins; retained composition reconciles provider
+keys; layout repeats once against the requested materialization.
+
+Existing mechanics to reuse:
+
+- `layout::Viewport` already owns clamped scroll offsets, content extent,
+  reveal geometry, wheel consumability, clips, and scrollbar projection.
+- `composition::Tree` already reconciles explicit keyed siblings and reports
+  true removal to session pruning; provider keys extend that existing match
+  rule rather than creating a parallel identity map.
+- `view::Node` already projects focus, capture-relevant pointer targets,
+  TextArea/TextBox interaction, bindings, and focus order through the retained
+  tree. Provider rows must become ordinary public nodes before those passes.
+- `draft::Input` already retains inactive drafts with a bounded store and
+  deletes them only when composition reports actual identity removal.
+- runtime rebuild and layout invalidation are already distinct. Virtual range
+  convergence may request one ordinary rebuild inside frame preparation; it
+  does not ask applications to calculate ranges.
+
+Dematerialization must therefore be a distinct composition outcome from
+removal. A materialized provider child leaving the visible/pinned set drops its
+view node without contributing removed node/element identities while its key
+still exists in the provider. If `Provider::index_of(key)` says the key no
+longer exists, normal removed-subtree reporting and session pruning apply.
+
+### Planned public contract
+
+The narrow v1 provider surface is synchronous and flat:
+
+- total logical length;
+- stable `virtual_list::Key` for an index;
+- efficient reverse lookup from key to current index, needed for reorder,
+  pinning, and deletion truth without scanning one million rows;
+- public row construction returning an ordinary `view::Node` for a requested
+  logical index.
+
+The list constructor requires a stable list id, uniform positive row height,
+and a provider. Overscan is a small bounded setting. Variable heights, async or
+streaming rows, selection, headers, tracks, and table semantics are excluded.
+The exact module/re-export names remain an API flag until the first honest
+caller compiles.
+
+| Cell | Scenario | Required result | Existing owner / missing seam | Status |
+| --- | --- | --- | --- | --- |
+| C3-01 | Structural grammar | One provided-container node derives public row children; no exhaustive app-authored child list | Node/Widget/Composition exist; provider payload and role are missing | Planned |
+| C3-02 | Initial viewport | First frame materializes only visible rows plus bounded overscan | Viewport exists; range request/rebuild fixed point is missing | Planned |
+| C3-03 | Small and jump scroll | Nearby and million-row jumps request correct ranges with bounded provider calls | Scroll offset/clamping exists; uniform range math is missing | Planned |
+| C3-04 | Growth and shrink | Content extent follows count; offsets clamp; stale rows do not survive true shrink | Viewport feedback and provider reverse lookup are reusable | Planned |
+| C3-05 | Stable-key reorder | Visible retained row identity follows provider key rather than logical index | Composition keyed-sibling matching exists only for static ids | Planned |
+| C3-06 | Viewport resize and scale | Logical range updates for new viewport height; scale-only changes preserve logical identity | Layout rebuild/scale boundary exists; request comparison is missing | Planned |
+| C3-07 | Measurement bound | Only materialized visible/pinned rows produce nodes and frames; no provider-wide intrinsic scan | Fixed uniform height permits arithmetic content extent | Planned |
+| C3-08 | Paint bound | Paint items and per-scroll work remain proportional to viewport rows plus overscan/pins | Clip and scene projection already consume frames | Planned |
+| C3-09 | Focus pin | Focused row remains materialized and may be clipped when scrolled away | Focus projection exists; row-key association/pin collection is missing | Planned |
+| C3-10 | Capture pin | Captured row remains materialized until capture ends | Pointer capture target exists; row-key association is missing | Planned |
+| C3-11 | Active edit pin | Text row with active draft/preedit remains materialized | Draft input exposes active target; row-key association is missing | Planned |
+| C3-12 | Selection non-pin | No selection concept or accidental pin appears in checkpoint 3 | Selection is deliberately deferred to C4 | Planned |
+| C3-13 | Dematerialized draft | Inactive TextBox draft survives ordinary scroll out/back | Bounded draft store exists; composition must suppress false removal | Planned |
+| C3-14 | Provider deletion | Deleted key ends focus/capture/edit/draft through normal pruning | Removed-subtree path exists; provider key existence decides truth | Planned |
+| C3-15 | Focus-before-move | A logical target is materialized before focus transfer | Runtime focus owner exists; keyed pre-materialization seam is missing | Planned |
+| C3-16 | Million-row witness | Node/frame/paint/provider-call counts stay bounded across initial, jump, reorder, shrink and resize journeys | Deterministic counter provider and inspection tests are missing | Planned |
+| C3-17 | Honest caller | Control gallery exercises a real large provided list made of public widgets | Gallery and external smokes exist | Planned |
+
 ## Execution ledger
 
 | Run | Checkpoint / cells | Result | Evidence |
