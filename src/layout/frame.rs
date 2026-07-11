@@ -47,15 +47,12 @@ enum FrameContent {
     Menu,
     Binding,
     Separator,
-    TextArea,
+    Text(TextContent),
     Button,
     Choice(ChoiceContent),
     Slider,
-    TextBox,
     Scroll,
     FloatingPanel,
-    SectionHeader,
-    Label,
 }
 
 #[derive(Clone, Copy)]
@@ -73,6 +70,24 @@ enum ChoiceContent {
 }
 
 #[derive(Clone)]
+enum TextContent {
+    Label {
+        world_overflow: Option<text_model::Overflow>,
+    },
+    SectionHeader,
+    Area {
+        model: view::TextArea,
+        layout: text::Area,
+    },
+    Field {
+        model: view::TextBox,
+        layout: text::Field,
+        text_rect: Rect,
+        display_text: Option<String>,
+    },
+}
+
+#[derive(Clone)]
 pub(crate) struct Frame {
     node_id: composition::NodeId,
     path: path::Path,
@@ -81,9 +96,6 @@ pub(crate) struct Frame {
     active_rect: Rect,
     label: Option<String>,
     label_width: i32,
-    world_text_overflow: Option<text_model::Overflow>,
-    text: Option<String>,
-    text_wrap: Option<view::Wrap>,
     focused: bool,
     focus_visible: bool,
     selected: bool,
@@ -93,12 +105,7 @@ pub(crate) struct Frame {
     background: Option<scene::Brush>,
     clip: Option<Clip>,
     viewport: Option<Viewport>,
-    text_area_layout: Option<text::Area>,
-    text_box_layout: Option<text::Field>,
-    text_box_text_rect: Rect,
     slider_track_rect: Option<Rect>,
-    text_area: Option<view::TextArea>,
-    text_box: Option<view::TextBox>,
     slider: Option<view::Slider>,
     target: Option<interaction::Target>,
     binding: Option<view::Binding>,
@@ -126,7 +133,6 @@ impl Frame {
         let now = animation_frame.now();
         let text_area_layout =
             text_area.map(|text_area| engine.text_area_layout(text_area, rect, theme, now));
-        let viewport = text_area_layout.as_ref().map(text::Area::viewport);
         let text_box = node.text_box_model().cloned();
         let text_box_text_rect = text_box_text_rect_for(rect, theme);
         let text_box_layout = text_box
@@ -197,29 +203,21 @@ impl Frame {
             .as_ref()
             .map(|_| control::slider_track_rect(rect, label_width, theme));
         let active_rect = active_rect_for(node, rect, slider.as_ref(), label_width, theme);
+        let content = FrameContent::for_node(
+            node,
+            text_area_layout,
+            text_box_layout,
+            text_box_text_rect,
+            world_text_overflow,
+        );
         Self {
             path,
             node_id,
-            content: FrameContent::for_node(node),
+            content,
             rect,
             active_rect,
             label,
             label_width,
-            world_text_overflow,
-            text: node
-                .label_text()
-                .is_none()
-                .then(|| {
-                    text_box
-                        .as_ref()
-                        .map(view::TextBox::display_text)
-                        .map(str::to_owned)
-                })
-                .flatten(),
-            text_wrap: node
-                .text_area_model()
-                .map(view::TextArea::wrap)
-                .or_else(|| text_box.as_ref().map(|_| view::Wrap::None)),
             focused: node.is_focused(),
             focus_visible: node.focus_visible(),
             selected: node.is_selected(),
@@ -228,13 +226,8 @@ impl Frame {
             floating_layer,
             background: node.style().background(),
             clip,
-            viewport,
-            text_area_layout,
-            text_box_layout,
-            text_box_text_rect,
+            viewport: None,
             slider_track_rect,
-            text_area: text_area.cloned(),
-            text_box,
             slider,
             target,
             binding,
@@ -289,15 +282,25 @@ impl Frame {
     }
 
     pub(crate) fn world_text_overflow(&self) -> Option<text_model::Overflow> {
-        self.world_text_overflow
+        match &self.content {
+            FrameContent::Text(TextContent::Label { world_overflow }) => *world_overflow,
+            _ => None,
+        }
     }
 
     pub(crate) fn text(&self) -> Option<&str> {
-        self.text.as_deref()
+        match &self.content {
+            FrameContent::Text(TextContent::Field { display_text, .. }) => display_text.as_deref(),
+            _ => None,
+        }
     }
 
     pub(crate) fn text_wrap(&self) -> Option<view::Wrap> {
-        self.text_wrap
+        match &self.content {
+            FrameContent::Text(TextContent::Area { model, .. }) => Some(model.wrap()),
+            FrameContent::Text(TextContent::Field { .. }) => Some(view::Wrap::None),
+            _ => None,
+        }
     }
 
     pub(crate) fn is_focused(&self) -> bool {
@@ -333,11 +336,14 @@ impl Frame {
     }
 
     pub(crate) fn viewport(&self) -> Option<Viewport> {
-        self.viewport
+        match &self.content {
+            FrameContent::Text(TextContent::Area { layout, .. }) => Some(layout.viewport()),
+            _ => self.viewport,
+        }
     }
 
     pub(crate) fn resolved_scroll(&self) -> Option<interaction::ScrollOffset> {
-        self.viewport.map(Viewport::resolved_scroll)
+        self.viewport().map(Viewport::resolved_scroll)
     }
 
     pub(crate) fn is_enabled(&self) -> bool {
@@ -383,23 +389,38 @@ impl Frame {
     }
 
     pub(crate) fn text_box(&self) -> Option<&view::TextBox> {
-        self.text_box.as_ref()
+        match &self.content {
+            FrameContent::Text(TextContent::Field { model, .. }) => Some(model),
+            _ => None,
+        }
     }
 
     pub(crate) fn text_area(&self) -> Option<&view::TextArea> {
-        self.text_area.as_ref()
+        match &self.content {
+            FrameContent::Text(TextContent::Area { model, .. }) => Some(model),
+            _ => None,
+        }
     }
 
     pub(crate) fn text_area_layout(&self) -> Option<&text::Area> {
-        self.text_area_layout.as_ref()
+        match &self.content {
+            FrameContent::Text(TextContent::Area { layout, .. }) => Some(layout),
+            _ => None,
+        }
     }
 
     pub(crate) fn text_box_layout(&self) -> Option<&text::Field> {
-        self.text_box_layout.as_ref()
+        match &self.content {
+            FrameContent::Text(TextContent::Field { layout, .. }) => Some(layout),
+            _ => None,
+        }
     }
 
     pub(crate) fn text_box_text_rect(&self) -> Rect {
-        self.text_box_text_rect
+        match &self.content {
+            FrameContent::Text(TextContent::Field { text_rect, .. }) => *text_rect,
+            _ => self.rect,
+        }
     }
 
     pub(crate) fn text_caret_rect(&self) -> Option<Rect> {
@@ -467,16 +488,16 @@ impl Frame {
         engine: &mut engine::Engine,
     ) -> Option<view::Action> {
         if self.role() == view::Role::TextArea {
-            let text_area = self.text_area.as_ref()?;
-            let layout = self.text_area_layout.as_ref()?;
+            let text_area = self.text_area()?;
+            let layout = self.text_area_layout()?;
             let position = engine.text_area_position_at(text_area, layout, self.rect, point)?;
 
             return text_area.click_action(position);
         }
 
         if self.role() == view::Role::TextBox {
-            let text_box = self.text_box.as_ref()?;
-            let layout = self.text_box_layout.as_ref()?;
+            let text_box = self.text_box()?;
+            let layout = self.text_box_layout()?;
             let text_rect = self.text_box_text_rect();
             let position = engine.text_field_position_at(text_box, layout, text_rect, point)?;
 
@@ -492,16 +513,16 @@ impl Frame {
         engine: &mut engine::Engine,
     ) -> Option<view::Action> {
         if self.role() == view::Role::TextArea {
-            let text_area = self.text_area.as_ref()?;
-            let layout = self.text_area_layout.as_ref()?;
+            let text_area = self.text_area()?;
+            let layout = self.text_area_layout()?;
             let position = engine.text_area_position_at(text_area, layout, self.rect, point)?;
 
             return Some(text_area.drag_action(position));
         }
 
         if self.role() == view::Role::TextBox {
-            let text_box = self.text_box.as_ref()?;
-            let layout = self.text_box_layout.as_ref()?;
+            let text_box = self.text_box()?;
+            let layout = self.text_box_layout()?;
             let text_rect = self.text_box_text_rect();
             let position = engine.text_field_position_at(text_box, layout, text_rect, point)?;
 
@@ -523,7 +544,13 @@ impl Frame {
 }
 
 impl FrameContent {
-    fn for_node(node: &view::Node) -> Self {
+    fn for_node(
+        node: &view::Node,
+        text_area_layout: Option<text::Area>,
+        text_box_layout: Option<text::Field>,
+        text_box_text_rect: Rect,
+        world_text_overflow: Option<text_model::Overflow>,
+    ) -> Self {
         match node.role() {
             view::Role::Root => Self::Structural(StructuralRole::Root),
             view::Role::Stack => Self::Structural(StructuralRole::Stack),
@@ -531,7 +558,13 @@ impl FrameContent {
             view::Role::Menu => Self::Menu,
             view::Role::Binding => Self::Binding,
             view::Role::Separator => Self::Separator,
-            view::Role::TextArea => Self::TextArea,
+            view::Role::TextArea => Self::Text(TextContent::Area {
+                model: node
+                    .text_area_model()
+                    .cloned()
+                    .expect("TextArea role must carry TextArea content"),
+                layout: text_area_layout.expect("TextArea frame must carry layout content"),
+            }),
             view::Role::Button => Self::Button,
             view::Role::Checkbox => Self::Choice(ChoiceContent::Checkbox(
                 node.checkbox_model()
@@ -544,12 +577,27 @@ impl FrameContent {
                     .expect("Radio role must carry Radio content"),
             )),
             view::Role::Slider => Self::Slider,
-            view::Role::TextBox => Self::TextBox,
+            view::Role::TextBox => Self::Text(TextContent::Field {
+                model: node
+                    .text_box_model()
+                    .cloned()
+                    .expect("TextBox role must carry TextBox content"),
+                layout: text_box_layout.expect("TextBox frame must carry layout content"),
+                text_rect: text_box_text_rect,
+                display_text: node
+                    .label_text()
+                    .is_none()
+                    .then(|| node.text_box_model().map(view::TextBox::display_text))
+                    .flatten()
+                    .map(str::to_owned),
+            }),
             view::Role::Scroll => Self::Scroll,
             view::Role::Panel => Self::Structural(StructuralRole::Panel),
             view::Role::FloatingPanel => Self::FloatingPanel,
-            view::Role::SectionHeader => Self::SectionHeader,
-            view::Role::Label => Self::Label,
+            view::Role::SectionHeader => Self::Text(TextContent::SectionHeader),
+            view::Role::Label => Self::Text(TextContent::Label {
+                world_overflow: world_text_overflow,
+            }),
         }
     }
 
@@ -562,16 +610,16 @@ impl FrameContent {
             Self::Menu => view::Role::Menu,
             Self::Binding => view::Role::Binding,
             Self::Separator => view::Role::Separator,
-            Self::TextArea => view::Role::TextArea,
+            Self::Text(TextContent::Area { .. }) => view::Role::TextArea,
             Self::Button => view::Role::Button,
             Self::Choice(ChoiceContent::Checkbox(_)) => view::Role::Checkbox,
             Self::Choice(ChoiceContent::Radio(_)) => view::Role::Radio,
             Self::Slider => view::Role::Slider,
-            Self::TextBox => view::Role::TextBox,
+            Self::Text(TextContent::Field { .. }) => view::Role::TextBox,
             Self::Scroll => view::Role::Scroll,
             Self::FloatingPanel => view::Role::FloatingPanel,
-            Self::SectionHeader => view::Role::SectionHeader,
-            Self::Label => view::Role::Label,
+            Self::Text(TextContent::SectionHeader) => view::Role::SectionHeader,
+            Self::Text(TextContent::Label { .. }) => view::Role::Label,
         }
     }
 }
