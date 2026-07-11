@@ -6,9 +6,6 @@ is next.
 
 ## In flight
 
-25. **Prepared frame recipe** — give staleness, layout, feedback, visual
-    animation, scene paint, overlay consequences, and scheduling one owner;
-    physical realization follows capabilities without caller-mode booleans.
 26. **Document-to-widget projection** — name the value-semantics projection
     from `document::Document` to `widget::TextArea` while preserving the
     general buffer constructor and the widget-to-document dependency direction.

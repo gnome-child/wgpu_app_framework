@@ -410,12 +410,8 @@ impl Update {
         Self { layers, schedule }
     }
 
-    pub(crate) fn layers(&self) -> &[Layer] {
-        &self.layers
-    }
-
-    pub(crate) fn schedule(&self) -> animation::Schedule {
-        self.schedule
+    pub(crate) fn into_parts(self) -> (Vec<Layer>, animation::Schedule) {
+        (self.layers, self.schedule)
     }
 }
 

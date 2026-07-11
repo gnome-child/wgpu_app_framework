@@ -44,6 +44,30 @@ fn root_source_tree_has_no_empty_concept_buckets() {
 }
 
 #[test]
+fn frame_preparation_has_one_recipe() {
+    let presentation = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("runtime")
+            .join("presentation.rs"),
+    )
+    .expect("runtime presentation source should read");
+
+    assert_eq!(
+        presentation
+            .matches("paint_parts_with_clear_theme_and_visuals")
+            .count(),
+        1,
+        "base scene painting must have one prepared-frame owner"
+    );
+    assert_eq!(
+        presentation.matches("self.prepare_frame(").count(),
+        2,
+        "immediate and pending rendering must consume the same frame recipe"
+    );
+}
+
+#[test]
 fn renderer_dependencies_stay_in_native_platform() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let allowed_roots = [

@@ -6,6 +6,83 @@ use super::{CachedLayout, Runtime, services::Services, work};
 use crate::{animation, ime, text};
 use std::time::Instant;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FrameNeed {
+    Idle,
+    Invalidated(response::Invalidation),
+}
+
+struct PreparedFrame {
+    window: window::Id,
+    revision: state::Revision,
+    layout: layout::Layout,
+    scene: scene::Scene,
+    layers: Vec<crate::overlay::Layer>,
+    capabilities: crate::overlay::Capabilities,
+    native_popup_dark: bool,
+    overlay_schedule: animation::Schedule,
+}
+
+struct RealizedFrame {
+    presentation: scene::Presentation,
+    popup_presentations: Vec<crate::overlay::PopupPresentation>,
+    ime_update: ime::Update,
+}
+
+impl FrameNeed {
+    fn immediate_invalidation(self) -> response::Invalidation {
+        match self {
+            Self::Idle => response::Invalidation::Paint,
+            Self::Invalidated(invalidation) => invalidation,
+        }
+    }
+
+    fn pending_invalidation(self) -> Option<response::Invalidation> {
+        match self {
+            Self::Idle => None,
+            Self::Invalidated(invalidation) => Some(invalidation),
+        }
+    }
+}
+
+impl PreparedFrame {
+    fn realize(mut self) -> RealizedFrame {
+        let ime_target = ime_target_for_layers(self.layout.text_caret_rect(), &self.layers);
+        let mut popup_presentations = Vec::new();
+
+        for layer in &self.layers {
+            log_overlay_layer_application(layer, self.overlay_schedule);
+            match layer.kind() {
+                crate::overlay::LayerKind::Live | crate::overlay::LayerKind::RetiringPopup => {
+                    append_or_present_overlay_layer(
+                        self.window,
+                        &mut self.scene,
+                        layer,
+                        self.capabilities,
+                        self.native_popup_dark,
+                        &mut popup_presentations,
+                    );
+                }
+                crate::overlay::LayerKind::Ghost => {
+                    self.scene
+                        .append_ghost_scene_with_opacity(layer.scene(), layer.opacity());
+                }
+            }
+        }
+
+        RealizedFrame {
+            presentation: scene::Presentation::with_scene(
+                self.window,
+                self.revision,
+                self.layout,
+                self.scene,
+            ),
+            popup_presentations,
+            ime_update: ime::Update::new(self.window, ime_target),
+        }
+    }
+}
+
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub fn render(&self, window: window::Id) -> Option<V> {
         if !self.session.contains(window) {
@@ -161,17 +238,25 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         animation::Frame::new(now)
     }
 
-    fn update_animation_schedule(
-        &mut self,
-        window: window::Id,
-        layout: &layout::Layout,
-        now: Instant,
-        visual_schedule: animation::Schedule,
-        overlay_schedule: animation::Schedule,
-    ) {
-        let schedule = caret_animation_schedule(layout, now)
-            .merge(visual_schedule)
-            .merge(overlay_schedule);
+    fn frame_need(&self, window: window::Id) -> Option<FrameNeed> {
+        let revision = self.revision();
+        let window_state = self.session.window(window)?;
+        let stale = window_state.presented_revision() != Some(revision)
+            || self.composition.get(window).is_none();
+
+        if stale {
+            Some(FrameNeed::Invalidated(response::Invalidation::Rebuild))
+        } else {
+            Some(
+                window_state
+                    .invalidation()
+                    .map(FrameNeed::Invalidated)
+                    .unwrap_or(FrameNeed::Idle),
+            )
+        }
+    }
+
+    fn set_animation_schedule(&mut self, window: window::Id, schedule: animation::Schedule) {
         if schedule == animation::Schedule::Idle {
             self.animation_schedules.remove(&window);
         } else {
@@ -429,6 +514,57 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .collect()
     }
 
+    fn prepare_frame(
+        &mut self,
+        window: window::Id,
+        size: geometry::Size,
+        invalidation: response::Invalidation,
+        theme: &crate::theme::Theme,
+        now: Instant,
+        capabilities: crate::overlay::Capabilities,
+    ) -> Option<PreparedFrame> {
+        let revision = self.revision();
+        if invalidation == response::Invalidation::Rebuild {
+            self.present(window)?;
+        }
+        self.session.clear_redraw_request(window);
+
+        let frame = self.frame_at(now);
+        let layout = self.layout_for_scene(window, size, theme, frame, invalidation)?;
+        self.apply_layout_feedback(window, &layout);
+        let interaction = self.session.interaction(window).cloned();
+        let visual_update =
+            self.visual_animations
+                .update_window(window, &layout, interaction.as_ref(), theme, now);
+        let canvas_color = self.canvas_color(window);
+        let (scene, entries) = scene::Scene::paint_parts_with_clear_theme_and_visuals(
+            &layout,
+            canvas_color,
+            theme,
+            visual_update.visuals(),
+        );
+        let visual_schedule = visual_update.schedule();
+        let overlay_update =
+            self.overlays
+                .update_window(window, entries, theme.overlay(), capabilities, now);
+        let (layers, overlay_schedule) = overlay_update.into_parts();
+        let schedule = caret_animation_schedule(&layout, now)
+            .merge(visual_schedule)
+            .merge(overlay_schedule);
+        self.set_animation_schedule(window, schedule);
+
+        Some(PreparedFrame {
+            window,
+            revision,
+            layout,
+            scene,
+            layers,
+            capabilities,
+            native_popup_dark: theme.variant() == crate::theme::Variant::Dark,
+            overlay_schedule,
+        })
+    }
+
     pub fn render_scene(
         &mut self,
         window: window::Id,
@@ -458,70 +594,18 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         size: geometry::Size,
         now: Instant,
     ) -> Option<scene::Presentation> {
-        let revision = self.revision();
-        let window_state = self.session.window(window)?;
-        let stale = window_state.presented_revision() != Some(revision)
-            || self.composition.get(window).is_none();
-        let invalidation = if stale {
-            response::Invalidation::Rebuild
-        } else {
-            window_state
-                .invalidation()
-                .unwrap_or(response::Invalidation::Paint)
-        };
-        if invalidation == response::Invalidation::Rebuild {
-            self.present(window)?;
-        }
-        self.session.clear_redraw_request(window);
+        let invalidation = self.frame_need(window)?.immediate_invalidation();
         let theme = self.active_theme();
-        let frame = self.frame_at(now);
-        let layout = self.layout_for_scene(window, size, &theme, frame, invalidation)?;
-        self.apply_layout_feedback(window, &layout);
-        let interaction = self.session.interaction(window).cloned();
-        let visual_update = self.visual_animations.update_window(
+        let prepared = self.prepare_frame(
             window,
-            &layout,
-            interaction.as_ref(),
+            size,
+            invalidation,
             &theme,
             now,
-        );
-        let canvas_color = self.canvas_color(window);
-        let (mut scene, entries) = scene::Scene::paint_parts_with_clear_theme_and_visuals(
-            &layout,
-            canvas_color,
-            &theme,
-            visual_update.visuals(),
-        );
-        let overlay_update = self.overlays.update_window(
-            window,
-            entries,
-            theme.overlay(),
             crate::overlay::Capabilities::in_frame_only(),
-            now,
-        );
-        for layer in overlay_update.layers() {
-            log_overlay_layer_application(layer, overlay_update.schedule());
-            match layer.kind() {
-                crate::overlay::LayerKind::Live => {
-                    append_overlay_layer(&mut scene, layer);
-                }
-                crate::overlay::LayerKind::Ghost => {
-                    scene.append_ghost_scene_with_opacity(layer.scene(), layer.opacity());
-                }
-                crate::overlay::LayerKind::RetiringPopup => {}
-            }
-        }
-        self.update_animation_schedule(
-            window,
-            &layout,
-            now,
-            visual_update.schedule(),
-            overlay_update.schedule(),
-        );
+        )?;
 
-        Some(scene::Presentation::with_scene(
-            window, revision, layout, scene,
-        ))
+        Some(prepared.realize().presentation)
     }
 
     pub(crate) fn render_pending(
@@ -532,19 +616,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         Option<Vec<crate::overlay::PopupPresentation>>,
         Vec<ime::Update>,
     ) {
-        let revision = self.revision();
         let windows = self
             .session
             .windows()
             .iter()
             .filter_map(|window| {
-                let stale = window.presented_revision() != Some(revision)
-                    || self.composition.get(window.id()).is_none();
-                let invalidation = if stale {
-                    Some(response::Invalidation::Rebuild)
-                } else {
-                    window.invalidation()
-                }?;
+                let invalidation = self.frame_need(window.id())?.pending_invalidation()?;
                 Some((window.id(), invalidation))
             })
             .collect::<Vec<_>>();
@@ -555,69 +632,20 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let now = Instant::now();
 
         for (window, invalidation) in windows {
-            if invalidation == response::Invalidation::Rebuild && self.present(window).is_none() {
-                continue;
-            }
-            self.session.clear_redraw_request(window);
-            let frame = self.frame_at(now);
-            let Some(layout) =
-                self.layout_for_scene(window, size_for(window), &theme, frame, invalidation)
-            else {
+            let Some(prepared) = self.prepare_frame(
+                window,
+                size_for(window),
+                invalidation,
+                &theme,
+                now,
+                self.overlay_capabilities,
+            ) else {
                 continue;
             };
-            self.apply_layout_feedback(window, &layout);
-            let interaction = self.session.interaction(window).cloned();
-            let visual_update = self.visual_animations.update_window(
-                window,
-                &layout,
-                interaction.as_ref(),
-                &theme,
-                now,
-            );
-            let canvas_color = self.canvas_color(window);
-            let (mut scene, entries) = scene::Scene::paint_parts_with_clear_theme_and_visuals(
-                &layout,
-                canvas_color,
-                &theme,
-                visual_update.visuals(),
-            );
-            let overlay_update = self.overlays.update_window(
-                window,
-                entries,
-                theme.overlay(),
-                self.overlay_capabilities,
-                now,
-            );
-            let ime_target =
-                ime_target_for_layers(layout.text_caret_rect(), overlay_update.layers());
-            for layer in overlay_update.layers() {
-                log_overlay_layer_application(layer, overlay_update.schedule());
-                match layer.kind() {
-                    crate::overlay::LayerKind::Live | crate::overlay::LayerKind::RetiringPopup => {
-                        append_or_present_overlay_layer(
-                            window,
-                            &mut scene,
-                            layer,
-                            theme.variant() == crate::theme::Variant::Dark,
-                            &mut popup_presentations,
-                        );
-                    }
-                    crate::overlay::LayerKind::Ghost => {
-                        scene.append_ghost_scene_with_opacity(layer.scene(), layer.opacity());
-                    }
-                }
-            }
-            self.update_animation_schedule(
-                window,
-                &layout,
-                now,
-                visual_update.schedule(),
-                overlay_update.schedule(),
-            );
-            rendered.push(scene::Presentation::with_scene(
-                window, revision, layout, scene,
-            ));
-            ime_updates.push(ime::Update::new(window, ime_target));
+            let realized = prepared.realize();
+            rendered.push(realized.presentation);
+            popup_presentations.extend(realized.popup_presentations);
+            ime_updates.push(realized.ime_update);
         }
 
         let popup_presentations = (!rendered.is_empty()).then_some(popup_presentations);
@@ -709,12 +737,13 @@ fn append_or_present_overlay_layer(
     window: window::Id,
     scene: &mut scene::Scene,
     layer: &crate::overlay::Layer,
+    capabilities: crate::overlay::Capabilities,
     native_popup_dark: bool,
     popup_presentations: &mut Vec<crate::overlay::PopupPresentation>,
 ) {
     match layer.backend() {
         crate::overlay::Backend::InFrame => append_overlay_layer(scene, layer),
-        crate::overlay::Backend::NativePopup => {
+        crate::overlay::Backend::NativePopup if capabilities.native_popups_supported() => {
             let local = layer.scene().native_popup_scenes(layer.bounds());
             let mut popup_scene = scene::Scene::new_with_clear(
                 local.native_material().size(),
@@ -742,6 +771,7 @@ fn append_or_present_overlay_layer(
                 layer.popup_border(),
             ));
         }
+        crate::overlay::Backend::NativePopup => {}
     }
 }
 

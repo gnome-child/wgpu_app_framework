@@ -871,6 +871,12 @@ invalidation runs the full view projection and composition reconciliation path.
 Snapshot restore has one runtime-owned reset for transient composition,
 animation, overlay, task, gesture, history-group, and layout-cache state.
 
+Frame preparation is one runtime recipe. A prepared frame carries its layout,
+base scene, overlay layers, IME geometry inputs, and animation consequences;
+realization capabilities decide whether each layer joins the parent scene or
+becomes a native popup. Headless and native callers supply capabilities rather
+than selecting recipe behavior with mode booleans.
+
 `diagnostics`
 
 Owns framework-visible counters and sample windows that turn performance and
