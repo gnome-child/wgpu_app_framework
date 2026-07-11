@@ -162,11 +162,12 @@ that is their real meaning rather than duplicated construction.
 | R-03 | `Root`, `MenuBar`, `Menu`, `Element`, and `Scroll` each collect `Ui` children with the same loop; several also repeat `child`. | Builder boilerplate. | `Ui` and `Node::child` already own collection and insertion. The loop contains no policy and is small. | Do not abstract unless another correction naturally creates a named owner. |
 | R-04 | Button, Checkbox, Radio, and fixed Slider bindings unwrap `TriggerBinding` fields and call `Node::bind_trigger`. | Repeated semantic projection. | `TriggerBinding` already owns trigger+source, and `SliderBinding` already has a `bind` method. | Candidate for a private `TriggerBinding::bind` if a witness proves identical sources/actions. |
 | R-05 | Checkbox and Radio widget/view structs are label + boolean + optional trigger. | Similar representation, distinct meaning. | Downstream code already shares `choice_*` geometry, `scene::paint::choice`, focusability, and activation while preserving square/check versus round/dot semantics. | Explicit non-merge; current factorization is healthy. |
-| R-06 | TextBox and TextArea repeat focus action, pointer-focus action, click action, drag action, and portions of focus projection. | Mixed: shared text-input policy plus genuinely distinct storage/projection. | Both delegate edit meaning to `text::edit`; TextBox owns drafts/submission while TextArea owns buffer, viewport scroll/reveal, and document projection. | Reduce extension cost before deciding; never merge types. Shared action construction may be admissible. |
+| R-06 | TextBox and TextArea repeat focus action, pointer-focus action, click action, drag action, and portions of focus projection. | Mixed: shared text-input policy plus genuinely distinct storage/projection. | Both delegate edit meaning to `text::edit`; `view::Action` already owns action construction. TextBox owns drafts/submission while TextArea owns buffer, viewport scroll/reveal, and document projection. | Admit only the identical action construction as C-03; preserve both models and their projection. |
 | R-07 | `Ui` exposes one convenience method per widget in addition to generic `add`. | Deliberate grammar surface. | Every method delegates immediately to `add`; callers can always use any new/custom `Widget` without waiting for a method. | Legitimate convenience, no semantic duplication. |
 | R-08 | Role lists repeat across composition, measurement, layout, action, focus, runtime visuals, and paint. | Exhaustive phase ownership, with possible policy clusters. | Rust exhaustiveness makes new roles visible; shared families already coalesce in several matches. | Evaluate through extension-cost experiments; do not create a generic property bag. |
 | R-09 | `layout::Frame` copies role-specific optional payloads for checkbox, radio, slider, TextArea, and TextBox. | Representable-state and extension-cost flag. | Prior Examen recorded this without a behavioral contradiction. | No refactor authority unless experiments reveal a concrete repeated rule and existing owner. |
 | R-10 | View node builders repeat “copy label, set role, attach control.” | Small construction glue. | `Node::with_control` and typed control enum are already the owner. | Below abstraction threshold unless a new admitted control family proves drift. |
+| R-11 | `Panel::layout/row/column/overlay` delegates to Element, whose axis setter changes ordinary Panel role to Stack; the same setter explicitly preserves Scroll and FloatingPanel. | Ambiguous public recipe semantics, not demonstrated duplication. | Orientation works, but the Panel role's default surface fill and role identity disappear as soon as advertised layout configuration is used. No current whole witness says whether Panel means a persistent surface or merely Element's default column form. | Record as an unpracticed contract. Do not choose visual/semantic behavior in this audit. |
 
 ## Existing grammar assessment before experiments
 
@@ -235,10 +236,117 @@ Two focused admission witnesses were added alongside the experiments:
 | --- | --- | --- |
 | C-01 / R-01 | Admitted | Scroll and Element implement the same declarative recipe; `Element::from_node` is the existing owner, explicitly preserves Scroll role/axis, and the reduced witness covers the public result. The duplicated state and lowering can be deleted without API or behavior change. |
 | C-02 / R-04 | Admitted | `TriggerBinding` already owns trigger plus source. Its projection to a node is the same rule in four callers, the shared source witness is green, and direct field plumbing can be deleted. |
-| R-06 | Not admitted yet | TextBox/TextArea action construction is repeated meaning, but it is unrelated to the extension experiments and would require naming a new private text-control helper. Existing behavior is correct; proceed only if reduction shows meaningful deletion without obscuring distinct projection. |
+| C-03 / R-06 | Admitted narrowly | The identical focus, pointer-focus, click sequence, and drag-edit constructors belong to existing `view::Action`. Both control models can delegate while all draft/buffer/scroll/reveal/focus-projection differences remain local. Existing whole pointer journeys witness both meanings. |
+
+## Correction ledger
+
+| ID | Commit | Change | Displaced path | Verification before commit |
+| --- | --- | --- | --- | --- |
+| C-01 | `59e5e621` — `C-01 Build Scroll from Element recipe` | Scroll now contains `Element::from_node(Node::scroll())` and forwards its public recipe. 21 insertions, 65 deletions. | Scroll's duplicate node/layout/style/dimension/background/children storage, axis projection, and `into_node` lowering. | Reduced contract plus all 41 scroll-filtered tests passed. |
+| C-02 | `77ca0650` — `C-02 Centralize fixed trigger projection` | Private `TriggerBinding::bind` projects its owned trigger/source for Button, Checkbox, Radio, and fixed Slider. 10 insertions, 6 deletions. | Four direct field-unwrapping/call sites; trigger/source fields became private to their owner. | Shared-source contract, all 5 widget-binding journeys, and all 6 slider journeys passed. |
+| C-03 | `39b5ef6d` — `C-03 Share text control action construction` | `view::Action` owns common text focus, pointer-focus, click, and drag constructors. 35 insertions, 33 deletions. | Duplicate action sequences in TextBox/TextArea and the obsolete per-model pointer-focus wrappers. | TextArea pointer focus/click/capture tests and all 6 TextBox pointer journeys passed; `cargo check --lib` was warning-free. |
+
+## Legitimate non-merges
+
+- **Checkbox and Radio:** one choice layout/paint/activation family, two semantic
+  roles and two mark species. Radio grouping remains app command/state policy;
+  pretending both are one boolean widget would erase meaning.
+- **TextBox and TextArea:** one text engine and now one action-construction rule,
+  but different value ownership, draft/history behavior, viewport/reveal state,
+  wrapping, submission, and document projection.
+- **Slider and Progress:** a range value is visually similar, but slider owns
+  manipulation, capture, history grouping, thumb and focus; progress is passive.
+  There is no second production caller to justify extracting a range primitive.
+- **Element, Panel, Floating, and Scroll:** recipe delegation is appropriate,
+  but roles must remain distinct where surface, overlay, viewport, clipping, or
+  hit semantics differ. C-01 shares construction rather than merging roles.
+- **Root, MenuBar, and Menu child builders:** the common loop is syntax over
+  `Ui`/`Node::child`; their structural, menu, overlay, and focus meanings differ.
+- **Button, Binding, and arbitrary triggered Element:** they share command
+  activation data, but differ in public role, measurement, focus eligibility,
+  styling, and menu placement.
+
+## Remaining missing primitives and uncertainties
+
+- There is no public semantic association between a Label and a field, or for
+  descriptions/errors. Structural compounds work; accessible naming remains a
+  future AccessKit seam rather than evidence for a monolithic field widget.
+- There is no supported public route for an application-authored interactive
+  semantic leaf to opt into keyboard focus, built-in control state, active
+  sub-rects, theme roles, and future accessibility without using an existing
+  role. Whether the catalog should become extensible is a product/architecture
+  decision, not a consolidation.
+- Public Element recipes can express rectangular visual components and percent
+  geometry, but cannot request the built-in role-specific rounding/state paint
+  policies. This kept the Progress experiment honest and makes a custom Switch
+  only an approximation.
+- Panel's advertised layout methods currently transform its node into Stack and
+  therefore drop Panel role presentation. The intended contract lacks a whole
+  witness; choosing whether Panel is a persistent surface would be a visual and
+  public-semantic decision.
+- Accessibility has no implementation owner yet. The existing explicit roles,
+  labels, subjects, stable identities, focus order, and active-item concepts are
+  useful seams, but this audit does not infer accessibility from them.
 
 ## Final results
 
-Pending extension experiments, candidate reduction, admitted consolidations,
-full verification, legitimate non-merges, missing-primitives judgment, and
-final application/built-in parity assessment.
+### Built-in versus application-authored parity
+
+| Capability | Parity | Evidence / boundary |
+| --- | --- | --- |
+| Implement `Widget` and enter normal reconciliation | Equal | Test-local LabeledField and Progress lower through public `Widget::into_node` and retain ordinary child identities. |
+| Structural row/column/overlay composition | Equal | Element, Layout, Ui, Dimension including Percent, padding/alignment/gap, children, and Brush are public. |
+| Compose existing semantic controls | Equal | Custom compounds freely contain TextBox, Button, choices, Slider, TextArea, menus, Scroll, and other Widgets. |
+| Generic pointer command activation | Mostly equal | Triggered Element receives command target/action, but is not classified as a keyboard-focusable control role. |
+| Keyboard focus and atomic active sub-rect policy | Built-in only | Exhaustive role families in traversal, frame/action, and runtime pointer logic own these facts. |
+| Built-in themed control state and shape | Built-in only | Scene paint and theme select by internal Role; public compounds get explicit backgrounds and normal child paint, not role recipes. |
+| Text drafts/IME/caret, slider capture/value gesture, menu overlay lifecycle | Built-in only by design | These are atomic semantic engines, not safe composition from visual children. Applications can embed them, not reimplement them through Widget. |
+| Accessible semantic role/name/description | Not implemented | Existing roles, labels, subjects, identities and focus are seams only; no application or built-in parity can yet be claimed. |
+
+The catalog is therefore a **good structural grammar and a closed semantic leaf
+catalog**. Rich application compounds are first-class when they arrange
+existing controls or passive visuals. Applications are not first-class authors
+of new interactive semantic leaves. That boundary is coherent today, but it
+makes a future Switch or other novel control a coordinated framework change,
+not merely a custom Widget.
+
+### Verification
+
+- Complete implementation census: all 17 production `Widget` implementations
+  are represented in the public catalog; Layout, Direction and Ui are recorded
+  separately as construction vocabulary.
+- Cross-phase census: all 17 current view roles, including internal
+  SectionHeader, are represented in the role matrix across view, composition,
+  layout, runtime, scene and platform.
+- Focused extension/admission tests: 3 passed.
+- C-01 Scroll family: reduced contract and 41 scroll-filtered tests passed.
+- C-02 binding family: shared contract, 5 binding journeys and 6 slider
+  journeys passed.
+- C-03 text family: TextArea focus/click/capture and all 6 TextBox pointer
+  journeys passed; library check emitted no warnings.
+- Full library suite after all corrections: 815 passed, 8 deliberately ignored,
+  0 failed in 0.81 seconds.
+- External-style smoke executables: text editor, control gallery and glass
+  tuner all exited successfully.
+- Formatting, diff, protected-state and clean-worktree checks form the final
+  report commit gate.
+
+### Judgment
+
+The original question has a qualified positive answer. Less-basic structural
+widgets generally reuse more-basic recipes: Panel uses Element, Floating uses
+Panel, and C-01 now makes Scroll use Element. Semantic controls do not pretend
+to be trees of public visual widgets; they lower to typed leaf models and share
+private submechanics where meaning is actually common. Checkbox/Radio choice
+geometry and paint are the strongest example, followed by the independent text
+engine and C-03's shared action construction.
+
+Three real repeated rules were consolidated without adding a role, public API,
+feature, visual change, macro catalog, property bag, universal base class, or
+component framework. The remaining repetition is predominantly ergonomic
+forwarding, exhaustive role ownership, or deliberately separate semantics.
+The two important open questions are explicit rather than papered over:
+whether Panel remains a surface when its layout is configured, and whether a
+future framework should let application Widgets define new interactive
+semantic leaves. Neither had enough current contract or product evidence to
+authorize a change here.
