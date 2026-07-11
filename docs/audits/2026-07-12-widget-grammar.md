@@ -196,11 +196,46 @@ the privileged built-in path, files and branches touched, reused owners,
 duplicated rules, and the smallest missing primitive—if one is actually
 demonstrated.
 
+## Extension-cost results
+
+The test-local `LabeledField` and `Progress` types implement the public
+`Widget` trait and use only public widget/view/scene vocabulary. The focused
+test `application_widgets_can_compose_labeled_fields_and_progress_from_public_pieces`
+proves that both enter the normal view, layout, and scene pipeline. The first
+draft also confirmed an intentional root rule: multiple root children occupy
+the root stage, so ordinary content needs an explicit row/column while floating
+siblings can remain at root altitude. Adding that flow container made the
+compound recipes deterministic without framework change.
+
+| Experiment | Public-only result | Hypothetical privileged built-in cost | Reuse and duplication judgment |
+| --- | --- | --- | --- |
+| Switch | A caller can compose label, track, and knob-shaped rectangular Elements, and can attach pointer command activation to an Element. It cannot give that compound the built-in keyboard focus classification, focus outline, atomic active rect, themed choice states, or a truthful semantic role. Using Checkbox would inherit the wrong public meaning; using Button would make custom children/paint unavailable. | A truthful built-in requires at least widget model/export/Ui glue; view role/control/builder/access; composition exhaustiveness; layout measure/frame; action/focus/pointer families; scene paint/theme; and whole tests—roughly 14 production touch points before platform accessibility. | Choice row geometry, trigger binding, command activation, and focus policy are reusable. Switch-specific value semantics and paint are new. No missing public primitive can be named without deciding customization and accessibility policy, so no feature/refactor is admitted. |
+| Progress | A real visual progress recipe works now: Element supplies a track, a percent-width child supplies fill, and public Brush/Dimension/layout produce the expected 200 px / 130 px geometry for 65%. It has no semantic progress role, but it needs no input or focus. | A built-in semantic Progress would still require a widget/view model and role, range normalization, layout/frame payload, paint/theme, exhaustive phase cases, and tests—about 9–11 production touch points. It should not inherit Slider's thumb, capture, history gesture, label format, or focusability. | Structural and visual composition is adequate. Extracting Slider's range value before a second semantic caller exists would be speculative. Future accessibility may justify a progress semantic primitive, but current behavior does not. |
+| Compound labeled field | Public composition is strong: Label + TextBox in an Element column preserves child identity, focus, text behavior, layout, and paint, and hints/errors can be additional Labels. | A built-in wrapper would add little today. A future accessible field needs an explicit label/description/error association, not a new monolithic widget role. | No layout, focus, text, or paint duplication is required. The demonstrated missing concept is semantic association (`label-for`/description), but AccessKit policy has no present owner and is roadmap work, so it remains a named future seam. |
+
+The experiments separate two costs. **Visual/structural compounds are cheap and
+available to applications. Semantic leaf controls are intentionally closed:**
+their roles participate in exhaustive internal policy. This is safer than an
+open property bag, but a genuinely new interactive control has high coordinated
+extension cost. Most of that cost is explicit meaning, not repeated widget
+construction.
+
+Two focused admission witnesses were added alongside the experiments:
+
+- `scroll_builder_preserves_the_shared_element_recipe_and_scroll_identity`
+  pins every shared layout/style/children field plus Scroll's role, axis, id,
+  and label before R-01 changes ownership;
+- `fixed_trigger_controls_share_button_source_binding_semantics` pins the
+  identical Button/Checkbox/Radio/fixed-Slider trigger source before R-04
+  centralizes projection.
+
 ## Candidate ledger
 
-No production change is yet admitted. R-01, R-04, and the narrow action portion
-of R-06 remain hypotheses until the extension experiments and reduced witnesses
-are complete.
+| Candidate | Admission result | Reason |
+| --- | --- | --- |
+| C-01 / R-01 | Admitted | Scroll and Element implement the same declarative recipe; `Element::from_node` is the existing owner, explicitly preserves Scroll role/axis, and the reduced witness covers the public result. The duplicated state and lowering can be deleted without API or behavior change. |
+| C-02 / R-04 | Admitted | `TriggerBinding` already owns trigger plus source. Its projection to a node is the same rule in four callers, the shared source witness is green, and direct field plumbing can be deleted. |
+| R-06 | Not admitted yet | TextBox/TextArea action construction is repeated meaning, but it is unrelated to the extension experiments and would require naming a new private text-control helper. Existing behavior is correct; proceed only if reduction shows meaningful deletion without obscuring distinct projection. |
 
 ## Final results
 

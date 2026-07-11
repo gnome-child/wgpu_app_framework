@@ -762,6 +762,7 @@ mod responder_tests;
 mod runtime_tests;
 mod text_input;
 mod widget_binding_tests;
+mod widget_composition_tests;
 mod widget_focus_tests;
 mod widget_identity_tests;
 mod widget_layout_tests;
