@@ -6,10 +6,10 @@ is next.
 
 ## In flight
 
-9. **Text overflow** (tables checkpoint 1) — `Overflow::{Clip, EllipsisEnd,
-   EllipsisMiddle}`, the three-kinds-of-text doctrine (author text must fit;
-   world text declares overflow; user text scrolls), a required-overflow
-   world-text node, and the inline cache `TextKey` amendment.
+10. **Tables arc — checkpoint 2, `FrameContent` decomposition.** Migrate the
+    existing role families through one typed frame payload, deleting the
+    legacy optional payload cluster at the checkpoint boundary while behavior
+    and the text performance gate remain fixed.
 
 ## Specced and ready
 
@@ -50,8 +50,8 @@ is next.
 
 10. **Tables arc** — assembly of proven citizens; six independently green
     checkpoints within one persistent campaign, in order:
-    1. Text overflow (item 9, in flight).
-    2. **`FrameContent` decomposition** — one `Frame` keeps common
+    1. Text overflow (complete at `dfa728f2`; item 9 pruned).
+    2. **`FrameContent` decomposition** (in flight) — one `Frame` keeps common
        geometry/identity/clip/presentation; role payloads become a typed
        content enum (the `view::Node`/`Control` idiom), over the existing
        17 roles. Success condition: incompatible payload combinations are
