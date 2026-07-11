@@ -1,4 +1,4 @@
-use crate::{interaction, session, text, view};
+use crate::{document, interaction, session, text, view};
 
 use super::super::Widget;
 
@@ -25,6 +25,10 @@ impl TextArea {
             id: None,
             focus: None,
         }
+    }
+
+    pub fn from_document(document: &document::Document) -> Self {
+        Self::from_buffer(document.buffer().clone(), document.text_state())
     }
 
     pub fn id(mut self, id: impl Into<interaction::Id>) -> Self {

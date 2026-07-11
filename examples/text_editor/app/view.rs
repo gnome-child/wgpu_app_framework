@@ -125,12 +125,9 @@ pub fn view(state: &State, cx: ViewContext) -> View {
                 });
             });
             ui.text_area(
-                widget::TextArea::from_buffer(
-                    state.document.buffer().clone(),
-                    state.document.text_state(),
-                )
-                .wrap(wrap)
-                .focus(session::Focus::text(DOCUMENT_FOCUS)),
+                widget::TextArea::from_document(&state.document)
+                    .wrap(wrap)
+                    .focus(session::Focus::text(DOCUMENT_FOCUS)),
             );
         });
 

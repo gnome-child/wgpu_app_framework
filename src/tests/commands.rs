@@ -372,13 +372,7 @@ fn palette_scope_gives_standard_text_commands_to_query_and_rows_to_captured_docu
     })
     .view(move |state, _| {
         widget::view(|ui| {
-            ui.text_area(
-                widget::TextArea::from_buffer(
-                    state.document.buffer().clone(),
-                    state.document.text_state(),
-                )
-                .focus(document_focus),
-            );
+            ui.text_area(widget::TextArea::from_document(&state.document).focus(document_focus));
         })
     })
     .with_clipboard(clipboard);

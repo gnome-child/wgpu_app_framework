@@ -197,6 +197,9 @@ saved document.
 Owns ergonomic builders for view data. Widgets produce nodes. Widgets do not
 execute behavior. A widget may project an app-facing concept into declarative
 view/action data, but it should not become the runtime for that concept.
+`TextArea::from_document` is the named value-semantics projection of a
+`document::Document`; `from_buffer` remains the general constructor. Document
+code does not depend back on widgets.
 
 `view`
 

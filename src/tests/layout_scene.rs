@@ -1461,10 +1461,7 @@ fn editable_text_surfaces_use_active_text_input_foreground() {
     let view = widget::view(|ui| {
         ui.column(|ui| {
             ui.text_box(widget::TextBox::new("field"));
-            ui.text_area(widget::TextArea::from_buffer(
-                document.buffer().clone(),
-                document.text_state(),
-            ));
+            ui.text_area(widget::TextArea::from_document(&document));
         });
     });
     let mut engine = layout::Engine::new();

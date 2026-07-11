@@ -6,9 +6,6 @@ is next.
 
 ## In flight
 
-26. **Document-to-widget projection** — name the value-semantics projection
-    from `document::Document` to `widget::TextArea` while preserving the
-    general buffer constructor and the widget-to-document dependency direction.
 27. **Standard editing set** — install the enumerable, individually declinable
     standard edit-command specs in one line while keeping targets and observers
     explicit.

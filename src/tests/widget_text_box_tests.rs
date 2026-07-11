@@ -341,13 +341,7 @@ fn tab_key_moves_focus_through_current_view_order() {
         widget::view(|ui| {
             ui.column(|ui| {
                 ui.text_box(widget::TextBox::new("first").focus(first));
-                ui.text_area(
-                    widget::TextArea::from_buffer(
-                        state.document.buffer().clone(),
-                        state.document.text_state(),
-                    )
-                    .focus(document),
-                );
+                ui.text_area(widget::TextArea::from_document(&state.document).focus(document));
                 ui.text_box(widget::TextBox::new("second").focus(second));
             });
         })

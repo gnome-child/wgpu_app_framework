@@ -291,6 +291,20 @@ fn text_edit_implementation_modules_stay_private() {
 }
 
 #[test]
+fn document_to_text_area_projection_keeps_one_way_ownership() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let document = src.join("document");
+    let text_area = std::fs::read_to_string(src.join("widget/control/text_area.rs"))
+        .expect("text area widget source should read");
+
+    assert!(
+        text_area.contains("pub fn from_document(document: &document::Document)"),
+        "the document projection should be a named text-area constructor"
+    );
+    assert_source_patterns_absent(&document, &["crate::widget".to_owned()]);
+}
+
+#[test]
 fn text_unicode_helpers_stay_private_to_text_engine() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let text_mod =
