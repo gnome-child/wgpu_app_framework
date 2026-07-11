@@ -6,6 +6,11 @@ is next.
 
 ## In flight
 
+9. **Text overflow** (tables checkpoint 1) — `Overflow::{Clip, EllipsisEnd,
+   EllipsisMiddle}`, the three-kinds-of-text doctrine (author text must fit;
+   world text declares overflow; user text scrolls), a required-overflow
+   world-text node, and the inline cache `TextKey` amendment.
+
 ## Specced and ready
 
 2. **Show-cycle presentation contract** — the first visible frame of every
@@ -43,13 +48,9 @@ is next.
 
 ## Named arcs
 
-9. **Text overflow** (tables slice 1) — `Overflow::{Clip, EllipsisEnd,
-   EllipsisMiddle}`, the three-kinds-of-text doctrine (author text must fit;
-   world text declares overflow; user text scrolls), a required-overflow
-   world-text node, and the inline cache `TextKey` amendment.
 10. **Tables arc** — assembly of proven citizens; six independently green
-    slices, each its own goal, in order:
-    1. Text overflow (item 9).
+    checkpoints within one persistent campaign, in order:
+    1. Text overflow (item 9, in flight).
     2. **`FrameContent` decomposition** — one `Frame` keeps common
        geometry/identity/clip/presentation; role payloads become a typed
        content enum (the `view::Node`/`Control` idiom), over the existing
