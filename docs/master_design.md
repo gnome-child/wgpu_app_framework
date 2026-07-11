@@ -184,6 +184,23 @@ Text layout owns shaped-buffer cache mechanics through `ShapingCache`; area
 lines, field surfaces, and inline text/icons supply domain keys and retention
 limits, while the shared owner mediates lookup, insertion, and `FontSystem` use.
 
+Text has three provenance contracts. Author text is written by the program and
+must fit; layout reports an `author_text_overflows` diagnostic instead of
+silently turning it into world text. World text comes from files, providers,
+users, or other unbounded sources and its view constructor requires an explicit
+`text::Overflow`: clip, end ellipsis, or middle ellipsis. User text lives in an
+editable surface and scrolls or reveals through the existing TextArea and
+TextBox machinery. World-text ellipsis is resolved by text layout against real
+font metrics before scene projection, at Unicode grapheme boundaries, using the
+real `…` glyph. Scene and paint carry the resolved text and overflow cache
+identity; they do not invent truncation. Callers must not pre-truncate strings.
+
+Overflow v1 defines end and middle in logical source order. End ellipsis keeps a
+logical prefix; middle ellipsis keeps logical head and tail segments. Bidi
+shaping then presents that resolved string in visual order. This policy is
+deliberately deterministic; visually directed truncation remains future work
+that requires its own accessibility and product decision.
+
 Document saves capture a `document::Version` containing document identity and
 buffer revision. Deferred completion carries that version plus a monotonically
 newer save generation; only the latest generation for the same identity may
@@ -896,7 +913,7 @@ instrument map is:
 
 | Instrument | Owner | Signals |
 | --- | --- | --- |
-| `Text layout` | `text::layout`, `text::edit` | paint calls, metric calls, visible and shaped lines, overscan segments, overlay and highlight work |
+| `Text layout` | `text::layout`, `text::edit` | author overflows, paint calls, metric calls, visible and shaped lines, overscan segments, overlay and highlight work |
 | `Text caches` | text layout caches | line hits/misses, render-surface calls, render-cache hits/misses, render source lines and bytes |
 | `Scroll` | interaction and text viewport services | wheel events, offset changes, redraw requests, committed frame scrolls, text area viewport work |
 | `Frames` | runtime presentation | full redraws, view rebuilds, layout recomposes/reuses, text surfaces |

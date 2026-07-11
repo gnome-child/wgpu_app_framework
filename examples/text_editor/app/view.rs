@@ -5,7 +5,9 @@ use super::{
     command::{LoadStressText, ToggleDebugPanel, ToggleWrapText},
 };
 use wgpu_l3::{
-    View, document, geometry, interaction, scene, session, timeline,
+    View, document, geometry, interaction, scene, session,
+    text::Overflow,
+    timeline,
     view::{Context as ViewContext, Wrap},
     widget,
 };
@@ -37,7 +39,7 @@ pub fn view(state: &State, cx: ViewContext) -> View {
         let path = state
             .document
             .path()
-            .map(compact_path)
+            .map(|path| path.display().to_string())
             .unwrap_or_else(|| "Untitled".to_owned());
         let wrap = if state.wrap_text { "on" } else { "off" };
         let diagnostics = cx.diagnostics();
@@ -46,11 +48,11 @@ pub fn view(state: &State, cx: ViewContext) -> View {
         let frame = &diagnostics.frame;
         let render = &diagnostics.render;
         let status = format!(
-            "File: {path} ({dirty}) | Wrap: {wrap}\nDocument: {} lines, {} bytes | Edits: {} | Status: {}\nText layout: paint {}, metrics {}, visible {}, shaped {}, segments {}+{}, overlays {}, highlight scans {}\nText caches: line {}/{}, render surfaces {}, render cache {}/{}, render source {} lines / {} bytes\nScroll: wheel {}, offsets {}, redraws {}, commits {}, text area viewports {}\nFrames: full {}, rebuilds {}, layout recomposes {}, layout reuses {}, text surfaces {}\nRender: frames {}, interval p95 {}us, acquire p95 {}us, draw p95 {}us, key->present p95 {}us, pending keys {}, groups {}, pools layer/scratch {}/{}",
+            "Document: {} lines, {} bytes | Edits: {} | {dirty} | Wrap: {wrap}\nText layout: author overflows {}, paint {}, metrics {}, visible {}, shaped {}, segments {}+{}, overlays {}, highlight scans {}\nText caches: line {}/{}, render surfaces {}, render cache {}/{}, render source {} lines / {} bytes\nScroll: wheel {}, offsets {}, redraws {}, commits {}, text area viewports {}\nFrames: full {}, rebuilds {}, layout recomposes {}, layout reuses {}, text surfaces {}\nRender: frames {}, interval p95 {}us, acquire p95 {}us, draw p95 {}us, key->present p95 {}us, pending keys {}, groups {}, pools layer/scratch {}/{}",
             state.document.line_count(),
             state.document.len(),
             state.document.edit_count(),
-            state.last_status,
+            text_diagnostics.author_text_overflows,
             text_diagnostics.text_area_paint_layout_calls,
             text_diagnostics.text_area_metrics_layout_calls,
             text_diagnostics.text_area_visible_logical_lines,
@@ -89,6 +91,14 @@ pub fn view(state: &State, cx: ViewContext) -> View {
         Some(
             widget::Panel::new()
                 .child(widget::Label::new("Debug"))
+                .child(widget::Label::world(
+                    format!("File: {path}"),
+                    Overflow::EllipsisMiddle,
+                ))
+                .child(widget::Label::world(
+                    format!("Status: {}", state.last_status),
+                    Overflow::EllipsisEnd,
+                ))
                 .child(widget::Label::new(status)),
         )
     } else {
