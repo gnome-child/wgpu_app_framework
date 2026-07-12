@@ -3,6 +3,7 @@ mod slider;
 mod text_area;
 mod text_box;
 mod text_surface;
+mod viewport_chrome;
 
 use crate::icon as icons;
 
@@ -19,12 +20,6 @@ enum Layer {
     Floating,
 }
 
-#[derive(Clone, Copy)]
-struct FocusOverlay {
-    outline: Outline,
-    clip: Option<Clip>,
-}
-
 pub(super) fn paint_layout_with_theme(
     layout: &layout::Layout,
     scene: &mut Scene,
@@ -32,14 +27,14 @@ pub(super) fn paint_layout_with_theme(
     visuals: &Visuals,
 ) -> Vec<overlay::Draft> {
     for layer in [Layer::Base, Layer::Chrome] {
-        let mut focus_overlays = Vec::new();
+        let mut late_chrome = Vec::new();
 
         for frame in layout
             .frames()
             .iter()
             .filter(|frame| layer_for(frame) == layer)
         {
-            paint_frame_with_clip(frame, scene, theme, visuals, &mut focus_overlays);
+            paint_frame_with_clip(frame, scene, theme, visuals, &mut late_chrome);
         }
 
         for track in layout
@@ -55,10 +50,10 @@ pub(super) fn paint_layout_with_theme(
             .iter()
             .filter(|chrome| chrome_layer_for(layout, chrome) == layer)
         {
-            paint_chrome(chrome, scene, theme, visuals);
+            project_chrome(chrome, theme, visuals, &mut late_chrome);
         }
 
-        paint_focus_overlays(scene, focus_overlays);
+        viewport_chrome::paint(scene, late_chrome);
     }
 
     paint_overlay_entries(layout, scene.clear(), theme, visuals)
@@ -75,7 +70,7 @@ fn paint_overlay_entries(
         .filter_map(|panel| {
             let id = panel.target().and_then(interaction::Target::element_id)?;
             let mut scene = Scene::new_with_clear(layout.size(), clear);
-            let mut focus_overlays = Vec::new();
+            let mut late_chrome = Vec::new();
 
             for frame in layout
                 .frames()
@@ -83,7 +78,7 @@ fn paint_overlay_entries(
                 .filter(|frame| layer_for(frame) == Layer::Floating)
                 .filter(|frame| frame_belongs_to_panel(frame, panel))
             {
-                paint_frame_with_clip(frame, &mut scene, theme, visuals, &mut focus_overlays);
+                paint_frame_with_clip(frame, &mut scene, theme, visuals, &mut late_chrome);
             }
 
             for track in layout
@@ -99,10 +94,10 @@ fn paint_overlay_entries(
                 .iter()
                 .filter(|chrome| chrome_belongs_to_panel(layout, chrome, panel))
             {
-                paint_chrome(chrome, &mut scene, theme, visuals);
+                project_chrome(chrome, theme, visuals, &mut late_chrome);
             }
 
-            paint_focus_overlays(&mut scene, focus_overlays);
+            viewport_chrome::paint(&mut scene, late_chrome);
 
             (!scene.is_empty()).then(|| {
                 overlay::Draft::new(id, panel.rect(), scene)
@@ -163,7 +158,7 @@ fn chrome_belongs_to_panel(
         .frames()
         .iter()
         .rev()
-        .find(|frame| frame.target() == Some(chrome.scroll_target()))
+        .find(|frame| frame.node_id() == chrome.owner())
         .is_some_and(|frame| frame.node_id() == panel.node_id() || frame.is_descendant_of(panel))
 }
 
@@ -212,7 +207,7 @@ fn paint_frame_with_clip(
     scene: &mut Scene,
     theme: &Theme,
     visuals: &Visuals,
-    overlays: &mut Vec<FocusOverlay>,
+    late_chrome: &mut Vec<viewport_chrome::Projection>,
 ) {
     let clip = frame
         .clip()
@@ -221,7 +216,7 @@ fn paint_frame_with_clip(
         scene.push_clip(clip);
     }
 
-    paint_frame(frame, scene, theme, visuals, overlays, clip);
+    paint_frame(frame, scene, theme, visuals, late_chrome, clip);
 
     if clip.is_some() {
         scene.pop_clip();
@@ -233,7 +228,7 @@ fn paint_frame(
     scene: &mut Scene,
     theme: &Theme,
     visuals: &Visuals,
-    overlays: &mut Vec<FocusOverlay>,
+    late_chrome: &mut Vec<viewport_chrome::Projection>,
     clip: Option<Clip>,
 ) {
     if is_floating_panel_role(frame.role()) {
@@ -328,31 +323,19 @@ fn paint_frame(
     }
 
     if let Some(color) = focus_outline_color_for(frame, theme) {
-        overlays.push(FocusOverlay {
-            outline: Outline::new(focus_outline_rect_for(frame), color)
+        late_chrome.push(viewport_chrome::Projection::outline(
+            viewport_chrome::Scope::new(clip),
+            Outline::new(focus_outline_rect_for(frame), color)
                 .with_width(theme.focus().width as f32)
                 .with_offset(theme.focus().offset)
                 .with_rounding(focus_outline_rounding_for(frame, rounding, theme)),
-            clip,
-        });
+        ));
     } else if let Some(color) = outline_color_for(frame, theme) {
         scene.push_outline(
             Outline::new(focus_outline_rect_for(frame), color)
                 .with_width(theme.focus().width as f32)
                 .with_rounding(focus_outline_rounding_for(frame, rounding, theme)),
         );
-    }
-}
-
-fn paint_focus_overlays(scene: &mut Scene, overlays: Vec<FocusOverlay>) {
-    for overlay in overlays {
-        if let Some(clip) = overlay.clip {
-            scene.push_clip(clip);
-        }
-        scene.push_outline(overlay.outline);
-        if overlay.clip.is_some() {
-            scene.pop_clip();
-        }
     }
 }
 
@@ -416,20 +399,25 @@ fn visible_fill(color: super::Color) -> Option<super::Color> {
     (color.channels().3 > 0).then_some(color)
 }
 
-fn paint_chrome(chrome: &layout::Chrome, scene: &mut Scene, theme: &Theme, visuals: &Visuals) {
+fn project_chrome(
+    chrome: &layout::Chrome,
+    theme: &Theme,
+    visuals: &Visuals,
+    late_chrome: &mut Vec<viewport_chrome::Projection>,
+) {
     match chrome.kind() {
         layout::ChromeKind::Scrollbar(scrollbar) => {
-            paint_scrollbar(chrome, *scrollbar, scene, theme, visuals);
+            project_scrollbar(chrome, *scrollbar, theme, visuals, late_chrome);
         }
     }
 }
 
-fn paint_scrollbar(
+fn project_scrollbar(
     chrome: &layout::Chrome,
     scrollbar: layout::Scrollbar,
-    scene: &mut Scene,
     theme: &Theme,
     visuals: &Visuals,
+    late_chrome: &mut Vec<viewport_chrome::Projection>,
 ) {
     let theme_scrollbar = theme.scrollbar();
     let visual = visuals.scrollbar(chrome.target());
@@ -453,15 +441,22 @@ fn paint_scrollbar(
     let track = scrollbar.track_with_thickness(thickness);
     let thumb = scrollbar.thumb_with_thickness(thickness);
     let appearance = theme_scrollbar.appearance;
+    let scope = viewport_chrome::Scope::new(
+        chrome
+            .clips()
+            .iter()
+            .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding())),
+    );
+    let mut projection = viewport_chrome::Projection::scrollbar(scope);
 
     if appearance.track.channels().3 > 0 {
-        scene.push_quad(
+        projection.push_quad(
             Quad::new(track, color_with_opacity(appearance.track, visible))
                 .with_rounding(appearance.rounding),
         );
     }
     if appearance.thumb.channels().3 > 0 {
-        scene.push_quad(
+        projection.push_quad(
             Quad::new(thumb, color_with_opacity(appearance.thumb, visible))
                 .with_rounding(appearance.rounding),
         );
@@ -475,9 +470,12 @@ fn paint_scrollbar(
         super::Color::rgba(0, 0, 0, 0)
     };
     if tint.channels().3 > 0 {
-        scene.push_quad(
+        projection.push_quad(
             Quad::new(thumb, color_with_opacity(tint, visible)).with_rounding(appearance.rounding),
         );
+    }
+    if !projection.is_empty() {
+        late_chrome.push(projection);
     }
 }
 
@@ -486,7 +484,7 @@ fn chrome_layer_for(layout: &layout::Layout, chrome: &layout::Chrome) -> Layer {
         .frames()
         .iter()
         .rev()
-        .find(|frame| frame.target() == Some(chrome.scroll_target()))
+        .find(|frame| frame.node_id() == chrome.owner())
         .map(layer_for)
         .unwrap_or(Layer::Base)
 }

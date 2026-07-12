@@ -210,8 +210,8 @@ impl Layout {
                     .frames
                     .iter()
                     .rev()
-                    .find(|frame| frame.target() == Some(chrome.scroll_target()))?;
-                owner.clip_contains(point).then_some((owner, chrome))
+                    .find(|frame| frame.node_id() == chrome.owner())?;
+                Some((owner, chrome))
             })
         {
             return Some(Hit::chrome(owner.clone(), chrome.clone()).with_table_cell(table_cell));

@@ -4329,6 +4329,71 @@ fn deferred_focus_outline_retains_its_generic_scroll_clip() {
 }
 
 #[test]
+fn late_scrollbar_chrome_retains_its_owner_viewport_clip_for_paint_and_hit() {
+    let focus = session::Focus::text("scroll.clipped.area");
+    let source = (0..12)
+        .map(|index| format!("Scrollable line {index}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let view = View::new(
+        view::Node::root().child(
+            view::Node::stack(view::Axis::Vertical)
+                .child(
+                    view::Node::scroll()
+                        .with_interaction_id("scroll.clipped.area.outer")
+                        .with_style(view::Style::new().with_height(view::Dimension::fixed(42)))
+                        .child(
+                            view::Node::text_area_state(
+                                view::TextArea::new(source)
+                                    .with_focus(focus)
+                                    .with_wrap(view::Wrap::None),
+                            )
+                            .with_style(view::Style::new().with_height(view::Dimension::fixed(72))),
+                        ),
+                )
+                .child(view::Node::label("Below viewport")),
+        ),
+    );
+    let mut theme = Theme::dark();
+    theme.scrollbar_mut().metrics.policy = crate::theme::ScrollbarPolicy::GutterAlways;
+    let mut engine = layout::Engine::new();
+    let layout = layout::Layout::compose_with_theme(
+        &view,
+        geometry::Size::new(240, 100),
+        &mut engine,
+        &theme,
+    );
+    let area = layout
+        .find_role(view::Role::TextArea)
+        .into_iter()
+        .next()
+        .expect("nested text area");
+    let clip = area.clip().expect("outer viewport clip").rect();
+    let area_target = area.target().expect("text area scroll target");
+    let chrome = layout
+        .chrome()
+        .iter()
+        .find(|chrome| chrome.scroll_target() == area_target)
+        .expect("text area should project scrollbar chrome");
+    let track = match chrome.kind() {
+        layout::ChromeKind::Scrollbar(scrollbar) => scrollbar.track(),
+    };
+    assert!(
+        track.bottom() > clip.bottom(),
+        "text-area track {track:?} should extend below inherited clip {clip:?}"
+    );
+    let escaped_point = geometry::Point::new(track.x(), clip.bottom() + 1);
+    assert!(track.contains(escaped_point));
+    assert!(
+        !chrome.accepts_hit(escaped_point),
+        "the chrome hit scope must consume the same viewport clip as paint"
+    );
+
+    let scene = scene::Scene::paint_with_theme(&layout, &theme);
+    assert_quad_is_scoped_by_active_clip(&scene, theme.scrollbar().appearance.thumb, track, clip);
+}
+
+#[test]
 fn viewport_content_extent_equals_placed_child_bounds() {
     let padding = view::Padding::edges(5, 7, 3, 11);
     let scroll = view::Node::scroll()
@@ -9680,6 +9745,34 @@ fn assert_outline_is_scoped_by_clip(
 
     assert!(clip_index < outline_index);
     assert!(outline_index < pop_index);
+}
+
+fn assert_quad_is_scoped_by_active_clip(
+    scene: &scene::Scene,
+    fill: scene::Color,
+    bounds: geometry::Rect,
+    clip_rect: geometry::Rect,
+) {
+    let mut clips = Vec::new();
+    for primitive in scene.primitives() {
+        match primitive {
+            scene::Primitive::Clip(clip) => clips.push(clip.rect()),
+            scene::Primitive::PopClip => {
+                clips.pop();
+            }
+            scene::Primitive::Quad(quad)
+                if quad.fill() == fill && rect_contains(bounds, quad.rect()) =>
+            {
+                assert!(
+                    clips.contains(&clip_rect),
+                    "late chrome must repaint under its originating viewport clip"
+                );
+                return;
+            }
+            _ => {}
+        }
+    }
+    panic!("expected clipped late-chrome quad");
 }
 
 fn frame_point_at(rect: geometry::Rect) -> geometry::Point {

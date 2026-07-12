@@ -103,6 +103,25 @@ separate unless their census proves identical semantics.
   track.
 - This is the recorded second caller required by the Five Truths admission gate.
 
+### Outcome
+
+- Viewport chrome is now a named internal late-paint projection with an ordered
+  layer, clip stack, and a bounded primitive set. Scrollbars paint before focus
+  so the existing focus-on-top order remains explicit.
+- Focus outlines and scrollbars are its two admitted tenants. Selection remains
+  inline; table rules and application overlays remain outside after census.
+- Layout scrollbar chrome retains its owner node and a viewport scope composed
+  from inherited and owner-viewport clips. Paint replays that scope, while hit
+  testing consumes it directly; the duplicate owner-frame clip check and
+  repeated target-to-owner searches are deleted.
+- Named regression: a scrollable TextArea extending below an outer viewport
+  proves its thumb paints under the outer clip and its escaped track cannot be
+  hit. Existing fully occluded, rounded popup focus, scrollbar drag, and chrome
+  precedence witnesses remain green. Public API surface is unchanged.
+- Synchronized boundary: formatting and all-target checks pass; 900 library
+  tests pass with 8 intentional ignores; all three external smokes pass; diff
+  hygiene passes; `comparison_open: true` is preserved.
+
 ## Checkpoint 3 — zero capability traits; species by medium
 
 Delete `table::{Value, EditText, Sort, EditToggle}`. Text species use `Display`,
@@ -127,7 +146,7 @@ input are column configuration. `Column::custom` remains the node escape hatch.
 | Boundary | Commit | Files | Insertions | Deletions | Result |
 | --- | --- | ---: | ---: | ---: | --- |
 | Ledger open | `eaab8b53` | 2 | 118 | 3 | Baseline, doctrine, census, and protocol |
-| Checkpoint 1 | this commit | 10 | 704 | 112 | One resolved selectable projection |
-| Checkpoint 2 | pending | pending | pending | pending | Viewport-scoped late chrome |
+| Checkpoint 1 | `0982bf04` | 10 | 704 | 112 | One resolved selectable projection |
+| Checkpoint 2 | this commit | 6 | 277 | 51 | Viewport-scoped late chrome |
 | Checkpoint 3 | pending | pending | pending | pending | Std capability boundary and explicit species |
 | Close | pending | pending | pending | pending | Resistance audit, API review, final boundary, clean tree |

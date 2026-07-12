@@ -1,11 +1,18 @@
-use super::super::{geometry::Rect, interaction, theme};
-use super::{Frame, Viewport};
+use super::super::{composition, geometry::Rect, interaction, theme};
+use super::{Frame, Viewport, frame::Clip};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Chrome {
+    owner: composition::NodeId,
     target: interaction::Target,
     scroll_target: interaction::Target,
+    scope: ViewportScope,
     kind: Kind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ViewportScope {
+    clips: Vec<Clip>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +42,10 @@ pub(crate) fn project(frames: &[Frame], theme: &theme::Theme) -> Vec<Chrome> {
 }
 
 impl Chrome {
+    pub(crate) fn owner(&self) -> composition::NodeId {
+        self.owner
+    }
+
     pub(crate) fn target(&self) -> &interaction::Target {
         &self.target
     }
@@ -47,10 +58,15 @@ impl Chrome {
         &self.kind
     }
 
+    pub(crate) fn clips(&self) -> &[Clip] {
+        &self.scope.clips
+    }
+
     pub(crate) fn accepts_hit(&self, point: super::super::geometry::Point) -> bool {
-        match &self.kind {
-            Kind::Scrollbar(scrollbar) => scrollbar.track.contains(point),
-        }
+        self.scope.contains(point)
+            && match &self.kind {
+                Kind::Scrollbar(scrollbar) => scrollbar.track.contains(point),
+            }
     }
 
     pub(crate) fn scroll_offset_at(
@@ -118,14 +134,17 @@ fn scrollbars_for_frame(frame: &Frame, theme: &theme::Theme) -> Vec<Chrome> {
     if !viewport.is_scrollable() {
         return Vec::new();
     }
+    let scope = ViewportScope::new(frame, viewport);
 
     let mut scrollbars = Vec::new();
     if viewport.max_scroll().y() > 0
         && let Some(scrollbar) = scrollbar_for_axis(viewport, theme, Axis::Vertical)
     {
         scrollbars.push(Chrome {
+            owner: frame.node_id(),
             target: scrollbar_target(frame, Axis::Vertical),
             scroll_target: scroll_target.clone(),
+            scope: scope.clone(),
             kind: Kind::Scrollbar(scrollbar),
         });
     }
@@ -133,13 +152,30 @@ fn scrollbars_for_frame(frame: &Frame, theme: &theme::Theme) -> Vec<Chrome> {
         && let Some(scrollbar) = scrollbar_for_axis(viewport, theme, Axis::Horizontal)
     {
         scrollbars.push(Chrome {
+            owner: frame.node_id(),
             target: scrollbar_target(frame, Axis::Horizontal),
             scroll_target,
+            scope,
             kind: Kind::Scrollbar(scrollbar),
         });
     }
 
     scrollbars
+}
+
+impl ViewportScope {
+    fn new(frame: &Frame, viewport: Viewport) -> Self {
+        let mut clips = frame.clip().into_iter().collect::<Vec<_>>();
+        let viewport = Clip::new(viewport.visible_frame());
+        if !clips.contains(&viewport) {
+            clips.push(viewport);
+        }
+        Self { clips }
+    }
+
+    fn contains(&self, point: super::super::geometry::Point) -> bool {
+        self.clips.iter().all(|clip| clip.contains(point))
+    }
 }
 
 fn scrollbar_target(frame: &Frame, axis: Axis) -> interaction::Target {
