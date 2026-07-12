@@ -91,6 +91,44 @@ campaign follows as the popup-polish arc (item 18 subsumed).
 later fidelity slice; Win10 floor (host backdrop needs 2004+; recommend
 declaring Win11 the floor and recording it).
 
+## Corrections after Codex's audit (2026-07-13, verified before adoption)
+
+Status amended: **foundation promising; investigation open** — not campaign
+ready. The corrections, each verified in the pinned sources before adoption:
+
+- **B-03 refuted: no upstream wgpu work is required.** `wgpu::Surface::as_hal`
+  (wgpu-29.0.3 `api/surface.rs:205`), `SurfaceTargetUnsafe::CompositionVisual`
+  (`:394-400`), and wgpu-hal dx12's public `swap_chain()` accessor
+  (`dx12/mod.rs:633`) compose into a single-HWND tenancy route: hand wgpu an
+  unattached classic visual (it then claims no HWND target), retrieve the
+  swapchain via `as_hal`, wrap it with
+  `ICompositorInterop::CreateCompositionSurfaceForSwapChain`, sprite it above
+  the host-backdrop visual in one WinRT tree, own the sole non-topmost target.
+  Unproven live; **first route to test**. The two-window pair is demoted from
+  recommendation to fallback. Failure mode recorded: the original verdict
+  verified one hop (visual-type mismatch) and declared a fork without checking
+  the swapchain-level bridge — whose OS half this ledger itself had cited.
+- **Windows floor corrected**: `DWMWA_USE_HOSTBACKDROPBRUSH` is officially
+  Windows 11 (build 22000+), not Windows 10 2004. The route has an honest
+  Win11 floor.
+- **B-02 rescoped**: "pre-blurred" is a this-machine, current-settings result,
+  not platform law — Microsoft promises sampling subject to user transparency
+  and power policy. Acrylic-lite remains the fast path; the realization
+  report absorbs the variance, which is what it exists for.
+- **Region identity is a missing concept, not reusable plumbing**: scene
+  `Pane` carries `rect + rounding + material` and **no key**
+  (`scene/primitive.rs:117`); popup-level `interaction::Id` does not extend to
+  panes. The campaign must decide where stable material-region identity
+  originates without promoting ephemeral primitive order into identity.
+- **Linux rescoped**: `ext-background-effect-v1` is staging, subject to
+  incompatible major revision — one promising common protocol with real
+  adoption, capability-probed; not "standardized."
+- **Probe-quality gaps acknowledged** beyond those already listed: no
+  `GetForegroundWindow` instrumentation (B-01's never-foreground conclusion is
+  visually plausible, not instrumentally witnessed), no accent control capture
+  (B-02 uncontrolled), no OS build / GPU / transparency-setting / scale
+  metadata recorded, probe not durably housed.
+
 **Honest coverage gaps vs the ledger spec:** A-01 pane-field census partial;
 A-06 desk-level; B-04 single-scale; B-05 cadence unmeasured; B-06/07/09
 unprobed; B-01 owner-focused-state variant subsumed by the stronger
