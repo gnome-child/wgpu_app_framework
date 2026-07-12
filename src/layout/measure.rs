@@ -86,9 +86,15 @@ pub(in crate::layout) fn intrinsic_height_for_width(
     profile: keymap::Profile,
 ) -> i32 {
     let control_height = theme.control().height;
+    let content_width =
+        if node.participation() == Some(view::Participation::Table(view::TablePart::Cell)) {
+            control::table_content_width(width, theme)
+        } else {
+            width
+        };
     let height = match node.role() {
         view::Role::FloatingPanel => {
-            floating_panel_height_for_width(node, width, engine, theme, profile)
+            floating_panel_height_for_width(node, content_width, engine, theme, profile)
         }
         view::Role::Label | view::Role::Panel
             if node.label_text().is_some() && node.children().is_empty() =>
@@ -101,7 +107,7 @@ pub(in crate::layout) fn intrinsic_height_for_width(
                         engine
                             .label_size_for_width_with_style(
                                 label,
-                                width,
+                                content_width,
                                 theme.typography().body(),
                             )
                             .height()
@@ -127,7 +133,7 @@ pub(in crate::layout) fn intrinsic_height_for_width(
                 .text_area_model()
                 .map(|text_area| {
                     engine
-                        .text_area_size_for_width(text_area, width, theme)
+                        .text_area_size_for_width(text_area, content_width, theme)
                         .height()
                 })
                 .unwrap_or(control_height);
@@ -165,10 +171,10 @@ pub(in crate::layout) fn intrinsic_height_for_width(
                 .max(control_height)
         }
         view::Role::Scroll => {
-            scroll_intrinsic_height_for_width(node, width, engine, theme, profile)
+            scroll_intrinsic_height_for_width(node, content_width, engine, theme, profile)
         }
         view::Role::Panel | view::Role::Root | view::Role::Stack | view::Role::Table => {
-            stack_intrinsic_height_for_width(node, width, engine, theme, profile)
+            stack_intrinsic_height_for_width(node, content_width, engine, theme, profile)
         }
         _ => intrinsic_height(node, theme),
     };

@@ -72,6 +72,24 @@ padded content rectangle. At four scales, approved overflow output fits the
 paint rectangle and Compact never combines ellipsis with an unapproved hard
 cut.
 
+Closed. `table_content_rect` remains the body-cell geometry owner and now
+delegates its width to one `table_content_width` calculation. World-text
+overflow approval, wrapped intrinsic measurement, inactive TextArea shaping,
+pointer/drag mapping, selection and caret clipping, and visible table paint all
+consume that padded rectangle. The TextArea frame retains the rectangle beside
+its shaped layout so late interaction cannot reconstruct it differently.
+
+Witnesses pin EllipsisEnd and EllipsisMiddle output inside the exact painted
+rectangle at logical scales 1.0, 1.25, 1.5, and 2.0; selection quads are bounded
+by the same rectangle; and expanded row measurement responds monotonically to
+the padded resolved track width. `Clip` remains honest residual clipping rather
+than pretending the source fits. No public API or second table width solver was
+introduced.
+
+Boundary: 901 discovered; 893 passed, 8 deliberately ignored, 0 failed.
+Formatting, all-target compilation, all three smokes, diff hygiene, and the
+protected comparison flag were green. This commit remains local.
+
 ### Fix 3 — one inactive display recipe
 
 Ordinary and editable values share inactive typography, alignment, placement,
@@ -119,7 +137,7 @@ override against minimum resolved-width materialization before choosing state.
 | --- | --- | ---: | ---: | ---: | --- |
 | Ledger open | this commit | 2 | 112 | 3 | Field report, doctrine, reductions, and protocol |
 | Fix 1 | this commit | 3 | 81 | 1 | Table-cell input remains local; programmatic missing targets remain errors |
-| Fix 2 | pending | pending | pending | pending | One approved text width |
+| Fix 2 | this commit | 7 | 133 | 23 | One padded body-text rectangle across measure, paint, and interaction |
 | Fix 3 | pending | pending | pending | pending | One inactive display recipe |
 | Fix 4 | pending | pending | pending | pending | Constant single-line headers |
 | Fix 5 | pending | pending | pending | pending | Held-boundary direct manipulation |

@@ -131,9 +131,13 @@ pub(crate) fn table_content_rect(rect: Rect, theme: &theme::Theme) -> Rect {
     Rect::new(
         rect.x().saturating_add(padding),
         rect.y(),
-        rect.width().saturating_sub(padding.saturating_mul(2)),
+        table_content_width(rect.width(), theme),
         rect.height(),
     )
+}
+
+pub(crate) fn table_content_width(width: i32, theme: &theme::Theme) -> i32 {
+    width.saturating_sub(theme.table().cell_padding.max(0).saturating_mul(2))
 }
 
 fn table_header_parts(

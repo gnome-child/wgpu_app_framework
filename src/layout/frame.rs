@@ -81,6 +81,7 @@ enum TextContent {
     Area {
         model: view::TextArea,
         layout: text::Area,
+        text_rect: Rect,
         world_overflow: Option<text_model::Overflow>,
         world_wrap: Option<view::Wrap>,
     },
@@ -171,8 +172,9 @@ impl Frame {
         let binding = node.binding().cloned();
         let text_area = node.text_area_model();
         let now = animation_frame.now();
-        let text_area_layout =
-            text_area.map(|text_area| engine.text_area_layout(text_area, rect, theme, now));
+        let text_area_text_rect = table_cell_text_rect_for(node, rect, theme);
+        let text_area_layout = text_area
+            .map(|text_area| engine.text_area_layout(text_area, text_area_text_rect, theme, now));
         let text_box = node.text_box_model().cloned();
         let text_box_text_rect = text_box_text_rect_for(node, rect, theme);
         let text_box_layout = text_box
@@ -181,9 +183,10 @@ impl Frame {
         let label_style = typography::label_style(node, theme);
         let world_text_overflow = node.world_text_overflow();
         let world_text_wrap = node.world_text_wrap();
+        let world_text_rect = table_cell_text_rect_for(node, rect, theme);
         let label = label_for(node).map(|label| match world_text_overflow {
             Some(overflow) => {
-                engine.resolve_label_overflow(label, rect.width(), label_style, overflow)
+                engine.resolve_label_overflow(label, world_text_rect.width(), label_style, overflow)
             }
             None => label.to_owned(),
         });
@@ -247,6 +250,7 @@ impl Frame {
         let content = FrameContent::for_node(
             node,
             text_area_layout,
+            text_area_text_rect,
             text_box_layout,
             text_box_text_rect,
             world_text_overflow,
@@ -580,6 +584,13 @@ impl Frame {
         }
     }
 
+    pub(crate) fn text_area_text_rect(&self) -> Rect {
+        match &self.content {
+            FrameContent::Text(TextContent::Area { text_rect, .. }) => *text_rect,
+            _ => self.rect,
+        }
+    }
+
     pub(crate) fn text_box_layout(&self) -> Option<&text::Field> {
         match &self.content {
             FrameContent::Text(TextContent::Field { layout, .. }) => Some(layout),
@@ -601,7 +612,7 @@ impl Frame {
 
         if let Some(text_area) = self.text_area_layout() {
             let caret = text_area.layout().caret()?;
-            return clipped_caret_rect(self.rect(), caret);
+            return clipped_caret_rect(self.text_area_text_rect(), caret);
         }
 
         let field = self.text_box_layout()?;
@@ -671,7 +682,12 @@ impl Frame {
         if self.role() == view::Role::TextArea {
             let text_area = self.text_area()?;
             let layout = self.text_area_layout()?;
-            let position = engine.text_area_position_at(text_area, layout, self.rect, point)?;
+            let position = engine.text_area_position_at(
+                text_area,
+                layout,
+                self.text_area_text_rect(),
+                point,
+            )?;
 
             return text_area.click_action(position);
         }
@@ -697,7 +713,12 @@ impl Frame {
         if self.role() == view::Role::TextArea {
             let text_area = self.text_area()?;
             let layout = self.text_area_layout()?;
-            let position = engine.text_area_position_at(text_area, layout, self.rect, point)?;
+            let position = engine.text_area_position_at(
+                text_area,
+                layout,
+                self.text_area_text_rect(),
+                point,
+            )?;
             return text_area.pointer_action(kind, position);
         }
         if self.role() == view::Role::TextBox {
@@ -722,7 +743,12 @@ impl Frame {
         if self.role() == view::Role::TextArea {
             let text_area = self.text_area()?;
             let layout = self.text_area_layout()?;
-            let position = engine.text_area_position_at(text_area, layout, self.rect, point)?;
+            let position = engine.text_area_position_at(
+                text_area,
+                layout,
+                self.text_area_text_rect(),
+                point,
+            )?;
 
             return Some(text_area.drag_action(position));
         }
@@ -754,6 +780,7 @@ impl FrameContent {
     fn for_node(
         node: &view::Node,
         text_area_layout: Option<text::Area>,
+        text_area_text_rect: Rect,
         text_box_layout: Option<text::Field>,
         text_box_text_rect: Rect,
         world_text_overflow: Option<text_model::Overflow>,
@@ -776,6 +803,7 @@ impl FrameContent {
                     .cloned()
                     .expect("TextArea role must carry TextArea content"),
                 layout: text_area_layout.expect("TextArea frame must carry layout content"),
+                text_rect: text_area_text_rect,
                 world_overflow: world_text_overflow,
                 world_wrap: world_text_wrap,
             }),
@@ -893,6 +921,14 @@ fn text_box_text_rect_for(node: &view::Node, rect: Rect, theme: &Theme) -> Rect 
         rect.width().saturating_sub(padding_x.saturating_mul(2)),
         rect.height(),
     )
+}
+
+fn table_cell_text_rect_for(node: &view::Node, rect: Rect, theme: &Theme) -> Rect {
+    if node.participation() == Some(view::Participation::Table(view::TablePart::Cell)) {
+        control::table_content_rect(rect, theme)
+    } else {
+        rect
+    }
 }
 
 fn clipped_caret_rect(rect: Rect, caret: crate::text::layout::Caret) -> Option<Rect> {

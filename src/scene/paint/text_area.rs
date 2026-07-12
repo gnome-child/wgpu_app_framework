@@ -11,7 +11,7 @@ pub(super) fn paint(
     visuals: &Visuals,
     paint_text: bool,
 ) {
-    let rect = frame.rect();
+    let rect = frame.text_area_text_rect();
     for span in text_area.layout().selection_spans() {
         if let Some(span) =
             text_surface::clipped_span_rect(rect, span.x(), span.y(), span.width(), span.height())

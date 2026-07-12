@@ -28,6 +28,15 @@ impl Engine {
         self.text.label_width_with_style(label, style)
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_label_width_with_style(
+        &self,
+        label: &str,
+        style: super::super::theme::TypeStyle,
+    ) -> i32 {
+        self.label_width_with_style(label, style)
+    }
+
     pub(super) fn label_size_for_width_with_style(
         &self,
         label: &str,

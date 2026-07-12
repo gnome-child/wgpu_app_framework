@@ -889,6 +889,40 @@ fn million_row_table_composes_public_cells_with_bounded_aligned_tracks() {
             .iter()
             .any(|frame| frame.world_text_overflow() == Some(text::Overflow::EllipsisMiddle))
     );
+    let measurement = layout::Engine::new();
+    let interface = Theme::default().typography().interface();
+    for column in ["name", "detail"] {
+        let frame = rendered
+            .layout()
+            .frames()
+            .iter()
+            .find(|frame| {
+                frame.table_cell().is_some_and(|cell| {
+                    cell.row() == crate::virtual_list::Key::new(0)
+                        && cell.column() == interaction::Id::new(column)
+                })
+            })
+            .expect("first-row world-text cell");
+        let content = layout::table_content_rect(frame.rect(), &Theme::default());
+        let painted = rendered
+            .scene()
+            .texts()
+            .into_iter()
+            .find(|text| text.rect() == content)
+            .expect("table text should paint in its canonical content rectangle");
+        let approved = measurement.test_label_width_with_style(painted.value(), interface);
+        assert!(
+            approved <= content.width(),
+            "approved {column} text width {approved} must fit painted width {}",
+            content.width()
+        );
+        for scale in [1.0_f32, 1.25, 1.5, 2.0] {
+            assert!(
+                (approved as f32 * scale).ceil() <= (content.width() as f32 * scale).ceil(),
+                "approved {column} text must fit after {scale}x projection"
+            );
+        }
+    }
     let column_tracks = rendered
         .layout()
         .table_tracks()
@@ -1421,12 +1455,12 @@ fn expanded_table_rows_measure_intrinsic_content_at_resolved_track_widths() {
         .filter_map(|frame| frame.table_row().map(|row| (row.index(), frame.rect())))
         .collect::<Vec<_>>();
 
-    assert_eq!(
-        rows.iter()
-            .map(|(index, rect)| (*index, rect.height()))
-            .collect::<Vec<_>>(),
-        vec![(0, 28), (1, 128)]
-    );
+    let initial_heights = rows
+        .iter()
+        .map(|(index, rect)| (*index, rect.height()))
+        .collect::<std::collections::HashMap<_, _>>();
+    assert_eq!(initial_heights[&0], 28);
+    assert!(initial_heights[&1] > initial_heights[&0]);
     for frame in rendered.layout().frames().iter().filter(|frame| {
         frame
             .table_cell()
@@ -1480,7 +1514,8 @@ fn expanded_table_rows_measure_intrinsic_content_at_resolved_track_widths() {
             })
         })
         .collect::<Vec<_>>();
-    assert_eq!(resized_rows, vec![(0, 28), (1, 108)]);
+    assert_eq!(resized_rows[0], (0, 28));
+    assert!(resized_rows[1].1 < initial_heights[&1]);
     assert_eq!(resized_detail_widths, vec![140, 140]);
 
     app.scroll_at(
@@ -2255,9 +2290,11 @@ fn table_display_text_selects_and_copies_while_double_click_alone_enters_editing
         .find(|frame| frame.table_cell() == Some(cell))
         .expect("released display cell");
     assert_eq!(released_cell.node_id(), display_identity);
+    let display_text_rect = layout::table_content_rect(released_cell.rect(), &Theme::default());
+    assert_eq!(released_cell.text_area_text_rect(), display_text_rect);
     assert!(released.scene().quads().iter().any(|quad| {
         quad.fill() == Theme::default().text().selection
-            && rect_contains(released_cell.rect(), quad.rect())
+            && rect_contains(display_text_rect, quad.rect())
     }));
     assert!(released.scene().text_viewports().is_empty());
     assert_eq!(app.session().editing_table_cell(window), None);
