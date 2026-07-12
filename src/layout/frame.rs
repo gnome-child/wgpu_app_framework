@@ -81,6 +81,8 @@ enum TextContent {
     SectionHeader,
     Area {
         model: view::TextArea,
+        display_model: view::TextArea,
+        projection: Option<text::Selectable>,
         layout: text::Area,
         text_rect: Rect,
         world_overflow: Option<text_model::Overflow>,
@@ -179,11 +181,10 @@ impl Frame {
         } = input;
         let target = target_for(node, node_id);
         let binding = node.binding().cloned();
-        let text_area = node.text_area_model();
+        let text_area = node.text_area_model().cloned();
         let now = animation_frame.now();
-        let text_area_text_rect = table_cell_text_rect_for(node, rect, text_area, engine, theme);
-        let text_area_layout = text_area
-            .map(|text_area| engine.text_area_layout(text_area, text_area_text_rect, theme, now));
+        let text_area_text_rect =
+            table_cell_text_rect_for(node, rect, text_area.as_ref(), engine, theme);
         let text_box = node.text_box_model().cloned();
         let text_box_text_rect = text_box_text_rect_for(node, rect, theme);
         let text_box_layout = text_box
@@ -207,12 +208,46 @@ impl Frame {
             ),
             _ => rect,
         };
-        let label = label_for(node).map(|label| match world_text_overflow {
-            Some(overflow) => {
-                engine.resolve_label_overflow(label, world_text_rect.width(), label_style, overflow)
-            }
-            None => label.to_owned(),
+        let text_area_projection = text_area.as_ref().and_then(|text_area| {
+            world_text_overflow.map(|overflow| {
+                engine.resolve_selectable_text(
+                    &text_area.buffer().text(),
+                    text_area_text_rect.width(),
+                    label_style,
+                    overflow,
+                )
+            })
         });
+        let text_area_display = text_area.as_ref().map(|text_area| {
+            let Some(projection) = text_area_projection.as_ref() else {
+                return text_area.clone();
+            };
+            let (buffer, state) =
+                projection.project_buffer_state(text_area.buffer(), text_area.state());
+            text_area.clone().with_resolved_presentation(buffer, state)
+        });
+        let text_area_color =
+            if node.participation() == Some(view::Participation::Table(view::TablePart::Cell)) {
+                theme.text().primary
+            } else {
+                theme.text_input().foreground
+            };
+        let text_area_layout = text_area_display.as_ref().map(|text_area| {
+            engine.text_area_layout(text_area, text_area_text_rect, theme, text_area_color, now)
+        });
+        let label = if let Some(projection) = text_area_projection.as_ref() {
+            Some(projection.visible().to_owned())
+        } else {
+            label_for(node).map(|label| match world_text_overflow {
+                Some(overflow) => engine.resolve_label_overflow(
+                    label,
+                    world_text_rect.width(),
+                    label_style,
+                    overflow,
+                ),
+                None => label.to_owned(),
+            })
+        };
         let label_width = label
             .as_deref()
             .map(|label| {
@@ -272,6 +307,9 @@ impl Frame {
         let active_rect = active_rect_for(node, rect, slider.as_ref(), label_width, theme);
         let content = FrameContent::for_node(
             node,
+            text_area,
+            text_area_display,
+            text_area_projection,
             text_area_layout,
             text_area_text_rect,
             text_box_layout,
@@ -613,6 +651,26 @@ impl Frame {
         }
     }
 
+    fn text_area_display(&self) -> Option<&view::TextArea> {
+        match &self.content {
+            FrameContent::Text(TextContent::Area { display_model, .. }) => Some(display_model),
+            _ => None,
+        }
+    }
+
+    fn text_area_source_position(
+        &self,
+        position: text_model::buffer::Position,
+    ) -> text_model::buffer::Position {
+        match &self.content {
+            FrameContent::Text(TextContent::Area {
+                projection: Some(projection),
+                ..
+            }) => projection.source_position(position),
+            _ => position,
+        }
+    }
+
     pub(crate) fn text_area_layout(&self) -> Option<&text::Area> {
         match &self.content {
             FrameContent::Text(TextContent::Area { layout, .. }) => Some(layout),
@@ -717,15 +775,12 @@ impl Frame {
     ) -> Option<view::Action> {
         if self.role() == view::Role::TextArea {
             let text_area = self.text_area()?;
+            let display = self.text_area_display()?;
             let layout = self.text_area_layout()?;
-            let position = engine.text_area_position_at(
-                text_area,
-                layout,
-                self.text_area_text_rect(),
-                point,
-            )?;
+            let position =
+                engine.text_area_position_at(display, layout, self.text_area_text_rect(), point)?;
 
-            return text_area.click_action(position);
+            return text_area.click_action(self.text_area_source_position(position));
         }
 
         if self.role() == view::Role::TextBox {
@@ -748,14 +803,11 @@ impl Frame {
     ) -> Option<view::Action> {
         if self.role() == view::Role::TextArea {
             let text_area = self.text_area()?;
+            let display = self.text_area_display()?;
             let layout = self.text_area_layout()?;
-            let position = engine.text_area_position_at(
-                text_area,
-                layout,
-                self.text_area_text_rect(),
-                point,
-            )?;
-            return text_area.pointer_action(kind, position);
+            let position =
+                engine.text_area_position_at(display, layout, self.text_area_text_rect(), point)?;
+            return text_area.pointer_action(kind, self.text_area_source_position(position));
         }
         if self.role() == view::Role::TextBox {
             let text_box = self.text_box()?;
@@ -778,15 +830,12 @@ impl Frame {
     ) -> Option<view::Action> {
         if self.role() == view::Role::TextArea {
             let text_area = self.text_area()?;
+            let display = self.text_area_display()?;
             let layout = self.text_area_layout()?;
-            let position = engine.text_area_position_at(
-                text_area,
-                layout,
-                self.text_area_text_rect(),
-                point,
-            )?;
+            let position =
+                engine.text_area_position_at(display, layout, self.text_area_text_rect(), point)?;
 
-            return Some(text_area.drag_action(position));
+            return Some(text_area.drag_action(self.text_area_source_position(position)));
         }
 
         if self.role() == view::Role::TextBox {
@@ -815,6 +864,9 @@ impl Frame {
 impl FrameContent {
     fn for_node(
         node: &view::Node,
+        text_area: Option<view::TextArea>,
+        text_area_display: Option<view::TextArea>,
+        text_area_projection: Option<text::Selectable>,
         text_area_layout: Option<text::Area>,
         text_area_text_rect: Rect,
         text_box_layout: Option<text::Field>,
@@ -835,10 +887,10 @@ impl FrameContent {
                 shortcut_width: None,
             }),
             view::Role::TextArea => Self::Text(TextContent::Area {
-                model: node
-                    .text_area_model()
-                    .cloned()
-                    .expect("TextArea role must carry TextArea content"),
+                model: text_area.expect("TextArea role must carry TextArea content"),
+                display_model: text_area_display
+                    .expect("TextArea frame must carry a display model"),
+                projection: text_area_projection,
                 layout: text_area_layout.expect("TextArea frame must carry layout content"),
                 text_rect: text_area_text_rect,
                 world_overflow: world_text_overflow,

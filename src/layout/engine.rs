@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crate::text as text_engine;
 
-use super::super::{diagnostics, geometry, theme, view};
+use super::super::{diagnostics, geometry, scene, theme, view};
 use super::text;
 
 pub(crate) struct Engine {
@@ -57,6 +57,16 @@ impl Engine {
         self.text.resolve_overflow(label, width, style, overflow)
     }
 
+    pub(super) fn resolve_selectable_text(
+        &self,
+        source: &str,
+        width: i32,
+        style: super::super::theme::TypeStyle,
+        overflow: text_engine::Overflow,
+    ) -> text::Selectable {
+        self.text.resolve_selectable(source, width, style, overflow)
+    }
+
     pub(super) fn diagnose_author_text_overflow(
         &self,
         label: &str,
@@ -82,9 +92,11 @@ impl Engine {
         text_area: &view::TextArea,
         rect: geometry::Rect,
         theme: &theme::Theme,
+        color: scene::Color,
         now: Instant,
     ) -> text::Area {
-        self.text.text_area_layout(text_area, rect, theme, now)
+        self.text
+            .text_area_layout(text_area, rect, theme, color, now)
     }
 
     pub(super) fn text_area_position_at(

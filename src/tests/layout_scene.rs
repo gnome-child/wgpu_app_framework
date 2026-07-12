@@ -2481,7 +2481,13 @@ fn table_display_text_selects_and_copies_while_double_click_alone_enters_editing
         quad.fill() == Theme::default().text().selection
             && rect_contains(selection_text_rect, quad.rect())
     }));
-    assert!(released.scene().text_viewports().is_empty());
+    assert!(
+        released
+            .scene()
+            .text_viewports()
+            .iter()
+            .any(|viewport| viewport.rect() == selection_text_rect)
+    );
     assert_eq!(app.session().editing_table_cell(window), None);
     let selected = text_draft(&app, window, focus)
         .selected_text()
@@ -2551,6 +2557,211 @@ fn table_display_text_selects_and_copies_while_double_click_alone_enters_editing
     );
     assert!(!editing.scene().text_viewports().is_empty());
     assert!(text_draft(&app, window, focus).selected_text().is_some());
+}
+
+#[test]
+fn inactive_table_text_draft_retains_storage_without_repainting_selection() {
+    let mut app = editable_table_app(EditableTableState {
+        records: vec![
+            EditableRecord {
+                key: 7,
+                name: "Ada Lovelace".to_owned(),
+                count: 4,
+            },
+            EditableRecord {
+                key: 8,
+                name: "Grace Hopper".to_owned(),
+                count: 5,
+            },
+        ],
+    });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 148);
+    let first = crate::table::Cell::new(
+        interaction::Id::new("editable.table"),
+        crate::virtual_list::Key::new(7),
+        interaction::Id::new("name"),
+    );
+    let second = crate::table::Cell::new(
+        interaction::Id::new("editable.table"),
+        crate::virtual_list::Key::new(8),
+        interaction::Id::new("name"),
+    );
+    let initial = app
+        .render_scene(window, size)
+        .expect("two display rows should render");
+    let first_rect = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(first))
+        .expect("first name cell")
+        .rect();
+    let second_rect = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(second))
+        .expect("second name cell")
+        .rect();
+    drop(initial);
+
+    let first_start = geometry::Point::new(first_rect.x() + 8, first_rect.y() + 12);
+    let first_end = geometry::Point::new(first_rect.x() + 58, first_start.y());
+    app.pointer_down_at(window, size, first_start)
+        .expect("first display cell should begin selection");
+    app.pointer_drag_at(window, size, first_end)
+        .expect("first display cell should extend selection");
+    app.pointer_up_at(window, size, first_end)
+        .expect("first display cell should retain its draft");
+    let selected = app
+        .render_scene(window, size)
+        .expect("active selection should render");
+    assert!(
+        selected
+            .layout()
+            .frames()
+            .iter()
+            .find(|frame| frame.table_cell() == Some(first))
+            .and_then(layout::Frame::text_area_layout)
+            .is_some_and(|area| !area.layout().selection_spans().is_empty())
+    );
+    drop(selected);
+
+    let second_point = frame_point_at(second_rect);
+    app.pointer_down_at(window, size, second_point)
+        .expect("second display cell should become the active text target");
+    app.pointer_up_at(window, size, second_point)
+        .expect("second display cell should release");
+    let second_target = interaction::Target::text_area(session::Focus::table_cell(second));
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.text_input().target()),
+        Some(&second_target)
+    );
+    let inactive = app
+        .render_scene(window, size)
+        .expect("inactive retained selection should reproject");
+    let first_layout = inactive
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(first))
+        .and_then(layout::Frame::text_area_layout)
+        .expect("first cell retains selectable layout");
+    assert!(
+        first_layout.layout().selection_spans().is_empty(),
+        "an inactive retained draft owns storage, not selection paint"
+    );
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.text_input().draft_for(
+                &interaction::Target::text_area(session::Focus::table_cell(first))
+            ))
+            .and_then(crate::draft::State::selected_text)
+            .is_some(),
+        "leaving presentation does not discard the useful source selection"
+    );
+}
+
+#[test]
+fn ellipsized_table_selection_paints_visible_glyphs_and_copies_source_ranges() {
+    const SOURCE: &str =
+        "HEAD application-owned value with deliberately omitted content TAIL_SENTINEL";
+    let clipboard = crate::clipboard::Clipboard::default();
+    let mut app = editable_table_app(EditableTableState {
+        records: vec![EditableRecord {
+            key: 7,
+            name: SOURCE.to_owned(),
+            count: 4,
+        }],
+    })
+    .with_clipboard(clipboard.clone());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 124);
+    let cell = crate::table::Cell::new(
+        interaction::Id::new("editable.table"),
+        crate::virtual_list::Key::new(7),
+        interaction::Id::new("name"),
+    );
+    let initial = app
+        .render_scene(window, size)
+        .expect("ellipsized display cell should render");
+    let frame = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("ellipsized name cell");
+    assert!(frame.label_text().is_some_and(|text| text.ends_with('…')));
+    let text_rect = frame.text_area_text_rect();
+    drop(initial);
+
+    let start = geometry::Point::new(text_rect.x(), text_rect.y() + text_rect.height() / 2);
+    let end = geometry::Point::new(text_rect.right() - 1, start.y());
+    app.pointer_down_at(window, size, start)
+        .expect("visible source head should begin selection");
+    app.pointer_drag_at(window, size, end)
+        .expect("dragging across ellipsis should select the omitted source tail");
+    app.pointer_up_at(window, size, end)
+        .expect("ellipsized selection should release");
+
+    let focus = session::Focus::table_cell(cell);
+    let selected = text_draft(&app, window, focus)
+        .selected_text()
+        .expect("ellipsized display owns a source selection");
+    assert!(selected.ends_with("TAIL_SENTINEL"));
+    app.handle_input(window, Input::shortcut("Ctrl+C"))
+        .expect("copy should consume the mapped source range");
+    assert_eq!(
+        clipboard.text().expect("clipboard available"),
+        Some(selected)
+    );
+
+    let rendered = app
+        .render_scene(window, size)
+        .expect("ellipsized selection should share its shaped viewport");
+    let frame = rendered
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("selected ellipsized cell");
+    let selectable = frame
+        .text_area_layout()
+        .expect("one selectable projection owns text layout");
+    assert!(!selectable.layout().selection_spans().is_empty());
+    assert!(!selectable.render_surfaces().is_empty());
+    assert!(
+        rendered
+            .scene()
+            .text_viewports()
+            .iter()
+            .any(|viewport| viewport.rect() == frame.text_area_text_rect())
+    );
+}
+
+#[test]
+fn compact_ellipsized_table_cells_project_no_hidden_text_scrollbars() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let rendered = app
+        .render_scene(window, geometry::Size::new(760, 700))
+        .expect("compact gallery table should render");
+
+    assert!(
+        rendered
+            .layout()
+            .chrome()
+            .iter()
+            .all(|chrome| chrome.scroll_target().table_cell().is_none()),
+        "ellipsized display text has visible extent, not a hidden scroll extent"
+    );
 }
 
 #[test]
@@ -7406,10 +7617,10 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
         .expect("gallery record table should render");
     assert!(
         initial
-            .scene()
-            .texts()
+            .layout()
+            .frames()
             .iter()
-            .any(|text| text.value() == "Record 0")
+            .any(|frame| frame.table_cell().is_some() && frame.label_text() == Some("Record 0"))
     );
     let sort_text = initial
         .scene()
@@ -7512,11 +7723,9 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
                 .contains(frame_point_at(icon.rect()))
     }));
     assert!(
-        sorted
-            .scene()
-            .texts()
-            .iter()
-            .any(|text| text.value() == "Record 999999")
+        sorted.layout().frames().iter().any(
+            |frame| frame.table_cell().is_some() && frame.label_text() == Some("Record 999999")
+        )
     );
 }
 
@@ -7667,10 +7876,11 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
             .filter(|frame| frame.table_row().is_some())
             .all(|frame| frame.rect().height() == 24)
     );
-    assert!(compact.scene().texts().iter().any(|value| {
-        value.value().contains('…')
-            && value.overflow() == text::Overflow::EllipsisMiddle
-            && value.wrap() == scene::TextWrap::None
+    assert!(compact.layout().frames().iter().any(|frame| {
+        frame.table_cell().is_some()
+            && frame.label_text().is_some_and(|value| value.contains('…'))
+            && frame.world_text_overflow() == Some(text::Overflow::EllipsisMiddle)
+            && frame.world_text_wrap() == Some(view::Wrap::None)
     }));
     let compact_note = compact
         .layout()
@@ -7722,11 +7932,14 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         compact_count.text_area_text_rect().right(),
         layout::table_content_rect(compact_count.rect(), &Theme::default()).right()
     );
-    assert!(compact.scene().texts().iter().any(|value| {
-        value.value() == "0"
-            && value.align() == scene::TextAlign::End
-            && value.rect() == layout::table_content_rect(compact_count.rect(), &Theme::default())
-    }));
+    assert_eq!(compact_count.label_text(), Some("0"));
+    assert!(
+        !compact_count
+            .text_area_layout()
+            .expect("count uses resolved selectable shaping")
+            .render_surfaces()
+            .is_empty()
+    );
     let toggle = compact
         .layout()
         .frames()
@@ -7811,17 +8024,21 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         expanded_count.text_area_text_rect().right(),
         layout::table_content_rect(expanded_count.rect(), &Theme::default()).right()
     );
-    assert!(expanded.scene().texts().iter().any(|value| {
-        value.value() == "0"
-            && value.align() == scene::TextAlign::End
-            && value.rect() == layout::table_content_rect(expanded_count.rect(), &Theme::default())
-    }));
-    assert!(expanded.scene().texts().iter().any(|value| {
-        value
-            .value()
-            .starts_with("Application-owned detail for record 0")
-            && value.wrap() == scene::TextWrap::WordOrGlyph
-            && value.overflow() == text::Overflow::Clip
+    assert_eq!(expanded_count.label_text(), Some("0"));
+    assert!(
+        !expanded_count
+            .text_area_layout()
+            .expect("expanded count uses the same selectable shaping")
+            .render_surfaces()
+            .is_empty()
+    );
+    assert!(expanded.layout().frames().iter().any(|frame| {
+        frame.table_cell().is_some()
+            && frame
+                .label_text()
+                .is_some_and(|value| value.starts_with("Application-owned detail for record 0"))
+            && frame.world_text_wrap() == Some(view::Wrap::Word)
+            && frame.world_text_overflow() == Some(text::Overflow::Clip)
     }));
     assert!(
         expanded

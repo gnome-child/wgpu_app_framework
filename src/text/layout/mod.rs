@@ -55,6 +55,7 @@ use measure_cache::MeasureCache;
 pub use output::{
     Measure, Metrics, TextAreaPaintLayout, TextAreaSurface, TextFieldLayout, TextFieldPaintLayout,
 };
+pub(crate) use overflow::OverflowProjection;
 #[cfg(test)]
 pub(super) use system::align as glyphon_align;
 #[cfg(test)]

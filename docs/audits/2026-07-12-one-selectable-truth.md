@@ -67,6 +67,26 @@ selection, scroll, preedit, or caret epoch; inactive draft storage may remain.
 - Overflow currently returns only a String. The selectable projection needs
   omission/source mapping rather than another agreement-by-rectangle bridge.
 
+### Outcome
+
+- Overflow now resolves a retained source/visible projection at grapheme
+  boundaries. It maps pointer positions and source selections in both
+  directions, while clipboard commands continue to consume source ranges.
+- Selectable table cells shape and paint the projected TextArea buffer once;
+  the parallel inline-label paint path is deleted. Glyphs, selection, hits,
+  visible extent, and viewport chrome therefore consume one layout.
+- Compact ellipsis produces no hidden text scroll extent or scrollbar.
+  Expanded wrapping preserves the source and its measured row behavior.
+- Table draft presentation is gated by the active text target. Moving to a
+  second cell clears the first cell's selection/scroll/caret projection while
+  retaining its useful draft storage.
+- Named witnesses cover stale retained selection paint, phantom cell
+  scrollbars, end/middle omission mapping, and dragging across an ellipsis to
+  copy an omitted source tail. Public API surface is unchanged.
+- Synchronized boundary: formatting and all-target checks pass; 899 library
+  tests pass with 8 intentional ignores; all three external smokes pass; diff
+  hygiene passes; `comparison_open: true` is preserved.
+
 ## Checkpoint 2 — viewport-scoped late chrome
 
 Generalize only the two proven late-paint tenants: focus outlines and
@@ -106,8 +126,8 @@ input are column configuration. `Column::custom` remains the node escape hatch.
 
 | Boundary | Commit | Files | Insertions | Deletions | Result |
 | --- | --- | ---: | ---: | ---: | --- |
-| Ledger open | this commit | 2 | 118 | 3 | Baseline, doctrine, census, and protocol |
-| Checkpoint 1 | pending | pending | pending | pending | One resolved selectable projection |
+| Ledger open | `eaab8b53` | 2 | 118 | 3 | Baseline, doctrine, census, and protocol |
+| Checkpoint 1 | this commit | 10 | 704 | 112 | One resolved selectable projection |
 | Checkpoint 2 | pending | pending | pending | pending | Viewport-scoped late chrome |
 | Checkpoint 3 | pending | pending | pending | pending | Std capability boundary and explicit species |
 | Close | pending | pending | pending | pending | Resistance audit, API review, final boundary, clean tree |

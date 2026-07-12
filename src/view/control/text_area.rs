@@ -63,6 +63,20 @@ impl TextArea {
         self.with_mode(text::edit::FieldMode::ReadOnly)
     }
 
+    pub(crate) fn with_resolved_presentation(
+        mut self,
+        buffer: text::Buffer,
+        state: text::edit::State,
+    ) -> Self {
+        self.buffer = buffer;
+        self.state = state;
+        self.scroll = interaction::ScrollOffset::default();
+        self.reveal = false;
+        self.preedit = None;
+        self.caret_epoch = None;
+        self
+    }
+
     pub(crate) fn mode(&self) -> text::edit::FieldMode {
         self.mode
     }
@@ -160,13 +174,25 @@ impl TextArea {
             return;
         };
 
-        self.scroll = interaction.scroll().offset(target);
-        self.reveal = interaction.scroll().should_reveal(target);
-        self.preedit = interaction.text_input().preedit_for(target).cloned();
-        self.caret_epoch = interaction.text_input().caret_epoch_for(target);
-        if target.table_cell().is_some()
-            && let Some(draft) = interaction.text_input().draft_for(target)
-        {
+        let active_table_target = target.table_cell().is_some()
+            && interaction
+                .text_input()
+                .target()
+                .is_some_and(|active| active == target);
+        let projects_session = target.table_cell().is_none() || active_table_target;
+        self.scroll = if !projects_session {
+            interaction::ScrollOffset::default()
+        } else {
+            interaction.scroll().offset(target)
+        };
+        self.reveal = projects_session && interaction.scroll().should_reveal(target);
+        self.preedit = projects_session
+            .then(|| interaction.text_input().preedit_for(target).cloned())
+            .flatten();
+        self.caret_epoch = projects_session
+            .then(|| interaction.text_input().caret_epoch_for(target))
+            .flatten();
+        if active_table_target && let Some(draft) = interaction.text_input().draft_for(target) {
             if draft.text() != self.buffer.text() {
                 self.buffer = text::Buffer::from_multiline_text(draft.text());
             }
@@ -185,6 +211,8 @@ impl TextArea {
                 })
             });
             self.state = text::edit::State::new(cursor, selection);
+        } else if target.table_cell().is_some() {
+            self.state = self.buffer.initial_state();
         }
     }
 

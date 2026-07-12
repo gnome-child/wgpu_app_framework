@@ -285,14 +285,7 @@ fn paint_frame(
         }
         view::Role::TextArea => {
             if let Some(text_area) = frame.text_area_layout() {
-                text_area::paint(
-                    frame,
-                    text_area,
-                    scene,
-                    theme,
-                    visuals,
-                    frame.world_text_wrap().is_none(),
-                );
+                text_area::paint(frame, text_area, scene, theme, visuals);
             }
         }
         view::Role::TextBox => {
@@ -311,6 +304,9 @@ fn paint_frame(
     } else if frame.role() == view::Role::TextBox && text_box::paint_text(frame, scene) {
         // TextBox contents use the shaped field viewport so glyphs, selection,
         // caret, and horizontal scroll share one coordinate system.
+    } else if frame.role() == view::Role::TextArea {
+        // TextArea contents, including selectable table text, use their one
+        // resolved shaped viewport above.
     } else if let Some(value) = text_for(frame) {
         scene.push_text(
             Text::new(

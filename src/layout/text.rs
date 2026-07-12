@@ -39,6 +39,8 @@ pub(crate) struct Field {
     style: text_engine::document::Style,
 }
 
+pub(crate) type Selectable = text_engine::layout::OverflowProjection;
+
 impl Service {
     pub(super) fn new() -> Self {
         Self {
@@ -56,6 +58,21 @@ impl Service {
     ) -> String {
         self.inner.borrow_mut().resolve_overflow(
             label,
+            style.document_style(text_engine::Color::BLACK),
+            width.max(0) as f32,
+            overflow,
+        )
+    }
+
+    pub(super) fn resolve_selectable(
+        &self,
+        source: &str,
+        width: i32,
+        style: super::super::theme::TypeStyle,
+        overflow: text_engine::Overflow,
+    ) -> Selectable {
+        self.inner.borrow_mut().resolve_overflow_projection(
+            source,
             style.document_style(text_engine::Color::BLACK),
             width.max(0) as f32,
             overflow,
@@ -141,10 +158,11 @@ impl Service {
         text_area: &view::TextArea,
         rect: Rect,
         theme: &Theme,
+        color: scene::Color,
         now: Instant,
     ) -> Area {
         let area_model = text_area.area_model();
-        let style = field_style(theme);
+        let style = field_style(theme, color);
         let logical_viewport =
             text_engine::layout::surface_area(rect.width() as f32, rect.height() as f32);
         let layout_now = text_area.caret_epoch().unwrap_or(now);
@@ -227,7 +245,7 @@ impl Service {
         now: Instant,
     ) -> Field {
         let field = field_model(text_box);
-        let style = field_style(theme);
+        let style = field_style(theme, theme.text_input().foreground);
         let viewport = text_engine::layout::surface_area(rect.width() as f32, rect.height() as f32);
         let epoch = text_box.caret_epoch().unwrap_or(now);
         let mut state = text_engine::edit::ViewState::new_at(0.0, epoch)
@@ -365,11 +383,11 @@ fn field_model(text_box: &view::TextBox) -> text_engine::edit::Field {
         .with_mode(text_box.mode())
 }
 
-fn field_style(theme: &Theme) -> text_engine::document::Style {
+fn field_style(theme: &Theme, color: scene::Color) -> text_engine::document::Style {
     theme
         .typography()
         .interface()
-        .document_style(text_color_from_scene(theme.text_input().foreground))
+        .document_style(text_color_from_scene(color))
 }
 
 fn measure_for_width(width: i32) -> text_engine::layout::Measure {
