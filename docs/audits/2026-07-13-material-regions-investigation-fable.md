@@ -129,6 +129,38 @@ ready. The corrections, each verified in the pinned sources before adoption:
   (B-02 uncontrolled), no OS build / GPU / transparency-setting / scale
   metadata recorded, probe not durably housed.
 
+## Tenancy ladder execution (B-03 completion, 2026-07-13)
+
+Environment: Windows 11 build 22631.6199; NVIDIA RTX 4070 Ti SUPER, driver
+32.0.15.9636; DX12 backend; 96 dpi; `EnableTransparency=1`; custom power plan.
+Probe: standalone crate, `wgpu 29.0.3` (gpu-allocator pinned 0.28.0 to match
+the repo lock), `windows` 0.61.3 with one documented COM ownership transfer
+across the 0.61/0.62 version boundary at the swapchain handoff. Source hashes:
+`tenancy.rs 54E118F1D954AB43`, `main.rs 2A1C4A9DAE2569B3`; capture hashes:
+`t3_a 5C4BE871A4946364`, `t4 F8E3DBFD001A7C67`, `t6 D80CD006FF179C05`.
+
+| Rung | Verdict | Evidence |
+| --- | --- | --- |
+| 1 | PASS | wgpu surface from an unattached classic `IDCompositionVisual` (device from `DCompositionCreateDevice2(None)`, no HWND target); `Bgra8Unorm` + `PreMultiplied`; two frames presented. Setup ~430ms warm / ~710ms cold including adapter+device init. |
+| 2 | PASS | `IDXGISwapChain3` retrieved via `Surface::as_hal::<Dx12>` → `swap_chain()` (+0.1ms). |
+| 3 | **PASS — the decisive rung** | `CreateCompositionSurfaceForSwapChain` succeeded **with the classic-visual content association intact** — no detach required, no HRESULT taken. Content displayed through the WinRT tree; alternating tick colors across captures prove *continuous* presentation under the wrap. Foreground logged every tick: subject never foreground (closes the B-01 instrumentation gap). |
+| 4 | PASS | `HostBackdropBrush` frost visual beneath the live content sprite — frost ring around GPU content, one HWND, one target, one tree (`t4.png`). |
+| 5 | PASS (resize+fade) | Three reconfigure cycles (400x300 / 240x180 / 320x240) presented under the wrap — swapchain COM identity survives `ResizeBuffers`, wrap intact. Compositor-side fade over frost+content ran with the message loop asleep. |
+| 6 | PASS | Two additional frost regions with independent rounded clips (18px / 45px) over dimmed content (`t6.png`) — per-region material demonstrated in one window. |
+
+Transparency-off attempt: registry `EnableTransparency=0` without a settings
+broadcast did not disable frost within 2.5s; restored. Inconclusive on policy
+mechanics — the realization report treats transparency as a runtime variable
+regardless, per Microsoft's documented policy caveat.
+
+**B-03 verdict: single-HWND tenancy CONFIRMED end to end. The material-regions
+campaign builds on one window, one target, one tree, with wgpu as a tenant via
+`SurfaceTargetUnsafe::CompositionVisual` + `as_hal` swapchain wrap. The
+two-window pair is demoted to contingency. Remaining matrix items (device
+loss, full surface teardown/recreate, scale matrix beyond 96 dpi, controlled
+accent comparison, broadcast transparency toggle) ride the campaign's own
+witnesses.** Investigation status: **campaign-ready.**
+
 **Honest coverage gaps vs the ledger spec:** A-01 pane-field census partial;
 A-06 desk-level; B-04 single-scale; B-05 cadence unmeasured; B-06/07/09
 unprobed; B-01 owner-focused-state variant subsumed by the stronger
