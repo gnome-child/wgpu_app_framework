@@ -43,8 +43,8 @@ range/TSV spreadsheet behavior, or push is permitted.
 
 | Checkpoint | Contract | Status | Boundary proof |
 | --- | --- | --- | --- |
-| 1 | Expanded rows consume intrinsic content at resolved track widths | In progress | Census opened; implementation pending |
-| 2 | Internal table naming consumes the existing subject channel | Pending | — |
+| 1 | Expanded rows consume intrinsic content at resolved track widths | Green; commit pending | 876 passed, 8 ignored; exact 28/128 px rows, resize to 108 px, scroll invariance, generic variable-list preservation, three smokes and all boundary checks green |
+| 2 | Internal table naming consumes the existing subject channel | In progress | Census pending |
 | 3 | Active sort indication is trailing header structure, never label text | Pending | — |
 | 4 | Vertical scrollbar chrome consumes the visible body projection | Pending | — |
 | 5 | Read, select, navigate, then deliberately edit | Pending | — |
@@ -80,11 +80,37 @@ Checkpoint commits are not pushed.
 - Weak witness to delete: expanded rows currently need only be `> 24`, so an
   absurd measurement passes.
 
+## Checkpoint 1 verdict and boundary
+
+- `layout_variable_virtual_list` now measures table rows intrinsically and
+  applies the configured table row height only as a table-local floor. Generic
+  variable lists retain their independent estimate-versus-explicit-height
+  contract; the full suite caught and rejected an attempted global floor.
+- `table_stack_intrinsic_height` consumes column widths from the same
+  `table::Projection` used by placement. The helper also measures the Expanded
+  header before the surface column allocates it.
+- Fixed child heights remain explicit constraints through the promoted
+  `intrinsic_or_fixed_height_for_width` helper; implicit grow is never treated
+  as intrinsic content.
+- Exact witnesses pin a short row at 28 px and a wrapped row at 128 px for a
+  100 px track. Resizing the track to 140 px moves both cell geometry and
+  measurement, reducing the wrapped row to 108 px; horizontal scrolling leaves
+  heights unchanged. The gallery pins all four visible rows at 68 px and all
+  Expanded header cells at 30 px instead of accepting any value above 24.
+- No public API change. `Projection::column_width` and the promoted measurement
+  helper remain crate-internal.
+- Pending eyes: re-check Expanded density and wrapping after all chrome changes
+  land; no table-specific padding or second solver was introduced.
+- Commit receipt: pending checkpoint commit; the next ledger boundary records
+  its hash and diff statistics.
+
 ## Execution ledger
 
 | Entry | Scope | Result |
 | --- | --- | --- |
 | E-000 | Campaign baseline | Held: 875 passed, 8 ignored; three smokes, formatting, all targets, clean worktree, and protected state green |
+| E-001 | Checkpoint 1 focused geometry | Held: exact resolved-track row heights, resize remeasurement, horizontal-scroll invariance, and generic variable-list regression witness |
+| E-002 | Checkpoint 1 full boundary | Held: 876 passed, 8 ignored; three smokes, formatting, all targets, diff check, compact million-row witness, and protected state green |
 
 ## Public API flags
 
@@ -107,4 +133,5 @@ viewport chrome concepts before proposing public vocabulary.
 
 | Boundary | Commit | Files | Insertions | Deletions | Receipt |
 | --- | --- | ---: | ---: | ---: | --- |
-| Campaign open | pending | 2 | pending | pending | Ledger and roadmap opened from a clean baseline |
+| Campaign open | `816271b8` | 2 | 115 | 1 | Ledger and roadmap opened from a clean baseline |
+| Checkpoint 1 | pending | pending | pending | pending | Resolved-track intrinsic row and header measurement |

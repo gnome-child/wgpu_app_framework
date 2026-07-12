@@ -62,6 +62,37 @@ struct MillionTableProvider {
     cell_calls: Rc<Cell<usize>>,
 }
 
+#[derive(Clone)]
+struct WrappedTableProvider;
+
+impl crate::table::Provider for WrappedTableProvider {
+    fn len(&self) -> usize {
+        2
+    }
+
+    fn key(&self, row: usize) -> crate::virtual_list::Key {
+        crate::virtual_list::Key::new(row as u64)
+    }
+
+    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+        let row = key.value() as usize;
+        (row < self.len()).then_some(row)
+    }
+
+    fn cell(&self, row: usize, cell: crate::table::Cell) -> view::Node {
+        let text = match (row, cell.column().as_str()) {
+            (0, "detail") => "Short detail".to_owned(),
+            (1, "detail") => {
+                "A deliberately wrapped detail whose height must come from its narrow track"
+                    .to_owned()
+            }
+            (_, "name") => format!("Row {row}"),
+            _ => String::new(),
+        };
+        view::Node::wrapped_world_text(text, view::Wrap::Word)
+    }
+}
+
 impl crate::table::Provider for MillionTableProvider {
     fn len(&self) -> usize {
         1_000_000
@@ -890,6 +921,128 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
     assert_eq!(resized_detail.1.width(), 140);
     assert_eq!(resized_detail.0.right(), resized_detail.2);
     assert_eq!(resized_detail.2 - scrolled_detail.2, 20);
+}
+
+#[test]
+fn expanded_table_rows_measure_intrinsic_content_at_resolved_track_widths() {
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Expanded track measurement"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::Table::new(
+                    "expanded.measurement",
+                    24,
+                    [
+                        crate::table::Column::new("name", "Name", view::Dimension::fixed(80)),
+                        crate::table::Column::new("detail", "Detail", view::Dimension::fixed(100)),
+                    ],
+                    WrappedTableProvider,
+                )
+                .presentation(crate::table::Presentation::Expanded)
+                .width(view::Dimension::fixed(180))
+                .height(view::Dimension::fixed(180)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(180, 180);
+    let rendered = app
+        .render_scene(window, size)
+        .expect("expanded table should render");
+    let rows = rendered
+        .layout()
+        .frames()
+        .iter()
+        .filter_map(|frame| frame.table_row().map(|row| (row.index(), frame.rect())))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        rows.iter()
+            .map(|(index, rect)| (*index, rect.height()))
+            .collect::<Vec<_>>(),
+        vec![(0, 28), (1, 128)]
+    );
+    for frame in rendered.layout().frames().iter().filter(|frame| {
+        frame
+            .table_cell()
+            .is_some_and(|cell| cell.column() == interaction::Id::new("detail"))
+    }) {
+        assert_eq!(frame.rect().width(), 100);
+    }
+
+    let detail_track = rendered
+        .layout()
+        .table_tracks()
+        .iter()
+        .find(|track| {
+            track
+                .column_identity()
+                .is_some_and(|cell| cell.column() == interaction::Id::new("detail"))
+        })
+        .expect("detail column track");
+    let resize_start = frame_point_at(
+        detail_track
+            .divider_hit_rect()
+            .expect("detail resize hit zone"),
+    );
+    let resize_end = geometry::Point::new(220, resize_start.y());
+    app.pointer_down_at(window, size, resize_start)
+        .expect("detail resize should capture");
+    app.pointer_move_at(window, size, resize_end)
+        .expect("detail resize should update the session override");
+    app.pointer_up_at(window, size, resize_end)
+        .expect("detail resize should finish");
+    let resized = app
+        .render_scene(window, size)
+        .expect("resized expanded table should render");
+    let resized_rows = resized
+        .layout()
+        .frames()
+        .iter()
+        .filter_map(|frame| {
+            frame
+                .table_row()
+                .map(|row| (row.index(), frame.rect().height()))
+        })
+        .collect::<Vec<_>>();
+    let resized_detail_widths = resized
+        .layout()
+        .frames()
+        .iter()
+        .filter_map(|frame| {
+            frame.table_cell().and_then(|cell| {
+                (cell.column() == interaction::Id::new("detail")).then_some(frame.rect().width())
+            })
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(resized_rows, vec![(0, 28), (1, 108)]);
+    assert_eq!(resized_detail_widths, vec![140, 140]);
+
+    app.scroll_at(
+        window,
+        size,
+        geometry::Point::new(40, 60),
+        interaction::ScrollDelta::horizontal(40),
+    )
+    .expect("expanded table should scroll horizontally");
+    let scrolled = app
+        .render_scene(window, size)
+        .expect("scrolled expanded table should render");
+    assert_eq!(
+        scrolled
+            .layout()
+            .frames()
+            .iter()
+            .filter_map(|frame| {
+                frame
+                    .table_row()
+                    .map(|row| (row.index(), frame.rect().height()))
+            })
+            .collect::<Vec<_>>(),
+        resized_rows
+    );
 }
 
 #[test]
@@ -6160,13 +6313,15 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         .map(layout::TableTrack::boundary)
         .collect::<Vec<_>>();
     assert_eq!(expanded_tracks, compact_tracks);
-    assert!(
+    assert_eq!(
         expanded
             .layout()
             .frames()
             .iter()
             .filter(|frame| frame.table_row().is_some())
-            .any(|frame| frame.rect().height() > 24)
+            .map(|frame| frame.rect().height())
+            .collect::<Vec<_>>(),
+        vec![68; 4]
     );
     assert!(expanded.scene().texts().iter().any(|value| {
         value
@@ -6175,9 +6330,13 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
             && value.wrap() == scene::TextWrap::WordOrGlyph
             && value.overflow() == text::Overflow::Clip
     }));
-    assert!(expanded.layout().frames().iter().any(|frame| {
-        frame.table_part() == Some(view::TablePart::HeaderControl) && frame.rect().height() > 28
-    }));
+    assert!(
+        expanded
+            .layout()
+            .frames()
+            .iter()
+            .all(|frame| { frame.table_header_cell().is_none() || frame.rect().height() == 30 })
+    );
 }
 
 #[test]

@@ -208,6 +208,13 @@ impl Projection {
         self.surface_rect.width()
     }
 
+    pub(crate) fn column_width(&self, column: interaction::Id) -> Option<i32> {
+        self.columns
+            .iter()
+            .find(|resolved| resolved.identity.column() == column)
+            .map(|resolved| resolved.width)
+    }
+
     pub(crate) fn cell_rect(&self, column: interaction::Id, row_rect: Rect) -> Option<Rect> {
         let resolved = self
             .columns

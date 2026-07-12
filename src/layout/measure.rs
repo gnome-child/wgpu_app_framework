@@ -370,7 +370,7 @@ fn intrinsic_or_fixed_height(node: &view::Node, theme: &theme::Theme) -> i32 {
     }
 }
 
-fn intrinsic_or_fixed_height_for_width(
+pub(in crate::layout) fn intrinsic_or_fixed_height_for_width(
     node: &view::Node,
     width: i32,
     engine: &mut engine::Engine,

@@ -13,8 +13,9 @@ use measure::{
     cross_axis_height_for_width, cross_axis_offset, cross_axis_width,
     floating_panel_height_for_width, floating_panel_max_envelope_height_for_width,
     floating_panel_width, grows_vertical_space, intrinsic_height, intrinsic_height_for_width,
-    intrinsic_width, layout_gap, menu_shortcut_width, menu_title_width, resolved_height,
-    resolved_height_for_width, resolved_row_width, resolved_width, size_hint,
+    intrinsic_or_fixed_height_for_width, intrinsic_width, layout_gap, menu_shortcut_width,
+    menu_title_width, resolved_height, resolved_height_for_width, resolved_row_width,
+    resolved_width, size_hint,
 };
 
 const SCROLL_AXIS_LIMIT: i32 = i32::MAX / 4;
@@ -429,20 +430,25 @@ fn layout_variable_virtual_list(
         );
     }
 
+    let table_projection = ctx.table_projection.clone();
+    let row_height_floor = model.row_height();
     let measurements = node.children().iter().filter_map(|child| {
         let row = child.provided_row()?;
-        Some((
-            row.key(),
-            resolved_height_for_width(
-                child,
-                viewport_rect.width(),
-                i32::MAX,
-                ctx.engine,
-                ctx.theme,
-                ctx.keymap,
-            )
-            .max(1),
-        ))
+        let table_intrinsic = table_projection.as_ref().and_then(|projection| {
+            table_stack_intrinsic_height(child, projection, ctx.engine, ctx.theme, ctx.keymap)
+        });
+        let height = table_intrinsic
+            .map(|height| height.max(row_height_floor))
+            .unwrap_or_else(|| {
+                intrinsic_or_fixed_height_for_width(
+                    child,
+                    viewport_rect.width(),
+                    ctx.engine,
+                    ctx.theme,
+                    ctx.keymap,
+                )
+            });
+        Some((row.key(), height.max(1)))
     });
     let (offset_y, content_height, request) = {
         let mut region = region.borrow_mut();
@@ -676,7 +682,7 @@ fn scroll_stack_placement(
         }
         Some(view::Axis::Overlay) => overlay_stack_placement(node, rect, engine, theme, profile),
         Some(view::Axis::Vertical) | None => {
-            vertical_stack_placement(node, rect, engine, theme, profile, true)
+            vertical_stack_placement(node, rect, engine, theme, profile, true, None)
         }
     }
 }
@@ -688,6 +694,7 @@ fn vertical_stack_placement(
     theme: &theme::Theme,
     profile: keymap::Profile,
     scroll_axis: bool,
+    table_projection: Option<&table::Projection>,
 ) -> StackPlacement {
     let children = node.children();
     if children.is_empty() {
@@ -724,18 +731,25 @@ fn vertical_stack_placement(
             scroll_axis_child_height(child, width, content_height, engine, theme, profile)
         } else {
             let grows = grows_vertical_space(child);
-            let measured = size_hint(
-                child,
-                flow::Constraints::new(Size::new(width, 0), Size::new(width, content_height)),
-                engine,
-                theme,
-                profile,
-            );
-            if grows {
-                0
-            } else {
-                measured.preferred().height()
-            }
+            let measured_height = table_projection
+                .and_then(|projection| {
+                    table_stack_intrinsic_height(child, projection, engine, theme, profile)
+                })
+                .unwrap_or_else(|| {
+                    size_hint(
+                        child,
+                        flow::Constraints::new(
+                            Size::new(width, 0),
+                            Size::new(width, content_height),
+                        ),
+                        engine,
+                        theme,
+                        profile,
+                    )
+                    .preferred()
+                    .height()
+                });
+            if grows { 0 } else { measured_height }
         };
         let minimum = flexible.map_or(0, |(_, minimum)| minimum);
         let hint = flow::SizeHint::new(Size::new(width, minimum), Size::new(width, height));
@@ -1040,7 +1054,16 @@ fn layout_vertical_stack(
     clip: Option<Clip>,
     ctx: &mut LayoutContext<'_>,
 ) {
-    let placement = vertical_stack_placement(node, rect, ctx.engine, ctx.theme, ctx.keymap, false);
+    let table_projection = ctx.table_projection.clone();
+    let placement = vertical_stack_placement(
+        node,
+        rect,
+        ctx.engine,
+        ctx.theme,
+        ctx.keymap,
+        false,
+        table_projection.as_ref(),
+    );
     emit_stack_children(
         node,
         retained,
@@ -1089,6 +1112,35 @@ fn table_stack_matches(node: &view::Node, projection: &table::Projection) -> boo
                 .table_cell()
                 .is_some_and(|cell| cell.table() == projection.table())
     })
+}
+
+fn table_stack_intrinsic_height(
+    node: &view::Node,
+    projection: &table::Projection,
+    engine: &mut engine::Engine,
+    theme: &theme::Theme,
+    profile: keymap::Profile,
+) -> Option<i32> {
+    if !table_stack_matches(node, projection) {
+        return None;
+    }
+
+    let content_height = node
+        .children()
+        .iter()
+        .filter_map(|child| {
+            let column = child
+                .table_header_cell()
+                .map(crate::table::HeaderCell::column)
+                .or_else(|| child.table_cell().map(crate::table::Cell::column))?;
+            let width = projection.column_width(column)?;
+            Some(intrinsic_or_fixed_height_for_width(
+                child, width, engine, theme, profile,
+            ))
+        })
+        .max()?;
+
+    Some(content_height.saturating_add(node.style().padding().vertical()))
 }
 
 fn table_stack_placement(
