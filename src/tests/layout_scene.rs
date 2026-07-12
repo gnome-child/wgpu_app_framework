@@ -533,7 +533,7 @@ fn million_row_virtual_list_converges_to_a_bounded_first_frame() {
     let window = app.session().windows()[0].id();
 
     let scene = app
-        .render_scene(window, geometry::Size::new(240, 100))
+        .show_scene(window, geometry::Size::new(240, 100))
         .expect("virtual list should render");
     let values = scene
         .scene()
@@ -575,7 +575,7 @@ fn million_row_virtual_list_jump_scroll_and_resize_stay_bounded() {
     let window = app.session().windows()[0].id();
     let compact = geometry::Size::new(240, 100);
     let initial = app
-        .render_scene(window, compact)
+        .show_scene(window, compact)
         .expect("initial virtual list should render");
     let list = initial.layout().find_role(view::Role::VirtualList)[0];
     let calls_before_jump = row_calls.get();
@@ -588,7 +588,7 @@ fn million_row_virtual_list_jump_scroll_and_resize_stay_bounded() {
     )
     .expect("jump scroll should be handled");
     let jumped = app
-        .render_scene(window, compact)
+        .show_scene(window, compact)
         .expect("jumped virtual list should render");
     let jumped_values = jumped
         .scene()
@@ -606,7 +606,7 @@ fn million_row_virtual_list_jump_scroll_and_resize_stay_bounded() {
     assert!(row_calls.get().saturating_sub(calls_before_jump) <= 16);
 
     let tall = app
-        .render_scene(window, geometry::Size::new(240, 180))
+        .show_scene(window, geometry::Size::new(240, 180))
         .expect("resized virtual list should render");
     assert!(tall.scene().texts().len() <= 13);
     assert!(tall.layout().frames().len() <= 14);
@@ -632,7 +632,7 @@ fn variable_virtual_list_measures_mixed_rows_with_bounded_runtime_work() {
     app.start();
     let window = app.session().windows()[0].id();
     let rendered = app
-        .render_scene(window, geometry::Size::new(240, 120))
+        .show_scene(window, geometry::Size::new(240, 120))
         .expect("variable list should converge");
     let rows = rendered
         .layout()
@@ -678,12 +678,12 @@ fn variable_measurements_survive_a_same_range_mode_transition_and_rebuild() {
     app.start();
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(180, 72);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("uniform source should establish the same visible range");
 
     variable.set(true);
     app.request_redraw(window);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("variable source should attach measured geometry");
     let first = app
         .composition(window)
@@ -694,7 +694,7 @@ fn variable_measurements_survive_a_same_range_mode_transition_and_rebuild() {
         .expect("variable list should expose its retained measurement owner");
 
     app.request_redraw(window);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("same-range rebuild should preserve measured geometry");
     let rebuilt = app
         .composition(window)
@@ -731,7 +731,7 @@ fn measured_virtual_sequence_covers_a_short_viewport_through_pin_scroll_and_resi
     let window = app.session().windows()[0].id();
     let initial_size = geometry::Size::new(180, 72);
     let initial = app
-        .render_scene(window, initial_size)
+        .show_scene(window, initial_size)
         .expect("wrapped variable list should render");
     let list = initial.layout().find_role(view::Role::VirtualList)[0].clone();
     drop(initial);
@@ -749,7 +749,7 @@ fn measured_virtual_sequence_covers_a_short_viewport_through_pin_scroll_and_resi
     )
     .expect("variable list should scroll");
     let scrolled = app
-        .render_scene(window, initial_size)
+        .show_scene(window, initial_size)
         .expect("scrolled variable list should render");
     assert!(scrolled.layout().frames().iter().any(|frame| {
         frame
@@ -767,7 +767,7 @@ fn measured_virtual_sequence_covers_a_short_viewport_through_pin_scroll_and_resi
     app.request_redraw(window);
     let narrow_size = geometry::Size::new(110, 72);
     let narrowed = app
-        .render_scene(window, narrow_size)
+        .show_scene(window, narrow_size)
         .expect("width invalidation should remeasure without losing the sequence");
     let rebuilt = app
         .composition(window)
@@ -838,7 +838,7 @@ fn million_row_table_composes_public_cells_with_bounded_aligned_tracks() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(320, 128);
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("record table should render");
 
     let headers = rendered
@@ -1039,7 +1039,7 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 108);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("wide table should render");
     let horizontal = initial
         .layout()
@@ -1183,6 +1183,11 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
         "an offscreen divider must not clamp into a false viewport-edge target"
     );
 
+    let before_scroll = app
+        .diagnostics(window)
+        .expect("table diagnostics")
+        .pipeline
+        .clone();
     app.scroll_at(
         window,
         size,
@@ -1190,9 +1195,23 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
         interaction::ScrollDelta::horizontal(70),
     )
     .expect("horizontal delta should be consumed by the table scroll owner");
+    let after_scroll = app
+        .diagnostics(window)
+        .expect("table diagnostics")
+        .pipeline
+        .clone();
+    assert_eq!(after_scroll.routing_layouts, before_scroll.routing_layouts);
+    assert_eq!(after_scroll.frames_prepared, before_scroll.frames_prepared);
     let scrolled = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("scrolled wide table should render");
+    assert_eq!(
+        app.diagnostics(window)
+            .expect("table diagnostics")
+            .pipeline
+            .frames_prepared,
+        before_scroll.frames_prepared + 1
+    );
     let scrolled_name = geometry_for(&scrolled, "name");
     let scrolled_detail = geometry_for(&scrolled, "detail");
     let scrolled_action = geometry_for(&scrolled, "action");
@@ -1253,7 +1272,7 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
     app.pointer_up_at(window, size, resize_end)
         .expect("scrolled divider resize should finish");
     let resized = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("resized scrolled table should render");
     let resized_detail = geometry_for(&resized, "detail");
     assert_eq!(resized_detail.0.width(), 140);
@@ -1289,7 +1308,7 @@ fn table_keyboard_navigation_reveals_current_cell_across_horizontal_overflow() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 108);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("wide table should render");
     let name = initial
         .layout()
@@ -1310,7 +1329,7 @@ fn table_keyboard_navigation_reveals_current_cell_across_horizontal_overflow() {
     )
     .expect("End should move to the row's final cell");
     let revealed = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("final cell should be revealed");
     let horizontal = revealed
         .layout()
@@ -1340,7 +1359,7 @@ fn table_keyboard_navigation_reveals_current_cell_across_horizontal_overflow() {
     )
     .expect("Ctrl+Home should move to the table's first cell");
     let returned = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("first cell should be revealed");
     let horizontal = returned
         .layout()
@@ -1446,7 +1465,7 @@ fn expanded_table_rows_measure_intrinsic_content_at_resolved_track_widths() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(180, 180);
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("expanded table should render");
     let rows = rendered
         .layout()
@@ -1492,7 +1511,7 @@ fn expanded_table_rows_measure_intrinsic_content_at_resolved_track_widths() {
     app.pointer_up_at(window, size, resize_end)
         .expect("detail resize should finish");
     let resized = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("resized expanded table should render");
     let resized_rows = resized
         .layout()
@@ -1526,7 +1545,7 @@ fn expanded_table_rows_measure_intrinsic_content_at_resolved_track_widths() {
     )
     .expect("expanded table should scroll horizontally");
     let scrolled = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("scrolled expanded table should render");
     assert_eq!(
         scrolled
@@ -1571,7 +1590,7 @@ fn table_header_stays_fixed_while_keyed_rows_scroll_reorder_and_shrink() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(260, 128);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("mutable table should render");
     let header_y = initial
         .layout()
@@ -1589,7 +1608,7 @@ fn table_header_stays_fixed_while_keyed_rows_scroll_reorder_and_shrink() {
     )
     .expect("body scroll should be handled");
     let scrolled = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("scrolled table should render");
     assert!(
         scrolled
@@ -1609,7 +1628,7 @@ fn table_header_stays_fixed_while_keyed_rows_scroll_reorder_and_shrink() {
 
     keys.borrow_mut()[18..27].reverse();
     app.request_redraw(window);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("reordered table should render");
     assert!(
         app.composition(window)
@@ -1622,7 +1641,7 @@ fn table_header_stays_fixed_while_keyed_rows_scroll_reorder_and_shrink() {
     keys.borrow_mut().truncate(3);
     app.request_redraw(window);
     let shrunk = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("shrunk table should render");
     let visible_rows = shrunk
         .layout()
@@ -1667,7 +1686,7 @@ fn table_column_resize_uses_capture_and_stays_window_local() {
     let second_window = app.session().windows()[1].id();
     let size = geometry::Size::new(260, 108);
     let initial = app
-        .render_scene(first_window, size)
+        .show_scene(first_window, size)
         .expect("first table should render");
     let table_rect = initial.layout().find_role(view::Role::Table)[0].rect();
     let final_track = initial
@@ -1735,10 +1754,10 @@ fn table_column_resize_uses_capture_and_stays_window_local() {
         .expect("divider release should finish resize");
 
     let resized = app
-        .render_scene(first_window, size)
+        .show_scene(first_window, size)
         .expect("resized table should render");
     let untouched = app
-        .render_scene(second_window, size)
+        .show_scene(second_window, size)
         .expect("second table should render independently");
     let width_for =
         |rendered: &scene::Presentation, table: interaction::Id, column: interaction::Id| {
@@ -1811,7 +1830,7 @@ fn table_column_resize_uses_capture_and_stays_window_local() {
     app.pointer_up_at(first_window, size, shrink_to)
         .expect("minimum-width resize should finish");
     let minimized = app
-        .render_scene(first_window, size)
+        .show_scene(first_window, size)
         .expect("minimum-width table should render");
     assert_eq!(
         width_for(
@@ -1892,7 +1911,7 @@ fn held_count_enabled_boundary_moves_with_the_pointer_without_reallocating_other
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 700);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("gallery table before held-boundary reduction");
     let columns = ["record", "detail", "note", "count", "enabled", "action"];
     let initial_headers = columns
@@ -1913,14 +1932,31 @@ fn held_count_enabled_boundary_moves_with_the_pointer_without_reallocating_other
     assert_eq!(start.x(), count_track.boundary());
     drop(initial);
 
+    let before_drag = app
+        .diagnostics(window)
+        .expect("table diagnostics")
+        .pipeline
+        .clone();
     app.pointer_down_at(window, size, start)
         .expect("Count/Enabled boundary should capture");
+    assert_eq!(
+        app.diagnostics(window)
+            .expect("table diagnostics")
+            .pipeline
+            .routing_layouts,
+        before_drag.routing_layouts
+    );
     for delta in [9, 18, 27, 36] {
         let pointer = geometry::Point::new(start.x() + delta, start.y());
         app.pointer_move_at(window, size, pointer)
             .expect("held boundary should follow the drag");
+        if delta == 9 {
+            let before_present = &app.diagnostics(window).expect("table diagnostics").pipeline;
+            assert_eq!(before_present.routing_layouts, before_drag.routing_layouts);
+            assert_eq!(before_present.frames_prepared, before_drag.frames_prepared);
+        }
         let rendered = app
-            .render_scene(window, size)
+            .show_scene(window, size)
             .expect("held-boundary projection");
         let count = column_track(&rendered, "count");
         assert_eq!(count.boundary(), pointer.x());
@@ -1981,14 +2017,12 @@ fn held_count_enabled_boundary_moves_with_the_pointer_without_reallocating_other
     let end = geometry::Point::new(start.x() + 36, start.y());
     app.pointer_up_at(window, size, end)
         .expect("held boundary should release");
-    let settled = app
-        .render_scene(window, size)
-        .expect("settled manual width");
+    let settled = app.show_scene(window, size).expect("settled manual width");
     let settled_count = header_rect(&settled, "count");
     let settled_detail = header_rect(&settled, "detail");
     let settled_note = header_rect(&settled, "note");
     let wider = app
-        .render_scene(
+        .show_scene(
             window,
             geometry::Size::new(size.width() + 40, size.height()),
         )
@@ -2036,9 +2070,7 @@ fn table_column_resize_stays_table_local_in_one_window() {
     app.start();
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(260, 216);
-    let initial = app
-        .render_scene(window, size)
-        .expect("tables should render");
+    let initial = app.show_scene(window, size).expect("tables should render");
     let divider = initial
         .layout()
         .table_tracks()
@@ -2059,7 +2091,7 @@ fn table_column_resize_stays_table_local_in_one_window() {
     app.pointer_up_at(window, size, dragged)
         .expect("resize should finish");
     let resized = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("independent tables should rerender");
     let widths = resized
         .layout()
@@ -2107,7 +2139,7 @@ fn removing_a_column_releases_its_synthetic_resize_capture() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(260, 108);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("removable table should render");
     let first_track = initial
         .layout()
@@ -2135,7 +2167,7 @@ fn removing_a_column_releases_its_synthetic_resize_capture() {
 
     *show_first.borrow_mut() = false;
     app.request_redraw(window);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("table should rebuild without the captured column");
     assert!(
         app.session()
@@ -2176,7 +2208,7 @@ fn table_keyboard_tracks_a_keyed_logical_row_and_column_without_scanning() {
     let table = interaction::Id::new("keyboard.table");
     let size = geometry::Size::new(320, 128);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("keyboard table should render");
     let detail_row_one = initial
         .layout()
@@ -2229,7 +2261,7 @@ fn table_keyboard_tracks_a_keyed_logical_row_and_column_without_scanning() {
     )
     .expect("Ctrl+End should move to the final logical row and column");
     let moved = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("distant active table cell should materialize");
     assert_eq!(
         app.session().active_table_cell(window, table),
@@ -2265,7 +2297,7 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
     let window = app.session().windows()[0].id();
     let other_window = app.session().windows()[1].id();
     let size = geometry::Size::new(320, 124);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("editable table should render");
     let name = crate::table::Cell::new(
         interaction::Id::new("editable.table"),
@@ -2357,7 +2389,7 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
             .is_some_and(|focus| focus.same_target(&session::Focus::table_cell(count)))
     );
     let rejected = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("rejected editor should retain visible presentation");
     assert!(rejected.layout().frames().iter().any(|frame| {
         frame.table_cell() == Some(count)
@@ -2368,7 +2400,7 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
         .expect("Escape should cancel the rejected draft");
     assert_eq!(app.session().table_edit_error(window, count), None);
     let cancelled = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("cancelled committed value should render");
     assert!(
         cancelled
@@ -2399,7 +2431,7 @@ fn table_display_text_selects_and_copies_while_double_click_alone_enters_editing
         interaction::Id::new("name"),
     );
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("display cell should render");
     let frame = initial
         .layout()
@@ -2456,7 +2488,7 @@ fn table_display_text_selects_and_copies_while_double_click_alone_enters_editing
         "display release should retain the selection draft"
     );
     let released = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("released display selection should render");
     let released_cell = released
         .layout()
@@ -2514,7 +2546,7 @@ fn table_display_text_selects_and_copies_while_double_click_alone_enters_editing
     app.handle_input(window, Input::cancel())
         .expect("cancel should clear display selection");
     let display = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("display cell should return");
     let point = frame_point_at(
         display
@@ -2530,9 +2562,7 @@ fn table_display_text_selects_and_copies_while_double_click_alone_enters_editing
     app.pointer_up_at(window, size, point)
         .expect("first click should release");
     assert_eq!(app.session().editing_table_cell(window), None);
-    let singly_clicked = app
-        .render_scene(window, size)
-        .expect("single-click display");
+    let singly_clicked = app.show_scene(window, size).expect("single-click display");
     assert!(singly_clicked.layout().frames().iter().any(|frame| {
         frame.table_cell() == Some(cell) && frame.table_part() == Some(view::TablePart::Cell)
     }));
@@ -2540,9 +2570,7 @@ fn table_display_text_selects_and_copies_while_double_click_alone_enters_editing
     app.pointer_down_at(window, size, point)
         .expect("second platform-classified click should enter editing");
     assert_eq!(app.session().editing_table_cell(window), Some(cell));
-    let editing = app
-        .render_scene(window, size)
-        .expect("editor should project");
+    let editing = app.show_scene(window, size).expect("editor should project");
     assert_eq!(
         editing
             .layout()
@@ -2589,7 +2617,7 @@ fn inactive_table_text_draft_retains_storage_without_repainting_selection() {
         interaction::Id::new("name"),
     );
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("two display rows should render");
     let first_rect = initial
         .layout()
@@ -2616,7 +2644,7 @@ fn inactive_table_text_draft_retains_storage_without_repainting_selection() {
     app.pointer_up_at(window, size, first_end)
         .expect("first display cell should retain its draft");
     let selected = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("active selection should render");
     assert!(
         selected
@@ -2642,7 +2670,7 @@ fn inactive_table_text_draft_retains_storage_without_repainting_selection() {
         Some(&second_target)
     );
     let inactive = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("inactive retained selection should reproject");
     let first_layout = inactive
         .layout()
@@ -2689,7 +2717,7 @@ fn ellipsized_table_selection_paints_visible_glyphs_and_copies_source_ranges() {
         interaction::Id::new("name"),
     );
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("ellipsized display cell should render");
     let frame = initial
         .layout()
@@ -2723,7 +2751,7 @@ fn ellipsized_table_selection_paints_visible_glyphs_and_copies_source_ranges() {
     );
 
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("ellipsized selection should share its shaped viewport");
     let frame = rendered
         .layout()
@@ -2751,7 +2779,7 @@ fn compact_ellipsized_table_cells_project_no_hidden_text_scrollbars() {
     app.start();
     let window = app.session().windows()[0].id();
     let rendered = app
-        .render_scene(window, geometry::Size::new(760, 700))
+        .show_scene(window, geometry::Size::new(760, 700))
         .expect("compact gallery table should render");
 
     assert!(
@@ -2810,7 +2838,7 @@ fn display_newlines_are_compact_residue_and_expanded_line_breaks() {
             });
         app.start();
         let window = app.session().windows()[0].id();
-        app.render_scene(window, geometry::Size::new(90, 90))
+        app.show_scene(window, geometry::Size::new(90, 90))
             .expect("multiline table should render")
     };
     let compact = render(crate::table::Presentation::Compact);
@@ -2851,7 +2879,7 @@ fn table_cell_text_input_without_a_draft_never_falls_through_to_document_editing
     app.start();
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 700);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("control gallery table should render");
 
     let display_only = crate::table::Cell::new(
@@ -2918,7 +2946,7 @@ fn table_focus_presentation_follows_modality_and_active_edit_surface() {
         interaction::Id::new("name"),
     );
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("editable table should render");
     let point = frame_point_at(
         initial
@@ -2935,7 +2963,7 @@ fn table_focus_presentation_follows_modality_and_active_edit_surface() {
     app.pointer_up_at(window, size, point)
         .expect("single click should release without editing");
     let pointer_current = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("pointer-current cell should render");
     let display = pointer_current
         .layout()
@@ -2970,7 +2998,7 @@ fn table_focus_presentation_follows_modality_and_active_edit_surface() {
     )
     .expect("keyboard focus should retain the current cell");
     let keyboard_current = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("keyboard-current cell should render");
     let display = keyboard_current
         .layout()
@@ -2991,7 +3019,7 @@ fn table_focus_presentation_follows_modality_and_active_edit_surface() {
     app.handle_view(window, view::Action::begin_table_edit(cell))
         .expect("deliberate edit activation should be handled");
     let editing = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("pointer-focused active editor should render");
     let editor = editing
         .layout()
@@ -3027,7 +3055,7 @@ fn editable_table_draft_pins_through_scroll_follows_reorder_and_dies_on_deletion
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(320, 124);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("editable records should render");
     let cell = crate::table::Cell::new(
         interaction::Id::new("editable.table"),
@@ -3053,7 +3081,7 @@ fn editable_table_draft_pins_through_scroll_follows_reorder_and_dies_on_deletion
     )
     .expect("table body should scroll");
     let scrolled = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("focused edited row should remain pinned");
     assert!(
         scrolled
@@ -3070,14 +3098,14 @@ fn editable_table_draft_pins_through_scroll_follows_reorder_and_dies_on_deletion
             state.records.reverse();
         },
     );
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("reordered edited row should render by key");
     assert_eq!(text_draft(&app, window, focus).text(), "draft");
 
     app.change(state::Reason::programmatic("delete edited row"), |state| {
         state.records.retain(|record| record.key != 0);
     });
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("provider deletion should reconcile edited identity");
     let target = interaction::Target::text_area(focus);
     assert!(
@@ -3107,7 +3135,7 @@ fn editable_table_keyboard_enters_commits_leaves_and_materializes_cells() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(320, 124);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("editable keyboard table should render");
     let first_name = initial
         .layout()
@@ -3137,7 +3165,7 @@ fn editable_table_keyboard_enters_commits_leaves_and_materializes_cells() {
         ),
     )
     .expect("Ctrl+End should select and reveal the final table cell");
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("reveal should materialize the distant active row before entry");
     assert_eq!(
         app.session()
@@ -3204,7 +3232,7 @@ fn table_edit_commit_keys_move_canonical_current_cell_without_trapping_tab() {
     app.start();
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(320, 124);
-    let initial = app.render_scene(window, size).expect("editable table");
+    let initial = app.show_scene(window, size).expect("editable table");
     let first_name = initial
         .layout()
         .frames()
@@ -3312,13 +3340,13 @@ fn virtual_list_growth_shrink_and_reorder_follow_stable_provider_keys() {
     app.start();
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 100);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("initial mutable list should render");
 
     keys.borrow_mut()[..7].reverse();
     app.request_redraw(window);
     let reordered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("reordered list should render");
     assert_eq!(reordered.scene().texts()[0].value(), "Key 6");
     assert!(
@@ -3331,7 +3359,7 @@ fn virtual_list_growth_shrink_and_reorder_follow_stable_provider_keys() {
 
     keys.borrow_mut().extend(100..120);
     app.request_redraw(window);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("grown list should render");
     assert!(
         app.composition(window)
@@ -3344,7 +3372,7 @@ fn virtual_list_growth_shrink_and_reorder_follow_stable_provider_keys() {
     keys.borrow_mut().truncate(3);
     app.request_redraw(window);
     let shrunk = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("shrunk list should render");
     assert_eq!(shrunk.scene().texts().len(), 3);
 }
@@ -3371,7 +3399,7 @@ fn virtual_list_focus_and_active_edit_pin_while_inactive_drafts_dematerialize() 
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(260, 96);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("virtual text rows should render");
     let list_rect = initial.layout().find_role(view::Role::VirtualList)[0].rect();
     let first = session::Focus::text("virtual.text.0");
@@ -3396,7 +3424,7 @@ fn virtual_list_focus_and_active_edit_pin_while_inactive_drafts_dematerialize() 
     )
     .expect("virtual text rows should scroll");
     let scrolled = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("scrolled virtual text rows should render");
     assert!(
         app.session()
@@ -3429,7 +3457,7 @@ fn virtual_list_focus_and_active_edit_pin_while_inactive_drafts_dematerialize() 
 
     app.clear_focus(window);
     let active_only = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("active edit should render without focus");
     assert!(app.session().focused(window).is_none());
     assert!(
@@ -3439,7 +3467,7 @@ fn virtual_list_focus_and_active_edit_pin_while_inactive_drafts_dematerialize() 
 
     keys.borrow_mut().retain(|key| *key != 1);
     app.request_redraw(window);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("provider deletion should reconcile");
     let input = app
         .session()
@@ -3462,7 +3490,7 @@ fn virtual_list_focus_and_active_edit_pin_while_inactive_drafts_dematerialize() 
         interaction::ScrollDelta::vertical(-720),
     )
     .expect("virtual text rows should scroll back");
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("rematerialized draft row should render");
     let projected = app.present(window).expect("virtual rows should project");
     assert!(projected.text_boxes().iter().any(|text_box| {
@@ -3495,7 +3523,7 @@ fn virtual_list_pointer_capture_pins_until_provider_deletion() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(260, 96);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("virtual capture rows should render");
     let nested_rect = initial.layout().find_role(view::Role::Scroll)[0].rect();
     let list_rect = initial.layout().find_role(view::Role::VirtualList)[0].rect();
@@ -3516,7 +3544,7 @@ fn virtual_list_pointer_capture_pins_until_provider_deletion() {
     )
     .expect("outer virtual list should scroll");
     let scrolled = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("captured row should remain materialized");
     assert!(scrolled.layout().find_role(view::Role::Scroll).len() <= 10);
     assert!(
@@ -3529,7 +3557,7 @@ fn virtual_list_pointer_capture_pins_until_provider_deletion() {
 
     keys.borrow_mut().retain(|key| *key != 0);
     app.request_redraw(window);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("deleted captured row should reconcile");
     assert!(
         app.session()
@@ -3562,7 +3590,7 @@ fn virtual_list_materializes_logical_target_before_focus_transfer() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(260, 96);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("logical focus list should render");
     let list_rect = initial.layout().find_role(view::Role::VirtualList)[0].rect();
     app.scroll_at(
@@ -3572,7 +3600,7 @@ fn virtual_list_materializes_logical_target_before_focus_transfer() {
         interaction::ScrollDelta::vertical(720),
     )
     .expect("logical focus list should scroll");
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("offscreen logical focus list should render");
     let first = session::Focus::text("virtual.text.0");
     assert!(
@@ -3625,7 +3653,7 @@ fn selectable_virtual_list_handles_click_toggle_range_and_bounded_select_all() {
     let list_id = interaction::Id::new("selectable.million");
     let size = geometry::Size::new(260, 100);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("selectable virtual list should render");
     let viewport = initial.layout().find_role(view::Role::VirtualList)[0]
         .viewport()
@@ -3668,7 +3696,7 @@ fn selectable_virtual_list_handles_click_toggle_range_and_bounded_select_all() {
     assert_eq!(selection.active(), Some(crate::virtual_list::Key::new(4)));
 
     let selected_scene = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("selected rows should render");
     assert_eq!(
         selected_scene
@@ -3699,7 +3727,7 @@ fn selectable_virtual_list_handles_click_toggle_range_and_bounded_select_all() {
     assert_eq!(selection.len(), 1_000_000);
     let calls_before = row_calls.get();
     let all_scene = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("select-all should remain renderable");
     assert!(all_scene.layout().frames().len() <= 10);
     assert!(row_calls.get().saturating_sub(calls_before) <= 16);
@@ -3710,7 +3738,7 @@ fn selectable_virtual_list_handles_click_toggle_range_and_bounded_select_all() {
     )
     .expect("End should move the active item to the final logical row");
     let moved = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("offscreen active row should reveal");
     let selection = app
         .session()
@@ -3754,7 +3782,7 @@ fn selectable_virtual_list_reconciles_reorder_and_deleted_active_key() {
     let list = interaction::Id::new("mutable.selection");
     let size = geometry::Size::new(240, 100);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("mutable selection should render");
     let viewport = initial.layout().find_role(view::Role::VirtualList)[0]
         .viewport()
@@ -3778,7 +3806,7 @@ fn selectable_virtual_list_reconciles_reorder_and_deleted_active_key() {
 
     keys.borrow_mut()[..5].reverse();
     app.request_redraw(window);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("reordered selection should render");
     let selection = app
         .session()
@@ -3790,7 +3818,7 @@ fn selectable_virtual_list_reconciles_reorder_and_deleted_active_key() {
 
     keys.borrow_mut().retain(|key| *key != 3);
     app.request_redraw(window);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("selection should reconcile provider deletion");
     let selection = app
         .session()
@@ -3825,9 +3853,9 @@ fn virtual_selection_is_window_local_and_survives_runtime_snapshot_restore() {
     let second_window = app.session().windows()[1].id();
     let list = interaction::Id::new("window.selection");
     let size = geometry::Size::new(240, 100);
-    app.render_scene(first_window, size)
+    app.show_scene(first_window, size)
         .expect("first selection window should render");
-    app.render_scene(second_window, size)
+    app.show_scene(second_window, size)
         .expect("second selection window should render");
 
     app.pointer_down_at(first_window, size, geometry::Point::new(8, 30))
@@ -3851,9 +3879,9 @@ fn virtual_selection_is_window_local_and_survives_runtime_snapshot_restore() {
     app.pointer_down_at(first_window, size, geometry::Point::new(8, 70))
         .expect("first window should temporarily select row three");
     app.restore(snapshot);
-    app.render_scene(first_window, size)
+    app.show_scene(first_window, size)
         .expect("restored first selection window should render");
-    app.render_scene(second_window, size)
+    app.show_scene(second_window, size)
         .expect("restored second selection window should render");
     assert!(
         app.session()
@@ -3899,7 +3927,7 @@ fn virtual_selection_is_list_local_within_one_window() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 160);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("two selectable lists should render");
     let lists = initial.layout().find_role(view::Role::VirtualList);
     let first_viewport = lists[0].viewport().expect("first viewport").rect();
@@ -4360,7 +4388,7 @@ fn deferred_focus_outline_retains_its_generic_scroll_clip() {
     let size = geometry::Size::new(240, 100);
     assert!(app.focus(window, focus));
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("focused scroll should render");
     let scroll = first_scroll_frame(&initial);
     let viewport = scroll
@@ -4376,7 +4404,7 @@ fn deferred_focus_outline_retains_its_generic_scroll_clip() {
     .expect("scroll should be handled");
 
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("partly clipped focus should render");
     let focused = rendered
         .layout()
@@ -4397,7 +4425,7 @@ fn deferred_focus_outline_retains_its_generic_scroll_clip() {
     )
     .expect("second scroll should be handled");
     let fully_clipped = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("fully clipped focus should render");
     let focused = fully_clipped
         .layout()
@@ -4555,7 +4583,7 @@ fn viewport_max_scroll_reaches_last_placed_descendant() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 140);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("scroll scene should render");
     let scroll = initial
         .layout()
@@ -4577,7 +4605,7 @@ fn viewport_max_scroll_reaches_last_placed_descendant() {
     .expect("scroll input should be handled");
 
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("scroll scene should render after scroll");
     let scroll = rendered
         .layout()
@@ -4707,7 +4735,7 @@ fn generic_scroll_feedback_clamps_session_offset_after_present() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(220, 120);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("scroll view should render");
     let scroll = initial
         .layout()
@@ -4731,7 +4759,7 @@ fn generic_scroll_feedback_clamps_session_offset_after_present() {
         interaction::ScrollDelta::vertical(400),
     )
     .expect("scroll input should be handled");
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("scroll feedback should render");
 
     let offset = app
@@ -4816,7 +4844,7 @@ fn generic_scroll_pointer_drag_updates_viewport_offset() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(220, 120);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("scroll view should render");
     let scroll = initial
         .layout()
@@ -4851,7 +4879,7 @@ fn generic_scroll_pointer_drag_updates_viewport_offset() {
         .expect("scroll pointer down should be handled");
     app.pointer_drag_at(window, size, drag)
         .expect("scroll pointer drag should be handled");
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("scroll feedback should render");
 
     let offset = app
@@ -4940,7 +4968,7 @@ fn overlay_auto_hides_idle_appears_after_activity_and_fades_out() {
     let now = std::time::Instant::now();
 
     let idle = app
-        .render_scene_at(window, size, now)
+        .show_scene_at(window, size, now)
         .expect("idle scroll view should render");
     let scroll = first_scroll_frame(&idle);
     assert!(
@@ -4957,11 +4985,11 @@ fn overlay_auto_hides_idle_appears_after_activity_and_fades_out() {
     .expect("scroll should be handled");
 
     let activity_at = now + std::time::Duration::from_millis(10);
-    app.render_scene_at(window, size, activity_at)
+    app.show_scene_at(window, size, activity_at)
         .expect("activity frame should start scrollbar fade-in");
     let visible_at = activity_at + std::time::Duration::from_millis(260);
     let visible = app
-        .render_scene_at(window, size, visible_at)
+        .show_scene_at(window, size, visible_at)
         .expect("active scroll view should render");
     let scroll = first_scroll_frame(&visible);
     assert!(
@@ -4971,10 +4999,10 @@ fn overlay_auto_hides_idle_appears_after_activity_and_fades_out() {
 
     let fade_start =
         activity_at + std::time::Duration::from_millis(theme.scrollbar().appearance.fade_delay_ms);
-    app.render_scene_at(window, size, fade_start)
+    app.show_scene_at(window, size, fade_start)
         .expect("fade deadline should render");
     let faded = app
-        .render_scene_at(
+        .show_scene_at(
             window,
             size,
             fade_start
@@ -5000,7 +5028,7 @@ fn gutter_always_reserves_base_gutter_and_remains_visible() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(220, 120);
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("gutter scroll view should render");
     let scroll = first_scroll_frame(&rendered);
     let viewport = scroll.viewport().expect("scroll should expose viewport");
@@ -5028,7 +5056,7 @@ fn hover_thickness_does_not_change_scroll_layout_rects() {
     let size = geometry::Size::new(220, 120);
     let now = std::time::Instant::now();
     let initial = app
-        .render_scene_at(window, size, now)
+        .show_scene_at(window, size, now)
         .expect("scroll view should render");
     let initial_scroll = first_scroll_frame(&initial).rect();
     let initial_viewport = first_scroll_frame(&initial)
@@ -5047,7 +5075,7 @@ fn hover_thickness_does_not_change_scroll_layout_rects() {
     )
     .expect("hovering scrollbar should be handled");
     let hovered = app
-        .render_scene_at(window, size, now + std::time::Duration::from_millis(260))
+        .show_scene_at(window, size, now + std::time::Duration::from_millis(260))
         .expect("hovered scroll view should render");
     let hovered_scroll = first_scroll_frame(&hovered);
 
@@ -5075,7 +5103,7 @@ fn text_area_projects_scrollbars_like_generic_viewports() {
 
     let window = app.session().windows()[0].id();
     let rendered = app
-        .render_scene(window, geometry::Size::new(520, 180))
+        .show_scene(window, geometry::Size::new(520, 180))
         .expect("text editor should render");
     let text_area = rendered
         .layout()
@@ -5116,7 +5144,7 @@ fn text_area_scrollbar_hit_does_not_route_to_text_editing() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(520, 180);
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("text editor should render");
     let track = first_scrollbar_track(rendered.layout());
     let point = geometry::Point::new(
@@ -5248,7 +5276,7 @@ fn scrolled_out_content_is_not_interactive() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 160);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("initial clipped view should render");
     let scroll = first_scroll_frame(&initial);
     app.scroll_at(
@@ -5264,7 +5292,7 @@ fn scrolled_out_content_is_not_interactive() {
     )
     .expect("scroll should be handled");
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("scrolled view should render");
     let search = rendered
         .layout()
@@ -5311,7 +5339,7 @@ fn pointer_cursor_uses_text_for_editable_text_regions() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(280, 180);
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("cursor test should render");
     let text_box = rendered
         .layout()
@@ -5377,7 +5405,7 @@ fn pointer_cursor_uses_default_for_disabled_text_box() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(280, 90);
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("disabled cursor test should render");
     let label = rendered
         .layout()
@@ -5420,7 +5448,7 @@ fn pointer_cursor_uses_default_for_text_area_scrollbar_chrome() {
     let window = app.session().windows()[0].id();
     let size = text_editor::window_size();
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("text editor should render");
     let text_area = rendered
         .layout()
@@ -5452,7 +5480,7 @@ fn pointer_cursor_does_not_leak_through_palette_glass() {
     app.handle_input(window, input::Input::shortcut("Ctrl+Shift+P"))
         .expect("palette shortcut should open");
     let initial = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("open palette should render");
     let results = command_palette_results_frame(&initial);
     app.scroll_at(
@@ -5468,7 +5496,7 @@ fn pointer_cursor_does_not_leak_through_palette_glass() {
     )
     .expect("palette results should scroll");
     let scrolled = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("scrolled palette should render");
     let query = scrolled
         .layout()
@@ -5502,7 +5530,7 @@ fn pointer_cursor_keeps_text_during_captured_text_drag() {
     let window = app.session().windows()[0].id();
     let size = text_editor::window_size();
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("drag cursor test should render");
     let text_area = rendered
         .layout()
@@ -5555,7 +5583,7 @@ fn cursor_updates_drain_without_redraw() {
 
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(160, 80);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("initial scene should render");
     assert!(!app.session().window(window).unwrap().redraw_requested());
     assert!(app.set_pointer_cursor_for_test(window, pointer::Cursor::Text));
@@ -5668,12 +5696,12 @@ fn editable_caret_uses_text_input_caret_color() {
 
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 80);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("initial render should install composition");
     app.handle_input(window, Input::focus(focus))
         .expect("focus should be handled");
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("focused text box should render");
 
     assert!(rendered.scene().rules().iter().any(|rule| {
@@ -5690,12 +5718,12 @@ fn command_palette_search_box_wins_over_clipped_results() {
 
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(640, 420);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("initial palette app should render");
     app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
         .expect("palette shortcut should open");
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("open palette should render");
     let results = command_palette_results_frame(&initial);
     app.scroll_at(
@@ -5711,7 +5739,7 @@ fn command_palette_search_box_wins_over_clipped_results() {
     )
     .expect("palette results should scroll");
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("scrolled palette should render");
     let query = rendered
         .layout()
@@ -5755,7 +5783,7 @@ fn dismissed_palette_ghost_is_paint_only() {
     app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
         .expect("palette shortcut should open");
     let opened = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("open palette should render");
     let panel_rect = command_palette_panel_frame(&opened).rect();
     let revision = app.revision();
@@ -5775,7 +5803,7 @@ fn dismissed_palette_ghost_is_paint_only() {
     );
 
     let ghost = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("palette ghost should render after dismissal");
     assert_eq!(app.revision(), revision);
     assert!(
@@ -5807,7 +5835,7 @@ fn dismissed_palette_ghost_is_paint_only() {
     }
 
     let during_fade = app
-        .render_scene_at(
+        .show_scene_at(
             window,
             size,
             std::time::Instant::now()
@@ -5824,7 +5852,7 @@ fn dismissed_palette_ghost_is_paint_only() {
     );
 
     let expired = app
-        .render_scene_at(
+        .show_scene_at(
             window,
             size,
             std::time::Instant::now()
@@ -5852,7 +5880,7 @@ fn palette_results_scroll_id_is_not_painted() {
     app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
         .expect("palette shortcut should open");
     let rendered = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("open palette should render");
     let results = command_palette_results_frame(&rendered);
 
@@ -5881,7 +5909,7 @@ fn command_palette_section_headers_use_bold_caption_uppercase_presentation() {
     app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
         .expect("palette shortcut should open");
     let rendered = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("open palette should render");
     let theme = Theme::dark();
     let header = scene_text(rendered.scene(), "APPLICATION");
@@ -5928,7 +5956,7 @@ fn command_palette_rows_use_interface_shortcut_typography() {
     app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
         .expect("palette shortcut should open");
     let rendered = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("open palette should render");
     let command = scene_text(rendered.scene(), "Palette One");
     let row = rendered
@@ -5976,7 +6004,7 @@ fn command_palette_formats_shortcuts_with_active_keymap_profile() {
     app.handle_input(window, Input::shortcut("Primary+Shift+P"))
         .expect("mac palette shortcut should open");
     let rendered = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("open palette should render");
     let row = rendered
         .layout()
@@ -6026,10 +6054,10 @@ fn shortcut_display_style_changes_paint_and_measure_together() {
         .handle_input(text_window, Input::shortcut("Ctrl+Shift+P"))
         .expect("palette should open");
     let platform = platform_app
-        .render_scene_after_overlay_fade(platform_window, size)
+        .show_scene_after_overlay_fade(platform_window, size)
         .expect("platform palette should render");
     let text = text_app
-        .render_scene_after_overlay_fade(text_window, size)
+        .show_scene_after_overlay_fade(text_window, size)
         .expect("text palette should render");
     let platform_row = platform
         .layout()
@@ -6059,7 +6087,7 @@ fn command_palette_uses_panel_padding_and_content_gap() {
     app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
         .expect("palette shortcut should open");
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("open palette should render");
     let theme = Theme::dark();
     let panel = command_palette_panel_frame(&rendered);
@@ -6118,7 +6146,7 @@ fn command_palette_results_shrink_until_themed_cap_then_scroll() {
     app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
         .expect("palette shortcut should open");
     let many = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("open palette should render");
     let theme = Theme::dark();
     let many_results = command_palette_results_frame(&many);
@@ -6135,7 +6163,7 @@ fn command_palette_results_shrink_until_themed_cap_then_scroll() {
     app.handle_input(window, Input::text_commit("twelve"))
         .expect("typing should filter palette query");
     let few = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("filtered palette should render");
     let few_results = command_palette_results_frame(&few);
     let few_viewport = few_results
@@ -6159,7 +6187,7 @@ fn command_palette_uses_centered_max_envelope_placement() {
     app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
         .expect("palette shortcut should open");
     let expanded = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("open palette should render");
     let expanded_panel = command_palette_panel_frame(&expanded);
     let expanded_top = expanded_panel.rect().y();
@@ -6179,7 +6207,7 @@ fn command_palette_uses_centered_max_envelope_placement() {
     app.handle_input(window, Input::text_commit("twelve"))
         .expect("typing should filter palette query");
     let short = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("filtered palette should render");
     let short_panel = command_palette_panel_frame(&short);
 
@@ -6205,7 +6233,7 @@ fn arrow_selection_scrolls_palette_result_into_view() {
     }
 
     let rendered = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("palette should render after keyboard navigation");
     let results = command_palette_results_frame(&rendered);
     let selected = selected_palette_result_frame(&rendered);
@@ -6251,7 +6279,7 @@ fn palette_arrow_navigation_reaches_last_command() {
     }
 
     let rendered = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("palette should render after keyboard navigation");
     let results = command_palette_results_frame(&rendered);
     let selected = selected_palette_result_frame(&rendered);
@@ -6286,7 +6314,7 @@ fn palette_reveal_uses_selected_frame_rect() {
     }
 
     let rendered = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("palette should render after keyboard navigation");
     let results = command_palette_results_frame(&rendered);
     let selected = selected_palette_result_frame(&rendered);
@@ -6315,7 +6343,7 @@ fn palette_query_keeps_focus_while_active_result_moves() {
         Input::key_down(input::Key::ArrowDown, input::Modifiers::default()),
     )
     .expect("palette arrow navigation should be handled");
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("palette should render after keyboard navigation");
 
     assert_eq!(
@@ -6348,7 +6376,7 @@ fn active_descendant_reveal_request_clears_after_resolution() {
             .contains(&interaction::CommandPalette::results_target())
     );
 
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("palette should render after keyboard navigation");
 
     assert!(
@@ -6573,7 +6601,7 @@ fn scroll_target_at_ignores_clipped_viewports() {
     let size = geometry::Size::new(240, 180);
     scroll_outer_until_inner_overlaps_search(&mut app, window, size);
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("nested clipped scroll should render");
     let inner = scroll_frame_with_label(&rendered, "Inner Scroll");
     let point = rect_top_point(
@@ -6604,7 +6632,7 @@ fn fully_clipped_viewports_project_no_scrollbar_chrome() {
     let size = geometry::Size::new(240, 180);
     scroll_outer_until_inner_overlaps_search(&mut app, window, size);
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("nested clipped scroll should render");
     let inner = scroll_frame_with_label(&rendered, "Inner Scroll");
     let inner_target = inner
@@ -6635,12 +6663,12 @@ fn scrollbar_drag_does_not_dismiss_owning_palette() {
 
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(640, 420);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("initial palette app should render");
     app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
         .expect("palette shortcut should open");
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("open palette should render");
     let results = command_palette_results_frame(&initial);
     let target = results
@@ -6775,7 +6803,7 @@ fn runtime_host_pointer_coordinates_route_to_view_actions() {
 
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(800, 600);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("initial scene should install a composition");
 
     let hit = app
@@ -6823,7 +6851,7 @@ fn runtime_host_scroll_coordinates_route_to_scroll_target() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(800, 600);
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("initial scene should install a composition");
     let text_area = presentation
         .layout()
@@ -6853,7 +6881,7 @@ fn runtime_host_scroll_coordinates_route_to_scroll_target() {
     );
 
     let scrolled = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("scrolled scene should render");
     let text_area = scrolled
         .layout()
@@ -6889,7 +6917,7 @@ fn platform_wheel_down_scroll_moves_text_area_content_up() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(520, 180);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("initial scene should render");
     let initial_y = first_visible_text_area_surface_y(&initial);
     let text_area = initial
@@ -6919,7 +6947,7 @@ fn platform_wheel_down_scroll_moves_text_area_content_up() {
     );
 
     let scrolled = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("scrolled scene should render");
     let scrolled_y = first_visible_text_area_surface_y(&scrolled);
     let scroll_y = scrolled
@@ -6946,7 +6974,7 @@ fn text_area_render_writes_back_clamped_scroll_offset() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(800, 600);
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("initial scene should install a composition");
     let text_area = presentation
         .layout()
@@ -6977,7 +7005,7 @@ fn text_area_render_writes_back_clamped_scroll_offset() {
     );
 
     let clamped = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("clamped scene should render");
 
     assert_eq!(
@@ -7033,7 +7061,7 @@ fn text_area_caret_reveal_resolves_framework_owned_scroll_after_edit() {
         .focus()
         .expect("text area should declare focus");
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("initial scene should install a composition");
     let text_area = presentation
         .layout()
@@ -7074,7 +7102,7 @@ fn text_area_caret_reveal_resolves_framework_owned_scroll_after_edit() {
     assert!(moved.effect().contains_invalidation());
 
     let revealed = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("revealed scene should render");
 
     assert_eq!(
@@ -7177,7 +7205,7 @@ fn text_area_selection_highlight_is_clipped_to_text_area_viewport() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(520, 180);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("initial scene should render");
     let text_area = initial
         .layout()
@@ -7195,7 +7223,7 @@ fn text_area_selection_highlight_is_clipped_to_text_area_viewport() {
         .expect("scroll should route to text area");
 
     let scrolled = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("scrolled scene should render");
     let text_area_rect = scrolled
         .layout()
@@ -7250,7 +7278,7 @@ fn text_area_selection_highlight_paints_below_menu_bar_chrome() {
 
     let window = app.session().windows()[0].id();
     let rendered = app
-        .render_scene(window, geometry::Size::new(520, 180))
+        .show_scene(window, geometry::Size::new(520, 180))
         .expect("selected text area should render");
     let primitives = rendered.scene().primitives();
     let menu_bar_rect = rendered
@@ -7312,7 +7340,7 @@ fn text_editor_wrap_command_changes_text_area_paint_wrap() {
 
     let window = app.session().windows()[0].id();
     let wrapped = app
-        .render_scene(window, geometry::Size::new(320, 180))
+        .show_scene(window, geometry::Size::new(320, 180))
         .expect("wrapped scene should render");
 
     assert_eq!(
@@ -7330,7 +7358,7 @@ fn text_editor_wrap_command_changes_text_area_paint_wrap() {
         .expect("wrap toggle should resolve");
 
     let unwrapped = app
-        .render_scene(window, geometry::Size::new(320, 180))
+        .show_scene(window, geometry::Size::new(320, 180))
         .expect("unwrapped scene should render");
 
     assert_eq!(
@@ -7450,7 +7478,7 @@ fn choice_marks_paint_pressed_tint_above_mark_without_label_overlay() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(320, 120);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("choice view should render");
     let checkbox = initial
         .layout()
@@ -7465,7 +7493,7 @@ fn choice_marks_paint_pressed_tint_above_mark_without_label_overlay() {
         .expect("checkbox pointer down should be handled");
     assert!(checkbox_down.is_handled());
     let checkbox_pressed = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("checkbox pressed state should render");
     let pressed_checkbox = checkbox_pressed
         .layout()
@@ -7480,7 +7508,7 @@ fn choice_marks_paint_pressed_tint_above_mark_without_label_overlay() {
     app.handle_input(window, Input::cancel())
         .expect("cancel should reset checkbox pressed state");
     let released = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("choice view should render after checkbox release");
     let radio = released
         .layout()
@@ -7495,7 +7523,7 @@ fn choice_marks_paint_pressed_tint_above_mark_without_label_overlay() {
         .expect("radio pointer down should be handled");
     assert!(radio_down.is_handled());
     let radio_pressed = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("radio pressed state should render");
     let pressed_radio = radio_pressed
         .layout()
@@ -7671,7 +7699,7 @@ fn menu_bar_labels_are_center_aligned() {
 
     let window = app.session().windows()[0].id();
     let rendered = app
-        .render_scene(window, geometry::Size::new(520, 180))
+        .show_scene(window, geometry::Size::new(520, 180))
         .expect("text editor should render");
     let file = rendered
         .scene()
@@ -7703,7 +7731,7 @@ fn open_menu_projects_menu_bar_state_without_popup_title_text() {
         .expect("menu action should be handled");
 
     let rendered = app
-        .render_scene_after_overlay_fade(window, geometry::Size::new(800, 600))
+        .show_scene_after_overlay_fade(window, geometry::Size::new(800, 600))
         .expect("open file menu should render");
     assert_eq!(
         rendered
@@ -7724,7 +7752,7 @@ fn control_gallery_example_renders_interactive_widget_scene() {
 
     let window = app.session().windows()[0].id();
     let rendered = app
-        .render_scene(window, geometry::Size::new(760, 520))
+        .show_scene(window, geometry::Size::new(760, 520))
         .expect("control gallery should render");
     let scene = rendered.scene();
 
@@ -7759,7 +7787,7 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 660);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("gallery record table should render");
     assert!(
         initial
@@ -7860,7 +7888,7 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
         crate::table::SortDirection::Descending
     );
     let sorted = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("application-updated provider order should render");
     let descending_header = sorted
         .layout()
@@ -7904,7 +7932,7 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
         crate::table::SortDirection::Ascending
     );
     let enabled_ascending = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("ascending Boolean order should render");
     let first_enabled = enabled_ascending
         .layout()
@@ -7939,7 +7967,7 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
     app.pointer_up_at(window, size, enabled_point)
         .expect("active Enabled header should emit descending sort intent");
     let enabled_descending = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("descending Boolean order should render");
     let first_enabled = enabled_descending
         .layout()
@@ -8000,7 +8028,7 @@ fn expanded_sort_header_stays_single_line_beside_a_trailing_active_chevron() {
     app.start();
     let window = app.session().windows()[0].id();
     let rendered = app
-        .render_scene(window, geometry::Size::new(120, 160))
+        .show_scene(window, geometry::Size::new(120, 160))
         .expect("expanded sortable header should render");
     let header = rendered
         .layout()
@@ -8058,7 +8086,7 @@ fn expanded_sort_header_stays_single_line_beside_a_trailing_active_chevron() {
     app.pointer_up_at(window, geometry::Size::new(120, 160), narrower)
         .expect("header resize should release");
     let resized = app
-        .render_scene(window, geometry::Size::new(120, 160))
+        .show_scene(window, geometry::Size::new(120, 160))
         .expect("resized expanded header");
     let resized_header = resized
         .layout()
@@ -8081,9 +8109,7 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
     app.start();
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 700);
-    let compact = app
-        .render_scene(window, size)
-        .expect("compact gallery table");
+    let compact = app.show_scene(window, size).expect("compact gallery table");
     let compact_tracks = compact
         .layout()
         .table_tracks()
@@ -8187,7 +8213,7 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
     assert!(app.state().expanded_rows);
 
     let expanded = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("expanded gallery table");
     let expanded_tracks = expanded
         .layout()
@@ -8290,7 +8316,7 @@ fn table_mode_toggle_preserves_pinned_active_editor_through_scroll_resize_and_re
         crate::virtual_list::Key::new(0),
         interaction::Id::new("note"),
     );
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("compact gallery table should render");
     app.handle_input(
         window,
@@ -8306,7 +8332,7 @@ fn table_mode_toggle_preserves_pinned_active_editor_through_scroll_resize_and_re
         .expect("active note editor should accept a draft");
 
     let editing = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("active compact editor should render");
     let editor = editing
         .layout()
@@ -8328,7 +8354,7 @@ fn table_mode_toggle_preserves_pinned_active_editor_through_scroll_resize_and_re
     )
     .expect("short table viewport should scroll");
     let scrolled = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("pinned editor should survive scrolling");
     let pinned = scrolled
         .layout()
@@ -8344,7 +8370,7 @@ fn table_mode_toggle_preserves_pinned_active_editor_through_scroll_resize_and_re
         state.expanded_rows = true;
     });
     let expanded = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("expanded table should retain the active editor");
     let expanded_editor = expanded
         .layout()
@@ -8389,7 +8415,7 @@ fn table_mode_toggle_preserves_pinned_active_editor_through_scroll_resize_and_re
     app.request_redraw(window);
 
     let rebuilt = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("resized expanded table should rebuild");
     let rebuilt_editor = rebuilt
         .layout()
@@ -8440,7 +8466,7 @@ fn table_participation_changes_chrome_without_changing_control_behavior() {
     let window = gallery.session().windows()[0].id();
     let size = geometry::Size::new(760, 660);
     let rendered = gallery
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("gallery table should render");
     let theme = Theme::default();
 
@@ -8540,7 +8566,7 @@ fn table_participation_changes_chrome_without_changing_control_behavior() {
         interaction::Id::new("name"),
     );
     let idle = editable
-        .render_scene(editable_window, editable_size)
+        .show_scene(editable_window, editable_size)
         .expect("idle editor should render");
     let idle_editor = idle
         .layout()
@@ -8561,7 +8587,7 @@ fn table_participation_changes_chrome_without_changing_control_behavior() {
         )
         .expect("editor should focus");
     let focused_display = editable
-        .render_scene(editable_window, editable_size)
+        .show_scene(editable_window, editable_size)
         .expect("focused display cell should render");
     let focused_cell = focused_display
         .layout()
@@ -8577,7 +8603,7 @@ fn table_participation_changes_chrome_without_changing_control_behavior() {
         )
         .expect("F2 should enter the focused cell");
     let focused = editable
-        .render_scene(editable_window, editable_size)
+        .show_scene(editable_window, editable_size)
         .expect("active editor should render");
     let focused_editor = focused
         .layout()
@@ -8606,7 +8632,7 @@ fn typed_boolean_table_cells_project_value_and_keep_native_toggle_grammar() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 900);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("control gallery table should render");
     let enabled = initial
         .layout()
@@ -8629,7 +8655,7 @@ fn typed_boolean_table_cells_project_value_and_keep_native_toggle_grammar() {
     assert_eq!(app.state().record_enabled.get(&0), Some(&false));
 
     let unchecked = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("unchecked value should reproject");
     assert!(unchecked.layout().frames().iter().any(|frame| {
         frame.table_cell().is_some_and(|cell| {
@@ -8653,7 +8679,7 @@ fn control_gallery_choice_labels_are_single_line_row_content() {
 
     let window = app.session().windows()[0].id();
     let rendered = app
-        .render_scene(window, geometry::Size::new(760, 520))
+        .show_scene(window, geometry::Size::new(760, 520))
         .expect("control gallery should render");
 
     for (role, label) in [
@@ -8705,7 +8731,7 @@ fn menu_popup_rows_use_row_layout_for_labels_shortcuts_and_separators() {
         .expect("menu action should be handled");
 
     let rendered = app
-        .render_scene_after_overlay_fade(window, geometry::Size::new(800, 600))
+        .show_scene_after_overlay_fade(window, geometry::Size::new(800, 600))
         .expect("open file menu should render");
     let exit = rendered
         .layout()
@@ -8853,10 +8879,10 @@ fn menu_popup_width_uses_active_keymap_profile_for_shortcut_measurement() {
         .handle_view(mac_window, mac_menu)
         .expect("mac menu action should open");
     let windows = windows_app
-        .render_scene(windows_window, size)
+        .show_scene(windows_window, size)
         .expect("windows menu should render");
     let mac = mac_app
-        .render_scene(mac_window, size)
+        .show_scene(mac_window, size)
         .expect("mac menu should render");
     let windows_popup = windows
         .layout()
@@ -8915,7 +8941,7 @@ fn menu_popup_opens_under_its_menu_title() {
         .expect("view menu action should open the menu");
 
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("open view menu should render");
     let view_menu = rendered
         .layout()
@@ -8944,7 +8970,7 @@ fn menu_titles_paint_hover_pressed_and_active_tints() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 520);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("control gallery should render");
     let menu = initial
         .layout()
@@ -8963,7 +8989,7 @@ fn menu_titles_paint_hover_pressed_and_active_tints() {
     app.pointer_move_at(window, size, point)
         .expect("menu pointer move should be handled");
     let hovered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("hovered menu should render");
     assert_tint_quad(
         hovered.scene(),
@@ -8974,7 +9000,7 @@ fn menu_titles_paint_hover_pressed_and_active_tints() {
     app.pointer_down_at(window, size, point)
         .expect("menu pointer down should be handled");
     let pressed = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("pressed menu should render");
     assert_tint_quad(
         pressed.scene(),
@@ -8985,7 +9011,7 @@ fn menu_titles_paint_hover_pressed_and_active_tints() {
     app.pointer_up_at(window, size, point)
         .expect("menu pointer up should be handled");
     let active = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("open menu should render active title");
     assert_tint_quad(
         active.scene(),
@@ -9003,7 +9029,7 @@ fn menu_popup_rows_paint_hover_tint_from_pointer_projection() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(800, 600);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("text editor should render");
     let file = initial
         .layout()
@@ -9018,7 +9044,7 @@ fn menu_popup_rows_paint_hover_tint_from_pointer_projection() {
     app.pointer_up_at(window, size, file_point)
         .expect("file menu pointer up should open the menu");
     let opened = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("open file menu should render");
     let new_row = opened
         .layout()
@@ -9044,7 +9070,7 @@ fn menu_popup_rows_paint_hover_tint_from_pointer_projection() {
     assert!(moved.effect().contains_invalidation());
 
     let hovered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("hovered popup row should render");
     let after_hover = app
         .diagnostics(window)
@@ -9093,7 +9119,7 @@ fn checked_menu_popup_rows_do_not_paint_active_tint() {
         .expect("view menu action should open the menu");
 
     let opened = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("open view menu should render");
     let wrap = opened
         .layout()
@@ -9125,7 +9151,7 @@ fn focus_outline_uses_frame_rounding() {
 
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 520);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("control gallery should render before focus");
     app.handle_input(
         window,
@@ -9134,7 +9160,7 @@ fn focus_outline_uses_frame_rounding() {
     .expect("tab should focus first menu");
 
     let focused = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("focused menu should render");
     let frame = focused
         .layout()
@@ -9174,7 +9200,7 @@ fn popup_focus_outline_retains_popup_local_rounded_clip() {
         .expect("file menu should open");
 
     let opened = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("open menu should render");
     let target = opened
         .layout()
@@ -9187,7 +9213,7 @@ fn popup_focus_outline_retains_popup_local_rounded_clip() {
     assert!(app.focus(window, session::Focus::control(&target).keyboard()));
 
     let focused = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("focused popup should render");
     let frame = focused
         .layout()
@@ -9615,7 +9641,7 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
     let window = app.session().windows()[0].id();
     let size = glass_tuner::window_size();
     let initial = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("glass tuner should render");
     let panel = initial
         .layout()
@@ -9665,7 +9691,7 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
     .expect("set noise opacity should succeed");
 
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("glass tuner should render after acrylic tuning");
     let tuned_pane =
         scene_pane_at(rendered.scene(), panel.rect()).expect("tuned panel should paint a pane");
@@ -9714,7 +9740,7 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
         .output
         .expect("toggle panel should succeed");
     let hidden = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("hidden glass tuner should render");
     assert!(
         hidden
@@ -9724,7 +9750,7 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
         "hidden glass tuner should remove the live panel immediately"
     );
     let expired = app
-        .render_scene_at(
+        .show_scene_at(
             window,
             size,
             std::time::Instant::now()
@@ -9745,7 +9771,7 @@ fn glass_tuner_force_promoted_comparison_renders_group_at_rest() {
     let window = app.session().windows()[0].id();
     let size = glass_tuner::window_size();
     let initial = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("glass tuner should render");
     assert_eq!(top_level_group_count(initial.scene()), 0);
 
@@ -9756,7 +9782,7 @@ fn glass_tuner_force_promoted_comparison_renders_group_at_rest() {
         .output
         .expect("toggle forced promotion should succeed");
     let forced = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("forced comparison should render");
 
     assert!(
@@ -9779,7 +9805,7 @@ fn glass_tuner_comparison_emits_half_alpha_popup_witness_quad() {
         .output
         .expect("toggle comparison should succeed");
     let rendered = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("comparison should render");
 
     assert!(
@@ -10119,7 +10145,7 @@ fn scroll_outer_until_inner_overlaps_search(
     size: geometry::Size,
 ) {
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("nested scroll should render");
     let outer = scroll_frame_with_label(&initial, "Outer Scroll");
     app.scroll_at(

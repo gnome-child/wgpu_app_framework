@@ -45,6 +45,25 @@ fn skipped_presentation_retains_visible_geometry_and_retries_the_same_epoch() {
     );
     assert!(app.session().window(window).unwrap().redraw_requested());
 
+    let candidate_point = candidate
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.target().is_some())
+        .map(frame_point)
+        .expect("candidate should contain an interactive frame");
+    let input = app
+        .pointer_down_at(window, size, candidate_point)
+        .expect("input without presented geometry should remain a valid no-op");
+    assert!(!input.is_handled());
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().pressed()),
+        None,
+        "prepared geometry must not become an input surface before a successful receipt"
+    );
+
     let retry = app
         .render_scene(window, size)
         .expect("pending invalidation should prepare a retry");
@@ -59,8 +78,65 @@ fn skipped_presentation_retains_visible_geometry_and_retries_the_same_epoch() {
 
     assert_eq!(app.acknowledged_presentation_epoch(window), Some(epoch));
     assert_eq!(
-        app.presented_layout(window).map(layout::Layout::size),
+        app.presented_layout(window)
+            .as_deref()
+            .map(layout::Layout::size),
         Some(size)
+    );
+}
+
+#[test]
+fn skipped_candidate_geometry_never_replaces_the_visible_hit_surface() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let visible_size = geometry::Size::new(760, 260);
+    let candidate_size = geometry::Size::new(760, 700);
+    let visible = app
+        .render_scene(window, visible_size)
+        .expect("visible frame should prepare");
+    app.finish_render_report(
+        window,
+        visible.epoch(),
+        visible.invalidation(),
+        visible.layout(),
+        successful_render_report(),
+    );
+    let visible_layout = app
+        .presented_layout(window)
+        .expect("successful receipt should install visible geometry");
+
+    app.request_redraw(window);
+    let candidate = app
+        .render_scene(window, candidate_size)
+        .expect("larger candidate should prepare");
+    let candidate_point = candidate
+        .layout()
+        .frames()
+        .iter()
+        .filter(|frame| frame.target().is_some())
+        .map(frame_point)
+        .find(|point| {
+            point.y() >= visible_size.height() as i32
+                && candidate.layout().hit_test(*point).is_some()
+                && visible_layout.hit_test(*point).is_none()
+        })
+        .expect("larger candidate should expose an interactive point below the visible frame");
+    app.finish_render_report(
+        window,
+        candidate.epoch(),
+        candidate.invalidation(),
+        candidate.layout(),
+        successful_render_report().with_presented(false),
+    );
+
+    let retained = app
+        .presented_layout(window)
+        .expect("skipped frame should retain prior visible geometry");
+    assert!(std::sync::Arc::ptr_eq(&visible_layout, &retained));
+    assert!(
+        app.hit_test(window, candidate_size, candidate_point)
+            .is_none()
     );
 }
 
@@ -100,7 +176,9 @@ fn older_successful_receipt_cannot_replace_newer_presented_geometry() {
         Some(newer.epoch())
     );
     assert_eq!(
-        app.presented_layout(window).map(layout::Layout::size),
+        app.presented_layout(window)
+            .as_deref()
+            .map(layout::Layout::size),
         Some(newer_size)
     );
 }

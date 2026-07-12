@@ -20,11 +20,13 @@ fn host_window_event_mapper_routes_common_window_events() {
         },
     ))
     .expect("resize should update pending geometry");
-    host.handle_event(host::Event::window(
-        window,
-        host::WindowEvent::RedrawRequested,
-    ))
-    .expect("redraw should present resized geometry");
+    let presented = host
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("redraw should present resized geometry");
+    acknowledge_host_work(&mut host, &presented);
 
     let (target, point) = {
         let text_area = host

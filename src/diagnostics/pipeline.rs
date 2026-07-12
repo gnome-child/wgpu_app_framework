@@ -35,6 +35,7 @@ impl Pipeline {
         self.view_rebuild.record(duration.as_micros());
     }
 
+    #[cfg(test)]
     pub(crate) fn record_routing_layout(&mut self, duration: Duration) {
         self.routing_layouts += 1;
         self.routing_layout.record(duration.as_micros());

@@ -802,7 +802,7 @@ fn open_view_menu_and_wrap_command_point(
 ) -> geometry::Point {
     let view_menu_point = {
         let presentation = app
-            .render_scene(window, size)
+            .show_scene(window, size)
             .expect("initial scene should install a composition");
         let view_menu = presentation
             .layout()
@@ -820,7 +820,7 @@ fn open_view_menu_and_wrap_command_point(
         .expect("view menu pointer up should be handled");
 
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("open view menu should install a composition");
     let wrap_command = presentation
         .layout()
@@ -837,6 +837,30 @@ fn frame_point(frame: &layout::Frame) -> geometry::Point {
     geometry::Point::new(rect.x() + 1, rect.y() + 1)
 }
 
+fn acknowledge_shell_work<M, E>(shell: &mut Shell<M, E>, work: &shell::Work)
+where
+    M: State,
+    E: Send + 'static,
+{
+    for presentation in work.presentations() {
+        shell.runtime_mut().finish_render_report(
+            presentation.window(),
+            presentation.epoch(),
+            presentation.invalidation(),
+            presentation.layout(),
+            diagnostics::RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
+        );
+    }
+}
+
+fn acknowledge_host_work<M, E>(host: &mut Host<M, E>, work: &shell::Work)
+where
+    M: State,
+    E: Send + 'static,
+{
+    acknowledge_shell_work(host.shell_mut(), work);
+}
+
 fn pointer_down_then_present<M, E>(
     app: &mut Runtime<M, E, View>,
     window: window::Id,
@@ -850,7 +874,7 @@ where
     let outcome = app
         .pointer_down_at(window, size, point)
         .expect("pointer down should be handled");
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("native loop presents after pointer down");
     outcome
 }
@@ -868,7 +892,7 @@ where
     let outcome = app
         .pointer_move_at(window, size, point)
         .expect("pointer move should be handled");
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("native loop presents after pointer move");
     outcome
 }
@@ -886,7 +910,7 @@ where
     let outcome = app
         .pointer_up_at(window, size, point)
         .expect("pointer up should be handled");
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("native loop presents after pointer up");
     outcome
 }

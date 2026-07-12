@@ -253,7 +253,8 @@ fn command_bound_controls_use_node_identity_for_press_release_matching() {
 
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 120);
-    app.present(window).expect("window should have a view");
+    app.show_scene(window, size)
+        .expect("window should have presented geometry");
 
     app.pointer_down_at(window, size, geometry::Point::new(10, 10))
         .expect("first button should receive pointer down");

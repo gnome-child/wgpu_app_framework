@@ -282,7 +282,7 @@ fn focused_text_area_renders_focus_outline_and_controls_caret_visibility() {
         .focus()
         .expect("text area should expose a focus target");
     let unfocused = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("unfocused scene should render");
     let text_area = unfocused
         .layout()
@@ -304,7 +304,7 @@ fn focused_text_area_renders_focus_outline_and_controls_caret_visibility() {
         .expect("focus should be handled");
 
     let focused = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("focused scene should render");
     let focused_text_area = focused
         .layout()

@@ -651,7 +651,7 @@ mod tests {
         let theme = Theme::default();
         let start = Instant::now();
         let initial = app
-            .render_scene_at(window, size, start)
+            .show_scene_at(window, size, start)
             .expect("slider should render");
         let slider = initial
             .layout()
@@ -665,7 +665,7 @@ mod tests {
         app.pointer_move_at(window, size, hover)
             .expect("hovering the slider should be handled");
         let settled = app
-            .render_scene_at(window, size, start + Duration::from_millis(180))
+            .show_scene_at(window, size, start + Duration::from_millis(180))
             .expect("settled slider should render");
         let track_color = super::super::color::paint_color(theme.slider().track);
         for scale in [1.0, 1.25, 1.5] {
@@ -721,7 +721,7 @@ mod tests {
         let theme = Theme::default();
         let start = Instant::now();
         let initial = app
-            .render_scene_at(window, size, start)
+            .show_scene_at(window, size, start)
             .expect("slider should render");
         let slider = initial
             .layout()
@@ -734,10 +734,10 @@ mod tests {
 
         app.pointer_move_at(window, size, hover)
             .expect("hovering the slider should be handled");
-        app.render_scene_at(window, size, start)
+        app.show_scene_at(window, size, start)
             .expect("hovered slider should start transition");
         let mid = app
-            .render_scene_at(window, size, start + Duration::from_millis(90))
+            .show_scene_at(window, size, start + Duration::from_millis(90))
             .expect("mid-animation slider should render");
         let scale = 1.25;
         let grid = paint::Grid::new(scale);
@@ -768,7 +768,7 @@ mod tests {
         let size = glass_tuner::window_size();
         let start = Instant::now();
         let initial = app
-            .render_scene_at(window, size, start)
+            .show_scene_at(window, size, start)
             .expect("glass tuner should render");
         let slider = initial
             .layout()
@@ -782,10 +782,10 @@ mod tests {
 
         app.pointer_move_at(window, size, hover)
             .expect("hovering a glass tuner slider should be handled");
-        app.render_scene_at(window, size, start)
+        app.show_scene_at(window, size, start)
             .expect("hovered glass tuner should start transition");
         let mid = app
-            .render_scene_at(window, size, start + Duration::from_millis(90))
+            .show_scene_at(window, size, start + Duration::from_millis(90))
             .expect("mid-animation glass tuner should render");
         let paint = to_paint_scene_at_scale(mid.scene(), 1.25);
 
@@ -852,7 +852,7 @@ mod tests {
 
         let window = app.session().windows()[0].id();
         let size = geometry::Size::new(760, 520);
-        app.render_scene(window, size)
+        app.show_scene(window, size)
             .expect("control gallery should render before focus");
         app.handle_input(
             window,
@@ -861,7 +861,7 @@ mod tests {
         .expect("tab should focus first control");
 
         let focused = app
-            .render_scene(window, size)
+            .show_scene(window, size)
             .expect("focused control should render");
         let frame = focused
             .layout()
@@ -913,7 +913,7 @@ mod tests {
             .expect("text box focus should be handled");
 
         let focused = app
-            .render_scene(window, size)
+            .show_scene(window, size)
             .expect("focused text box should render");
         let paint = to_paint_scene_at_scale(focused.scene(), 1.5);
         let expected_brush = paint::Brush::solid(super::super::color::paint_color(
@@ -976,7 +976,7 @@ mod tests {
         let size = geometry::Size::new(240, 100);
         assert!(app.focus(window, focus));
         let initial = app
-            .render_scene(window, size)
+            .show_scene(window, size)
             .expect("focused scroll should render");
         let viewport = initial
             .layout()
@@ -997,7 +997,7 @@ mod tests {
         )
         .expect("scroll should be handled");
         let focused = app
-            .render_scene(window, size)
+            .show_scene(window, size)
             .expect("partly clipped focus should render");
         let focus_brush = paint::Brush::solid(super::super::color::paint_color(
             Theme::default().focus().color,
@@ -1036,7 +1036,7 @@ mod tests {
 
         let window = app.session().windows()[0].id();
         let initial = app
-            .render_scene(window, geometry::Size::new(760, 700))
+            .show_scene(window, geometry::Size::new(760, 700))
             .expect("expanded gallery table should render");
         let count = initial
             .layout()
@@ -1065,7 +1065,7 @@ mod tests {
         app.pointer_up_at(window, geometry::Size::new(760, 700), end)
             .expect("Count divider should release");
         let rendered = app
-            .render_scene(window, geometry::Size::new(760, 700))
+            .show_scene(window, geometry::Size::new(760, 700))
             .expect("resized expanded gallery table should render");
         assert!(rendered.layout().table_tracks().iter().any(|track| {
             track

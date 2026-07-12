@@ -880,6 +880,27 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     }
 
     #[cfg(test)]
+    pub(crate) fn show_scene(
+        &mut self,
+        window: window::Id,
+        size: geometry::Size,
+    ) -> Option<scene::Presentation> {
+        let presentation = self.render_scene(window, size)?;
+        self.finish_render_report(
+            window,
+            presentation.epoch(),
+            presentation.invalidation(),
+            presentation.layout(),
+            crate::diagnostics::RenderReport::new(
+                std::time::Duration::ZERO,
+                std::time::Duration::ZERO,
+                Instant::now(),
+            ),
+        );
+        Some(presentation)
+    }
+
+    #[cfg(test)]
     pub(crate) fn render_scene_after_overlay_fade(
         &mut self,
         window: window::Id,
@@ -892,6 +913,27 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 
         self.render_scene_at(window, size, started_at)?;
         self.render_scene_at(window, size, settled_at)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show_scene_after_overlay_fade(
+        &mut self,
+        window: window::Id,
+        size: geometry::Size,
+    ) -> Option<scene::Presentation> {
+        let presentation = self.render_scene_after_overlay_fade(window, size)?;
+        self.finish_render_report(
+            window,
+            presentation.epoch(),
+            presentation.invalidation(),
+            presentation.layout(),
+            crate::diagnostics::RenderReport::new(
+                std::time::Duration::ZERO,
+                std::time::Duration::ZERO,
+                Instant::now(),
+            ),
+        );
+        Some(presentation)
     }
 
     pub(crate) fn render_scene_at(
@@ -912,6 +954,28 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         )?;
 
         Some(prepared.realize().presentation)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show_scene_at(
+        &mut self,
+        window: window::Id,
+        size: geometry::Size,
+        now: Instant,
+    ) -> Option<scene::Presentation> {
+        let presentation = self.render_scene_at(window, size, now)?;
+        self.finish_render_report(
+            window,
+            presentation.epoch(),
+            presentation.invalidation(),
+            presentation.layout(),
+            crate::diagnostics::RenderReport::new(
+                std::time::Duration::ZERO,
+                std::time::Duration::ZERO,
+                Instant::now(),
+            ),
+        );
+        Some(presentation)
     }
 
     pub(crate) fn render_pending(
@@ -957,24 +1021,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     pub(crate) fn hit_test(
         &mut self,
         window: window::Id,
-        size: geometry::Size,
+        _size: geometry::Size,
         point: geometry::Point,
     ) -> Option<layout::Hit> {
-        let theme = self.active_theme();
-        let frame = animation::Frame::new(Instant::now());
-        if let Some(layout) = self.cached_layout(window, size, &theme) {
-            self.record_layout_reuse(window);
-            return layout.hit_test(point);
-        }
-
-        let started_at = Instant::now();
-        let layout = self.compose_layout_for_scene(window, size, &theme, frame)?;
-        self.diagnostics
-            .get_mut(window)
-            .pipeline
-            .record_routing_layout(started_at.elapsed());
-        self.record_layout_diagnostics(window, &layout);
-        self.cache_layout(window, size, &theme, &layout);
+        let layout = self.presented_layout(window)?;
         layout.hit_test(point)
     }
 }

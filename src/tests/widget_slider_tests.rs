@@ -26,7 +26,7 @@ fn slider_on_change_invokes_command_with_layout_derived_value() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 80);
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("slider view should render");
     let slider = presentation
         .layout()
@@ -108,7 +108,7 @@ fn captured_slider_drag_coalesces_into_one_undo_entry() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 80);
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("slider view should render");
     let slider = presentation
         .layout()
@@ -173,10 +173,10 @@ fn closing_mid_drag_purges_window_residues_and_releases_history_gesture() {
     let remaining = app.session().windows()[1].id();
     let size = geometry::Size::new(240, 80);
     let departing_scene = app
-        .render_scene(departing, size)
+        .show_scene(departing, size)
         .expect("departing slider should render");
     let track = slider_track_rect(only_slider(departing_scene.layout()));
-    app.render_scene(remaining, size)
+    app.show_scene(remaining, size)
         .expect("remaining slider should render");
     let quarter = geometry::Point::new(track.x() + track.width() / 4, track.y() + 1);
 
@@ -213,7 +213,7 @@ fn closing_mid_drag_purges_window_residues_and_releases_history_gesture() {
     );
 
     let remaining_scene = app
-        .render_scene(remaining, size)
+        .show_scene(remaining, size)
         .expect("remaining slider should refresh");
     let remaining_track = slider_track_rect(only_slider(remaining_scene.layout()));
     let end = geometry::Point::new(remaining_track.right() - 1, remaining_track.y() + 1);
@@ -257,7 +257,7 @@ fn slider_trigger_with_maps_layout_value_into_custom_command_args() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 80);
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("mapped slider view should render");
     let slider = presentation
         .layout()
@@ -307,7 +307,7 @@ fn slider_hover_animates_track_transform_without_tint_or_layout_shift() {
     let size = geometry::Size::new(240, 80);
     let start = Instant::now();
     let initial = app
-        .render_scene_at(window, size, start)
+        .show_scene_at(window, size, start)
         .expect("slider should render");
     let initial_slider = only_slider(initial.layout());
     let initial_rect = initial_slider.rect();
@@ -332,7 +332,7 @@ fn slider_hover_animates_track_transform_without_tint_or_layout_shift() {
     );
 
     let hovered = app
-        .render_scene_at(window, size, start)
+        .show_scene_at(window, size, start)
         .expect("hovered slider should render");
     let hovered_slider = only_slider(hovered.layout());
     let after_hover = app
@@ -363,7 +363,7 @@ fn slider_hover_animates_track_transform_without_tint_or_layout_shift() {
     assert!(after_hover.layout_reuses > before_hover.layout_reuses);
 
     let mid = app
-        .render_scene_at(window, size, start + Duration::from_millis(90))
+        .show_scene_at(window, size, start + Duration::from_millis(90))
         .expect("mid-animation slider should render");
     let mid_scale = track_scale_y(mid.scene(), track);
     assert!(mid_scale > 1.0 && mid_scale < 1.5);
@@ -376,7 +376,7 @@ fn slider_hover_animates_track_transform_without_tint_or_layout_shift() {
     assert_eq!(thumb_transform_scale_y(mid.scene(), hovered_slider), 1.0);
 
     let settled = app
-        .render_scene_at(window, size, start + Duration::from_millis(180))
+        .show_scene_at(window, size, start + Duration::from_millis(180))
         .expect("settled hovered slider should render");
     assert_approx_eq_f32(track_scale_y(settled.scene(), track), 1.5);
     assert_eq!(track_motion(settled.scene(), track), scene::Motion::Resting);
@@ -385,7 +385,7 @@ fn slider_hover_animates_track_transform_without_tint_or_layout_shift() {
     app.pointer_move_at(window, size, geometry::Point::new(239, 79))
         .expect("leaving the slider should be handled");
     let leaving = app
-        .render_scene_at(window, size, start + Duration::from_millis(180))
+        .show_scene_at(window, size, start + Duration::from_millis(180))
         .expect("leaving slider should render");
     assert_approx_eq_f32(track_scale_y(leaving.scene(), track), 1.5);
     assert_eq!(track_motion(leaving.scene(), track), scene::Motion::Moving);
@@ -400,7 +400,7 @@ fn slider_hover_animates_track_transform_without_tint_or_layout_shift() {
     );
 
     let idle = app
-        .render_scene_at(window, size, start + Duration::from_millis(360))
+        .show_scene_at(window, size, start + Duration::from_millis(360))
         .expect("idle slider should render");
     assert_approx_eq_f32(track_scale_y(idle.scene(), track), 1.0);
     assert_eq!(track_motion(idle.scene(), track), scene::Motion::Resting);
@@ -442,14 +442,14 @@ fn due_slider_hover_animation_requests_redraw_without_model_revision_change() {
     let size = geometry::Size::new(240, 80);
     let start = Instant::now();
     let initial = app
-        .render_scene_at(window, size, start)
+        .show_scene_at(window, size, start)
         .expect("slider should render");
     let track = slider_track_rect(only_slider(initial.layout()));
     let hover = geometry::Point::new(track.x() + track.width() / 2, track.y() + 1);
 
     app.pointer_move_at(window, size, hover)
         .expect("hovering the slider should be handled");
-    app.render_scene_at(window, size, start)
+    app.show_scene_at(window, size, start)
         .expect("hovered slider should render");
 
     assert!(!app.session().windows()[0].redraw_requested());

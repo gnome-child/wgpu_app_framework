@@ -31,7 +31,7 @@ fn text_box_on_submit_invokes_command_with_draft_text() {
     app.start();
 
     let window = app.session().windows()[0].id();
-    app.render_scene(window, geometry::Size::new(240, 80))
+    app.show_scene(window, geometry::Size::new(240, 80))
         .expect("text box view should render");
     app.handle_input(window, Input::focus(focus))
         .expect("text box focus should be handled");
@@ -86,7 +86,7 @@ fn bound_text_box_scene_paints_text_box_text_not_command_label() {
 
     let window = app.session().windows()[0].id();
     let initial = app
-        .render_scene(window, geometry::Size::new(240, 80))
+        .show_scene(window, geometry::Size::new(240, 80))
         .expect("text box view should render");
 
     assert!(scene_contains_text(initial.scene(), "Search"));
@@ -98,7 +98,7 @@ fn bound_text_box_scene_paints_text_box_text_not_command_label() {
         .expect("text box commit should be handled");
 
     let typed = app
-        .render_scene(window, geometry::Size::new(240, 80))
+        .show_scene(window, geometry::Size::new(240, 80))
         .expect("updated text box view should render");
 
     assert!(scene_contains_text_surface(typed.scene(), "q"));
@@ -132,7 +132,7 @@ fn bound_text_box_pointer_target_stays_text_input_target() {
 
     let window = app.session().windows()[0].id();
     let rendered = app
-        .render_scene(window, geometry::Size::new(240, 80))
+        .show_scene(window, geometry::Size::new(240, 80))
         .expect("text box view should render");
     let text_box = rendered
         .layout()
@@ -177,7 +177,7 @@ fn text_box_submit_with_maps_committed_text_into_custom_command_args() {
     app.start();
 
     let window = app.session().windows()[0].id();
-    app.render_scene(window, geometry::Size::new(240, 80))
+    app.show_scene(window, geometry::Size::new(240, 80))
         .expect("mapped text box view should render");
     app.handle_input(window, Input::focus(focus))
         .expect("mapped text box focus should be handled");
@@ -220,7 +220,7 @@ fn unbound_text_box_commit_updates_framework_owned_draft() {
     app.start();
 
     let window = app.session().windows()[0].id();
-    app.render_scene(window, geometry::Size::new(240, 80))
+    app.show_scene(window, geometry::Size::new(240, 80))
         .expect("plain text box view should render");
     app.handle_input(window, Input::focus(focus))
         .expect("plain text box focus should be handled");
@@ -305,7 +305,7 @@ fn character_key_updates_focused_text_box_draft_and_focus_outline() {
     assert_eq!(draft.cursor(), 1);
 
     let rendered = app
-        .render_scene(window, geometry::Size::new(240, 80))
+        .show_scene(window, geometry::Size::new(240, 80))
         .expect("focused text box should render");
     let text_box = rendered
         .layout()
@@ -594,7 +594,7 @@ fn text_box_cursor_moves_before_next_text_commit() {
     app.start();
 
     let window = app.session().windows()[0].id();
-    app.render_scene(window, geometry::Size::new(240, 80))
+    app.show_scene(window, geometry::Size::new(240, 80))
         .expect("text box view should render");
     app.handle_input(window, Input::focus(focus))
         .expect("text box focus should be handled");
@@ -1235,13 +1235,13 @@ fn text_box_selection_and_caret_are_painted_as_widget_chrome() {
     app.start();
 
     let window = app.session().windows()[0].id();
-    app.render_scene(window, geometry::Size::new(240, 80))
+    app.show_scene(window, geometry::Size::new(240, 80))
         .expect("initial render should install a composition");
     app.handle_input(window, Input::focus(focus))
         .expect("text box focus should be handled");
 
     let caret_scene = app
-        .render_scene(window, geometry::Size::new(240, 80))
+        .show_scene(window, geometry::Size::new(240, 80))
         .expect("focused text box should render a caret");
     let text_box = caret_scene
         .layout()
@@ -1284,7 +1284,7 @@ fn text_box_selection_and_caret_are_painted_as_widget_chrome() {
     .expect("ctrl-a should select text");
 
     let selected_scene = app
-        .render_scene(window, geometry::Size::new(240, 80))
+        .show_scene(window, geometry::Size::new(240, 80))
         .expect("selected text box should render selection");
 
     assert!(
@@ -1315,7 +1315,7 @@ fn text_box_caret_blinks_from_interaction_epoch() {
 
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 80);
-    app.render_scene_at(window, size, initial)
+    app.show_scene_at(window, size, initial)
         .expect("initial render should install a composition");
     app.handle_input(window, Input::focus(focus))
         .expect("text box focus should be handled");
@@ -1327,13 +1327,13 @@ fn text_box_caret_blinks_from_interaction_epoch() {
         .expect("text box focus should store a caret blink epoch");
 
     let visible = app
-        .render_scene_at(window, size, epoch)
+        .show_scene_at(window, size, epoch)
         .expect("epoch frame should render");
     let hidden = app
-        .render_scene_at(window, size, epoch + Duration::from_millis(500))
+        .show_scene_at(window, size, epoch + Duration::from_millis(500))
         .expect("hidden blink frame should render");
     let visible_again = app
-        .render_scene_at(window, size, epoch + Duration::from_millis(1000))
+        .show_scene_at(window, size, epoch + Duration::from_millis(1000))
         .expect("second visible blink frame should render");
 
     assert!(text_box_caret_visible(&visible));
@@ -1359,7 +1359,7 @@ fn text_box_pointer_click_positions_framework_owned_draft_caret() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 80);
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("text box view should render");
     let text_box = presentation
         .layout()
@@ -1438,7 +1438,7 @@ fn text_box_pointer_down_to_focus_paints_activation_tint() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 80);
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("text box view should render");
     let text_box = presentation
         .layout()
@@ -1452,7 +1452,7 @@ fn text_box_pointer_down_to_focus_paints_activation_tint() {
     app.pointer_down_at(window, size, left_edge)
         .expect("text box pointer down should be handled");
     let pressed = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("text box pointer down should render");
 
     assert_eq!(
@@ -1495,7 +1495,7 @@ fn text_box_pointer_up_after_focus_activation_clears_activation_tint() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 80);
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("text box view should render");
     let text_box = presentation
         .layout()
@@ -1509,7 +1509,7 @@ fn text_box_pointer_up_after_focus_activation_clears_activation_tint() {
     app.pointer_down_at(window, size, left_edge)
         .expect("text box pointer down should be handled");
     let pressed = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("text box pointer down should render");
     assert_text_box_control_pressed_tint(&pressed);
 
@@ -1518,7 +1518,7 @@ fn text_box_pointer_up_after_focus_activation_clears_activation_tint() {
         .expect("text box pointer up should be handled");
     assert!(released.effect().contains(&response::Effect::Paint));
     let released = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("text box pointer up should render");
 
     assert_no_text_box_control_pressed_tint(&released);
@@ -1541,12 +1541,12 @@ fn focused_text_box_pointer_down_positions_caret_without_control_pressed_tint() 
 
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 80);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("text box view should render");
     app.handle_input(window, Input::focus(focus))
         .expect("text box should focus");
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("focused text box should render");
     let text_box = presentation
         .layout()
@@ -1560,7 +1560,7 @@ fn focused_text_box_pointer_down_positions_caret_without_control_pressed_tint() 
     app.pointer_down_at(window, size, left_edge)
         .expect("text box pointer down should be handled");
     let pressed = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("text box pointer down should render");
 
     assert_no_text_box_control_pressed_tint(&pressed);
@@ -1595,7 +1595,7 @@ fn text_box_pointer_drag_extends_selection_from_click_anchor() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 80);
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("text box view should render");
     let text_box = presentation
         .layout()
@@ -1612,7 +1612,7 @@ fn text_box_pointer_drag_extends_selection_from_click_anchor() {
     app.pointer_move_at(window, size, wobbled_right_edge)
         .expect("text box pointer drag should be handled");
     let dragging = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("text box drag should render");
 
     assert_no_text_box_control_pressed_tint(&dragging);
@@ -1633,7 +1633,7 @@ fn text_box_pointer_drag_extends_selection_from_click_anchor() {
     assert_eq!(draft.selection(), Some(0.."abcd".len()));
 
     let selected = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("selected text box should render");
     let selected_text_box = selected
         .layout()

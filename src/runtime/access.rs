@@ -210,7 +210,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 self.presented_geometry.insert(
                     window,
                     super::PresentedGeometry {
-                        layout: layout.clone(),
+                        layout: std::sync::Arc::new(layout.clone()),
                     },
                 );
             }
@@ -220,14 +220,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         !report.presented()
     }
 
-    #[allow(dead_code)] // Becomes the input-routing source in checkpoint 3.
     pub(crate) fn presented_layout(
         &self,
         window: window::Id,
-    ) -> Option<&super::super::layout::Layout> {
+    ) -> Option<std::sync::Arc<super::super::layout::Layout>> {
         self.presented_geometry
             .get(&window)
-            .map(|geometry| &geometry.layout)
+            .map(|geometry| std::sync::Arc::clone(&geometry.layout))
     }
 
     #[cfg(test)]

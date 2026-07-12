@@ -246,3 +246,37 @@ Checkpoint boundary: 933 library tests passed with 8 deliberate ignores; all
 diff hygiene passed. The remaining per-event routing layout is deliberately
 visible in diagnostics and is removed by checkpoint 3; no input event performs
 view reconstruction, scene assembly, renderer drawing, or backend presentation.
+
+## Checkpoint 3 — input consumes only visible geometry
+
+The last successfully acknowledged layout is now the sole geometry source for
+pointer hit testing, pointer capture drag routing, viewport acquisition,
+scroll fallback targets, table page derivation, and table reveal targets. The
+candidate layout cache remains a presentation optimization only. Input no
+longer composes or installs event-local layout, and production routing-layout
+diagnostics therefore remain structurally zero.
+
+Presented layouts are retained behind a shared immutable handle. A successful
+receipt replaces that handle monotonically; a skipped receipt leaves the exact
+prior handle in place. When no frame has ever been successfully presented,
+geometry-dependent input is a valid inert event. Pointer capture still routes
+to its retained target outside the original rectangle, but derives the action
+from the visible layout that established the capture.
+
+The test harness now distinguishes candidate preparation from successful
+display explicitly. Interaction witnesses use a test-only show-and-acknowledge
+helper; receipt and skip witnesses continue to use raw frame preparation. This
+keeps the tests from granting visibility to geometry the backend never
+accepted.
+
+Named reductions prove that a skipped first frame installs no input surface,
+that a larger skipped candidate cannot expose targets below the older visible
+viewport, that one table wheel event and one divider drag perform zero routing
+layouts and prepare zero frames before redraw, and that the next redraw
+prepares exactly one frame. Existing sticky-header, horizontal-scroll,
+virtual-row, popup, selection, focus, capture, and four-scale table witnesses
+all pass through the same presented-geometry source.
+
+Checkpoint boundary: 934 library tests passed with 8 deliberate ignores; all
+4 doctests, three application smokes, formatting, all-target compilation, and
+diff hygiene passed. The protected 500-pixel gallery edit remains untouched.

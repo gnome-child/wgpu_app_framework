@@ -1362,7 +1362,7 @@ fn text_editor_render_records_live_text_and_frame_diagnostics() {
         0
     );
 
-    app.render_scene(window, geometry::Size::new(800, 600))
+    app.show_scene(window, geometry::Size::new(800, 600))
         .expect("scene should render");
 
     let diagnostics = app

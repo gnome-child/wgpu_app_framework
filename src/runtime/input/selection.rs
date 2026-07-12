@@ -201,13 +201,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     }
 
     fn table_page(&self, window: window::Id, model: &virtual_list::Model) -> usize {
-        self.layout_cache
-            .get(&window)
-            .and_then(|cached| {
-                cached
-                    .layout
-                    .virtual_list_page(model.id(), model.row_height())
-            })
+        self.presented_layout(window)
+            .and_then(|layout| layout.virtual_list_page(model.id(), model.row_height()))
             .unwrap_or(10)
     }
 
@@ -330,9 +325,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         self.session
             .reveal_active_descendant(window, interaction::Target::scroll(table, "Selected rows"));
         if let Some(target) = self
-            .layout_cache
-            .get(&window)
-            .and_then(|cached| cached.layout.table_scroll_target(table))
+            .presented_layout(window)
+            .and_then(|layout| layout.table_scroll_target(table))
         {
             self.session.reveal_active_descendant(window, target);
         }

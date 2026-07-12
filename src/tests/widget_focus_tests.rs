@@ -7,7 +7,7 @@ fn tab_key_moves_focus_through_control_gallery_widgets() {
 
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 520);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("control gallery should render before tab navigation");
 
     let expected = [
@@ -41,7 +41,7 @@ fn tab_key_moves_focus_through_control_gallery_widgets() {
         );
 
         let presentation = app
-            .render_scene(window, size)
+            .show_scene(window, size)
             .expect("control gallery should render focused widget");
         let focused = focused_frame(presentation.layout());
 
@@ -60,7 +60,7 @@ fn focused_menu_opens_with_enter_and_tabs_within_popup() {
 
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 520);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("control gallery should render before menu focus");
 
     app.handle_input(
@@ -86,7 +86,7 @@ fn focused_menu_opens_with_enter_and_tabs_within_popup() {
         Some("Controls")
     );
 
-    app.render_scene_after_overlay_fade(window, size)
+    app.show_scene_after_overlay_fade(window, size)
         .expect("open menu should render popup before popup tab navigation");
     app.handle_input(
         window,
@@ -95,7 +95,7 @@ fn focused_menu_opens_with_enter_and_tabs_within_popup() {
     .expect("tab should move into open popup");
 
     let popup_focus = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("focused popup item should render");
     let focused = focused_frame(popup_focus.layout());
     assert_eq!(focused.role(), view::Role::Binding);
@@ -134,7 +134,7 @@ fn focused_menu_title_outline_paints_below_open_floating_menu() {
 
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 520);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("control gallery should render before menu focus");
 
     app.handle_input(
@@ -149,7 +149,7 @@ fn focused_menu_title_outline_paints_below_open_floating_menu() {
     .expect("enter should open focused menu");
 
     let presentation = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("open menu should render");
     let menu = find_frame(presentation.layout(), view::Role::Menu, Some("Controls"));
 
@@ -164,7 +164,7 @@ fn pointer_down_on_inert_space_clears_widget_focus() {
 
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 520);
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("control gallery should render before focus");
 
     app.handle_input(
@@ -191,7 +191,7 @@ fn pointer_focus_is_hidden_and_tab_continues_from_pointer_target() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 520);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("control gallery should render before pointer focus");
     let wrap_text = find_frame(initial.layout(), view::Role::Checkbox, Some("Wrap text"));
     let point = center(wrap_text.active_rect());
@@ -209,7 +209,7 @@ fn pointer_focus_is_hidden_and_tab_continues_from_pointer_target() {
     );
 
     let hidden_focus = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("pointer-focused checkbox should render");
     let focused = focused_frame(hidden_focus.layout());
     assert_eq!(focused.role(), view::Role::Checkbox);
@@ -223,7 +223,7 @@ fn pointer_focus_is_hidden_and_tab_continues_from_pointer_target() {
     .expect("tab should continue from pointer-focused checkbox");
 
     let keyboard_focus = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("keyboard-focused checkbox should render");
     let focused = focused_frame(keyboard_focus.layout());
     assert_eq!(focused.role(), view::Role::Checkbox);
@@ -238,7 +238,7 @@ fn pointer_opened_menu_resolves_items_against_preserved_document_focus() {
 
     let window = app.session().windows()[0].id();
     let size = text_editor::window_size();
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("text editor should render before menu interaction");
 
     let document_focus = session::Focus::text("document");
@@ -259,7 +259,7 @@ fn pointer_opened_menu_resolves_items_against_preserved_document_focus() {
         .expect("select all should create a copyable document selection");
 
     let before_menu = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("text editor should render before opening menu");
     let edit_menu = find_frame(before_menu.layout(), view::Role::Menu, Some("Edit"));
     let point = center(edit_menu.rect());
@@ -269,7 +269,7 @@ fn pointer_opened_menu_resolves_items_against_preserved_document_focus() {
         .expect("menu pointer up should open the menu");
 
     let opened = app
-        .render_scene_after_overlay_fade(window, size)
+        .show_scene_after_overlay_fade(window, size)
         .expect("open edit menu should render");
     let copy = find_frame(opened.layout(), view::Role::Binding, Some("Copy"));
     assert!(
@@ -298,7 +298,7 @@ fn control_gallery_edit_menu_operates_on_focused_text_box() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 520);
     let query_focus = session::Focus::text("control_gallery.query");
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("control gallery should render before text box focus");
     app.handle_input(window, Input::focus(query_focus))
         .expect("query text box should focus");
@@ -329,7 +329,7 @@ fn control_gallery_edit_menu_operates_on_focused_text_box() {
 
     open_gallery_edit_menu(&mut app, window, size);
     let undo_presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("open edit menu should render undo state");
     let undo = find_frame(
         undo_presentation.layout(),
@@ -345,7 +345,7 @@ fn control_gallery_edit_menu_operates_on_focused_text_box() {
 
     open_gallery_edit_menu(&mut app, window, size);
     let redo_presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("open edit menu should render redo state");
     let redo = find_frame(
         redo_presentation.layout(),
@@ -375,7 +375,7 @@ fn text_box_undo_history_survives_blur_while_controls_use_app_undo() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 520);
     let query_focus = session::Focus::text("control_gallery.query");
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("control gallery should render before text input");
     app.handle_input(window, Input::focus(query_focus))
         .expect("query text box should focus");
@@ -390,7 +390,7 @@ fn text_box_undo_history_survives_blur_while_controls_use_app_undo() {
     assert_eq!(app.timeline().undo_depth(), 0);
 
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("control gallery should render before checkbox click");
     let wrap_text = find_frame(
         presentation.layout(),
@@ -542,7 +542,7 @@ fn edit_menu_undo_uses_committed_text_box_history_after_focus_is_cleared() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 520);
     let query_focus = session::Focus::text("control_gallery.query");
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("control gallery should render before text input");
     app.handle_input(window, Input::focus(query_focus))
         .expect("query text box should focus");
@@ -562,7 +562,7 @@ fn edit_menu_undo_uses_committed_text_box_history_after_focus_is_cleared() {
 
     open_gallery_edit_menu(&mut app, window, size);
     let undo_presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("open edit menu should render undo state");
     let undo = find_frame(
         undo_presentation.layout(),
@@ -588,7 +588,7 @@ fn app_shortcut_commits_and_deactivates_focused_text_box_before_dispatch() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 520);
     let query_focus = session::Focus::text("control_gallery.query");
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("control gallery should render before text input");
     app.handle_input(window, Input::focus(query_focus))
         .expect("query text box should focus");
@@ -605,7 +605,7 @@ fn app_shortcut_commits_and_deactivates_focused_text_box_before_dispatch() {
     assert_eq!(text_draft(&app, window, query_focus).text(), "abc");
 
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("control gallery should render reset state");
     let text_box = rendered
         .layout()
@@ -633,7 +633,7 @@ fn app_menu_command_commits_and_deactivates_focused_text_box_before_dispatch() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(760, 520);
     let query_focus = session::Focus::text("control_gallery.query");
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("control gallery should render before text input");
     app.handle_input(window, Input::focus(query_focus))
         .expect("query text box should focus");
@@ -648,7 +648,7 @@ fn app_menu_command_commits_and_deactivates_focused_text_box_before_dispatch() {
     assert_eq!(app.state().query, "");
 
     let rendered = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("control gallery should render reset state");
     let text_box = rendered
         .layout()
@@ -675,7 +675,7 @@ fn open_gallery_menu(
     label: &'static str,
 ) {
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("control gallery should render before opening menu");
     let menu = find_frame(presentation.layout(), view::Role::Menu, Some(label));
     let point = center(menu.rect());
@@ -691,7 +691,7 @@ fn activate_gallery_edit_binding(
     label: &'static str,
 ) -> input::Outcome {
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("open edit menu should render binding");
     let binding = find_frame(presentation.layout(), view::Role::Binding, Some(label));
     assert!(binding.is_enabled(), "{label} should be enabled");
@@ -709,7 +709,7 @@ fn click_gallery_frame(
     label: Option<&str>,
 ) -> input::Outcome {
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("control gallery should render before pointer click");
     let frame = find_frame(presentation.layout(), role, label);
     let point = center(frame.active_rect());
@@ -725,7 +725,7 @@ fn drag_gallery_slider_to_fraction(
     fraction: f64,
 ) {
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("control gallery should render before slider drag");
     let slider = first_frame(presentation.layout(), view::Role::Slider);
     let track = slider_track_rect(slider);

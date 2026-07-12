@@ -10,6 +10,7 @@ use crate::animation;
 use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
+    sync::Arc,
 };
 mod access;
 mod builder;
@@ -48,9 +49,8 @@ struct CachedLayout {
 }
 
 #[derive(Clone)]
-#[allow(dead_code)] // Becomes the input-routing source in checkpoint 3.
 struct PresentedGeometry {
-    layout: layout::Layout,
+    layout: Arc<layout::Layout>,
 }
 
 type VirtualMaterializations =

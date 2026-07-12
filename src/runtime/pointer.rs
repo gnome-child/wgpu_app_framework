@@ -214,29 +214,13 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     pub fn pointer_drag_at(
         &mut self,
         window: window::Id,
-        size: geometry::Size,
+        _size: geometry::Size,
         point: geometry::Point,
     ) -> std::result::Result<input::Outcome, Error> {
         self.session.cancel_click_sequence(window);
-        let Some(composition) = self.composition.get(window) else {
+        let Some(layout) = self.presented_layout(window) else {
             return Ok(input::Outcome::ignored());
         };
-
-        let theme = self.active_theme();
-        let frame = crate::animation::Frame::new(std::time::Instant::now());
-        let layout_started_at = std::time::Instant::now();
-        let layout = layout::Layout::compose_composition_with_theme_at(
-            composition,
-            size,
-            &mut self.layout,
-            &theme,
-            frame,
-            self.keymap,
-        );
-        self.diagnostics
-            .get_mut(window)
-            .pipeline
-            .record_routing_layout(layout_started_at.elapsed());
         let hit = layout.hit_test(point);
         let captured_target = self
             .session
@@ -314,35 +298,17 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     pub fn scroll_at(
         &mut self,
         window: window::Id,
-        size: geometry::Size,
+        _size: geometry::Size,
         point: geometry::Point,
         delta: interaction::ScrollDelta,
     ) -> std::result::Result<input::Outcome, Error> {
-        let theme = self.active_theme();
-        let composition = self.composition.get(window);
-        let frame = crate::animation::Frame::new(std::time::Instant::now());
-        let layout_started_at = std::time::Instant::now();
-        let viewport_target = composition.and_then(|composition| {
-            layout::Layout::compose_composition_with_theme_at(
-                composition,
-                size,
-                &mut self.layout,
-                &theme,
-                frame,
-                self.keymap,
-            )
-            .scroll_target_at(point, delta)
-        });
-        if composition.is_some() {
-            self.diagnostics
-                .get_mut(window)
-                .pipeline
-                .record_routing_layout(layout_started_at.elapsed());
-        }
-        let Some(target) = viewport_target.or_else(|| {
-            self.hit_test(window, size, point)
-                .and_then(|hit| hit.target().cloned())
-        }) else {
+        let Some(layout) = self.presented_layout(window) else {
+            return Ok(input::Outcome::ignored());
+        };
+        let viewport_target = layout.scroll_target_at(point, delta);
+        let Some(target) = viewport_target
+            .or_else(|| layout.hit_test(point).and_then(|hit| hit.target().cloned()))
+        else {
             return Ok(input::Outcome::ignored());
         };
 

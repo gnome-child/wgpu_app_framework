@@ -90,7 +90,7 @@ fn hovering_another_menu_title_switches_open_menu() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(800, 600);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("text editor should render");
     let file = labeled_frame(initial.layout(), view::Role::Menu, "File");
     let edit = labeled_frame(initial.layout(), view::Role::Menu, "Edit");
@@ -99,7 +99,7 @@ fn hovering_another_menu_title_switches_open_menu() {
         .expect("file menu pointer down should be handled");
     app.pointer_up_at(window, size, frame_point(file))
         .expect("file menu pointer up should open the menu");
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("open file menu should render");
 
     let switched = app
@@ -125,7 +125,7 @@ fn pointer_down_outside_menu_surface_closes_open_menu() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(800, 600);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("text editor should render");
     let file = labeled_frame(initial.layout(), view::Role::Menu, "File");
 
@@ -134,7 +134,7 @@ fn pointer_down_outside_menu_surface_closes_open_menu() {
     app.pointer_up_at(window, size, frame_point(file))
         .expect("file menu pointer up should open the menu");
     let opened = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("open file menu should render");
     let text_area = opened
         .layout()
@@ -168,7 +168,7 @@ fn parent_pointer_left_does_not_close_open_menu() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(800, 600);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("text editor should render");
     let file = labeled_frame(initial.layout(), view::Role::Menu, "File");
 
@@ -423,7 +423,7 @@ fn rebuilding_away_captured_command_prunes_pointer_and_history_gesture() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(240, 80);
     let initial = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("initial slider should render");
     let slider = initial
         .layout()
@@ -442,7 +442,7 @@ fn rebuilding_away_captured_command_prunes_pointer_and_history_gesture() {
     app.change(state::Reason::programmatic("remove_control"), |state| {
         state.visible = false;
     });
-    app.render_scene(window, size)
+    app.show_scene(window, size)
         .expect("replacement view should reconcile");
 
     let pointer = app
@@ -609,7 +609,7 @@ fn text_area_interaction_id_scrolls_without_focus() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(800, 600);
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("initial preview scene should render");
     let text_area = presentation
         .layout()
@@ -635,7 +635,7 @@ fn text_area_interaction_id_scrolls_without_focus() {
     assert!(scrolled.effect().contains_invalidation());
 
     let presentation = app
-        .render_scene(window, size)
+        .show_scene(window, size)
         .expect("scrolled preview scene should render");
 
     assert_eq!(app.session().focused(window), None);
@@ -907,7 +907,7 @@ fn text_area_pointer_click_focuses_and_routes_cursor_edit() {
     assert_eq!(actual_focus.reason(), session::Reason::Pointer);
     assert_eq!(actual_focus.visibility(), session::Visibility::Hidden);
     let focused = app
-        .render_scene(window, geometry::Size::new(480, 180))
+        .show_scene(window, geometry::Size::new(480, 180))
         .expect("pointer-focused text area should render");
     let focused_text_area = focused
         .layout()

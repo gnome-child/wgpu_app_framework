@@ -224,7 +224,8 @@ fn shell_routes_coordinate_input_and_task_completions() {
     shell.start();
 
     let window = shell.runtime().session().windows()[0].id();
-    let _ = shell.drain();
+    let initial = shell.drain();
+    acknowledge_shell_work(&mut shell, &initial);
 
     shell
         .pointer_down(
@@ -389,6 +390,7 @@ fn text_editor_shell_event_surface_drives_save_flow() {
     let initial = shell
         .handle_event(shell::Event::RedrawRequested { window })
         .expect("first redraw should present");
+    acknowledge_shell_work(&mut shell, &initial);
     assert_eq!(
         initial.presentations()[0].size(),
         text_editor::window_size()
@@ -408,6 +410,7 @@ fn text_editor_shell_event_surface_drives_save_flow() {
     let redrawn = shell
         .handle_event(shell::Event::RedrawRequested { window })
         .expect("redraw should present resized geometry");
+    acknowledge_shell_work(&mut shell, &redrawn);
     let presentation = redrawn
         .presentations()
         .iter()
@@ -547,11 +550,13 @@ fn text_editor_host_adapter_consumes_shell_work_end_to_end() {
     assert_eq!(host.windows()[0].title(), text_editor::WINDOW_TITLE);
     assert_eq!(host.windows()[0].size(), text_editor::window_size());
     assert!(host.presentation(window).is_none());
-    host.handle_event(host::Event::window(
-        window,
-        host::WindowEvent::RedrawRequested,
-    ))
-    .expect("first redraw should present");
+    let initial = host
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("first redraw should present");
+    acknowledge_host_work(&mut host, &initial);
     assert!(host.presentation(window).is_some());
 
     host.handle_event(host::Event::window(
@@ -561,11 +566,13 @@ fn text_editor_host_adapter_consumes_shell_work_end_to_end() {
         },
     ))
     .expect("resize should update pending geometry");
-    host.handle_event(host::Event::window(
-        window,
-        host::WindowEvent::RedrawRequested,
-    ))
-    .expect("redraw should present resized geometry");
+    let resized = host
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("redraw should present resized geometry");
+    acknowledge_host_work(&mut host, &resized);
 
     assert_eq!(
         host.window(window)
