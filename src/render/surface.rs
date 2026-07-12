@@ -1,4 +1,4 @@
-use wgpu::SurfaceTarget;
+use wgpu::{SurfaceTarget, SurfaceTargetUnsafe};
 
 use crate::paint;
 use crate::render;
@@ -74,7 +74,27 @@ impl Surface {
             area.height()
         );
         let inner = render_context.instance().create_surface(target)?;
+        Self::from_wgpu_surface(area, render_context, inner, alpha_preference)
+    }
 
+    /// Creates a surface whose raw target lifetime is retained by the native
+    /// presentation owner rather than by wgpu's safe handle wrapper.
+    pub(crate) unsafe fn new_unsafe(
+        area: paint::area::Physical,
+        render_context: &render::Context,
+        target: SurfaceTargetUnsafe,
+        alpha_preference: CompositeAlphaPreference,
+    ) -> Result<Self> {
+        let inner = unsafe { render_context.instance().create_surface_unsafe(target) }?;
+        Self::from_wgpu_surface(area, render_context, inner, alpha_preference)
+    }
+
+    fn from_wgpu_surface(
+        area: paint::area::Physical,
+        render_context: &render::Context,
+        inner: wgpu::Surface<'static>,
+        alpha_preference: CompositeAlphaPreference,
+    ) -> Result<Self> {
         let Some(mut config) = inner.get_default_config(
             render_context.adapter(),
             area.width().max(1),
@@ -130,6 +150,10 @@ impl Surface {
             config,
             reconfigure_after_present: false,
         })
+    }
+
+    pub(crate) fn wgpu_surface(&self) -> &wgpu::Surface<'static> {
+        &self.inner
     }
 
     pub fn config(&self) -> &wgpu::SurfaceConfiguration {

@@ -2831,6 +2831,9 @@ dependencies = [
  "unicode-linebreak",
  "unicode-segmentation",
  "wgpu",
+ "wgpu-hal",
+ "windows",
+ "windows-numerics",
  "windows-sys 0.61.2",
  "winit",
 ]

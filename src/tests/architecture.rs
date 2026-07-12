@@ -2227,7 +2227,7 @@ fn windows_native_popup_clicks_do_not_activate() {
 }
 
 #[test]
-fn windows_native_popup_material_keeps_dx12_visual_available_without_forcing_it() {
+fn windows_native_popup_material_prefers_dx12_without_overriding_explicit_choice() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let context = std::fs::read_to_string(root.join("src").join("render").join("context.rs"))
         .expect("render context source should read");
@@ -2263,20 +2263,20 @@ fn windows_native_popup_material_keeps_dx12_visual_available_without_forcing_it(
     );
     assert!(
         context.contains("options.backends.with_env()")
-            && native_surface.contains("default_native_backends()")
-            && native_surface.contains("wgpu::Backends::all()"),
-        "Windows should use normal backend selection while remaining overridable through WGPU_BACKEND"
+            && native_surface.contains("wgpu::Backends::from_env()")
+            && native_surface.contains("native_backend_attempts(explicit)"),
+        "WGPU_BACKEND must remain authoritative over the native preference ladder"
     );
     assert_eq!(
         native_surface
-            .matches("fn default_native_backends()")
+            .matches("fn native_backend_attempts(")
             .count(),
         1,
-        "native backend defaults are one cross-platform fact, not identical cfg arms"
+        "native backend selection must have one policy owner"
     );
     assert!(
-        !native_surface.contains("wgpu::Backends::DX12"),
-        "Windows native popup acrylic must not require a hardcoded DX12 backend"
+        native_surface.contains("vec![wgpu::Backends::DX12, wgpu::Backends::all()]"),
+        "implicit Windows selection should try tenancy-capable DX12 then retain the ordinary fallback set"
     );
     assert!(
         surface.contains("popup surface capabilities"),
@@ -2683,7 +2683,7 @@ fn material_regions_derive_identity_and_provenance_at_pane_emission() {
 }
 
 #[test]
-fn native_popup_fade_changes_content_pixels_without_changing_material_policy() {
+fn native_popup_fade_uses_common_composition_owner_when_earned() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let presentation = std::fs::read_to_string(root.join("src/runtime/presentation.rs"))
         .expect("runtime presentation source should read");
@@ -2691,12 +2691,10 @@ fn native_popup_fade_changes_content_pixels_without_changing_material_policy() {
         std::fs::read_to_string(root.join("src/overlay.rs")).expect("overlay source should read");
     let popup = std::fs::read_to_string(root.join("src/platform/native/popup.rs"))
         .expect("native popup source should read");
-    let master = std::fs::read_to_string(root.join("docs/master_design.md"))
-        .expect("master design should read");
-
     assert!(
-        presentation.contains("append_scene_with_opacity(local.scene(), layer.opacity())"),
-        "the intact native request must consume overlay opacity once"
+        presentation.contains("with_material_opacity(layer.opacity())")
+            && overlay.contains("opacity: f32"),
+        "native presentation must retain one overlay opacity source alongside the intact request"
     );
     assert!(
         overlay.contains("struct RetiringPopup")
@@ -2705,15 +2703,10 @@ fn native_popup_fade_changes_content_pixels_without_changing_material_policy() {
         "native exit fade must retain the native surface rather than allocate a parent ghost"
     );
     assert!(
-        popup.contains("popup.accent.set_desired(accent, now)")
-            && !popup.contains("layer.opacity()"),
-        "native material policy must remain independent of content opacity"
-    );
-    assert!(
-        master.contains("content-side overlay animation, never native material")
-            && master.contains("It never becomes a")
-            && master.contains("parent-window ghost"),
-        "master design must retain the content-only native fade contract"
+        popup.contains("composition.set_opacity(presentation.opacity())")
+            && popup.contains("(!uses_composition).then(||")
+            && popup.contains("append_scene_with_opacity("),
+        "tenancy must project opacity at the common tree while legacy realization applies it once in paint"
     );
 }
 
@@ -2731,7 +2724,7 @@ fn actual_material_reports_alone_authorize_residual_subtraction() {
 
     assert!(
         runtime.contains("native_popup_request(layer.bounds())")
-            && runtime.contains("append_scene_with_opacity(local.scene(), layer.opacity())")
+            && runtime.contains("with_material_opacity(layer.opacity())")
             && !runtime.contains("opaque_fallback_scene"),
         "runtime must submit one intact localized request rather than forecast-filtered scenes"
     );
@@ -2746,6 +2739,46 @@ fn actual_material_reports_alone_authorize_residual_subtraction() {
             && windows.contains(") -> bool")
             && popup.contains("if popup.window.set_popup_accent_material(accent)"),
         "an attempted accent forecast must not be recorded as a successful realization"
+    );
+}
+
+#[test]
+fn windows_tenancy_is_earned_by_dx12_wrap_and_keeps_legacy_fallback() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let cargo = std::fs::read_to_string(root.join("Cargo.toml")).expect("manifest should read");
+    let composition = std::fs::read_to_string(root.join("src/platform/native/composition.rs"))
+        .expect("composition owner should read");
+    let popup = std::fs::read_to_string(root.join("src/platform/native/popup.rs"))
+        .expect("native popup source should read");
+    let surface = std::fs::read_to_string(root.join("src/platform/native/surface.rs"))
+        .expect("native surface source should read");
+
+    assert!(
+        cargo.contains("wgpu-hal = { version = \"29.0.3\"")
+            && cargo.contains("windows = { version = \"0.62.2\""),
+        "direct HAL and Windows bindings must match wgpu's pinned ABI family"
+    );
+    for receipt in [
+        "SurfaceTargetUnsafe::CompositionVisual",
+        ".as_hal::<wgpu_hal::api::Dx12>()",
+        "CreateCompositionSurfaceForSwapChain",
+        "CreateDesktopWindowTarget",
+        "InsertAtTop(&content)",
+    ] {
+        assert!(
+            composition.contains(receipt),
+            "single-HWND tenancy route is missing {receipt}"
+        );
+    }
+    assert!(
+        !composition.contains("transmute") && !composition.contains("from_raw"),
+        "matching Windows versions must eliminate cross-version COM ownership transfer"
+    );
+    assert!(
+        surface.contains("native_backend_attempts(explicit)")
+            && surface.contains("vec![wgpu::Backends::DX12, wgpu::Backends::all()]")
+            && popup.contains("retaining legacy popup realization"),
+        "DX12-first tenancy must preserve explicit overrides and a clean legacy fallback"
     );
 }
 

@@ -212,7 +212,30 @@ impl Native {
             },
             &reports,
         );
-        let source_scene = material_resolution.scene();
+        #[cfg(target_os = "windows")]
+        let uses_composition = popup.composition.is_some();
+        #[cfg(not(target_os = "windows"))]
+        let uses_composition = false;
+        #[cfg(target_os = "windows")]
+        if let Some(composition) = popup.composition.as_ref()
+            && let Err(error) = composition.set_opacity(presentation.opacity())
+        {
+            log::warn!(
+                target: "wgpu_l3::native_popup",
+                "failed to project popup opacity into composition tree: {error}"
+            );
+        }
+        let faded_scene = (!uses_composition).then(|| {
+            let mut scene = crate::scene::Scene::new_with_clear(
+                material_resolution.scene().size(),
+                material_resolution.scene().clear(),
+            );
+            scene.append_scene_with_opacity(material_resolution.scene(), presentation.opacity());
+            scene
+        });
+        let source_scene = faded_scene
+            .as_ref()
+            .unwrap_or_else(|| material_resolution.scene());
         log::debug!(
             target: "wgpu_l3::native_popup",
             "native popup material resolution {:?}: fidelity={:?}, regions={:?}",
@@ -315,11 +338,11 @@ impl Native {
         }
 
         self.ensure_context()?;
-        let render_context = self
-            .context
-            .as_ref()
-            .expect("render context should exist before creating popup");
-        let presentation_mode = PopupPresentationMode::from_render_context(render_context);
+        let presentation_mode = PopupPresentationMode::from_render_context(
+            self.context
+                .as_ref()
+                .expect("render context should exist before creating popup"),
+        );
         let parent = self.windows.get(&presentation.parent()).ok_or_else(|| {
             log::error!(
                 "cannot create popup {:?} for missing parent {:?}",
@@ -341,21 +364,75 @@ impl Native {
         };
         let handle = NativeWindow::open(native_options, context.event_loop())?;
         let inner_size = handle.inner_size();
-        let canvas = render::Canvas::new(
-            render::CanvasOptions {
-                area: paint::area::physical(inner_size.width, inner_size.height).clamp_min(1),
-                scale_factor: handle.scale_factor() as f32,
-                color: render::color_to_wgpu(super::color::paint_color(
-                    presentation.scene().clear(),
-                )),
-                composite_alpha: presentation_mode.alpha_preference(),
-            },
-            render_context,
-            handle.clone(),
-        )?;
+        let canvas_options = || render::CanvasOptions {
+            area: paint::area::physical(inner_size.width, inner_size.height).clamp_min(1),
+            scale_factor: handle.scale_factor() as f32,
+            color: render::color_to_wgpu(super::color::paint_color(presentation.scene().clear())),
+            composite_alpha: presentation_mode.alpha_preference(),
+        };
+        #[cfg(target_os = "windows")]
+        let tenancy = if presentation_mode == PopupPresentationMode::CompositionBacked {
+            if self.composition.is_none() {
+                match super::composition::Runtime::new() {
+                    Ok(runtime) => self.composition = Some(runtime),
+                    Err(error) => log::warn!(
+                        target: "wgpu_l3::native_popup",
+                        "Windows composition runtime unavailable; retaining legacy popup realization: {error}"
+                    ),
+                }
+            }
+            self.composition.as_ref().and_then(|runtime| {
+                let render_context = self
+                    .context
+                    .as_ref()
+                    .expect("render context should exist before creating popup");
+                let attempt = (|| {
+                    let seed = runtime.create_surface_seed()?;
+                    let canvas = unsafe {
+                        render::Canvas::new_unsafe(canvas_options(), render_context, seed.target())
+                    }
+                    .map_err(|error| windows::core::Error::new(
+                        windows::Win32::Foundation::E_FAIL,
+                        format!("create tenancy surface: {error}"),
+                    ))?;
+                    let host = runtime.attach(seed, &handle, &canvas)?;
+                    Ok::<_, windows::core::Error>((canvas, host))
+                })();
+                match attempt {
+                    Ok(tenancy) => Some(tenancy),
+                    Err(error) => {
+                        log::warn!(
+                            target: "wgpu_l3::native_popup",
+                            "single-HWND composition tenancy unavailable; retaining legacy popup realization: {error}"
+                        );
+                        None
+                    }
+                }
+            })
+        } else {
+            None
+        };
+        let render_context = self
+            .context
+            .as_ref()
+            .expect("render context should exist before creating popup");
+        #[cfg(target_os = "windows")]
+        let (canvas, composition) = match tenancy {
+            Some((canvas, host)) => (canvas, Some(host)),
+            None => (
+                render::Canvas::new(canvas_options(), render_context, handle.clone())?,
+                None,
+            ),
+        };
+        #[cfg(not(target_os = "windows"))]
+        let canvas = render::Canvas::new(canvas_options(), render_context, handle.clone())?;
         let popup = NativeWindow::new(handle, canvas);
         popup.set_ime_allowed(false);
-        let popup = PopupWindow::new(popup, presentation_mode);
+        let mut popup = PopupWindow::new(popup, presentation_mode);
+        #[cfg(target_os = "windows")]
+        {
+            popup.composition = composition;
+        }
         log::debug!(
             target: "wgpu_l3::native_popup",
             "first-present stage=created popup={:?} parent={:?} elapsed_us={} raw={:?} mode={:?} no_redirection_bitmap={} backend={:?} logical_size={:?} scale={}",
@@ -368,6 +445,13 @@ impl Native {
             render_context.adapter().get_info().backend,
             presentation.scene().size(),
             popup.window.scale_factor()
+        );
+        #[cfg(target_os = "windows")]
+        log::info!(
+            target: "wgpu_l3::native_popup",
+            "native popup {:?} composition tenancy={}",
+            presentation.id(),
+            popup.composition.is_some()
         );
 
         self.raw_popups.insert(popup.window.raw_id(), key);

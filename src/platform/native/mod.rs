@@ -7,6 +7,8 @@ use super::super::{session, window as app_window};
 
 mod adapter;
 mod color;
+#[cfg(target_os = "windows")]
+mod composition;
 mod context;
 mod error;
 mod ime;
@@ -36,6 +38,8 @@ pub struct Native {
     ime_targets: HashMap<app_window::Id, app_ime::Target>,
     requests: Vec<session::Request>,
     poll_requested: bool,
+    #[cfg(target_os = "windows")]
+    composition: Option<composition::Runtime>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -56,6 +60,8 @@ struct PopupWindow {
     material: Option<overlay::PopupMaterial>,
     presentation_mode: PopupPresentationMode,
     material_realization: Option<PopupMaterialRealization>,
+    #[cfg(target_os = "windows")]
+    composition: Option<composition::Host>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,6 +155,8 @@ impl PopupWindow {
             material: None,
             presentation_mode,
             material_realization: None,
+            #[cfg(target_os = "windows")]
+            composition: None,
         }
     }
 }
@@ -348,6 +356,8 @@ impl Native {
             ime_targets: HashMap::new(),
             requests: Vec::new(),
             poll_requested: false,
+            #[cfg(target_os = "windows")]
+            composition: None,
         }
     }
 

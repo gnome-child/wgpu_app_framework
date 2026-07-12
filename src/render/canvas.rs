@@ -1,4 +1,4 @@
-use wgpu::SurfaceTarget;
+use wgpu::{SurfaceTarget, SurfaceTargetUnsafe};
 
 use crate::paint;
 use crate::render;
@@ -32,6 +32,31 @@ impl Canvas {
             target,
             options.composite_alpha,
         )?;
+
+        Ok(Self {
+            surface,
+            physical_area,
+            logical_area,
+            scale_factor: options.scale_factor,
+            color: options.color,
+        })
+    }
+
+    pub(crate) unsafe fn new_unsafe(
+        options: Options,
+        render_context: &render::Context,
+        target: SurfaceTargetUnsafe,
+    ) -> render::Result<Self> {
+        let physical_area = options.area;
+        let logical_area = physical_area.to_logical(options.scale_factor);
+        let surface = unsafe {
+            render::Surface::new_unsafe(
+                physical_area,
+                render_context,
+                target,
+                options.composite_alpha,
+            )?
+        };
 
         Ok(Self {
             surface,

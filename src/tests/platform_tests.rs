@@ -964,8 +964,8 @@ fn menu_dropdown_uses_native_popup_work_when_backend_supports_it() {
                 && size.width() > 0
                 && size.height() > 0
                 && *clear_color == scene::Color::rgba(0, 0, 0, 0)
-                && *framework_glass_panes == 0
-                && *material_regions == 0
+                && *framework_glass_panes == 1
+                && *material_regions == 1
         )),
         "events: {:?}",
         platform.backend().events()
@@ -1014,8 +1014,8 @@ fn command_palette_uses_native_popup_work_when_backend_supports_it() {
                 && size.width() > 0
                 && size.height() > 0
                 && *clear_color == scene::Color::rgba(0, 0, 0, 0)
-                && *framework_glass_panes == 0
-            && *material_regions == 0
+            && *framework_glass_panes == 1
+            && *material_regions == 1
         )),
         "events: {:?}",
         platform.backend().events()

@@ -947,14 +947,13 @@ fn append_or_present_overlay_layer(
         crate::overlay::Backend::InFrame => append_overlay_layer(scene, layer),
         crate::overlay::Backend::NativePopup if capabilities.native_popups_supported() => {
             let local = layer.scene().native_popup_request(layer.bounds());
-            let mut popup_scene =
-                scene::Scene::new_with_clear(local.scene().size(), scene::Color::rgba(0, 0, 0, 0));
-            popup_scene.append_scene_with_opacity(local.scene(), layer.opacity());
+            let popup_scene = local.scene().with_material_opacity(layer.opacity());
             popup_presentations.push(crate::overlay::PopupPresentation::new(
                 window,
                 layer.id(),
                 layer.bounds(),
                 popup_scene,
+                layer.opacity(),
                 crate::overlay::PopupMaterial::NativeWindow {
                     dark: native_popup_dark,
                     tint: local.accent_tint(),

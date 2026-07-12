@@ -11,9 +11,35 @@ impl Native {
     pub(in crate::platform::native) fn ensure_context(&mut self) -> Result<(), NativeError> {
         if self.context.is_none() {
             log::debug!("initializing native render context");
-            self.context = Some(pollster::block_on(render::Context::new(
-                render_context_options(),
-            ))?);
+            let explicit = wgpu::Backends::from_env();
+            let attempts = native_backend_attempts(explicit);
+            let mut last_error = None;
+            for (index, backends) in attempts.iter().copied().enumerate() {
+                match pollster::block_on(render::Context::new(render_context_options(backends))) {
+                    Ok(context) => {
+                        if index > 0 {
+                            log::warn!(
+                                target: "wgpu_l3::native_popup",
+                                "DX12-first context initialization failed; continuing with backend set {backends:?} and non-tenancy material realization"
+                            );
+                        }
+                        self.context = Some(context);
+                        break;
+                    }
+                    Err(error) => {
+                        log::warn!(
+                            target: "wgpu_l3::native_popup",
+                            "native graphics attempt {index} with {backends:?} failed: {error}"
+                        );
+                        last_error = Some(error);
+                    }
+                }
+            }
+            if self.context.is_none() {
+                return Err(NativeError::Render(
+                    last_error.expect("native backend attempts are never empty"),
+                ));
+            }
         }
 
         Ok(())
@@ -204,10 +230,10 @@ pub(in crate::platform::native) fn render_format_for_canvas(
     }
 }
 
-fn render_context_options() -> render::ContextOptions {
+fn render_context_options(backends: wgpu::Backends) -> render::ContextOptions {
     render::ContextOptions {
         device_label: "wgpu_l3 device",
-        backends: default_native_backends(),
+        backends,
         power_preference: wgpu::PowerPreference::HighPerformance,
         force_fallback_adapter: false,
         required_features: wgpu::Features::empty(),
@@ -215,12 +241,44 @@ fn render_context_options() -> render::ContextOptions {
     }
 }
 
-fn default_native_backends() -> wgpu::Backends {
-    wgpu::Backends::all()
+fn native_backend_attempts(explicit: Option<wgpu::Backends>) -> Vec<wgpu::Backends> {
+    if let Some(explicit) = explicit {
+        return vec![explicit];
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        vec![wgpu::Backends::DX12, wgpu::Backends::all()]
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        vec![wgpu::Backends::all()]
+    }
 }
 
 pub(in crate::platform::native) fn native_logical_area(
     area: geometry::LogicalArea,
 ) -> paint::area::Logical {
     paint::area::logical(area.width(), area.height())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explicit_backend_choice_is_the_only_attempt() {
+        assert_eq!(
+            native_backend_attempts(Some(wgpu::Backends::VULKAN)),
+            vec![wgpu::Backends::VULKAN]
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn implicit_windows_policy_earns_tenancy_through_dx12_first() {
+        let attempts = native_backend_attempts(None);
+        assert_eq!(attempts[0], wgpu::Backends::DX12);
+        assert!(attempts[1].contains(wgpu::Backends::VULKAN));
+    }
 }
