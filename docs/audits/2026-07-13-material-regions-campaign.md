@@ -28,7 +28,7 @@ target/tree, and wgpu as the content tenant.
 | Checkpoint | State | Boundary |
 | --- | --- | --- |
 | 1. Retained material-region truth | Complete (`4b33530f`) | Stable declaring identity; ordered request projection with clip and opacity provenance |
-| 2. Reports and residual resolver | In flight | Actual realized-part coverage controls one residual plan and derived fidelity |
+| 2. Reports and residual resolver | Complete (`00083457`) | Actual realized-part coverage controls one residual plan and derived fidelity |
 | 3. Windows ownership/backend policy | Pending | DX12-first tenancy when earned; explicit/failed Vulkan path remains truthful |
 | 4. Keyed Windows frost regions | Pending | Retained region diff, one tree/fade, four-scale/lifecycle/hardware matrix |
 | 5. Retirement and doctrine | Pending | Evidence-based native-call inventory, master doctrine, roadmap close-out |
@@ -95,3 +95,34 @@ removing every glass pane, replacing every glass pane with fallback, and
 selecting the first tint. `PopupMaterialRealization` then selects one complete
 scene. This is the duplication checkpoint 2 replaces with keyed actual
 coverage plus one residual resolver.
+
+## Checkpoint 2 close-out
+
+The runtime now passes one intact, localized material request to the native
+boundary. It no longer predicts an OS-material scene and an opaque fallback
+scene before the platform acts. Windows' legacy accent bridge reports frost
+only for the supported single full-window region and only after the system
+call succeeds; a forecast or failed call consumes no material.
+
+`Scene::resolve_material` is the single complement owner. It combines the
+requested pane, uniquely matching realized-part reports, and renderer context
+to derive residual primitives plus per-region and aggregate fidelity. In-frame
+uses the same resolver with no platform reports and retains the complete glass
+recipe as `Full`. Native reports can consume backdrop frost and, only when the
+applied accent parameters match, surface tint; unsupported or unreported
+regions become their declared fallback without demoting reported siblings.
+
+Evidence:
+
+- Mixed frost/fallback reports produce independent residuals and one final
+  fidelity per retained request.
+- Reordered reports do not reorder regions or change identity.
+- Missing, stale, identity-mismatched, and duplicate reports consume nothing.
+- The intact-request boundary and successful-call gate have architecture
+  witnesses; the former `opaque_fallback_scene` fork is structurally absent.
+- The existing Windows accent and explicit fallback modes remain available as
+  the legacy realization tier until tenancy replaces them.
+- Full library gate: 916 passed, 8 ignored. Doctests: 4 passed. Formatting,
+  all-target compilation, all three external smokes, diff hygiene, and
+  `comparison_open: true` passed.
+- No public API change. The unrelated gallery-height edit remains untouched.
