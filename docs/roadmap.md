@@ -4,6 +4,14 @@ Tracked future work, pruned in place as items land. Sibling to
 `master_design.md`: that document records what is true; this one records what
 is next.
 
+## In flight
+
+**Five Truths campaign** — separates retained measured virtual geometry from
+materialization, preserves clip provenance through late focus paint, derives
+focus indication from existing presentation truths, and deletes the table's
+Compact/Expanded cell-species split. The crash-safe ledger is
+[`audits/2026-07-12-five-truths-campaign.md`](audits/2026-07-12-five-truths-campaign.md).
+
 ## Specced and ready
 
 2. **Show-cycle presentation contract** — the first visible frame of every
