@@ -2647,6 +2647,42 @@ fn native_popup_first_present_is_visible_traced_and_compositor_synchronized() {
 }
 
 #[test]
+fn material_regions_derive_identity_and_provenance_at_pane_emission() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scene = std::fs::read_to_string(root.join("src").join("scene").join("mod.rs"))
+        .expect("scene source should read");
+    let region = std::fs::read_to_string(root.join("src").join("scene").join("region.rs"))
+        .expect("material region source should read");
+    let paint =
+        std::fs::read_to_string(root.join("src").join("scene").join("paint").join("mod.rs"))
+            .expect("scene paint source should read");
+
+    assert!(
+        paint.contains("scene.push_material_pane(")
+            && paint.contains("frame.node_id()")
+            && paint.contains("clip,"),
+        "material request identity and inherited clip must derive where the retained frame emits its pane"
+    );
+    assert!(
+        region.contains("id: composition::NodeId")
+            && region.contains("clips: Vec<Clip>")
+            && region.contains("opacity: f32")
+            && scene.contains("material_regions: Vec<MaterialRegion>"),
+        "the request must retain identity, clip provenance, opacity, and ordered collection ownership"
+    );
+    assert!(
+        !region.contains("enumerate()"),
+        "primitive position and traversal ordinals must never become material identity"
+    );
+    assert!(
+        scene.contains("ghost.material_regions.clear()")
+            && scene.contains("region.with_parent_opacity(opacity)")
+            && scene.contains("region.translated(dx, dy)"),
+        "ghosting, overlay opacity, and popup localization must project the same retained request"
+    );
+}
+
+#[test]
 fn native_popup_fade_changes_content_pixels_without_changing_material_policy() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let presentation = std::fs::read_to_string(root.join("src/runtime/presentation.rs"))

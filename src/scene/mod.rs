@@ -3,6 +3,7 @@ mod material;
 mod paint;
 mod presentation;
 mod primitive;
+mod region;
 mod visual;
 
 pub use color::Color;
@@ -16,16 +17,18 @@ pub use primitive::{
     Radius, Rasterization, Rounding, Rule, ScaleMotion, Shadow, Stroke, Style, Text, TextAlign,
     TextStyle, TextSurface, TextViewport, TextWrap, Transform,
 };
+pub(crate) use region::MaterialRegion;
 pub(crate) use visual::Visuals;
 pub(crate) use visual::{Scalar as VisualScalar, Target as TargetVisual};
 
-use super::{geometry, layout, overlay, theme, theme::Theme};
+use super::{composition, geometry, layout, overlay, theme, theme::Theme};
 
 #[derive(Debug, Clone)]
 pub struct Scene {
     size: geometry::Size,
     clear: Color,
     primitives: Vec<Primitive>,
+    material_regions: Vec<MaterialRegion>,
 }
 
 #[derive(Debug, Clone)]
@@ -93,6 +96,7 @@ impl Scene {
             size,
             clear,
             primitives: Vec::new(),
+            material_regions: Vec::new(),
         }
     }
 
@@ -106,6 +110,11 @@ impl Scene {
 
     pub fn primitives(&self) -> &[Primitive] {
         &self.primitives
+    }
+
+    #[allow(dead_code)] // Checkpoint 2 installs the report/residual consumer.
+    pub(crate) fn material_regions(&self) -> &[MaterialRegion] {
+        &self.material_regions
     }
 
     pub fn is_empty(&self) -> bool {
@@ -131,6 +140,12 @@ impl Scene {
         } else if let Some(group) = Group::new(scene.primitives().to_vec(), opacity) {
             self.primitives.push(Primitive::Group(group));
         }
+        self.material_regions.extend(
+            scene
+                .material_regions
+                .iter()
+                .map(|region| region.with_parent_opacity(opacity)),
+        );
     }
 
     pub(crate) fn append_ghost_scene_with_opacity(&mut self, scene: &Scene, opacity: f32) {
@@ -140,6 +155,7 @@ impl Scene {
             .iter()
             .map(ghost_primitive)
             .collect::<Vec<_>>();
+        ghost.material_regions.clear();
         self.append_scene_with_opacity(&ghost, opacity);
     }
 
@@ -155,6 +171,11 @@ impl Scene {
             .iter()
             .filter_map(native_popup_material_primitive)
             .map(|primitive| primitive.translated(dx, dy))
+            .collect();
+        native_material.material_regions = self
+            .material_regions
+            .iter()
+            .map(|region| region.translated(dx, dy))
             .collect();
 
         let mut opaque_fallback = Self::new_with_clear(
@@ -280,8 +301,22 @@ impl Scene {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn push_pane(&mut self, pane: Pane) {
         if pane.rect().width() > 0 && pane.rect().height() > 0 {
+            self.primitives.push(Primitive::Pane(pane));
+        }
+    }
+
+    pub(super) fn push_material_pane(
+        &mut self,
+        id: composition::NodeId,
+        pane: Pane,
+        clip: Option<Clip>,
+    ) {
+        if pane.rect().width() > 0 && pane.rect().height() > 0 {
+            self.material_regions
+                .push(MaterialRegion::from_pane(id, &pane, clip));
             self.primitives.push(Primitive::Pane(pane));
         }
     }
@@ -512,6 +547,103 @@ fn native_popup_accent_tint(primitives: &[Primitive]) -> Option<Color> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::view;
+
+    fn retained_material_region_ids(view: view::View) -> Vec<composition::NodeId> {
+        let window = crate::window::Id::new(1);
+        let mut store = composition::Store::default();
+        let composition = store.install(window, view);
+        let theme = Theme::default();
+        let mut engine = layout::Engine::new();
+        let layout = layout::Layout::compose_composition_with_theme_at(
+            composition,
+            geometry::Size::new(240, 160),
+            &mut engine,
+            &theme,
+            crate::animation::Frame::new(std::time::Instant::now()),
+            crate::keymap::Profile::default(),
+        );
+        let (_, entries) = Scene::paint_parts_with_clear_theme_and_visuals(
+            &layout,
+            theme.surfaces().canvas,
+            &theme,
+            &Visuals::default(),
+        );
+
+        entries
+            .iter()
+            .flat_map(|entry| entry.scene().material_regions().iter())
+            .map(MaterialRegion::id)
+            .collect()
+    }
+
+    fn retained_material_region_ids_across(
+        first: view::View,
+        second: view::View,
+    ) -> (Vec<composition::NodeId>, Vec<composition::NodeId>) {
+        let window = crate::window::Id::new(1);
+        let mut store = composition::Store::default();
+        let theme = Theme::default();
+        let mut engine = layout::Engine::new();
+
+        let first_ids = {
+            let composition = store.install(window, first);
+            let layout = layout::Layout::compose_composition_with_theme_at(
+                composition,
+                geometry::Size::new(240, 160),
+                &mut engine,
+                &theme,
+                crate::animation::Frame::new(std::time::Instant::now()),
+                crate::keymap::Profile::default(),
+            );
+            let (_, entries) = Scene::paint_parts_with_clear_theme_and_visuals(
+                &layout,
+                theme.surfaces().canvas,
+                &theme,
+                &Visuals::default(),
+            );
+            entries
+                .iter()
+                .flat_map(|entry| entry.scene().material_regions().iter())
+                .map(MaterialRegion::id)
+                .collect()
+        };
+        let second_ids = {
+            let composition = store.install(window, second);
+            let layout = layout::Layout::compose_composition_with_theme_at(
+                composition,
+                geometry::Size::new(240, 160),
+                &mut engine,
+                &theme,
+                crate::animation::Frame::new(std::time::Instant::now()),
+                crate::keymap::Profile::default(),
+            );
+            let (_, entries) = Scene::paint_parts_with_clear_theme_and_visuals(
+                &layout,
+                theme.surfaces().canvas,
+                &theme,
+                &Visuals::default(),
+            );
+            entries
+                .iter()
+                .flat_map(|entry| entry.scene().material_regions().iter())
+                .map(MaterialRegion::id)
+                .collect()
+        };
+
+        (first_ids, second_ids)
+    }
+
+    fn panel(id: &'static str) -> view::Node {
+        view::Node::floating_panel(id).child(view::Node::label(id))
+    }
+
+    fn panels(ids: &[&'static str]) -> view::View {
+        view::View::new(
+            ids.iter()
+                .fold(view::Node::root(), |root, id| root.child(panel(id))),
+        )
+    }
 
     fn simple_scene() -> Scene {
         let mut scene = Scene::new(geometry::Size::new(100, 100));
@@ -532,6 +664,89 @@ mod tests {
             .with_rounding(Rounding::fixed(8.0)),
         );
         scene
+    }
+
+    #[test]
+    fn material_region_identity_is_retained_while_order_is_a_projection() {
+        let (first, reordered) =
+            retained_material_region_ids_across(panels(&["one", "two"]), panels(&["two", "one"]));
+
+        assert_eq!(first.len(), 2);
+        assert_eq!(reordered, vec![first[1], first[0]]);
+        assert!(first.iter().all(|id| id.is_retained()));
+    }
+
+    #[test]
+    fn insertion_before_material_region_does_not_rename_it() {
+        let (first, inserted) = retained_material_region_ids_across(
+            panels(&["one", "two"]),
+            panels(&["zero", "one", "two"]),
+        );
+
+        assert_eq!(first.len(), 2);
+        assert_eq!(inserted.len(), 3);
+        assert_eq!(&inserted[1..], first.as_slice());
+        assert_ne!(inserted[0], first[0]);
+        assert_ne!(inserted[0], first[1]);
+    }
+
+    #[test]
+    fn departing_material_region_is_removed_without_renaming_survivors() {
+        let (first, removed) =
+            retained_material_region_ids_across(panels(&["one", "two"]), panels(&["one"]));
+
+        assert_eq!(first.len(), 2);
+        assert_eq!(removed, vec![first[0]]);
+    }
+
+    #[test]
+    fn painted_material_region_carries_declaring_geometry_recipe_and_clip() {
+        let ids = retained_material_region_ids(panels(&["panel"]));
+        assert_eq!(ids.len(), 1);
+
+        let id = retained_material_region_ids(panels(&["manual.panel"]))[0];
+        let pane = Pane::new(
+            geometry::Rect::new(4, 6, 40, 24),
+            Material::glass(Glass::panel_dark()),
+        )
+        .with_rounding(Rounding::fixed(8.0));
+        let clip = Clip::new(geometry::Rect::new(5, 7, 38, 22)).with_rounding(Rounding::fixed(6.0));
+        let mut scene = Scene::new(geometry::Size::new(100, 100));
+        scene.push_material_pane(id, pane, Some(clip));
+
+        let [region] = scene.material_regions() else {
+            panic!("material pane should emit one request");
+        };
+        assert_eq!(region.id(), id);
+        assert_eq!(region.rect(), geometry::Rect::new(4, 6, 40, 24));
+        assert_eq!(region.rounding(), Rounding::fixed(8.0));
+        assert_eq!(region.clips(), &[clip]);
+        assert_eq!(region.opacity(), 1.0);
+        assert!(matches!(region.material(), Material::Glass(_)));
+    }
+
+    #[test]
+    fn material_region_translation_and_parent_opacity_follow_scene_projection() {
+        let id = retained_material_region_ids(panels(&["translated.panel"]))[0];
+        let pane = Pane::new(
+            geometry::Rect::new(4, 6, 40, 24),
+            Material::glass(Glass::panel_dark()),
+        );
+        let clip = Clip::new(geometry::Rect::new(4, 6, 40, 24));
+        let mut source = Scene::new(geometry::Size::new(100, 100));
+        source.push_material_pane(id, pane, Some(clip));
+        let mut faded = Scene::new(geometry::Size::new(100, 100));
+        faded.append_scene_with_opacity(&source, 0.5);
+
+        let popup = faded.native_popup_scenes(geometry::Rect::new(4, 6, 40, 24));
+        let [region] = popup.native_material().material_regions() else {
+            panic!("native scene should retain one translated request");
+        };
+        assert_eq!(region.id(), id);
+        assert_eq!(region.rect(), geometry::Rect::new(0, 0, 40, 24));
+        assert_eq!(region.clips()[0].rect(), geometry::Rect::new(0, 0, 40, 24));
+        assert_eq!(region.opacity(), 0.5);
+        assert!(popup.opaque_fallback().material_regions().is_empty());
     }
 
     #[test]
@@ -603,6 +818,10 @@ mod tests {
         assert!(
             !glass.surface_layers().is_empty(),
             "ghost panes keep paint-only surface layers"
+        );
+        assert!(
+            target.material_regions().is_empty(),
+            "paint-only ghosts must not retain platform material requests"
         );
     }
 

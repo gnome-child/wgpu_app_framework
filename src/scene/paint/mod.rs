@@ -237,7 +237,7 @@ fn paint_frame(
 
     let rounding = role_rounding(frame, theme);
     if is_floating_panel_role(frame.role()) {
-        paint_floating_panel_material(frame, scene, theme);
+        paint_floating_panel_material(frame, scene, theme, clip);
         paint_floating_panel_border(frame, scene, theme);
     } else if let Some(fill) = frame.background() {
         paint_brush_quad(scene, frame.rect(), fill, rounding);
@@ -551,15 +551,22 @@ fn paint_floating_panel_shadow(frame: &layout::Frame, scene: &mut Scene, theme: 
     );
 }
 
-fn paint_floating_panel_material(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
+fn paint_floating_panel_material(
+    frame: &layout::Frame,
+    scene: &mut Scene,
+    theme: &Theme,
+    clip: Option<Clip>,
+) {
     let panel = theme.floating_panel();
     match &panel.material {
         Material::Solid(brush) => {
             paint_brush_quad(scene, frame.rect(), *brush, role_rounding(frame, theme))
         }
-        Material::Glass(_) => scene.push_pane(
+        Material::Glass(_) => scene.push_material_pane(
+            frame.node_id(),
             Pane::new(frame.rect(), panel.material.clone())
                 .with_rounding(role_rounding(frame, theme)),
+            clip,
         ),
     }
 }
