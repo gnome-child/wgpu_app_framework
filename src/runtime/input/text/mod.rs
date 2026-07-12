@@ -73,6 +73,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return self.handle_text_box_edit(window, focus, edit);
         }
 
+        if focus.table_cell_identity().is_some() {
+            log::debug!(
+                "ignoring text input for a table cell without a current local draft in window {window:?}"
+            );
+            return Ok(input::Outcome::ignored());
+        }
+
         let reveal_target = self.text_input_target(window, focus);
         let cleared_preedit = self.session.clear_text_input(window);
         let response = self.invoke_focused_with_source(

@@ -46,6 +46,24 @@ editing. Only a specifically proven stale interactive target may become inert
 with a diagnostic at the final input boundary; programmatic `MissingTarget`
 and unrelated defects remain visible.
 
+Closed. The live release gallery survived ordinary, sorted, expanded, edited,
+selected, resized, and cross-cell click sequences. The deterministic reduction
+is the ownership boundary beneath those gestures: text input with a table-cell
+focus but no current local draft fell through to `document::ApplyEdit` and
+reproduced the field report's exact `MissingTarget`. This includes display-only
+cells and a late table identity whose materialized cell has departed.
+
+The repair is deliberately narrow. `handle_text_edit` recognizes table-cell
+focus after the local-draft path declines, emits a debug diagnostic, and returns
+an ignored input outcome. It does not change command dispatch, responder lookup,
+or `MissingTarget`; the same programmatic `ApplyEdit` invocation remains an
+error witness. Existing reconciliation already clears stale focus, so no second
+stale-target framework layer was admitted.
+
+Boundary: 901 discovered; 893 passed, 8 deliberately ignored, 0 failed.
+Formatting, all-target compilation, all three smokes, diff hygiene, and the
+protected comparison flag were green.
+
 ### Fix 2 — one approved width
 
 Census every width used by typed display, editable display, overflow,
@@ -100,7 +118,7 @@ override against minimum resolved-width materialization before choosing state.
 | Boundary | Commit | Files | Insertions | Deletions | Result |
 | --- | --- | ---: | ---: | ---: | --- |
 | Ledger open | this commit | 2 | 112 | 3 | Field report, doctrine, reductions, and protocol |
-| Fix 1 | pending | pending | pending | pending | Input ownership and narrow stale-target law |
+| Fix 1 | this commit | 3 | 81 | 1 | Table-cell input remains local; programmatic missing targets remain errors |
 | Fix 2 | pending | pending | pending | pending | One approved text width |
 | Fix 3 | pending | pending | pending | pending | One inactive display recipe |
 | Fix 4 | pending | pending | pending | pending | Constant single-line headers |

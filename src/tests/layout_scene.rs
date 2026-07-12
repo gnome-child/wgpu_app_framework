@@ -2332,6 +2332,61 @@ fn table_display_text_selects_and_copies_while_double_click_alone_enters_editing
 }
 
 #[test]
+fn table_cell_text_input_without_a_draft_never_falls_through_to_document_editing() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 700);
+    app.render_scene(window, size)
+        .expect("control gallery table should render");
+
+    let display_only = crate::table::Cell::new(
+        interaction::Id::new("control_gallery.records"),
+        crate::virtual_list::Key::new(0),
+        interaction::Id::new("record"),
+    );
+    app.handle_input(
+        window,
+        Input::focus(session::Focus::table_cell(display_only).keyboard()),
+    )
+    .expect("display-only table cell should become current");
+    let display_input = app
+        .handle_input(
+            window,
+            Input::text_edit(text::edit::Edit::insert("late display input")),
+        )
+        .expect("table-owned input without a draft should be inert");
+    assert!(!display_input.is_handled());
+
+    let stale = crate::table::Cell::new(
+        interaction::Id::new("control_gallery.records"),
+        crate::virtual_list::Key::new(u64::MAX),
+        interaction::Id::new("note"),
+    );
+    app.handle_input(
+        window,
+        Input::focus(session::Focus::table_cell(stale).pointer()),
+    )
+    .expect("a late input target may outlive its materialized cell");
+    let stale_input = app
+        .handle_input(window, Input::text_commit("late stale input"))
+        .expect("late table input should be inert instead of fatal");
+    assert!(!stale_input.is_handled());
+
+    let trigger = app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("programmatic"));
+    let error = app
+        .invoke_focused(window, trigger)
+        .output
+        .expect_err("programmatic missing-target errors must remain visible");
+    assert!(matches!(
+        error,
+        Error::MissingTarget {
+            command: "document.apply_edit"
+        }
+    ));
+}
+
+#[test]
 fn table_focus_presentation_follows_modality_and_active_edit_surface() {
     let mut app = editable_table_app(EditableTableState {
         records: vec![EditableRecord {
