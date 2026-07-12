@@ -90,6 +90,10 @@ impl Native {
         if material_changed {
             popup.material = Some(material);
         }
+        #[cfg(target_os = "windows")]
+        let uses_composition = popup.composition.is_some();
+        #[cfg(not(target_os = "windows"))]
+        let uses_composition = false;
         let (surface_format, alpha_mode, surface_width, surface_height) = {
             let config = popup.window.canvas().surface().config();
             (
@@ -106,7 +110,17 @@ impl Native {
         );
         let realization_changed = popup.material_realization != Some(realization);
         if realization_changed {
-            if realization.uses_os_material() {
+            if uses_composition {
+                log::info!(
+                    target: "wgpu_l3::native_popup",
+                    "native popup {:?} will resolve material from composition region reports: mode={:?}, format={:?}, alpha={:?}, preference={:?}",
+                    presentation.id(),
+                    popup.presentation_mode,
+                    surface_format,
+                    alpha_mode,
+                    material.preference()
+                );
+            } else if realization.uses_os_material() {
                 log::info!(
                     target: "wgpu_l3::native_popup",
                     "native popup {:?} uses Windows accent acrylic: mode={:?}, format={:?}, alpha={:?}, preference={:?}, tint={:?}",
@@ -174,7 +188,8 @@ impl Native {
         } else {
             crate::scene::MaterialCapabilities::none()
         };
-        let accent = if !tenancy_realized
+        let accent = if !uses_composition
+            && !tenancy_realized
             && capabilities.forecasts_backdrop_frost()
             && material_region.is_some()
         {
@@ -184,17 +199,19 @@ impl Native {
         } else {
             super::sys::PopupAccentMaterial::Disabled
         };
-        if popup.accent.set_desired(accent, now) {
-            log::debug!(
-                target: "wgpu_l3::native_popup",
-                "recorded native popup accent desire {:?}: realization={:?}, accent={:?}",
-                presentation.id(),
-                realization,
-                accent
-            );
-        }
-        if let Some(reason) = popup_accent_due(&popup.accent, now) {
-            apply_popup_accent(key, popup, reason);
+        if !uses_composition {
+            if popup.accent.set_desired(accent, now) {
+                log::debug!(
+                    target: "wgpu_l3::native_popup",
+                    "recorded legacy native popup accent desire {:?}: realization={:?}, accent={:?}",
+                    presentation.id(),
+                    realization,
+                    accent
+                );
+            }
+            if let Some(reason) = popup_accent_due(&popup.accent, now) {
+                apply_popup_accent(key, popup, reason);
+            }
         }
         if popup.border.set_desired(presentation.border(), now) {
             log::debug!(
@@ -232,10 +249,6 @@ impl Native {
             },
             &reports,
         );
-        #[cfg(target_os = "windows")]
-        let uses_composition = popup.composition.is_some();
-        #[cfg(not(target_os = "windows"))]
-        let uses_composition = false;
         #[cfg(target_os = "windows")]
         if let Some(composition) = popup.composition.as_mut()
             && let Err(error) = composition.apply_fade(presentation.fade(), Instant::now())

@@ -6,11 +6,7 @@ is next.
 
 ## In flight
 
-18. **Material regions** — retained ordered material requests, actual
-    per-region realization reports, one residual resolver, and Windows
-    single-HWND composition tenancy. The show-cycle prerequisite is complete;
-    checkpoint 1 is establishing retained region identity and clip/opacity
-    provenance.
+No campaign is currently in flight.
 
 ## Specced and ready
 

@@ -2305,9 +2305,9 @@ fn windows_native_popup_material_prefers_dx12_without_overriding_explicit_choice
     );
     for phrase in [
         "WGPU_BACKEND",
-        "system backdrop tracks activation state",
+        "host-backdrop region container",
         "SetWindowCompositionAttribute",
-        "Vulkan redirected popups",
+        "RedirectedFallback",
         "DxgiFromVisual",
     ] {
         assert!(
@@ -2363,8 +2363,9 @@ fn native_popup_accent_realization_is_settle_rate() {
         "backend maintenance must drain pending accents and redraw their parents"
     );
     assert!(
-        master.contains("OS-side realizations are settle-rate, not event-rate"),
-        "native material doctrine should name settle-rate OS realization"
+        master.contains("OS-side state crosses at the narrowest honest rate")
+            && master.contains("legacy accent bridge"),
+        "native material doctrine should name the legacy settle-rate realization"
     );
 }
 
@@ -2445,7 +2446,7 @@ fn popup_border_has_one_theme_datum_for_scene_and_windows() {
         "Windows COLORREF byte order must live in the color owner"
     );
     assert!(
-        master.contains("`FloatingPanel.border` is the one popup border datum")
+        master.contains("`FloatingPanel.border` remains the one popup border datum")
             && master.contains("`COLORREF` (`0x00BBGGRR`)"),
         "master design must retain popup border ownership and byte order"
     );
@@ -2499,7 +2500,8 @@ fn sys_side_realizations_share_one_settle_applicator() {
         "geometry, accent, and border should retain only their distinct due policy"
     );
     assert!(
-        master.contains("`SysApplicator<T>` owns desired value, applied value"),
+        master.contains("`SysApplicator<T>`")
+            && master.contains("continues to own desired/applied snapshots"),
         "master design must retain the shared sys applicator owner"
     );
 }
@@ -3192,6 +3194,25 @@ fn windows_material_regions_are_keyed_projections_with_report_after_success() {
         composition.contains("into_paint_rounded_rect_at_scale")
             && !composition.contains("enumerate()"),
         "material realization must share raster projection and never derive identity from order"
+    );
+}
+
+#[test]
+fn windows_accent_bridge_is_absent_from_composition_tenancy() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let popup = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("popup.rs"),
+    )
+    .expect("native popup source should read");
+
+    assert!(
+        popup.contains("if !uses_composition {")
+            && popup.contains("recorded legacy native popup accent desire")
+            && popup.contains("popup_accent_due(&popup.accent, now)"),
+        "accent desire and application must be narrowed to the non-tenancy bridge"
     );
 }
 

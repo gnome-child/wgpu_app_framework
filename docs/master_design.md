@@ -525,42 +525,54 @@ area. IME preedit, commit, and disable events received by a popup remain
 coordinate-free input events and adapt back into the parent's logical
 focus/session truth.
 
-Intent is portable; realization is native. `Material::Glass` means "glasslike
-panel material"; an in-frame backend realizes it by sampling the parent
-composition, a native popup backend realizes it with OS window material when
-the platform and surface alpha support it, and native fallback realizes it as
-an opaque readable body when neither backdrop path is available. Theme/config
-should express portable intent and platform-scoped realization choices, never a
-flat optional cluster of OS-specific fields.
+Intent is portable; realization is reported. `Material::Glass` means
+"glasslike panel material" and is retained once as an ordered, keyed scene
+request. A request carries declaring identity, logical geometry and rounding,
+inherited clip provenance, effective opacity, material recipe, and independent
+scene order. Identity comes from the retained declaring frame; traversal and
+primitive order never become identity.
+
+Forecast, platform outcome, residual paint, and final fidelity are separate
+facts. A platform reports only the material parts it actually realized. One
+scene resolver combines the original request, uniquely matching reports, and
+renderer context; only reported parts may be removed from residual paint.
+Missing, stale, duplicate, failed, or identity-mismatched reports consume
+nothing. `Full`, `Frost`, and `Fallback` summarize the final visual result;
+they are diagnostics, not assembly instructions. In-frame material is the
+all-platform-`None` case and can still reach `Full` through renderer sampling;
+platform `None` is not itself fallback.
 
 Overlay backend choice follows window capability, not material identity. A
 floating panel that prefers `NativePopup` uses it whenever the platform probe
 supports native popup windows; unsupported platforms fall back to `InFrame`.
-Material realization is backend-local: in-frame panes may sample parent
-composition, while native popup windows own backdrop material, corner shape,
-and shadow. Native popup scenes must not contain framework glass panes; the
-framework renders content and interaction visuals into a transparent
-premultiplied popup surface so OS material can show through. If the popup
-surface cannot support that alpha mode, the backend logs the downgrade and
-renders an opaque native-safe fallback scene, still without framework glass.
-All floating panels therefore follow the same backend path, with material
-differences handled below the backend seam.
+Windows DX12 can earn per-region host frost in one composition tree beneath a
+transparent premultiplied wgpu tenant surface. Non-tenancy native paths may use
+the legacy whole-window accent bridge for its supported single-region case.
+Anything unreported remains in the resolver's explicit renderer/fallback plan,
+so one unsupported region cannot demote its siblings.
 
-OS-side realizations are settle-rate, not event-rate. Geometry, accent material,
-border color, and similar native attributes are desired state with an
-applied snapshot; they coalesce to the latest value and cross into the OS only
-after a meaningful geometry change, material-presence change, or short settled
-quiet period. Drag-rate parameter changes must not build a queue of native
-compositor calls.
-`SysApplicator<T>` owns desired value, applied value, desired-change time, and
-the shared initial/immediate/settled due decision. Geometry, accent, and border
-are typed clients that provide only their policy: geometry changes are
-immediate, accent-presence changes are immediate while tint changes settle, and
-post-creation border changes settle.
-`FloatingPanel.border` is the one popup border datum. In-frame popups paint it
-as their outline; native backends encode the same sRGB bytes in the platform's
-border format. Creation applies the border before first show, while later theme
-changes use the settle-rate maintenance path.
+Material-region geometry remains scene truth. Device conversion and snapping
+consume the same `paint::Grid` and rounded-rectangle projection as renderer
+paint; inherited clips are realized only when the platform can represent them.
+The platform retains region visuals by declaring `NodeId`, while refreshing
+their order from each scene projection. Interaction with projected geometry
+routes back to retained sources; projection storage is never application
+truth.
+
+OS-side state crosses at the narrowest honest rate. Region presence, removal,
+and ordering are immediate because they change what exists. Stable scalar
+parameters may settle where the platform call is expensive. `SysApplicator<T>`
+continues to own desired/applied snapshots for geometry, the legacy accent
+bridge, and DWM border color; composition-region retention is its own keyed
+collection owner rather than another scalar applicator. Drag-rate parameter
+changes must not build a queue of native calls.
+
+`FloatingPanel.border` remains the one popup border datum. In-frame and native
+residual paint use it as framework chrome; Windows also encodes the same sRGB
+bytes in DWM's border format while DWM still owns the outer HWND silhouette.
+Creation applies that attribute before first show and later theme changes use
+the settle-rate path. Removing the DWM copy requires an isolated witness that
+the composition/painted silhouette fully replaces it at every scale.
 
 Native surface context creation owns the one cross-platform backend selection.
 Target-specific presentation policy belongs in render backend options, not
@@ -581,17 +593,18 @@ change with `SWP_FRAMECHANGED | SWP_NOACTIVATE`. The installed subclass answers
 `WM_MOUSEACTIVATE` with `MA_NOACTIVATE`; configure and show use no-activate paths.
 This is shell correctness, not an optional acrylic tweak.
 
-**Material and packed color.** DWM system backdrop tracks activation state; it
-is focus-coupled. A `NOACTIVATE` popup is permanently inactive for that material
-and receives its solid fallback even while the owner is focused, so
-nonactivating popup glass uses the focus-independent accent policy:
-`SetWindowCompositionAttribute` with
-`ACCENT_ENABLE_ACRYLICBLURBEHIND`. Accent `GradientColor` is
-`AABBGGRR`/ABGR and derives from the scene material tint; tint alpha remains a
-theme dial. `FloatingPanel.border` uses the same scene sRGB bytes as the in-frame
-outline, converted once to `COLORREF` (`0x00BBGGRR`) for
-`DWMWA_BORDER_COLOR`. Accent and border values obey the shared settle-rate
-applicator; the content-only fade contract below leaves them untouched.
+**Material and packed color.** DX12 tenancy creates one WinRT desktop target
+and tree per popup. A host-backdrop region container sits below the live wgpu
+content sprite; keyed rounded visuals report frost only after brush, geometry,
+clip, update, and order operations succeed. Surface tint remains renderer-owned
+residual paint, so bare host frost does not claim exact tint, blur sigma,
+refraction, luminosity, saturation, or noise. The legacy non-tenancy bridge
+uses `SetWindowCompositionAttribute` with
+`ACCENT_ENABLE_ACRYLICBLURBEHIND` only for its supported single full-window
+region. Accent `GradientColor` is `AABBGGRR`/ABGR. Tenancy neither applies nor
+disables that legacy accent policy. `FloatingPanel.border` converts once to
+`COLORREF` (`0x00BBGGRR`) for `DWMWA_BORDER_COLOR` while that call remains the
+outer-silhouette owner.
 
 **Presentation causality.** Window existence, OS presentation eligibility,
 GPU presentation, compositor pickup, and user visibility are separate facts.
@@ -614,14 +627,16 @@ Accent maintenance that has no immediate draw requests one parent redraw.
 Platforms without an implemented concealment primitive retain their existing
 show path; they do not inherit the Windows guarantee by assertion.
 
-**Backend and alpha handoff.** Acrylic is not tied to DX12 DirectComposition:
-Vulkan redirected popups can realize it when the surface reports premultiplied
-alpha. The backend mask stays `wgpu::Backends::all()` and `WGPU_BACKEND` is the
-A/B lever. `CompositionBacked` means the DX12 `DxgiFromVisual` path plus
-`WS_EX_NOREDIRECTIONBITMAP`; `RedirectedFallback` keeps redirection, requests
-premultiplied alpha, and may still use accent acrylic. The DX12 visual path
-remains a targeted diagnostic/future utility-window option, not the default
-acrylic requirement.
+**Backend and alpha handoff.** An explicit `WGPU_BACKEND` is authoritative and
+attempts only that backend. Without an override, Windows attempts DX12 first so
+composition tenancy can be earned, then falls back through the ordinary backend
+set if DX12 initialization fails. `CompositionBacked` means DX12
+`DxgiFromVisual`, `WS_EX_NOREDIRECTIONBITMAP`, and one framework-owned WinRT
+target/tree. wgpu receives an unattached classic visual, exposes its live DXGI
+swapchain through the hal escape hatch, and becomes a sprite tenant in that
+tree. `RedirectedFallback` keeps redirection, requests premultiplied alpha, and
+may use the legacy accent bridge. Failure before tenancy completion drops the
+partial tree and remains a truthful non-tenancy popup.
 
 The normal renderer writes the scene to an sRGB offscreen target. A Windows
 premultiplied popup pack then samples associated linear RGB, unassociates it,
@@ -645,14 +660,13 @@ defects implicate accent. Scale logs carry scene bounds, requested bounds,
 observed inner size, canvas physical area, surface size, and popup scale. Real
 fixtures include disabled menu shortcuts and live hover/drag sliders.
 
-Native popup fades are content-side overlay animation, never native material
-policy. The local native-material scene removes the framework glass pane, and
-group opacity applies only to the remaining content pixels; the transparent
-surface, accent state, fallback body, and border remain stable. Repeated fade
-frames therefore do not reapply accent policy. On dismissal, a noninteractive
-`RetiringPopup` keeps the same native surface and material facts alive through
-the exit timeline, then native synchronization closes it. It never becomes a
-parent-window ghost.
+Native popup fades have one opacity owner per realization. Tenancy animates the
+common composition root, so content, host frost, and framework residual chrome
+share one compositor timeline without per-frame application redraw. Legacy
+non-tenancy applies opacity once in scene paint and keeps native material facts
+stable. On dismissal, a noninteractive `RetiringPopup` keeps the same native
+surface and material facts alive through the exit timeline, then native
+synchronization closes it. It never becomes a parent-window ghost.
 
 Overlay ghosts are paint-only afterlife. When a live in-frame entry is
 dismissed, runtime may retain its final scene bucket briefly as a `Ghost` for
