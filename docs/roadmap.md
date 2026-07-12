@@ -6,14 +6,13 @@ is next.
 
 ## In flight
 
-None.
+2. **Show-cycle presentation contract** — the first visible frame of every
+   popup show cycle must be a freshly presented current frame. Implementation
+   is reducing the current show-before-present path into a hidden/cloaked
+   readiness gate before the material-regions campaign begins.
 
 ## Specced and ready
 
-2. **Show-cycle presentation contract** — the first visible frame of every
-   popup show cycle must be a freshly presented current frame. Fixes the
-   stale-swapchain silhouette on reused popup windows and is expected to close
-   the unresolved first-frame skip recorded in `master_design.md`.
 4. **Context menu** — right-click → hit-scoped claims → derived command menu
    at the pointer, on the native popup backend. The popup arc's original
    payoff feature.
