@@ -31,6 +31,14 @@ is next.
 6. Local visual-test edits in `examples/glass_tuner/app/state.rs` — revert
    when tuning sessions end.
 
+28. **Table frame economics** — two field bugs from large-view driving:
+    framerate dips scaling with view size (per-frame work for unchanged
+    content; suspects: full pipeline on hover/scroll frames -> pull item 14
+    v0.5 forward, shaping-cache capacity vs visible population, assembly
+    churn) and header hover waiting for scroll to end (hover must derive
+    from pointer AND geometry; possibly a symptom of the first). Goal
+    staged; evidence-first; runs after the material-regions campaign seals.
+
 ## Decisions awaiting product taste
 
 7. **Dirty-document confirmation flow** — one destructive-intent coordinator
