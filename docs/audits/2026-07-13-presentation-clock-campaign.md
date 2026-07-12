@@ -58,7 +58,7 @@ coalesce into one frame, but no semantic input is discarded.
 | --- | --- | --- |
 | 0. Evidence harness and backend verdict | Complete | `4abc2472`; phase timings and event/frame counts; release 136/500/800-pixel Vulkan/DX12-Visual/DX12-HWND matrix |
 | 1. Presentation receipts and geometry epochs | Complete | `713ff311`; candidate geometry travels with epoch/invalidation; only a successful backend receipt promotes it |
-| 2. Presentation-rate coalescing | Pending | Event work immediate; scene/GPU work only at redraw boundary |
+| 2. Presentation-rate coalescing | Complete | `3b95c174`; ordinary work is immediate/non-rendering; `RedrawRequested` is the sole platform frame boundary |
 | 3. Last-presented input geometry | Pending | No event-local speculative layout |
 | 4. Pointer truth and hover projection | Pending | Pointer position retained; hover re-hits before changed frame paint |
 | 5. Transient table widths | Pending | Divider drag is layout-only, never a view rebuild |
@@ -211,3 +211,38 @@ acknowledged advancement, and teardown cleanup. Boundary: 930 library tests
 passed with 8 deliberate ignores; all 4 doctests, three application smokes,
 formatting, all-target compilation, and diff hygiene passed. The protected
 gallery-height edit remains untouched.
+
+## Checkpoint 2 — events and frames are different clocks
+
+Shell/runtime work now has two explicit products. `ImmediateWork` carries
+window lifecycle, cursor, dialog, task, request, poll, animation schedule, and
+the windows whose coalesced invalidation requires a native redraw. It cannot
+carry a presentation. `RenderWork` is produced for one window only when the
+platform delivers `RedrawRequested`.
+
+Startup opens the backend window and requests its first redraw; it no longer
+builds a frame in the resumed callback. Resize, input, task completion, and
+animation due-work mutate truth and request redraw without presenting. An OS
+redraw with no pending mutation still prepares an honest paint frame. A skipped
+surface receipt restores the same invalidation and requests another native
+redraw. Native popup presentations remain synchronized with the parent frame
+that realizes them.
+
+The platform backend gained one surface-scoped `request_redraw` operation;
+the Windows implementation delegates to the retained winit window. No frame
+queue, input throttle, targeted damage mechanism, or second graphics context
+was added.
+
+Deterministic witnesses prove that 1,000 pointer events plus ten ordered click
+commands execute immediately with zero interim backend presentations and one
+final frame; 1,000 wheel deltas retain an exact cumulative offset and one final
+frame; and a skipped frame requests redraw until one receipt succeeds. Existing
+host/platform tests were rewritten to state the new law explicitly: lifecycle
+or input work is followed by a redraw opportunity when visual output is
+required.
+
+Checkpoint boundary: 933 library tests passed with 8 deliberate ignores; all
+4 doctests, three application smokes, formatting, all-target compilation, and
+diff hygiene passed. The remaining per-event routing layout is deliberately
+visible in diagnostics and is removed by checkpoint 3; no input event performs
+view reconstruction, scene assembly, renderer drawing, or backend presentation.
