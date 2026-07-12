@@ -48,8 +48,12 @@ None.
 
 ## Named arcs
 
-10. **Tables arc** — assembly of proven citizens; six independently green
-    checkpoints within one persistent campaign, in order:
+10. **Tables arc — v1 COMPLETE** (`d5082175`, 2026-07-13; 906 tests). Six
+    campaigns end to end: tables, grammar, polish, five truths, one text
+    truth, one selectable truth — ledgers in `docs/audits/`. Final capability
+    boundary is std: `Display` is citizenship, `FromStr` editability, `Ord`
+    sortability, `bool` conversions the toggle medium; zero framework
+    capability traits. Original checkpoints:
     1. Text overflow (complete at `dfa728f2`; item 9 pruned).
     2. **`FrameContent` decomposition** (complete at `35736441`) — one `Frame` keeps common
        geometry/identity/clip/presentation; role payloads become a typed
