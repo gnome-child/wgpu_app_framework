@@ -44,9 +44,9 @@ range/TSV spreadsheet behavior, or push is permitted.
 | Checkpoint | Contract | Status | Boundary proof |
 | --- | --- | --- | --- |
 | 1 | Expanded rows consume intrinsic content at resolved track widths | Complete | `5af6d17b`; 876 passed, 8 ignored; exact 28/128 px rows, resize to 108 px, scroll invariance, generic variable-list preservation, three smokes and all boundary checks green |
-| 2 | Internal table naming consumes the existing subject channel | Green; commit pending | 877 passed, 8 ignored; retained subject and painted-text absence witnesses; three smokes and all boundary checks green |
-| 3 | Active sort indication is trailing header structure, never label text | In progress | Census pending |
-| 4 | Vertical scrollbar chrome consumes the visible body projection | Pending | — |
+| 2 | Internal table naming consumes the existing subject channel | Complete | `c401ebe9`; 877 passed, 8 ignored; retained subject and painted-text absence witnesses; three smokes and all boundary checks green |
+| 3 | Active sort indication is trailing header structure, never label text | Green; commit pending | 878 passed, 8 ignored; active-only caret geometry, both directions, wrapping, target and resize precedence, three smokes and all boundary checks green |
+| 4 | Vertical scrollbar chrome consumes the visible body projection | In progress | Census pending |
 | 5 | Read, select, navigate, then deliberately edit | Pending | — |
 | 6 | Resistance audit and campaign close-out | Pending | — |
 
@@ -123,6 +123,32 @@ Checkpoint commits are not pushed.
 - Commit receipt: pending checkpoint commit; the next ledger boundary records
   its hash and diff statistics.
 
+## Checkpoint 3 census and boundary — sort state is not label text
+
+- Proven duplication: the sortable header concatenated `↑`, `↓`, or neutral
+  `↕` into the button label. That collapsed semantic name, sort state, label
+  layout, and indicator placement into one string and made trailing alignment
+  impossible.
+- Existing pattern: controls such as choices already remain one retained target
+  while layout and paint derive multiple host-owned subparts. Sort headers now
+  follow that pattern rather than creating a child control or second target.
+- `HeaderPresentation` carries only projected wrap and active sort direction.
+  Layout derives one leading label rect and one optional trailing indicator rect
+  from the header cell. Measurement, paint, and tests consume those same rects.
+- The button label remains exactly the column name. Unsorted sortable columns
+  reserve no indicator and paint no glyph. Active ascending/descending states
+  paint Phosphor `caret-up`/`caret-down` at the trailing edge.
+- Clicking the decorative caret routes through the existing header target;
+  resize boundaries keep precedence in their authoritative hit strips.
+- Expanded sortable headers measure and wrap in the label subpart around the
+  pinned caret. Compact headers use no wrapping. Custom headers retain their
+  escape-hatch behavior and do not receive an automatic sort target.
+- Structural absence: source and gallery code contain no `Record ↑`,
+  `Record ↓`, neutral `↕` branch, or glyph-formatted header label.
+- No public API change; the presentation and subpart helpers are crate-internal.
+- Commit receipt: pending checkpoint commit; the next ledger boundary records
+  its hash and diff statistics.
+
 ## Execution ledger
 
 | Entry | Scope | Result |
@@ -132,6 +158,8 @@ Checkpoint commits are not pushed.
 | E-002 | Checkpoint 1 full boundary | Held: 876 passed, 8 ignored; three smokes, formatting, all targets, diff check, compact million-row witness, and protected state green |
 | E-003 | Checkpoint 2 naming witnesses | Held: retained `Table columns` subject, absent node label, absent scene text, structural projection lookup |
 | E-004 | Checkpoint 2 full boundary | Held: 877 passed, 8 ignored; three smokes, formatting, all targets, diff check, compact million-row witness, and protected state green |
+| E-005 | Checkpoint 3 focused interaction and geometry | Held: active-only caret, exact label/indicator rects, caret click activation, divider precedence, descending transition, Expanded wrap |
+| E-006 | Checkpoint 3 full boundary | Held: 878 passed, 8 ignored; three smokes, formatting, all targets, diff and absence checks, compact million-row witness, and protected state green |
 
 ## Public API flags
 
@@ -156,4 +184,5 @@ viewport chrome concepts before proposing public vocabulary.
 | --- | --- | ---: | ---: | ---: | --- |
 | Campaign open | `816271b8` | 2 | 115 | 1 | Ledger and roadmap opened from a clean baseline |
 | Checkpoint 1 | `5af6d17b` | 5 | 282 | 37 | Resolved-track intrinsic row and header measurement |
-| Checkpoint 2 | pending | pending | pending | pending | Existing subject channel replaces painted internal scroll label |
+| Checkpoint 2 | `c401ebe9` | 3 | 66 | 9 | Existing subject channel replaces painted internal scroll label |
+| Checkpoint 3 | pending | pending | pending | pending | Active sort state projects into header-owned label and caret subparts |

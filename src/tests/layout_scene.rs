@@ -6230,7 +6230,7 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
         .scene()
         .texts()
         .into_iter()
-        .find(|text| text.value() == "Record ↑")
+        .find(|text| text.value() == "Record")
         .unwrap_or_else(|| {
             panic!(
                 "gallery should paint its sort header; painted={:?}",
@@ -6249,6 +6249,36 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
         .into_iter()
         .find(|frame| frame.rect().contains(sort_point))
         .expect("gallery should provide an ordinary command-bound sort header");
+    let sort_icon = initial
+        .scene()
+        .icons()
+        .into_iter()
+        .find(|icon| {
+            icon.icon().id().as_str() == "caret-up"
+                && sort_header.rect().contains(frame_point_at(icon.rect()))
+        })
+        .expect("active ascending sort should paint one trailing chevron");
+    assert_eq!(
+        sort_text.rect(),
+        layout::table_header_label_rect(sort_header.rect(), true, &Theme::default())
+    );
+    assert_eq!(
+        sort_icon.rect(),
+        layout::table_sort_indicator_rect(sort_header.rect(), &Theme::default())
+    );
+    let count_header = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_part() == Some(view::TablePart::HeaderControl)
+                && frame.label_text() == Some("Count")
+        })
+        .expect("inactive sortable count header");
+    assert!(initial.scene().icons().iter().all(|icon| {
+        !matches!(icon.icon().id().as_str(), "caret-up" | "caret-down")
+            || !count_header.rect().contains(frame_point_at(icon.rect()))
+    }));
     let sort_track = initial
         .layout()
         .table_tracks()
@@ -6268,9 +6298,9 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
         app.state().record_sort.direction(),
         crate::table::SortDirection::Ascending
     );
-    let point = frame_point_at(sort_header.rect());
+    let point = frame_point_at(sort_icon.rect());
     app.pointer_down_at(window, size, point)
-        .expect("sort header press should be handled");
+        .expect("decorative sort chevron should route to the header target");
     app.pointer_up_at(window, size, point)
         .expect("sort header release should emit its command");
 
@@ -6281,6 +6311,21 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
     let sorted = app
         .render_scene(window, size)
         .expect("application-updated provider order should render");
+    let descending_header = sorted
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_part() == Some(view::TablePart::HeaderControl)
+                && frame.label_text() == Some("Record")
+        })
+        .expect("descending record header");
+    assert!(sorted.scene().icons().iter().any(|icon| {
+        icon.icon().id().as_str() == "caret-down"
+            && descending_header
+                .rect()
+                .contains(frame_point_at(icon.rect()))
+    }));
     assert!(
         sorted
             .scene()
@@ -6288,6 +6333,81 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
             .iter()
             .any(|text| text.value() == "Record 999999")
     );
+}
+
+#[test]
+fn expanded_sort_header_wraps_around_a_trailing_active_chevron() {
+    const LABEL: &str = "A deliberately long sortable column header";
+    let source = crate::table::Source::new(
+        1,
+        |_| crate::virtual_list::Key::new(0),
+        |key| (key == crate::virtual_list::Key::new(0)).then_some(0),
+        |_| "value".to_owned(),
+    );
+    let mut app = Runtime::new(SourceState::default())
+        .commands(|commands| {
+            commands.register::<crate::table::SortBy>(command::Spec::new("Sort table"));
+        })
+        .responders(|responders| {
+            responders.app().target::<crate::table::SortBy>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Wrapped sort header"));
+        })
+        .view(move |_, _| {
+            let columns = vec![
+                crate::table::Column::value(
+                    "long",
+                    LABEL,
+                    view::Dimension::fixed(120),
+                    |value: &String| value,
+                )
+                .sortable()
+                .build(),
+            ];
+            widget::view_node(
+                crate::Table::typed("wrapped.sort", 24, columns, source.clone())
+                    .sorted_by("long", crate::table::SortDirection::Ascending)
+                    .presentation(crate::table::Presentation::Expanded)
+                    .width(view::Dimension::fixed(120))
+                    .height(view::Dimension::fixed(160)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let rendered = app
+        .render_scene(window, geometry::Size::new(120, 160))
+        .expect("expanded sortable header should render");
+    let header = rendered
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_part() == Some(view::TablePart::HeaderControl))
+        .expect("sortable header frame");
+    let label = rendered
+        .scene()
+        .texts()
+        .into_iter()
+        .find(|text| text.value() == LABEL)
+        .expect("wrapped header label");
+    let chevron = rendered
+        .scene()
+        .icons()
+        .into_iter()
+        .find(|icon| icon.icon().id().as_str() == "caret-up")
+        .expect("active sort chevron");
+
+    assert!(header.rect().height() > 30);
+    assert_eq!(label.wrap(), scene::TextWrap::WordOrGlyph);
+    assert_eq!(
+        label.rect(),
+        layout::table_header_label_rect(header.rect(), true, &Theme::default())
+    );
+    assert_eq!(
+        chevron.rect(),
+        layout::table_sort_indicator_rect(header.rect(), &Theme::default())
+    );
+    assert!(label.rect().right() <= chevron.rect().x());
 }
 
 #[test]
@@ -6389,7 +6509,7 @@ fn table_participation_changes_chrome_without_changing_control_behavior() {
         .iter()
         .find(|frame| {
             frame.table_part() == Some(view::TablePart::HeaderControl)
-                && frame.label_text() == Some("Record ↑")
+                && frame.label_text() == Some("Record")
         })
         .expect("sortable button should participate as a header control");
     assert_eq!(sort_header.role(), view::Role::Button);

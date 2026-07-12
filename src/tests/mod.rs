@@ -178,6 +178,16 @@ struct SourceState {
 
 impl State for SourceState {}
 
+impl Target<crate::table::SortBy> for SourceState {
+    fn state(&self, _: &crate::table::SortIntent, _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, _: crate::table::SortIntent, _: &mut Context) -> Response<()> {
+        Response::output(())
+    }
+}
+
 #[derive(Default)]
 struct CloneCountState {
     clone_count: Rc<Cell<usize>>,

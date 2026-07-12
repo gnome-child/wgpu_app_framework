@@ -1,4 +1,7 @@
-use super::super::{geometry::Size, keymap, theme, view};
+use super::super::{
+    geometry::{Rect, Size},
+    keymap, theme, view,
+};
 use super::{control, engine, flow, flow::gap_total, typography};
 
 pub(in crate::layout) fn size_hint(
@@ -128,6 +131,33 @@ pub(in crate::layout) fn intrinsic_height_for_width(
             })
             .unwrap_or(control_height)
             .max(control_height),
+        view::Role::Button
+            if node
+                .table_header_presentation()
+                .is_some_and(|presentation| presentation.wrap() == view::Wrap::Word) =>
+        {
+            let presentation = node
+                .table_header_presentation()
+                .expect("matched table header presentation");
+            let label_width = control::table_header_label_rect(
+                Rect::new(0, 0, width, control_height),
+                presentation.sort_direction().is_some(),
+                theme,
+            )
+            .width();
+            node.label_text()
+                .map(|label| {
+                    engine
+                        .label_size_for_width_with_style(
+                            label,
+                            label_width,
+                            typography::label_style(node, theme),
+                        )
+                        .height()
+                })
+                .unwrap_or(control_height)
+                .max(control_height)
+        }
         view::Role::Scroll => {
             scroll_intrinsic_height_for_width(node, width, engine, theme, profile)
         }

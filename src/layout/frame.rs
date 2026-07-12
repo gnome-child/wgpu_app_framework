@@ -138,6 +138,7 @@ pub(crate) struct Frame {
     table_row: Option<crate::table::Row>,
     table_cell: Option<crate::table::Cell>,
     table_header_cell: Option<crate::table::HeaderCell>,
+    table_header_presentation: Option<crate::table::HeaderPresentation>,
     table_projection: Option<table::Projection>,
     table_edit_error: Option<String>,
     participation: Option<view::Participation>,
@@ -271,6 +272,7 @@ impl Frame {
             table_row: node.table_row(),
             table_cell: node.table_cell(),
             table_header_cell: node.table_header_cell(),
+            table_header_presentation: node.table_header_presentation(),
             table_projection: None,
             table_edit_error: node.table_edit_error().map(str::to_owned),
             participation: node.participation(),
@@ -418,6 +420,10 @@ impl Frame {
 
     pub(crate) fn table_header_cell(&self) -> Option<crate::table::HeaderCell> {
         self.table_header_cell
+    }
+
+    pub(crate) fn table_header_presentation(&self) -> Option<crate::table::HeaderPresentation> {
+        self.table_header_presentation
     }
 
     pub(crate) fn table_projection(&self) -> Option<&table::Projection> {

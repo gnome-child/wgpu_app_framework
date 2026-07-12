@@ -31,6 +31,10 @@ impl Node {
         self.native_popup_material_preference
     }
 
+    pub(crate) fn table_header_presentation(&self) -> Option<crate::table::HeaderPresentation> {
+        self.table_header_presentation
+    }
+
     pub fn subject(&self) -> Option<&subject::Segment> {
         self.subject.as_ref()
     }

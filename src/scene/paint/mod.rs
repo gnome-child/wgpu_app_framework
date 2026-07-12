@@ -313,6 +313,8 @@ fn paint_frame(
         );
     }
 
+    paint_table_sort_indicator(frame, scene, theme);
+
     if frame.role() == view::Role::TextBox {
         text_box::paint_caret(frame, scene, theme, visuals);
     }
@@ -806,6 +808,26 @@ fn text_for(frame: &layout::Frame) -> Option<&str> {
     frame.label_text().or_else(|| frame.text())
 }
 
+fn paint_table_sort_indicator(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
+    let Some(direction) = frame
+        .table_header_presentation()
+        .and_then(crate::table::HeaderPresentation::sort_direction)
+    else {
+        return;
+    };
+    let icon = match direction {
+        crate::table::SortDirection::Ascending => "caret-up",
+        crate::table::SortDirection::Descending => "caret-down",
+    };
+    let rect = layout::table_sort_indicator_rect(frame.rect(), theme);
+    scene.push_icon(Icon::new(
+        rect,
+        icons::Icon::phosphor(icons::Id::new(icon)),
+        text_color_for(frame, theme),
+        rect.width().min(rect.height()).max(1) as f32,
+    ));
+}
+
 fn text_rect_for(frame: &layout::Frame, theme: &Theme) -> geometry::Rect {
     if let Some(part) = frame.table_part() {
         return match part {
@@ -814,9 +836,16 @@ fn text_rect_for(frame: &layout::Frame, theme: &Theme) -> geometry::Rect {
             }
             view::TablePart::Editor => frame.text_box_text_rect(),
             view::TablePart::Action => frame.rect(),
-            view::TablePart::Header | view::TablePart::HeaderControl | view::TablePart::Cell => {
-                layout::table_content_rect(frame.rect(), theme)
+            view::TablePart::Header | view::TablePart::HeaderControl => {
+                layout::table_header_label_rect(
+                    frame.rect(),
+                    frame
+                        .table_header_presentation()
+                        .is_some_and(|presentation| presentation.sort_direction().is_some()),
+                    theme,
+                )
             }
+            view::TablePart::Cell => layout::table_content_rect(frame.rect(), theme),
         };
     }
 
@@ -868,6 +897,12 @@ fn scene_text_style(style: crate::theme::TypeStyle) -> TextStyle {
 }
 
 fn text_wrap_for(frame: &layout::Frame) -> TextWrap {
+    if let Some(presentation) = frame.table_header_presentation() {
+        return match presentation.wrap() {
+            view::Wrap::None => TextWrap::None,
+            view::Wrap::Word => TextWrap::WordOrGlyph,
+        };
+    }
     if frame.world_text_overflow().is_some() {
         return TextWrap::None;
     }

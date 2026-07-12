@@ -136,6 +136,57 @@ pub(crate) fn table_content_rect(rect: Rect, theme: &theme::Theme) -> Rect {
     )
 }
 
+fn table_header_parts(
+    rect: Rect,
+    has_sort_indicator: bool,
+    theme: &theme::Theme,
+) -> (Rect, Option<Rect>) {
+    let content = table_content_rect(rect, theme);
+    if !has_sort_indicator {
+        return (content, None);
+    }
+
+    let extent = control_content_extent(theme.control().height, theme)
+        .min(content.width())
+        .min(content.height())
+        .max(1);
+    let indicator = centered_rect(
+        Rect::new(
+            content.right().saturating_sub(extent),
+            content.y(),
+            extent,
+            content.height(),
+        ),
+        extent,
+        extent,
+    );
+    let gap = theme.table().cell_padding.max(0);
+    let label = Rect::new(
+        content.x(),
+        content.y(),
+        indicator
+            .x()
+            .saturating_sub(gap)
+            .saturating_sub(content.x()),
+        content.height(),
+    );
+    (label, Some(indicator))
+}
+
+pub(crate) fn table_header_label_rect(
+    rect: Rect,
+    has_sort_indicator: bool,
+    theme: &theme::Theme,
+) -> Rect {
+    table_header_parts(rect, has_sort_indicator, theme).0
+}
+
+pub(crate) fn table_sort_indicator_rect(rect: Rect, theme: &theme::Theme) -> Rect {
+    table_header_parts(rect, true, theme)
+        .1
+        .expect("requested table sort indicator geometry")
+}
+
 pub(crate) fn table_choice_mark_rect(rect: Rect, theme: &theme::Theme) -> Rect {
     let choice = theme.choice();
     centered_rect(

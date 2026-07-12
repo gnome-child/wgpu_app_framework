@@ -52,6 +52,32 @@ pub enum SortDirection {
     Descending,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct HeaderPresentation {
+    sort_direction: Option<SortDirection>,
+    wrap: view::Wrap,
+}
+
+impl HeaderPresentation {
+    fn new(presentation: Presentation, sort_direction: Option<SortDirection>) -> Self {
+        Self {
+            sort_direction,
+            wrap: match presentation {
+                Presentation::Compact => view::Wrap::None,
+                Presentation::Expanded => view::Wrap::Word,
+            },
+        }
+    }
+
+    pub(crate) fn sort_direction(self) -> Option<SortDirection> {
+        self.sort_direction
+    }
+
+    pub(crate) fn wrap(self) -> view::Wrap {
+        self.wrap
+    }
+}
+
 impl SortDirection {
     pub fn reversed(self) -> Self {
         match self {
@@ -444,28 +470,34 @@ impl Column {
         };
         let derived = self.sortable.then(|| {
             let current = sort.filter(|sort| sort.column == self.id);
-            let (glyph, direction) = match current.map(|sort| sort.direction) {
-                Some(SortDirection::Ascending) => ("↑", SortDirection::Descending),
-                Some(SortDirection::Descending) => ("↓", SortDirection::Ascending),
-                None => ("↕", SortDirection::Ascending),
+            let direction = match current.map(|sort| sort.direction) {
+                Some(SortDirection::Ascending) => SortDirection::Descending,
+                Some(SortDirection::Descending) | None => SortDirection::Ascending,
             };
-            view::Node::button(format!("{} {glyph}", self.label)).bind_command::<SortBy>(
-                SortIntent {
-                    table,
-                    column: self.id,
-                    direction,
-                },
-                context::Source::Button,
+            (
+                view::Node::button(self.label.clone()).bind_command::<SortBy>(
+                    SortIntent {
+                        table,
+                        column: self.id,
+                        direction,
+                    },
+                    context::Source::Button,
+                ),
+                current.map(|sort| sort.direction),
             )
         });
-        let ordinary = || match presentation {
-            Presentation::Compact => view::Node::label(self.label.clone()),
-            Presentation::Expanded => {
-                view::Node::wrapped_world_text(self.label.clone(), view::Wrap::Word)
-            }
-        };
+        let ordinary = || (view::Node::label(self.label.clone()), None);
+        let (header, sort_direction) = self
+            .header
+            .clone()
+            .map(|header| (header, None))
+            .or(derived)
+            .unwrap_or_else(ordinary);
         sized(
-            self.header.clone().or(derived).unwrap_or_else(ordinary),
+            header.with_table_header_presentation(HeaderPresentation::new(
+                presentation,
+                sort_direction,
+            )),
             self.effective_width(),
         )
         .with_table_header_cell(identity)
