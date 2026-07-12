@@ -1,6 +1,6 @@
 # Material regions campaign
 
-Status: in flight. `comparison_open: true`. No push.
+Status: complete. `comparison_open: true`. No push.
 
 Mission: the scene submits ordered, keyed material requests; the platform
 reports the parts it actually realized; one resolver derives the remaining
@@ -31,7 +31,7 @@ target/tree, and wgpu as the content tenant.
 | 2. Reports and residual resolver | Complete (`00083457`) | Actual realized-part coverage controls one residual plan and derived fidelity |
 | 3. Windows ownership/backend policy | Complete (`7fbd318f`) | DX12-first tenancy when earned; explicit/failed Vulkan path remains truthful |
 | 4. Keyed Windows frost regions | Complete (`0a4c3aa5`) | Retained region diff, one tree/fade, four-scale/lifecycle/hardware matrix |
-| 5. Retirement and doctrine | Pending | Evidence-based native-call inventory, master doctrine, roadmap close-out |
+| 5. Retirement and doctrine | Complete (`7186c7e0`) | Evidence-based native-call inventory, master doctrine, roadmap close-out |
 
 ## Prerequisite receipt
 
@@ -206,3 +206,92 @@ Boundary evidence: 923 library tests passed with 8 intentional ignores; all 4
 doctests passed; formatting, all-target compilation, all three application
 smokes, diff hygiene, and `comparison_open: true` passed. No public API changed,
 and the unrelated gallery-height edit remains untouched.
+
+## Checkpoint 5 retirement inventory
+
+| Existing realization | Verdict | Owner after campaign | Evidence / missing witness |
+| --- | --- | --- | --- |
+| Legacy accent acrylic | Narrowed | Non-tenancy single-full-window bridge only | Tenancy reports host frost per region and no longer applies or disables accent; architecture absence witness holds |
+| `DWMWA_USE_HOSTBACKDROPBRUSH` | Retained | Tenancy host capability | Required for `CreateHostBackdropBrush`; failed attribute yields no region reports |
+| DWM border color | Retained | Outer HWND silhouette, from the same theme border datum | Painted residual owns framework chrome, but no isolated all-scale witness yet proves the DWM silhouette copy redundant |
+| DWM corner preference | Retained | Outer HWND silhouette | Region clips do not shape the window itself; deletion awaits a replacement silhouette/hit witness |
+| Undecorated DWM shadow | Retained | Honest outer-window shadow | No composition `DropShadow` or painted replacement has passed silhouette, clip, hit, and fade witnesses |
+| Immersive dark-mode hint | Retained | DWM nonclient/silhouette styling | The composition material tree does not replace the DWM shell |
+| DWM cloak + `DwmFlush` | Retained | First-visible-frame show-cycle contract | Required to present and synchronize current content before exposure |
+| Geometry settle applicator | Retained | Popup HWND geometry | Composition regions are popup-local and do not place the window |
+| Border settle applicator | Retained | DWM outer border | Retained with the border call |
+| Accent settle applicator | Narrowed | Legacy non-tenancy bridge | Tenancy has no accent desired/applied state |
+
+Visual similarity authorized no deletions. The one proven redundant operation
+was the tenancy popup's initial `ACCENT_DISABLED` call; `7186c7e0` removes it.
+
+## Final ownership table
+
+| Fact | Owner |
+| --- | --- |
+| Material intent, recipe, logical geometry, clip and opacity provenance | Retained scene request |
+| Region identity | Retained declaring `NodeId` |
+| Region order | Current ordered scene projection |
+| Device snapping | Shared layout-to-paint/platform `paint::Grid` projection |
+| Windows frost visual and clip | Keyed composition host region |
+| Surface tint, grain and framework chrome | Resolver residual paint |
+| Realized material coverage | Platform report emitted after successful operation |
+| Final per-region and aggregate fidelity | One scene resolver |
+| Whole-popup opacity | Composition root for tenancy; scene paint for legacy |
+| Outer HWND silhouette, corner and shadow | DWM shell until replacement witnesses exist |
+| Model/session mutation reached through a projection | The projection's retained source, never projected geometry |
+
+## Backend outcome matrix
+
+| Path | Platform report | Residual / final result |
+| --- | --- | --- |
+| In-frame | None for every region | Renderer consumes the complete recipe; may reach `Full` |
+| Windows DX12 tenancy, supported region | Host frost report | Renderer paints tint/chrome complement; final `Frost` |
+| Windows DX12 tenancy, unrepresentable/failed region | No report for that ID | Declared native fallback for that region; siblings remain independent |
+| Windows redirected non-tenancy, one full-window region | Legacy accent report only after successful call | Approximate frost complement; final `Frost` |
+| Windows redirected non-tenancy without successful accent | No report | Opaque readable fallback |
+| Explicit Vulkan | No DX12 tenancy attempt | Functional redirected legacy/fallback path |
+| Failed implicit DX12 initialization | No partial host retained | Ordinary backend fallback set is attempted |
+
+## Environment and performance receipt
+
+Hardware acceptance ran on Windows 11 Pro for Workstations 23H2, build 22631,
+with an Intel Core i9-13900F and NVIDIA GeForce RTX 4070 Ti SUPER, driver
+32.0.15.9636. Explicit DX12 and explicit Vulkan were both exercised. Local
+warm measurements are recorded in checkpoint 4; they remain observations, not
+portable performance promises.
+
+Surface `Lost` now reconfigures the existing surface epoch and skips one frame,
+preserving the retained tree; resize/reconfiguration kept the wrapped swapchain
+identity in the hardware probe. A true adapter/device removal is a renderer-wide
+context-loss boundary, not a material-region downgrade. The popup system does
+not claim independent recovery from a dead renderer device; that broader
+reconstruction remains a framework limitation and must be solved at the render
+context owner if a reproducible caller arrives.
+
+## Remaining flags and next slice
+
+- Exact Windows composition material remains deliberately deferred. Bare host
+  frost does not claim recipe blur sigma, refraction, luminosity, saturation,
+  noise, or exact tint realization.
+- Public fidelity/configuration policy waits for that exact-effect caller. The
+  request/report/residual seam will not need to change.
+- macOS and Linux platform realizations remain research/hardware work; their
+  honest current outcome is no platform report.
+- DWM border retirement waits for an isolated painted-versus-DWM silhouette
+  matrix at 1.0, 1.25, 1.5, and 2.0.
+- Shadow ownership remains DWM by taste and evidence; a new owner needs complete
+  silhouette, clipping, hit, fade, and cost receipts.
+- Renderer-wide adapter removal/recreation remains a separate recovery goal.
+
+## Campaign close-out
+
+Roadmap item 18 is pruned and the master design now names the material-region
+constitution, Windows ownership tree, backend policy, residual law, and fade
+owner. Final boundary: 924 library tests passed, 8 intentionally ignored, all
+4 doctests passed, all three application smokes exited successfully, and
+formatting, all-target compilation, diff hygiene, protected comparison state,
+and the unrelated gallery-height edit all held. No public API was added.
+
+> Material is requested once, realized where capability permits, and painted
+> exactly once everywhere else.
