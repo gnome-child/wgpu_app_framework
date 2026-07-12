@@ -57,7 +57,7 @@ coalesce into one frame, but no semantic input is discarded.
 | Checkpoint | State | Boundary |
 | --- | --- | --- |
 | 0. Evidence harness and backend verdict | Complete | `4abc2472`; phase timings and event/frame counts; release 136/500/800-pixel Vulkan/DX12-Visual/DX12-HWND matrix |
-| 1. Presentation receipts and geometry epochs | Pending | Prepared candidate versus successfully presented geometry |
+| 1. Presentation receipts and geometry epochs | Complete | `713ff311`; candidate geometry travels with epoch/invalidation; only a successful backend receipt promotes it |
 | 2. Presentation-rate coalescing | Pending | Event work immediate; scene/GPU work only at redraw boundary |
 | 3. Last-presented input geometry | Pending | No event-local speculative layout |
 | 4. Pointer truth and hover projection | Pending | Pointer position retained; hover re-hits before changed frame paint |
@@ -184,3 +184,30 @@ Checkpoint 0 boundary: formatting, all-target compilation, 926 library tests
 passed with 8 deliberate ignores, all 4 doctests passed, the three application
 smokes passed, diff hygiene held, and the protected gallery edit remained the
 only unrelated working-tree change.
+
+## Checkpoint 1 — prepared is not presented
+
+`PresentedGeometry` is now a retained per-window store distinct from the
+layout cache. A prepared presentation carries its model revision, presentation
+epoch, invalidation strength, and candidate layout across the shell/platform
+boundary. The backend render report explicitly distinguishes an acquired and
+presented surface frame from a skipped attempt.
+
+On success, and only on success, the runtime acknowledges the candidate epoch
+and promotes its layout to input-visible geometry. Monotonic acknowledgement
+prevents an older receipt from replacing newer geometry. A skip promotes
+nothing and restores the candidate invalidation without advancing the desired
+epoch: retrying delivery is not a new presentation truth. Per-window departure
+and snapshot restoration remove the presented-geometry store.
+
+The old `presented_revision` field was renamed `projected_revision`, matching
+what it actually proves: the application view projection has been installed.
+Model revision, desired presentation epoch, projected revision, and
+acknowledged presentation epoch no longer borrow each other's names.
+
+Named witnesses cover skipped-then-successful delivery, stable retry epoch,
+stale successful receipt after a newer success, independent model/desired/
+acknowledged advancement, and teardown cleanup. Boundary: 930 library tests
+passed with 8 deliberate ignores; all 4 doctests, three application smokes,
+formatting, all-target compilation, and diff hygiene passed. The protected
+gallery-height edit remains untouched.
