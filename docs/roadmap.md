@@ -6,7 +6,11 @@ is next.
 
 ## In flight
 
-No implementation campaign is currently in flight.
+**Table polish campaign** — six independently green checkpoints restore one
+truth across expanded-row measurement, internal naming, structural sort
+headers, visible-space scroll chrome, and deliberate cell interaction. The
+crash-safe execution ledger is
+[`audits/2026-07-11-table-polish-campaign.md`](audits/2026-07-11-table-polish-campaign.md).
 
 ## Specced and ready
 
