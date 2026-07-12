@@ -2703,7 +2703,7 @@ fn native_popup_fade_uses_common_composition_owner_when_earned() {
         "native exit fade must retain the native surface rather than allocate a parent ghost"
     );
     assert!(
-        popup.contains("composition.set_opacity(presentation.opacity())")
+        popup.contains("composition.apply_fade(presentation.fade(), Instant::now())")
             && popup.contains("(!uses_composition).then(||")
             && popup.contains("append_scene_with_opacity("),
         "tenancy must project opacity at the common tree while legacy realization applies it once in paint"
@@ -3142,6 +3142,56 @@ fn suboptimal_surface_reconfiguration_waits_for_present() {
     assert!(
         master.contains("Render `Surface` owns surface configuration epochs"),
         "master design must name the owner of surface reconfiguration timing"
+    );
+
+    let lost = surface
+        .find("Lost =>")
+        .map(|start| &surface[start..])
+        .expect("surface acquire should handle lost surfaces");
+    assert!(
+        lost.contains("self.reconfigure(render_context)")
+            && lost.contains("AcquireOutcome::Lost")
+            && !lost.contains("Err(Error::Lost)"),
+        "surface loss must rebuild the surface configuration epoch and skip one frame instead of terminating the runtime"
+    );
+}
+
+#[test]
+fn windows_material_regions_are_keyed_projections_with_report_after_success() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let composition = std::fs::read_to_string(
+        root.join("src")
+            .join("platform")
+            .join("native")
+            .join("composition.rs"),
+    )
+    .expect("Windows composition source should read");
+
+    assert!(
+        composition.contains("HashMap<composition::NodeId, RegionVisual>")
+            && composition.contains("self.material_regions.entry(id)")
+            && composition.contains("self.material_regions.retain(|id, _|"),
+        "retained declaring identity must own material visuals independently from scene order"
+    );
+    let apply = composition
+        .find("region.apply(projected)")
+        .expect("region projection should be applied");
+    let order = composition[apply..]
+        .find("children.InsertAtTop(&region.visual)")
+        .map(|offset| apply + offset)
+        .expect("successful region visuals should be placed in current scene order");
+    let report = composition[order..]
+        .find("MaterialRealizationReport::new")
+        .map(|offset| order + offset)
+        .expect("successful region realization should produce a report");
+    assert!(
+        apply < order && order < report,
+        "reports must follow successful geometry and order projection"
+    );
+    assert!(
+        composition.contains("into_paint_rounded_rect_at_scale")
+            && !composition.contains("enumerate()"),
+        "material realization must share raster projection and never derive identity from order"
     );
 }
 

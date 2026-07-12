@@ -15,9 +15,6 @@ pub enum Error {
 
     #[error("surface could not be configured")]
     NoSurfaceConfiguration,
-
-    #[error("surface was lost")]
-    Lost,
 }
 
 pub struct Surface {
@@ -53,6 +50,7 @@ pub(crate) enum AcquireOutcome {
     Timeout,
     Occluded,
     Validation,
+    Lost,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,8 +218,9 @@ impl Surface {
                 Ok((render::FrameOutcome::Skipped, AcquireOutcome::Validation))
             }
             Lost => {
-                log::error!("surface was lost");
-                Err(Error::Lost)
+                log::warn!("surface was lost; reconfiguring surface and skipping frame");
+                self.reconfigure(render_context);
+                Ok((render::FrameOutcome::Skipped, AcquireOutcome::Lost))
             }
         }
     }

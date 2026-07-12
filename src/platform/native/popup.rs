@@ -154,12 +154,30 @@ impl Native {
             popup.material_realization = Some(realization);
         }
         let material_region = presentation.scene().legacy_full_window_material_region();
+        #[cfg(target_os = "windows")]
+        let mut reports = popup
+            .composition
+            .as_mut()
+            .map(|composition| {
+                composition.sync_material_regions(
+                    presentation.scene().material_regions(),
+                    popup.window.canvas().scale_factor(),
+                    presentation.opacity(),
+                )
+            })
+            .unwrap_or_default();
+        #[cfg(not(target_os = "windows"))]
+        let mut reports = Vec::new();
+        let tenancy_realized = !reports.is_empty();
         let capabilities = if realization.uses_os_material() {
             crate::scene::MaterialCapabilities::backdrop_frost()
         } else {
             crate::scene::MaterialCapabilities::none()
         };
-        let accent = if capabilities.forecasts_backdrop_frost() && material_region.is_some() {
+        let accent = if !tenancy_realized
+            && capabilities.forecasts_backdrop_frost()
+            && material_region.is_some()
+        {
             super::sys::PopupAccentMaterial::Acrylic {
                 tint: material.tint(),
             }
@@ -189,23 +207,25 @@ impl Native {
         if let Some(reason) = popup_border_due(&popup.border, now) {
             apply_popup_border(key, popup, reason);
         }
-        let reports = material_region
-            .filter(|_| {
-                matches!(
-                    popup.accent.applied(),
-                    Some(super::sys::PopupAccentMaterial::Acrylic { .. })
-                )
-            })
-            .map(|region| {
-                crate::scene::MaterialRealizationReport::new(
-                    region.id(),
-                    crate::scene::RealizedMaterialParts::frost(
-                        popup.accent.applied() == Some(accent),
-                    ),
-                )
-            })
-            .into_iter()
-            .collect::<Vec<_>>();
+        reports.extend(
+            material_region
+                .filter(|_| reports.is_empty())
+                .filter(|_| {
+                    matches!(
+                        popup.accent.applied(),
+                        Some(super::sys::PopupAccentMaterial::Acrylic { .. })
+                    )
+                })
+                .map(|region| {
+                    crate::scene::MaterialRealizationReport::new(
+                        region.id(),
+                        crate::scene::RealizedMaterialParts::frost(
+                            popup.accent.applied() == Some(accent),
+                        ),
+                    )
+                })
+                .into_iter(),
+        );
         let material_resolution = presentation.scene().resolve_material(
             crate::scene::MaterialRenderer::NativePopup {
                 opaque: reports.is_empty(),
@@ -217,8 +237,8 @@ impl Native {
         #[cfg(not(target_os = "windows"))]
         let uses_composition = false;
         #[cfg(target_os = "windows")]
-        if let Some(composition) = popup.composition.as_ref()
-            && let Err(error) = composition.set_opacity(presentation.opacity())
+        if let Some(composition) = popup.composition.as_mut()
+            && let Err(error) = composition.apply_fade(presentation.fade(), Instant::now())
         {
             log::warn!(
                 target: "wgpu_l3::native_popup",
@@ -371,6 +391,8 @@ impl Native {
             composite_alpha: presentation_mode.alpha_preference(),
         };
         #[cfg(target_os = "windows")]
+        let tenancy_started = Instant::now();
+        #[cfg(target_os = "windows")]
         let tenancy = if presentation_mode == PopupPresentationMode::CompositionBacked {
             if self.composition.is_none() {
                 match super::composition::Runtime::new() {
@@ -449,9 +471,10 @@ impl Native {
         #[cfg(target_os = "windows")]
         log::info!(
             target: "wgpu_l3::native_popup",
-            "native popup {:?} composition tenancy={}",
+            "native popup {:?} composition tenancy={} setup_us={}",
             presentation.id(),
-            popup.composition.is_some()
+            popup.composition.is_some(),
+            tenancy_started.elapsed().as_micros()
         );
 
         self.raw_popups.insert(popup.window.raw_id(), key);

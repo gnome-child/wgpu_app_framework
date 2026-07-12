@@ -30,6 +30,7 @@ struct Entry {
     popup_border: scene::Color,
     text_caret_rect: Option<geometry::Rect>,
     opacity: f32,
+    fade: PopupFade,
     state: State,
     elapsed: Duration,
     force_group_at_full_opacity: bool,
@@ -66,6 +67,37 @@ pub(crate) enum State {
     Live,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum PopupFade {
+    Entering {
+        duration: Duration,
+        started_at: Instant,
+    },
+    Stable,
+    Exiting {
+        duration: Duration,
+        started_at: Instant,
+        from_opacity: f32,
+    },
+}
+
+impl PopupFade {
+    pub(crate) fn opacity_at(self, now: Instant) -> f32 {
+        match self {
+            Self::Entering {
+                duration,
+                started_at,
+            } => live_opacity(started_at, duration.as_millis() as u64, now).0,
+            Self::Stable => 1.0,
+            Self::Exiting {
+                duration,
+                started_at,
+                from_opacity,
+            } => exit_opacity_at(started_at, duration, from_opacity, now),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Layer {
     #[allow(dead_code)]
@@ -74,6 +106,7 @@ pub(crate) struct Layer {
     bounds: geometry::Rect,
     scene: scene::Scene,
     opacity: f32,
+    fade: PopupFade,
     kind: LayerKind,
     backend: Backend,
     popup_material_preference: PopupMaterialPreference,
@@ -130,6 +163,7 @@ pub(crate) struct PopupPresentation {
     bounds: geometry::Rect,
     scene: scene::Scene,
     opacity: f32,
+    fade: PopupFade,
     material: PopupMaterial,
     border: scene::Color,
 }
@@ -228,6 +262,7 @@ impl Entry {
             bounds: self.bounds,
             scene: self.scene.clone(),
             opacity: self.opacity,
+            fade: self.fade,
             kind: LayerKind::Live,
             backend: self.backend,
             popup_material_preference: self.popup_material_preference,
@@ -254,6 +289,11 @@ impl Ghost {
             bounds: geometry::Rect::from_size(self.scene.size()),
             scene: self.scene.clone(),
             opacity: self.opacity_at(now),
+            fade: PopupFade::Exiting {
+                duration: self.duration,
+                started_at: self.started_at,
+                from_opacity: self.from_opacity,
+            },
             kind: LayerKind::Ghost,
             backend: Backend::InFrame,
             popup_material_preference: PopupMaterialPreference::System,
@@ -293,6 +333,11 @@ impl RetiringPopup {
             bounds: self.bounds,
             scene: self.scene.clone(),
             opacity: self.opacity_at(now),
+            fade: PopupFade::Exiting {
+                duration: self.duration,
+                started_at: self.started_at,
+                from_opacity: self.from_opacity,
+            },
             kind: LayerKind::RetiringPopup,
             backend: Backend::NativePopup,
             popup_material_preference: self.popup_material_preference,
@@ -330,6 +375,10 @@ impl Layer {
 
     pub(crate) fn opacity(&self) -> f32 {
         self.opacity
+    }
+
+    pub(crate) fn fade(&self) -> PopupFade {
+        self.fade
     }
 
     pub(crate) fn kind(&self) -> LayerKind {
@@ -422,6 +471,7 @@ impl PopupPresentation {
         bounds: geometry::Rect,
         scene: scene::Scene,
         opacity: f32,
+        fade: PopupFade,
         material: PopupMaterial,
         border: scene::Color,
     ) -> Self {
@@ -431,6 +481,7 @@ impl PopupPresentation {
             bounds,
             scene,
             opacity,
+            fade,
             material,
             border,
         }
@@ -454,6 +505,10 @@ impl PopupPresentation {
 
     pub(crate) fn opacity(&self) -> f32 {
         self.opacity
+    }
+
+    pub(crate) fn fade(&self) -> PopupFade {
+        self.fade
     }
 
     pub(crate) fn material(&self) -> PopupMaterial {
@@ -611,6 +666,14 @@ impl Store {
                 popup_border: draft.popup_border,
                 text_caret_rect: draft.text_caret_rect,
                 opacity,
+                fade: if entering {
+                    PopupFade::Entering {
+                        duration: Duration::from_millis(overlay.enter_fade_ms),
+                        started_at: appeared_at,
+                    }
+                } else {
+                    PopupFade::Stable
+                },
                 state: state_kind,
                 elapsed: now.saturating_duration_since(appeared_at),
                 force_group_at_full_opacity: draft.force_group_at_full_opacity,
@@ -633,17 +696,29 @@ impl Store {
             .collect::<Vec<_>>();
         layers.sort_by_key(|layer| layer.order);
 
-        let schedule = if entries.iter().any(|entry| entry.state == State::Entering)
+        let mut schedule = animation::Schedule::Idle;
+        if entries
+            .iter()
+            .any(|entry| entry.backend == Backend::InFrame && entry.state == State::Entering)
             || state.ghosts.iter().any(|ghost| !ghost.expired_at(now))
-            || state
-                .retiring_popups
-                .iter()
-                .any(|popup| !popup.expired_at(now))
         {
-            animation::Schedule::NextFrame
-        } else {
-            animation::Schedule::Idle
-        };
+            schedule = animation::Schedule::NextFrame;
+        }
+        for entry in entries
+            .iter()
+            .filter(|entry| entry.backend == Backend::NativePopup)
+        {
+            if let PopupFade::Entering {
+                duration,
+                started_at,
+            } = entry.fade
+            {
+                schedule = schedule.merge(animation::Schedule::At(started_at + duration));
+            }
+        }
+        for popup in &state.retiring_popups {
+            schedule = schedule.merge(animation::Schedule::At(popup.started_at + popup.duration));
+        }
 
         Update::new(layers, schedule)
     }
@@ -886,7 +961,7 @@ mod tests {
     }
 
     #[test]
-    fn native_popup_entry_uses_the_overlay_content_fade_timeline() {
+    fn native_popup_entry_projects_one_compositor_fade_and_one_completion_deadline() {
         let mut store = Store::new();
         let window = window::Id::new(26);
         let now = Instant::now();
@@ -904,7 +979,17 @@ mod tests {
         assert_eq!(first.layers[0].backend(), Backend::NativePopup);
         assert_eq!(first.layers[0].opacity, 0.0);
         assert_eq!(first.layers[0].state, Some(State::Entering));
-        assert_eq!(first.schedule, animation::Schedule::NextFrame);
+        assert_eq!(
+            first.layers[0].fade(),
+            PopupFade::Entering {
+                duration: Duration::from_millis(100),
+                started_at: now
+            }
+        );
+        assert_eq!(
+            first.schedule,
+            animation::Schedule::At(now + Duration::from_millis(100))
+        );
 
         let middle = store.update_window(
             window,
@@ -1087,7 +1172,18 @@ mod tests {
         );
         assert_eq!(removed.layers[0].popup_border(), border);
         assert_eq!(removed.layers[0].opacity(), 1.0);
-        assert_eq!(removed.schedule, animation::Schedule::NextFrame);
+        assert_eq!(
+            removed.layers[0].fade(),
+            PopupFade::Exiting {
+                duration: Duration::from_millis(120),
+                started_at: now + Duration::from_millis(10),
+                from_opacity: 1.0
+            }
+        );
+        assert_eq!(
+            removed.schedule,
+            animation::Schedule::At(now + Duration::from_millis(130))
+        );
 
         let middle = store.update_window(
             window,

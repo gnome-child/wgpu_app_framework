@@ -121,7 +121,6 @@ impl Scene {
         &self.primitives
     }
 
-    #[cfg(test)]
     pub(crate) fn material_regions(&self) -> &[MaterialRegion] {
         &self.material_regions
     }
@@ -659,6 +658,13 @@ mod tests {
     use crate::view;
 
     fn retained_material_region_ids(view: view::View) -> Vec<composition::NodeId> {
+        retained_material_region_ids_by_entry(view)
+            .into_iter()
+            .flatten()
+            .collect()
+    }
+
+    fn retained_material_region_ids_by_entry(view: view::View) -> Vec<Vec<composition::NodeId>> {
         let window = crate::window::Id::new(1);
         let mut store = composition::Store::default();
         let composition = store.install(window, view);
@@ -681,8 +687,14 @@ mod tests {
 
         entries
             .iter()
-            .flat_map(|entry| entry.scene().material_regions().iter())
-            .map(MaterialRegion::id)
+            .map(|entry| {
+                entry
+                    .scene()
+                    .material_regions()
+                    .iter()
+                    .map(MaterialRegion::id)
+                    .collect()
+            })
             .collect()
     }
 
@@ -754,6 +766,14 @@ mod tests {
         )
     }
 
+    fn nested_panels() -> view::View {
+        view::View::new(view::Node::root().child(
+            view::Node::floating_panel("outer").child(
+                view::Node::floating_panel("inner").child(view::Node::label("inner content")),
+            ),
+        ))
+    }
+
     fn simple_scene() -> Scene {
         let mut scene = Scene::new(geometry::Size::new(100, 100));
         scene.push_quad(Quad::new(
@@ -806,6 +826,18 @@ mod tests {
 
         assert_eq!(first.len(), 2);
         assert_eq!(removed, vec![first[0]]);
+    }
+
+    #[test]
+    fn one_popup_scene_can_submit_two_independently_retained_material_regions() {
+        let entries = retained_material_region_ids_by_entry(nested_panels());
+        let [ids] = entries.as_slice() else {
+            panic!("nested material owners should share one root popup scene");
+        };
+
+        assert_eq!(ids.len(), 2);
+        assert_ne!(ids[0], ids[1]);
+        assert!(ids.iter().all(|id| id.is_retained()));
     }
 
     #[test]

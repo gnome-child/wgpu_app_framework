@@ -275,7 +275,7 @@ fn into_paint_rounded_rect(rect: geometry::Rect, rounding: scene::Rounding) -> p
     into_paint_rounded_rect_at_scale(rect, rounding, paint::Grid::new(1.0))
 }
 
-fn into_paint_rounded_rect_at_scale(
+pub(super) fn into_paint_rounded_rect_at_scale(
     rect: geometry::Rect,
     rounding: scene::Rounding,
     grid: paint::Grid,
