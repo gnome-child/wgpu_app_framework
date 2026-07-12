@@ -113,7 +113,8 @@ impl Target<wgpu_l3::table::SortBy> for State {
     }
 
     fn invoke(&mut self, intent: wgpu_l3::table::SortIntent, _: &mut Context) -> Response<()> {
-        self.record_sort = wgpu_l3::table::SortState::new(intent.column(), intent.direction());
+        self.record_sort = intent.into();
+        self.refresh_record_order();
         self.last_status = format!(
             "{}: {}",
             intent.column().as_str(),
@@ -134,6 +135,9 @@ impl Target<EditRecordNote> for State {
     fn invoke(&mut self, args: EditRecordNoteArgs, _: &mut Context) -> Response<()> {
         self.record_notes
             .insert(args.cell.row().value(), args.value);
+        if self.record_sort.column().as_str() == "note" {
+            self.refresh_record_order();
+        }
         self.last_status = format!("edited note for record {}", args.cell.row().value());
         Response::changed(())
     }
@@ -147,6 +151,9 @@ impl Target<EditRecordCount> for State {
     fn invoke(&mut self, args: EditRecordCountArgs, _: &mut Context) -> Response<()> {
         self.record_counts
             .insert(args.cell.row().value(), args.value);
+        if self.record_sort.column().as_str() == "count" {
+            self.refresh_record_order();
+        }
         self.last_status = format!("edited count for record {}", args.cell.row().value());
         Response::changed(())
     }
@@ -166,6 +173,9 @@ impl Target<SetRecordEnabled> for State {
     fn invoke(&mut self, args: SetRecordEnabledArgs, _: &mut Context) -> Response<()> {
         let key = args.cell.row().value();
         self.record_enabled.insert(key, args.value);
+        if self.record_sort.column().as_str() == "enabled" {
+            self.refresh_record_order();
+        }
         self.last_status = format!("record {key}: enabled {}", on_off(args.value));
         Response::changed(())
     }

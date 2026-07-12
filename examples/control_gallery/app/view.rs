@@ -5,6 +5,7 @@ use super::{
         ResetControls, SelectMode, SetLevel, SetRecordEnabled, SetRecordEnabledArgs, SubmitQuery,
         ToggleAdvanced, ToggleExpandedRows, ToggleGrid, ToggleWrap,
     },
+    state::{RECORD_COUNT, RecordOrder},
 };
 use wgpu_l3::{
     Table, View, document, geometry, interaction, scene, table, text, timeline,
@@ -15,7 +16,6 @@ use wgpu_l3::{
 const MENU_CONTROLS: interaction::Id = interaction::Id::new("control_gallery.menu.controls");
 const MENU_EDIT: interaction::Id = interaction::Id::new("control_gallery.menu.edit");
 const MENU_VIEW: interaction::Id = interaction::Id::new("control_gallery.menu.view");
-const RECORD_COUNT: usize = 1_000_000;
 pub(super) const QUERY_FOCUS: interaction::Id = interaction::Id::new("control_gallery.query");
 
 pub const WINDOW_TITLE: &str = "wgpu_l3 Control Gallery";
@@ -43,8 +43,10 @@ impl std::fmt::Display for RecordNumber {
     }
 }
 
-fn record_at(index: usize, descending: bool) -> usize {
-    if descending {
+fn record_at(index: usize, descending: bool, order: Option<&RecordOrder>) -> usize {
+    if let Some(order) = order {
+        order.row(index)
+    } else if descending {
         RECORD_COUNT - index - 1
     } else {
         index
@@ -105,17 +107,27 @@ pub fn view(state: &State, _: ViewContext) -> View {
                             widget::Checkbox::new("Expanded rows", state.expanded_rows)
                                 .trigger::<ToggleExpandedRows>(()),
                         );
-                        let descending = state.record_sort.direction()
-                            == table::SortDirection::Descending;
+                        let descending = state.record_sort.column().as_str() == "record"
+                            && state.record_sort.direction()
+                                == table::SortDirection::Descending;
+                        let key_order = state.record_order.clone();
+                        let index_order = state.record_order.clone();
+                        let record_order = state.record_order.clone();
                         let source = table::Source::new(
                             RECORD_COUNT,
                             move |index| {
-                                virtual_list::Key::new(record_at(index, descending) as u64)
+                                virtual_list::Key::new(
+                                    record_at(index, descending, key_order.as_ref()) as u64,
+                                )
                             },
                             move |key| {
                                 let record = key.value() as usize;
                                 (record < RECORD_COUNT).then(|| {
-                                    if descending {
+                                    if let Some(order) = index_order.as_ref() {
+                                        order
+                                            .index_of(record)
+                                            .expect("record order indexes every logical record")
+                                    } else if descending {
                                         RECORD_COUNT - record - 1
                                     } else {
                                         record
@@ -127,7 +139,8 @@ pub fn view(state: &State, _: ViewContext) -> View {
                                 let counts = state.record_counts.clone();
                                 let enabled = state.record_enabled.clone();
                                 move |index| {
-                                    let record = record_at(index, descending);
+                                    let record =
+                                        record_at(index, descending, record_order.as_ref());
                                     let key = record as u64;
                                     GalleryRecord {
                                         number: RecordNumber(record),
@@ -151,7 +164,6 @@ pub fn view(state: &State, _: ViewContext) -> View {
                                 Dimension::fixed(110),
                                 |record: &GalleryRecord| &record.number,
                             )
-                            .sortable()
                             .build(),
                             table::Column::text(
                                 "detail",
@@ -187,7 +199,6 @@ pub fn view(state: &State, _: ViewContext) -> View {
                             )
                             .align(Align::End)
                             .input(text::Input::signed_integer())
-                            .sortable()
                             .validate(|value| {
                                 (0..=999).contains(value).then_some(()).ok_or_else(|| {
                                     "Count must be from 0 to 999".to_owned()

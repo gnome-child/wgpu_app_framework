@@ -2799,6 +2799,7 @@ fn display_newlines_are_compact_residue_and_expanded_line_breaks() {
                             view::Dimension::fixed(90),
                             |record: &Record| &record.value,
                         )
+                        .unsortable()
                         .build()],
                         source,
                     )
@@ -7816,6 +7817,15 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
                 && frame.label_text() == Some("Count")
         })
         .expect("inactive sortable count header");
+    for label in ["Detail", "Note", "Enabled"] {
+        assert!(
+            initial.layout().frames().iter().any(|frame| {
+                frame.table_part() == Some(view::TablePart::HeaderControl)
+                    && frame.label_text() == Some(label)
+            }),
+            "{label} should derive a sortable header from its Ord value"
+        );
+    }
     assert!(initial.scene().icons().iter().all(|icon| {
         !matches!(icon.icon().id().as_str(), "caret-up" | "caret-down")
             || !count_header.rect().contains(frame_point_at(icon.rect()))
@@ -7872,6 +7882,82 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
             |frame| frame.table_cell().is_some() && frame.label_text() == Some("Record 999999")
         )
     );
+
+    let enabled_header = sorted
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_part() == Some(view::TablePart::HeaderControl)
+                && frame.label_text() == Some("Enabled")
+        })
+        .expect("Enabled should derive a Boolean sort header");
+    let enabled_point = frame_point_at(enabled_header.rect());
+    drop(sorted);
+    app.pointer_down_at(window, size, enabled_point)
+        .expect("Enabled header should press");
+    app.pointer_up_at(window, size, enabled_point)
+        .expect("Enabled header should emit ascending sort intent");
+    assert_eq!(app.state().record_sort.column().as_str(), "enabled");
+    assert_eq!(
+        app.state().record_sort.direction(),
+        crate::table::SortDirection::Ascending
+    );
+    let enabled_ascending = app
+        .render_scene(window, size)
+        .expect("ascending Boolean order should render");
+    let first_enabled = enabled_ascending
+        .layout()
+        .frames()
+        .iter()
+        .filter(|frame| {
+            frame
+                .table_cell()
+                .is_some_and(|cell| cell.column() == interaction::Id::new("enabled"))
+        })
+        .min_by_key(|frame| frame.rect().y())
+        .expect("ascending Boolean order should materialize an Enabled cell");
+    assert!(
+        first_enabled
+            .checkbox()
+            .is_some_and(|checkbox| !checkbox.checked()),
+        "false values lead ascending Boolean order"
+    );
+    let enabled_header = enabled_ascending
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_part() == Some(view::TablePart::HeaderControl)
+                && frame.label_text() == Some("Enabled")
+        })
+        .expect("active Enabled header");
+    let enabled_point = frame_point_at(enabled_header.rect());
+    drop(enabled_ascending);
+    app.pointer_down_at(window, size, enabled_point)
+        .expect("active Enabled header should press");
+    app.pointer_up_at(window, size, enabled_point)
+        .expect("active Enabled header should emit descending sort intent");
+    let enabled_descending = app
+        .render_scene(window, size)
+        .expect("descending Boolean order should render");
+    let first_enabled = enabled_descending
+        .layout()
+        .frames()
+        .iter()
+        .filter(|frame| {
+            frame
+                .table_cell()
+                .is_some_and(|cell| cell.column() == interaction::Id::new("enabled"))
+        })
+        .min_by_key(|frame| frame.rect().y())
+        .expect("descending Boolean order should materialize an Enabled cell");
+    assert!(
+        first_enabled
+            .checkbox()
+            .is_some_and(view::Checkbox::checked),
+        "true values lead descending Boolean order"
+    );
 }
 
 #[test]
@@ -7901,7 +7987,6 @@ fn expanded_sort_header_stays_single_line_beside_a_trailing_active_chevron() {
                     view::Dimension::fixed(120),
                     |value: &String| value,
                 )
-                .sortable()
                 .build(),
             ];
             widget::view_node(

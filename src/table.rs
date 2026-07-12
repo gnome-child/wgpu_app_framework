@@ -1,4 +1,7 @@
-use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc, str::FromStr, sync::Arc};
+use std::{
+    any::Any, cell::RefCell, cmp::Ordering, collections::HashMap, fmt::Display,
+    marker::PhantomData, rc::Rc, str::FromStr, sync::Arc,
+};
 
 use crate::{
     command, context, interaction, scene, session, subject, text, view, virtual_list, widget,
@@ -94,6 +97,12 @@ impl SortIntent {
     }
 }
 
+impl From<SortIntent> for SortState {
+    fn from(intent: SortIntent) -> Self {
+        Self::new(intent.column, intent.direction)
+    }
+}
+
 /// Canonical application intent emitted by derived sortable headers.
 pub struct SortBy;
 
@@ -122,6 +131,7 @@ pub struct Source<R> {
     key: Rc<dyn Fn(usize) -> virtual_list::Key>,
     index_of: Rc<dyn Fn(virtual_list::Key) -> Option<usize>>,
     record: Rc<dyn Fn(usize) -> R>,
+    records: Option<Rc<[R]>>,
 }
 
 impl<R> Clone for Source<R> {
@@ -131,6 +141,7 @@ impl<R> Clone for Source<R> {
             key: Rc::clone(&self.key),
             index_of: Rc::clone(&self.index_of),
             record: Rc::clone(&self.record),
+            records: self.records.clone(),
         }
     }
 }
@@ -147,12 +158,50 @@ impl<R> Source<R> {
             key: Rc::new(key),
             index_of: Rc::new(index_of),
             record: Rc::new(record),
+            records: None,
+        }
+    }
+}
+
+impl<R> Source<R>
+where
+    R: Clone + 'static,
+{
+    /// Builds a bounded in-memory source whose order follows the table's
+    /// projected sort state and the selected column's derived `Ord` ordering.
+    pub fn records(
+        records: impl Into<Rc<[R]>>,
+        key: impl Fn(&R) -> virtual_list::Key + 'static,
+    ) -> Self {
+        let records = records.into();
+        let keys: Rc<[virtual_list::Key]> = records.iter().map(key).collect::<Vec<_>>().into();
+        let mut indices = HashMap::with_capacity(keys.len());
+        for (index, key) in keys.iter().copied().enumerate() {
+            assert!(
+                indices.insert(key, index).is_none(),
+                "table record sources require unique stable keys"
+            );
+        }
+        let indices = Rc::new(indices);
+        Self {
+            len: records.len(),
+            key: {
+                let keys = Rc::clone(&keys);
+                Rc::new(move |index| keys[index])
+            },
+            index_of: Rc::new(move |key| indices.get(&key).copied()),
+            record: {
+                let records = Rc::clone(&records);
+                Rc::new(move |index| records[index].clone())
+            },
+            records: Some(records),
         }
     }
 }
 
 type CellProjection<R> = dyn Fn(&R, Cell, Presentation) -> view::Node;
 type ValueValidation<V> = dyn Fn(&V) -> Result<(), String> + Send + Sync;
+type OrderProjection = dyn Fn(&dyn Any, &dyn Any) -> Ordering;
 
 /// A heterogeneous typed column after its value and capabilities are erased.
 pub struct TypedColumn<R> {
@@ -160,15 +209,29 @@ pub struct TypedColumn<R> {
     cell: Rc<CellProjection<R>>,
 }
 
+#[doc(hidden)]
+pub struct DefaultSort;
+
+#[doc(hidden)]
+pub struct NoSort;
+
 /// A textual column while its std capabilities remain available to the builder.
 ///
-/// Capability verbs are absent when the value type lacks their std meaning:
+/// Sorting is the default when the value carries its std ordering. Values
+/// without `Ord` must explicitly opt out:
 ///
 /// ```compile_fail
 /// use wgpu_l3::{table::Column, view::Dimension};
 /// struct Row { value: f64 }
 /// let _ = Column::text("value", "Value", Dimension::fixed(80),
-///     |row: &Row| &row.value).sortable();
+///     |row: &Row| &row.value).build();
+/// ```
+///
+/// ```
+/// use wgpu_l3::{table::Column, view::Dimension};
+/// struct Row { value: f64 }
+/// let _ = Column::text("value", "Value", Dimension::fixed(80),
+///     |row: &Row| &row.value).unsortable().build();
 /// ```
 ///
 /// ```compile_fail
@@ -189,7 +252,7 @@ pub struct TypedColumn<R> {
 /// let _ = Column::text("value", "Value", Dimension::fixed(80),
 ///     |row: &Row| &row.value).editable::<Commit>(|_, _| ());
 /// ```
-pub struct TextColumn<R, V> {
+pub struct TextColumn<R, V, S = DefaultSort> {
     column: Column,
     accessor: Rc<dyn for<'a> Fn(&'a R) -> &'a V>,
     cell: Option<Rc<CellProjection<R>>>,
@@ -197,9 +260,13 @@ pub struct TextColumn<R, V> {
     align: view::Align,
     input: text::Input,
     validation: Arc<ValueValidation<V>>,
+    sort: PhantomData<S>,
 }
 
 /// A Boolean-medium column with optional reverse conversion for interaction.
+///
+/// Boolean presentation defaults to derived `Ord` sorting; `.unsortable()`
+/// explicitly removes the ordering requirement and header affordance.
 ///
 /// Read-only projection needs only the forward conversion; toggling is absent
 /// until the value can honestly be reconstructed from the Boolean medium:
@@ -219,10 +286,17 @@ pub struct TextColumn<R, V> {
 /// let _ = Column::boolean("value", "Value", Dimension::fixed(80),
 ///     |row: &Row| &row.value).toggle::<Commit>(|_, _| ());
 /// ```
-pub struct BooleanColumn<R, V> {
+pub struct BooleanColumn<R, V, S = DefaultSort> {
     column: Column,
     accessor: Rc<dyn for<'a> Fn(&'a R) -> &'a V>,
     cell: Option<Rc<CellProjection<R>>>,
+    sort: PhantomData<S>,
+}
+
+struct ResolvedOrder {
+    sort: SortState,
+    rows: Vec<usize>,
+    indices: Vec<usize>,
 }
 
 struct TypedProvider<R> {
@@ -230,6 +304,9 @@ struct TypedProvider<R> {
     cells: HashMap<interaction::Id, Rc<CellProjection<R>>>,
     projected_record: RefCell<Option<(usize, R)>>,
     presentation: Rc<std::cell::Cell<Presentation>>,
+    sort: Rc<std::cell::Cell<Option<SortState>>>,
+    order: RefCell<Option<ResolvedOrder>>,
+    orderings: HashMap<interaction::Id, Rc<OrderProjection>>,
 }
 
 #[derive(Clone)]
@@ -239,7 +316,7 @@ pub struct Column {
     width: view::Dimension,
     resize_override: Option<i32>,
     header: Option<view::Node>,
-    sortable: bool,
+    ordering: Option<Rc<OrderProjection>>,
 }
 
 pub struct Table {
@@ -255,6 +332,7 @@ pub struct Table {
     sort: Option<SortState>,
     presentation: Presentation,
     presentation_projection: Option<Rc<std::cell::Cell<Presentation>>>,
+    sort_projection: Option<Rc<std::cell::Cell<Option<SortState>>>>,
 }
 
 pub struct TextEditor {
@@ -395,7 +473,7 @@ impl Column {
             width,
             resize_override: None,
             header: None,
-            sortable: false,
+            ordering: None,
         }
     }
 
@@ -417,6 +495,7 @@ impl Column {
             align: view::Align::Start,
             input: text::Input::unrestricted(),
             validation: Arc::new(|_| Ok(())),
+            sort: PhantomData,
         }
     }
 
@@ -434,6 +513,7 @@ impl Column {
             column: Self::new(id, label, width),
             accessor: Rc::new(accessor),
             cell: None,
+            sort: PhantomData,
         }
     }
 
@@ -479,7 +559,7 @@ impl Column {
             table,
             column: self.id,
         };
-        let derived = self.sortable.then(|| {
+        let derived = self.ordering.is_some().then(|| {
             let current = sort.filter(|sort| sort.column == self.id);
             let direction = match current.map(|sort| sort.direction) {
                 Some(SortDirection::Ascending) => SortDirection::Descending,
@@ -523,7 +603,7 @@ impl Column {
     }
 }
 
-impl<R, V> TextColumn<R, V>
+impl<R, V, S> TextColumn<R, V, S>
 where
     R: 'static,
     V: Display + 'static,
@@ -551,7 +631,21 @@ where
         self
     }
 
-    pub fn build(self) -> TypedColumn<R> {
+    pub fn unsortable(self) -> TextColumn<R, V, NoSort> {
+        TextColumn {
+            column: self.column,
+            accessor: self.accessor,
+            cell: self.cell,
+            overflow: self.overflow,
+            align: self.align,
+            input: self.input,
+            validation: self.validation,
+            sort: PhantomData,
+        }
+    }
+
+    fn build_with_order(mut self, ordering: Option<Rc<OrderProjection>>) -> TypedColumn<R> {
+        self.column.ordering = ordering;
         let accessor = Rc::clone(&self.accessor);
         let overflow = self.overflow;
         let align = self.align;
@@ -573,13 +667,23 @@ where
     R: 'static,
     V: Display + Ord + 'static,
 {
-    pub fn sortable(mut self) -> Self {
-        self.column.sortable = true;
-        self
+    pub fn build(self) -> TypedColumn<R> {
+        let ordering = ordering_projection(Rc::clone(&self.accessor));
+        self.build_with_order(Some(ordering))
     }
 }
 
-impl<R, V> TextColumn<R, V>
+impl<R, V> TextColumn<R, V, NoSort>
+where
+    R: 'static,
+    V: Display + 'static,
+{
+    pub fn build(self) -> TypedColumn<R> {
+        self.build_with_order(None)
+    }
+}
+
+impl<R, V, S> TextColumn<R, V, S>
 where
     R: 'static,
     V: Display + FromStr + 'static,
@@ -625,12 +729,22 @@ where
     }
 }
 
-impl<R, V> BooleanColumn<R, V>
+impl<R, V, S> BooleanColumn<R, V, S>
 where
     R: 'static,
     V: Clone + Into<bool> + 'static,
 {
-    pub fn build(self) -> TypedColumn<R> {
+    pub fn unsortable(self) -> BooleanColumn<R, V, NoSort> {
+        BooleanColumn {
+            column: self.column,
+            accessor: self.accessor,
+            cell: self.cell,
+            sort: PhantomData,
+        }
+    }
+
+    fn build_with_order(mut self, ordering: Option<Rc<OrderProjection>>) -> TypedColumn<R> {
+        self.column.ordering = ordering;
         let accessor = Rc::clone(&self.accessor);
         let cell = self.cell.unwrap_or_else(|| {
             Rc::new(move |record, _, _| {
@@ -650,13 +764,23 @@ where
     R: 'static,
     V: Clone + Into<bool> + Ord + 'static,
 {
-    pub fn sortable(mut self) -> Self {
-        self.column.sortable = true;
-        self
+    pub fn build(self) -> TypedColumn<R> {
+        let ordering = ordering_projection(Rc::clone(&self.accessor));
+        self.build_with_order(Some(ordering))
     }
 }
 
-impl<R, V> BooleanColumn<R, V>
+impl<R, V> BooleanColumn<R, V, NoSort>
+where
+    R: 'static,
+    V: Clone + Into<bool> + 'static,
+{
+    pub fn build(self) -> TypedColumn<R> {
+        self.build_with_order(None)
+    }
+}
+
+impl<R, V, S> BooleanColumn<R, V, S>
 where
     R: 'static,
     V: Clone + Into<bool> + From<bool> + 'static,
@@ -679,6 +803,22 @@ where
     }
 }
 
+fn ordering_projection<R, V>(accessor: Rc<dyn for<'a> Fn(&'a R) -> &'a V>) -> Rc<OrderProjection>
+where
+    R: 'static,
+    V: Ord + 'static,
+{
+    Rc::new(move |left, right| {
+        let left = left
+            .downcast_ref::<R>()
+            .expect("typed table ordering receives its declared record type");
+        let right = right
+            .downcast_ref::<R>()
+            .expect("typed table ordering receives its declared record type");
+        accessor(left).cmp(accessor(right))
+    })
+}
+
 impl Table {
     pub fn new(
         id: impl Into<interaction::Id>,
@@ -699,6 +839,7 @@ impl Table {
             sort: None,
             presentation: Presentation::Compact,
             presentation_projection: None,
+            sort_projection: None,
         }
     }
 
@@ -716,12 +857,26 @@ impl Table {
             .iter()
             .map(|column| (column.column.id, Rc::clone(&column.cell)))
             .collect();
+        let orderings = columns
+            .iter()
+            .filter_map(|column| {
+                column
+                    .column
+                    .ordering
+                    .as_ref()
+                    .map(|ordering| (column.column.id, Rc::clone(ordering)))
+            })
+            .collect();
         let presentation = Rc::new(std::cell::Cell::new(Presentation::Compact));
+        let sort = Rc::new(std::cell::Cell::new(None));
         let provider = TypedProvider {
             source,
             cells,
             projected_record: RefCell::new(None),
             presentation: Rc::clone(&presentation),
+            sort: Rc::clone(&sort),
+            order: RefCell::new(None),
+            orderings,
         };
         let mut table = Self::new(
             id,
@@ -730,6 +885,7 @@ impl Table {
             provider,
         );
         table.presentation_projection = Some(presentation);
+        table.sort_projection = Some(sort);
         table
     }
 
@@ -740,6 +896,9 @@ impl Table {
         direction: SortDirection,
     ) -> Self {
         self.sort = Some(SortState::new(column, direction));
+        if let Some(projection) = self.sort_projection.as_ref() {
+            projection.set(self.sort);
+        }
         self
     }
 
@@ -1131,23 +1290,90 @@ impl virtual_list::Provider for Rows {
     }
 }
 
-impl<R> Provider for TypedProvider<R> {
+impl<R> TypedProvider<R>
+where
+    R: 'static,
+{
+    fn refresh_order(&self) {
+        let Some(records) = self.source.records.as_ref() else {
+            return;
+        };
+        let Some(sort) = self.sort.get() else {
+            self.order.borrow_mut().take();
+            return;
+        };
+        if self
+            .order
+            .borrow()
+            .as_ref()
+            .is_some_and(|order| order.sort == sort)
+        {
+            return;
+        }
+        let Some(ordering) = self.orderings.get(&sort.column) else {
+            self.order.borrow_mut().take();
+            return;
+        };
+        let mut rows: Vec<_> = (0..records.len()).collect();
+        rows.sort_by(|left, right| {
+            let ordering = ordering(&records[*left] as &dyn Any, &records[*right] as &dyn Any);
+            match sort.direction {
+                SortDirection::Ascending => ordering,
+                SortDirection::Descending => ordering.reverse(),
+            }
+        });
+        let mut indices = vec![0; rows.len()];
+        for (index, row) in rows.iter().copied().enumerate() {
+            indices[row] = index;
+        }
+        *self.order.borrow_mut() = Some(ResolvedOrder {
+            sort,
+            rows,
+            indices,
+        });
+    }
+
+    fn source_row(&self, row: usize) -> usize {
+        self.refresh_order();
+        self.order
+            .borrow()
+            .as_ref()
+            .map_or(row, |order| order.rows[row])
+    }
+
+    fn projected_index(&self, source_index: usize) -> usize {
+        self.refresh_order();
+        self.order
+            .borrow()
+            .as_ref()
+            .map_or(source_index, |order| order.indices[source_index])
+    }
+}
+
+impl<R> Provider for TypedProvider<R>
+where
+    R: 'static,
+{
     fn len(&self) -> usize {
         self.source.len
     }
 
     fn key(&self, row: usize) -> virtual_list::Key {
-        (self.source.key)(row)
+        (self.source.key)(self.source_row(row))
     }
 
     fn index_of(&self, key: virtual_list::Key) -> Option<usize> {
-        (self.source.index_of)(key)
+        (self.source.index_of)(key).map(|index| self.projected_index(index))
     }
 
     fn cell(&self, row: usize, cell: Cell) -> view::Node {
+        let source_row = self.source_row(row);
         let mut projected = self.projected_record.borrow_mut();
-        if projected.as_ref().is_none_or(|(index, _)| *index != row) {
-            *projected = Some((row, (self.source.record)(row)));
+        if projected
+            .as_ref()
+            .is_none_or(|(index, _)| *index != source_row)
+        {
+            *projected = Some((source_row, (self.source.record)(source_row)));
         }
         let record = &projected
             .as_ref()
@@ -1248,7 +1474,6 @@ mod tests {
             view::Dimension::fixed(80),
             |record: &Record| &record.name,
         )
-        .sortable()
         .editable::<CommitText>(|cell, value| (cell, value))
         .build();
         let address = Column::text(
@@ -1257,7 +1482,6 @@ mod tests {
             view::Dimension::fixed(120),
             |record: &Record| &record.address,
         )
-        .sortable()
         .editable::<CommitAddress>(|cell, value| (cell, value))
         .build();
         let ratio = Column::text(
@@ -1269,6 +1493,7 @@ mod tests {
         .align(view::Align::End)
         .input(text::Input::decimal())
         .editable::<CommitText>(|cell, value| (cell, value.to_string()))
+        .unsortable()
         .build();
         let record = Record {
             name: "Ada".to_owned(),
@@ -1283,9 +1508,12 @@ mod tests {
         let address_node = (address.cell)(&record, cell, Presentation::Compact);
         let ratio_node = (ratio.cell)(&record, cell, Presentation::Compact);
 
-        assert!(name.column.sortable);
-        assert!(address.column.sortable);
-        assert!(!ratio.column.sortable, "f64 remains non-Ord by std law");
+        assert!(name.column.ordering.is_some());
+        assert!(address.column.ordering.is_some());
+        assert!(
+            ratio.column.ordering.is_none(),
+            "f64 explicitly opts out because std supplies no Ord"
+        );
         assert_eq!(address_node.label_text(), Some("127.0.0.1"));
         assert!(
             address_node
@@ -1314,7 +1542,6 @@ mod tests {
             view::Dimension::fixed(80),
             |record: &Record| &record.switch,
         )
-        .sortable()
         .build();
         let interactive = Column::boolean(
             "interactive",
@@ -1342,7 +1569,7 @@ mod tests {
             interaction::Id::new("passive"),
         );
 
-        assert!(passive.column.sortable);
+        assert!(passive.column.ordering.is_some());
         assert!(
             (passive.cell)(&record, cell, Presentation::Compact)
                 .checkbox_model()
@@ -1361,6 +1588,115 @@ mod tests {
         assert_eq!(
             record.metadata, 7,
             "extra state is never round-tripped through bool"
+        );
+    }
+
+    #[test]
+    fn bounded_record_sources_apply_the_same_default_ordering_as_headers() {
+        #[derive(Clone)]
+        struct Record {
+            key: u64,
+            group: i64,
+            enabled: bool,
+        }
+        let records: Rc<[Record]> = vec![
+            Record {
+                key: 30,
+                group: 2,
+                enabled: true,
+            },
+            Record {
+                key: 10,
+                group: 1,
+                enabled: false,
+            },
+            Record {
+                key: 20,
+                group: 1,
+                enabled: true,
+            },
+            Record {
+                key: 40,
+                group: 3,
+                enabled: false,
+            },
+        ]
+        .into();
+        let source = Source::records(Rc::clone(&records), |record| {
+            virtual_list::Key::new(record.key)
+        });
+        let columns = || {
+            vec![
+                Column::text(
+                    "group",
+                    "Group",
+                    view::Dimension::fixed(80),
+                    |record: &Record| &record.group,
+                )
+                .build(),
+                Column::boolean(
+                    "enabled",
+                    "Enabled",
+                    view::Dimension::fixed(80),
+                    |record: &Record| &record.enabled,
+                )
+                .build(),
+            ]
+        };
+
+        let ascending = Table::typed("records", 24, columns(), source.clone())
+            .sorted_by("group", SortDirection::Ascending);
+        assert_eq!(
+            (0..4)
+                .map(|row| ascending.provider.key(row).value())
+                .collect::<Vec<_>>(),
+            [10, 20, 30, 40],
+            "equal values retain their base record order"
+        );
+        assert_eq!(
+            ascending.provider.index_of(virtual_list::Key::new(30)),
+            Some(2)
+        );
+
+        let descending = Table::typed("records", 24, columns(), source.clone())
+            .sorted_by("group", SortDirection::Descending);
+        assert_eq!(
+            (0..4)
+                .map(|row| descending.provider.key(row).value())
+                .collect::<Vec<_>>(),
+            [40, 30, 10, 20],
+            "descending reverses the primary order without reversing ties"
+        );
+
+        let booleans = Table::typed("records", 24, columns(), source)
+            .sorted_by("enabled", SortDirection::Ascending);
+        assert_eq!(
+            (0..4)
+                .map(|row| booleans.provider.key(row).value())
+                .collect::<Vec<_>>(),
+            [10, 40, 30, 20]
+        );
+
+        let empty = Source::records(Rc::<[Record]>::from([]), |record| {
+            virtual_list::Key::new(record.key)
+        });
+        let empty = Table::typed("empty.records", 24, columns(), empty)
+            .sorted_by("group", SortDirection::Ascending);
+        assert!(empty.provider.is_empty());
+
+        let replacement: Rc<[Record]> = vec![Record {
+            key: 50,
+            group: 0,
+            enabled: true,
+        }]
+        .into();
+        let replacement = Source::records(replacement, |record| virtual_list::Key::new(record.key));
+        let replacement = Table::typed("records", 24, columns(), replacement)
+            .sorted_by("group", SortDirection::Ascending);
+        assert_eq!(replacement.provider.key(0).value(), 50);
+        assert_eq!(
+            replacement.provider.index_of(virtual_list::Key::new(50)),
+            Some(0)
         );
     }
 
@@ -1390,13 +1726,31 @@ mod tests {
                 )
             })
             .collect();
+        let ordering: Rc<OrderProjection> = Rc::new(|left, right| {
+            left.downcast_ref::<usize>()
+                .expect("usize record")
+                .cmp(right.downcast_ref::<usize>().expect("usize record"))
+        });
         let provider = TypedProvider {
             source,
             cells,
             projected_record: RefCell::new(None),
             presentation: Rc::new(std::cell::Cell::new(Presentation::Compact)),
+            sort: Rc::new(std::cell::Cell::new(Some(SortState::new(
+                first,
+                SortDirection::Descending,
+            )))),
+            order: RefCell::new(None),
+            orderings: [(first, ordering)].into_iter().collect(),
         };
         let key = virtual_list::Key::new(0);
+        assert_eq!(Provider::key(&provider, 0), key);
+        assert_eq!(Provider::index_of(&provider, key), Some(0));
+        assert_eq!(
+            projections.get(),
+            0,
+            "intent-only virtual sources are never enumerated to derive ordering"
+        );
         Provider::cell(&provider, 0, Cell::new(table, key, first));
         Provider::cell(&provider, 0, Cell::new(table, key, second));
         assert_eq!(projections.get(), 1);

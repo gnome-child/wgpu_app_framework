@@ -65,6 +65,8 @@ fn table_std_capabilities_have_no_framework_trait_mirrors() {
     for std_boundary in [
         "pub fn text<R, V>",
         "pub fn boolean<R, V>",
+        "pub fn records(",
+        "pub fn unsortable(self)",
         "V: Display + FromStr",
         "V: Display + Ord",
         "V: Clone + Into<bool> + From<bool>",
@@ -74,6 +76,11 @@ fn table_std_capabilities_have_no_framework_trait_mirrors() {
             "table species should expose {std_boundary}"
         );
     }
+    assert!(
+        !table.contains("sortable: bool")
+            && table.contains("ordering: Option<Rc<OrderProjection>>"),
+        "one optional ordering projection must own header and bounded-record sorting"
+    );
 }
 
 #[test]

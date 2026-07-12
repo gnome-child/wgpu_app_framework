@@ -289,10 +289,8 @@ fn pointer_opened_menu_resolves_items_against_preserved_document_focus() {
 
 #[test]
 fn control_gallery_edit_menu_operates_on_focused_text_box() {
-    let mut state = control_gallery::State {
-        query: "alpha".to_owned(),
-        ..control_gallery::State::default()
-    };
+    let mut state = control_gallery::State::default();
+    state.query = "alpha".to_owned();
     state.last_status = "ready".to_owned();
     let mut app = control_gallery::app(state);
     app.start();

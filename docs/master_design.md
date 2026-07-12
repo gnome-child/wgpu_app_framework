@@ -308,18 +308,24 @@ tuple rather than row or column indices. Selection remains keyed row state;
 table navigation adds only a window-local active column id. Column-resize
 widths are also window-local session presentation keyed by table and column,
 projected into the table model before visible rows materialize, and never
-mutate provider data. Header widgets emit ordinary application commands;
-sorting occurs only when the application changes provider order. Table paint
-derives striping and rules from layout row/cell facts, and the shared `Rule`
-rasterizer owns physical-pixel snapping across scale factors.
+mutate provider data. Header widgets emit ordinary application commands and
+the application retains `SortState`. Lazy `Source::new` providers continue to
+own their order without enumeration; bounded `Source::records` providers
+apply the selected column's derived ordering projection automatically. Table
+paint derives striping and rules from layout row/cell facts, and the shared
+`Rule` rasterizer owns physical-pixel snapping across scale factors.
 
 Typed columns select a presentation medium explicitly. `Column::text` accepts
-any `Display` value, adds editing only for `FromStr` values, and adds sortable
-header intent only for `Ord` values. `Column::boolean` projects any value with
-an honest forward `Into<bool>` conversion; reverse `From<bool>` is required
-only when `.toggle()` adds interaction. Alignment and input filtering are
-column policy, not hidden type behavior. The framework owns the cell species
-and geometry; std owns display, parsing, conversion, and ordering meanings.
+any `Display` value, adds editing only for `FromStr` values, and defaults to
+sortable construction for `Ord` values. `.unsortable()` is the explicit
+escape hatch and removes both the `Ord` requirement and header affordance.
+`Column::boolean` projects any value with an honest forward `Into<bool>`
+conversion; reverse `From<bool>` is required only when `.toggle()` adds
+interaction. One optional ordering projection drives both the header and
+bounded-record ordering; there is no separate sortable flag. Alignment and
+input filtering are column policy, not hidden type behavior. The framework
+owns the cell species and geometry; std owns display, parsing, conversion, and
+ordering meanings.
 Types with state beyond the Boolean medium expose a Boolean field rather than
 round-tripping the whole value and silently discarding information.
 
