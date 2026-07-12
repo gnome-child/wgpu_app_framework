@@ -23,11 +23,16 @@ pub(crate) enum TextKind {
 pub(crate) struct WorldText {
     wrap: super::control::Wrap,
     overflow: text::Overflow,
+    align: super::style::Align,
 }
 
 impl WorldText {
     fn new(wrap: super::control::Wrap, overflow: text::Overflow) -> Self {
-        Self { wrap, overflow }
+        Self {
+            wrap,
+            overflow,
+            align: super::style::Align::Start,
+        }
     }
 }
 

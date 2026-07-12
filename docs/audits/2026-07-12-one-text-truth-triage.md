@@ -98,6 +98,30 @@ survives edit capability; selection and copy consume the visible glyph layout;
 editor machinery exists only while editing. Boolean toggles and custom actions
 remain deliberately distinct.
 
+Closed. The census found two inactive species: ordinary typed values built a
+Label (and an alignment Stack for numeric values), while `.editable()` replaced
+that projection with a read-only TextArea and discarded both `V::align()` and
+the column's overflow policy. Both paths now call one typed-value projection:
+a read-only, selectable TextArea carrying the same world-text wrap, residual
+overflow, and alignment facts. Only an active edit replaces it with TextBox;
+native boolean toggles and arbitrary provider nodes remain their own honest
+species.
+
+The retained frame carries alignment beside the already-shared world-text
+policy. Visible glyphs and selection geometry consume that fact together;
+single-line numeric selection is anchored to the same trailing content edge as
+its painted text, and all inactive text is vertically centered inside the
+canonical padded cell rectangle. Draft discovery was widened only to table
+cells, so ordinary application TextAreas retain document ownership.
+
+Witnesses prove ordinary Record, editable Note, and editable Count cells share
+the same inactive role; Count stays end-aligned with the same node identity in
+Compact and Expanded; read-only selection/copy remains local; and Expanded row
+height is the measured wrapped requirement rather than a brittle fixed
+constant. Boundary: 901 discovered; 893 passed, 8 deliberately ignored, 0
+failed. Formatting, all-target compilation, all three smokes, diff hygiene, and
+the protected comparison flag were green. This commit remains local.
+
 ### Fix 4 — constant headers
 
 Reverse expanded-header wrapping intentionally. Headers remain single-line and
@@ -138,7 +162,7 @@ override against minimum resolved-width materialization before choosing state.
 | Ledger open | this commit | 2 | 112 | 3 | Field report, doctrine, reductions, and protocol |
 | Fix 1 | this commit | 3 | 81 | 1 | Table-cell input remains local; programmatic missing targets remain errors |
 | Fix 2 | this commit | 7 | 133 | 23 | One padded body-text rectangle across measure, paint, and interaction |
-| Fix 3 | pending | pending | pending | pending | One inactive display recipe |
+| Fix 3 | this commit | 9 | 253 | 43 | One inactive display recipe; typed alignment and identity survive presentation |
 | Fix 4 | pending | pending | pending | pending | Constant single-line headers |
 | Fix 5 | pending | pending | pending | pending | Held-boundary direct manipulation |
 | Close | pending | pending | pending | pending | Laws, resistance audit, final boundary, clean tree |

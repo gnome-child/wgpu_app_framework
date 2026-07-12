@@ -57,6 +57,13 @@ impl Node {
         }
     }
 
+    pub(crate) fn world_text_align(&self) -> Option<super::super::Align> {
+        match self.text_kind {
+            super::TextKind::World(world) => Some(world.align),
+            super::TextKind::Author => None,
+        }
+    }
+
     pub fn binding(&self) -> Option<&Binding> {
         self.binding.as_ref()
     }

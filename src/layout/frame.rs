@@ -76,6 +76,7 @@ enum TextContent {
     Label {
         world_overflow: Option<text_model::Overflow>,
         world_wrap: Option<view::Wrap>,
+        world_align: Option<view::Align>,
     },
     SectionHeader,
     Area {
@@ -84,6 +85,7 @@ enum TextContent {
         text_rect: Rect,
         world_overflow: Option<text_model::Overflow>,
         world_wrap: Option<view::Wrap>,
+        world_align: Option<view::Align>,
     },
     Field {
         model: view::TextBox,
@@ -172,7 +174,7 @@ impl Frame {
         let binding = node.binding().cloned();
         let text_area = node.text_area_model();
         let now = animation_frame.now();
-        let text_area_text_rect = table_cell_text_rect_for(node, rect, theme);
+        let text_area_text_rect = table_cell_text_rect_for(node, rect, text_area, engine, theme);
         let text_area_layout = text_area
             .map(|text_area| engine.text_area_layout(text_area, text_area_text_rect, theme, now));
         let text_box = node.text_box_model().cloned();
@@ -183,7 +185,13 @@ impl Frame {
         let label_style = typography::label_style(node, theme);
         let world_text_overflow = node.world_text_overflow();
         let world_text_wrap = node.world_text_wrap();
-        let world_text_rect = table_cell_text_rect_for(node, rect, theme);
+        let world_text_align = node.world_text_align();
+        let world_text_rect =
+            if node.participation() == Some(view::Participation::Table(view::TablePart::Cell)) {
+                control::table_content_rect(rect, theme)
+            } else {
+                rect
+            };
         let label = label_for(node).map(|label| match world_text_overflow {
             Some(overflow) => {
                 engine.resolve_label_overflow(label, world_text_rect.width(), label_style, overflow)
@@ -255,6 +263,7 @@ impl Frame {
             text_box_text_rect,
             world_text_overflow,
             world_text_wrap,
+            world_text_align,
             slider_track_rect,
         );
         let binding = binding.map(|binding| BoundContent {
@@ -384,6 +393,15 @@ impl Frame {
             FrameContent::Text(
                 TextContent::Label { world_wrap, .. } | TextContent::Area { world_wrap, .. },
             ) => *world_wrap,
+            _ => None,
+        }
+    }
+
+    pub(crate) fn world_text_align(&self) -> Option<view::Align> {
+        match &self.content {
+            FrameContent::Text(
+                TextContent::Label { world_align, .. } | TextContent::Area { world_align, .. },
+            ) => *world_align,
             _ => None,
         }
     }
@@ -785,6 +803,7 @@ impl FrameContent {
         text_box_text_rect: Rect,
         world_text_overflow: Option<text_model::Overflow>,
         world_text_wrap: Option<view::Wrap>,
+        world_text_align: Option<view::Align>,
         slider_track_rect: Option<Rect>,
     ) -> Self {
         match node.role() {
@@ -806,6 +825,7 @@ impl FrameContent {
                 text_rect: text_area_text_rect,
                 world_overflow: world_text_overflow,
                 world_wrap: world_text_wrap,
+                world_align: world_text_align,
             }),
             view::Role::Button => Self::Button,
             view::Role::Checkbox => Self::Choice(ChoiceContent::Checkbox(
@@ -854,6 +874,7 @@ impl FrameContent {
             view::Role::Label => Self::Text(TextContent::Label {
                 world_overflow: world_text_overflow,
                 world_wrap: world_text_wrap,
+                world_align: world_text_align,
             }),
         }
     }
@@ -923,12 +944,43 @@ fn text_box_text_rect_for(node: &view::Node, rect: Rect, theme: &Theme) -> Rect 
     )
 }
 
-fn table_cell_text_rect_for(node: &view::Node, rect: Rect, theme: &Theme) -> Rect {
-    if node.participation() == Some(view::Participation::Table(view::TablePart::Cell)) {
-        control::table_content_rect(rect, theme)
-    } else {
-        rect
+fn table_cell_text_rect_for(
+    node: &view::Node,
+    rect: Rect,
+    text_area: Option<&view::TextArea>,
+    engine: &engine::Engine,
+    theme: &Theme,
+) -> Rect {
+    if node.participation() != Some(view::Participation::Table(view::TablePart::Cell)) {
+        return rect;
     }
+
+    let content = control::table_content_rect(rect, theme);
+    let Some(text_area) = text_area else {
+        return content;
+    };
+    let measured = engine.text_area_size_for_width(text_area, content.width(), theme);
+    let height = measured.height().min(content.height()).max(0);
+    let y = content
+        .y()
+        .saturating_add(content.height().saturating_sub(height) / 2);
+    let single_line_height = (theme.typography().interface().size() * 1.25).ceil() as i32;
+    let align = node.world_text_align().unwrap_or(view::Align::Start);
+    let width = if measured.height() <= single_line_height
+        && matches!(align, view::Align::Center | view::Align::End)
+    {
+        measured.width().min(content.width()).max(0)
+    } else {
+        content.width()
+    };
+    let x = match align {
+        view::Align::Start | view::Align::Stretch => content.x(),
+        view::Align::Center => content
+            .x()
+            .saturating_add(content.width().saturating_sub(width) / 2),
+        view::Align::End => content.right().saturating_sub(width),
+    };
+    Rect::new(x, y, width, height)
 }
 
 fn clipped_caret_rect(rect: Rect, caret: crate::text::layout::Caret) -> Option<Rect> {

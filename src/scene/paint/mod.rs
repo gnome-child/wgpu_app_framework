@@ -955,6 +955,14 @@ fn text_align_for(frame: &layout::Frame) -> TextAlign {
         return TextAlign::Start;
     }
 
+    if let Some(align) = frame.world_text_align() {
+        return match align {
+            view::Align::Start | view::Align::Stretch => TextAlign::Start,
+            view::Align::Center => TextAlign::Center,
+            view::Align::End => TextAlign::End,
+        };
+    }
+
     match frame.role() {
         view::Role::Button | view::Role::Menu => TextAlign::Center,
         _ => TextAlign::Start,

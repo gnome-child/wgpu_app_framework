@@ -286,6 +286,8 @@ pub struct TextEditor {
     trigger: Option<command::AnyValueTrigger<String>>,
     input: text::Input,
     presentation: Presentation,
+    align: view::Align,
+    overflow: text::Overflow,
 }
 
 pub struct NumberEditor {
@@ -309,6 +311,8 @@ pub(crate) struct Edit {
     trigger: Option<command::AnyValueTrigger<String>>,
     input: text::Input,
     presentation: Presentation,
+    align: view::Align,
+    overflow: text::Overflow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -541,9 +545,9 @@ where
         let accessor = Rc::clone(&self.accessor);
         let overflow = self.overflow;
         let cell = self.cell.unwrap_or_else(|| {
-            Rc::new(move |record, _, presentation| {
+            Rc::new(move |record, cell, presentation| {
                 let value = accessor(record);
-                value_node(value, overflow, presentation)
+                value_node(value, cell, overflow, presentation)
             })
         });
         TypedColumn {
@@ -582,6 +586,8 @@ where
         let accessor = Rc::clone(&self.accessor);
         let validation = Arc::clone(&self.validation);
         let map = Arc::new(map);
+        let overflow = self.overflow;
+        let align = V::align();
         self.cell = Some(Rc::new(move |record, cell, presentation| {
             let value = accessor(record);
             let draft_validation = Arc::clone(&validation);
@@ -590,6 +596,8 @@ where
             widget::Widget::into_node(
                 TextEditor::new(cell, value.edit_text().into_owned())
                     .display(presentation)
+                    .align(align)
+                    .overflow(overflow)
                     .input(V::input())
                     .validate(move |draft| {
                         let parsed = V::parse(draft)?;
@@ -831,11 +839,23 @@ impl TextEditor {
             trigger: None,
             input: text::Input::unrestricted(),
             presentation: Presentation::Compact,
+            align: view::Align::Start,
+            overflow: text::Overflow::EllipsisEnd,
         }
     }
 
     fn display(mut self, presentation: Presentation) -> Self {
         self.presentation = presentation;
+        self
+    }
+
+    fn align(mut self, align: view::Align) -> Self {
+        self.align = align;
+        self
+    }
+
+    fn overflow(mut self, overflow: text::Overflow) -> Self {
+        self.overflow = overflow;
         self
     }
 
@@ -930,6 +950,8 @@ impl widget::Widget for TextEditor {
             self.trigger,
             self.input,
             self.presentation,
+            self.align,
+            self.overflow,
         )
         .node(false)
     }
@@ -953,6 +975,8 @@ impl widget::Widget for NumberEditor {
             self.trigger,
             self.input,
             Presentation::Compact,
+            view::Align::End,
+            text::Overflow::EllipsisEnd,
         )
         .node(false)
     }
@@ -968,6 +992,8 @@ impl Edit {
         trigger: Option<command::AnyValueTrigger<String>>,
         input: text::Input,
         presentation: Presentation,
+        align: view::Align,
+        overflow: text::Overflow,
     ) -> Self {
         Self {
             cell,
@@ -977,6 +1003,8 @@ impl Edit {
             trigger,
             input,
             presentation,
+            align,
+            overflow,
         }
     }
 
@@ -999,14 +1027,13 @@ impl Edit {
             }
             view::Node::text_box_state(model)
         } else {
-            let (wrap, overflow) = self.presentation.text_policy(text::Overflow::EllipsisEnd);
-            view::Node::text_area_state(
-                view::TextArea::new(self.text.clone())
-                    .with_focus(focus)
-                    .with_wrap(wrap)
-                    .read_only(),
+            display_value_node(
+                self.cell,
+                self.text.clone(),
+                self.align,
+                self.overflow,
+                self.presentation,
             )
-            .with_world_text_policy(self.text.clone(), wrap, overflow)
         };
         if let Some(trigger) = self.trigger.clone() {
             node = node.bind_text_trigger(self.text.clone(), context::Source::Input, trigger);
@@ -1109,24 +1136,35 @@ fn sized(node: view::Node, width: view::Dimension) -> view::Node {
 
 fn value_node<V: Value>(
     value: &V,
+    cell: Cell,
     overflow: text::Overflow,
     presentation: Presentation,
 ) -> view::Node {
-    let text = value.text().into_owned();
+    display_value_node(
+        cell,
+        value.text().into_owned(),
+        V::align(),
+        overflow,
+        presentation,
+    )
+}
+
+fn display_value_node(
+    cell: Cell,
+    text: String,
+    align: view::Align,
+    overflow: text::Overflow,
+    presentation: Presentation,
+) -> view::Node {
     let (wrap, overflow) = presentation.text_policy(overflow);
-    let label = view::Node::world_text_with_policy(text, wrap, overflow);
-    match V::align() {
-        view::Align::Start | view::Align::Stretch => label,
-        align @ (view::Align::Center | view::Align::End) => {
-            view::Node::stack(view::Axis::Horizontal)
-                .with_style(
-                    view::Style::new()
-                        .with_width(view::Dimension::grow())
-                        .with_justify_content(align),
-                )
-                .child(label)
-        }
-    }
+    view::Node::text_area_state(
+        view::TextArea::new(text.clone())
+            .with_focus(session::Focus::table_cell(cell))
+            .with_wrap(wrap)
+            .read_only(),
+    )
+    .with_world_text_policy(text, wrap, overflow)
+    .with_world_text_alignment(align)
 }
 
 impl Value for String {

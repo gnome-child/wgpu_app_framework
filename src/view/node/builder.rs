@@ -180,6 +180,13 @@ impl Node {
         self
     }
 
+    pub(crate) fn with_world_text_alignment(mut self, align: super::super::Align) -> Self {
+        if let super::TextKind::World(world) = &mut self.text_kind {
+            world.align = align;
+        }
+        self
+    }
+
     pub(crate) fn section_header(label: impl Into<String>) -> Self {
         Self::new(Role::SectionHeader).with_label(label)
     }

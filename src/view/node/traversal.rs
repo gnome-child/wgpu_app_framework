@@ -397,7 +397,7 @@ impl Node {
         }) {
             return Some(text);
         }
-        if self.table_edit().is_some()
+        if self.table_cell().is_some()
             && let Some(text) = self.text_area_model().and_then(|text_area| {
                 text_area
                     .focus()

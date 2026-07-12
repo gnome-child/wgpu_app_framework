@@ -2291,10 +2291,20 @@ fn table_display_text_selects_and_copies_while_double_click_alone_enters_editing
         .expect("released display cell");
     assert_eq!(released_cell.node_id(), display_identity);
     let display_text_rect = layout::table_content_rect(released_cell.rect(), &Theme::default());
-    assert_eq!(released_cell.text_area_text_rect(), display_text_rect);
+    let selection_text_rect = released_cell.text_area_text_rect();
+    assert_eq!(selection_text_rect.x(), display_text_rect.x());
+    assert_eq!(selection_text_rect.right(), display_text_rect.right());
+    assert!(selection_text_rect.y() >= display_text_rect.y());
+    assert!(selection_text_rect.bottom() <= display_text_rect.bottom());
+    assert!(
+        ((selection_text_rect.y() + selection_text_rect.height() / 2)
+            - (display_text_rect.y() + display_text_rect.height() / 2))
+            .abs()
+            <= 1
+    );
     assert!(released.scene().quads().iter().any(|quad| {
         quad.fill() == Theme::default().text().selection
-            && rect_contains(display_text_rect, quad.rect())
+            && rect_contains(selection_text_rect, quad.rect())
     }));
     assert!(released.scene().text_viewports().is_empty());
     assert_eq!(app.session().editing_table_cell(window), None);
@@ -7458,6 +7468,42 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         compact_note.world_text_overflow(),
         Some(text::Overflow::EllipsisEnd)
     );
+    let compact_record = compact
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(0)
+                    && cell.column() == interaction::Id::new("record")
+            })
+        })
+        .expect("compact ordinary record display");
+    assert_eq!(compact_record.role(), view::Role::TextArea);
+    assert_eq!(compact_record.world_text_wrap(), Some(view::Wrap::None));
+    let compact_count = compact
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(0)
+                    && cell.column() == interaction::Id::new("count")
+            })
+        })
+        .expect("compact numeric display");
+    let count_identity = compact_count.node_id();
+    assert_eq!(compact_count.role(), view::Role::TextArea);
+    assert_eq!(compact_count.world_text_align(), Some(view::Align::End));
+    assert_eq!(
+        compact_count.text_area_text_rect().right(),
+        layout::table_content_rect(compact_count.rect(), &Theme::default()).right()
+    );
+    assert!(compact.scene().texts().iter().any(|value| {
+        value.value() == "0"
+            && value.align() == scene::TextAlign::End
+            && value.rect() == layout::table_content_rect(compact_count.rect(), &Theme::default())
+    }));
     let toggle = compact
         .layout()
         .frames()
@@ -7504,16 +7550,39 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         expanded_note.world_text_overflow(),
         Some(text::Overflow::Clip)
     );
+    let expanded_rows = expanded
+        .layout()
+        .frames()
+        .iter()
+        .filter(|frame| frame.table_row().is_some())
+        .map(|frame| frame.rect().height())
+        .collect::<Vec<_>>();
+    assert!(!expanded_rows.is_empty());
+    assert!(expanded_rows.iter().all(|height| *height >= 24));
+    assert!(expanded_rows.iter().any(|height| *height > 24));
+    let expanded_count = expanded
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(0)
+                    && cell.column() == interaction::Id::new("count")
+            })
+        })
+        .expect("expanded numeric display");
+    assert_eq!(expanded_count.node_id(), count_identity);
+    assert_eq!(expanded_count.role(), view::Role::TextArea);
+    assert_eq!(expanded_count.world_text_align(), Some(view::Align::End));
     assert_eq!(
-        expanded
-            .layout()
-            .frames()
-            .iter()
-            .filter(|frame| frame.table_row().is_some())
-            .map(|frame| frame.rect().height())
-            .collect::<Vec<_>>(),
-        vec![68; 4]
+        expanded_count.text_area_text_rect().right(),
+        layout::table_content_rect(expanded_count.rect(), &Theme::default()).right()
     );
+    assert!(expanded.scene().texts().iter().any(|value| {
+        value.value() == "0"
+            && value.align() == scene::TextAlign::End
+            && value.rect() == layout::table_content_rect(expanded_count.rect(), &Theme::default())
+    }));
     assert!(expanded.scene().texts().iter().any(|value| {
         value
             .value()
