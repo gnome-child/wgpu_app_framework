@@ -1,30 +1,13 @@
+use crate::diagnostics::DrawStats;
 use crate::paint;
 use crate::paint::Rect;
 use crate::render;
 use crate::render::batch::{ItemBatch, item_batches};
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct DrawStats {
-    pub scene_items: usize,
-    pub render_batches: usize,
-    pub glyph_batches: usize,
-    pub text_surfaces: usize,
-    pub inline_text_cache_hits: usize,
-    pub inline_text_cache_misses: usize,
-    pub inline_text_shape_calls: usize,
-    pub inline_icon_cache_hits: usize,
-    pub inline_icon_cache_misses: usize,
-    pub inline_icon_shape_calls: usize,
-    pub quad_vertices: usize,
-    pub clip_batches: usize,
-    pub group_composites: usize,
-    pub filter_layer_pool_entries: usize,
-    pub filter_scratch_pool_entries: usize,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DrawReport {
     pub(crate) stats: DrawStats,
+    pub(crate) batch_prepare: std::time::Duration,
     pub(crate) acquire_outcome: render::AcquireOutcome,
     pub(crate) present_timing: Option<render::PresentTiming>,
 }
@@ -147,6 +130,7 @@ impl Renderer {
         canvas: &mut render::Canvas,
         scene: &paint::Scene,
     ) -> render::Result<DrawReport> {
+        let batch_prepare_started = std::time::Instant::now();
         let clear_color = scene
             .clear_color()
             .map(render::color_to_wgpu)
@@ -171,6 +155,7 @@ impl Renderer {
         )?;
         stats.add(prepared_scene.stats);
         stats.scene_items = scene.items().len();
+        let batch_prepare = batch_prepare_started.elapsed();
 
         let preserve_surface_alpha =
             canvas.composite_alpha_mode() == wgpu::CompositeAlphaMode::PreMultiplied;
@@ -303,6 +288,7 @@ impl Renderer {
 
         Ok(DrawReport {
             stats,
+            batch_prepare,
             acquire_outcome: surface_report.acquire(),
             present_timing: surface_report.present_timing(),
         })

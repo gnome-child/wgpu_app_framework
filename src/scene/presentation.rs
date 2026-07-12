@@ -5,6 +5,7 @@ use super::Scene;
 pub struct Presentation {
     window: window::Id,
     revision: state::Revision,
+    epoch: window::PresentationEpoch,
     layout: layout::Layout,
     scene: Scene,
 }
@@ -13,12 +14,14 @@ impl Presentation {
     fn new(
         window: window::Id,
         revision: state::Revision,
+        epoch: window::PresentationEpoch,
         layout: layout::Layout,
         scene: Scene,
     ) -> Self {
         Self {
             window,
             revision,
+            epoch,
             layout,
             scene,
         }
@@ -27,10 +30,11 @@ impl Presentation {
     pub(crate) fn with_scene(
         window: window::Id,
         revision: state::Revision,
+        epoch: window::PresentationEpoch,
         layout: layout::Layout,
         scene: Scene,
     ) -> Self {
-        Self::new(window, revision, layout, scene)
+        Self::new(window, revision, epoch, layout, scene)
     }
 
     pub fn window(&self) -> window::Id {
@@ -39,6 +43,10 @@ impl Presentation {
 
     pub fn revision(&self) -> state::Revision {
         self.revision
+    }
+
+    pub(crate) fn epoch(&self) -> window::PresentationEpoch {
+        self.epoch
     }
 
     pub fn size(&self) -> geometry::Size {

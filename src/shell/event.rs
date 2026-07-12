@@ -63,28 +63,50 @@ pub enum Event {
     Poll,
 }
 
+impl Event {
+    fn window_id(&self) -> Option<window::Id> {
+        match self {
+            Self::WindowResized { window, .. }
+            | Self::RedrawRequested { window }
+            | Self::CloseRequested { window }
+            | Self::PointerMoved { window, .. }
+            | Self::PointerDown { window, .. }
+            | Self::PointerUp { window, .. }
+            | Self::PointerLeft { window }
+            | Self::Scrolled { window, .. }
+            | Self::KeyDown { window, .. }
+            | Self::TextCommitted { window, .. }
+            | Self::TextPreedit { window, .. }
+            | Self::FilePathSelected { window, .. } => Some(*window),
+            Self::Started | Self::Poll => None,
+        }
+    }
+}
+
 impl<M: State, E: Send + 'static> Shell<M, E> {
     pub fn handle_event(&mut self, event: Event) -> Result<Work, Error> {
-        match event {
+        let window = event.window_id();
+        let started_at = Instant::now();
+        let result = match event {
             Event::Started => {
                 self.start();
-                Ok(self.drain())
+                Ok(())
             }
             Event::WindowResized { window, size } => {
                 self.set_window_size(window, size);
-                Ok(self.drain())
+                Ok(())
             }
             Event::RedrawRequested { window } => {
                 self.runtime.request_redraw(window);
-                Ok(self.drain())
+                Ok(())
             }
             Event::CloseRequested { window } => {
                 self.request_close_window(window);
-                Ok(self.drain())
+                Ok(())
             }
             Event::PointerMoved { window, point } => {
                 self.pointer_move(window, point)?;
-                Ok(self.drain())
+                Ok(())
             }
             Event::PointerDown {
                 window,
@@ -93,7 +115,7 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 modifiers,
             } => {
                 self.pointer_down_with_modifiers(window, point, button, modifiers)?;
-                Ok(self.drain())
+                Ok(())
             }
             Event::PointerUp {
                 window,
@@ -101,11 +123,11 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 button,
             } => {
                 self.pointer_up(window, point, button)?;
-                Ok(self.drain())
+                Ok(())
             }
             Event::PointerLeft { window } => {
                 self.pointer_left(window)?;
-                Ok(self.drain())
+                Ok(())
             }
             Event::Scrolled {
                 window,
@@ -113,7 +135,7 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 delta,
             } => {
                 self.scroll(window, point, delta)?;
-                Ok(self.drain())
+                Ok(())
             }
             Event::KeyDown {
                 window,
@@ -129,7 +151,7 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 if outcome.is_handled() {
                     self.runtime.record_input_latency_sample(window, started_at);
                 }
-                Ok(self.drain())
+                Ok(())
             }
             Event::TextCommitted { window, text } => {
                 let started_at = Instant::now();
@@ -137,7 +159,7 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 if outcome.is_handled() {
                     self.runtime.record_input_latency_sample(window, started_at);
                 }
-                Ok(self.drain())
+                Ok(())
             }
             Event::TextPreedit { window, preedit } => {
                 let started_at = Instant::now();
@@ -145,13 +167,21 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 if outcome.is_handled() {
                     self.runtime.record_input_latency_sample(window, started_at);
                 }
-                Ok(self.drain())
+                Ok(())
             }
             Event::FilePathSelected { window, path } => {
                 self.file_path_selected(window, path)?;
-                Ok(self.drain())
+                Ok(())
             }
-            Event::Poll => Ok(self.step()),
+            Event::Poll => return Ok(self.step()),
+        };
+
+        if let Some(window) = window {
+            self.runtime
+                .record_event_handling(window, started_at.elapsed());
         }
+
+        result?;
+        Ok(self.drain())
     }
 }

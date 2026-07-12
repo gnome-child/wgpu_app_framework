@@ -57,6 +57,13 @@ impl Event {
     pub fn window(window: window::Id, event: WindowEvent) -> Self {
         Self::Window { window, event }
     }
+
+    pub(crate) fn window_id(&self) -> Option<window::Id> {
+        match self {
+            Self::Window { window, .. } | Self::FilePathSelected { window, .. } => Some(*window),
+            Self::Started | Self::Poll => None,
+        }
+    }
 }
 
 impl WindowEvent {

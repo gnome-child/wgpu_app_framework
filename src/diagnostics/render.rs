@@ -3,33 +3,46 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::state;
-
-const SAMPLE_LIMIT: usize = 128;
+use super::{
+    DrawStats,
+    samples::{SAMPLE_LIMIT, Samples},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Render {
+    pub frames_attempted: usize,
     pub frames_presented: usize,
+    pub scene_items: usize,
+    pub render_batches: usize,
+    pub glyph_batches: usize,
+    pub text_surfaces: usize,
+    pub inline_text_cache_hits: usize,
+    pub inline_text_cache_misses: usize,
+    pub inline_text_shape_calls: usize,
+    pub inline_text_cache_hits_total: usize,
+    pub inline_text_cache_misses_total: usize,
+    pub inline_text_shape_calls_total: usize,
+    pub inline_icon_cache_hits: usize,
+    pub inline_icon_cache_misses: usize,
+    pub inline_icon_shape_calls: usize,
+    pub quad_vertices: usize,
+    pub clip_batches: usize,
     pub group_composites: usize,
     pub filter_layer_pool_entries: usize,
     pub filter_scratch_pool_entries: usize,
     intervals: Samples,
     acquire_wait: Samples,
+    batch_prepare: Samples,
+    encode_submit_present: Samples,
     draw: Samples,
     key_to_present: Samples,
     pending_inputs: VecDeque<InputSample>,
     last_presented_at: Option<Instant>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Samples {
-    values: VecDeque<u128>,
-    limit: usize,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct InputSample {
-    revision: state::Revision,
+    epoch: crate::window::PresentationEpoch,
     started_at: Instant,
 }
 
@@ -37,6 +50,10 @@ struct InputSample {
 pub struct Report {
     acquire_wait: Duration,
     draw: Duration,
+    batch_prepare: Duration,
+    encode_submit_present: Duration,
+    draw_stats: DrawStats,
+    presented: bool,
     presented_at: Instant,
     group_composites: usize,
     filter_layer_pool_entries: usize,
@@ -44,19 +61,42 @@ pub struct Report {
 }
 
 impl Render {
-    pub(crate) fn record_input(&mut self, revision: state::Revision, started_at: Instant) {
+    pub(crate) fn record_input(
+        &mut self,
+        epoch: crate::window::PresentationEpoch,
+        started_at: Instant,
+    ) {
         if self.pending_inputs.len() == SAMPLE_LIMIT {
             self.pending_inputs.pop_front();
         }
-        self.pending_inputs.push_back(InputSample {
-            revision,
-            started_at,
-        });
+        self.pending_inputs
+            .push_back(InputSample { epoch, started_at });
     }
 
-    pub(crate) fn record_present(&mut self, revision: state::Revision, report: Report) {
-        self.frames_presented += 1;
-        self.group_composites = report.group_composites;
+    pub(crate) fn record_present(
+        &mut self,
+        epoch: crate::window::PresentationEpoch,
+        report: Report,
+    ) {
+        self.frames_attempted += 1;
+        self.scene_items = report.draw_stats.scene_items;
+        self.render_batches = report.draw_stats.render_batches;
+        self.glyph_batches = report.draw_stats.glyph_batches;
+        self.text_surfaces = report.draw_stats.text_surfaces;
+        self.inline_text_cache_hits = report.draw_stats.inline_text_cache_hits;
+        self.inline_text_cache_misses = report.draw_stats.inline_text_cache_misses;
+        self.inline_text_shape_calls = report.draw_stats.inline_text_shape_calls;
+        self.inline_text_cache_hits_total += report.draw_stats.inline_text_cache_hits;
+        self.inline_text_cache_misses_total += report.draw_stats.inline_text_cache_misses;
+        self.inline_text_shape_calls_total += report.draw_stats.inline_text_shape_calls;
+        self.inline_icon_cache_hits = report.draw_stats.inline_icon_cache_hits;
+        self.inline_icon_cache_misses = report.draw_stats.inline_icon_cache_misses;
+        self.inline_icon_shape_calls = report.draw_stats.inline_icon_shape_calls;
+        self.quad_vertices = report.draw_stats.quad_vertices;
+        self.clip_batches = report.draw_stats.clip_batches;
+        self.group_composites = report
+            .group_composites
+            .max(report.draw_stats.group_composites);
         self.filter_layer_pool_entries = report.filter_layer_pool_entries;
         self.filter_scratch_pool_entries = report.filter_scratch_pool_entries;
         if let Some(previous) = self.last_presented_at {
@@ -67,11 +107,21 @@ impl Render {
         self.last_presented_at = Some(report.presented_at);
         self.acquire_wait
             .record(duration_micros(report.acquire_wait));
+        self.batch_prepare
+            .record(duration_micros(report.batch_prepare));
+        self.encode_submit_present
+            .record(duration_micros(report.encode_submit_present));
         self.draw.record(duration_micros(report.draw));
+
+        if !report.presented {
+            return;
+        }
+
+        self.frames_presented += 1;
 
         let mut remaining = VecDeque::with_capacity(self.pending_inputs.len());
         while let Some(sample) = self.pending_inputs.pop_front() {
-            if sample.revision <= revision {
+            if sample.epoch <= epoch {
                 self.key_to_present.record(duration_micros(
                     report
                         .presented_at
@@ -96,6 +146,14 @@ impl Render {
         self.draw.p95()
     }
 
+    pub fn batch_prepare_p95_us(&self) -> u128 {
+        self.batch_prepare.p95()
+    }
+
+    pub fn encode_submit_present_p95_us(&self) -> u128 {
+        self.encode_submit_present.p95()
+    }
+
     pub fn key_to_present_p95_us(&self) -> u128 {
         self.key_to_present.p95()
     }
@@ -108,43 +166,34 @@ impl Render {
 impl Default for Render {
     fn default() -> Self {
         Self {
+            frames_attempted: 0,
             frames_presented: 0,
+            scene_items: 0,
+            render_batches: 0,
+            glyph_batches: 0,
+            text_surfaces: 0,
+            inline_text_cache_hits: 0,
+            inline_text_cache_misses: 0,
+            inline_text_shape_calls: 0,
+            inline_text_cache_hits_total: 0,
+            inline_text_cache_misses_total: 0,
+            inline_text_shape_calls_total: 0,
+            inline_icon_cache_hits: 0,
+            inline_icon_cache_misses: 0,
+            inline_icon_shape_calls: 0,
+            quad_vertices: 0,
+            clip_batches: 0,
             group_composites: 0,
             filter_layer_pool_entries: 0,
             filter_scratch_pool_entries: 0,
             intervals: Samples::default(),
             acquire_wait: Samples::default(),
+            batch_prepare: Samples::default(),
+            encode_submit_present: Samples::default(),
             draw: Samples::default(),
             key_to_present: Samples::default(),
             pending_inputs: VecDeque::new(),
             last_presented_at: None,
-        }
-    }
-}
-
-impl Samples {
-    pub(crate) fn record(&mut self, value: u128) {
-        if self.values.len() == self.limit {
-            self.values.pop_front();
-        }
-        self.values.push_back(value);
-    }
-
-    #[cfg(test)]
-    fn len(&self) -> usize {
-        self.values.len()
-    }
-
-    pub fn p95(&self) -> u128 {
-        percentile(&self.values, 95)
-    }
-}
-
-impl Default for Samples {
-    fn default() -> Self {
-        Self {
-            values: VecDeque::with_capacity(SAMPLE_LIMIT),
-            limit: SAMPLE_LIMIT,
         }
     }
 }
@@ -154,6 +203,10 @@ impl Report {
         Self {
             acquire_wait,
             draw,
+            batch_prepare: Duration::ZERO,
+            encode_submit_present: Duration::ZERO,
+            draw_stats: DrawStats::default(),
+            presented: true,
             presented_at,
             group_composites: 0,
             filter_layer_pool_entries: 0,
@@ -176,6 +229,26 @@ impl Report {
         self
     }
 
+    pub(crate) fn with_pipeline_timings(
+        mut self,
+        batch_prepare: Duration,
+        encode_submit_present: Duration,
+    ) -> Self {
+        self.batch_prepare = batch_prepare;
+        self.encode_submit_present = encode_submit_present;
+        self
+    }
+
+    pub(crate) fn with_draw_stats(mut self, stats: DrawStats) -> Self {
+        self.draw_stats = stats;
+        self
+    }
+
+    pub(crate) fn with_presented(mut self, presented: bool) -> Self {
+        self.presented = presented;
+        self
+    }
+
     pub fn acquire_wait(self) -> Duration {
         self.acquire_wait
     }
@@ -193,22 +266,11 @@ fn duration_micros(duration: Duration) -> u128 {
     duration.as_micros()
 }
 
-fn percentile(values: &VecDeque<u128>, percentile: usize) -> u128 {
-    if values.is_empty() {
-        return 0;
-    }
-
-    let mut sorted = values.iter().copied().collect::<Vec<_>>();
-    sorted.sort_unstable();
-    let rank = ((sorted.len() * percentile).div_ceil(100)).saturating_sub(1);
-    sorted[rank.min(sorted.len() - 1)]
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};
 
-    use crate::state;
+    use crate::window::PresentationEpoch;
 
     use super::{Render, Report, SAMPLE_LIMIT, Samples};
 
@@ -224,15 +286,9 @@ mod tests {
     }
 
     #[test]
-    fn input_samples_wait_for_presented_revision() {
-        #[derive(Clone)]
-        struct Model;
-
-        impl state::State for Model {}
-
-        let mut store = state::Store::new(Model);
-        let initial = store.revision();
-        let changed = store.commit(state::Reason::programmatic("test")).revision();
+    fn input_samples_wait_for_presented_epoch() {
+        let initial = PresentationEpoch::initial();
+        let changed = initial.next();
         let mut render = Render::default();
         let now = Instant::now();
         render.record_input(changed, now);
@@ -262,16 +318,10 @@ mod tests {
 
     #[test]
     fn render_report_records_filter_pool_entries() {
-        #[derive(Clone)]
-        struct Model;
-
-        impl state::State for Model {}
-
-        let store = state::Store::new(Model);
         let mut render = Render::default();
 
         render.record_present(
-            store.revision(),
+            PresentationEpoch::initial(),
             Report::new(
                 Duration::from_micros(5),
                 Duration::from_micros(10),
@@ -284,5 +334,28 @@ mod tests {
         assert_eq!(render.group_composites, 2);
         assert_eq!(render.filter_layer_pool_entries, 3);
         assert_eq!(render.filter_scratch_pool_entries, 4);
+    }
+
+    #[test]
+    fn skipped_attempt_does_not_acknowledge_epoch_or_latency() {
+        let epoch = PresentationEpoch::initial().next();
+        let now = Instant::now();
+        let mut render = Render::default();
+        render.record_input(epoch, now);
+
+        render.record_present(
+            epoch,
+            Report::new(
+                Duration::from_micros(5),
+                Duration::from_micros(10),
+                now + Duration::from_millis(1),
+            )
+            .with_presented(false),
+        );
+
+        assert_eq!(render.frames_attempted, 1);
+        assert_eq!(render.frames_presented, 0);
+        assert_eq!(render.pending_key_to_present_samples(), 1);
+        assert_eq!(render.key_to_present_p95_us(), 0);
     }
 }

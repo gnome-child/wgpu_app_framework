@@ -1,0 +1,18 @@
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct DrawStats {
+    pub(crate) scene_items: usize,
+    pub(crate) render_batches: usize,
+    pub(crate) glyph_batches: usize,
+    pub(crate) text_surfaces: usize,
+    pub(crate) inline_text_cache_hits: usize,
+    pub(crate) inline_text_cache_misses: usize,
+    pub(crate) inline_text_shape_calls: usize,
+    pub(crate) inline_icon_cache_hits: usize,
+    pub(crate) inline_icon_cache_misses: usize,
+    pub(crate) inline_icon_shape_calls: usize,
+    pub(crate) quad_vertices: usize,
+    pub(crate) clip_batches: usize,
+    pub(crate) group_composites: usize,
+    pub(crate) filter_layer_pool_entries: usize,
+    pub(crate) filter_scratch_pool_entries: usize,
+}

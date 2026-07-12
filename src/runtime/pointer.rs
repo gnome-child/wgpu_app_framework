@@ -224,6 +224,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 
         let theme = self.active_theme();
         let frame = crate::animation::Frame::new(std::time::Instant::now());
+        let layout_started_at = std::time::Instant::now();
         let layout = layout::Layout::compose_composition_with_theme_at(
             composition,
             size,
@@ -232,6 +233,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             frame,
             self.keymap,
         );
+        self.diagnostics
+            .get_mut(window)
+            .pipeline
+            .record_routing_layout(layout_started_at.elapsed());
         let hit = layout.hit_test(point);
         let captured_target = self
             .session
@@ -316,6 +321,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let theme = self.active_theme();
         let composition = self.composition.get(window);
         let frame = crate::animation::Frame::new(std::time::Instant::now());
+        let layout_started_at = std::time::Instant::now();
         let viewport_target = composition.and_then(|composition| {
             layout::Layout::compose_composition_with_theme_at(
                 composition,
@@ -327,6 +333,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             )
             .scroll_target_at(point, delta)
         });
+        if composition.is_some() {
+            self.diagnostics
+                .get_mut(window)
+                .pipeline
+                .record_routing_layout(layout_started_at.elapsed());
+        }
         let Some(target) = viewport_target.or_else(|| {
             self.hit_test(window, size, point)
                 .and_then(|hit| hit.target().cloned())

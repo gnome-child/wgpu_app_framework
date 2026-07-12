@@ -2,11 +2,13 @@ mod departed;
 mod facts;
 mod id;
 mod options;
+mod presentation_epoch;
 
 pub use departed::Departed;
 pub use facts::Facts;
 pub use id::Id;
 pub use options::{Kind, Options};
+pub(crate) use presentation_epoch::PresentationEpoch;
 
 use super::{scene, theme};
 

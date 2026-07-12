@@ -51,14 +51,34 @@ impl<M: State, E: Send + 'static> ApplicationHandler<RunnerEvent<E>> for Runner<
         raw_window: winit::window::WindowId,
         event: WinitWindowEvent,
     ) {
+        let native_started_at = Instant::now();
+        let translation_started_at = Instant::now();
         let Some(event) = self.translate_window_event(raw_window, &event) else {
             return;
         };
+        let translation_duration = translation_started_at.elapsed();
+        let window = event.window_id();
+
+        if let Some(window) = window {
+            self.platform
+                .host_mut()
+                .shell_mut()
+                .runtime_mut()
+                .record_native_translation(window, translation_duration);
+        }
 
         let mut context = NativeContext::new(event_loop);
         if let Err(error) = self.platform.handle_event_with(&mut context, event) {
             self.fail(event_loop, error);
             return;
+        }
+
+        if let Some(window) = window {
+            self.platform
+                .host_mut()
+                .shell_mut()
+                .runtime_mut()
+                .record_native_event_pass(window, native_started_at.elapsed());
         }
 
         self.finish_native_pass(event_loop);

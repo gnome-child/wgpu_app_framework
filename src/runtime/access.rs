@@ -97,18 +97,23 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return;
         }
 
-        let revision = self.revision();
+        let Some(epoch) = self
+            .session
+            .window(window)
+            .map(session::Window::desired_presentation_epoch)
+        else {
+            return;
+        };
         self.diagnostics
             .get_mut(window)
             .render
-            .record_input(revision, started_at);
+            .record_input(epoch, started_at);
     }
 
-    pub(crate) fn record_render_report(
+    pub(crate) fn record_native_translation(
         &mut self,
         window: window::Id,
-        revision: state::Revision,
-        report: super::super::diagnostics::RenderReport,
+        duration: std::time::Duration,
     ) {
         if !self.session.contains(window) {
             return;
@@ -116,8 +121,87 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 
         self.diagnostics
             .get_mut(window)
-            .render
-            .record_present(revision, report);
+            .pipeline
+            .record_native_translation(duration);
+    }
+
+    pub(crate) fn record_event_handling(
+        &mut self,
+        window: window::Id,
+        duration: std::time::Duration,
+    ) {
+        if !self.session.contains(window) {
+            return;
+        }
+
+        self.diagnostics
+            .get_mut(window)
+            .pipeline
+            .record_event_handling(duration);
+    }
+
+    pub(crate) fn record_native_event_pass(
+        &mut self,
+        window: window::Id,
+        duration: std::time::Duration,
+    ) {
+        if !self.session.contains(window) {
+            return;
+        }
+
+        self.diagnostics
+            .get_mut(window)
+            .pipeline
+            .record_native_event_pass(duration);
+    }
+
+    pub(crate) fn record_render_report(
+        &mut self,
+        window: window::Id,
+        epoch: window::PresentationEpoch,
+        report: super::super::diagnostics::RenderReport,
+    ) {
+        if !self.session.contains(window) {
+            return;
+        }
+
+        let diagnostics = self.diagnostics.get_mut(window);
+        diagnostics.render.record_present(epoch, report);
+        if diagnostics.render.frames_presented.is_multiple_of(10) {
+            log::debug!(
+                target: "wgpu_l3::presentation_clock",
+                "events={} prepared={} attempted={} presented={} view_rebuilds={} layout_recomposes={} layout_reuses={} routing_layouts={} event_p95_us={} native_p95_us={} rebuild_p95_us={} reconcile_p95_us={} routing_layout_p95_us={} presentation_layout_p95_us={} scene_p95_us={} batch_p95_us={} acquire_p95_us={} encode_present_p95_us={} draw_p95_us={} interval_p95_us={} scene_items={} batches={} glyph_batches={} text_hits={} text_misses={} shape_calls={} text_hits_total={} text_misses_total={} shape_calls_total={}",
+                diagnostics.pipeline.events_received,
+                diagnostics.pipeline.frames_prepared,
+                diagnostics.render.frames_attempted,
+                diagnostics.render.frames_presented,
+                diagnostics.frame.view_rebuilds,
+                diagnostics.frame.layout_recomposes,
+                diagnostics.frame.layout_reuses,
+                diagnostics.pipeline.routing_layouts,
+                diagnostics.pipeline.event_handling_p95_us(),
+                diagnostics.pipeline.native_event_pass_p95_us(),
+                diagnostics.pipeline.view_rebuild_p95_us(),
+                diagnostics.pipeline.composition_reconciliation_p95_us(),
+                diagnostics.pipeline.routing_layout_p95_us(),
+                diagnostics.pipeline.presentation_layout_p95_us(),
+                diagnostics.pipeline.scene_assembly_p95_us(),
+                diagnostics.render.batch_prepare_p95_us(),
+                diagnostics.render.acquire_wait_p95_us(),
+                diagnostics.render.encode_submit_present_p95_us(),
+                diagnostics.render.draw_p95_us(),
+                diagnostics.render.interval_p95_us(),
+                diagnostics.render.scene_items,
+                diagnostics.render.render_batches,
+                diagnostics.render.glyph_batches,
+                diagnostics.render.inline_text_cache_hits,
+                diagnostics.render.inline_text_cache_misses,
+                diagnostics.render.inline_text_shape_calls,
+                diagnostics.render.inline_text_cache_hits_total,
+                diagnostics.render.inline_text_cache_misses_total,
+                diagnostics.render.inline_text_shape_calls_total,
+            );
+        }
     }
 
     pub(in crate::runtime) fn request_all_redraws(&mut self) {

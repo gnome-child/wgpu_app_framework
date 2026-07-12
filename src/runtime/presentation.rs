@@ -17,6 +17,7 @@ enum FrameNeed {
 struct PreparedFrame {
     window: window::Id,
     revision: state::Revision,
+    epoch: window::PresentationEpoch,
     layout: layout::Layout,
     scene: scene::Scene,
     layers: Vec<crate::overlay::Layer>,
@@ -76,6 +77,7 @@ impl PreparedFrame {
             presentation: scene::Presentation::with_scene(
                 self.window,
                 self.revision,
+                self.epoch,
                 self.layout,
                 self.scene,
             ),
@@ -395,6 +397,22 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         Some(layout)
     }
 
+    fn compose_presentation_layout(
+        &mut self,
+        window: window::Id,
+        size: geometry::Size,
+        theme: &crate::theme::Theme,
+        frame: animation::Frame,
+    ) -> Option<layout::Layout> {
+        let started_at = Instant::now();
+        let layout = self.compose_layout_for_scene(window, size, theme, frame)?;
+        self.diagnostics
+            .get_mut(window)
+            .pipeline
+            .record_presentation_layout(started_at.elapsed());
+        Some(layout)
+    }
+
     fn cached_layout(
         &self,
         window: window::Id,
@@ -438,7 +456,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                     "paint-only scene render for window {:?} promoted to layout by reveal feedback",
                     window
                 );
-                let layout = self.compose_layout_for_scene(window, size, theme, frame)?;
+                let layout = self.compose_presentation_layout(window, size, theme, frame)?;
                 self.record_layout_diagnostics(window, &layout);
                 self.cache_layout(window, size, theme, &layout);
                 return Some(layout);
@@ -448,7 +466,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             return Some(layout);
         }
 
-        let layout = self.compose_layout_for_scene(window, size, theme, frame)?;
+        let layout = self.compose_presentation_layout(window, size, theme, frame)?;
         self.record_layout_diagnostics(window, &layout);
         self.cache_layout(window, size, theme, &layout);
         Some(layout)
@@ -498,6 +516,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         }
 
         log::debug!("rebuilding view projection for window {window:?}");
+        let rebuild_started_at = Instant::now();
         self.layout_cache.remove(&window);
         self.record_view_rebuild(window);
         self.refresh_virtual_pins(window);
@@ -567,6 +586,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         if let Some(interaction) = interaction.as_ref() {
             view.project_surfaces(interaction);
         }
+        let reconciliation_started_at = Instant::now();
         let (tree, changes) = self.composition.prepare(window, &view);
         if !changes.is_empty() {
             log::debug!(
@@ -616,7 +636,15 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .install_prepared(window, view, tree, changes)
             .view()
             .clone();
+        self.diagnostics
+            .get_mut(window)
+            .pipeline
+            .record_composition_reconciliation(reconciliation_started_at.elapsed());
         self.session.mark_presented(window, self.revision());
+        self.diagnostics
+            .get_mut(window)
+            .pipeline
+            .record_view_rebuild(rebuild_started_at.elapsed());
 
         Some(presented)
     }
@@ -714,6 +742,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         capabilities: crate::overlay::Capabilities,
     ) -> Option<PreparedFrame> {
         let revision = self.revision();
+        let epoch = self.session.window(window)?.desired_presentation_epoch();
         if invalidation == response::Invalidation::Rebuild {
             self.present(window)?;
         }
@@ -722,6 +751,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let frame = self.frame_at(now);
         let layout = self.layout_for_scene(window, size, theme, frame, invalidation)?;
         self.apply_layout_feedback(window, &layout);
+        let assembly_started_at = Instant::now();
         let interaction = self.session.interaction(window).cloned();
         let visual_update =
             self.visual_animations
@@ -742,10 +772,16 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .merge(visual_schedule)
             .merge(overlay_schedule);
         self.set_animation_schedule(window, schedule);
+        let diagnostics = self.diagnostics.get_mut(window);
+        diagnostics
+            .pipeline
+            .record_scene_assembly(assembly_started_at.elapsed());
+        diagnostics.pipeline.record_frame_prepared();
 
         Some(PreparedFrame {
             window,
             revision,
+            epoch,
             layout,
             scene,
             layers,
@@ -856,7 +892,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             return layout.hit_test(point);
         }
 
+        let started_at = Instant::now();
         let layout = self.compose_layout_for_scene(window, size, &theme, frame)?;
+        self.diagnostics
+            .get_mut(window)
+            .pipeline
+            .record_routing_layout(started_at.elapsed());
         self.record_layout_diagnostics(window, &layout);
         self.cache_layout(window, size, &theme, &layout);
         layout.hit_test(point)

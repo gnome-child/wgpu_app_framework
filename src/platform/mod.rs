@@ -172,7 +172,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             let report = self.backend.present(context, presentation)?;
             self.host.shell_mut().runtime_mut().record_render_report(
                 presentation.window(),
-                presentation.revision(),
+                presentation.epoch(),
                 report,
             );
         }

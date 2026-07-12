@@ -168,6 +168,10 @@ impl Native {
             .present_timing
             .map(render::PresentTiming::acquire_wait)
             .unwrap_or_default();
+        let encode_submit_present = report
+            .present_timing
+            .map(render::PresentTiming::encode_submit_present)
+            .unwrap_or_default();
         let group_composites = report.stats.group_composites;
         let filter_layer_pool_entries = report.stats.filter_layer_pool_entries;
         let filter_scratch_pool_entries = report.stats.filter_scratch_pool_entries;
@@ -181,6 +185,9 @@ impl Native {
 
         Ok(
             diagnostics::RenderReport::new(acquire_wait, draw, Instant::now())
+                .with_presented(report.present_timing.is_some())
+                .with_pipeline_timings(report.batch_prepare, encode_submit_present)
+                .with_draw_stats(report.stats)
                 .with_group_composites(group_composites)
                 .with_filter_pool_entries(filter_layer_pool_entries, filter_scratch_pool_entries),
         )

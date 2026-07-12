@@ -6,6 +6,7 @@ pub struct Window {
     pub(super) facts: app_window::Facts,
     pub(super) invalidation: Option<response::Invalidation>,
     pub(super) presented_revision: Option<state::Revision>,
+    pub(super) desired_presentation_epoch: app_window::PresentationEpoch,
     pub(super) cursor: pointer::Cursor,
     pub(super) cursor_changed: bool,
     pub(super) focus: Option<Focus>,
@@ -29,6 +30,7 @@ impl Window {
             facts,
             invalidation: Some(response::Invalidation::Rebuild),
             presented_revision: None,
+            desired_presentation_epoch: app_window::PresentationEpoch::initial(),
             cursor: pointer::Cursor::Default,
             cursor_changed: false,
             focus: None,
@@ -48,6 +50,7 @@ impl Window {
             facts: snapshot.facts,
             invalidation: Some(response::Invalidation::Rebuild),
             presented_revision: None,
+            desired_presentation_epoch: app_window::PresentationEpoch::initial(),
             cursor: pointer::Cursor::Default,
             cursor_changed: false,
             focus: snapshot.focus,
@@ -91,6 +94,10 @@ impl Window {
 
     pub fn presented_revision(&self) -> Option<state::Revision> {
         self.presented_revision
+    }
+
+    pub(crate) fn desired_presentation_epoch(&self) -> app_window::PresentationEpoch {
+        self.desired_presentation_epoch
     }
 
     pub fn cursor(&self) -> pointer::Cursor {
@@ -199,6 +206,7 @@ impl Session {
             return false;
         };
         let previous = window.invalidation;
+        window.desired_presentation_epoch = window.desired_presentation_epoch.next();
         window.invalidation =
             Some(previous.map_or(invalidation, |previous| previous.max(invalidation)));
         previous != window.invalidation

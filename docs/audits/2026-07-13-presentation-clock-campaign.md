@@ -100,3 +100,63 @@ The campaign ledger sentence is:
 
 > Many events may become one frame; every semantic mutation survives, and the
 > frame presents the latest truth.
+
+## Checkpoint 0 instrumentation and first baseline
+
+The behavior-neutral harness now separates native translation, semantic event
+handling, total native event pass, view reconstruction, composition
+reconciliation, routing layout, presentation layout (including virtual
+refinement), scene assembly, renderer batch preparation, surface acquisition,
+and encode/submit/present. Existing draw facts cross the same report boundary:
+scene items, render and glyph batches, text surfaces, vertices, clips, groups,
+filter pools, and inline text/icon cache activity. Received events, prepared
+frames, attempted frames, and successful frames are separate counters.
+
+Input-latency samples now carry a per-window presentation epoch. Model revision
+is no longer the diagnostic proxy for scroll, hover, focus, or resize freshness.
+Skipped surface attempts do not acknowledge those samples. This is diagnostic
+currency only at this boundary; candidate-layout promotion remains checkpoint
+1 work.
+
+The protected 500-pixel gallery edit was exercised directly but remains
+unstaged and unadopted. The window was 813 by 1106 logical pixels and the scene
+held approximately 618 items, 605 render batches, 118 glyph batches, and 48
+inline text runs per settled frame. Fixed, repeated wheel and Count/Enabled
+divider gestures were injected at stable window-relative coordinates. The
+Windows capture API produced incomplete damage-like snapshots after some
+visual-surface runs, so screenshots are not used as rendering evidence here;
+the counters and the user's direct display remain the witnesses.
+
+### Sustained 500-pixel table baseline
+
+| Backend/surface | Native event p95 | Encode/present p95 | Total draw p95 | Frame interval p95 | Acquire p95 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Vulkan | 27.8 ms | 17.3 ms | 18.9 ms | 27.9 ms | 0.08 ms |
+| DX12 + `DxgiFromVisual` | 62.6 ms | 50.2 ms | 54.2 ms | 63.0 ms | 0.03 ms |
+| DX12 + `DxgiFromHwnd` | 61.5-64.6 ms | 49.4-50.7 ms | 53.1-54.9 ms | 62.0-63.7 ms | 0.03 ms |
+
+The dominant measured residual is below surface acquisition: CPU routing and
+presentation layouts together cost roughly 7-8 ms, while DX12 spends about
+50 ms in encode/submit/present and Vulkan about 17 ms. Surface acquisition is
+not the blocker.
+
+The structural counts are more decisive than the timings. During sustained
+wheel input, `events`, `prepared`, `attempted`, and `presented` converge
+one-for-one; routing-layout count rises once per wheel event, followed by one
+presentation layout. During 100 divider drags, view-rebuild count rises by
+approximately 98, while the text cache records only two new width shapes after
+the first pair and then hits. The lag is therefore not cache-capacity thrash:
+event-rate frame production and rebuild transport dominate.
+
+### Backend decision gate
+
+Verdict: **both DX12 modes lag similarly**. `DxgiFromHwnd` does not recover the
+Vulkan behavior, so DirectComposition is not convicted and ordinary-window
+surface selection does not change at checkpoint 0. Complete coalescing and
+remeasure before considering a second context or a Vulkan-main/DX12-popup
+split. All three paths continued to report `Mailbox`, desired latency 1,
+`Bgra8UnormSrgb`, and the same surface size.
+
+The compact 136-pixel and larger-than-500 table-size runs remain open. They
+will be built from a clean comparison worktree after the harness commit so the
+user's protected 500-pixel edit is never rewritten to obtain those receipts.

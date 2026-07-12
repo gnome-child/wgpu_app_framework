@@ -40,6 +40,7 @@ const PRESENT_MODE_PRIORITY: [wgpu::PresentMode; 4] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PresentTiming {
     acquire_wait: Duration,
+    encode_submit_present: Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -240,6 +241,7 @@ impl Surface {
             Skipped => return Ok(SurfaceReport::new(acquire, None)),
         };
 
+        let present_started = Instant::now();
         let mut encoder =
             render_context
                 .device()
@@ -250,13 +252,17 @@ impl Surface {
         encode(&mut encoder, &frame);
         render_context.queue().submit([encoder.finish()]);
         frame.present();
+        let encode_submit_present = present_started.elapsed();
         if self.reconfigure_after_present {
             self.reconfigure(render_context);
         }
 
         Ok(SurfaceReport::new(
             acquire,
-            Some(PresentTiming { acquire_wait }),
+            Some(PresentTiming {
+                acquire_wait,
+                encode_submit_present,
+            }),
         ))
     }
 
@@ -276,6 +282,10 @@ impl Surface {
 impl PresentTiming {
     pub(crate) fn acquire_wait(self) -> Duration {
         self.acquire_wait
+    }
+
+    pub(crate) fn encode_submit_present(self) -> Duration {
+        self.encode_submit_present
     }
 }
 
