@@ -171,7 +171,7 @@ impl TextArea {
             .focus
             .as_ref()
             .is_some_and(|text_focus| focus.is_some_and(|focus| text_focus.same_target(focus)));
-        self.focus_visible =
-            self.focused && focus.is_some_and(|focus| focus.shows_focus_indicator());
+        self.focus_visible = self.focused
+            && focus.is_some_and(|focus| focus.shows_focus_indicator() || self.mode.is_editable());
     }
 }

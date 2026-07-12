@@ -7,6 +7,10 @@ pub enum FieldMode {
 }
 
 impl FieldMode {
+    pub(crate) fn is_editable(self) -> bool {
+        self == Self::Editable
+    }
+
     pub(crate) fn allows_edit(self, edit: &super::super::Edit) -> bool {
         match self {
             Self::Editable => true,

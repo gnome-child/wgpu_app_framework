@@ -1763,6 +1763,6 @@ fn assert_text_box_focus_outline(presentation: &scene::Presentation) {
             .outlines()
             .iter()
             .any(|outline| outline.rect() == text_box.rect() && outline.color() == focus),
-        "pointer-focused text box should paint the focus indicator because it accepts keyboard input"
+        "pointer-focused editable text box should retain editor chrome"
     );
 }

@@ -34,7 +34,7 @@ witness. No campaign commit is pushed.
 | --- | --- | --- | --- |
 | 1 | Retained measured virtual geometry is separate from materialization | Complete | Independent retained owner, same-range transition witness, and heterogeneous wrapped-row sequence green |
 | 2 | Deferred focus paint retains originating clip provenance | Complete | Generic partial/full clip, rounded popup-local clip, and four-scale native projection green |
-| 3 | Focus indication consumes visibility and projected edit truth | Pending | — |
+| 3 | Focus indication consumes visibility and projected edit truth | Complete | Pointer/keyboard current-cell and pointer-active-editor matrix green |
 | 4 | Compact and Expanded share one cell recipe under two policies | Pending | — |
 
 ## Admission census
@@ -117,6 +117,9 @@ table contents itself.
 | E-004 | Generic escaped-focus witness | A keyboard-focused TextBox was scrolled partially, then fully, outside a 48-pixel generic Scroll viewport. Before repair its deferred outline followed the viewport `PopClip`; after repair the original clip brackets the outline in both states. |
 | E-005 | Rounded and native clip witnesses | A popup binding retains the popup-local rounded clip. Clip/outline/pop ordering survives native projection at scales 1.0, 1.25, 1.5, and 2.0. |
 | E-006 | Checkpoint 2 boundary | Green: 888 passed, 8 ignored; all targets, three smokes, formatting, diff hygiene, and protected comparison state held. |
+| E-007 | Focus-presentation ownership witness | A single-clicked editable display cell reproduced the defect: pointer-hidden focus still drew because `TableCell` accepted keyboard input. The same cell now shows row highlight only for pointer modality, a cell indicator for keyboard modality, and editor chrome when its projected surface is editable. |
+| E-008 | Existing-caller resistance | Pointer-focused standalone editable TextBox and TextArea retain editor chrome; ordinary focus modality remains unchanged; double-click/F2/Enter activation and read-only selection/copy behavior remain green. |
+| E-009 | Checkpoint 3 boundary | Green: 889 passed, 8 ignored; all targets, three smokes, formatting, diff hygiene, and protected comparison state held. |
 
 ### Checkpoint 1 receipt
 
@@ -144,6 +147,20 @@ table contents itself.
 - The caller census found no second deferred primitive. Selection and other
   inline paint remain inline; no generalized deferred-paint system was added.
 
+### Checkpoint 3 receipt
+
+- `Focus` now answers only its existing visibility intent; focus kind and input
+  capability no longer act as appearance proxies.
+- `FieldMode` owns whether a projected text surface is editable. TextBox and
+  TextArea retain editor chrome when pointer-focused only when that projected
+  surface is editable.
+- Table edit identity needs no new presentation state: projection already
+  swaps the active cell to an editable surface, while at-rest selectable text
+  remains read-only.
+- Pointer-current display cells retain internal focus for selection, copying,
+  keyboard continuation, and row activation without drawing a cell ring.
+  Keyboard-current cells still request a restrained indicator.
+
 ## Public API flags
 
 None open. All proposed owners are internal until a demonstrated external
@@ -165,4 +182,5 @@ caller requires vocabulary.
 | --- | --- | ---: | ---: | ---: | --- |
 | Campaign open | `ac1ab69b` | 2 | 142 | 0 | Baseline, admission census, and roadmap marker |
 | Checkpoint 1 | `b3b4e8cf` | 11 | 381 | 78 | Separate measured geometry owner; generic same-range and heterogeneous-sequence witnesses |
-| Checkpoint 2 | pending | 3 | 285 | 15 | Preserve clip provenance through deferred focus paint and native projection |
+| Checkpoint 2 | `e57f516b` | 4 | 303 | 17 | Preserve clip provenance through deferred focus paint and native projection |
+| Checkpoint 3 | pending | 7 | 123 | 11 | Derive focus presentation from visibility intent and projected text-surface mode |

@@ -88,11 +88,7 @@ impl Focus {
     }
 
     pub fn shows_focus_indicator(self) -> bool {
-        self.is_visible() || self.accepts_keyboard_input()
-    }
-
-    fn accepts_keyboard_input(self) -> bool {
-        matches!(self.kind, Kind::Text(_) | Kind::TableCell(_))
+        self.is_visible()
     }
 
     pub fn target(self) -> interaction::Id {

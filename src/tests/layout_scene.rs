@@ -2282,6 +2282,118 @@ fn table_display_text_selects_and_copies_while_double_click_alone_enters_editing
 }
 
 #[test]
+fn table_focus_presentation_follows_modality_and_active_edit_surface() {
+    let mut app = editable_table_app(EditableTableState {
+        records: vec![EditableRecord {
+            key: 7,
+            name: "Ada".to_owned(),
+            count: 4,
+        }],
+    });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 124);
+    let cell = crate::table::Cell::new(
+        interaction::Id::new("editable.table"),
+        crate::virtual_list::Key::new(7),
+        interaction::Id::new("name"),
+    );
+    let initial = app
+        .render_scene(window, size)
+        .expect("editable table should render");
+    let point = frame_point_at(
+        initial
+            .layout()
+            .frames()
+            .iter()
+            .find(|frame| frame.table_cell() == Some(cell))
+            .expect("editable display cell")
+            .rect(),
+    );
+
+    app.pointer_down_at(window, size, point)
+        .expect("single click should make the cell current");
+    app.pointer_up_at(window, size, point)
+        .expect("single click should release without editing");
+    let pointer_current = app
+        .render_scene(window, size)
+        .expect("pointer-current cell should render");
+    let display = pointer_current
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("pointer-current display cell");
+    let current_row = pointer_current
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame
+                .provided_row()
+                .is_some_and(|row| row.key() == cell.row())
+        })
+        .expect("pointer-current row");
+    assert_eq!(app.session().editing_table_cell(window), None);
+    assert!(display.is_focused());
+    assert!(!display.focus_visible());
+    assert!(current_row.is_active_item());
+    assert!(pointer_current.scene().quads().iter().any(|quad| {
+        quad.rect() == current_row.rect() && quad.fill() == Theme::default().menu().row_hover_tint
+    }));
+    assert!(pointer_current.scene().outlines().iter().all(|outline| {
+        outline.rect() != display.rect() || outline.color() != Theme::default().focus().color
+    }));
+
+    app.handle_input(
+        window,
+        Input::focus(session::Focus::table_cell(cell).keyboard()),
+    )
+    .expect("keyboard focus should retain the current cell");
+    let keyboard_current = app
+        .render_scene(window, size)
+        .expect("keyboard-current cell should render");
+    let display = keyboard_current
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("keyboard-current display cell");
+    assert!(display.focus_visible());
+    assert!(keyboard_current.scene().outlines().iter().any(|outline| {
+        outline.rect() == display.rect() && outline.color() == Theme::default().focus().color
+    }));
+
+    app.handle_input(
+        window,
+        Input::focus(session::Focus::table_cell(cell).pointer()),
+    )
+    .expect("pointer modality should replace keyboard visibility");
+    app.handle_view(window, view::Action::begin_table_edit(cell))
+        .expect("deliberate edit activation should be handled");
+    let editing = app
+        .render_scene(window, size)
+        .expect("pointer-focused active editor should render");
+    let editor = editing
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("active editor");
+    let inset = geometry::Rect::new(
+        editor.rect().x() + 1,
+        editor.rect().y() + 1,
+        editor.rect().width() - 2,
+        editor.rect().height() - 2,
+    );
+    assert_eq!(editor.table_part(), Some(view::TablePart::Editor));
+    assert!(editor.focus_visible());
+    assert!(editing.scene().outlines().iter().any(|outline| {
+        outline.rect() == inset && outline.color() == Theme::default().focus().color
+    }));
+}
+
+#[test]
 fn editable_table_draft_pins_through_scroll_follows_reorder_and_dies_on_deletion() {
     let mut app = editable_table_app(EditableTableState {
         records: (0..50)

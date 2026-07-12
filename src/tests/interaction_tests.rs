@@ -921,7 +921,7 @@ fn text_area_pointer_click_focuses_and_routes_cursor_edit() {
             outline.rect() == focused_text_area.rect()
                 && outline.color() == Theme::default().focus().color
         }),
-        "pointer-focused text area should paint the focus indicator because it accepts keyboard input"
+        "pointer-focused editable text area should retain editor chrome"
     );
     assert_eq!(app.state().document.position().index, 5);
     assert_eq!(app.state().document.selected_text(), None);
