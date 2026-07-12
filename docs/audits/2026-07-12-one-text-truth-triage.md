@@ -158,6 +158,36 @@ clamped pointer, left widths remain, right tracks translate, total extent
 floats, and existing horizontal overflow absorbs growth. Census post-resolution
 override against minimum resolved-width materialization before choosing state.
 
+Closed with the post-resolution mechanism. The reduction pinned the reported
+Count/Enabled seam: feeding Count's override back as a Fixed declaration let
+the allocator lawfully redistribute the two weighted columns, leaving the held
+boundary stationary while earlier seams moved. The alternative of materializing
+every resolved width at drag start would have fixed the gesture by freezing all
+flex; it was rejected because it introduced a permanent table-wide mode switch.
+
+Column declarations now allocate their ordinary base projection first. Session
+resize overrides replace only their matching resolved widths afterward, before
+placement consumes the projection. Origins are accumulated once from those
+resolved widths, so the overridden trailing edge follows the pointer, left
+tracks remain identical, right tracks translate rigidly, and the scroll extent
+grows by exactly the drag delta. The layout surface still spans at least the
+visible viewport so vertical viewport chrome keeps its visible-edge owner; grid
+rules and cells consume the independently floating track extent.
+
+The named regression drags Count/Enabled through four intermediate positions
+and proves each pointer equals the rule center, resize-zone anchor, header edge,
+and body edge; Record, Detail, and Note do not move; Enabled and Action retain
+width and translate; horizontal max scroll grows by the same delta. A wider
+viewport then proves Detail and Note weights still re-resolve while Count keeps
+its manual width. Existing final-column clamping, minimum width, capture
+removal, scrolling, variable rows, and table-local session witnesses remain
+green. Native projection repeats the resized table at scales 1.0, 1.25, 1.5,
+and 2.0 with aligned one-physical-pixel rules.
+
+Boundary: 902 discovered; 894 passed, 8 deliberately ignored, 0 failed.
+Formatting, all-target compilation, all three smokes, diff hygiene, and the
+protected comparison flag were green. This commit remains local.
+
 ## Census receipts
 
 - Crash: `document::Editing` registers `ApplyEdit`, but the gallery has no
@@ -185,5 +215,5 @@ override against minimum resolved-width materialization before choosing state.
 | Fix 2 | this commit | 7 | 133 | 23 | One padded body-text rectangle across measure, paint, and interaction |
 | Fix 3 | this commit | 9 | 253 | 43 | One inactive display recipe; typed alignment and identity survive presentation |
 | Fix 4 | this commit | 6 | 145 | 89 | Constant single-line headers with shared overflow geometry |
-| Fix 5 | pending | pending | pending | pending | Held-boundary direct manipulation |
+| Fix 5 | this commit | 5 | 275 | 13 | Post-resolution manual width; held boundary follows pointer without freezing flex |
 | Close | pending | pending | pending | pending | Laws, resistance audit, final boundary, clean tree |

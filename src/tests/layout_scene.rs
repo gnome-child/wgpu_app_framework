@@ -1824,6 +1824,181 @@ fn table_column_resize_uses_capture_and_stays_window_local() {
 }
 
 #[test]
+fn held_count_enabled_boundary_moves_with_the_pointer_without_reallocating_other_tracks() {
+    fn header_rect(rendered: &scene::Presentation, column: &'static str) -> geometry::Rect {
+        rendered
+            .layout()
+            .frames()
+            .iter()
+            .find_map(|frame| {
+                frame
+                    .table_header_cell()
+                    .filter(|cell| cell.column() == interaction::Id::new(column))
+                    .map(|_| frame.rect())
+            })
+            .expect("requested header track")
+    }
+
+    fn body_rect(rendered: &scene::Presentation, column: &'static str) -> geometry::Rect {
+        rendered
+            .layout()
+            .frames()
+            .iter()
+            .find_map(|frame| {
+                frame
+                    .table_cell()
+                    .filter(|cell| {
+                        cell.row() == crate::virtual_list::Key::new(0)
+                            && cell.column() == interaction::Id::new(column)
+                    })
+                    .map(|_| frame.rect())
+            })
+            .expect("requested first-row cell")
+    }
+
+    fn column_track<'a>(
+        rendered: &'a scene::Presentation,
+        column: &'static str,
+    ) -> &'a layout::TableTrack {
+        rendered
+            .layout()
+            .table_tracks()
+            .iter()
+            .find(|track| {
+                track
+                    .column_identity()
+                    .is_some_and(|cell| cell.column() == interaction::Id::new(column))
+            })
+            .expect("requested column boundary")
+    }
+
+    fn table_extent(rendered: &scene::Presentation) -> (i32, i32) {
+        rendered
+            .layout()
+            .frames()
+            .iter()
+            .find_map(|frame| {
+                let projection = frame.table_projection()?;
+                let viewport = frame.viewport()?;
+                Some((projection.content_width(), viewport.max_scroll().x()))
+            })
+            .expect("table scroll projection")
+    }
+
+    let mut state = control_gallery::State::default();
+    state.show_advanced = false;
+    let mut app = control_gallery::app(state);
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 700);
+    let initial = app
+        .render_scene(window, size)
+        .expect("gallery table before held-boundary reduction");
+    let columns = ["record", "detail", "note", "count", "enabled", "action"];
+    let initial_headers = columns
+        .iter()
+        .map(|column| (*column, header_rect(&initial, column)))
+        .collect::<Vec<_>>();
+    let initial_bodies = columns
+        .iter()
+        .map(|column| (*column, body_rect(&initial, column)))
+        .collect::<Vec<_>>();
+    let initial_extent = table_extent(&initial);
+    let count_track = column_track(&initial, "count");
+    let start = frame_point_at(
+        count_track
+            .divider_hit_rect()
+            .expect("Count/Enabled resize zone"),
+    );
+    assert_eq!(start.x(), count_track.boundary());
+    drop(initial);
+
+    app.pointer_down_at(window, size, start)
+        .expect("Count/Enabled boundary should capture");
+    for delta in [9, 18, 27, 36] {
+        let pointer = geometry::Point::new(start.x() + delta, start.y());
+        app.pointer_move_at(window, size, pointer)
+            .expect("held boundary should follow the drag");
+        let rendered = app
+            .render_scene(window, size)
+            .expect("held-boundary projection");
+        let count = column_track(&rendered, "count");
+        assert_eq!(count.boundary(), pointer.x());
+        assert_eq!(
+            frame_point_at(count.divider_hit_rect().expect("moved resize zone")).x(),
+            pointer.x()
+        );
+        assert_eq!(
+            count.rule_rect().x() + count.rule_rect().width() / 2,
+            pointer.x()
+        );
+
+        for column in ["record", "detail", "note"] {
+            let before = initial_headers
+                .iter()
+                .find(|(candidate, _)| *candidate == column)
+                .expect("left header baseline")
+                .1;
+            assert_eq!(header_rect(&rendered, column), before);
+            let before = initial_bodies
+                .iter()
+                .find(|(candidate, _)| *candidate == column)
+                .expect("left body baseline")
+                .1;
+            assert_eq!(body_rect(&rendered, column), before);
+        }
+
+        let initial_count = initial_headers
+            .iter()
+            .find(|(column, _)| *column == "count")
+            .expect("Count baseline")
+            .1;
+        let resized_count = header_rect(&rendered, "count");
+        assert_eq!(resized_count.x(), initial_count.x());
+        assert_eq!(resized_count.width(), initial_count.width() + delta);
+        let count_body = body_rect(&rendered, "count");
+        assert_eq!(count_body.x(), resized_count.x());
+        assert_eq!(count_body.width(), resized_count.width());
+
+        for column in ["enabled", "action"] {
+            let before = initial_headers
+                .iter()
+                .find(|(candidate, _)| *candidate == column)
+                .expect("right header baseline")
+                .1;
+            let after = header_rect(&rendered, column);
+            assert_eq!(after.x(), before.x() + delta);
+            assert_eq!(after.width(), before.width());
+            let body = body_rect(&rendered, column);
+            assert_eq!(body.x(), after.x());
+            assert_eq!(body.width(), after.width());
+        }
+
+        let extent = table_extent(&rendered);
+        assert_eq!(extent.0, initial_extent.0 + delta);
+        assert_eq!(extent.1, initial_extent.1 + delta);
+    }
+    let end = geometry::Point::new(start.x() + 36, start.y());
+    app.pointer_up_at(window, size, end)
+        .expect("held boundary should release");
+    let settled = app
+        .render_scene(window, size)
+        .expect("settled manual width");
+    let settled_count = header_rect(&settled, "count");
+    let settled_detail = header_rect(&settled, "detail");
+    let settled_note = header_rect(&settled, "note");
+    let wider = app
+        .render_scene(
+            window,
+            geometry::Size::new(size.width() + 40, size.height()),
+        )
+        .expect("wider viewport should re-resolve live weights");
+    assert_eq!(header_rect(&wider, "count").width(), settled_count.width());
+    assert!(header_rect(&wider, "detail").width() > settled_detail.width());
+    assert!(header_rect(&wider, "note").width() > settled_note.width());
+}
+
+#[test]
 fn table_column_resize_stays_table_local_in_one_window() {
     let keys = Rc::new(RefCell::new((0..20).collect::<Vec<_>>()));
     let provider = MutableTableProvider { keys };

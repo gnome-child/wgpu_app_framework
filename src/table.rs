@@ -363,7 +363,7 @@ impl Model {
         self.columns.borrow().iter().map(Column::id).collect()
     }
 
-    pub(crate) fn column_dimensions(&self) -> Vec<(HeaderCell, view::Dimension)> {
+    pub(crate) fn column_dimensions(&self) -> Vec<(HeaderCell, view::Dimension, Option<i32>)> {
         self.columns
             .borrow()
             .iter()
@@ -373,7 +373,8 @@ impl Model {
                         table: self.table,
                         column: column.id,
                     },
-                    column.effective_width(),
+                    column.width,
+                    column.resize_override,
                 )
             })
             .collect()

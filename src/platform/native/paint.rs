@@ -1028,16 +1028,51 @@ mod tests {
     }
 
     #[test]
-    fn expanded_table_rules_remain_aligned_at_supported_scales() {
+    fn expanded_resized_table_rules_remain_aligned_at_supported_scales() {
         let mut state = control_gallery::State::default();
         state.expanded_rows = true;
         let mut app = control_gallery::app(state);
         app.start();
 
         let window = app.session().windows()[0].id();
-        let rendered = app
+        let initial = app
             .render_scene(window, geometry::Size::new(760, 700))
             .expect("expanded gallery table should render");
+        let count = initial
+            .layout()
+            .table_tracks()
+            .iter()
+            .find(|track| {
+                track
+                    .column_identity()
+                    .is_some_and(|cell| cell.column() == interaction::Id::new("count"))
+            })
+            .expect("Count/Enabled boundary");
+        let start = geometry::Point::new(
+            count.boundary(),
+            count
+                .divider_hit_rect()
+                .expect("Count divider hit zone")
+                .y()
+                + 1,
+        );
+        let end = geometry::Point::new(start.x() + 36, start.y());
+        drop(initial);
+        app.pointer_down_at(window, geometry::Size::new(760, 700), start)
+            .expect("Count divider should capture");
+        app.pointer_move_at(window, geometry::Size::new(760, 700), end)
+            .expect("Count divider should move");
+        app.pointer_up_at(window, geometry::Size::new(760, 700), end)
+            .expect("Count divider should release");
+        let rendered = app
+            .render_scene(window, geometry::Size::new(760, 700))
+            .expect("resized expanded gallery table should render");
+        assert!(rendered.layout().table_tracks().iter().any(|track| {
+            track
+                .column_identity()
+                .is_some_and(|cell| cell.column() == interaction::Id::new("count"))
+                && track.boundary() == end.x()
+        }));
 
         for scale in [1.0, 1.25, 1.5, 2.0] {
             let projected = to_paint_scene_at_scale(rendered.scene(), scale);

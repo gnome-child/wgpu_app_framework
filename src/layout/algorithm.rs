@@ -248,7 +248,7 @@ fn layout_table_scroll(
     let viewport_rect = scroll_viewport_rect(node, rect, ctx.theme);
     let (visible_frame, visible_content) = visible_scroll_geometry(node, rect, clip, ctx.theme);
     let mut allocation = flow::Row::new().pressure(flow::Pressure::Overflow);
-    for ((_, dimension), header_cell) in columns.iter().copied().zip(header.children()) {
+    for ((_, dimension, _), header_cell) in columns.iter().copied().zip(header.children()) {
         let item = match dimension {
             view::Dimension::Fit => flow::Item::fixed(flow::SizeHint::fixed(Size::new(
                 intrinsic_width(header_cell, ctx.engine, ctx.theme, ctx.keymap),
@@ -268,14 +268,26 @@ fn layout_table_scroll(
         };
         allocation = allocation.item(item);
     }
-    let allocated = allocation.layout(Rect::new(0, 0, viewport_rect.width(), 1));
-    let content_width = allocated
+    let declared = allocation.layout(Rect::new(0, 0, viewport_rect.width(), 1));
+    let mut origin = 0;
+    let allocated = declared
+        .into_iter()
+        .zip(columns.iter())
+        .map(|(rect, (_, _, resize_override))| {
+            let width = resize_override.unwrap_or(rect.width()).max(0);
+            let resolved = Rect::new(origin, rect.y(), width, rect.height());
+            origin = origin.saturating_add(width);
+            resolved
+        })
+        .collect::<Vec<_>>();
+    let track_width = allocated
         .last()
         .map_or(viewport_rect.width(), |rect| rect.right())
-        .max(viewport_rect.width());
+        .max(0);
+    let scroll_width = track_width.max(viewport_rect.width());
     let viewport = Viewport::new(
         viewport_rect,
-        Size::new(content_width, viewport_rect.height()),
+        Size::new(scroll_width, viewport_rect.height()),
         node.scroll_offset(),
     )
     .with_visible(visible_frame, visible_content);
@@ -283,14 +295,23 @@ fn layout_table_scroll(
     let surface_rect = Rect::new(
         viewport_rect.x().saturating_sub(offset.x()),
         viewport_rect.y(),
-        content_width,
+        scroll_width,
         viewport_rect.height(),
+    );
+    let track_rect = Rect::new(
+        surface_rect.x(),
+        surface_rect.y(),
+        track_width,
+        surface_rect.height(),
     );
     let projection = table::Projection::new(
         model.id(),
         visible_content,
-        surface_rect,
-        columns.iter().map(|(identity, _)| *identity).zip(allocated),
+        track_rect,
+        columns
+            .iter()
+            .map(|(identity, _, _)| *identity)
+            .zip(allocated),
     );
     let table_clip = Some(Clip::new(visible_content));
     let frame = ctx
