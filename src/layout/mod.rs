@@ -159,7 +159,8 @@ impl Layout {
             })
             .and_then(Frame::viewport)
             .map(|viewport| {
-                (viewport.rect().height().max(1) as usize / row_height.max(1) as usize).max(1)
+                (viewport.visible_content().height().max(1) as usize / row_height.max(1) as usize)
+                    .max(1)
             })
     }
 

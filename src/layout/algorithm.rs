@@ -182,11 +182,12 @@ fn layout_scroll(
     }
 
     let viewport_rect = scroll_viewport_rect(node, rect, ctx.theme);
+    let (visible_frame, visible_content) = visible_scroll_geometry(node, rect, clip, ctx.theme);
     let placement = scroll_stack_placement(node, viewport_rect, ctx.engine, ctx.theme, ctx.keymap);
-    let viewport = Viewport::new(viewport_rect, placement.content, node.scroll_offset());
+    let viewport = Viewport::new(viewport_rect, placement.content, node.scroll_offset())
+        .with_visible(visible_frame, visible_content);
     debug_assert_scroll_content_contains(&placement, viewport_rect);
-    let child_clip_rect =
-        intersect_clip(clip, viewport_rect).unwrap_or_else(|| Clip::new(viewport_rect));
+    let child_clip_rect = Clip::new(visible_content);
 
     let frame = ctx
         .frame(
@@ -245,6 +246,7 @@ fn layout_table_scroll(
     debug_assert_eq!(columns.len(), header.children().len());
 
     let viewport_rect = scroll_viewport_rect(node, rect, ctx.theme);
+    let (visible_frame, visible_content) = visible_scroll_geometry(node, rect, clip, ctx.theme);
     let mut allocation = flow::Row::new().pressure(flow::Pressure::Overflow);
     for ((_, dimension), header_cell) in columns.iter().copied().zip(header.children()) {
         let item = match dimension {
@@ -275,7 +277,8 @@ fn layout_table_scroll(
         viewport_rect,
         Size::new(content_width, viewport_rect.height()),
         node.scroll_offset(),
-    );
+    )
+    .with_visible(visible_frame, visible_content);
     let offset = viewport.resolved_scroll();
     let surface_rect = Rect::new(
         viewport_rect.x().saturating_sub(offset.x()),
@@ -285,12 +288,11 @@ fn layout_table_scroll(
     );
     let projection = table::Projection::new(
         model.id(),
-        viewport_rect,
+        visible_content,
         surface_rect,
         columns.iter().map(|(identity, _)| *identity).zip(allocated),
     );
-    let table_clip =
-        Some(intersect_clip(clip, viewport_rect).unwrap_or_else(|| Clip::new(viewport_rect)));
+    let table_clip = Some(Clip::new(visible_content));
     let frame = ctx
         .frame(
             node,
@@ -330,6 +332,7 @@ fn layout_virtual_list(
         .virtual_list_model()
         .expect("VirtualList role must carry provider content");
     let viewport_rect = scroll_viewport_rect(node, rect, ctx.theme);
+    let (visible_frame, visible_content) = visible_scroll_geometry(node, rect, clip, ctx.theme);
     if let Some(region) = model.variable_region() {
         layout_variable_virtual_list(
             node,
@@ -356,7 +359,8 @@ fn layout_virtual_list(
             content_height.max(viewport_rect.height()),
         ),
         node.scroll_offset(),
-    );
+    )
+    .with_visible(visible_frame, visible_content);
     let offset = viewport.resolved_scroll();
     let visible_start = (offset.y().max(0) / row_height) as usize;
     let visible_end =
@@ -367,8 +371,7 @@ fn layout_virtual_list(
             .saturating_add(model.overscan())
             .min(model.len());
     let request = crate::virtual_list::Request::new(model.id(), range);
-    let row_clip =
-        Some(intersect_clip(clip, viewport_rect).unwrap_or_else(|| Clip::new(viewport_rect)));
+    let row_clip = Some(Clip::new(visible_content));
     let frame = ctx
         .frame(
             node,
@@ -416,6 +419,7 @@ fn layout_variable_virtual_list(
     region: std::rc::Rc<std::cell::RefCell<crate::virtual_list::VariableRegion>>,
     ctx: &mut LayoutContext<'_>,
 ) {
+    let (visible_frame, visible_content) = visible_scroll_geometry(node, rect, clip, ctx.theme);
     let provider = model.provider();
     let requested_offset = node.scroll_offset();
     {
@@ -469,12 +473,12 @@ fn layout_variable_virtual_list(
             content_height.max(viewport_rect.height()),
         ),
         interaction::ScrollOffset::new(requested_offset.x(), offset_y),
-    );
+    )
+    .with_visible(visible_frame, visible_content);
     let offset = viewport.resolved_scroll();
     let request =
         crate::virtual_list::Request::variable(model.id(), request.range(), region.clone());
-    let row_clip =
-        Some(intersect_clip(clip, viewport_rect).unwrap_or_else(|| Clip::new(viewport_rect)));
+    let row_clip = Some(Clip::new(visible_content));
     let frame = ctx
         .frame(
             node,
@@ -538,24 +542,26 @@ fn scroll_viewport_rect(node: &view::Node, rect: Rect, theme: &theme::Theme) -> 
     }
 }
 
-fn intersect_clip(inherited: Option<Clip>, rect: Rect) -> Option<Clip> {
+fn visible_scroll_geometry(
+    node: &view::Node,
+    rect: Rect,
+    inherited: Option<Clip>,
+    theme: &theme::Theme,
+) -> (Rect, Rect) {
+    let frame = intersect_rect(inherited.map(Clip::rect), rect);
+    (frame, scroll_viewport_rect(node, frame, theme))
+}
+
+fn intersect_rect(inherited: Option<Rect>, rect: Rect) -> Rect {
     let Some(inherited) = inherited else {
-        return Some(Clip::new(rect));
+        return rect;
     };
-    let inherited = inherited.rect();
     let x = inherited.x().max(rect.x());
     let y = inherited.y().max(rect.y());
     let right = inherited.right().min(rect.right());
     let bottom = inherited.bottom().min(rect.bottom());
 
-    (right > x && bottom > y).then(|| {
-        Clip::new(Rect::new(
-            x,
-            y,
-            right.saturating_sub(x),
-            bottom.saturating_sub(y),
-        ))
-    })
+    Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
 }
 
 fn child_clip(child: &view::Node, clip: Option<Clip>) -> Option<Clip> {

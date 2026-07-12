@@ -121,7 +121,7 @@ fn scrollbars_for_frame(frame: &Frame, theme: &theme::Theme) -> Vec<Chrome> {
 
     let mut scrollbars = Vec::new();
     if viewport.max_scroll().y() > 0
-        && let Some(scrollbar) = scrollbar_for_axis(frame, viewport, theme, Axis::Vertical)
+        && let Some(scrollbar) = scrollbar_for_axis(viewport, theme, Axis::Vertical)
     {
         scrollbars.push(Chrome {
             target: scrollbar_target(frame, Axis::Vertical),
@@ -130,7 +130,7 @@ fn scrollbars_for_frame(frame: &Frame, theme: &theme::Theme) -> Vec<Chrome> {
         });
     }
     if viewport.max_scroll().x() > 0
-        && let Some(scrollbar) = scrollbar_for_axis(frame, viewport, theme, Axis::Horizontal)
+        && let Some(scrollbar) = scrollbar_for_axis(viewport, theme, Axis::Horizontal)
     {
         scrollbars.push(Chrome {
             target: scrollbar_target(frame, Axis::Horizontal),
@@ -154,12 +154,7 @@ fn scrollbar_target(frame: &Frame, axis: Axis) -> interaction::Target {
     )
 }
 
-fn scrollbar_for_axis(
-    frame: &Frame,
-    viewport: Viewport,
-    theme: &theme::Theme,
-    axis: Axis,
-) -> Option<Scrollbar> {
+fn scrollbar_for_axis(viewport: Viewport, theme: &theme::Theme, axis: Axis) -> Option<Scrollbar> {
     let scrollbar = theme.scrollbar();
     let thickness = match scrollbar.metrics.policy {
         theme::ScrollbarPolicy::GutterAlways => scrollbar.metrics.thickness,
@@ -167,7 +162,7 @@ fn scrollbar_for_axis(
     }
     .max(1);
     let margin = scrollbar.appearance.margin.max(0);
-    let bounds = scrollbar_bounds(frame, viewport, scrollbar.metrics.policy);
+    let bounds = scrollbar_bounds(viewport);
     let track = match axis {
         Axis::Vertical => Rect::new(
             bounds
@@ -206,11 +201,8 @@ fn scrollbar_for_axis(
     })
 }
 
-fn scrollbar_bounds(frame: &Frame, viewport: Viewport, policy: theme::ScrollbarPolicy) -> Rect {
-    match policy {
-        theme::ScrollbarPolicy::GutterAlways => frame.rect(),
-        theme::ScrollbarPolicy::OverlayAuto => viewport.rect(),
-    }
+fn scrollbar_bounds(viewport: Viewport) -> Rect {
+    viewport.visible_frame()
 }
 
 fn thumb_rect(
@@ -290,8 +282,8 @@ fn axis_offset(point: i32, origin: i32, track_extent: i32, thumb_extent: i32, ma
 
 fn viewport_extent(viewport: Viewport, axis: Axis) -> i32 {
     match axis {
-        Axis::Vertical => viewport.rect().height(),
-        Axis::Horizontal => viewport.rect().width(),
+        Axis::Vertical => viewport.visible_content().height(),
+        Axis::Horizontal => viewport.visible_content().width(),
     }
 }
 

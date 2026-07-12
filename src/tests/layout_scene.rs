@@ -815,6 +815,55 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
         "the table's internal scroll subject must not paint as a caption"
     );
 
+    let vertical_scrollbar = |rendered: &scene::Presentation| {
+        let viewport = rendered
+            .layout()
+            .frames()
+            .iter()
+            .find(|frame| {
+                frame.role() == view::Role::VirtualList
+                    && frame
+                        .viewport()
+                        .is_some_and(|viewport| viewport.max_scroll().y() > 0)
+            })
+            .and_then(layout::Frame::viewport)
+            .expect("table body should expose a vertical viewport");
+        let track = rendered
+            .layout()
+            .chrome()
+            .iter()
+            .find_map(|chrome| match chrome.kind() {
+                layout::ChromeKind::Scrollbar(scrollbar) if scrollbar.viewport() == viewport => {
+                    Some(scrollbar.track())
+                }
+                layout::ChromeKind::Scrollbar(_) => None,
+            })
+            .expect("table body should project a vertical scrollbar");
+        (viewport, track)
+    };
+    let (initial_vertical_viewport, initial_vertical_track) = vertical_scrollbar(&initial);
+    assert_eq!(initial_vertical_viewport.rect().right(), 310);
+    assert_eq!(initial_vertical_viewport.visible_frame().right(), 240);
+    assert_eq!(
+        initial_vertical_track.right(),
+        initial_vertical_viewport
+            .visible_frame()
+            .right()
+            .saturating_sub(Theme::dark().scrollbar().appearance.margin)
+    );
+    let vertical_hit = initial
+        .layout()
+        .hit_test(frame_point_at(initial_vertical_track))
+        .expect("the visible vertical scrollbar should be interactive");
+    assert!(vertical_hit.is_chrome());
+    assert_eq!(
+        vertical_hit
+            .target()
+            .expect("scrollbar chrome should expose a target")
+            .kind(),
+        interaction::Kind::Scrollbar
+    );
+
     let geometry_for = |rendered: &scene::Presentation, column: &'static str| {
         let column = interaction::Id::new(column);
         let header = rendered
@@ -896,6 +945,12 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
     let scrolled_name = geometry_for(&scrolled, "name");
     let scrolled_detail = geometry_for(&scrolled, "detail");
     let scrolled_action = geometry_for(&scrolled, "action");
+    let (scrolled_vertical_viewport, scrolled_vertical_track) = vertical_scrollbar(&scrolled);
+    assert_eq!(
+        scrolled_vertical_viewport.visible_frame(),
+        initial_vertical_viewport.visible_frame()
+    );
+    assert_eq!(scrolled_vertical_track, initial_vertical_track);
     for (before, after) in [
         (initial_name, scrolled_name),
         (initial_detail, scrolled_detail),
@@ -954,6 +1009,74 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
     assert_eq!(resized_detail.1.width(), 140);
     assert_eq!(resized_detail.0.right(), resized_detail.2);
     assert_eq!(resized_detail.2 - scrolled_detail.2, 20);
+}
+
+#[test]
+fn table_gutter_scrollbar_and_body_clip_share_visible_viewport_geometry() {
+    let view = widget::view(|ui| {
+        ui.add(
+            crate::Table::new(
+                "gutter.records",
+                20,
+                [
+                    crate::table::Column::new("name", "Name", view::Dimension::fixed(160)),
+                    crate::table::Column::new("detail", "Detail", view::Dimension::fixed(150)),
+                ],
+                MillionTableProvider {
+                    cell_calls: Rc::new(Cell::new(0)),
+                },
+            )
+            .height(view::Dimension::fixed(108)),
+        );
+    });
+    let mut theme = Theme::dark();
+    theme.scrollbar_mut().metrics.policy = crate::theme::ScrollbarPolicy::GutterAlways;
+    let mut engine = layout::Engine::new();
+    let layout = layout::Layout::compose_with_theme(
+        &view,
+        geometry::Size::new(240, 108),
+        &mut engine,
+        &theme,
+    );
+    let body = layout
+        .frames()
+        .iter()
+        .find(|frame| frame.role() == view::Role::VirtualList)
+        .expect("table body frame");
+    let viewport = body.viewport().expect("table body viewport");
+    let track = layout
+        .chrome()
+        .iter()
+        .find_map(|chrome| match chrome.kind() {
+            layout::ChromeKind::Scrollbar(scrollbar) if scrollbar.viewport() == viewport => {
+                Some(scrollbar.track())
+            }
+            layout::ChromeKind::Scrollbar(_) => None,
+        })
+        .expect("table body gutter scrollbar");
+
+    assert_eq!(
+        viewport.visible_content().right(),
+        viewport
+            .visible_frame()
+            .right()
+            .saturating_sub(theme.scrollbar().metrics.thickness)
+    );
+    assert_eq!(
+        track.right(),
+        viewport
+            .visible_frame()
+            .right()
+            .saturating_sub(theme.scrollbar().appearance.margin)
+    );
+    let body_id = body
+        .target()
+        .and_then(interaction::Target::element_id)
+        .expect("table body target identity");
+    assert_eq!(
+        layout.virtual_list_page(body_id, 20),
+        Some((viewport.visible_content().height().max(1) as usize / 20).max(1))
+    );
 }
 
 #[test]
@@ -5047,7 +5170,7 @@ fn scroll_target_at_ignores_clipped_viewports() {
 }
 
 #[test]
-fn chrome_hit_respects_owner_ancestor_clip() {
+fn fully_clipped_viewports_project_no_scrollbar_chrome() {
     let mut app = nested_clipped_scroll_app();
     app.start();
 
@@ -5062,27 +5185,20 @@ fn chrome_hit_respects_owner_ancestor_clip() {
         .target()
         .expect("inner scroll should expose a target")
         .clone();
-    let inner_chrome = rendered
-        .layout()
-        .chrome()
-        .iter()
-        .find(|chrome| chrome.scroll_target() == &inner_target)
-        .expect("inner scroll should project chrome");
-    let track = match inner_chrome.kind() {
-        layout::ChromeKind::Scrollbar(scrollbar) => scrollbar.track(),
-    };
-    let point = rect_top_point(track);
-
-    assert!(
-        !inner.clip_contains(point),
-        "inner scrollbar should be outside its owner's ancestor clip"
+    assert_eq!(
+        inner
+            .viewport()
+            .expect("inner scroll should expose a viewport")
+            .visible_frame()
+            .height(),
+        0
     );
-    assert_ne!(
+    assert!(
         rendered
             .layout()
-            .hit_test(point)
-            .and_then(|hit| hit.target().cloned()),
-        Some(inner_chrome.target().clone())
+            .chrome()
+            .iter()
+            .all(|chrome| chrome.scroll_target() != &inner_target)
     );
 }
 

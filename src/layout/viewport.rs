@@ -6,6 +6,8 @@ use super::super::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Viewport {
     rect: Rect,
+    visible_frame: Rect,
+    visible_content: Rect,
     content: Size,
     offset: ScrollOffset,
     max: ScrollOffset,
@@ -23,6 +25,8 @@ impl Viewport {
 
         Self {
             rect,
+            visible_frame: rect,
+            visible_content: rect,
             content,
             offset,
             max,
@@ -32,6 +36,20 @@ impl Viewport {
 
     pub(crate) fn rect(self) -> Rect {
         self.rect
+    }
+
+    pub(crate) fn with_visible(mut self, frame: Rect, content: Rect) -> Self {
+        self.visible_frame = frame;
+        self.visible_content = content;
+        self
+    }
+
+    pub(crate) fn visible_frame(self) -> Rect {
+        self.visible_frame
+    }
+
+    pub(crate) fn visible_content(self) -> Rect {
+        self.visible_content
     }
 
     pub(crate) fn content(self) -> Size {
@@ -62,8 +80,8 @@ impl Viewport {
             reveal_axis(
                 self.resolved.x(),
                 self.max.x(),
-                self.rect.x(),
-                self.rect.width(),
+                self.visible_content.x(),
+                self.visible_content.width(),
                 rect.x(),
                 rect.width(),
                 margin,
@@ -71,8 +89,8 @@ impl Viewport {
             reveal_axis(
                 self.resolved.y(),
                 self.max.y(),
-                self.rect.y(),
-                self.rect.height(),
+                self.visible_content.y(),
+                self.visible_content.height(),
                 rect.y(),
                 rect.height(),
                 margin,
