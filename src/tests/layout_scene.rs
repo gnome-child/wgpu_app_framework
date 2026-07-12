@@ -730,6 +730,33 @@ fn million_row_table_composes_public_cells_with_bounded_aligned_tracks() {
 }
 
 #[test]
+fn table_internal_scroll_uses_a_subject_instead_of_a_painted_label() {
+    let table = widget::Widget::into_node(crate::Table::new(
+        "subject.records",
+        20,
+        [crate::table::Column::new(
+            "name",
+            "Name",
+            view::Dimension::fixed(80),
+        )],
+        MillionTableProvider {
+            cell_calls: Rc::new(Cell::new(0)),
+        },
+    ));
+    let scroll = table
+        .children()
+        .first()
+        .expect("table should own its horizontal scroll node");
+
+    assert_eq!(scroll.role(), view::Role::Scroll);
+    assert_eq!(
+        scroll.subject().map(subject::Segment::label),
+        Some("Table columns")
+    );
+    assert_eq!(scroll.label_text(), None);
+}
+
+#[test]
 fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together() {
     let provider = MillionTableProvider {
         cell_calls: Rc::new(Cell::new(0)),
@@ -767,9 +794,7 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
         .layout()
         .frames()
         .iter()
-        .find(|frame| {
-            frame.role() == view::Role::Scroll && frame.label_text() == Some("Table columns")
-        })
+        .find(|frame| frame.role() == view::Role::Scroll && frame.table_projection().is_some())
         .expect("table should compose one horizontal scroll owner");
     let viewport = horizontal.viewport().expect("horizontal viewport");
     assert_eq!(viewport.content().width(), 310);
@@ -781,6 +806,14 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
                 if scrollbar.viewport() == viewport
         )
     }));
+    assert!(
+        initial
+            .scene()
+            .texts()
+            .iter()
+            .all(|text| text.value() != "Table columns"),
+        "the table's internal scroll subject must not paint as a caption"
+    );
 
     let geometry_for = |rendered: &scene::Presentation, column: &'static str| {
         let column = interaction::Id::new(column);

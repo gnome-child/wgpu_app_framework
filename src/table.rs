@@ -1,6 +1,8 @@
 use std::{borrow::Cow, cell::RefCell, cmp::Ordering, collections::HashMap, rc::Rc, sync::Arc};
 
-use crate::{command, context, interaction, scene, session, text, view, virtual_list, widget};
+use crate::{
+    command, context, interaction, scene, session, subject, text, view, virtual_list, widget,
+};
 
 /// Projects a value into a table cell.
 pub trait Value {
@@ -732,7 +734,7 @@ impl widget::Widget for Table {
             .child(header)
             .child(body);
         let horizontal_scroll = view::Node::scroll()
-            .with_label("Table columns")
+            .with_subject(subject::Segment::from_label("Table columns"))
             .with_layout_axis(view::Axis::Horizontal)
             .with_table_model(model)
             .with_style(

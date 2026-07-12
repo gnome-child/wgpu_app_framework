@@ -43,9 +43,9 @@ range/TSV spreadsheet behavior, or push is permitted.
 
 | Checkpoint | Contract | Status | Boundary proof |
 | --- | --- | --- | --- |
-| 1 | Expanded rows consume intrinsic content at resolved track widths | Green; commit pending | 876 passed, 8 ignored; exact 28/128 px rows, resize to 108 px, scroll invariance, generic variable-list preservation, three smokes and all boundary checks green |
-| 2 | Internal table naming consumes the existing subject channel | In progress | Census pending |
-| 3 | Active sort indication is trailing header structure, never label text | Pending | — |
+| 1 | Expanded rows consume intrinsic content at resolved track widths | Complete | `5af6d17b`; 876 passed, 8 ignored; exact 28/128 px rows, resize to 108 px, scroll invariance, generic variable-list preservation, three smokes and all boundary checks green |
+| 2 | Internal table naming consumes the existing subject channel | Green; commit pending | 877 passed, 8 ignored; retained subject and painted-text absence witnesses; three smokes and all boundary checks green |
+| 3 | Active sort indication is trailing header structure, never label text | In progress | Census pending |
 | 4 | Vertical scrollbar chrome consumes the visible body projection | Pending | — |
 | 5 | Read, select, navigate, then deliberately edit | Pending | — |
 | 6 | Resistance audit and campaign close-out | Pending | — |
@@ -104,6 +104,25 @@ Checkpoint commits are not pushed.
 - Commit receipt: pending checkpoint commit; the next ledger boundary records
   its hash and diff statistics.
 
+## Checkpoint 2 census and boundary — subjects, not captions
+
+- Existing owner: `Node::with_subject`, public `Element::subject`, and retained
+  composition subjects already separate semantic naming from painted labels.
+  No new channel or paint exception is warranted.
+- Production census: the table was the only production caller putting an
+  internal name into a scroll label. Command-palette and platform scroll nodes
+  do not. Test fixtures still use visible labels such as `Outer Scroll`,
+  `Inner Scroll`, and `Audit scroll`; they remain because those tests exercise
+  the public visible-label recipe and do not prove an application misuse.
+- The table horizontal scroll now carries `Subject("Table columns")` and no
+  label. Layout lookup uses its table projection rather than text identity.
+- Exact witnesses inspect the constructed node's retained subject and absent
+  label, then prove the scene contains no `Table columns` text while the
+  horizontal viewport and scrollbar still exist.
+- No public API change and no global scroll-label behavior change.
+- Commit receipt: pending checkpoint commit; the next ledger boundary records
+  its hash and diff statistics.
+
 ## Execution ledger
 
 | Entry | Scope | Result |
@@ -111,6 +130,8 @@ Checkpoint commits are not pushed.
 | E-000 | Campaign baseline | Held: 875 passed, 8 ignored; three smokes, formatting, all targets, clean worktree, and protected state green |
 | E-001 | Checkpoint 1 focused geometry | Held: exact resolved-track row heights, resize remeasurement, horizontal-scroll invariance, and generic variable-list regression witness |
 | E-002 | Checkpoint 1 full boundary | Held: 876 passed, 8 ignored; three smokes, formatting, all targets, diff check, compact million-row witness, and protected state green |
+| E-003 | Checkpoint 2 naming witnesses | Held: retained `Table columns` subject, absent node label, absent scene text, structural projection lookup |
+| E-004 | Checkpoint 2 full boundary | Held: 877 passed, 8 ignored; three smokes, formatting, all targets, diff check, compact million-row witness, and protected state green |
 
 ## Public API flags
 
@@ -134,4 +155,5 @@ viewport chrome concepts before proposing public vocabulary.
 | Boundary | Commit | Files | Insertions | Deletions | Receipt |
 | --- | --- | ---: | ---: | ---: | --- |
 | Campaign open | `816271b8` | 2 | 115 | 1 | Ledger and roadmap opened from a clean baseline |
-| Checkpoint 1 | pending | pending | pending | pending | Resolved-track intrinsic row and header measurement |
+| Checkpoint 1 | `5af6d17b` | 5 | 282 | 37 | Resolved-track intrinsic row and header measurement |
+| Checkpoint 2 | pending | pending | pending | pending | Existing subject channel replaces painted internal scroll label |
