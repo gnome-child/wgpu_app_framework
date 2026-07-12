@@ -6,10 +6,8 @@ is next.
 
 ## In flight
 
-**Five Truths campaign** — separates retained measured virtual geometry from
-materialization, preserves clip provenance through late focus paint, derives
-focus indication from existing presentation truths, and deletes the table's
-Compact/Expanded cell-species split. The crash-safe ledger is
+No campaign currently in flight. The Five Truths campaign closed at
+`2a70c1bc`; its crash-safe ledger is
 [`audits/2026-07-12-five-truths-campaign.md`](audits/2026-07-12-five-truths-campaign.md).
 
 ## Specced and ready

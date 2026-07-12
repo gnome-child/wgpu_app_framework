@@ -3,6 +3,9 @@
 Crash-safe ledger for the four-checkpoint campaign opened from `c73a90e3`
 after that commit and its 17 predecessors were pushed to `origin/master`.
 
+Status: complete. Checkpoints closed through `2a70c1bc`; close-out receipt is
+the following documentation-only commit. Campaign commits remain unpushed.
+
 ## Constitution
 
 Materialization, measured geometry, focus ownership, focus presentation, and
@@ -196,6 +199,24 @@ table contents itself.
 None open. All proposed owners are internal until a demonstrated external
 caller requires vocabulary.
 
+## Close-out
+
+Doctrine earned: materialization, measured geometry, focus ownership, focus
+presentation, and editing are different truths. Expanded is not a different
+table presentation tree; it is wrapping text inside measured rows.
+
+The resistance audit found no remaining presentation-driven cell constructor
+switch in `table.rs`, no second deferred-paint caller, no table-specific
+virtual extent solver, and no new public API. Uniform million-row behavior,
+free-form table cells, application-owned document TextAreas, deliberate edit
+activation, horizontal track scrolling, sticky headers, and shared rule/resize
+geometry remain intact.
+
+Final boundary before documentation close: 900 discovered; 892 passed, 8
+deliberately ignored, 0 failed. Formatting, all-target compilation, all three
+smokes, diff hygiene, and `comparison_open: true` were green. The branch was
+not pushed.
+
 ## Watch lines and non-goals
 
 - Qt-style edit-trigger policy (`DoubleClicked`, `SelectedClicked`, edit key).
@@ -214,4 +235,5 @@ caller requires vocabulary.
 | Checkpoint 1 | `b3b4e8cf` | 11 | 381 | 78 | Separate measured geometry owner; generic same-range and heterogeneous-sequence witnesses |
 | Checkpoint 2 | `e57f516b` | 4 | 303 | 17 | Preserve clip provenance through deferred focus paint and native projection |
 | Checkpoint 3 | `76261948` | 8 | 143 | 13 | Derive focus presentation from visibility intent and projected text-surface mode |
-| Checkpoint 4 | pending | 25 | 522 | 113 | One cell recipe, focused-draft reattachment, semantic-cell identity repair, and resistance matrix |
+| Checkpoint 4 | `2a70c1bc` | 26 | 555 | 115 | One cell recipe, focused-draft reattachment, semantic-cell identity repair, and resistance matrix |
+| Campaign close | this commit | 2 | 25 | 5 | Doctrine, final stack, roadmap closure, and clean-worktree receipt |
