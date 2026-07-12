@@ -128,6 +128,27 @@ Reverse expanded-header wrapping intentionally. Headers remain single-line and
 fixed-height in both presentations, use canonical padded overflow geometry,
 and retain the trailing active sort indicator without resize or toggle jitter.
 
+Closed as the intentional product reversal. The duplicate presentation branch
+was literal: Compact chose a fixed header container and no-wrap text, while
+Expanded chose fit height and word wrap. Header presentation no longer owns a
+wrap mode, and the table always allocates its configured fixed header height.
+Derived sortable and ordinary headers declare single-line EllipsisEnd world
+text; custom header nodes remain the escape hatch rather than being rewritten.
+
+Overflow approval now measures against `table_header_label_rect`, the same
+canonical padded geometry painted by the scene and shortened by the trailing
+chevron reservation. Button frame content retains the world-text policy just
+as Label and TextArea content already did, so a header's resolved string,
+painted overflow contract, and measurement cannot diverge by role.
+
+Witnesses prove an intentionally long active sort header remains single-line,
+ellipsizes inside the chevron-safe rectangle at scales 1.0, 1.25, 1.5, and
+2.0, and keeps identical height through a divider drag. The gallery proves all
+header heights remain identical across Compact/Expanded while body rows still
+change flow. Boundary: 901 discovered; 893 passed, 8 deliberately ignored, 0
+failed. Formatting, all-target compilation, all three smokes, diff hygiene, and
+the protected comparison flag were green. This commit remains local.
+
 ### Fix 5 — held boundaries
 
 Reduce the Count/Enabled seam: its Count override becomes `Fixed` before flex
@@ -163,6 +184,6 @@ override against minimum resolved-width materialization before choosing state.
 | Fix 1 | this commit | 3 | 81 | 1 | Table-cell input remains local; programmatic missing targets remain errors |
 | Fix 2 | this commit | 7 | 133 | 23 | One padded body-text rectangle across measure, paint, and interaction |
 | Fix 3 | this commit | 9 | 253 | 43 | One inactive display recipe; typed alignment and identity survive presentation |
-| Fix 4 | pending | pending | pending | pending | Constant single-line headers |
+| Fix 4 | this commit | 6 | 145 | 89 | Constant single-line headers with shared overflow geometry |
 | Fix 5 | pending | pending | pending | pending | Held-boundary direct manipulation |
 | Close | pending | pending | pending | pending | Laws, resistance audit, final boundary, clean tree |

@@ -48,7 +48,7 @@ enum FrameContent {
     Binding,
     Separator(SeparatorContent),
     Text(TextContent),
-    Button,
+    Button(WorldTextContent),
     Choice(ChoiceContent),
     Slider(SliderContent),
     Scroll(ScrollContent),
@@ -93,6 +93,13 @@ enum TextContent {
         text_rect: Rect,
         display_text: Option<String>,
     },
+}
+
+#[derive(Clone, Copy)]
+struct WorldTextContent {
+    overflow: Option<text_model::Overflow>,
+    wrap: Option<view::Wrap>,
+    align: Option<view::Align>,
 }
 
 #[derive(Clone)]
@@ -186,12 +193,20 @@ impl Frame {
         let world_text_overflow = node.world_text_overflow();
         let world_text_wrap = node.world_text_wrap();
         let world_text_align = node.world_text_align();
-        let world_text_rect =
-            if node.participation() == Some(view::Participation::Table(view::TablePart::Cell)) {
+        let world_text_rect = match node.participation() {
+            Some(view::Participation::Table(view::TablePart::Cell)) => {
                 control::table_content_rect(rect, theme)
-            } else {
-                rect
-            };
+            }
+            Some(view::Participation::Table(
+                view::TablePart::Header | view::TablePart::HeaderControl,
+            )) => control::table_header_label_rect(
+                rect,
+                node.table_header_presentation()
+                    .is_some_and(|presentation| presentation.sort_direction().is_some()),
+                theme,
+            ),
+            _ => rect,
+        };
         let label = label_for(node).map(|label| match world_text_overflow {
             Some(overflow) => {
                 engine.resolve_label_overflow(label, world_text_rect.width(), label_style, overflow)
@@ -384,6 +399,7 @@ impl Frame {
                 TextContent::Label { world_overflow, .. }
                 | TextContent::Area { world_overflow, .. },
             ) => *world_overflow,
+            FrameContent::Button(world) => world.overflow,
             _ => None,
         }
     }
@@ -393,6 +409,7 @@ impl Frame {
             FrameContent::Text(
                 TextContent::Label { world_wrap, .. } | TextContent::Area { world_wrap, .. },
             ) => *world_wrap,
+            FrameContent::Button(world) => world.wrap,
             _ => None,
         }
     }
@@ -402,6 +419,7 @@ impl Frame {
             FrameContent::Text(
                 TextContent::Label { world_align, .. } | TextContent::Area { world_align, .. },
             ) => *world_align,
+            FrameContent::Button(world) => world.align,
             _ => None,
         }
     }
@@ -827,7 +845,11 @@ impl FrameContent {
                 world_wrap: world_text_wrap,
                 world_align: world_text_align,
             }),
-            view::Role::Button => Self::Button,
+            view::Role::Button => Self::Button(WorldTextContent {
+                overflow: world_text_overflow,
+                wrap: world_text_wrap,
+                align: world_text_align,
+            }),
             view::Role::Checkbox => Self::Choice(ChoiceContent::Checkbox(
                 node.checkbox_model()
                     .cloned()
@@ -890,7 +912,7 @@ impl FrameContent {
             Self::Binding => view::Role::Binding,
             Self::Separator(_) => view::Role::Separator,
             Self::Text(TextContent::Area { .. }) => view::Role::TextArea,
-            Self::Button => view::Role::Button,
+            Self::Button(_) => view::Role::Button,
             Self::Choice(ChoiceContent::Checkbox(_)) => view::Role::Checkbox,
             Self::Choice(ChoiceContent::Radio(_)) => view::Role::Radio,
             Self::Slider(_) => view::Role::Slider,

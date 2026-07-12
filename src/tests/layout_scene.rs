@@ -7346,7 +7346,7 @@ fn control_gallery_table_emits_sort_intent_and_app_owns_provider_order() {
 }
 
 #[test]
-fn expanded_sort_header_wraps_around_a_trailing_active_chevron() {
+fn expanded_sort_header_stays_single_line_beside_a_trailing_active_chevron() {
     const LABEL: &str = "A deliberately long sortable column header";
     let source = crate::table::Source::new(
         1,
@@ -7362,7 +7362,7 @@ fn expanded_sort_header_wraps_around_a_trailing_active_chevron() {
             responders.app().target::<crate::table::SortBy>();
         })
         .started(|cx| {
-            cx.open_window(window::Options::new("Wrapped sort header"));
+            cx.open_window(window::Options::new("Single-line sort header"));
         })
         .view(move |_, _| {
             let columns = vec![
@@ -7398,8 +7398,10 @@ fn expanded_sort_header_wraps_around_a_trailing_active_chevron() {
         .scene()
         .texts()
         .into_iter()
-        .find(|text| text.value() == LABEL)
-        .expect("wrapped header label");
+        .find(|text| {
+            text.rect() == layout::table_header_label_rect(header.rect(), true, &Theme::default())
+        })
+        .expect("overflow-resolved header label");
     let chevron = rendered
         .scene()
         .icons()
@@ -7407,8 +7409,10 @@ fn expanded_sort_header_wraps_around_a_trailing_active_chevron() {
         .find(|icon| icon.icon().id().as_str() == "caret-up")
         .expect("active sort chevron");
 
-    assert!(header.rect().height() > 30);
-    assert_eq!(label.wrap(), scene::TextWrap::WordOrGlyph);
+    let header_height = header.rect().height();
+    assert_eq!(label.wrap(), scene::TextWrap::None);
+    assert_eq!(label.overflow(), text::Overflow::EllipsisEnd);
+    assert!(label.value().contains('…'));
     assert_eq!(
         label.rect(),
         layout::table_header_label_rect(header.rect(), true, &Theme::default())
@@ -7418,6 +7422,43 @@ fn expanded_sort_header_wraps_around_a_trailing_active_chevron() {
         layout::table_sort_indicator_rect(header.rect(), &Theme::default())
     );
     assert!(label.rect().right() <= chevron.rect().x());
+    let measured = layout::Engine::new()
+        .test_label_width_with_style(label.value(), Theme::default().typography().interface());
+    for scale in [1.0_f32, 1.25, 1.5, 2.0] {
+        assert!((measured as f32 * scale).ceil() <= (label.rect().width() as f32 * scale).ceil());
+    }
+
+    let track = rendered
+        .layout()
+        .table_tracks()
+        .iter()
+        .find(|track| track.header_node() == Some(header.node_id()))
+        .expect("long header track");
+    let boundary = frame_point_at(track.divider_hit_rect().expect("header resize zone"));
+    let narrower = geometry::Point::new(boundary.x() - 32, boundary.y());
+    drop(rendered);
+    app.pointer_down_at(window, geometry::Size::new(120, 160), boundary)
+        .expect("header resize should capture");
+    app.pointer_drag_at(window, geometry::Size::new(120, 160), narrower)
+        .expect("header resize should move");
+    app.pointer_up_at(window, geometry::Size::new(120, 160), narrower)
+        .expect("header resize should release");
+    let resized = app
+        .render_scene(window, geometry::Size::new(120, 160))
+        .expect("resized expanded header");
+    let resized_header = resized
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_part() == Some(view::TablePart::HeaderControl))
+        .expect("resized sortable header");
+    assert_eq!(resized_header.rect().height(), header_height);
+    assert!(resized.scene().texts().iter().any(|text| {
+        text.rect()
+            == layout::table_header_label_rect(resized_header.rect(), true, &Theme::default())
+            && text.wrap() == scene::TextWrap::None
+            && text.overflow() == text::Overflow::EllipsisEnd
+    }));
 }
 
 #[test]
@@ -7435,6 +7476,13 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         .iter()
         .filter(|track| track.axis() == layout::TableTrackAxis::Column)
         .map(layout::TableTrack::boundary)
+        .collect::<Vec<_>>();
+    let compact_header_heights = compact
+        .layout()
+        .frames()
+        .iter()
+        .filter(|frame| frame.table_header_cell().is_some())
+        .map(|frame| frame.rect().height())
         .collect::<Vec<_>>();
     assert!(
         compact
@@ -7531,6 +7579,16 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         .map(layout::TableTrack::boundary)
         .collect::<Vec<_>>();
     assert_eq!(expanded_tracks, compact_tracks);
+    assert_eq!(
+        expanded
+            .layout()
+            .frames()
+            .iter()
+            .filter(|frame| frame.table_header_cell().is_some())
+            .map(|frame| frame.rect().height())
+            .collect::<Vec<_>>(),
+        compact_header_heights
+    );
     let expanded_note = expanded
         .layout()
         .frames()

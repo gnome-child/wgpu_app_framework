@@ -925,11 +925,8 @@ fn scene_text_style(style: crate::theme::TypeStyle) -> TextStyle {
 }
 
 fn text_wrap_for(frame: &layout::Frame) -> TextWrap {
-    if let Some(presentation) = frame.table_header_presentation() {
-        return match presentation.wrap() {
-            view::Wrap::None => TextWrap::None,
-            view::Wrap::Word => TextWrap::WordOrGlyph,
-        };
+    if frame.table_header_presentation().is_some() {
+        return TextWrap::None;
     }
     if let Some(wrap) = frame.world_text_wrap() {
         return match wrap {

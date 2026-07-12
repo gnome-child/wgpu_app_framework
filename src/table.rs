@@ -66,24 +66,15 @@ pub enum SortDirection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct HeaderPresentation {
     sort_direction: Option<SortDirection>,
-    wrap: view::Wrap,
 }
 
 impl HeaderPresentation {
-    fn new(presentation: Presentation, sort_direction: Option<SortDirection>) -> Self {
-        let (wrap, _) = presentation.text_policy(text::Overflow::EllipsisEnd);
-        Self {
-            sort_direction,
-            wrap,
-        }
+    fn new(sort_direction: Option<SortDirection>) -> Self {
+        Self { sort_direction }
     }
 
     pub(crate) fn sort_direction(self) -> Option<SortDirection> {
         self.sort_direction
-    }
-
-    pub(crate) fn wrap(self) -> view::Wrap {
-        self.wrap
     }
 }
 
@@ -477,12 +468,7 @@ impl Column {
             .map_or(self.width, view::Dimension::fixed)
     }
 
-    fn header_node(
-        &self,
-        table: interaction::Id,
-        sort: Option<SortState>,
-        presentation: Presentation,
-    ) -> view::Node {
+    fn header_node(&self, table: interaction::Id, sort: Option<SortState>) -> view::Node {
         let identity = HeaderCell {
             table,
             column: self.id,
@@ -494,18 +480,29 @@ impl Column {
                 Some(SortDirection::Descending) | None => SortDirection::Ascending,
             };
             (
-                view::Node::button(self.label.clone()).bind_command::<SortBy>(
-                    SortIntent {
-                        table,
-                        column: self.id,
-                        direction,
-                    },
-                    context::Source::Button,
-                ),
+                view::Node::button(self.label.clone())
+                    .with_world_text_policy(
+                        self.label.clone(),
+                        view::Wrap::None,
+                        text::Overflow::EllipsisEnd,
+                    )
+                    .bind_command::<SortBy>(
+                        SortIntent {
+                            table,
+                            column: self.id,
+                            direction,
+                        },
+                        context::Source::Button,
+                    ),
                 current.map(|sort| sort.direction),
             )
         });
-        let ordinary = || (view::Node::label(self.label.clone()), None);
+        let ordinary = || {
+            (
+                view::Node::world_text(self.label.clone(), text::Overflow::EllipsisEnd),
+                None,
+            )
+        };
         let (header, sort_direction) = self
             .header
             .clone()
@@ -513,10 +510,7 @@ impl Column {
             .or(derived)
             .unwrap_or_else(ordinary);
         sized(
-            header.with_table_header_presentation(HeaderPresentation::new(
-                presentation,
-                sort_direction,
-            )),
+            header.with_table_header_presentation(HeaderPresentation::new(sort_direction)),
             self.effective_width(),
         )
         .with_table_header_cell(identity)
@@ -740,19 +734,13 @@ impl Table {
 impl widget::Widget for Table {
     fn into_node(self) -> view::Node {
         let model = Model::new(self.id, self.columns);
-        let header_height = match self.presentation {
-            Presentation::Compact => view::Dimension::fixed(self.header_height),
-            Presentation::Expanded => view::Dimension::fit(),
-        };
         let header = model.columns.borrow().iter().fold(
             view::Node::stack(view::Axis::Horizontal).with_style(
                 view::Style::new()
                     .with_width(view::Dimension::grow())
-                    .with_height(header_height),
+                    .with_height(view::Dimension::fixed(self.header_height)),
             ),
-            |header, column| {
-                header.child(column.header_node(self.id, self.sort, self.presentation))
-            },
+            |header, column| header.child(column.header_node(self.id, self.sort)),
         );
         let rows = Rows {
             table: self.id,
