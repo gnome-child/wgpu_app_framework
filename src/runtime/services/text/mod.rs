@@ -8,7 +8,7 @@ use crate::{target::Target, timeline};
 mod focused;
 
 use super::target as service_target;
-use focused::FocusedTextBox;
+use focused::FocusedDraft;
 
 const RESPONDER_NAME: &str = "focused_text";
 
@@ -22,15 +22,15 @@ struct Text<'a> {
 impl<C> service_target::Provider<C> for Text<'_>
 where
     C: command::Command,
-    for<'target> FocusedTextBox<'target>: Target<C>,
+    for<'target> FocusedDraft<'target>: Target<C>,
 {
     type Target<'target>
-        = FocusedTextBox<'target>
+        = FocusedDraft<'target>
     where
         Self: 'target;
 
     fn target(&mut self) -> Self::Target<'_> {
-        FocusedTextBox::new(self.session, self.composition, self.window, self.focus)
+        FocusedDraft::new(self.session, self.composition, self.window, self.focus)
     }
 }
 
@@ -161,7 +161,7 @@ fn base_text_for(
 ) -> Option<(window::Id, session::Focus)> {
     let window = window?;
     let focus = focus?;
-    composition.get(window)?.view().text_box_text(focus)?;
+    composition.get(window)?.view().draft_text(focus)?;
 
     Some((window, focus))
 }

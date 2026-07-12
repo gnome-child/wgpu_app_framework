@@ -93,7 +93,7 @@ pub(in crate::layout) fn intrinsic_height_for_width(
         view::Role::Label | view::Role::Panel
             if node.label_text().is_some() && node.children().is_empty() =>
         {
-            if node.world_text_overflow().is_some() {
+            if node.world_text_wrap() == Some(view::Wrap::None) {
                 body_line_height(theme)
             } else {
                 node.label_text()
@@ -122,15 +122,21 @@ pub(in crate::layout) fn intrinsic_height_for_width(
             })
             .unwrap_or_else(|| section_header_height(theme))
             .max(section_header_height(theme)),
-        view::Role::TextArea => node
-            .text_area_model()
-            .map(|text_area| {
-                engine
-                    .text_area_size_for_width(text_area, width, theme)
-                    .height()
-            })
-            .unwrap_or(control_height)
-            .max(control_height),
+        view::Role::TextArea => {
+            let measured = node
+                .text_area_model()
+                .map(|text_area| {
+                    engine
+                        .text_area_size_for_width(text_area, width, theme)
+                        .height()
+                })
+                .unwrap_or(control_height);
+            if node.world_text_wrap().is_some() {
+                measured
+            } else {
+                measured.max(control_height)
+            }
+        }
         view::Role::Button
             if node
                 .table_header_presentation()

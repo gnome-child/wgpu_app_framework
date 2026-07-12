@@ -1027,6 +1027,52 @@ mod tests {
         }
     }
 
+    #[test]
+    fn expanded_table_rules_remain_aligned_at_supported_scales() {
+        let mut state = control_gallery::State::default();
+        state.expanded_rows = true;
+        let mut app = control_gallery::app(state);
+        app.start();
+
+        let window = app.session().windows()[0].id();
+        let rendered = app
+            .render_scene(window, geometry::Size::new(760, 700))
+            .expect("expanded gallery table should render");
+
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            let projected = to_paint_scene_at_scale(rendered.scene(), scale);
+            let rules = projected
+                .items()
+                .iter()
+                .filter_map(|item| match item {
+                    paint::Item::Rule(rule) => Some(rule),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let grid = paint::Grid::new(scale);
+
+            assert!(!rules.is_empty(), "scale {scale}");
+            assert!(rules.iter().all(|rule| rule.thickness_px == 1));
+            assert!(
+                rules.iter().all(|rule| grid.rect_is_aligned(rule.rect)),
+                "scale {scale}"
+            );
+            assert_eq!(
+                projected
+                    .items()
+                    .iter()
+                    .filter(|item| matches!(item, paint::Item::Clip(_)))
+                    .count(),
+                projected
+                    .items()
+                    .iter()
+                    .filter(|item| matches!(item, paint::Item::PopClip))
+                    .count(),
+                "scale {scale}"
+            );
+        }
+    }
+
     fn assert_approx_eq(actual: f32, expected: f32) {
         assert!(
             (actual - expected).abs() < 0.0001,

@@ -48,6 +48,15 @@ pub enum Presentation {
     Expanded,
 }
 
+impl Presentation {
+    fn text_policy(self, compact_overflow: text::Overflow) -> (view::Wrap, text::Overflow) {
+        match self {
+            Self::Compact => (view::Wrap::None, compact_overflow),
+            Self::Expanded => (view::Wrap::Word, text::Overflow::Clip),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortDirection {
     Ascending,
@@ -62,12 +71,10 @@ pub(crate) struct HeaderPresentation {
 
 impl HeaderPresentation {
     fn new(presentation: Presentation, sort_direction: Option<SortDirection>) -> Self {
+        let (wrap, _) = presentation.text_policy(text::Overflow::EllipsisEnd);
         Self {
             sort_direction,
-            wrap: match presentation {
-                Presentation::Compact => view::Wrap::None,
-                Presentation::Expanded => view::Wrap::Word,
-            },
+            wrap,
         }
     }
 
@@ -992,19 +999,14 @@ impl Edit {
             }
             view::Node::text_box_state(model)
         } else {
-            match self.presentation {
-                Presentation::Compact => view::Node::text_box_state(
-                    view::TextBox::new(self.text.clone())
-                        .with_focus(focus)
-                        .read_only(),
-                ),
-                Presentation::Expanded => view::Node::text_area_state(
-                    view::TextArea::new(self.text.clone())
-                        .with_focus(focus)
-                        .with_wrap(view::Wrap::Word)
-                        .read_only(),
-                ),
-            }
+            let (wrap, overflow) = self.presentation.text_policy(text::Overflow::EllipsisEnd);
+            view::Node::text_area_state(
+                view::TextArea::new(self.text.clone())
+                    .with_focus(focus)
+                    .with_wrap(wrap)
+                    .read_only(),
+            )
+            .with_world_text_policy(self.text.clone(), wrap, overflow)
         };
         if let Some(trigger) = self.trigger.clone() {
             node = node.bind_text_trigger(self.text.clone(), context::Source::Input, trigger);
@@ -1111,10 +1113,8 @@ fn value_node<V: Value>(
     presentation: Presentation,
 ) -> view::Node {
     let text = value.text().into_owned();
-    let label = match presentation {
-        Presentation::Compact => view::Node::world_text(text, overflow),
-        Presentation::Expanded => view::Node::wrapped_world_text(text, view::Wrap::Word),
-    };
+    let (wrap, overflow) = presentation.text_policy(overflow);
+    let label = view::Node::world_text_with_policy(text, wrap, overflow);
     match V::align() {
         view::Align::Start | view::Align::Stretch => label,
         align @ (view::Align::Center | view::Align::End) => {

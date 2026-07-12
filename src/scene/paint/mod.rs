@@ -285,7 +285,14 @@ fn paint_frame(
         }
         view::Role::TextArea => {
             if let Some(text_area) = frame.text_area_layout() {
-                text_area::paint(frame, text_area, scene, theme, visuals);
+                text_area::paint(
+                    frame,
+                    text_area,
+                    scene,
+                    theme,
+                    visuals,
+                    frame.world_text_wrap().is_none(),
+                );
             }
         }
         view::Role::TextBox => {
@@ -923,9 +930,6 @@ fn text_wrap_for(frame: &layout::Frame) -> TextWrap {
             view::Wrap::None => TextWrap::None,
             view::Wrap::Word => TextWrap::WordOrGlyph,
         };
-    }
-    if frame.world_text_overflow().is_some() {
-        return TextWrap::None;
     }
     if let Some(wrap) = frame.world_text_wrap() {
         return match wrap {

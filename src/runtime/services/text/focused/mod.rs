@@ -10,14 +10,14 @@ mod edit;
 mod history;
 mod transfer;
 
-pub(super) struct FocusedTextBox<'a> {
+pub(super) struct FocusedDraft<'a> {
     session: &'a mut session::Session,
     composition: &'a composition::Store,
     window: window::Id,
     focus: session::Focus,
 }
 
-impl<'a> FocusedTextBox<'a> {
+impl<'a> FocusedDraft<'a> {
     pub(super) fn new(
         session: &'a mut session::Session,
         composition: &'a composition::Store,
@@ -36,14 +36,13 @@ impl<'a> FocusedTextBox<'a> {
         self.composition
             .get(self.window)?
             .view()
-            .text_box_text(self.focus)
-            .map(str::to_owned)
+            .draft_text(self.focus)
     }
 
     fn input(&self) -> text::Input {
         self.composition
             .get(self.window)
-            .and_then(|composition| composition.view().text_box_input(self.focus))
+            .and_then(|composition| composition.view().draft_input(self.focus))
             .unwrap_or_else(text::Input::unrestricted)
     }
 

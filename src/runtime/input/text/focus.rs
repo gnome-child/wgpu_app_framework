@@ -119,7 +119,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let Some(current) = self.session.focused(window) else {
             return Ok(None);
         };
-        if self.text_box_base_text(window, current).is_none() {
+        if self.text_draft_base(window, current).is_none() {
             return Ok(None);
         }
 

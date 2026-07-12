@@ -2165,7 +2165,7 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
             .layout()
             .frames()
             .iter()
-            .any(|frame| { frame.table_cell() == Some(count) && frame.text() == Some("42") })
+            .any(|frame| { frame.table_cell() == Some(count) && frame.label_text() == Some("42") })
     );
 }
 
@@ -2197,6 +2197,7 @@ fn table_display_text_selects_and_copies_while_double_click_alone_enters_editing
         .iter()
         .find(|frame| frame.table_cell() == Some(cell))
         .expect("name display cell");
+    let display_identity = frame.node_id();
     assert_eq!(frame.table_part(), Some(view::TablePart::Cell));
     let start = geometry::Point::new(
         frame.rect().x() + 8,
@@ -2206,12 +2207,60 @@ fn table_display_text_selects_and_copies_while_double_click_alone_enters_editing
 
     app.pointer_down_at(window, size, start)
         .expect("single press should focus display text");
+    let focus = session::Focus::table_cell(cell);
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| {
+                interaction
+                    .text_input()
+                    .draft_for(&interaction::Target::text_area(focus))
+            })
+            .is_some(),
+        "display press should establish a retained selection draft"
+    );
     app.pointer_drag_at(window, size, end)
         .expect("display drag should extend text selection");
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| {
+                interaction
+                    .text_input()
+                    .draft_for(&interaction::Target::text_area(focus))
+            })
+            .is_some(),
+        "display drag should retain the selection draft"
+    );
     app.pointer_up_at(window, size, end)
         .expect("display drag should release without activation");
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| {
+                interaction
+                    .text_input()
+                    .draft_for(&interaction::Target::text_area(focus))
+            })
+            .is_some(),
+        "display release should retain the selection draft"
+    );
+    let released = app
+        .render_scene(window, size)
+        .expect("released display selection should render");
+    let released_cell = released
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("released display cell");
+    assert_eq!(released_cell.node_id(), display_identity);
+    assert!(released.scene().quads().iter().any(|quad| {
+        quad.fill() == Theme::default().text().selection
+            && rect_contains(released_cell.rect(), quad.rect())
+    }));
+    assert!(released.scene().text_viewports().is_empty());
     assert_eq!(app.session().editing_table_cell(window), None);
-    let focus = session::Focus::table_cell(cell);
     let selected = text_draft(&app, window, focus)
         .selected_text()
         .expect("display text drag should own a selection");
@@ -2278,6 +2327,7 @@ fn table_display_text_selects_and_copies_while_double_click_alone_enters_editing
             .count(),
         1
     );
+    assert!(!editing.scene().text_viewports().is_empty());
     assert!(text_draft(&app, window, focus).selected_text().is_some());
 }
 
@@ -7297,6 +7347,25 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
             && value.overflow() == text::Overflow::EllipsisMiddle
             && value.wrap() == scene::TextWrap::None
     }));
+    let compact_note = compact
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(0)
+                    && cell.column() == interaction::Id::new("note")
+            })
+        })
+        .expect("compact editable note display");
+    let note_identity = compact_note.node_id();
+    assert_eq!(compact_note.role(), view::Role::TextArea);
+    assert_eq!(compact_note.table_part(), Some(view::TablePart::Cell));
+    assert_eq!(compact_note.world_text_wrap(), Some(view::Wrap::None));
+    assert_eq!(
+        compact_note.world_text_overflow(),
+        Some(text::Overflow::EllipsisEnd)
+    );
     let toggle = compact
         .layout()
         .frames()
@@ -7324,6 +7393,25 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         .map(layout::TableTrack::boundary)
         .collect::<Vec<_>>();
     assert_eq!(expanded_tracks, compact_tracks);
+    let expanded_note = expanded
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(0)
+                    && cell.column() == interaction::Id::new("note")
+            })
+        })
+        .expect("expanded editable note display");
+    assert_eq!(expanded_note.node_id(), note_identity);
+    assert_eq!(expanded_note.role(), view::Role::TextArea);
+    assert_eq!(expanded_note.table_part(), Some(view::TablePart::Cell));
+    assert_eq!(expanded_note.world_text_wrap(), Some(view::Wrap::Word));
+    assert_eq!(
+        expanded_note.world_text_overflow(),
+        Some(text::Overflow::Clip)
+    );
     assert_eq!(
         expanded
             .layout()
@@ -7347,6 +7435,160 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
             .frames()
             .iter()
             .all(|frame| { frame.table_header_cell().is_none() || frame.rect().height() == 30 })
+    );
+}
+
+#[test]
+fn table_mode_toggle_preserves_pinned_active_editor_through_scroll_resize_and_rebuild() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 700);
+    let cell = crate::table::Cell::new(
+        interaction::Id::new("control_gallery.records"),
+        crate::virtual_list::Key::new(0),
+        interaction::Id::new("note"),
+    );
+    app.render_scene(window, size)
+        .expect("compact gallery table should render");
+    app.handle_input(
+        window,
+        Input::focus(session::Focus::table_cell(cell).keyboard()),
+    )
+    .expect("note cell should focus");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::F2, input::Modifiers::default()),
+    )
+    .expect("F2 should deliberately activate the note editor");
+    app.handle_input(window, Input::text_commit("retained draft"))
+        .expect("active note editor should accept a draft");
+
+    let editing = app
+        .render_scene(window, size)
+        .expect("active compact editor should render");
+    let editor = editing
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("active compact note editor");
+    let editor_identity = editor.node_id();
+    let list = editing.layout().find_role(view::Role::VirtualList)[0].clone();
+    assert_eq!(editor.table_part(), Some(view::TablePart::Editor));
+    assert_eq!(editor.role(), view::Role::TextBox);
+    drop(editing);
+
+    app.scroll_at(
+        window,
+        size,
+        frame_point_at(list.rect()),
+        interaction::ScrollDelta::vertical(720),
+    )
+    .expect("short table viewport should scroll");
+    let scrolled = app
+        .render_scene(window, size)
+        .expect("pinned editor should survive scrolling");
+    let pinned = scrolled
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("active editor row should remain pinned offscreen");
+    assert_eq!(pinned.node_id(), editor_identity);
+    assert!(pinned.rect().bottom() <= list.rect().y());
+    drop(scrolled);
+
+    app.change(state::Reason::programmatic("expand table rows"), |state| {
+        state.expanded_rows = true;
+    });
+    let expanded = app
+        .render_scene(window, size)
+        .expect("expanded table should retain the active editor");
+    let expanded_editor = expanded
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("expanded active editor");
+    assert_eq!(expanded_editor.node_id(), editor_identity);
+    assert_eq!(expanded_editor.role(), view::Role::TextBox);
+    let note_track = expanded
+        .layout()
+        .table_tracks()
+        .iter()
+        .find(|track| {
+            track
+                .column_identity()
+                .is_some_and(|header| header.column() == interaction::Id::new("note"))
+        })
+        .expect("note column track")
+        .clone();
+    let before_width = expanded
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| Some(frame.node_id()) == note_track.header_node())
+        .expect("note header frame")
+        .rect()
+        .width();
+    let resize_start = frame_point_at(
+        note_track
+            .divider_hit_rect()
+            .expect("note column resize hit zone"),
+    );
+    drop(expanded);
+    app.pointer_down_at(window, size, resize_start)
+        .expect("note resize should capture");
+    let resize_end = geometry::Point::new(resize_start.x() + 36, resize_start.y());
+    app.pointer_move_at(window, size, resize_end)
+        .expect("note resize should update its source override");
+    app.pointer_up_at(window, size, resize_end)
+        .expect("note resize should release");
+    app.request_redraw(window);
+
+    let rebuilt = app
+        .render_scene(window, size)
+        .expect("resized expanded table should rebuild");
+    let rebuilt_editor = rebuilt
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("rebuilt active editor");
+    let rebuilt_track = rebuilt
+        .layout()
+        .table_tracks()
+        .iter()
+        .find(|track| {
+            track
+                .column_identity()
+                .is_some_and(|header| header.column() == interaction::Id::new("note"))
+        })
+        .expect("rebuilt note column track");
+    assert_eq!(rebuilt_editor.node_id(), editor_identity);
+    let rebuilt_width = rebuilt
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| Some(frame.node_id()) == rebuilt_track.header_node())
+        .expect("rebuilt note header frame")
+        .rect()
+        .width();
+    assert_eq!(rebuilt_width, before_width + 36);
+    assert_eq!(
+        text_draft(&app, window, session::Focus::table_cell(cell)).text(),
+        "retained draft"
+    );
+    assert!(
+        rebuilt
+            .layout()
+            .frames()
+            .iter()
+            .filter(|frame| frame.table_cell().is_some())
+            .count()
+            <= 84,
+        "toggle/resize work should remain bounded to materialized cells"
     );
 }
 
@@ -7466,7 +7708,7 @@ fn table_participation_changes_chrome_without_changing_control_behavior() {
         .find(|frame| frame.table_cell() == Some(cell))
         .expect("editor frame");
     assert_eq!(idle_editor.table_part(), Some(view::TablePart::Cell));
-    assert_eq!(idle_editor.role(), view::Role::TextBox);
+    assert_eq!(idle_editor.role(), view::Role::TextArea);
     assert!(idle.scene().quads().iter().all(|quad| {
         quad.rect() != idle_editor.rect() || quad.fill() != theme.text_input().field_background
     }));

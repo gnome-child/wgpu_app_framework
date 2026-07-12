@@ -52,15 +52,6 @@ impl TextBox {
         self
     }
 
-    pub(crate) fn with_mode(mut self, mode: text::edit::FieldMode) -> Self {
-        self.mode = mode;
-        self
-    }
-
-    pub(crate) fn read_only(self) -> Self {
-        self.with_mode(text::edit::FieldMode::ReadOnly)
-    }
-
     pub(crate) fn mode(&self) -> text::edit::FieldMode {
         self.mode
     }

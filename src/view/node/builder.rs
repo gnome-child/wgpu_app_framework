@@ -152,15 +152,32 @@ impl Node {
     /// Creates text supplied by the world outside the program. Its overflow
     /// behavior must be explicit because the program cannot promise it fits.
     pub fn world_text(label: impl Into<String>, overflow: crate::text::Overflow) -> Self {
-        Self::new(Role::Label)
-            .with_label(label)
-            .with_text_kind(super::TextKind::World(WorldText::SingleLine(overflow)))
+        Self::world_text_with_policy(label, super::super::Wrap::None, overflow)
     }
 
     pub(crate) fn wrapped_world_text(label: impl Into<String>, wrap: super::super::Wrap) -> Self {
+        Self::world_text_with_policy(label, wrap, crate::text::Overflow::Clip)
+    }
+
+    pub(crate) fn world_text_with_policy(
+        label: impl Into<String>,
+        wrap: super::super::Wrap,
+        overflow: crate::text::Overflow,
+    ) -> Self {
         Self::new(Role::Label)
             .with_label(label)
-            .with_text_kind(super::TextKind::World(WorldText::Wrapped(wrap)))
+            .with_text_kind(super::TextKind::World(WorldText::new(wrap, overflow)))
+    }
+
+    pub(crate) fn with_world_text_policy(
+        mut self,
+        label: impl Into<String>,
+        wrap: super::super::Wrap,
+        overflow: crate::text::Overflow,
+    ) -> Self {
+        self.label = Some(label.into());
+        self.text_kind = super::TextKind::World(WorldText::new(wrap, overflow));
+        self
     }
 
     pub(crate) fn section_header(label: impl Into<String>) -> Self {

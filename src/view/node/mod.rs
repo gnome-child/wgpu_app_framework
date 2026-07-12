@@ -20,9 +20,15 @@ pub(crate) enum TextKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WorldText {
-    SingleLine(text::Overflow),
-    Wrapped(super::control::Wrap),
+pub(crate) struct WorldText {
+    wrap: super::control::Wrap,
+    overflow: text::Overflow,
+}
+
+impl WorldText {
+    fn new(wrap: super::control::Wrap, overflow: text::Overflow) -> Self {
+        Self { wrap, overflow }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

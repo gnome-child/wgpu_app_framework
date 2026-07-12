@@ -1,9 +1,9 @@
 use crate::text;
 use crate::{command, context as command_context, document, response::Response, target::Target};
 
-use super::{FocusedTextBox, put_clipboard_text};
+use super::{FocusedDraft, put_clipboard_text};
 
-impl Target<document::Copy> for FocusedTextBox<'_> {
+impl Target<document::Copy> for FocusedDraft<'_> {
     fn state(&self, _: &(), _: &command_context::Context) -> command::State {
         if self.is_selectable()
             && self
@@ -32,7 +32,7 @@ impl Target<document::Copy> for FocusedTextBox<'_> {
     }
 }
 
-impl Target<document::Cut> for FocusedTextBox<'_> {
+impl Target<document::Cut> for FocusedDraft<'_> {
     fn state(&self, args: &(), cx: &command_context::Context) -> command::State {
         if self.is_editable() {
             Target::<document::Copy>::state(self, args, cx)
@@ -56,7 +56,7 @@ impl Target<document::Cut> for FocusedTextBox<'_> {
     }
 }
 
-impl Target<document::Paste> for FocusedTextBox<'_> {
+impl Target<document::Paste> for FocusedDraft<'_> {
     fn state(&self, _: &(), cx: &command_context::Context) -> command::State {
         if self.is_editable() {
             document::Paste::availability(cx)

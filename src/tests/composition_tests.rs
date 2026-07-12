@@ -105,6 +105,38 @@ fn removed_nodes_and_elements_are_reported_for_pruning() {
 }
 
 #[test]
+fn retired_duplicate_node_does_not_report_a_still_present_table_cell_removed() {
+    let mut store = composition::Store::default();
+    let window = window::Id::new(1);
+    let cell = crate::table::Cell::new(
+        interaction::Id::new("retained.table"),
+        crate::virtual_list::Key::new(7),
+        interaction::Id::new("value"),
+    );
+    let duplicate = || view::Node::label("Value").with_table_cell(cell);
+    store.install(
+        window,
+        View::new(
+            view::Node::root().child(
+                view::Node::stack(view::Axis::Vertical)
+                    .child(duplicate())
+                    .child(duplicate()),
+            ),
+        ),
+    );
+
+    let reconciled = store.install(
+        window,
+        View::new(
+            view::Node::root().child(view::Node::stack(view::Axis::Vertical).child(duplicate())),
+        ),
+    );
+
+    assert_eq!(reconciled.changes().removed().len(), 1);
+    assert!(reconciled.changes().removed_table_cells().is_empty());
+}
+
+#[test]
 fn removed_idless_text_box_reports_its_focus_element_for_draft_pruning() {
     let mut store = composition::Store::default();
     let window = window::Id::new(1);

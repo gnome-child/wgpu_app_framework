@@ -243,11 +243,11 @@ impl View {
         self.root.table_edit_action(focus, text)
     }
 
-    pub(super) fn text_box_text(&self, focus: session::Focus) -> Option<&str> {
-        self.root.text_box_for_focus(focus).map(TextBox::text)
+    pub(super) fn draft_text(&self, focus: session::Focus) -> Option<String> {
+        self.root.draft_text_for_focus(focus)
     }
 
-    pub(super) fn text_box_input(&self, focus: session::Focus) -> Option<crate::text::Input> {
+    pub(super) fn draft_input(&self, focus: session::Focus) -> Option<crate::text::Input> {
         self.root.text_box_for_focus(focus).map(TextBox::input)
     }
 

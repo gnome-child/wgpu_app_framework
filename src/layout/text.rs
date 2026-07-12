@@ -117,7 +117,7 @@ impl Service {
             view::Wrap::Word => measure_for_width(width),
         };
         let metrics = self.inner.borrow_mut().measure(
-            &document(text_area.buffer().text(), theme.typography().body()),
+            &document(text_area.buffer().text(), theme.typography().interface()),
             measure,
         );
 

@@ -81,6 +81,8 @@ enum TextContent {
     Area {
         model: view::TextArea,
         layout: text::Area,
+        world_overflow: Option<text_model::Overflow>,
+        world_wrap: Option<view::Wrap>,
     },
     Field {
         model: view::TextBox,
@@ -365,14 +367,19 @@ impl Frame {
 
     pub(crate) fn world_text_overflow(&self) -> Option<text_model::Overflow> {
         match &self.content {
-            FrameContent::Text(TextContent::Label { world_overflow, .. }) => *world_overflow,
+            FrameContent::Text(
+                TextContent::Label { world_overflow, .. }
+                | TextContent::Area { world_overflow, .. },
+            ) => *world_overflow,
             _ => None,
         }
     }
 
     pub(crate) fn world_text_wrap(&self) -> Option<view::Wrap> {
         match &self.content {
-            FrameContent::Text(TextContent::Label { world_wrap, .. }) => *world_wrap,
+            FrameContent::Text(
+                TextContent::Label { world_wrap, .. } | TextContent::Area { world_wrap, .. },
+            ) => *world_wrap,
             _ => None,
         }
     }
@@ -769,6 +776,8 @@ impl FrameContent {
                     .cloned()
                     .expect("TextArea role must carry TextArea content"),
                 layout: text_area_layout.expect("TextArea frame must carry layout content"),
+                world_overflow: world_text_overflow,
+                world_wrap: world_text_wrap,
             }),
             view::Role::Button => Self::Button,
             view::Role::Checkbox => Self::Choice(ChoiceContent::Checkbox(

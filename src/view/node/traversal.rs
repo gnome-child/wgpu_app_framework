@@ -42,12 +42,12 @@ impl Node {
         focus: session::Focus,
         text: String,
     ) -> Option<Result<(crate::table::Cell, Action), (crate::table::Cell, String)>> {
-        if self
+        let owns_focus = self
             .text_box_model()
             .and_then(TextBox::focus)
-            .is_some_and(|candidate| candidate.same_target(&focus))
-            && let Some(edit) = self.table_edit()
-        {
+            .or_else(|| self.text_area_model().and_then(TextArea::focus))
+            .is_some_and(|candidate| candidate.same_target(&focus));
+        if owns_focus && let Some(edit) = self.table_edit() {
             if let Err(reason) = edit.validate(&text) {
                 return Some(Err((edit.cell(), reason)));
             }
@@ -386,6 +386,31 @@ impl Node {
         self.children
             .iter()
             .find_map(|child| child.text_box_for_focus(focus))
+    }
+
+    pub(in crate::view) fn draft_text_for_focus(&self, focus: session::Focus) -> Option<String> {
+        if let Some(text) = self.text_box_model().and_then(|text_box| {
+            text_box
+                .focus()
+                .is_some_and(|candidate| candidate.same_target(&focus))
+                .then(|| text_box.text().to_owned())
+        }) {
+            return Some(text);
+        }
+        if self.table_edit().is_some()
+            && let Some(text) = self.text_area_model().and_then(|text_area| {
+                text_area
+                    .focus()
+                    .is_some_and(|candidate| candidate.same_target(&focus))
+                    .then(|| text_area.buffer().text())
+            })
+        {
+            return Some(text);
+        }
+
+        self.children
+            .iter()
+            .find_map(|child| child.draft_text_for_focus(focus))
     }
 
     pub(in crate::view) fn text_surface_mode_for_focus(

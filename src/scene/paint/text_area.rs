@@ -9,6 +9,7 @@ pub(super) fn paint(
     scene: &mut Scene,
     theme: &Theme,
     visuals: &Visuals,
+    paint_text: bool,
 ) {
     let rect = frame.rect();
     for span in text_area.layout().selection_spans() {
@@ -19,19 +20,24 @@ pub(super) fn paint(
         }
     }
 
-    scene.push_text_viewport(TextViewport::new(
-        rect,
-        text_area
-            .render_surfaces()
-            .iter()
-            .map(|surface| text_surface::surface(rect, surface))
-            .collect(),
-    ));
+    if paint_text {
+        scene.push_text_viewport(TextViewport::new(
+            rect,
+            text_area
+                .render_surfaces()
+                .iter()
+                .map(|surface| text_surface::surface(rect, surface))
+                .collect(),
+        ));
+    }
 
     let caret_visible = frame
         .target()
         .is_none_or(|target| visuals.caret_visible(target));
-    if caret_visible && let Some(caret) = frame.text_caret_rect() {
+    if paint_text
+        && caret_visible
+        && let Some(caret) = frame.text_caret_rect()
+    {
         scene.push_rule(text_surface::caret_rule(caret, theme));
     }
 }

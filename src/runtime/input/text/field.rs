@@ -6,24 +6,20 @@ use crate::{
 };
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
-    pub(in crate::runtime) fn text_box_base_text(
+    pub(in crate::runtime) fn text_draft_base(
         &self,
         window: window::Id,
         focus: session::Focus,
     ) -> Option<String> {
-        self.composition
-            .get(window)?
-            .view()
-            .text_box_text(focus)
-            .map(str::to_owned)
+        self.composition.get(window)?.view().draft_text(focus)
     }
 
-    pub(in crate::runtime) fn text_box_input(
+    pub(in crate::runtime) fn text_draft_input(
         &self,
         window: window::Id,
         focus: session::Focus,
     ) -> Option<text::Input> {
-        self.composition.get(window)?.view().text_box_input(focus)
+        self.composition.get(window)?.view().draft_input(focus)
     }
 
     pub(in crate::runtime) fn text_surface_mode(
@@ -56,7 +52,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         focus: session::Focus,
         edit: text::edit::Edit,
     ) -> std::result::Result<Option<(draft::Change, input::Outcome)>, Error> {
-        let Some(base) = self.text_box_base_text(window, focus) else {
+        let Some(base) = self.text_draft_base(window, focus) else {
             return Ok(None);
         };
         let mut mode = self
@@ -72,7 +68,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return Ok(None);
         }
         let input = self
-            .text_box_input(window, focus)
+            .text_draft_input(window, focus)
             .unwrap_or_else(text::Input::unrestricted);
         let Some(change) = self
             .session
@@ -149,7 +145,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let Some(focus) = self.session.command_focus(window) else {
             return Ok(None);
         };
-        if self.text_box_base_text(window, focus).is_none() {
+        if self.text_draft_base(window, focus).is_none() {
             return Ok(None);
         }
         if !self
@@ -174,7 +170,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         window: window::Id,
         focus: session::Focus,
     ) -> std::result::Result<Option<input::Outcome>, Error> {
-        if self.text_box_base_text(window, focus).is_none() {
+        if self.text_draft_base(window, focus).is_none() {
             return Ok(None);
         }
         let target = interaction::Target::text_area(focus);

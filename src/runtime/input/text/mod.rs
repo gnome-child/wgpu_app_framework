@@ -21,7 +21,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return Ok(input::Outcome::ignored());
         };
 
-        if self.text_box_base_text(window, focus).is_some() {
+        if self.text_draft_base(window, focus).is_some() {
             let editing = focus
                 .table_cell_identity()
                 .is_some_and(|cell| self.session.editing_table_cell(window) == Some(cell));
@@ -69,7 +69,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return Ok(input::Outcome::ignored());
         };
 
-        if self.text_box_base_text(window, focus).is_some() {
+        if self.text_draft_base(window, focus).is_some() {
             return self.handle_text_box_edit(window, focus, edit);
         }
 

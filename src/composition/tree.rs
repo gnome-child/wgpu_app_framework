@@ -188,6 +188,9 @@ impl Tree {
             next_node_id,
             &mut changes,
         );
+        changes
+            .removed_table_cells
+            .retain(|cell| !root.contains_table_cell(*cell));
         (Self { root }, changes)
     }
 
@@ -392,6 +395,14 @@ impl Node {
         }
 
         self.children.iter().find_map(|child| child.find(id))
+    }
+
+    fn contains_table_cell(&self, cell: crate::table::Cell) -> bool {
+        self.key.table_cell == Some(cell)
+            || self
+                .children
+                .iter()
+                .any(|child| child.contains_table_cell(cell))
     }
 }
 

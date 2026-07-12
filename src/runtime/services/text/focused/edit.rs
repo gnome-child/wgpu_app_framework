@@ -1,9 +1,9 @@
 use crate::text;
 use crate::{command, context as command_context, document, response::Response, target::Target};
 
-use super::FocusedTextBox;
+use super::FocusedDraft;
 
-impl Target<document::SelectAll> for FocusedTextBox<'_> {
+impl Target<document::SelectAll> for FocusedDraft<'_> {
     fn state(&self, _: &(), _: &command_context::Context) -> command::State {
         if self.is_selectable() && self.draft().is_some_and(|draft| !draft.text().is_empty()) {
             command::State::enabled()
@@ -17,7 +17,7 @@ impl Target<document::SelectAll> for FocusedTextBox<'_> {
     }
 }
 
-impl Target<document::Delete> for FocusedTextBox<'_> {
+impl Target<document::Delete> for FocusedDraft<'_> {
     fn state(&self, _: &(), _: &command_context::Context) -> command::State {
         if self.is_editable() && self.draft().is_some_and(|draft| !draft.text().is_empty()) {
             command::State::enabled()

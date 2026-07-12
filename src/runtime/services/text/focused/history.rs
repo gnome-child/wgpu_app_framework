@@ -1,8 +1,8 @@
 use crate::{context as command_context, response::Response, timeline};
 
-use super::FocusedTextBox;
+use super::FocusedDraft;
 
-impl timeline::Undoable for FocusedTextBox<'_> {
+impl timeline::Undoable for FocusedDraft<'_> {
     fn can_undo(&self) -> bool {
         self.is_editable() && self.draft().is_some_and(|draft| draft.can_undo())
     }

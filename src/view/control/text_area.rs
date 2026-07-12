@@ -164,6 +164,28 @@ impl TextArea {
         self.reveal = interaction.scroll().should_reveal(target);
         self.preedit = interaction.text_input().preedit_for(target).cloned();
         self.caret_epoch = interaction.text_input().caret_epoch_for(target);
+        if target.table_cell().is_some()
+            && let Some(draft) = interaction.text_input().draft_for(target)
+        {
+            if draft.text() != self.buffer.text() {
+                self.buffer = text::Buffer::from_multiline_text(draft.text());
+            }
+            let cursor = self
+                .buffer
+                .mark_for_position(text::buffer::Position::new(draft.cursor()))
+                .expect("draft cursor must resolve in its projected buffer");
+            let selection = draft.selection().and_then(|selection| {
+                Some(text::buffer::MarkRange {
+                    start: self
+                        .buffer
+                        .mark_for_position(text::buffer::Position::new(selection.start))?,
+                    end: self
+                        .buffer
+                        .mark_for_position(text::buffer::Position::new(selection.end))?,
+                })
+            });
+            self.state = text::edit::State::new(cursor, selection);
+        }
     }
 
     pub(in crate::view) fn project_focus(&mut self, focus: Option<&session::Focus>) {
