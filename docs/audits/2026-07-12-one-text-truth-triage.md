@@ -8,8 +8,8 @@ combined ellipsis with a hard tail cut, editable numeric display lost its
 alignment, expanded headers changed height, and a held divider did not follow
 the pointer.
 
-Status: active. Campaign commits after Fix 1 remain unpushed unless separately
-authorized.
+Status: closed. Fix 1 and its inherited stack were pushed as authorized;
+Fixes 2-5 and this close remain local.
 
 ## Doctrine under test
 
@@ -190,30 +190,75 @@ protected comparison flag were green. This commit remains local.
 
 ## Census receipts
 
-- Crash: `document::Editing` registers `ApplyEdit`, but the gallery has no
-  `Document` responder. The invalid path is table-draft miss followed by the
-  generic document-edit fallback; the exact interactive transition still needs
-  reduction.
-- Text: overflow approval uses full frame width while table paint subtracts
-  canonical horizontal padding. Inactive editable text also maintains an
-  invisible TextArea layout beside its visible world-text layout.
-- Alignment: `.editable()` replaces `value_node`, so integer end alignment is
-  lost in both presentations rather than only Expanded.
-- Headers: presentation currently chooses both header wrap and fixed-versus-fit
-  height, and a test explicitly approves expanded growth.
-- Resize: `Column::effective_width` converts a session override to
-  `Dimension::Fixed`; the flex-fill branch then reallocates the remaining
-  viewport width. Existing resize witnesses use cases where the dragged edge
-  moves and do not cover a fixed column preceded by weighted tracks.
+- Crash: `document::Editing` registered `ApplyEdit`, but the gallery had no
+  `Document` responder. A table-draft miss fell through to that generic
+  document-edit fallback; the deterministic reduction now guards that exact
+  ownership boundary.
+- Text: overflow approval used full frame width while table paint subtracted
+  canonical horizontal padding. Inactive editable text also maintained an
+  invisible TextArea layout beside its visible world-text layout. Both now
+  consume retained canonical geometry.
+- Alignment: `.editable()` replaced `value_node`, so integer end alignment was
+  lost in both presentations rather than only Expanded. One inactive typed
+  projection now owns it.
+- Headers: presentation chose both header wrap and fixed-versus-fit height, and
+  a test explicitly approved expanded growth. Both branches were deleted.
+- Resize: `Column::effective_width` converted a session override to
+  `Dimension::Fixed`; the flex-fill branch then reallocated the remaining
+  viewport width. Overrides now adjust the resolved projection after allocation.
+
+## Close-out
+
+Doctrine earned: inactive table text has one selectable projection; its padded
+geometry owns overflow approval, paint, hit testing, and selection. Header
+height and cell presentation are independent policies. Direct manipulation
+adjusts a resolved projection without rewriting the declarations that produced
+its unclaimed space.
+
+The resistance audit found no generalized missing-target amnesty, no public
+table-text API, no second width solver, no presentation-driven inactive cell
+constructor, no expanded-header measurement path, and no freeze-all-flex mode.
+Boolean toggles and arbitrary provider cells remain honest separate species;
+programmatic missing targets remain errors; custom headers remain the escape
+hatch; ordinary application TextAreas retain document ownership. The retained
+track projection remains the sole source for placement, rules, resize zones,
+body measurement, and horizontal extent.
+
+Final boundary before documentation close: 902 discovered; 894 passed, 8
+deliberately ignored, 0 failed. Formatting, all-target compilation, all three
+external smoke executables, diff hygiene, and `comparison_open: true` were
+green. The worktree was clean before this documentation-only close, and the
+local implementation stack was not pushed.
+
+## Watch lines and non-goals
+
+- An explicit reset-widths command may later clear manual overrides; no caller
+  currently proves its gesture or scope.
+- Line clamp `(Wrap, EllipsisEnd)` remains representable but unimplemented
+  until a caller needs it.
+- Active numeric TextBox paragraph alignment remains a possible general text
+  capability; this campaign proved only the inactive typed-value projection.
+- No range/TSV selection, fill, frozen columns, multi-sort, autofit, or sheet
+  behavior was introduced.
+- No further push is authorized.
+
+## Final stack
+
+1. `d12720eb` — open the One Text Truth ledger.
+2. `6b480ccc` — keep table text input with its local owner (pushed).
+3. `a8c55c56` — share one padded table text geometry.
+4. `402ba31f` — unify inactive table value display.
+5. `047e0468` — keep table headers single line.
+6. `bf925698` — make held table boundaries follow the pointer.
 
 ## Commit receipts
 
 | Boundary | Commit | Files | Insertions | Deletions | Result |
 | --- | --- | ---: | ---: | ---: | --- |
-| Ledger open | this commit | 2 | 112 | 3 | Field report, doctrine, reductions, and protocol |
-| Fix 1 | this commit | 3 | 81 | 1 | Table-cell input remains local; programmatic missing targets remain errors |
-| Fix 2 | this commit | 7 | 133 | 23 | One padded body-text rectangle across measure, paint, and interaction |
-| Fix 3 | this commit | 9 | 253 | 43 | One inactive display recipe; typed alignment and identity survive presentation |
-| Fix 4 | this commit | 6 | 145 | 89 | Constant single-line headers with shared overflow geometry |
-| Fix 5 | this commit | 5 | 275 | 13 | Post-resolution manual width; held boundary follows pointer without freezing flex |
-| Close | pending | pending | pending | pending | Laws, resistance audit, final boundary, clean tree |
+| Ledger open | `d12720eb` | 2 | 112 | 3 | Field report, doctrine, reductions, and protocol |
+| Fix 1 | `6b480ccc` | 3 | 81 | 1 | Table-cell input remains local; programmatic missing targets remain errors |
+| Fix 2 | `a8c55c56` | 7 | 133 | 23 | One padded body-text rectangle across measure, paint, and interaction |
+| Fix 3 | `402ba31f` | 9 | 253 | 43 | One inactive display recipe; typed alignment and identity survive presentation |
+| Fix 4 | `047e0468` | 6 | 145 | 89 | Constant single-line headers with shared overflow geometry |
+| Fix 5 | `bf925698` | 5 | 275 | 13 | Post-resolution manual width; held boundary follows pointer without freezing flex |
+| Close | this commit | 2 | 71 | 27 | Laws, resistance audit, final boundary, clean tree |

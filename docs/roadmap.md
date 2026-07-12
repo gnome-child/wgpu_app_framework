@@ -6,9 +6,8 @@ is next.
 
 ## In flight
 
-**One Text Truth table triage** — repairs the post-Five-Truths field report:
-input ownership, canonical text geometry, inactive editable display,
-constant-height headers, and held-boundary resizing. Its crash-safe ledger is
+No campaign currently in flight. The One Text Truth table triage closed through
+`bf925698`; its crash-safe ledger is
 [`audits/2026-07-12-one-text-truth-triage.md`](audits/2026-07-12-one-text-truth-triage.md).
 
 ## Specced and ready
