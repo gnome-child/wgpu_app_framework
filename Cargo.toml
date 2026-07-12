@@ -2,6 +2,8 @@
 name = "wgpu_l3"
 version = "0.1.0"
 edition = "2024"
+license = "GPL-3.0-or-later"
+description = "A wgpu/winit desktop UI framework: value-semantics runtime, typed command system, native popup materials, and provided-container virtualization"
 
 [[example]]
 name = "text_editor"
