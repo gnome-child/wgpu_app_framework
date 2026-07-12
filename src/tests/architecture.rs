@@ -44,6 +44,39 @@ fn root_source_tree_has_no_empty_concept_buckets() {
 }
 
 #[test]
+fn table_std_capabilities_have_no_framework_trait_mirrors() {
+    let table = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/table.rs"),
+    )
+    .expect("table source should read");
+
+    for retired in [
+        "pub trait Value",
+        "pub trait Sort",
+        "pub trait EditText",
+        "pub trait EditToggle",
+        "RecordOrder",
+    ] {
+        assert!(
+            !table.contains(retired),
+            "{retired} should be structurally absent after std owns the meaning"
+        );
+    }
+    for std_boundary in [
+        "pub fn text<R, V>",
+        "pub fn boolean<R, V>",
+        "V: Display + FromStr",
+        "V: Display + Ord",
+        "V: Clone + Into<bool> + From<bool>",
+    ] {
+        assert!(
+            table.contains(std_boundary),
+            "table species should expose {std_boundary}"
+        );
+    }
+}
+
+#[test]
 fn examples_launch_through_the_application_ceiling() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
 

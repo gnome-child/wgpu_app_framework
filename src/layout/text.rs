@@ -69,14 +69,21 @@ impl Service {
         source: &str,
         width: i32,
         style: super::super::theme::TypeStyle,
+        wrap: view::Wrap,
         overflow: text_engine::Overflow,
     ) -> Selectable {
-        self.inner.borrow_mut().resolve_overflow_projection(
-            source,
-            style.document_style(text_engine::Color::BLACK),
-            width.max(0) as f32,
-            overflow,
-        )
+        let style = style.document_style(text_engine::Color::BLACK);
+        let width = width.max(0) as f32;
+        match wrap {
+            view::Wrap::None => self
+                .inner
+                .borrow_mut()
+                .resolve_single_line_overflow_projection(source, style, width, overflow),
+            view::Wrap::Word => self
+                .inner
+                .borrow_mut()
+                .resolve_overflow_projection(source, style, width, overflow),
+        }
     }
 
     pub(super) fn diagnose_author_overflow(

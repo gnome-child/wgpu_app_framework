@@ -1,45 +1,8 @@
-use std::{borrow::Cow, cell::RefCell, cmp::Ordering, collections::HashMap, rc::Rc, sync::Arc};
+use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc, str::FromStr, sync::Arc};
 
 use crate::{
     command, context, interaction, scene, session, subject, text, view, virtual_list, widget,
 };
-
-/// Projects a value into a table cell.
-pub trait Value {
-    fn text(&self) -> Cow<'_, str>;
-
-    fn align() -> view::Align
-    where
-        Self: Sized,
-    {
-        view::Align::Start
-    }
-}
-
-/// Supplies the product ordering for a sortable value column.
-pub trait Sort: Value {
-    fn order(&self, other: &Self) -> Ordering;
-}
-
-/// Supplies syntax conversion and draft policy for a text-editable value.
-pub trait EditText: Value + Sized {
-    fn edit_text(&self) -> Cow<'_, str> {
-        self.text()
-    }
-
-    fn parse(text: &str) -> Result<Self, String>;
-
-    fn input() -> text::Input {
-        text::Input::unrestricted()
-    }
-}
-
-/// Supplies the next value for a directly toggled table cell.
-pub trait EditToggle: Value + Sized {
-    fn is_on(&self) -> bool;
-
-    fn toggled(&self) -> Self;
-}
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Presentation {
@@ -189,52 +152,77 @@ impl<R> Source<R> {
 }
 
 type CellProjection<R> = dyn Fn(&R, Cell, Presentation) -> view::Node;
-type RecordOrder<R> = dyn Fn(&R, &R) -> Ordering;
 type ValueValidation<V> = dyn Fn(&V) -> Result<(), String> + Send + Sync;
 
 /// A heterogeneous typed column after its value and capabilities are erased.
 pub struct TypedColumn<R> {
     column: Column,
     cell: Rc<CellProjection<R>>,
-    order: Option<Rc<RecordOrder<R>>>,
 }
 
-impl<R> TypedColumn<R> {
-    pub fn order(&self, left: &R, right: &R) -> Option<Ordering> {
-        self.order.as_ref().map(|order| order(left, right))
-    }
-}
-
-/// A value column while its type capabilities are still available to the builder.
+/// A textual column while its std capabilities remain available to the builder.
 ///
-/// Capability verbs are absent when the value type lacks their trait:
+/// Capability verbs are absent when the value type lacks their std meaning:
 ///
 /// ```compile_fail
 /// use wgpu_l3::{table::Column, view::Dimension};
 /// struct Row { value: f64 }
-/// let _ = Column::value("value", "Value", Dimension::fixed(80),
+/// let _ = Column::text("value", "Value", Dimension::fixed(80),
 ///     |row: &Row| &row.value).sortable();
 /// ```
 ///
 /// ```compile_fail
 /// use wgpu_l3::{command, table::Column, view::Dimension};
-/// struct Row { value: bool }
+/// struct Shown;
+/// impl std::fmt::Display for Shown {
+///     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+///         f.write_str("shown")
+///     }
+/// }
+/// struct Row { value: Shown }
 /// struct Commit;
 /// impl command::Command for Commit {
 ///     type Args = ();
 ///     type Output = ();
 ///     const NAME: &'static str = "example.commit";
 /// }
-/// let _ = Column::value("value", "Value", Dimension::fixed(80),
+/// let _ = Column::text("value", "Value", Dimension::fixed(80),
 ///     |row: &Row| &row.value).editable::<Commit>(|_, _| ());
 /// ```
-pub struct ValueColumn<R, V> {
+pub struct TextColumn<R, V> {
     column: Column,
     accessor: Rc<dyn for<'a> Fn(&'a R) -> &'a V>,
     cell: Option<Rc<CellProjection<R>>>,
-    order: Option<Rc<RecordOrder<R>>>,
     overflow: text::Overflow,
+    align: view::Align,
+    input: text::Input,
     validation: Arc<ValueValidation<V>>,
+}
+
+/// A Boolean-medium column with optional reverse conversion for interaction.
+///
+/// Read-only projection needs only the forward conversion; toggling is absent
+/// until the value can honestly be reconstructed from the Boolean medium:
+///
+/// ```compile_fail
+/// use wgpu_l3::{command, table::Column, view::Dimension};
+/// #[derive(Clone)]
+/// struct OneWay(bool);
+/// impl From<OneWay> for bool { fn from(value: OneWay) -> Self { value.0 } }
+/// struct Row { value: OneWay }
+/// struct Commit;
+/// impl command::Command for Commit {
+///     type Args = ();
+///     type Output = ();
+///     const NAME: &'static str = "example.commit_boolean";
+/// }
+/// let _ = Column::boolean("value", "Value", Dimension::fixed(80),
+///     |row: &Row| &row.value).toggle::<Commit>(|_, _| ());
+/// ```
+pub struct BooleanColumn<R, V> {
+    column: Column,
+    accessor: Rc<dyn for<'a> Fn(&'a R) -> &'a V>,
+    cell: Option<Rc<CellProjection<R>>>,
 }
 
 struct TypedProvider<R> {
@@ -411,23 +399,41 @@ impl Column {
         }
     }
 
-    pub fn value<R, V>(
+    pub fn text<R, V>(
         id: impl Into<interaction::Id>,
         label: impl Into<String>,
         width: view::Dimension,
         accessor: impl for<'a> Fn(&'a R) -> &'a V + 'static,
-    ) -> ValueColumn<R, V>
+    ) -> TextColumn<R, V>
     where
         R: 'static,
-        V: Value + 'static,
+        V: Display + 'static,
     {
-        ValueColumn {
+        TextColumn {
             column: Self::new(id, label, width),
             accessor: Rc::new(accessor),
             cell: None,
-            order: None,
             overflow: text::Overflow::EllipsisEnd,
+            align: view::Align::Start,
+            input: text::Input::unrestricted(),
             validation: Arc::new(|_| Ok(())),
+        }
+    }
+
+    pub fn boolean<R, V>(
+        id: impl Into<interaction::Id>,
+        label: impl Into<String>,
+        width: view::Dimension,
+        accessor: impl for<'a> Fn(&'a R) -> &'a V + 'static,
+    ) -> BooleanColumn<R, V>
+    where
+        R: 'static,
+        V: Clone + Into<bool> + 'static,
+    {
+        BooleanColumn {
+            column: Self::new(id, label, width),
+            accessor: Rc::new(accessor),
+            cell: None,
         }
     }
 
@@ -443,7 +449,6 @@ impl Column {
         TypedColumn {
             column: Self::new(id, label, width),
             cell: Rc::new(move |record, identity, _| cell(record, identity)),
-            order: None,
         }
     }
 
@@ -518,13 +523,23 @@ impl Column {
     }
 }
 
-impl<R, V> ValueColumn<R, V>
+impl<R, V> TextColumn<R, V>
 where
     R: 'static,
-    V: Value + 'static,
+    V: Display + 'static,
 {
     pub fn overflow(mut self, overflow: text::Overflow) -> Self {
         self.overflow = overflow;
+        self
+    }
+
+    pub fn align(mut self, align: view::Align) -> Self {
+        self.align = align;
+        self
+    }
+
+    pub fn input(mut self, input: text::Input) -> Self {
+        self.input = input;
         self
     }
 
@@ -539,39 +554,36 @@ where
     pub fn build(self) -> TypedColumn<R> {
         let accessor = Rc::clone(&self.accessor);
         let overflow = self.overflow;
+        let align = self.align;
         let cell = self.cell.unwrap_or_else(|| {
             Rc::new(move |record, cell, presentation| {
                 let value = accessor(record);
-                value_node(value, cell, overflow, presentation)
+                display_value_node(cell, value.to_string(), align, overflow, presentation)
             })
         });
         TypedColumn {
             column: self.column,
             cell,
-            order: self.order,
         }
     }
 }
 
-impl<R, V> ValueColumn<R, V>
+impl<R, V> TextColumn<R, V>
 where
     R: 'static,
-    V: Sort + 'static,
+    V: Display + Ord + 'static,
 {
     pub fn sortable(mut self) -> Self {
-        let accessor = Rc::clone(&self.accessor);
         self.column.sortable = true;
-        self.order = Some(Rc::new(move |left, right| {
-            accessor(left).order(accessor(right))
-        }));
         self
     }
 }
 
-impl<R, V> ValueColumn<R, V>
+impl<R, V> TextColumn<R, V>
 where
     R: 'static,
-    V: EditText + 'static,
+    V: Display + FromStr + 'static,
+    V::Err: Display,
 {
     pub fn editable<C>(mut self, map: impl Fn(Cell, V) -> C::Args + Send + Sync + 'static) -> Self
     where
@@ -582,25 +594,27 @@ where
         let validation = Arc::clone(&self.validation);
         let map = Arc::new(map);
         let overflow = self.overflow;
-        let align = V::align();
+        let align = self.align;
+        let input = self.input;
         self.cell = Some(Rc::new(move |record, cell, presentation| {
             let value = accessor(record);
             let draft_validation = Arc::clone(&validation);
             let commit_validation = Arc::clone(&validation);
             let commit_map = Arc::clone(&map);
             widget::Widget::into_node(
-                TextEditor::new(cell, value.edit_text().into_owned())
+                TextEditor::new(cell, value.to_string())
                     .display(presentation)
                     .align(align)
                     .overflow(overflow)
-                    .input(V::input())
+                    .input(input)
                     .validate(move |draft| {
-                        let parsed = V::parse(draft)?;
+                        let parsed = draft.parse::<V>().map_err(|error| error.to_string())?;
                         draft_validation(&parsed)
                     })
                     .on_commit::<C>(move |cell, draft| {
-                        let parsed = V::parse(&draft)
-                            .expect("typed table editor validates syntax before commit mapping");
+                        let parsed = draft.parse::<V>().unwrap_or_else(|_| {
+                            panic!("typed table editor validates syntax before commit mapping")
+                        });
                         commit_validation(&parsed)
                             .expect("typed table editor validates domain before commit mapping");
                         commit_map(cell, parsed)
@@ -611,10 +625,41 @@ where
     }
 }
 
-impl<R, V> ValueColumn<R, V>
+impl<R, V> BooleanColumn<R, V>
 where
     R: 'static,
-    V: EditToggle + 'static,
+    V: Clone + Into<bool> + 'static,
+{
+    pub fn build(self) -> TypedColumn<R> {
+        let accessor = Rc::clone(&self.accessor);
+        let cell = self.cell.unwrap_or_else(|| {
+            Rc::new(move |record, _, _| {
+                let value: bool = accessor(record).clone().into();
+                widget::Widget::into_node(widget::Checkbox::new("", value))
+            })
+        });
+        TypedColumn {
+            column: self.column,
+            cell,
+        }
+    }
+}
+
+impl<R, V> BooleanColumn<R, V>
+where
+    R: 'static,
+    V: Clone + Into<bool> + Ord + 'static,
+{
+    pub fn sortable(mut self) -> Self {
+        self.column.sortable = true;
+        self
+    }
+}
+
+impl<R, V> BooleanColumn<R, V>
+where
+    R: 'static,
+    V: Clone + Into<bool> + From<bool> + 'static,
 {
     pub fn toggle<C>(mut self, map: impl Fn(Cell, V) -> C::Args + 'static) -> Self
     where
@@ -624,10 +669,10 @@ where
         let accessor = Rc::clone(&self.accessor);
         let map = Rc::new(map);
         self.cell = Some(Rc::new(move |record, cell, _| {
-            let value = accessor(record);
-            let next = value.toggled();
+            let value: bool = accessor(record).clone().into();
+            let next = V::from(!value);
             widget::Widget::into_node(
-                widget::Checkbox::new("", value.is_on()).trigger::<C>(map(cell, next)),
+                widget::Checkbox::new("", value).trigger::<C>(map(cell, next)),
             )
         }));
         self
@@ -890,7 +935,7 @@ impl NumberEditor {
             placeholder: None,
             validation: Arc::new(|_| Ok(())),
             trigger: None,
-            input: text::Input::unrestricted(),
+            input: text::Input::signed_integer(),
         }
     }
 
@@ -1123,21 +1168,6 @@ fn sized(node: view::Node, width: view::Dimension) -> view::Node {
     node.with_style(style)
 }
 
-fn value_node<V: Value>(
-    value: &V,
-    cell: Cell,
-    overflow: text::Overflow,
-    presentation: Presentation,
-) -> view::Node {
-    display_value_node(
-        cell,
-        value.text().into_owned(),
-        V::align(),
-        overflow,
-        presentation,
-    )
-}
-
 fn display_value_node(
     cell: Cell,
     text: String,
@@ -1156,164 +1186,181 @@ fn display_value_node(
     .with_world_text_alignment(align)
 }
 
-impl Value for String {
-    fn text(&self) -> Cow<'_, str> {
-        Cow::Borrowed(self)
-    }
-}
-
-impl Sort for String {
-    fn order(&self, other: &Self) -> Ordering {
-        self.cmp(other)
-    }
-}
-
-impl EditText for String {
-    fn parse(text: &str) -> Result<Self, String> {
-        Ok(text.to_owned())
-    }
-}
-
-impl Value for bool {
-    fn text(&self) -> Cow<'_, str> {
-        Cow::Borrowed(if *self { "✓" } else { "" })
-    }
-}
-
-impl Sort for bool {
-    fn order(&self, other: &Self) -> Ordering {
-        self.cmp(other)
-    }
-}
-
-impl EditToggle for bool {
-    fn is_on(&self) -> bool {
-        *self
-    }
-
-    fn toggled(&self) -> Self {
-        !self
-    }
-}
-
-macro_rules! integer_value {
-    ($input:expr; $($type:ty),+ $(,)?) => {
-        $(
-            impl Value for $type {
-                fn text(&self) -> Cow<'_, str> {
-                    Cow::Owned(self.to_string())
-                }
-
-                fn align() -> view::Align {
-                    view::Align::End
-                }
-            }
-
-            impl Sort for $type {
-                fn order(&self, other: &Self) -> Ordering {
-                    self.cmp(other)
-                }
-            }
-
-            impl EditText for $type {
-                fn parse(text: &str) -> Result<Self, String> {
-                    text.trim()
-                        .parse::<Self>()
-                        .map_err(|_| "Enter a whole number".to_owned())
-                }
-
-                fn input() -> text::Input {
-                    $input
-                }
-            }
-        )+
-    };
-}
-
-integer_value!(text::Input::signed_integer(); i8, i16, i32, i64, i128, isize);
-integer_value!(text::Input::unsigned_integer(); u8, u16, u32, u64, u128, usize);
-
-macro_rules! float_value {
-    ($($type:ty),+ $(,)?) => {
-        $(
-            impl Value for $type {
-                fn text(&self) -> Cow<'_, str> {
-                    Cow::Owned(self.to_string())
-                }
-
-                fn align() -> view::Align {
-                    view::Align::End
-                }
-            }
-        )+
-    };
-}
-
-float_value!(f32, f64);
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    struct Rank(i32);
+    struct CommitText;
 
-    impl Value for Rank {
-        fn text(&self) -> Cow<'_, str> {
-            Cow::Owned(format!("rank {}", self.0))
+    impl command::Command for CommitText {
+        type Args = (Cell, String);
+        type Output = ();
+
+        const NAME: &'static str = "test.commit_text";
+    }
+
+    struct CommitAddress;
+
+    impl command::Command for CommitAddress {
+        type Args = (Cell, std::net::IpAddr);
+        type Output = ();
+
+        const NAME: &'static str = "test.commit_address";
+    }
+
+    struct CommitSwitch;
+
+    impl command::Command for CommitSwitch {
+        type Args = (Cell, Switch);
+        type Output = ();
+
+        const NAME: &'static str = "test.commit_switch";
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum Switch {
+        Off,
+        On,
+    }
+
+    impl From<Switch> for bool {
+        fn from(value: Switch) -> Self {
+            value == Switch::On
         }
     }
 
-    impl Sort for Rank {
-        fn order(&self, other: &Self) -> Ordering {
-            self.0.cmp(&other.0)
-        }
-    }
-
-    impl EditText for Rank {
-        fn parse(text: &str) -> Result<Self, String> {
-            text.parse().map(Self).map_err(|_| "rank".to_owned())
-        }
-
-        fn input() -> text::Input {
-            text::Input::signed_integer()
-        }
-    }
-
-    impl EditToggle for Rank {
-        fn is_on(&self) -> bool {
-            self.0 >= 0
-        }
-
-        fn toggled(&self) -> Self {
-            Self(-self.0)
+    impl From<bool> for Switch {
+        fn from(value: bool) -> Self {
+            if value { Self::On } else { Self::Off }
         }
     }
 
     #[test]
-    fn open_value_capabilities_supply_projection_order_parse_and_toggle() {
-        assert_eq!(Rank(7).text(), "rank 7");
-        assert_eq!(Rank(2).order(&Rank(9)), Ordering::Less);
-        assert_eq!(Rank::parse("-4").expect("signed rank").0, -4);
-        assert!(Rank(5).is_on());
-        assert_eq!(Rank(5).toggled().0, -5);
-    }
-
-    #[test]
-    fn erased_sort_capability_retains_the_typed_product_order() {
+    fn std_capabilities_supply_text_edit_sort_and_foreign_type_citizenship() {
         struct Record {
-            rank: Rank,
+            name: String,
+            address: std::net::IpAddr,
+            ratio: f64,
         }
-        let column = Column::value(
-            "rank",
-            "Rank",
+        let name = Column::text(
+            "name",
+            "Name",
             view::Dimension::fixed(80),
-            |record: &Record| &record.rank,
+            |record: &Record| &record.name,
+        )
+        .sortable()
+        .editable::<CommitText>(|cell, value| (cell, value))
+        .build();
+        let address = Column::text(
+            "address",
+            "Address",
+            view::Dimension::fixed(120),
+            |record: &Record| &record.address,
+        )
+        .sortable()
+        .editable::<CommitAddress>(|cell, value| (cell, value))
+        .build();
+        let ratio = Column::text(
+            "ratio",
+            "Ratio",
+            view::Dimension::fixed(80),
+            |record: &Record| &record.ratio,
+        )
+        .align(view::Align::End)
+        .input(text::Input::decimal())
+        .editable::<CommitText>(|cell, value| (cell, value.to_string()))
+        .build();
+        let record = Record {
+            name: "Ada".to_owned(),
+            address: "127.0.0.1".parse().expect("loopback address"),
+            ratio: 1.5,
+        };
+        let cell = Cell::new(
+            interaction::Id::new("std.table"),
+            virtual_list::Key::new(0),
+            interaction::Id::new("address"),
+        );
+        let address_node = (address.cell)(&record, cell, Presentation::Compact);
+        let ratio_node = (ratio.cell)(&record, cell, Presentation::Compact);
+
+        assert!(name.column.sortable);
+        assert!(address.column.sortable);
+        assert!(!ratio.column.sortable, "f64 remains non-Ord by std law");
+        assert_eq!(address_node.label_text(), Some("127.0.0.1"));
+        assert!(
+            address_node
+                .table_edit()
+                .expect("FromStr supplies the foreign editor")
+                .validate("not an address")
+                .is_err()
+        );
+        let ratio_edit = ratio_node
+            .table_edit()
+            .expect("float FromStr supplies an editor");
+        assert!(ratio_edit.validate("1.25").is_ok());
+        assert!(ratio_edit.validate("1e-").is_err());
+    }
+
+    #[test]
+    fn boolean_medium_separates_passive_projection_from_reverse_interaction() {
+        struct Record {
+            switch: Switch,
+            enabled: bool,
+            metadata: usize,
+        }
+        let passive = Column::boolean(
+            "passive",
+            "Passive",
+            view::Dimension::fixed(80),
+            |record: &Record| &record.switch,
         )
         .sortable()
         .build();
+        let interactive = Column::boolean(
+            "interactive",
+            "Interactive",
+            view::Dimension::fixed(80),
+            |record: &Record| &record.switch,
+        )
+        .toggle::<CommitSwitch>(|cell, value| (cell, value))
+        .build();
+        let field_not_whole_value = Column::boolean(
+            "field",
+            "Field",
+            view::Dimension::fixed(80),
+            |record: &Record| &record.enabled,
+        )
+        .build();
+        let record = Record {
+            switch: Switch::On,
+            enabled: true,
+            metadata: 7,
+        };
+        let cell = Cell::new(
+            interaction::Id::new("std.table"),
+            virtual_list::Key::new(0),
+            interaction::Id::new("passive"),
+        );
+
+        assert!(passive.column.sortable);
+        assert!(
+            (passive.cell)(&record, cell, Presentation::Compact)
+                .checkbox_model()
+                .is_some_and(view::Checkbox::checked)
+        );
+        assert!(
+            (interactive.cell)(&record, cell, Presentation::Compact)
+                .binding()
+                .is_some()
+        );
+        assert!(
+            (field_not_whole_value.cell)(&record, cell, Presentation::Compact)
+                .checkbox_model()
+                .is_some_and(view::Checkbox::checked)
+        );
         assert_eq!(
-            column.order(&Record { rank: Rank(3) }, &Record { rank: Rank(1) }),
-            Some(Ordering::Greater)
+            record.metadata, 7,
+            "extra state is never round-tripped through bool"
         );
     }
 

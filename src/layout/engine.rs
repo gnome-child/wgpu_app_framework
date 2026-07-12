@@ -62,9 +62,11 @@ impl Engine {
         source: &str,
         width: i32,
         style: super::super::theme::TypeStyle,
+        wrap: view::Wrap,
         overflow: text_engine::Overflow,
     ) -> text::Selectable {
-        self.text.resolve_selectable(source, width, style, overflow)
+        self.text
+            .resolve_selectable(source, width, style, wrap, overflow)
     }
 
     pub(super) fn diagnose_author_text_overflow(

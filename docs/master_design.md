@@ -313,6 +313,16 @@ sorting occurs only when the application changes provider order. Table paint
 derives striping and rules from layout row/cell facts, and the shared `Rule`
 rasterizer owns physical-pixel snapping across scale factors.
 
+Typed columns select a presentation medium explicitly. `Column::text` accepts
+any `Display` value, adds editing only for `FromStr` values, and adds sortable
+header intent only for `Ord` values. `Column::boolean` projects any value with
+an honest forward `Into<bool>` conversion; reverse `From<bool>` is required
+only when `.toggle()` adds interaction. Alignment and input filtering are
+column policy, not hidden type behavior. The framework owns the cell species
+and geometry; std owns display, parsing, conversion, and ordering meanings.
+Types with state beyond the Boolean medium expose a Boolean field rather than
+round-tripping the whole value and silently discarding information.
+
 Editable record cells reuse TextBox editing, draft history, command mapping,
 focus, and virtual-row pinning. `table::TextEditor` keeps text validation and
 typed application commit mapping distinct. `table::NumberEditor` additionally
@@ -1197,6 +1207,12 @@ move the fact to the lowest honest owner and make every other subsystem
 consume it. Layout owns viewport clips for paint, hit testing, and wheel
 targeting. Viewport geometry owns scrollbars, reveal, and scroll consumption.
 The paint `Grid` owns device-scale snapping.
+
+Late viewport chrome carries its owner, ordered paint layer, and originating
+clip stack. Focus outlines and scrollbars replay that provenance after inline
+content; scrollbar hit testing consumes the same scope rather than recovering
+an owner clip through a parallel path. Selection remains inline geometry, not
+late chrome.
 
 Derived geometry is projected once from its owning truths and consumed
 everywhere, placement included. Interaction may target a projection, but its

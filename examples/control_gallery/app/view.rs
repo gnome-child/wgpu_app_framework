@@ -34,18 +34,12 @@ struct GalleryRecord {
     enabled: bool,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct RecordNumber(usize);
 
-impl table::Value for RecordNumber {
-    fn text(&self) -> std::borrow::Cow<'_, str> {
-        std::borrow::Cow::Owned(format!("Record {}", self.0))
-    }
-}
-
-impl table::Sort for RecordNumber {
-    fn order(&self, other: &Self) -> std::cmp::Ordering {
-        self.0.cmp(&other.0)
+impl std::fmt::Display for RecordNumber {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "Record {}", self.0)
     }
 }
 
@@ -151,7 +145,7 @@ pub fn view(state: &State, _: ViewContext) -> View {
                             },
                         );
                         let columns: Vec<table::TypedColumn<GalleryRecord>> = vec![
-                            table::Column::value(
+                            table::Column::text(
                                 "record",
                                 "Record",
                                 Dimension::fixed(110),
@@ -159,7 +153,7 @@ pub fn view(state: &State, _: ViewContext) -> View {
                             )
                             .sortable()
                             .build(),
-                            table::Column::value(
+                            table::Column::text(
                                 "detail",
                                 "Detail",
                                 Dimension::weight(2),
@@ -167,7 +161,7 @@ pub fn view(state: &State, _: ViewContext) -> View {
                             )
                             .overflow(text::Overflow::EllipsisMiddle)
                             .build(),
-                            table::Column::value(
+                            table::Column::text(
                                 "note",
                                 "Note",
                                 Dimension::weight(1),
@@ -185,12 +179,14 @@ pub fn view(state: &State, _: ViewContext) -> View {
                                 value,
                             })
                             .build(),
-                            table::Column::value(
+                            table::Column::text(
                                 "count",
                                 "Count",
                                 Dimension::fixed(72),
                                 |record: &GalleryRecord| &record.count,
                             )
+                            .align(Align::End)
+                            .input(text::Input::signed_integer())
                             .sortable()
                             .validate(|value| {
                                 (0..=999).contains(value).then_some(()).ok_or_else(|| {
@@ -202,7 +198,7 @@ pub fn view(state: &State, _: ViewContext) -> View {
                                 value,
                             })
                             .build(),
-                            table::Column::value(
+                            table::Column::boolean(
                                 "enabled",
                                 "Enabled",
                                 Dimension::fixed(100),

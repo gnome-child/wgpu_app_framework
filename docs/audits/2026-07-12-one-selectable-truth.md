@@ -141,12 +141,41 @@ input are column configuration. `Column::custom` remains the node escape hatch.
 - `Display` is necessary for honest zero-adapter foreign citizenship: an
   application cannot implement a framework trait for a foreign type.
 
+### Outcome
+
+- `Value`, `Sort`, `EditText`, and `EditToggle` are deleted, along with the
+  erased record comparator and `TypedColumn::order`. Sorting continues to emit
+  intent; the application remains the sole provider-order owner.
+- `Column::text` / `TextColumn` use `Display`, optional `FromStr` editing, and
+  optional `Ord` sorting. `Column::boolean` / `BooleanColumn` use forward
+  `Into<bool>` presentation, optional reverse `From<bool>` toggling, and
+  optional `Ord` sorting. `Column::custom` remains the node escape hatch.
+- Alignment and input filtering are explicit column policy. The gallery now
+  declares integer end alignment and signed input; `Input::decimal` admits
+  lawful float intermediates while commit-time `FromStr` remains authority.
+  `NumberEditor` keeps its focused manual role and now defaults to signed input.
+- A foreign `std::net::IpAddr` displays, edits, and rejects invalid syntax with
+  zero adapter code. `f64` edits but cannot opt into sorting without an `Ord`
+  newtype. `bool` and an honest local two-state enum prove both Boolean
+  directions; the extra-state case exposes a Boolean field instead.
+- Newline census: compact text treats following `Display` lines as mapped end
+  residue and produces no hidden scrollbar; expanded text preserves explicit
+  breaks. The selectable projection retains source mapping in both cases.
+- Structural-absence and compile-fail witnesses pin all four trait deletions,
+  non-`Ord` sorting, missing `FromStr` editing, and missing reverse Boolean
+  conversion. Public API flags: four traits, `ValueColumn`, `Column::value`,
+  `TypedColumn::order`, and the erased comparator are deleted; `TextColumn`,
+  `BooleanColumn`, `Column::{text,boolean}`, and `Input::decimal` are added.
+- Synchronized boundary: formatting, all-target checks, and three doc tests
+  pass; 904 library tests pass with 8 intentional ignores; all three external
+  smokes pass; diff hygiene passes; `comparison_open: true` is preserved.
+
 ## Commit receipts
 
 | Boundary | Commit | Files | Insertions | Deletions | Result |
 | --- | --- | ---: | ---: | ---: | --- |
 | Ledger open | `eaab8b53` | 2 | 118 | 3 | Baseline, doctrine, census, and protocol |
 | Checkpoint 1 | `0982bf04` | 10 | 704 | 112 | One resolved selectable projection |
-| Checkpoint 2 | this commit | 6 | 277 | 51 | Viewport-scoped late chrome |
-| Checkpoint 3 | pending | pending | pending | pending | Std capability boundary and explicit species |
+| Checkpoint 2 | `79844ba5` | 6 | 277 | 51 | Viewport-scoped late chrome |
+| Checkpoint 3 | this commit | 11 | 580 | 249 | Std capability boundary and explicit species |
 | Close | pending | pending | pending | pending | Resistance audit, API review, final boundary, clean tree |

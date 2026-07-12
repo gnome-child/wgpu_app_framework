@@ -78,6 +78,33 @@ impl Engine {
         }
     }
 
+    pub(crate) fn resolve_single_line_overflow_projection(
+        &mut self,
+        value: &str,
+        style: text::document::Style,
+        width: f32,
+        overflow: Overflow,
+    ) -> OverflowProjection {
+        let Some(line_end) = value.find(|character| matches!(character, '\r' | '\n')) else {
+            return self.resolve_overflow_projection(value, style, width, overflow);
+        };
+        let first_line = &value[..line_end];
+        if overflow == Overflow::Clip {
+            return OverflowProjection {
+                source: value.to_owned(),
+                visible: first_line.to_owned(),
+                mapping: Mapping::End { head_end: line_end },
+            };
+        }
+        let width = finite_width(width);
+        if !self.fits(ELLIPSIS, style, width) {
+            return OverflowProjection::empty(value);
+        }
+        let graphemes = UnicodeSegmentation::graphemes(first_line, true).collect::<Vec<_>>();
+        let keep = self.ellipsis_end(&graphemes, style, width);
+        OverflowProjection::ellipsis_end(value, &graphemes, keep)
+    }
+
     fn ellipsis_end(
         &mut self,
         graphemes: &[&str],
@@ -477,5 +504,34 @@ mod tests {
         );
         assert!(projection.visible().is_char_boundary(visible_tail));
         assert!(value.is_char_boundary(source_tail));
+    }
+
+    #[test]
+    fn single_line_projection_treats_following_display_lines_as_mapped_residue() {
+        let mut engine = Engine::new();
+        let value = "alpha\nbeta";
+        let width = single_line_width(&mut engine, "alpha…", style()) + 1.0;
+        let projection = engine.resolve_single_line_overflow_projection(
+            value,
+            style(),
+            width,
+            Overflow::EllipsisEnd,
+        );
+
+        assert_eq!(projection.visible(), "alpha…");
+        assert!(!projection.visible().contains('\n'));
+        assert_eq!(
+            projection
+                .source_position(Position::new(projection.visible().len()))
+                .index,
+            value.len()
+        );
+        assert_eq!(
+            engine
+                .resolve_overflow_projection(value, style(), width, Overflow::Clip)
+                .visible(),
+            value,
+            "wrapped presentation preserves explicit Display line breaks"
+        );
     }
 }

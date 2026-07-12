@@ -214,6 +214,7 @@ impl Frame {
                     &text_area.buffer().text(),
                     text_area_text_rect.width(),
                     label_style,
+                    world_text_wrap.unwrap_or_else(|| text_area.wrap()),
                     overflow,
                 )
             })

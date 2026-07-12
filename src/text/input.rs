@@ -8,6 +8,7 @@ enum Kind {
     Unrestricted,
     SignedInteger,
     UnsignedInteger,
+    Decimal,
 }
 
 pub(crate) enum Decision {
@@ -35,6 +36,12 @@ impl Input {
         }
     }
 
+    pub fn decimal() -> Self {
+        Self {
+            kind: Kind::Decimal,
+        }
+    }
+
     pub(crate) fn evaluate(self, proposed: &str) -> Decision {
         if self.kind == Kind::Unrestricted {
             return Decision::Accept;
@@ -58,6 +65,7 @@ impl Input {
                         .chars()
                         .all(|character| character.is_ascii_digit())
             }
+            Kind::Decimal => decimal_candidate(normalized),
         };
         if !accepted {
             return Decision::Reject;
@@ -68,6 +76,46 @@ impl Input {
             Decision::Normalize(normalized.to_owned())
         }
     }
+}
+
+fn decimal_candidate(candidate: &str) -> bool {
+    let unsigned = candidate
+        .strip_prefix('-')
+        .or_else(|| candidate.strip_prefix('+'))
+        .unwrap_or(candidate);
+    if unsigned.is_empty() {
+        return true;
+    }
+    let mut parts = unsigned.split(['e', 'E']);
+    let mantissa = parts.next().unwrap_or_default();
+    let exponent = parts.next();
+    if parts.next().is_some() {
+        return false;
+    }
+    let mut decimal_points = 0;
+    let mantissa_ok = mantissa.chars().all(|character| {
+        if character == '.' {
+            decimal_points += 1;
+            decimal_points <= 1
+        } else {
+            character.is_ascii_digit()
+        }
+    });
+    if !mantissa_ok {
+        return false;
+    }
+    let Some(exponent) = exponent else {
+        return true;
+    };
+    if !mantissa.chars().any(|character| character.is_ascii_digit()) {
+        return false;
+    }
+    exponent
+        .strip_prefix('-')
+        .or_else(|| exponent.strip_prefix('+'))
+        .unwrap_or(exponent)
+        .chars()
+        .all(|character| character.is_ascii_digit())
 }
 
 impl Default for Input {
@@ -114,5 +162,21 @@ mod tests {
             Input::unsigned_integer().evaluate("4x"),
             Decision::Reject
         ));
+    }
+
+    #[test]
+    fn decimal_policy_accepts_float_intermediates_and_exponents() {
+        for candidate in ["", "-", ".", "-.", "0.25", "+4.5", "1e", "1e-", "1E+3"] {
+            assert!(
+                matches!(Input::decimal().evaluate(candidate), Decision::Accept),
+                "{candidate:?} is a lawful decimal draft"
+            );
+        }
+        for candidate in ["--1", "1.2.3", "e3", "1ee2", "1e-+2", "NaN"] {
+            assert!(
+                matches!(Input::decimal().evaluate(candidate), Decision::Reject),
+                "{candidate:?} is not a decimal draft"
+            );
+        }
     }
 }

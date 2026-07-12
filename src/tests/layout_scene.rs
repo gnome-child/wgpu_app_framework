@@ -2765,6 +2765,86 @@ fn compact_ellipsized_table_cells_project_no_hidden_text_scrollbars() {
 }
 
 #[test]
+fn display_newlines_are_compact_residue_and_expanded_line_breaks() {
+    #[derive(Clone)]
+    struct Record {
+        value: Multiline,
+    }
+    #[derive(Clone)]
+    struct Multiline;
+    impl std::fmt::Display for Multiline {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("alpha\nbeta")
+        }
+    }
+    let render = |presentation| {
+        let mut app = Runtime::new(SourceState::default())
+            .started(|cx| {
+                cx.open_window(window::Options::new("Multiline Display"));
+            })
+            .view(move |_, _| {
+                let source = crate::table::Source::new(
+                    1,
+                    |_| crate::virtual_list::Key::new(0),
+                    |key| (key.value() == 0).then_some(0),
+                    |_| Record { value: Multiline },
+                );
+                widget::view_node(
+                    crate::Table::typed(
+                        "multiline.display",
+                        24,
+                        [crate::table::Column::text(
+                            "value",
+                            "Value",
+                            view::Dimension::fixed(90),
+                            |record: &Record| &record.value,
+                        )
+                        .build()],
+                        source,
+                    )
+                    .presentation(presentation)
+                    .width(view::Dimension::fixed(90))
+                    .height(view::Dimension::fixed(90)),
+                )
+            });
+        app.start();
+        let window = app.session().windows()[0].id();
+        app.render_scene(window, geometry::Size::new(90, 90))
+            .expect("multiline table should render")
+    };
+    let compact = render(crate::table::Presentation::Compact);
+    let compact_cell = compact
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell().is_some())
+        .expect("compact multiline cell");
+    assert_eq!(compact_cell.label_text(), Some("alpha…"));
+    assert!(
+        compact_cell
+            .label_text()
+            .is_some_and(|value| !value.contains('\n'))
+    );
+    assert!(
+        compact
+            .layout()
+            .chrome()
+            .iter()
+            .all(|chrome| chrome.scroll_target().table_cell().is_none())
+    );
+
+    let expanded = render(crate::table::Presentation::Expanded);
+    let expanded_cell = expanded
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell().is_some())
+        .expect("expanded multiline cell");
+    assert_eq!(expanded_cell.label_text(), Some("alpha\nbeta"));
+    assert!(expanded_cell.rect().height() >= compact_cell.rect().height());
+}
+
+#[test]
 fn table_cell_text_input_without_a_draft_never_falls_through_to_document_editing() {
     let mut app = control_gallery::app(control_gallery::State::default());
     app.start();
@@ -7815,7 +7895,7 @@ fn expanded_sort_header_stays_single_line_beside_a_trailing_active_chevron() {
         })
         .view(move |_, _| {
             let columns = vec![
-                crate::table::Column::value(
+                crate::table::Column::text(
                     "long",
                     LABEL,
                     view::Dimension::fixed(120),
