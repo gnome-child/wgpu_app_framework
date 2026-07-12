@@ -56,7 +56,7 @@ coalesce into one frame, but no semantic input is discarded.
 
 | Checkpoint | State | Boundary |
 | --- | --- | --- |
-| 0. Evidence harness and backend verdict | In progress | Phase timings, event/frame counts, release Vulkan/DX12-Visual/DX12-HWND baseline |
+| 0. Evidence harness and backend verdict | Complete | `4abc2472`; phase timings and event/frame counts; release 136/500/800-pixel Vulkan/DX12-Visual/DX12-HWND matrix |
 | 1. Presentation receipts and geometry epochs | Pending | Prepared candidate versus successfully presented geometry |
 | 2. Presentation-rate coalescing | Pending | Event work immediate; scene/GPU work only at redraw boundary |
 | 3. Last-presented input geometry | Pending | No event-local speculative layout |
@@ -157,6 +157,30 @@ remeasure before considering a second context or a Vulkan-main/DX12-popup
 split. All three paths continued to report `Mailbox`, desired latency 1,
 `Bgra8UnormSrgb`, and the same surface size.
 
-The compact 136-pixel and larger-than-500 table-size runs remain open. They
-will be built from a clean comparison worktree after the harness commit so the
-user's protected 500-pixel edit is never rewritten to obtain those receipts.
+### Visible-size scaling matrix
+
+The harness commit was checked out into a detached comparison worktree. Its
+committed 136-pixel gallery fixture and a disposable 800-pixel build supplied
+the missing sizes without touching the user's 500-pixel edit. All runs used the
+same release profile, gesture coordinates, backend environment, and diagnostic
+window. Scene population rose from approximately 258 items / 245 batches at
+136 pixels, through 618 / 605 at 500 pixels, to 690 / 677 at 800 pixels (the
+outer window clip bounded the final materialization).
+
+| Table height | Vulkan native / encode | DX12 visual native / encode | DX12 HWND native / encode |
+| --- | ---: | ---: | ---: |
+| 136 px | 10.6 / 6.4 ms | 17.4 / 12.2 ms | 17.3 / 12.1 ms |
+| 500 px | 27.8 / 17.3 ms | 62.6 / 50.2 ms | 61.5-64.6 / 49.4-50.7 ms |
+| 800 px | 28.9 / 17.9 ms | 68.6 / 59.4 ms | 67.8 / 56.2 ms |
+
+The field report is reproduced: frame cost follows visible scene population,
+not logical record count, and DX12 amplifies the renderer/present portion. The
+plateau from 500 to 800 corresponds to the outer clip bounding visible
+materialization; it is evidence that virtualization is working. The remaining
+per-visible-cell cost is paid once per raw input event, which is the clock
+violation checkpoints 2-5 remove.
+
+Checkpoint 0 boundary: formatting, all-target compilation, 926 library tests
+passed with 8 deliberate ignores, all 4 doctests passed, the three application
+smokes passed, diff hygiene held, and the protected gallery edit remained the
+only unrelated working-tree change.
