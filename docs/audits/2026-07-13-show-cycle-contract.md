@@ -1,6 +1,7 @@
 # Show-cycle presentation contract
 
-Status: in flight. Prerequisite to the material-regions campaign.
+Status: complete at `d4a6072b`. Prerequisite to the material-regions campaign
+is satisfied on Windows.
 
 ## Contract
 
@@ -55,3 +56,26 @@ minted from Windows evidence.
   behavior remains unchanged.
 - Full suite, doctests, all-target compilation, three application smokes, and
   comparison protection pass before closure.
+
+## Close-out evidence
+
+- `d4a6072b` replaces show-before-draw with the finite readiness action:
+  configure and immediately-due material, `DWMWA_CLOAK`, no-activate show,
+  current draw/present, `DwmFlush`, then uncloak.
+- Skipped acquisition remains concealed. First synchronization failure earns
+  one concealed confirmation present; no retry budget was introduced.
+- The architecture witness pins draw → present → expose and requires both
+  cloak transitions and every diagnostic stage.
+- Full library gate: 906 passed, 8 ignored. Doctests: 4 passed. `cargo check
+  --all-targets`, `cargo fmt --all --check`, `git diff --check`, and all three
+  application smokes passed.
+- A deliberately broader `cargo test --all-targets` exposed an existing
+  example-test cfg mismatch (`control_gallery::window_size` is hidden under
+  `cfg(test)`); all-target compilation and the required full library gate are
+  green, so that unrelated example-test issue was not absorbed here.
+- Live Windows acceptance used the Vulkan redirected path and reopened the
+  Controls native popup eight times. Every observed popup contained its
+  current Click/Reset content; no empty or stale first frame, activation
+  change, or crash appeared.
+- `comparison_open: true`: the unrelated local gallery-height edit remains the
+  sole uncommitted file and was not staged.

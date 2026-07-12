@@ -6,10 +6,7 @@ is next.
 
 ## In flight
 
-2. **Show-cycle presentation contract** — the first visible frame of every
-   popup show cycle must be a freshly presented current frame. Implementation
-   is reducing the current show-before-present path into a hidden/cloaked
-   readiness gate before the material-regions campaign begins.
+None.
 
 ## Specced and ready
 
@@ -131,8 +128,6 @@ is next.
 
 ## Watch items
 
-21. Unresolved first-frame skip note in `master_design.md` — expected to die
-    with item 2; the first-present trace names it otherwise.
 22. Documented non-merges, revisit only on evidence: scene-transform
     sanitization duplicate, the two `AnyTarget` shapes, equal cache
     capacities and transition durations.
