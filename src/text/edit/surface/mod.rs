@@ -7,7 +7,9 @@ pub use area::{Area, AreaWrap};
 pub use field::{Field, Obscuring};
 pub use mode::FieldMode;
 
-pub(crate) use projection::{FieldProjection, PreeditProjection, projected_state_for_field};
+pub(crate) use projection::{
+    FieldProjection, PositionMap, PreeditProjection, projected_state_for_field,
+};
 
 use super::super::buffer::Buffer;
 use super::{State, ViewState};

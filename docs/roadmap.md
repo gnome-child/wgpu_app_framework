@@ -6,11 +6,7 @@ is next.
 
 ## In flight
 
-**One Selectable Truth** — unifies inactive table shaping, selection, source
-mapping and extent; promotes viewport-scoped late chrome on its second proven
-caller; and replaces table capability traits with std meanings and explicit
-text/Boolean species. Its crash-safe ledger is
-[`audits/2026-07-12-one-selectable-truth.md`](audits/2026-07-12-one-selectable-truth.md).
+None.
 
 ## Specced and ready
 

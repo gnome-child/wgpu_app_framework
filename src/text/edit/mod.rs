@@ -26,7 +26,9 @@ pub use operation::{Edit, PointerEditKind};
 pub use outcome::Outcome;
 pub use state::State;
 pub use surface::{Area, AreaWrap, Field, FieldMode, Obscuring, Surface};
-pub(crate) use surface::{FieldProjection, PreeditProjection, projected_state_for_field};
+pub(crate) use surface::{
+    FieldProjection, PositionMap, PreeditProjection, projected_state_for_field,
+};
 #[cfg(test)]
 pub(crate) use transaction::Impact;
 #[cfg(test)]

@@ -7,9 +7,9 @@ selection and caret paint drifted from Count glyphs and remained in previously
 visited cells, compact ellipsized cells exposed inert horizontal scrollbars,
 and those late-painted scrollbars escaped their table viewport.
 
-Status: active. Checkpoint 1 must seal the field regressions before the user-
-authorized push of accumulated history. Checkpoints 2 and 3 remain local unless
-separately authorized.
+Status: complete. Checkpoint 1 sealed the field regressions and the
+user-authorized push ended at `0982bf04`. Checkpoints 2, 3, and close remain
+local, as required by the campaign protocol.
 
 ## Doctrine under test
 
@@ -170,6 +170,45 @@ input are column configuration. `Column::custom` remains the node escape hatch.
   pass; 904 library tests pass with 8 intentional ignores; all three external
   smokes pass; diff hygiene passes; `comparison_open: true` is preserved.
 
+## Closeout — resistance audit and API review
+
+The final census found one proven lower concept rather than another table-
+specific mechanism. Password obscuring and text overflow both maintained a
+monotonic mapping between source and presented positions so hits, carets, and
+selections could cross a lossy projection. They now consume one internal
+`PositionMap`; password bullets and compact ellipsis only declare their map
+points. The architecture witness pins affinity preservation in both mapping
+directions. This is a deletion-shaped merge of two existing mechanics, not a
+new public projection vocabulary.
+
+The census also retained three principled non-merges:
+
+- Selection remains inline with shaped text because it is content geometry,
+  not late viewport chrome.
+- Application overlays and table rules remain outside viewport chrome because
+  neither is owned by a scroll viewport or shares its paint/hit lifecycle.
+- `NumberEditor` remains a free/manual editor recipe. Its convenience defaults
+  do not reintroduce a table capability trait or compete with `FromStr` as the
+  typed-column edit boundary.
+
+Morning API review accepts the deliberate breaking deletion of four framework
+traits, `ValueColumn`, `Column::value`, `TypedColumn::order`, and its erased
+comparator. The replacement surface is smaller: explicit text and Boolean
+species plus std meanings. `Input::decimal` is the only unrelated public
+addition and belongs to the existing input-policy vocabulary. Boolean's
+`Clone` bound remains a borrowing-accessor artifact, not doctrine.
+
+Watch lines remain narrow: revisit `Display` allocation only after a measured
+million-row regression; choice needs both a caller and enumeration vocabulary
+that std does not provide; progress waits for a real read-only numeric-medium
+caller. No choice/progress species, generalized app-overlay system, or second
+track/text solver was introduced.
+
+Final synchronized boundary: formatting and all-target compilation pass; 904
+library tests pass with 8 intentional ignores; all 3 compile-fail doctests and
+all three external smokes pass; diff hygiene passes; protected
+`comparison_open: true` remains enabled.
+
 ## Commit receipts
 
 | Boundary | Commit | Files | Insertions | Deletions | Result |
@@ -177,5 +216,5 @@ input are column configuration. `Column::custom` remains the node escape hatch.
 | Ledger open | `eaab8b53` | 2 | 118 | 3 | Baseline, doctrine, census, and protocol |
 | Checkpoint 1 | `0982bf04` | 10 | 704 | 112 | One resolved selectable projection |
 | Checkpoint 2 | `79844ba5` | 6 | 277 | 51 | Viewport-scoped late chrome |
-| Checkpoint 3 | this commit | 11 | 580 | 249 | Std capability boundary and explicit species |
-| Close | pending | pending | pending | pending | Resistance audit, API review, final boundary, clean tree |
+| Checkpoint 3 | `098bac96` | 11 | 580 | 249 | Std capability boundary and explicit species |
+| Close | this commit | 7 | 243 | 190 | Shared position map, resistance audit, API review, final boundary |

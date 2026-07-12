@@ -1,10 +1,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::{Engine, Measure};
-use crate::text::{
-    self, Overflow,
-    buffer::{Affinity, CursorSelection, Position},
-};
+use crate::text::{self, Overflow, buffer::Position, edit::PositionMap};
 
 const ELLIPSIS: &str = "…";
 
@@ -12,27 +9,7 @@ const ELLIPSIS: &str = "…";
 pub(crate) struct OverflowProjection {
     source: String,
     visible: String,
-    mapping: Mapping,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Mapping {
-    Identity,
-    Empty,
-    End {
-        head_end: usize,
-    },
-    Middle {
-        head_end: usize,
-        tail_start: usize,
-        tail_visible_start: usize,
-    },
-}
-
-#[derive(Clone, Copy)]
-enum Edge {
-    Start,
-    End,
+    position_map: Option<PositionMap>,
 }
 
 impl Engine {
@@ -93,7 +70,11 @@ impl Engine {
             return OverflowProjection {
                 source: value.to_owned(),
                 visible: first_line.to_owned(),
-                mapping: Mapping::End { head_end: line_end },
+                position_map: Some(PositionMap::new(
+                    value.len(),
+                    first_line.len(),
+                    [(0, 0), (line_end, line_end)],
+                )),
             };
         }
         let width = finite_width(width);
@@ -194,7 +175,7 @@ impl OverflowProjection {
         Self {
             source: source.to_owned(),
             visible: source.to_owned(),
-            mapping: Mapping::Identity,
+            position_map: None,
         }
     }
 
@@ -202,16 +183,21 @@ impl OverflowProjection {
         Self {
             source: source.to_owned(),
             visible: String::new(),
-            mapping: Mapping::Empty,
+            position_map: Some(PositionMap::new(source.len(), 0, [(0, 0)])),
         }
     }
 
     fn ellipsis_end(source: &str, graphemes: &[&str], keep: usize) -> Self {
         let head_end = graphemes[..keep].iter().map(|value| value.len()).sum();
+        let visible = end_candidate(graphemes, keep);
         Self {
             source: source.to_owned(),
-            visible: end_candidate(graphemes, keep),
-            mapping: Mapping::End { head_end },
+            position_map: Some(PositionMap::new(
+                source.len(),
+                visible.len(),
+                [(0, 0), (head_end, head_end), (visible.len(), source.len())],
+            )),
+            visible,
         }
     }
 
@@ -222,14 +208,21 @@ impl OverflowProjection {
             .map(|value| value.len())
             .sum::<usize>();
         let tail_start = source.len().saturating_sub(tail_bytes);
+        let visible = middle_candidate(graphemes, head, tail);
+        let tail_visible_start = head_end + ELLIPSIS.len();
         Self {
             source: source.to_owned(),
-            visible: middle_candidate(graphemes, head, tail),
-            mapping: Mapping::Middle {
-                head_end,
-                tail_start,
-                tail_visible_start: head_end + ELLIPSIS.len(),
-            },
+            position_map: Some(PositionMap::new(
+                source.len(),
+                visible.len(),
+                [
+                    (0, 0),
+                    (head_end, head_end),
+                    (tail_visible_start, tail_start),
+                    (visible.len(), source.len()),
+                ],
+            )),
+            visible,
         }
     }
 
@@ -238,35 +231,10 @@ impl OverflowProjection {
     }
 
     pub(crate) fn source_position(&self, position: Position) -> Position {
-        let index = position.index.min(self.visible.len());
-        let source = match self.mapping {
-            Mapping::Identity => index.min(self.source.len()),
-            Mapping::Empty => 0,
-            Mapping::End { head_end } => {
-                if index <= head_end {
-                    index
-                } else {
-                    self.source.len()
-                }
-            }
-            Mapping::Middle {
-                head_end,
-                tail_start,
-                tail_visible_start,
-            } => {
-                if index <= head_end {
-                    index
-                } else if index < tail_visible_start {
-                    match position.affinity {
-                        Affinity::Upstream => head_end,
-                        Affinity::Downstream => tail_start,
-                    }
-                } else {
-                    tail_start.saturating_add(index.saturating_sub(tail_visible_start))
-                }
-            }
-        };
-        Position::with_affinity(source.min(self.source.len()), position.affinity)
+        self.position_map.as_ref().map_or_else(
+            || Position::with_affinity(position.index.min(self.source.len()), position.affinity),
+            |map| map.source_position(position),
+        )
     }
 
     pub(crate) fn project_buffer_state(
@@ -275,67 +243,12 @@ impl OverflowProjection {
         state: text::edit::State,
     ) -> (text::Buffer, text::edit::State) {
         debug_assert_eq!(source.text(), self.source);
+        let Some(position_map) = self.position_map.as_ref() else {
+            return (source.clone(), state);
+        };
         let buffer = text::Buffer::from_multiline_text(self.visible.clone());
-        let source_cursor = source.position_for_state(state);
-        let selection = source.selection_for_state(state);
-        let (cursor, selection) = if let Some(selection) = selection {
-            let forward = selection.anchor.index <= selection.focus.index;
-            let anchor = self.display_position(
-                selection.anchor,
-                if forward { Edge::Start } else { Edge::End },
-            );
-            let focus = self.display_position(
-                selection.focus,
-                if forward { Edge::End } else { Edge::Start },
-            );
-            (
-                buffer.cursor_for_position(focus),
-                CursorSelection::Normal(buffer.cursor_for_position(anchor)),
-            )
-        } else {
-            (
-                buffer.cursor_for_position(self.display_position(source_cursor, Edge::End)),
-                CursorSelection::None,
-            )
-        };
-        let mut projected = buffer.initial_state();
-        buffer.set_cursor_and_selection_for_state(&mut projected, cursor, selection);
+        let projected = position_map.project_state(source, state, &buffer);
         (buffer, projected)
-    }
-
-    fn display_position(&self, position: Position, edge: Edge) -> Position {
-        let index = position.index.min(self.source.len());
-        let visible = match self.mapping {
-            Mapping::Identity => index.min(self.visible.len()),
-            Mapping::Empty => 0,
-            Mapping::End { head_end } => {
-                if index <= head_end {
-                    index
-                } else {
-                    match edge {
-                        Edge::Start => head_end,
-                        Edge::End => self.visible.len(),
-                    }
-                }
-            }
-            Mapping::Middle {
-                head_end,
-                tail_start,
-                tail_visible_start,
-            } => {
-                if index <= head_end {
-                    index
-                } else if index >= tail_start {
-                    tail_visible_start.saturating_add(index.saturating_sub(tail_start))
-                } else {
-                    match edge {
-                        Edge::Start => head_end,
-                        Edge::End => tail_visible_start,
-                    }
-                }
-            }
-        };
-        Position::with_affinity(visible.min(self.visible.len()), position.affinity)
     }
 }
 
@@ -376,6 +289,7 @@ fn middle_candidate(graphemes: &[&str], head: usize, tail: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::text::buffer::CursorSelection;
 
     fn style() -> text::document::Style {
         text::document::Style::default().with_size(16.0)

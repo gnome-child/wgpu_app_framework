@@ -501,8 +501,8 @@ fn caret_affinity_has_one_position_to_cursor_owner() {
     assert!(
         glyph.contains("floor_grapheme_boundary(line_text, cursor.index)")
             && glyph.contains("cursor.affinity")
-            && projection.contains("display_index(source_boundaries, cursor.index)")
-            && projection.contains("cursor.affinity")
+            && projection.matches("Position::with_affinity").count() >= 2
+            && projection.matches("position.affinity").count() >= 2
             && paint.matches("source_cursor.affinity").count() >= 2
             && reveal.matches("source_cursor.affinity").count() >= 2,
         "clamping and every caret projection must preserve affinity"
