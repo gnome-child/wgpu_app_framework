@@ -27,13 +27,23 @@ No campaign is currently in flight.
 6. Local visual-test edits in `examples/glass_tuner/app/state.rs` — revert
    when tuning sessions end.
 
-28. **Table frame economics** — two field bugs from large-view driving:
-    framerate dips scaling with view size (per-frame work for unchanged
-    content; suspects: full pipeline on hover/scroll frames -> pull item 14
-    v0.5 forward, shaping-cache capacity vs visible population, assembly
-    churn) and header hover waiting for scroll to end (hover must derive
-    from pointer AND geometry; possibly a symptom of the first). Goal
-    staged; evidence-first; runs after the material-regions campaign seals.
+28. **Presentation-rate coalescing** (was: table frame economics) — the
+    missing concept behind large-view framerate dips, DX12 amplification,
+    resize lag, and hover-after-scroll: every input event is handled and
+    synchronously presented before the next is processed. Receipts:
+    `scroll_at` composes routing layout; width changes request full Rebuild
+    (`routing.rs`) because widths project only during view rebuild
+    (`presentation.rs:515`); hover retains target but no pointer coordinate;
+    hit tests accept stale layouts. Final order: (1) instrument phase timings
+    across Vulkan / DX12-visual / DX12-HWND, (2) decouple input from
+    presentation — session updates immediately, presentation coalesces to one
+    latest-state frame per window, (3) pointer interprets against the last
+    PRESENTED layout, (4) width overrides become layout-transient, dividers
+    downgrade Rebuild to Layout, (5) retained pointer position re-hits after
+    geometry change before paint, (6) re-profile before admitting targeted
+    redraw or caching. Open A/B: is main-window `DxgiFromVisual` the DX12
+    regression (popups don't need it — explicit visual targets bypass the
+    instance default).
 
 ## Decisions awaiting product taste
 
