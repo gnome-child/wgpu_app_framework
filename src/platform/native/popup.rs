@@ -6,9 +6,9 @@ use crate::{geometry, overlay, paint, render, window as app_window};
 use super::surface::native_logical_area;
 use super::window::{InitialSize, Options, Window as NativeWindow};
 use super::{
-    ApplyDue, Native, NativeContext, NativeError, PopupFirstPresentState, PopupFirstPresentTrace,
-    PopupGeometry, PopupKey, PopupPresentationMode, PopupWindow, popup_accent_due,
-    popup_border_due, popup_geometry_due,
+    ApplyDue, Native, NativeContext, NativeError, PopupFirstPresentAction, PopupFirstPresentState,
+    PopupFirstPresentTrace, PopupGeometry, PopupKey, PopupPresentationMode, PopupWindow,
+    popup_accent_due, popup_border_due, popup_geometry_due,
 };
 
 impl Native {
@@ -213,10 +213,15 @@ impl Native {
             render_format
         );
 
-        if !popup.visible {
-            popup.window.set_popup_visibility(true);
-            popup.visible = true;
-            popup.first_present.record_shown(key);
+        if !popup.presentation_prepared {
+            popup.window.prepare_popup_first_present().map_err(|code| {
+                NativeError::PopupPresentation {
+                    operation: "prepare-first-present",
+                    code,
+                }
+            })?;
+            popup.presentation_prepared = true;
+            popup.first_present.record_prepared(key);
         }
 
         let draw_started = Instant::now();
@@ -225,8 +230,8 @@ impl Native {
         popup
             .first_present
             .record_acquire(key, report.acquire_outcome);
-        let request_redraw = if let Some(timing) = report.present_timing {
-            let request_redraw = popup.first_present.record_presented(key, timing);
+        let action = if let Some(timing) = report.present_timing {
+            let action = popup.first_present.record_presented(key, timing);
             log::debug!(
                 target: "wgpu_l3::native_popup",
                 "presented native popup {:?} for parent {:?}: draw={}us acquire={}us groups={}",
@@ -236,7 +241,7 @@ impl Native {
                 timing.acquire_wait().as_micros(),
                 report.stats.group_composites
             );
-            request_redraw
+            action
         } else {
             log::debug!(
                 target: "wgpu_l3::native_popup",
@@ -244,12 +249,27 @@ impl Native {
                 presentation.id(),
                 presentation.parent(),
                 draw.as_micros(),
-                popup.visible
+                popup.exposed
             );
-            popup.first_present.needs_redraw()
+            if popup.first_present.needs_redraw() {
+                PopupFirstPresentAction::RequestRedraw
+            } else {
+                PopupFirstPresentAction::None
+            }
         };
 
-        Ok(request_redraw)
+        if action == PopupFirstPresentAction::Expose {
+            popup.window.expose_popup_after_present().map_err(|code| {
+                NativeError::PopupPresentation {
+                    operation: "expose-after-present",
+                    code,
+                }
+            })?;
+            popup.exposed = true;
+            popup.first_present.record_exposed(key);
+        }
+
+        Ok(action == PopupFirstPresentAction::RequestRedraw)
     }
 
     fn ensure_popup_window(
@@ -594,13 +614,23 @@ impl PopupFirstPresentTrace {
         );
     }
 
-    fn record_shown(&self, key: PopupKey) {
+    fn record_prepared(&self, key: PopupKey) {
         if self.state == PopupFirstPresentState::Complete {
             return;
         }
         log::debug!(
             target: "wgpu_l3::native_popup",
-            "first-present stage=shown popup={:?} parent={:?} elapsed_us={}",
+            "first-present stage=prepared-concealed popup={:?} parent={:?} elapsed_us={}",
+            key.id,
+            key.parent,
+            self.elapsed_micros()
+        );
+    }
+
+    fn record_exposed(&self, key: PopupKey) {
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "first-present stage=exposed popup={:?} parent={:?} elapsed_us={}",
             key.id,
             key.parent,
             self.elapsed_micros()
@@ -627,21 +657,29 @@ impl PopupFirstPresentTrace {
         );
     }
 
-    fn record_presented(&mut self, key: PopupKey, timing: render::PresentTiming) -> bool {
-        let (stage, request_confirmation, synchronization) = match self.state {
+    fn record_presented(
+        &mut self,
+        key: PopupKey,
+        timing: render::PresentTiming,
+    ) -> PopupFirstPresentAction {
+        let (stage, action, synchronization) = match self.state {
             PopupFirstPresentState::AwaitingFirst => {
                 let started = Instant::now();
                 let result = super::sys::synchronize_popup_presentation();
                 let elapsed = started.elapsed();
-                let (state, stage, request_redraw) = first_present_follow_up(result);
+                let (state, stage, action) = first_present_follow_up(result, false);
                 self.state = state;
-                (stage, request_redraw, Some((result, elapsed)))
+                (stage, action, Some((result, elapsed)))
             }
             PopupFirstPresentState::AwaitingConfirmation => {
-                self.state = PopupFirstPresentState::Complete;
-                ("confirmed", false, None)
+                let started = Instant::now();
+                let result = super::sys::synchronize_popup_presentation();
+                let elapsed = started.elapsed();
+                let (state, stage, action) = first_present_follow_up(result, true);
+                self.state = state;
+                (stage, action, Some((result, elapsed)))
             }
-            PopupFirstPresentState::Complete => return false,
+            PopupFirstPresentState::Complete => return PopupFirstPresentAction::None,
         };
         log::debug!(
             target: "wgpu_l3::native_popup",
@@ -652,7 +690,7 @@ impl PopupFirstPresentTrace {
             self.acquire_attempts,
             timing.acquire_wait().as_micros()
         );
-        request_confirmation
+        action
     }
 
     fn needs_redraw(&self) -> bool {
@@ -662,14 +700,33 @@ impl PopupFirstPresentTrace {
 
 fn first_present_follow_up(
     synchronization: Result<(), i32>,
-) -> (PopupFirstPresentState, &'static str, bool) {
+    confirmation: bool,
+) -> (
+    PopupFirstPresentState,
+    &'static str,
+    PopupFirstPresentAction,
+) {
     if synchronization.is_ok() {
-        (PopupFirstPresentState::Complete, "synchronized", false)
+        (
+            PopupFirstPresentState::Complete,
+            if confirmation {
+                "confirmation-synchronized"
+            } else {
+                "synchronized"
+            },
+            PopupFirstPresentAction::Expose,
+        )
+    } else if confirmation {
+        (
+            PopupFirstPresentState::Complete,
+            "confirmation-sync-failed",
+            PopupFirstPresentAction::Expose,
+        )
     } else {
         (
             PopupFirstPresentState::AwaitingConfirmation,
             "visibility-sync-failed",
-            true,
+            PopupFirstPresentAction::RequestRedraw,
         )
     }
 }
@@ -703,8 +760,8 @@ mod tests {
     use std::collections::HashSet;
 
     use super::{
-        PopupFirstPresentState, PopupFirstPresentTrace, PopupKey, first_present_follow_up,
-        popup_is_stale, queue_popup_parent_redraw,
+        PopupFirstPresentAction, PopupFirstPresentState, PopupFirstPresentTrace, PopupKey,
+        first_present_follow_up, popup_is_stale, queue_popup_parent_redraw,
     };
     use crate::{interaction, window};
 
@@ -724,18 +781,39 @@ mod tests {
     #[test]
     fn popup_first_present_redraws_only_for_evidenced_failures() {
         assert_eq!(
-            first_present_follow_up(Ok(())),
-            (PopupFirstPresentState::Complete, "synchronized", false),
+            first_present_follow_up(Ok(()), false),
+            (
+                PopupFirstPresentState::Complete,
+                "synchronized",
+                PopupFirstPresentAction::Expose,
+            ),
             "a compositor-synchronized present needs no policy confirmation frame"
         );
         assert_eq!(
-            first_present_follow_up(Err(-1)),
+            first_present_follow_up(Err(-1), false),
             (
                 PopupFirstPresentState::AwaitingConfirmation,
                 "visibility-sync-failed",
-                true,
+                PopupFirstPresentAction::RequestRedraw,
             ),
             "an explicit compositor synchronization failure earns one fallback redraw"
+        );
+        assert_eq!(
+            first_present_follow_up(Ok(()), true),
+            (
+                PopupFirstPresentState::Complete,
+                "confirmation-synchronized",
+                PopupFirstPresentAction::Expose,
+            )
+        );
+        assert_eq!(
+            first_present_follow_up(Err(-1), true),
+            (
+                PopupFirstPresentState::Complete,
+                "confirmation-sync-failed",
+                PopupFirstPresentAction::Expose,
+            ),
+            "a second freshly presented frame ends the bounded fallback without exposing stale content"
         );
 
         let mut trace = PopupFirstPresentTrace::new();

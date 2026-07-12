@@ -2426,13 +2426,13 @@ fn popup_border_has_one_theme_datum_for_scene_and_windows() {
     let desire = popup
         .find("popup.border.set_desired(presentation.border(), now)")
         .expect("native popup should record desired border");
-    let show = popup[desire..]
-        .find("if !popup.visible")
+    let prepare = popup[desire..]
+        .find("if !popup.presentation_prepared")
         .map(|offset| desire + offset)
-        .expect("native popup should show after border realization");
+        .expect("native popup should become presentable after border realization");
     assert!(
-        popup[desire..show].contains("apply_popup_border(key, popup, reason)"),
-        "the creation border must apply before first show"
+        popup[desire..prepare].contains("apply_popup_border(key, popup, reason)"),
+        "the creation border must apply before concealed first presentation"
     );
     assert!(
         native_mod.contains("type PopupBorderState = SysApplicator")
@@ -2548,12 +2548,24 @@ fn native_popup_first_present_is_visible_traced_and_compositor_synchronized() {
             && before_draw.contains("apply_popup_accent(key, popup, reason)"),
         "an already-due popup accent must apply before the imminent frame"
     );
-    let show = before_draw
-        .find("set_popup_visibility(true)")
-        .expect("popup must become visible before its first acquire");
+    let prepare = before_draw
+        .find("prepare_popup_first_present()")
+        .expect("popup must become presentable while concealed before its first acquire");
     assert!(
-        show < before_draw.len(),
-        "show must precede renderer draw/acquire"
+        prepare < before_draw.len(),
+        "concealed preparation must precede renderer draw/acquire"
+    );
+    let presented = popup[draw..]
+        .find("record_presented(key, timing)")
+        .map(|offset| draw + offset)
+        .expect("the current frame must be recorded after draw");
+    let expose = popup[presented..]
+        .find("expose_popup_after_present()")
+        .map(|offset| presented + offset)
+        .expect("popup must expose only after a current present");
+    assert!(
+        draw < presented && presented < expose,
+        "first visibility must order draw -> present -> expose"
     );
     assert!(
         popup.contains("if self.present_popup_overlay(context, presentation, now)?")
@@ -2567,7 +2579,7 @@ fn native_popup_first_present_is_visible_traced_and_compositor_synchronized() {
         native_mod.contains("PopupFirstPresentTrace") && !native_mod.contains("PopupFrameRecovery"),
         "fallback confirmation must remain finite, not become a retry budget"
     );
-    for stage in ["created", "configured", "shown"] {
+    for stage in ["created", "configured", "prepared-concealed", "exposed"] {
         assert!(
             popup.contains(&format!("first-present stage={stage}")),
             "first-present trace must record {stage}"
@@ -2578,7 +2590,8 @@ fn native_popup_first_present_is_visible_traced_and_compositor_synchronized() {
         "\"confirmation-acquire\"",
         "\"synchronized\"",
         "\"visibility-sync-failed\"",
-        "(\"confirmed\", false, None)",
+        "\"confirmation-synchronized\"",
+        "\"confirmation-sync-failed\"",
     ] {
         assert!(
             popup.contains(transition),
@@ -2588,8 +2601,11 @@ fn native_popup_first_present_is_visible_traced_and_compositor_synchronized() {
     assert!(
         popup.contains("super::sys::synchronize_popup_presentation()")
             && windows.contains("DwmFlush()")
+            && windows.contains("DWMWA_CLOAK")
+            && windows.contains("set_popup_cloaked(window, true)?")
+            && windows.contains("set_popup_cloaked(window, false)")
             && popup.contains("popup.first_present.needs_redraw()"),
-        "the first successful present must synchronize with DWM, while a no-present outcome retries"
+        "the current frame must cross the DWM barrier while concealed, while a no-present outcome retries"
     );
     assert!(
         !popup.contains("(\"presented\", true)"),
@@ -2618,10 +2634,10 @@ fn native_popup_first_present_is_visible_traced_and_compositor_synchronized() {
         "stale popup removal must precede deferred accent calls"
     );
     for phrase in [
-        "contentless glass",
-        "hidden redirected window",
-        "More presents are therefore not the",
-        "`DwmFlush` is the one",
+        "Every popup show cycle begins concealed",
+        "`DWMWA_CLOAK`",
+        "first user-visible pixels therefore follow a current",
+        "unbounded retry budget",
     ] {
         assert!(
             master.contains(phrase),

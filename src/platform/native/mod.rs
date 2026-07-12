@@ -50,7 +50,8 @@ struct PopupWindow {
     geometry: PopupGeometryState,
     accent: PopupAccentState,
     border: PopupBorderState,
-    visible: bool,
+    presentation_prepared: bool,
+    exposed: bool,
     first_present: PopupFirstPresentTrace,
     material: Option<overlay::PopupMaterial>,
     presentation_mode: PopupPresentationMode,
@@ -112,6 +113,13 @@ enum PopupFirstPresentState {
     Complete,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PopupFirstPresentAction {
+    None,
+    RequestRedraw,
+    Expose,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct PopupGeometry {
     x: i32,
@@ -135,7 +143,8 @@ impl PopupWindow {
             geometry: PopupGeometryState::default(),
             accent: PopupAccentState::default(),
             border: PopupBorderState::default(),
-            visible: false,
+            presentation_prepared: false,
+            exposed: false,
             first_present: PopupFirstPresentTrace::new(),
             material: None,
             presentation_mode,

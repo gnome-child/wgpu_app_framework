@@ -11,4 +11,7 @@ pub enum NativeError {
 
     #[error("native window is not open: {window:?}")]
     MissingWindow { window: window::Id },
+
+    #[error("native popup presentation operation {operation} failed: platform code {code:#x}")]
+    PopupPresentation { operation: &'static str, code: i32 },
 }

@@ -59,15 +59,35 @@ pub(in crate::platform::native) fn configure_popup_bounds(
     }
 }
 
-pub(in crate::platform::native) fn set_popup_visible(
+/// Makes a popup surface presentable without exposing uninitialized or stale
+/// swapchain content to the user.
+pub(in crate::platform::native) fn prepare_popup_first_present(
     window: &winit::window::Window,
-    visible: bool,
-) {
+) -> Result<(), i32> {
     #[cfg(target_os = "windows")]
-    windows::set_popup_visible(window, visible);
+    return windows::prepare_popup_first_present(window);
 
     #[cfg(not(target_os = "windows"))]
-    window.set_visible(visible);
+    {
+        // Other native backends retain their established show-before-present
+        // behavior until they grow a platform concealment primitive.
+        window.set_visible(true);
+        Ok(())
+    }
+}
+
+/// Exposes a popup only after its current show-cycle frame was presented.
+pub(in crate::platform::native) fn expose_popup_after_present(
+    window: &winit::window::Window,
+) -> Result<(), i32> {
+    #[cfg(target_os = "windows")]
+    return windows::expose_popup_after_present(window);
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+        Ok(())
+    }
 }
 
 pub(in crate::platform::native) fn synchronize_popup_presentation() -> Result<(), i32> {

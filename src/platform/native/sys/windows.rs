@@ -4,7 +4,7 @@ use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{
-    DWMWA_BORDER_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE, DwmFlush, DwmSetWindowAttribute,
+    DWMWA_BORDER_COLOR, DWMWA_CLOAK, DWMWA_USE_IMMERSIVE_DARK_MODE, DwmFlush, DwmSetWindowAttribute,
 };
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
@@ -172,6 +172,48 @@ pub(super) fn set_popup_visible(window: &winit::window::Window, visible: bool) {
         } else {
             ShowWindow(hwnd, SW_HIDE);
         }
+    }
+}
+
+pub(super) fn prepare_popup_first_present(window: &winit::window::Window) -> Result<(), i32> {
+    set_popup_cloaked(window, true)?;
+    set_popup_visible(window, true);
+    Ok(())
+}
+
+pub(super) fn expose_popup_after_present(window: &winit::window::Window) -> Result<(), i32> {
+    set_popup_cloaked(window, false)
+}
+
+fn set_popup_cloaked(window: &winit::window::Window, cloaked: bool) -> Result<(), i32> {
+    let Some(hwnd) = hwnd(window) else {
+        log::warn!(
+            target: "wgpu_l3::native_popup",
+            "cannot set popup cloak without HWND"
+        );
+        return Err(-1);
+    };
+    let value: i32 = i32::from(cloaked);
+    let result = unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAK as u32,
+            &value as *const _ as *const core::ffi::c_void,
+            std::mem::size_of::<i32>() as u32,
+        )
+    };
+    if result < 0 {
+        log::warn!(
+            target: "wgpu_l3::native_popup",
+            "failed to set popup cloak to {cloaked}: HRESULT {result:#x}"
+        );
+        Err(result)
+    } else {
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "set popup cloak to {cloaked}"
+        );
+        Ok(())
     }
 }
 

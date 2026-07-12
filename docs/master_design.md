@@ -593,24 +593,26 @@ outline, converted once to `COLORREF` (`0x00BBGGRR`) for
 `DWMWA_BORDER_COLOR`. Accent and border values obey the shared settle-rate
 applicator; the content-only fade contract below leaves them untouched.
 
-**Presentation causality.** First presentation is create, style/configure,
-realize immediately due material, show contentless glass, then acquire and
-present content. Presenting to a hidden redirected window is forbidden. A wgpu
-present call is not proof that DWM displayed the frame: `PopupFirstPresentTrace`
-records timestamped created, configured, shown, acquire outcome, present, and
-native event-kind stages under `wgpu_l3::native_popup`. Field evidence showed
-successful present calls that DWM had not picked up. More presents are therefore not the answer: redundant confirmation and parent redraw presents did not
-establish visibility. After the first successful present, `DwmFlush` is the one
-compositor-pickup barrier. Flush success completes the lifecycle without a
-policy confirmation frame; explicit flush failure earns one fallback
-confirmation; an acquire with no present earns a retry. OS-requested popup
-redraws remain legitimate redraws. Accent maintenance that has no immediate draw
-requests one parent redraw.
+**Presentation causality.** Window existence, OS presentation eligibility,
+GPU presentation, compositor pickup, and user visibility are separate facts.
+Every popup show cycle begins concealed. On Windows the application sets
+`DWMWA_CLOAK`, shows the HWND through the existing no-activate path so its
+redirected or composition surface can present, acquires and presents the
+current scene, crosses the `DwmFlush` compositor-pickup barrier, and only then
+removes the cloak. The first user-visible pixels therefore follow a current
+present; stale or empty swapchain content is never the mechanism used to make
+the window presentable.
 
-One later manual menu pass still showed exactly one first-frame content skip,
-but that occurrence had no attached lifecycle log, so its mechanism remains
-open. Content-fade scheduling supplies later legitimate presents; those frames
-may heal the symptom, but they are neither a diagnosis nor a claimed fix.
+`PopupFirstPresentTrace` records timestamped created, configured,
+prepared-concealed, acquire outcome, present, synchronization, and exposed
+stages under `wgpu_l3::native_popup`. A skipped acquire remains concealed and
+earns a retry. Explicit synchronization failure remains concealed through one
+bounded confirmation present; the second freshly presented frame ends the
+fallback even if synchronization reporting fails again. This is not an
+unbounded retry budget. OS-requested popup redraws remain legitimate redraws.
+Accent maintenance that has no immediate draw requests one parent redraw.
+Platforms without an implemented concealment primitive retain their existing
+show path; they do not inherit the Windows guarantee by assertion.
 
 **Backend and alpha handoff.** Acrylic is not tied to DX12 DirectComposition:
 Vulkan redirected popups can realize it when the surface reports premultiplied

@@ -25,6 +25,11 @@ presented and synchronized, and successful readiness removes the cloak. A
 skipped acquire or failed synchronization retains the cloak and requests the
 bounded follow-up already owned by `PopupFirstPresentTrace`.
 
+This checkpoint proves the Windows contract required by the material-regions
+campaign. Other native platforms retain their established show behavior until
+they gain and witness their own concealment primitive; no portability claim is
+minted from Windows evidence.
+
 ## Census receipts
 
 - `src/platform/native/popup.rs`: `set_popup_visibility(true)` currently

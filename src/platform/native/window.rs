@@ -90,8 +90,12 @@ impl Window {
         self.handle.set_visible(visible);
     }
 
-    pub fn set_popup_visibility(&self, visible: bool) {
-        super::sys::set_popup_visible(&self.handle, visible);
+    pub fn prepare_popup_first_present(&self) -> Result<(), i32> {
+        super::sys::prepare_popup_first_present(&self.handle)
+    }
+
+    pub fn expose_popup_after_present(&self) -> Result<(), i32> {
+        super::sys::expose_popup_after_present(&self.handle)
     }
 
     pub fn remove_popup_subclass(&self) {
