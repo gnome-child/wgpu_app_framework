@@ -118,7 +118,9 @@ is next.
     and the text-in-motion policy decision respectively.
 20. Micro-parked: density presets, menu mnemonics, user rebinding,
     reveal-margin theme datum, Mac Home/End viewport scroll, Ctrl+A/E field
-    bindings.
+    bindings, SPDX header sweep + architecture witness via
+    `tools/license_headers` micro-crate (one commit at the next quiet tree,
+    alongside the push).
 26. **Application-authored semantic leaf controls** — the widget catalog is a
     good structural grammar but a closed semantic leaf catalog: apps cannot
     author a new keyboard-focusable, themed, accessibility-ready control
