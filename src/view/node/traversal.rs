@@ -94,17 +94,18 @@ impl Node {
     pub(in crate::view) fn materialize_virtual_lists(
         &mut self,
         requests: &HashMap<interaction::Id, crate::virtual_list::Materialization>,
+        measurements: &HashMap<interaction::Id, crate::virtual_list::Measurements>,
     ) {
         if let Some(model) = self.virtual_list.as_mut() {
             let request = requests
                 .get(&model.id())
                 .cloned()
                 .unwrap_or_else(|| model.initial_materialization());
-            self.children = model.materialize(&request);
+            self.children = model.materialize(&request, measurements.get(&model.id()));
         }
 
         for child in &mut self.children {
-            child.materialize_virtual_lists(requests);
+            child.materialize_virtual_lists(requests, measurements);
         }
     }
 

@@ -10,6 +10,71 @@ struct VariableRowProvider {
     row_calls: Rc<Cell<usize>>,
 }
 
+#[derive(Clone)]
+struct StableExtentProvider;
+
+#[derive(Clone)]
+struct WrappedExtentProvider {
+    row_calls: Rc<Cell<usize>>,
+}
+
+impl crate::virtual_list::Provider for StableExtentProvider {
+    fn len(&self) -> usize {
+        100
+    }
+
+    fn key(&self, index: usize) -> crate::virtual_list::Key {
+        crate::virtual_list::Key::new(index as u64)
+    }
+
+    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+        let index = key.value() as usize;
+        (index < self.len()).then_some(index)
+    }
+
+    fn row(&self, index: usize) -> view::Node {
+        view::Node::world_text(format!("Stable row {index}"), text::Overflow::EllipsisEnd)
+            .with_style(view::Style::new().with_height(view::Dimension::fixed(24)))
+    }
+}
+
+impl crate::virtual_list::Provider for WrappedExtentProvider {
+    fn len(&self) -> usize {
+        10_000
+    }
+
+    fn key(&self, index: usize) -> crate::virtual_list::Key {
+        crate::virtual_list::Key::new(index as u64)
+    }
+
+    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+        let index = key.value() as usize;
+        (index < self.len()).then_some(index)
+    }
+
+    fn row(&self, index: usize) -> view::Node {
+        self.row_calls.set(self.row_calls.get() + 1);
+        let text = if index % 3 == 0 {
+            format!("Short row {index}")
+        } else {
+            format!(
+                "Wrapped variable row {index} reports its own intrinsic block size under the supplied width"
+            )
+        };
+        let focus = match index {
+            0 => "measured.row.0",
+            1 => "measured.row.1",
+            _ => "measured.row.other",
+        };
+        view::Node::text_area_state(
+            view::TextArea::new(text)
+                .with_focus(session::Focus::text(focus))
+                .with_wrap(view::Wrap::Word)
+                .read_only(),
+        )
+    }
+}
+
 impl crate::virtual_list::Provider for VariableRowProvider {
     fn len(&self) -> usize {
         10_000
@@ -589,6 +654,157 @@ fn variable_virtual_list_measures_mixed_rows_with_bounded_runtime_work() {
         );
     }
     assert!(row_calls.get() <= 64);
+}
+
+#[test]
+fn variable_measurements_survive_a_same_range_mode_transition_and_rebuild() {
+    let variable = Rc::new(Cell::new(false));
+    let variable_for_view = Rc::clone(&variable);
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Retained variable measurements"));
+        })
+        .view(move |_, _| {
+            let list = if variable_for_view.get() {
+                crate::VirtualList::variable("retained.measurements", 24, StableExtentProvider)
+            } else {
+                crate::VirtualList::new("retained.measurements", 24, StableExtentProvider)
+            };
+            widget::view_node(
+                list.width(view::Dimension::grow())
+                    .height(view::Dimension::fixed(72)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(180, 72);
+    app.render_scene(window, size)
+        .expect("uniform source should establish the same visible range");
+
+    variable.set(true);
+    app.request_redraw(window);
+    app.render_scene(window, size)
+        .expect("variable source should attach measured geometry");
+    let first = app
+        .composition(window)
+        .and_then(|composition| {
+            composition.virtual_list_model(interaction::Id::new("retained.measurements"))
+        })
+        .and_then(crate::virtual_list::Model::measurements)
+        .expect("variable list should expose its retained measurement owner");
+
+    app.request_redraw(window);
+    app.render_scene(window, size)
+        .expect("same-range rebuild should preserve measured geometry");
+    let rebuilt = app
+        .composition(window)
+        .and_then(|composition| {
+            composition.virtual_list_model(interaction::Id::new("retained.measurements"))
+        })
+        .and_then(crate::virtual_list::Model::measurements)
+        .expect("rebuilt variable list should keep measured geometry");
+
+    assert!(
+        first == rebuilt,
+        "same range and pins must not hide a changed measurement owner"
+    );
+}
+
+#[test]
+fn measured_virtual_sequence_covers_a_short_viewport_through_pin_scroll_and_resize() {
+    let row_calls = Rc::new(Cell::new(0));
+    let provider = WrappedExtentProvider {
+        row_calls: Rc::clone(&row_calls),
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Measured sequence coverage"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::VirtualList::variable("measured.sequence", 24, provider.clone())
+                    .width(view::Dimension::grow())
+                    .height(view::Dimension::fixed(72)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let initial_size = geometry::Size::new(180, 72);
+    let initial = app
+        .render_scene(window, initial_size)
+        .expect("wrapped variable list should render");
+    let list = initial.layout().find_role(view::Role::VirtualList)[0].clone();
+    drop(initial);
+    assert!(app.focus_virtual_row(
+        window,
+        interaction::Id::new("measured.sequence"),
+        crate::virtual_list::Key::new(0),
+        session::Focus::text("measured.row.0"),
+    ));
+    app.scroll_at(
+        window,
+        initial_size,
+        frame_point_at(list.rect()),
+        interaction::ScrollDelta::vertical(720),
+    )
+    .expect("variable list should scroll");
+    let scrolled = app
+        .render_scene(window, initial_size)
+        .expect("scrolled variable list should render");
+    assert!(scrolled.layout().frames().iter().any(|frame| {
+        frame
+            .provided_row()
+            .is_some_and(|row| row.index() == 0 && frame.rect().bottom() <= list.rect().y())
+    }));
+    let retained = app
+        .composition(window)
+        .and_then(|composition| {
+            composition.virtual_list_model(interaction::Id::new("measured.sequence"))
+        })
+        .and_then(crate::virtual_list::Model::measurements)
+        .expect("scrolled list should retain measured geometry");
+
+    app.request_redraw(window);
+    let narrow_size = geometry::Size::new(110, 72);
+    let narrowed = app
+        .render_scene(window, narrow_size)
+        .expect("width invalidation should remeasure without losing the sequence");
+    let rebuilt = app
+        .composition(window)
+        .and_then(|composition| {
+            composition.virtual_list_model(interaction::Id::new("measured.sequence"))
+        })
+        .and_then(crate::virtual_list::Model::measurements)
+        .expect("remeasured list should retain its geometry owner");
+    assert!(retained == rebuilt);
+
+    let viewport = narrowed.layout().find_role(view::Role::VirtualList)[0]
+        .viewport()
+        .expect("variable list viewport")
+        .visible_content();
+    let mut visible = narrowed
+        .layout()
+        .frames()
+        .iter()
+        .filter_map(|frame| {
+            frame
+                .provided_row()
+                .filter(|_| {
+                    frame.rect().bottom() > viewport.y() && frame.rect().y() < viewport.bottom()
+                })
+                .map(|_| frame.rect())
+        })
+        .collect::<Vec<_>>();
+    visible.sort_unstable_by_key(|rect| rect.y());
+    assert!(!visible.is_empty());
+    assert!(visible[0].y() <= viewport.y());
+    assert!(
+        visible
+            .last()
+            .is_some_and(|rect| rect.bottom() >= viewport.bottom())
+    );
+    assert!(visible.iter().any(|rect| rect.height() > 24));
+    assert!(row_calls.get() <= 96, "variable work must remain bounded");
 }
 
 #[test]

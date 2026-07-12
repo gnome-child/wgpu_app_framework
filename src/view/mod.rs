@@ -45,8 +45,9 @@ impl View {
     pub(crate) fn materialize_virtual_lists(
         &mut self,
         requests: &HashMap<interaction::Id, crate::virtual_list::Materialization>,
+        measurements: &HashMap<interaction::Id, crate::virtual_list::Measurements>,
     ) {
-        self.root.materialize_virtual_lists(requests);
+        self.root.materialize_virtual_lists(requests, measurements);
     }
 
     pub(crate) fn project_table_widths(&mut self, tables: &interaction::Tables) {

@@ -6,6 +6,8 @@ use super::{CachedLayout, Runtime, services::Services, work};
 use crate::{animation, ime, text};
 use std::time::Instant;
 
+const MAX_VIRTUAL_REFINEMENT_PASSES: usize = 8;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FrameNeed {
     Idle,
@@ -274,13 +276,14 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         Some(())
     }
 
-    fn update_virtual_materializations(
-        &mut self,
-        window: window::Id,
-        layout: &layout::Layout,
-    ) -> bool {
-        let mut next = self
+    fn update_virtual_projections(&mut self, window: window::Id, layout: &layout::Layout) -> bool {
+        let mut next_materializations = self
             .virtual_materializations
+            .get(&window)
+            .cloned()
+            .unwrap_or_default();
+        let mut next_measurements = self
+            .virtual_measurements
             .get(&window)
             .cloned()
             .unwrap_or_default();
@@ -288,28 +291,50 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 
         for request in layout.virtual_list_requests() {
             seen.insert(request.id());
-            let current = next.get(&request.id()).cloned().unwrap_or_else(|| {
-                crate::virtual_list::Materialization::new(request.range(), Vec::new())
-            });
-            next.insert(
-                request.id(),
-                current
-                    .with_range(request.range())
-                    .with_variable(request.variable_region()),
-            );
-        }
-        next.retain(|id, _| seen.contains(id));
-
-        let previous = self.virtual_materializations.get(&window);
-        let changed = previous.map_or(!next.is_empty(), |previous| previous != &next);
-        if changed {
-            if next.is_empty() {
-                self.virtual_materializations.remove(&window);
+            let current = next_materializations
+                .get(&request.id())
+                .cloned()
+                .unwrap_or_else(|| {
+                    crate::virtual_list::Materialization::new(request.range(), Vec::new())
+                });
+            next_materializations.insert(request.id(), current.with_range(request.range()));
+            if let Some(measurements) = request.measurements() {
+                next_measurements.insert(request.id(), measurements);
             } else {
-                self.virtual_materializations.insert(window, next);
+                next_measurements.remove(&request.id());
             }
         }
-        changed
+        next_materializations.retain(|id, _| seen.contains(id));
+        next_measurements.retain(|id, _| seen.contains(id));
+
+        let materializations_changed = self
+            .virtual_materializations
+            .get(&window)
+            .map_or(!next_materializations.is_empty(), |previous| {
+                previous != &next_materializations
+            });
+        let measurements_changed = self
+            .virtual_measurements
+            .get(&window)
+            .map_or(!next_measurements.is_empty(), |previous| {
+                previous != &next_measurements
+            });
+        if materializations_changed {
+            if next_materializations.is_empty() {
+                self.virtual_materializations.remove(&window);
+            } else {
+                self.virtual_materializations
+                    .insert(window, next_materializations);
+            }
+        }
+        if measurements_changed {
+            if next_measurements.is_empty() {
+                self.virtual_measurements.remove(&window);
+            } else {
+                self.virtual_measurements.insert(window, next_measurements);
+            }
+        }
+        materializations_changed || measurements_changed
     }
 
     fn compose_layout_for_scene(
@@ -332,7 +357,15 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             )
         };
 
-        if self.update_virtual_materializations(window, &layout) {
+        let mut refinement_passes = 0;
+        while self.update_virtual_projections(window, &layout) {
+            if refinement_passes == MAX_VIRTUAL_REFINEMENT_PASSES {
+                log::warn!(
+                    "virtual geometry did not converge after {MAX_VIRTUAL_REFINEMENT_PASSES} refinement passes"
+                );
+                break;
+            }
+            refinement_passes += 1;
             self.present(window)?;
             self.refresh_presented_projection(window)?;
             let composition = self.composition.get(window)?;
@@ -343,10 +376,6 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 theme,
                 frame,
                 self.keymap,
-            );
-            debug_assert!(
-                !self.update_virtual_materializations(window, &layout),
-                "virtual materialization must converge after one bounded rebuild"
             );
         }
 
@@ -496,7 +525,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .get(&window)
             .cloned()
             .unwrap_or_default();
-        view.materialize_virtual_lists(&virtual_materializations);
+        let virtual_measurements = self
+            .virtual_measurements
+            .get(&window)
+            .cloned()
+            .unwrap_or_default();
+        view.materialize_virtual_lists(&virtual_materializations, &virtual_measurements);
         let virtual_selections = self.session.virtual_selection_snapshot(window);
         view.project_virtual_selections(&virtual_selections);
         if let Some(interaction) = interaction.as_ref() {

@@ -49,6 +49,7 @@ struct CachedLayout {
 
 type VirtualMaterializations =
     HashMap<crate::interaction::Id, crate::virtual_list::Materialization>;
+type VirtualMeasurements = HashMap<crate::interaction::Id, crate::virtual_list::Measurements>;
 
 pub struct Runtime<M: state::State, E: Send + 'static = (), V = ()> {
     store: Store<M>,
@@ -76,6 +77,7 @@ pub struct Runtime<M: state::State, E: Send + 'static = (), V = ()> {
     overlay_capabilities: overlay::Capabilities,
     layout_cache: departed::WindowMap<CachedLayout>,
     virtual_materializations: departed::WindowMap<VirtualMaterializations>,
+    virtual_measurements: departed::WindowMap<VirtualMeasurements>,
 }
 
 impl<M: state::State> Runtime<M> {
@@ -110,6 +112,7 @@ impl<M: state::State> Runtime<M> {
             overlay_capabilities: overlay::Capabilities::default(),
             layout_cache: departed::WindowMap::default(),
             virtual_materializations: departed::WindowMap::default(),
+            virtual_measurements: departed::WindowMap::default(),
         }
     }
 }

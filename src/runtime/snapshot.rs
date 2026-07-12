@@ -84,6 +84,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         self.overlays.clear();
         self.layout_cache.clear();
         self.virtual_materializations.clear();
+        self.virtual_measurements.clear();
         self.diagnostics.restore_windows(self.session.windows());
         self.request_all_redraws();
     }

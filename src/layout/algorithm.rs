@@ -333,7 +333,7 @@ fn layout_virtual_list(
         .expect("VirtualList role must carry provider content");
     let viewport_rect = scroll_viewport_rect(node, rect, ctx.theme);
     let (visible_frame, visible_content) = visible_scroll_geometry(node, rect, clip, ctx.theme);
-    if let Some(region) = model.variable_region() {
+    if let Some(measurements) = model.measurements() {
         layout_variable_virtual_list(
             node,
             retained,
@@ -343,7 +343,7 @@ fn layout_virtual_list(
             floating_layer,
             clip,
             model,
-            region,
+            measurements,
             ctx,
         );
         return;
@@ -416,14 +416,14 @@ fn layout_variable_virtual_list(
     floating_layer: bool,
     clip: Option<Clip>,
     model: &crate::virtual_list::Model,
-    region: std::rc::Rc<std::cell::RefCell<crate::virtual_list::VariableRegion>>,
+    measured_sequence: crate::virtual_list::Measurements,
     ctx: &mut LayoutContext<'_>,
 ) {
     let (visible_frame, visible_content) = visible_scroll_geometry(node, rect, clip, ctx.theme);
     let provider = model.provider();
     let requested_offset = node.scroll_offset();
     {
-        let mut region = region.borrow_mut();
+        let mut region = measured_sequence.borrow_mut();
         region.set_width(viewport_rect.width(), provider);
         region.request(
             requested_offset.y(),
@@ -436,7 +436,7 @@ fn layout_variable_virtual_list(
 
     let table_projection = ctx.table_projection.clone();
     let row_height_floor = model.row_height();
-    let measurements = node.children().iter().filter_map(|child| {
+    let row_measurements = node.children().iter().filter_map(|child| {
         let row = child.provided_row()?;
         let table_intrinsic = table_projection.as_ref().and_then(|projection| {
             table_stack_intrinsic_height(child, projection, ctx.engine, ctx.theme, ctx.keymap)
@@ -455,8 +455,8 @@ fn layout_variable_virtual_list(
         Some((row.key(), height.max(1)))
     });
     let (offset_y, content_height, request) = {
-        let mut region = region.borrow_mut();
-        let offset_y = region.refine(measurements, provider);
+        let mut region = measured_sequence.borrow_mut();
+        let offset_y = region.refine(row_measurements, provider);
         let request = region.request(
             offset_y,
             viewport_rect.height(),
@@ -476,8 +476,11 @@ fn layout_variable_virtual_list(
     )
     .with_visible(visible_frame, visible_content);
     let offset = viewport.resolved_scroll();
-    let request =
-        crate::virtual_list::Request::variable(model.id(), request.range(), region.clone());
+    let request = crate::virtual_list::Request::variable(
+        model.id(),
+        request.range(),
+        measured_sequence.clone(),
+    );
     let row_clip = Some(Clip::new(visible_content));
     let frame = ctx
         .frame(
@@ -491,7 +494,7 @@ fn layout_variable_virtual_list(
         .with_virtual_list(viewport, request);
     ctx.frames.push(frame);
 
-    let region = region.borrow();
+    let region = measured_sequence.borrow();
     for (index, child) in node.children().iter().enumerate() {
         let row = child
             .provided_row()

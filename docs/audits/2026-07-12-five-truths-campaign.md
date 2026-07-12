@@ -32,7 +32,7 @@ witness. No campaign commit is pushed.
 
 | Checkpoint | Contract | Status | Boundary proof |
 | --- | --- | --- | --- |
-| 1 | Retained measured virtual geometry is separate from materialization | In progress | Generic failure witness and ownership census pending |
+| 1 | Retained measured virtual geometry is separate from materialization | Complete | Independent retained owner, same-range transition witness, and heterogeneous wrapped-row sequence green |
 | 2 | Deferred focus paint retains originating clip provenance | Pending | — |
 | 3 | Focus indication consumes visibility and projected edit truth | Pending | — |
 | 4 | Compact and Expanded share one cell recipe under two policies | Pending | — |
@@ -111,6 +111,23 @@ table contents itself.
 | Entry | Scope | Result |
 | --- | --- | --- |
 | E-000 | Synchronized campaign baseline | Held: 883 passed, 8 ignored; all targets, three smokes, formatting, diff hygiene, and protected comparison state green |
+| E-001 | Same-range retained-geometry witness | A constant sequence and measured sequence reused one identity and materialized range. The measured owner now survives the transition and rebuild independently of `Materialization` equality. |
+| E-002 | Generic heterogeneous sequence witness | A 72-pixel viewport of wrapped non-table members covered focus pinning, a 720-pixel scroll, and width resize from 180 to 110. Members reported their own heights; the same retained measurement owner converged without table knowledge. |
+| E-003 | Checkpoint 1 boundary | Green: 885 passed, 8 ignored; all targets, three smokes, formatting, diff hygiene, and protected comparison state held. |
+
+### Checkpoint 1 receipt
+
+- `Materialization` now owns only existence: materialized range plus pins.
+- A separate internal `Measurements` owner retains sparse measured extents;
+  layout, traversal, runtime rebuilds, and departure cleanup carry it without
+  widening the public provider contract.
+- The reduced witnesses exposed two generic defects before any table repair:
+  equality on materialization could discard changed measured geometry, and a
+  variable sequence could require more than one projection/layout refinement
+  after wrapped members changed extent.
+- Presentation now uses a bounded fixed-point refinement for measured
+  sequences. Uniform sequences remain on the existing constant-extent path.
+- No table-specific sizing arithmetic and no public API were introduced.
 
 ## Public API flags
 
@@ -131,4 +148,5 @@ caller requires vocabulary.
 
 | Boundary | Commit | Files | Insertions | Deletions | Receipt |
 | --- | --- | ---: | ---: | ---: | --- |
-| Campaign open | pending | pending | pending | pending | Baseline, admission census, and roadmap marker |
+| Campaign open | `ac1ab69b` | 2 | 142 | 0 | Baseline, admission census, and roadmap marker |
+| Checkpoint 1 | pending | 10 | 361 | 76 | Separate measured geometry owner; generic same-range and heterogeneous-sequence witnesses |
