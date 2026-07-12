@@ -27,8 +27,8 @@ target/tree, and wgpu as the content tenant.
 
 | Checkpoint | State | Boundary |
 | --- | --- | --- |
-| 1. Retained material-region truth | In flight | Stable declaring identity; ordered request projection with clip and opacity provenance |
-| 2. Reports and residual resolver | Pending | Actual realized-part coverage controls one residual plan and derived fidelity |
+| 1. Retained material-region truth | Complete (`4b33530f`) | Stable declaring identity; ordered request projection with clip and opacity provenance |
+| 2. Reports and residual resolver | In flight | Actual realized-part coverage controls one residual plan and derived fidelity |
 | 3. Windows ownership/backend policy | Pending | DX12-first tenancy when earned; explicit/failed Vulkan path remains truthful |
 | 4. Keyed Windows frost regions | Pending | Retained region diff, one tree/fade, four-scale/lifecycle/hardware matrix |
 | 5. Retirement and doctrine | Pending | Evidence-based native-call inventory, master doctrine, roadmap close-out |
@@ -59,3 +59,39 @@ popup acceptance passed.
 The remaining census before code is the exact retained ID accessor on `Frame`
 and whether popup scene translation requires requests to translate through the
 same owner as primitives.
+
+## Checkpoint 1 close-out
+
+The final identity is `layout::Frame::node_id()`, the existing process-transient
+retained composition identity. The census found one material pane per current
+material-owning frame, so no local key or public API was added. The ordered
+`Vec<MaterialRegion>` is paint order only.
+
+`MaterialRegion` retains the declaring ID, pane rect/rounding/recipe, effective
+clip projection, and opacity. It is emitted atomically with the glass pane
+while the `Frame` facts still exist. Overlay composition multiplies request
+opacity through the same append operation that creates the primitive group;
+native popup localization translates request geometry through the same `dx/dy`
+as primitives. Ghost projection clears requests because ghosts are paint-only.
+
+Evidence:
+
+- Explicitly keyed panels retained IDs across sibling reorder; the request
+  vector changed order independently.
+- Conditional insertion before existing panels did not rename them; removal
+  removed exactly the departed request and retained the survivor.
+- Geometry, rounding, material, clip, opacity, native translation, and popup
+  fallback absence have direct witnesses.
+- The architecture witness pins derivation at `push_material_pane(frame.node_id(),
+  ..., clip)` and forbids enumeration-derived identity.
+- Full library gate: 912 passed, 8 ignored. Doctests: 4 passed. All-target
+  compilation, formatting, all three smokes, and diff checks passed.
+- No public API change. The unrelated gallery-height edit remains untouched.
+
+## Checkpoint 2 census
+
+The existing `native_popup_scenes` owns three coupled whole-popup decisions:
+removing every glass pane, replacing every glass pane with fallback, and
+selecting the first tint. `PopupMaterialRealization` then selects one complete
+scene. This is the duplication checkpoint 2 replaces with keyed actual
+coverage plus one residual resolver.
