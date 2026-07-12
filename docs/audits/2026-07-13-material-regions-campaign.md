@@ -29,8 +29,8 @@ target/tree, and wgpu as the content tenant.
 | --- | --- | --- |
 | 1. Retained material-region truth | Complete (`4b33530f`) | Stable declaring identity; ordered request projection with clip and opacity provenance |
 | 2. Reports and residual resolver | Complete (`00083457`) | Actual realized-part coverage controls one residual plan and derived fidelity |
-| 3. Windows ownership/backend policy | Pending | DX12-first tenancy when earned; explicit/failed Vulkan path remains truthful |
-| 4. Keyed Windows frost regions | Pending | Retained region diff, one tree/fade, four-scale/lifecycle/hardware matrix |
+| 3. Windows ownership/backend policy | Complete (`7fbd318f`) | DX12-first tenancy when earned; explicit/failed Vulkan path remains truthful |
+| 4. Keyed Windows frost regions | Complete (`0a4c3aa5`) | Retained region diff, one tree/fade, four-scale/lifecycle/hardware matrix |
 | 5. Retirement and doctrine | Pending | Evidence-based native-call inventory, master doctrine, roadmap close-out |
 
 ## Prerequisite receipt
@@ -126,3 +126,83 @@ Evidence:
   all-target compilation, all three external smokes, diff hygiene, and
   `comparison_open: true` passed.
 - No public API change. The unrelated gallery-height edit remains untouched.
+
+## Checkpoint 3 close-out
+
+Windows composition ownership is one UI-thread `DispatcherQueueController` and
+`Compositor`, shared by the native runtime. Each earned popup supplies an
+unattached classic DComp visual to wgpu, retrieves the live DX12 swapchain
+through the public hal escape hatch, wraps it as a WinRT composition surface,
+and places its content sprite in one framework-owned desktop target and tree.
+No second HWND and no second target slot exist in the production path.
+
+Backend policy is explicit and observable. An explicit `WGPU_BACKEND` attempts
+only the requested backend. The implicit Windows policy attempts DX12 first so
+tenancy can be earned, then retains the existing all-backends fallback if that
+attempt fails. A forced Vulkan live run remained functional and reported
+`tenancy=false`; a DX12 live run reported `tenancy=true`. Partial tenancy
+construction is local and drops on failure before the popup records a host.
+
+Opacity was separated from scene paint at this boundary. Legacy native
+realization still bakes it once into paint; tenancy projects it once at the
+common composition root. Reconfiguration preserves the swapchain COM identity
+observed by the probe. A lost surface is now reconfigured and skips one frame
+instead of terminating the runtime. True adapter/device removal remains the
+renderer context's recovery boundary; the popup layer neither claims nor
+attempts an independent device reconstruction.
+
+Evidence:
+
+- Live DX12 repeated presents, resize/reconfiguration, first-present conceal /
+  synchronization / exposure, and full popup teardown passed.
+- Forced Vulkan remained on the legacy realization path without partial
+  composition ownership; explicit backend selection made no hidden attempt.
+- Full library gate before checkpoint 4: 919 passed, 8 ignored; 4 doctests,
+  all targets, three application smokes, and comparison state passed.
+- No public API change. Direct Windows dependencies match wgpu-hal's crate
+  family, avoiding a cross-version COM ownership transfer.
+
+## Checkpoint 4 close-out
+
+The Windows host now owns an ordered region container below the live content
+sprite and a retained `NodeId -> RegionVisual` map. Scene order is refreshed
+independently from identity; existing visuals survive reorder and parameter
+updates, departed IDs are pruned, and reports are emitted only after geometry,
+clip, visual update, and insertion succeed. An unsupported per-corner shape or
+cutting clip declines only its own region and leaves it for residual fallback.
+
+Geometry consumes the same `paint::Grid` and scene-to-paint rounded-rectangle
+projection as renderer paint. Witnesses at 1.0, 1.25, 1.5, and 2.0 pin integral
+physical edges and common radii. A production scene witness submits two nested,
+independently retained material regions in one popup scene. The earlier probe
+photographed two independently clipped regions in one HWND; production live
+acceptance showed visible host frost with the wgpu residual tint and chrome
+painted once above it.
+
+Native popup fade is one compositor scalar animation at the common root.
+Content, frost, and framework-painted residual therefore share one timeline;
+native overlay scheduling retains only the completion deadline and performs no
+per-frame application redraw for the fade. The first visible frame remains
+gated by the completed show-cycle contract; if setup consumes the fade window,
+the popup is exposed fully opaque rather than exposing a stale sampled frame.
+
+Hardware and policy receipts on this Windows 11 machine:
+
+- Explicit DX12 produced tenancy and `Frost` reports for all three glass-tuner
+  surfaces; the legacy accent desire was disabled after region realization.
+- The real `EnableTransparency` registry transition and `WM_SETTINGCHANGE`
+  broadcast were exercised with live DX12 tenancy and restored in a `finally`
+  path (`1 -> 0 -> 1`). Host frost remained realized on this machine. This is
+  an outcome receipt, not a claim that every Windows policy or machine behaves
+  identically.
+- Warm host setup measured 2.3-6.4 ms. Initial one-region realization measured
+  21-33 us, retained updates ordinarily 8-20 us, and graceful host teardown
+  7-32 us. These are local hardware observations, not portable budgets.
+- The comparison fixture plus native diagnostic log exposes backend, tenancy,
+  final aggregate/per-region fidelity, per-region decline reason, and timing
+  without adding product configuration API.
+
+Boundary evidence: 923 library tests passed with 8 intentional ignores; all 4
+doctests passed; formatting, all-target compilation, all three application
+smokes, diff hygiene, and `comparison_open: true` passed. No public API changed,
+and the unrelated gallery-height edit remains untouched.
