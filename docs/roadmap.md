@@ -6,7 +6,11 @@ is next.
 
 ## In flight
 
-None.
+18. **Material regions** — retained ordered material requests, actual
+    per-region realization reports, one residual resolver, and Windows
+    single-HWND composition tenancy. The show-cycle prerequisite is complete;
+    checkpoint 1 is establishing retained region identity and clip/opacity
+    provenance.
 
 ## Specced and ready
 
@@ -110,9 +114,6 @@ None.
     lesson, pre-applied). Needs macOS hardware.
 17. **Linux popup realization** — KWin/Hyprland blur hints, best effort;
     Wayland remains in-frame by design.
-18. **DirectComposition mode** — owned composition visual per popup;
-    compositor-side opacity animation (the true whole-window fade, frost
-    included).
 19. **Fade overflow style and marquee** — need gradient/mask infrastructure
     and the text-in-motion policy decision respectively.
 20. Micro-parked: density presets, menu mnemonics, user rebinding,
