@@ -47,8 +47,8 @@ range/TSV spreadsheet behavior, or push is permitted.
 | 2 | Internal table naming consumes the existing subject channel | Complete | `c401ebe9`; 877 passed, 8 ignored; retained subject and painted-text absence witnesses; three smokes and all boundary checks green |
 | 3 | Active sort indication is trailing header structure, never label text | Complete | `503bd6d3`; 878 passed, 8 ignored; active-only caret geometry, both directions, wrapping, target and resize precedence, three smokes and all boundary checks green |
 | 4 | Vertical scrollbar chrome consumes the visible body projection | Complete | `c8fbc548`; 879 passed, 8 ignored; overlay and gutter anchors, stable horizontal-scroll geometry, hit ownership, page extent, fully-clipped absence, three smokes and all boundary checks green |
-| 5 | Read, select, navigate, then deliberately edit | Green; commit pending | 883 passed, 8 ignored; read-only selection/copy, deliberate edit activation, canonical keyboard movement, native bool control, virtualization pruning, three smokes and all boundary checks green |
-| 6 | Resistance audit and campaign close-out | Pending | — |
+| 5 | Read, select, navigate, then deliberately edit | Complete | `ab8b51fe`; 883 passed, 8 ignored; read-only selection/copy, deliberate edit activation, canonical keyboard movement, native bool control, virtualization pruning, three smokes and all boundary checks green |
+| 6 | Resistance audit and campaign close-out | Complete | Structural absences held, complete six-commit stack reviewed, native Compact/Expanded eyes pass held, 883/8 final boundary green |
 
 ## Boundary ritual
 
@@ -238,8 +238,98 @@ Checkpoint commits are not pushed.
 - Explicit absences: no printable type-to-replace, range selection, TSV,
   paste, fill, column reorder, multi-sort, formulas, frozen columns, or
   Shift+Wheel remapping entered the tree.
-- Commit receipt: pending checkpoint commit; the close-out boundary records
-  its hash and diff statistics.
+- Commit receipt: `ab8b51fe`; 42 files changed, 1,515 insertions, 145
+  deletions.
+
+## Checkpoint 6 resistance audit and close-out
+
+### Structural audit
+
+- Variable table rows no longer measure through an `i32::MAX` viewport-height
+  surrogate. Remaining integer maxima are numeric saturation or generic scroll
+  limits, not table intrinsic measurement.
+- Table cell measurement and placement have one width source:
+  `table::Projection`. There is no `table::Width`, `TrackSpec`, replacement
+  solver, or downstream private table-width model.
+- `Table columns` appears only as the retained subject and its two exact
+  witnesses. No production `.with_label("Table columns")` call exists and the
+  phrase is absent from scene text.
+- Source contains no `Record ↑`, `Record ↓`, neutral `↕`, or other
+  glyph-formatted table header label. The active caret remains a decorative
+  header subpart with the header as its only target.
+- `Viewport::visible_frame` and `visible_content` are the shared inputs for
+  clipping, page extent, chrome paint, and chrome hit geometry. No table-only
+  scrollbar clamp or parallel track rectangle exists.
+- Pointer source contains exactly one edit-entry condition: a platform-classed
+  `Double` click on a frame with table edit capability. Single click only makes
+  the cell current or participates in selection.
+- Read-only mutation gating has one owner, `FieldMode::allows_edit`; direct
+  runtime edits and focused document services both consume it. Table code does
+  not privately enumerate clipboard or mutation commands.
+- Current cell, row selection, text selection/draft, and active edit identity
+  remain respectively owned by retained cell focus, virtual-list selection,
+  document editing, and `interaction::Tables`.
+- Source-wide absence searches found no TSV, range selection, fill handle,
+  frozen-column, type-to-replace, multi-column sort, or Shift+Wheel table path.
+  Compact and Expanded still construct one table species and share identity.
+
+### Manual eyes and interaction pass
+
+- At the representative native Windows raster scale, Compact retained its
+  original density. Expanded produced bounded rows sized to wrapped content,
+  not large empty allocations; the Expanded header remained ordinary table
+  chrome.
+- The active Record sort projected one trailing up/down caret. An inactive
+  header projected none. Single-click sorting changed application order to
+  descending and retained the same header target.
+- Widening Detail moved its rule and produced horizontal overflow. Scrolling
+  horizontally moved columns beneath the body while the vertical overlay thumb
+  appeared at the visible right edge. Vertical scrolling, resizing, and direct
+  checkbox activation remained usable.
+- A single click on Count established restrained current-cell chrome and did
+  not construct an editor. F2 and double-click each constructed the temporary
+  editor. Escape restored `0`; entering `8` and pressing Enter committed
+  through the application command and moved current-cell focus down one row.
+  Entering invalid `1000` retained the editor and left application state and
+  destination unchanged.
+- Display selection/copy, Tab/Shift+Tab, page navigation, row removal during
+  edit, four-scale rule/track geometry, and clipped virtual-row behavior are
+  additionally pinned by deterministic whole-runtime witnesses. The native
+  driver does not expose custom table accessibility nodes yet, matching the
+  recorded accessibility non-merge rather than hiding a failed semantic claim.
+
+### Concept verdict
+
+No new highest-level table species emerged. The six defects were violations of
+existing lower concepts or missing bridges between them:
+
+- resolved tracks own table measurement and placement;
+- subjects own internal semantic names;
+- sort state projects decorative header structure;
+- visible viewport geometry owns scroll chrome;
+- existing read-only text owns display selection and copy;
+- the table session owns only current-cell navigation and one edit identity;
+- application commands own data mutation.
+
+The only public additions, `Key::F2` and `EditToggle::is_on`, have demonstrated
+platform and external typed-column callers. No speculative public table
+vocabulary was admitted. The accessibility seam and spreadsheet behaviors
+remain explicit future arcs rather than partial features.
+
+### Final worktree and stack
+
+The reviewed campaign stack is:
+
+1. `816271b8` — open the crash-safe ledger.
+2. `5af6d17b` — resolved-track intrinsic measurement.
+3. `c401ebe9` — subject-channel internal naming.
+4. `503bd6d3` — structural sort-state projection.
+5. `c8fbc548` — visible-space scroll chrome.
+6. `ab8b51fe` — deliberate table editing grammar.
+
+The close-out commit changes only this ledger and the roadmap. No unrelated
+worktree changes remain, protected `comparison_open: true` is unchanged, and
+the campaign is not pushed.
 
 ## Execution ledger
 
@@ -256,6 +346,8 @@ Checkpoint commits are not pushed.
 | E-008 | Checkpoint 4 full boundary | Held: 879 passed, 8 ignored; three smokes, formatting, all targets, diff check, compact million-row witness, and protected state green |
 | E-009 | Checkpoint 5 focused interaction grammar | Held: read-only drag selection/copy, platform double-click entry, canonical edit-key movement, horizontal reveal, native bool click/Space, and removal pruning witnesses |
 | E-010 | Checkpoint 5 full boundary | Held: 883 passed, 8 ignored; three smokes, formatting, all targets, diff check, compact million-row witness, and protected state green |
+| E-011 | Checkpoint 6 resistance and manual-eyes audit | Held: defective source shapes absent; Compact/Expanded density, trailing sort caret, resize/overflow, pinned vertical chrome, current/edit distinction, commit/move, cancel, validation retention, and native checkbox behavior observed |
+| E-012 | Campaign final boundary | Held: 883 passed, 8 ignored; three smokes, formatting, all targets, diff check, protected comparison state, commit stack, and final worktree green |
 
 ## Public API flags
 
@@ -284,4 +376,5 @@ text surface modes, focus, clipboard, and viewport chrome concepts.
 | Checkpoint 2 | `c401ebe9` | 3 | 66 | 9 | Existing subject channel replaces painted internal scroll label |
 | Checkpoint 3 | `503bd6d3` | 12 | 357 | 30 | Active sort state projects into header-owned label and caret subparts |
 | Checkpoint 4 | `c8fbc548` | 6 | 237 | 71 | Scroll chrome consumes one visible viewport projection |
-| Checkpoint 5 | pending | pending | pending | pending | Display selection and deliberate editing consume existing text and table-session owners |
+| Checkpoint 5 | `ab8b51fe` | 42 | 1,515 | 145 | Display selection and deliberate editing consume existing text and table-session owners |
+| Checkpoint 6 | this close-out commit | 2 | 98 | 13 | Resistance audit, roadmap pruning, and campaign close-out |

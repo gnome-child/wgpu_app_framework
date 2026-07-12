@@ -4,14 +4,6 @@ Tracked future work, pruned in place as items land. Sibling to
 `master_design.md`: that document records what is true; this one records what
 is next.
 
-## In flight
-
-**Table polish campaign** — six independently green checkpoints restore one
-truth across expanded-row measurement, internal naming, structural sort
-headers, visible-space scroll chrome, and deliberate cell interaction. The
-crash-safe execution ledger is
-[`audits/2026-07-11-table-polish-campaign.md`](audits/2026-07-11-table-polish-campaign.md).
-
 ## Specced and ready
 
 2. **Show-cycle presentation contract** — the first visible frame of every
