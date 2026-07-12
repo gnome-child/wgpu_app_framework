@@ -153,7 +153,13 @@ impl Native {
             }
             popup.material_realization = Some(realization);
         }
-        let accent = if realization.uses_os_material() {
+        let material_region = presentation.scene().legacy_full_window_material_region();
+        let capabilities = if realization.uses_os_material() {
+            crate::scene::MaterialCapabilities::backdrop_frost()
+        } else {
+            crate::scene::MaterialCapabilities::none()
+        };
+        let accent = if capabilities.forecasts_backdrop_frost() && material_region.is_some() {
             super::sys::PopupAccentMaterial::Acrylic {
                 tint: material.tint(),
             }
@@ -183,11 +189,37 @@ impl Native {
         if let Some(reason) = popup_border_due(&popup.border, now) {
             apply_popup_border(key, popup, reason);
         }
-        let source_scene = if realization.uses_native_material_scene() {
-            presentation.scene()
-        } else {
-            presentation.opaque_fallback_scene()
-        };
+        let reports = material_region
+            .filter(|_| {
+                matches!(
+                    popup.accent.applied(),
+                    Some(super::sys::PopupAccentMaterial::Acrylic { .. })
+                )
+            })
+            .map(|region| {
+                crate::scene::MaterialRealizationReport::new(
+                    region.id(),
+                    crate::scene::RealizedMaterialParts::frost(
+                        popup.accent.applied() == Some(accent),
+                    ),
+                )
+            })
+            .into_iter()
+            .collect::<Vec<_>>();
+        let material_resolution = presentation.scene().resolve_material(
+            crate::scene::MaterialRenderer::NativePopup {
+                opaque: reports.is_empty(),
+            },
+            &reports,
+        );
+        let source_scene = material_resolution.scene();
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "native popup material resolution {:?}: fidelity={:?}, regions={:?}",
+            presentation.id(),
+            material_resolution.fidelity(),
+            material_resolution.region_fidelity()
+        );
         let scene = super::paint::to_paint_scene_at_scale(
             source_scene,
             popup.window.canvas().scale_factor(),
@@ -559,7 +591,7 @@ impl Native {
     }
 }
 
-fn apply_popup_accent(key: PopupKey, popup: &mut PopupWindow, reason: ApplyDue) {
+fn apply_popup_accent(key: PopupKey, popup: &mut PopupWindow, reason: ApplyDue) -> bool {
     let accent = popup
         .accent
         .desired()
@@ -571,8 +603,17 @@ fn apply_popup_accent(key: PopupKey, popup: &mut PopupWindow, reason: ApplyDue) 
         reason,
         accent
     );
-    popup.window.set_popup_accent_material(accent);
-    popup.accent.mark_applied(accent);
+    if popup.window.set_popup_accent_material(accent) {
+        popup.accent.mark_applied(accent);
+        true
+    } else {
+        log::warn!(
+            target: "wgpu_l3::native_popup",
+            "native popup accent {:?} was requested but not realized",
+            key.id
+        );
+        false
+    }
 }
 
 fn apply_popup_border(key: PopupKey, popup: &mut PopupWindow, reason: ApplyDue) {

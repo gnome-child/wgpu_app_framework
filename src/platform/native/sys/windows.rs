@@ -254,10 +254,10 @@ pub(super) fn set_popup_dark_mode(window: &winit::window::Window, dark: bool) {
 pub(super) fn set_popup_accent_material(
     window: &winit::window::Window,
     material: PopupAccentMaterial,
-) {
+) -> bool {
     let Some(hwnd) = hwnd(window) else {
         log::warn!(target: "wgpu_l3::native_popup", "cannot set popup accent material without HWND");
-        return;
+        return false;
     };
 
     let (state, gradient_color) = match material {
@@ -283,7 +283,7 @@ pub(super) fn set_popup_accent_material(
             target: "wgpu_l3::native_popup",
             "SetWindowCompositionAttribute unavailable; cannot set popup accent material"
         );
-        return;
+        return false;
     };
     let result = unsafe { set_window_composition_attribute(hwnd, &mut data) };
 
@@ -292,11 +292,13 @@ pub(super) fn set_popup_accent_material(
             target: "wgpu_l3::native_popup",
             "failed to set popup accent material {material:?}"
         );
+        false
     } else {
         log::debug!(
             target: "wgpu_l3::native_popup",
             "set popup accent material {material:?} gradient={gradient_color:#x}"
         );
+        true
     }
 }
 

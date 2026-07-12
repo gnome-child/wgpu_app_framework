@@ -282,7 +282,7 @@ enum BackendEvent {
         size: geometry::Size,
         clear_color: scene::Color,
         framework_glass_panes: usize,
-        fallback_framework_glass_panes: usize,
+        material_regions: usize,
     },
     FileDialog {
         window: window::Id,
@@ -392,9 +392,7 @@ impl platform::Backend for FakeBackend {
                 size: presentation.scene().size(),
                 clear_color: presentation.scene().clear(),
                 framework_glass_panes: framework_glass_pane_count(presentation.scene()),
-                fallback_framework_glass_panes: framework_glass_pane_count(
-                    presentation.opaque_fallback_scene(),
-                ),
+                material_regions: presentation.scene().material_regions().len(),
             });
         }
         Ok(())

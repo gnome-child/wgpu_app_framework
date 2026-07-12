@@ -867,16 +867,20 @@ fn text_editor_platform_applies_host_work_to_backend() {
             && *canvas_color == text_editor::CANVAS_COLOR
             && *kind == window::Kind::Application
     ));
-    assert!(platform.backend().events().iter().any(|event| matches!(
-        event,
-        BackendEvent::Present {
-            window: presented,
-            size,
-            clear_color,
-        } if *presented == window
-            && *size == text_editor::window_size()
-            && *clear_color == text_editor::CANVAS_COLOR
-    )));
+    assert!(
+        platform.backend().events().iter().any(|event| matches!(
+            event,
+            BackendEvent::Present {
+                window: presented,
+                size,
+                clear_color,
+            } if *presented == window
+                && *size == text_editor::window_size()
+                && *clear_color == text_editor::CANVAS_COLOR
+        )),
+        "events: {:?}",
+        platform.backend().events()
+    );
     let render = &platform
         .host()
         .shell()
@@ -946,22 +950,26 @@ fn menu_dropdown_uses_native_popup_work_when_backend_supports_it() {
         ))
         .expect("pointer up should open menu");
 
-    assert!(platform.backend().events().iter().any(|event| matches!(
-        event,
-        BackendEvent::PresentPopup {
-            parent,
-            id: _,
-            size,
-            clear_color,
-            framework_glass_panes,
-            fallback_framework_glass_panes,
-        } if *parent == window
-            && size.width() > 0
-            && size.height() > 0
-            && *clear_color == scene::Color::rgba(0, 0, 0, 0)
-            && *framework_glass_panes == 0
-            && *fallback_framework_glass_panes == 0
-    )));
+    assert!(
+        platform.backend().events().iter().any(|event| matches!(
+            event,
+            BackendEvent::PresentPopup {
+                parent,
+                id: _,
+                size,
+                clear_color,
+                framework_glass_panes,
+                material_regions,
+            } if *parent == window
+                && size.width() > 0
+                && size.height() > 0
+                && *clear_color == scene::Color::rgba(0, 0, 0, 0)
+                && *framework_glass_panes == 0
+                && *material_regions == 0
+        )),
+        "events: {:?}",
+        platform.backend().events()
+    );
     assert_eq!(
         platform.host().shell().runtime().session().windows()[0].kind(),
         window::Kind::Application,
@@ -991,23 +999,27 @@ fn command_palette_uses_native_popup_work_when_backend_supports_it() {
         ))
         .expect("palette shortcut should open command palette");
 
-    assert!(platform.backend().events().iter().any(|event| matches!(
-        event,
-        BackendEvent::PresentPopup {
-            parent,
-            id,
-            size,
-            clear_color,
-            framework_glass_panes,
-            fallback_framework_glass_panes,
-        } if *parent == window
-            && *id == interaction::CommandPalette::panel_id()
-            && size.width() > 0
-            && size.height() > 0
-            && *clear_color == scene::Color::rgba(0, 0, 0, 0)
-            && *framework_glass_panes == 0
-            && *fallback_framework_glass_panes == 0
-    )));
+    assert!(
+        platform.backend().events().iter().any(|event| matches!(
+            event,
+            BackendEvent::PresentPopup {
+                parent,
+                id,
+                size,
+                clear_color,
+                framework_glass_panes,
+                material_regions,
+            } if *parent == window
+                && *id == interaction::CommandPalette::panel_id()
+                && size.width() > 0
+                && size.height() > 0
+                && *clear_color == scene::Color::rgba(0, 0, 0, 0)
+                && *framework_glass_panes == 0
+            && *material_regions == 0
+        )),
+        "events: {:?}",
+        platform.backend().events()
+    );
     assert!(
         platform.backend().events().iter().any(|event| matches!(
             event,

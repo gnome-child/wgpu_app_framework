@@ -116,8 +116,8 @@ impl Window {
         super::sys::set_popup_dark_mode(&self.handle, dark);
     }
 
-    pub fn set_popup_accent_material(&self, material: super::sys::PopupAccentMaterial) {
-        super::sys::set_popup_accent_material(&self.handle, material);
+    pub fn set_popup_accent_material(&self, material: super::sys::PopupAccentMaterial) -> bool {
+        super::sys::set_popup_accent_material(&self.handle, material)
     }
 
     pub fn set_popup_border_color(&self, color: crate::scene::Color) {

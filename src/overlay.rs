@@ -129,7 +129,6 @@ pub(crate) struct PopupPresentation {
     id: interaction::Id,
     bounds: geometry::Rect,
     scene: scene::Scene,
-    opaque_fallback_scene: scene::Scene,
     material: PopupMaterial,
     border: scene::Color,
 }
@@ -421,7 +420,6 @@ impl PopupPresentation {
         id: interaction::Id,
         bounds: geometry::Rect,
         scene: scene::Scene,
-        opaque_fallback_scene: scene::Scene,
         material: PopupMaterial,
         border: scene::Color,
     ) -> Self {
@@ -430,7 +428,6 @@ impl PopupPresentation {
             id,
             bounds,
             scene,
-            opaque_fallback_scene,
             material,
             border,
         }
@@ -450,10 +447,6 @@ impl PopupPresentation {
 
     pub(crate) fn scene(&self) -> &scene::Scene {
         &self.scene
-    }
-
-    pub(crate) fn opaque_fallback_scene(&self) -> &scene::Scene {
-        &self.opaque_fallback_scene
     }
 
     pub(crate) fn material(&self) -> PopupMaterial {

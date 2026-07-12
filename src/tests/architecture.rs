@@ -2694,15 +2694,10 @@ fn native_popup_fade_changes_content_pixels_without_changing_material_policy() {
     let master = std::fs::read_to_string(root.join("docs/master_design.md"))
         .expect("master design should read");
 
-    for call in [
-        "append_scene_with_opacity(local.native_material(), layer.opacity())",
-        "append_scene_with_opacity(local.opaque_fallback(), layer.opacity())",
-    ] {
-        assert!(
-            presentation.contains(call),
-            "native popup content must consume overlay opacity: {call}"
-        );
-    }
+    assert!(
+        presentation.contains("append_scene_with_opacity(local.scene(), layer.opacity())"),
+        "the intact native request must consume overlay opacity once"
+    );
     assert!(
         overlay.contains("struct RetiringPopup")
             && overlay.contains("kind: LayerKind::RetiringPopup")
@@ -2719,6 +2714,38 @@ fn native_popup_fade_changes_content_pixels_without_changing_material_policy() {
             && master.contains("It never becomes a")
             && master.contains("parent-window ghost"),
         "master design must retain the content-only native fade contract"
+    );
+}
+
+#[test]
+fn actual_material_reports_alone_authorize_residual_subtraction() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let runtime = std::fs::read_to_string(root.join("src/runtime/presentation.rs"))
+        .expect("runtime presentation source should read");
+    let overlay =
+        std::fs::read_to_string(root.join("src/overlay.rs")).expect("overlay source should read");
+    let popup = std::fs::read_to_string(root.join("src/platform/native/popup.rs"))
+        .expect("native popup source should read");
+    let windows = std::fs::read_to_string(root.join("src/platform/native/sys/windows.rs"))
+        .expect("Windows popup source should read");
+
+    assert!(
+        runtime.contains("native_popup_request(layer.bounds())")
+            && runtime.contains("append_scene_with_opacity(local.scene(), layer.opacity())")
+            && !runtime.contains("opaque_fallback_scene"),
+        "runtime must submit one intact localized request rather than forecast-filtered scenes"
+    );
+    assert!(
+        !overlay.contains("opaque_fallback_scene")
+            && popup.contains("MaterialRealizationReport::new")
+            && popup.contains("resolve_material("),
+        "the native boundary must report actual parts and delegate complement ownership to one resolver"
+    );
+    assert!(
+        windows.contains("pub(super) fn set_popup_accent_material(")
+            && windows.contains(") -> bool")
+            && popup.contains("if popup.window.set_popup_accent_material(accent)"),
+        "an attempted accent forecast must not be recorded as a successful realization"
     );
 }
 

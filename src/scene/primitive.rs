@@ -118,6 +118,7 @@ pub struct Pane {
     rect: geometry::Rect,
     rounding: Rounding,
     material: Material,
+    region_id: Option<crate::composition::NodeId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -849,6 +850,7 @@ impl Pane {
             rect,
             rounding: Rounding::none(),
             material,
+            region_id: None,
         }
     }
 
@@ -857,11 +859,22 @@ impl Pane {
         self
     }
 
+    pub(in crate::scene) fn with_region_id(mut self, id: crate::composition::NodeId) -> Self {
+        self.region_id = Some(id);
+        self
+    }
+
+    pub(in crate::scene) fn with_material(mut self, material: Material) -> Self {
+        self.material = material;
+        self
+    }
+
     pub(crate) fn without_backdrop_sampling(&self) -> Self {
         Self {
             rect: self.rect,
             rounding: self.rounding,
             material: self.material.without_backdrop_sampling(),
+            region_id: None,
         }
     }
 
@@ -877,11 +890,16 @@ impl Pane {
         &self.material
     }
 
+    pub(crate) fn region_id(&self) -> Option<crate::composition::NodeId> {
+        self.region_id
+    }
+
     pub(crate) fn translated(&self, dx: i32, dy: i32) -> Self {
         Self {
             rect: translate_rect(self.rect, dx, dy),
             rounding: self.rounding,
             material: self.material.clone(),
+            region_id: self.region_id,
         }
     }
 }

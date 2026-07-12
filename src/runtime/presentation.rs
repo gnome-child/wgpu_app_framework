@@ -925,10 +925,13 @@ fn caret_animation_schedule(layout: &layout::Layout, now: Instant) -> animation:
 }
 
 fn append_overlay_layer(scene: &mut scene::Scene, layer: &crate::overlay::Layer) {
+    let resolved = layer
+        .scene()
+        .resolve_material(scene::MaterialRenderer::InFrame, &[]);
     if layer.force_group_at_full_opacity() {
-        scene.append_scene_with_forced_group(layer.scene(), layer.opacity());
+        scene.append_scene_with_forced_group(resolved.scene(), layer.opacity());
     } else {
-        scene.append_scene_with_opacity(layer.scene(), layer.opacity());
+        scene.append_scene_with_opacity(resolved.scene(), layer.opacity());
     }
 }
 
@@ -943,25 +946,15 @@ fn append_or_present_overlay_layer(
     match layer.backend() {
         crate::overlay::Backend::InFrame => append_overlay_layer(scene, layer),
         crate::overlay::Backend::NativePopup if capabilities.native_popups_supported() => {
-            let local = layer.scene().native_popup_scenes(layer.bounds());
-            let mut popup_scene = scene::Scene::new_with_clear(
-                local.native_material().size(),
-                scene::Color::rgba(0, 0, 0, 0),
-            );
-            popup_scene.append_scene_with_opacity(local.native_material(), layer.opacity());
-
-            let mut opaque_fallback_scene = scene::Scene::new_with_clear(
-                local.opaque_fallback().size(),
-                local.opaque_fallback().clear(),
-            );
-            opaque_fallback_scene
-                .append_scene_with_opacity(local.opaque_fallback(), layer.opacity());
+            let local = layer.scene().native_popup_request(layer.bounds());
+            let mut popup_scene =
+                scene::Scene::new_with_clear(local.scene().size(), scene::Color::rgba(0, 0, 0, 0));
+            popup_scene.append_scene_with_opacity(local.scene(), layer.opacity());
             popup_presentations.push(crate::overlay::PopupPresentation::new(
                 window,
                 layer.id(),
                 layer.bounds(),
                 popup_scene,
-                opaque_fallback_scene,
                 crate::overlay::PopupMaterial::NativeWindow {
                     dark: native_popup_dark,
                     tint: local.accent_tint(),

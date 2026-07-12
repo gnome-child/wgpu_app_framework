@@ -112,14 +112,15 @@ pub(in crate::platform::native) fn set_popup_dark_mode(window: &winit::window::W
 pub(in crate::platform::native) fn set_popup_accent_material(
     window: &winit::window::Window,
     material: PopupAccentMaterial,
-) {
+) -> bool {
     #[cfg(target_os = "windows")]
-    windows::set_popup_accent_material(window, material);
+    return windows::set_popup_accent_material(window, material);
 
     #[cfg(not(target_os = "windows"))]
     {
         let _ = window;
         let _ = material;
+        false
     }
 }
 

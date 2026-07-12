@@ -72,6 +72,13 @@ impl Material {
             Self::Glass(glass) => Self::Glass(glass.without_backdrop_layers()),
         }
     }
+
+    pub(crate) fn without_realized_parts(&self, parts: super::RealizedMaterialParts) -> Self {
+        match self {
+            Self::Solid(brush) => Self::Solid(*brush),
+            Self::Glass(glass) => Self::Glass(glass.without_realized_parts(parts)),
+        }
+    }
 }
 
 impl Glass {
@@ -127,6 +134,19 @@ impl Glass {
             backdrop_layers: Vec::new(),
             surface_layers: self.surface_layers.clone(),
         }
+    }
+
+    pub(crate) fn without_realized_parts(&self, parts: super::RealizedMaterialParts) -> Self {
+        let mut residual = self.clone();
+        if parts.backdrop_frost() {
+            residual.backdrop_layers.clear();
+        }
+        if parts.surface_tint() {
+            residual
+                .surface_layers
+                .retain(|layer| !matches!(layer, SurfaceLayer::Tint { .. }));
+        }
+        residual
     }
 
     pub fn blur(&self) -> Option<BackdropBlur> {

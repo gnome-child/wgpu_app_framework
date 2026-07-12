@@ -17,7 +17,10 @@ pub use primitive::{
     Radius, Rasterization, Rounding, Rule, ScaleMotion, Shadow, Stroke, Style, Text, TextAlign,
     TextStyle, TextSurface, TextViewport, TextWrap, Transform,
 };
-pub(crate) use region::MaterialRegion;
+pub(crate) use region::{
+    MaterialCapabilities, MaterialFidelity, MaterialRealizationReport, MaterialRegion,
+    MaterialRenderer, RealizedMaterialParts,
+};
 pub(crate) use visual::Visuals;
 pub(crate) use visual::{Scalar as VisualScalar, Target as TargetVisual};
 
@@ -32,10 +35,16 @@ pub struct Scene {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct NativePopupScenes {
-    native_material: Scene,
-    opaque_fallback: Scene,
+pub(crate) struct NativePopupRequest {
+    scene: Scene,
     accent_tint: Color,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct MaterialResolution {
+    scene: Scene,
+    fidelity: MaterialFidelity,
+    region_fidelity: Vec<(composition::NodeId, MaterialFidelity)>,
 }
 
 impl Scene {
@@ -112,9 +121,59 @@ impl Scene {
         &self.primitives
     }
 
-    #[allow(dead_code)] // Checkpoint 2 installs the report/residual consumer.
+    #[cfg(test)]
     pub(crate) fn material_regions(&self) -> &[MaterialRegion] {
         &self.material_regions
+    }
+
+    pub(crate) fn legacy_full_window_material_region(&self) -> Option<&MaterialRegion> {
+        let [region] = self.material_regions.as_slice() else {
+            return None;
+        };
+        let rect = region.rect();
+        (rect.x() == 0
+            && rect.y() == 0
+            && rect.width() == self.size.width()
+            && rect.height() == self.size.height())
+        .then_some(region)
+    }
+
+    pub(crate) fn resolve_material(
+        &self,
+        renderer: MaterialRenderer,
+        reports: &[MaterialRealizationReport],
+    ) -> MaterialResolution {
+        let clear = match renderer {
+            MaterialRenderer::InFrame => self.clear,
+            MaterialRenderer::NativePopup { opaque: false } => Color::rgba(0, 0, 0, 0),
+            MaterialRenderer::NativePopup { opaque: true } => {
+                native_popup_fallback_clear(&self.primitives).unwrap_or(theme::DEFAULT_CANVAS_COLOR)
+            }
+        };
+        let mut region_fidelity = Vec::new();
+        let primitives = self
+            .primitives
+            .iter()
+            .filter_map(|primitive| {
+                resolve_material_primitive(primitive, renderer, reports, &mut region_fidelity)
+            })
+            .collect();
+        let fidelity = region_fidelity
+            .iter()
+            .map(|(_, fidelity)| *fidelity)
+            .max()
+            .unwrap_or(MaterialFidelity::Full);
+
+        MaterialResolution {
+            scene: Self {
+                size: self.size,
+                clear,
+                primitives,
+                material_regions: Vec::new(),
+            },
+            fidelity,
+            region_fidelity,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -159,39 +218,27 @@ impl Scene {
         self.append_scene_with_opacity(&ghost, opacity);
     }
 
-    pub(crate) fn native_popup_scenes(&self, bounds: geometry::Rect) -> NativePopupScenes {
+    pub(crate) fn native_popup_request(&self, bounds: geometry::Rect) -> NativePopupRequest {
         let dx = -bounds.x();
         let dy = -bounds.y();
-        let mut native_material = Self::new_with_clear(
+        let mut scene = Self::new_with_clear(
             geometry::Size::new(bounds.width(), bounds.height()),
             Color::rgba(0, 0, 0, 0),
         );
-        native_material.primitives = self
+        scene.primitives = self
             .primitives
             .iter()
-            .filter_map(native_popup_material_primitive)
+            .cloned()
             .map(|primitive| primitive.translated(dx, dy))
             .collect();
-        native_material.material_regions = self
+        scene.material_regions = self
             .material_regions
             .iter()
             .map(|region| region.translated(dx, dy))
             .collect();
 
-        let mut opaque_fallback = Self::new_with_clear(
-            geometry::Size::new(bounds.width(), bounds.height()),
-            native_popup_fallback_clear(&self.primitives).unwrap_or(theme::DEFAULT_CANVAS_COLOR),
-        );
-        opaque_fallback.primitives = self
-            .primitives
-            .iter()
-            .filter_map(native_popup_fallback_primitive)
-            .map(|primitive| primitive.translated(dx, dy))
-            .collect();
-
-        NativePopupScenes {
-            native_material,
-            opaque_fallback,
+        NativePopupRequest {
+            scene,
             accent_tint: native_popup_accent_tint(&self.primitives)
                 .unwrap_or(Color::rgba(28, 28, 30, 192)),
         }
@@ -315,6 +362,7 @@ impl Scene {
         clip: Option<Clip>,
     ) {
         if pane.rect().width() > 0 && pane.rect().height() > 0 {
+            let pane = pane.with_region_id(id);
             self.material_regions
                 .push(MaterialRegion::from_pane(id, &pane, clip));
             self.primitives.push(Primitive::Pane(pane));
@@ -338,18 +386,107 @@ impl Scene {
     }
 }
 
-impl NativePopupScenes {
-    pub(crate) fn native_material(&self) -> &Scene {
-        &self.native_material
-    }
-
-    pub(crate) fn opaque_fallback(&self) -> &Scene {
-        &self.opaque_fallback
+impl NativePopupRequest {
+    pub(crate) fn scene(&self) -> &Scene {
+        &self.scene
     }
 
     pub(crate) fn accent_tint(&self) -> Color {
         self.accent_tint
     }
+}
+
+impl MaterialResolution {
+    pub(crate) fn scene(&self) -> &Scene {
+        &self.scene
+    }
+
+    pub(crate) fn fidelity(&self) -> MaterialFidelity {
+        self.fidelity
+    }
+
+    pub(crate) fn region_fidelity(&self) -> &[(composition::NodeId, MaterialFidelity)] {
+        &self.region_fidelity
+    }
+}
+
+fn resolve_material_primitive(
+    primitive: &Primitive,
+    renderer: MaterialRenderer,
+    reports: &[MaterialRealizationReport],
+    fidelity: &mut Vec<(composition::NodeId, MaterialFidelity)>,
+) -> Option<Primitive> {
+    match primitive {
+        Primitive::Pane(pane) => resolve_material_pane(pane, renderer, reports, fidelity),
+        Primitive::Shadow(_) if matches!(renderer, MaterialRenderer::NativePopup { .. }) => None,
+        Primitive::Group(group) => {
+            let primitives = group
+                .primitives()
+                .iter()
+                .filter_map(|primitive| {
+                    resolve_material_primitive(primitive, renderer, reports, fidelity)
+                })
+                .collect();
+            Group::new(primitives, group.opacity()).map(Primitive::Group)
+        }
+        _ => Some(primitive.clone()),
+    }
+}
+
+fn resolve_material_pane(
+    pane: &Pane,
+    renderer: MaterialRenderer,
+    reports: &[MaterialRealizationReport],
+    fidelity: &mut Vec<(composition::NodeId, MaterialFidelity)>,
+) -> Option<Primitive> {
+    let Material::Glass(glass) = pane.material() else {
+        return Some(Primitive::Pane(pane.clone()));
+    };
+    let Some(id) = pane.region_id() else {
+        return match renderer {
+            MaterialRenderer::InFrame => Some(Primitive::Pane(pane.clone())),
+            MaterialRenderer::NativePopup { .. } => Some(Primitive::Quad(
+                Quad::styled(pane.rect(), Style::filled_with(glass.fallback()))
+                    .with_rounding(pane.rounding()),
+            )),
+        };
+    };
+
+    match renderer {
+        MaterialRenderer::InFrame => {
+            fidelity.push((id, MaterialFidelity::Full));
+            Some(Primitive::Pane(pane.clone()))
+        }
+        MaterialRenderer::NativePopup { .. } => {
+            let parts = unique_report_parts(id, reports);
+            if parts.backdrop_frost() {
+                fidelity.push((id, MaterialFidelity::Frost));
+                Some(Primitive::Pane(pane.clone().with_material(
+                    pane.material().without_realized_parts(parts),
+                )))
+            } else {
+                fidelity.push((id, MaterialFidelity::Fallback));
+                Some(Primitive::Quad(
+                    Quad::styled(pane.rect(), Style::filled_with(glass.fallback()))
+                        .with_rounding(pane.rounding()),
+                ))
+            }
+        }
+    }
+}
+
+fn unique_report_parts(
+    id: composition::NodeId,
+    reports: &[MaterialRealizationReport],
+) -> RealizedMaterialParts {
+    let mut matching = reports.iter().filter(|report| report.id() == id);
+    let Some(report) = matching.next() else {
+        return RealizedMaterialParts::none();
+    };
+    if matching.next().is_some() {
+        return RealizedMaterialParts::none();
+    }
+    report.parts()
 }
 
 fn collect_quads<'a>(primitives: &'a [Primitive], quads: &mut Vec<&'a Quad>) {
@@ -455,44 +592,6 @@ fn ghost_primitive(primitive: &Primitive) -> Primitive {
             )
         }
         _ => primitive.clone(),
-    }
-}
-
-fn native_popup_material_primitive(primitive: &Primitive) -> Option<Primitive> {
-    match primitive {
-        Primitive::Pane(pane) if matches!(pane.material(), Material::Glass(_)) => None,
-        Primitive::Shadow(_) => None,
-        Primitive::Group(group) => {
-            let primitives = group
-                .primitives()
-                .iter()
-                .filter_map(native_popup_material_primitive)
-                .collect();
-            Group::new(primitives, group.opacity()).map(Primitive::Group)
-        }
-        _ => Some(primitive.clone()),
-    }
-}
-
-fn native_popup_fallback_primitive(primitive: &Primitive) -> Option<Primitive> {
-    match primitive {
-        Primitive::Pane(pane) => match pane.material() {
-            Material::Glass(glass) => Some(Primitive::Quad(
-                Quad::styled(pane.rect(), Style::filled_with(glass.fallback()))
-                    .with_rounding(pane.rounding()),
-            )),
-            Material::Solid(_) => Some(Primitive::Pane(pane.clone())),
-        },
-        Primitive::Shadow(_) => None,
-        Primitive::Group(group) => {
-            let primitives = group
-                .primitives()
-                .iter()
-                .filter_map(native_popup_fallback_primitive)
-                .collect();
-            Group::new(primitives, group.opacity()).map(Primitive::Group)
-        }
-        _ => Some(primitive.clone()),
     }
 }
 
@@ -738,15 +837,15 @@ mod tests {
         let mut faded = Scene::new(geometry::Size::new(100, 100));
         faded.append_scene_with_opacity(&source, 0.5);
 
-        let popup = faded.native_popup_scenes(geometry::Rect::new(4, 6, 40, 24));
-        let [region] = popup.native_material().material_regions() else {
+        let popup = faded.native_popup_request(geometry::Rect::new(4, 6, 40, 24));
+        let [region] = popup.scene().material_regions() else {
             panic!("native scene should retain one translated request");
         };
         assert_eq!(region.id(), id);
         assert_eq!(region.rect(), geometry::Rect::new(0, 0, 40, 24));
         assert_eq!(region.clips()[0].rect(), geometry::Rect::new(0, 0, 40, 24));
         assert_eq!(region.opacity(), 0.5);
-        assert!(popup.opaque_fallback().material_regions().is_empty());
+        assert_eq!(popup.scene().panes().len(), 1);
     }
 
     #[test]
@@ -826,28 +925,63 @@ mod tests {
     }
 
     #[test]
-    fn native_popup_material_scene_translates_and_removes_framework_glass() {
-        let source = glass_pane_scene();
+    fn native_popup_request_preserves_glass_until_platform_reports_outcome() {
+        let id = retained_material_region_ids(panels(&["native.panel"]))[0];
+        let mut source = Scene::new(geometry::Size::new(100, 100));
+        source.push_material_pane(
+            id,
+            Pane::new(
+                geometry::Rect::new(4, 6, 40, 24),
+                Material::glass(Glass::panel_dark()),
+            ),
+            None,
+        );
 
-        let popup = source.native_popup_scenes(geometry::Rect::new(4, 6, 40, 24));
-        let native = popup.native_material();
+        let popup = source.native_popup_request(geometry::Rect::new(4, 6, 40, 24));
+        let requested = popup.scene();
 
         assert_eq!(popup.accent_tint(), Color::rgba(28, 28, 30, 224));
-        assert_eq!(native.size(), geometry::Size::new(40, 24));
-        assert_eq!(native.clear(), Color::rgba(0, 0, 0, 0));
-        assert!(
-            native.panes().is_empty(),
-            "OS-material popup scene must not render framework glass panes"
+        assert_eq!(requested.size(), geometry::Size::new(40, 24));
+        assert_eq!(requested.clear(), Color::rgba(0, 0, 0, 0));
+        assert_eq!(requested.panes().len(), 1);
+
+        let resolution = requested.resolve_material(
+            MaterialRenderer::NativePopup { opaque: false },
+            &[MaterialRealizationReport::new(
+                id,
+                RealizedMaterialParts::frost(true),
+            )],
         );
+        assert_eq!(resolution.fidelity(), MaterialFidelity::Frost);
+        let panes = resolution.scene().panes();
+        let [pane] = panes.as_slice() else {
+            panic!("surface residue should remain after native frost realization");
+        };
+        let Material::Glass(glass) = pane.material() else {
+            panic!("residual material keeps its glass recipe");
+        };
+        assert!(glass.backdrop_layers().is_empty());
+        assert!(glass.tint().is_none());
     }
 
     #[test]
-    fn native_popup_opaque_fallback_replaces_glass_with_solid_body() {
-        let source = glass_pane_scene();
+    fn missing_native_report_resolves_to_opaque_fallback() {
+        let id = retained_material_region_ids(panels(&["fallback.panel"]))[0];
+        let mut source = Scene::new(geometry::Size::new(40, 24));
+        source.push_material_pane(
+            id,
+            Pane::new(
+                geometry::Rect::new(0, 0, 40, 24),
+                Material::glass(Glass::panel_dark()),
+            ),
+            None,
+        );
 
-        let popup = source.native_popup_scenes(geometry::Rect::new(4, 6, 40, 24));
-        let fallback = popup.opaque_fallback();
+        let resolution =
+            source.resolve_material(MaterialRenderer::NativePopup { opaque: true }, &[]);
+        let fallback = resolution.scene();
 
+        assert_eq!(resolution.fidelity(), MaterialFidelity::Fallback);
         assert_eq!(fallback.size(), geometry::Size::new(40, 24));
         assert_eq!(fallback.clear(), Color::rgb(28, 28, 30));
         assert!(
@@ -859,5 +993,127 @@ mod tests {
             panic!("fallback should render one solid body quad");
         };
         assert_eq!(quad.rect(), geometry::Rect::new(0, 0, 40, 24));
+    }
+
+    #[test]
+    fn report_order_does_not_change_region_identity_or_residual_order() {
+        let ids = retained_material_region_ids(panels(&["one", "two"]));
+        let mut source =
+            Scene::new_with_clear(geometry::Size::new(80, 24), Color::rgba(0, 0, 0, 0));
+        for (index, id) in ids.iter().copied().enumerate() {
+            source.push_material_pane(
+                id,
+                Pane::new(
+                    geometry::Rect::new((index as i32) * 40, 0, 40, 24),
+                    Material::glass(Glass::panel_dark()),
+                ),
+                None,
+            );
+        }
+        let forward = source.resolve_material(
+            MaterialRenderer::NativePopup { opaque: false },
+            &[
+                MaterialRealizationReport::new(ids[0], RealizedMaterialParts::frost(false)),
+                MaterialRealizationReport::new(ids[1], RealizedMaterialParts::frost(true)),
+            ],
+        );
+        let reverse = source.resolve_material(
+            MaterialRenderer::NativePopup { opaque: false },
+            &[
+                MaterialRealizationReport::new(ids[1], RealizedMaterialParts::frost(true)),
+                MaterialRealizationReport::new(ids[0], RealizedMaterialParts::frost(false)),
+            ],
+        );
+
+        assert_eq!(forward.region_fidelity(), reverse.region_fidelity());
+        assert_eq!(
+            forward.region_fidelity(),
+            &[
+                (ids[0], MaterialFidelity::Frost),
+                (ids[1], MaterialFidelity::Frost)
+            ]
+        );
+        assert_eq!(
+            forward
+                .scene()
+                .panes()
+                .iter()
+                .map(|pane| pane.rect())
+                .collect::<Vec<_>>(),
+            reverse
+                .scene()
+                .panes()
+                .iter()
+                .map(|pane| pane.rect())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn missing_stale_and_duplicate_reports_never_consume_requested_material() {
+        let ids = retained_material_region_ids(panels(&["live", "stale"]));
+        let mut source = Scene::new(geometry::Size::new(40, 24));
+        source.push_material_pane(
+            ids[0],
+            Pane::new(
+                geometry::Rect::new(0, 0, 40, 24),
+                Material::glass(Glass::panel_dark()),
+            ),
+            None,
+        );
+
+        for reports in [
+            vec![],
+            vec![MaterialRealizationReport::new(
+                ids[1],
+                RealizedMaterialParts::frost(true),
+            )],
+            vec![
+                MaterialRealizationReport::new(ids[0], RealizedMaterialParts::frost(true)),
+                MaterialRealizationReport::new(ids[0], RealizedMaterialParts::frost(true)),
+            ],
+        ] {
+            let resolution =
+                source.resolve_material(MaterialRenderer::NativePopup { opaque: true }, &reports);
+            assert_eq!(resolution.fidelity(), MaterialFidelity::Fallback);
+            assert!(resolution.scene().panes().is_empty());
+            assert_eq!(resolution.scene().quads().len(), 1);
+        }
+    }
+
+    #[test]
+    fn mixed_native_outcomes_preserve_one_final_fidelity_per_requested_region() {
+        let ids = retained_material_region_ids(panels(&["frost", "fallback"]));
+        let mut source =
+            Scene::new_with_clear(geometry::Size::new(80, 24), Color::rgba(0, 0, 0, 0));
+        for (index, id) in ids.iter().copied().enumerate() {
+            source.push_material_pane(
+                id,
+                Pane::new(
+                    geometry::Rect::new((index as i32) * 40, 0, 40, 24),
+                    Material::glass(Glass::panel_dark()),
+                ),
+                None,
+            );
+        }
+
+        let resolution = source.resolve_material(
+            MaterialRenderer::NativePopup { opaque: false },
+            &[MaterialRealizationReport::new(
+                ids[0],
+                RealizedMaterialParts::frost(false),
+            )],
+        );
+
+        assert_eq!(resolution.fidelity(), MaterialFidelity::Fallback);
+        assert_eq!(
+            resolution.region_fidelity(),
+            &[
+                (ids[0], MaterialFidelity::Frost),
+                (ids[1], MaterialFidelity::Fallback)
+            ]
+        );
+        assert_eq!(resolution.scene().panes().len(), 1);
+        assert_eq!(resolution.scene().quads().len(), 1);
     }
 }

@@ -2,6 +2,92 @@ use crate::{composition, geometry};
 
 use super::{Clip, Material, Pane, Rounding};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MaterialRenderer {
+    InFrame,
+    NativePopup { opaque: bool },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum MaterialFidelity {
+    Full,
+    Frost,
+    Fallback,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct RealizedMaterialParts {
+    backdrop_frost: bool,
+    surface_tint: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MaterialRealizationReport {
+    id: composition::NodeId,
+    parts: RealizedMaterialParts,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct MaterialCapabilities {
+    backdrop_frost: bool,
+}
+
+impl MaterialCapabilities {
+    pub(crate) const fn none() -> Self {
+        Self {
+            backdrop_frost: false,
+        }
+    }
+
+    pub(crate) const fn backdrop_frost() -> Self {
+        Self {
+            backdrop_frost: true,
+        }
+    }
+
+    pub(crate) const fn forecasts_backdrop_frost(self) -> bool {
+        self.backdrop_frost
+    }
+}
+
+impl RealizedMaterialParts {
+    pub(crate) const fn none() -> Self {
+        Self {
+            backdrop_frost: false,
+            surface_tint: false,
+        }
+    }
+
+    pub(crate) const fn frost(surface_tint: bool) -> Self {
+        Self {
+            backdrop_frost: true,
+            surface_tint,
+        }
+    }
+
+    pub(crate) const fn backdrop_frost(self) -> bool {
+        self.backdrop_frost
+    }
+
+    pub(crate) const fn surface_tint(self) -> bool {
+        self.surface_tint
+    }
+}
+
+impl MaterialRealizationReport {
+    pub(crate) const fn new(id: composition::NodeId, parts: RealizedMaterialParts) -> Self {
+        Self { id, parts }
+    }
+
+    pub(crate) const fn id(self) -> composition::NodeId {
+        self.id
+    }
+
+    pub(crate) const fn parts(self) -> RealizedMaterialParts {
+        self.parts
+    }
+}
+
 /// Retained scene request for one shaped material surface.
 ///
 /// Identity belongs to the declaring composition node. Position in the
