@@ -16,6 +16,14 @@ pub trait Backend {
         window: window::Id,
     ) -> Result<(), Self::Error>;
 
+    fn request_redraw(
+        &mut self,
+        _context: &mut Self::Context<'_>,
+        _window: window::Id,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     fn present(
         &mut self,
         context: &mut Self::Context<'_>,

@@ -63,7 +63,7 @@ impl<M: State, E: Send + 'static> Host<M, E> {
     }
 
     pub fn drain(&mut self) -> shell::Work {
-        let work = self.shell.drain();
+        let work = self.shell.drain_immediate();
         self.apply_work(&work);
         work
     }

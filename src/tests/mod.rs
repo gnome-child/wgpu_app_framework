@@ -257,6 +257,7 @@ struct FakeBackend {
     popup_sync_counts: Vec<usize>,
     native_popups: bool,
     fail_open: bool,
+    skip_present: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -275,6 +276,9 @@ enum BackendEvent {
         window: window::Id,
         size: geometry::Size,
         clear_color: scene::Color,
+    },
+    RequestRedraw {
+        window: window::Id,
     },
     PresentPopup {
         parent: window::Id,
@@ -320,6 +324,11 @@ impl FakeBackend {
         self.fail_open = true;
         self
     }
+
+    fn skipping_present(mut self) -> Self {
+        self.skip_present = true;
+        self
+    }
 }
 
 impl platform::Backend for FakeBackend {
@@ -353,6 +362,15 @@ impl platform::Backend for FakeBackend {
         Ok(())
     }
 
+    fn request_redraw(
+        &mut self,
+        _context: &mut Self::Context<'_>,
+        window: window::Id,
+    ) -> Result<(), Self::Error> {
+        self.events.push(BackendEvent::RequestRedraw { window });
+        Ok(())
+    }
+
     fn present(
         &mut self,
         _context: &mut Self::Context<'_>,
@@ -367,7 +385,8 @@ impl platform::Backend for FakeBackend {
             Duration::from_micros(10),
             Duration::from_micros(20),
             Instant::now(),
-        ))
+        )
+        .with_presented(!self.skip_present))
     }
 
     fn overlay_capabilities(&self) -> overlay::Capabilities {

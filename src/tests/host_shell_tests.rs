@@ -302,7 +302,11 @@ fn text_editor_shell_entrypoint_runs_host_loop_step() {
 
     assert_eq!(work.pending_tasks(), 0);
     assert_eq!(work.task_completions(), 0);
-    assert_eq!(work.presentations().len(), 1);
+    assert!(work.presentations().is_empty());
+    let redraw = shell
+        .handle_event(shell::Event::RedrawRequested { window })
+        .expect("redraw should sample completed task state");
+    assert_eq!(redraw.presentations().len(), 1);
     assert!(path.exists());
     assert_eq!(
         shell.runtime().state().last_status,
@@ -380,24 +384,31 @@ fn text_editor_shell_event_surface_drives_save_flow() {
         started.opened_windows()[0].canvas_color(),
         text_editor::CANVAS_COLOR
     );
-    assert_eq!(started.presentations().len(), 1);
+    assert!(started.presentations().is_empty());
+    let window = started.opened_windows()[0].id();
+    let initial = shell
+        .handle_event(shell::Event::RedrawRequested { window })
+        .expect("first redraw should present");
     assert_eq!(
-        started.presentations()[0].size(),
+        initial.presentations()[0].size(),
         text_editor::window_size()
     );
     assert_eq!(
-        started.presentations()[0].scene().clear(),
+        initial.presentations()[0].scene().clear(),
         text_editor::CANVAS_COLOR
     );
 
-    let window = started.opened_windows()[0].id();
     let resized = shell
         .handle_event(shell::Event::WindowResized {
             window,
             size: geometry::Size::new(640, 480),
         })
-        .expect("resize event should drain presentation work");
-    let presentation = resized
+        .expect("resize event should update pending presentation truth");
+    assert!(resized.presentations().is_empty());
+    let redrawn = shell
+        .handle_event(shell::Event::RedrawRequested { window })
+        .expect("redraw should present resized geometry");
+    let presentation = redrawn
         .presentations()
         .iter()
         .find(|presentation| presentation.window() == window)
@@ -535,6 +546,12 @@ fn text_editor_host_adapter_consumes_shell_work_end_to_end() {
     let window = host.windows()[0].id();
     assert_eq!(host.windows()[0].title(), text_editor::WINDOW_TITLE);
     assert_eq!(host.windows()[0].size(), text_editor::window_size());
+    assert!(host.presentation(window).is_none());
+    host.handle_event(host::Event::window(
+        window,
+        host::WindowEvent::RedrawRequested,
+    ))
+    .expect("first redraw should present");
     assert!(host.presentation(window).is_some());
 
     host.handle_event(host::Event::window(
@@ -543,7 +560,12 @@ fn text_editor_host_adapter_consumes_shell_work_end_to_end() {
             size: geometry::Size::new(640, 480),
         },
     ))
-    .expect("resize should present at the new size");
+    .expect("resize should update pending geometry");
+    host.handle_event(host::Event::window(
+        window,
+        host::WindowEvent::RedrawRequested,
+    ))
+    .expect("redraw should present resized geometry");
 
     assert_eq!(
         host.window(window)

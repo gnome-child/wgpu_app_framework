@@ -162,9 +162,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         invalidation: super::super::response::Invalidation,
         layout: &super::super::layout::Layout,
         report: super::super::diagnostics::RenderReport,
-    ) {
+    ) -> bool {
         if !self.session.contains(window) {
-            return;
+            return false;
         }
 
         let diagnostics = self.diagnostics.get_mut(window);
@@ -217,6 +217,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         } else {
             self.session.retry_invalidation(window, invalidation);
         }
+        !report.presented()
     }
 
     #[allow(dead_code)] // Becomes the input-routing source in checkpoint 3.

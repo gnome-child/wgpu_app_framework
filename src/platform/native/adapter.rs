@@ -45,6 +45,14 @@ impl Backend for Native {
         Ok(())
     }
 
+    fn request_redraw(
+        &mut self,
+        _context: &mut Self::Context<'_>,
+        window: app_window::Id,
+    ) -> Result<(), Self::Error> {
+        Native::request_redraw(self, window)
+    }
+
     fn present(
         &mut self,
         _context: &mut Self::Context<'_>,

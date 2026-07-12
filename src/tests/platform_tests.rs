@@ -853,6 +853,12 @@ fn text_editor_platform_applies_host_work_to_backend() {
     platform.start().expect("platform should start host");
 
     let window = platform.host().windows()[0].id();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("first redraw should present");
     assert!(matches!(
         platform.backend().events().first(),
         Some(BackendEvent::OpenWindow {
@@ -909,6 +915,258 @@ fn text_editor_platform_applies_host_work_to_backend() {
 }
 
 #[test]
+fn high_rate_events_mutate_immediately_but_present_once_at_redraw() {
+    let mut platform = Platform::new(
+        Shell::new(control_gallery::app(control_gallery::State::default())),
+        FakeBackend::default(),
+    );
+    platform.start().expect("platform should start");
+    let window = platform.host().windows()[0].id();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("first redraw should present");
+    let click = platform
+        .host()
+        .presentation(window)
+        .expect("initial presentation should exist")
+        .layout()
+        .find_role(view::Role::Button)
+        .into_iter()
+        .find(|frame| frame.label_text() == Some("Click"))
+        .expect("gallery click button should be laid out");
+    let point = frame_point(click);
+    let before_frames = platform
+        .host()
+        .shell()
+        .runtime()
+        .diagnostics(window)
+        .unwrap()
+        .render
+        .frames_presented;
+    platform.backend_mut().events.clear();
+
+    for _ in 0..1_000 {
+        platform
+            .handle_event(host::Event::window(
+                window,
+                host::WindowEvent::PointerMoved { point },
+            ))
+            .expect("pointer movement should update session truth");
+    }
+    for _ in 0..10 {
+        platform
+            .handle_event(host::Event::window(
+                window,
+                host::WindowEvent::PointerDown {
+                    point,
+                    button: pointer::Button::Primary,
+                    modifiers: input::Modifiers::default(),
+                },
+            ))
+            .expect("pointer down should execute immediately");
+        platform
+            .handle_event(host::Event::window(
+                window,
+                host::WindowEvent::PointerUp {
+                    point,
+                    button: pointer::Button::Primary,
+                },
+            ))
+            .expect("pointer up should execute immediately");
+    }
+
+    assert_eq!(
+        platform.host().shell().runtime().state().clicks,
+        10,
+        "all discrete commands must execute before the frame"
+    );
+    assert!(
+        platform
+            .backend()
+            .events()
+            .iter()
+            .all(|event| !matches!(event, BackendEvent::Present { .. })),
+        "ordinary input must never synchronously present"
+    );
+    assert_eq!(
+        platform
+            .host()
+            .shell()
+            .runtime()
+            .diagnostics(window)
+            .unwrap()
+            .render
+            .frames_presented,
+        before_frames
+    );
+
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("redraw should sample the latest truth");
+    assert_eq!(
+        platform
+            .backend()
+            .events()
+            .iter()
+            .filter(|event| matches!(event, BackendEvent::Present { .. }))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn wheel_deltas_accumulate_losslessly_before_one_frame() {
+    let document = (0..2_000)
+        .map(|line| format!("coalesced line {line:04}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut platform = Platform::new(
+        text_editor::shell(text_editor::State {
+            document: TextDocument::from_multiline_text(document),
+            ..text_editor::State::default()
+        }),
+        FakeBackend::default(),
+    );
+    platform.start().expect("platform should start");
+    let window = platform.host().windows()[0].id();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("first redraw should present");
+    let text_area = platform
+        .host()
+        .presentation(window)
+        .unwrap()
+        .layout()
+        .find_role(view::Role::TextArea)
+        .into_iter()
+        .next()
+        .expect("text area should be laid out");
+    let target = text_area.target().unwrap().clone();
+    let point = frame_point(text_area);
+    platform.backend_mut().events.clear();
+
+    for _ in 0..1_000 {
+        platform
+            .handle_event(host::Event::window(
+                window,
+                host::WindowEvent::Scrolled {
+                    point,
+                    delta: interaction::ScrollDelta::vertical(1),
+                },
+            ))
+            .expect("wheel delta should update session truth");
+    }
+
+    assert_eq!(
+        platform
+            .host()
+            .shell()
+            .runtime()
+            .session()
+            .interaction(window)
+            .unwrap()
+            .scroll()
+            .offset(&target),
+        interaction::ScrollOffset::new(0, 1_000)
+    );
+    assert!(
+        platform
+            .backend()
+            .events()
+            .iter()
+            .all(|event| !matches!(event, BackendEvent::Present { .. }))
+    );
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("one redraw should present the cumulative offset");
+    assert_eq!(
+        platform
+            .backend()
+            .events()
+            .iter()
+            .filter(|event| matches!(event, BackendEvent::Present { .. }))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn skipped_frame_requests_redraw_until_one_receipt_succeeds() {
+    let mut platform = Platform::new(
+        text_editor::shell(text_editor::State::default()),
+        FakeBackend::default().skipping_present(),
+    );
+    platform.start().expect("platform should start");
+    let window = platform.host().windows()[0].id();
+    platform.backend_mut().events.clear();
+
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("skipped redraw should remain recoverable");
+    let render = &platform
+        .host()
+        .shell()
+        .runtime()
+        .diagnostics(window)
+        .unwrap()
+        .render;
+    assert_eq!(render.frames_attempted, 1);
+    assert_eq!(render.frames_presented, 0);
+    assert!(
+        platform
+            .host()
+            .shell()
+            .runtime()
+            .presented_layout(window)
+            .is_none()
+    );
+    assert!(platform.backend().events().iter().any(|event| matches!(
+        event,
+        BackendEvent::RequestRedraw { window: requested } if *requested == window
+    )));
+
+    platform.backend_mut().skip_present = false;
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("retry should present");
+    let render = &platform
+        .host()
+        .shell()
+        .runtime()
+        .diagnostics(window)
+        .unwrap()
+        .render;
+    assert_eq!(render.frames_attempted, 2);
+    assert_eq!(render.frames_presented, 1);
+    assert!(
+        platform
+            .host()
+            .shell()
+            .runtime()
+            .presented_layout(window)
+            .is_some()
+    );
+}
+
+#[test]
 fn menu_dropdown_uses_native_popup_work_when_backend_supports_it() {
     let mut platform = Platform::new(
         text_editor::shell(text_editor::State::default()),
@@ -918,6 +1176,12 @@ fn menu_dropdown_uses_native_popup_work_when_backend_supports_it() {
     platform.start().expect("platform should start host");
 
     let window = platform.host().windows()[0].id();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("first redraw should present");
     let presentation = platform
         .host()
         .presentation(window)
@@ -949,6 +1213,12 @@ fn menu_dropdown_uses_native_popup_work_when_backend_supports_it() {
             },
         ))
         .expect("pointer up should open menu");
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("redraw should present the open menu");
 
     assert!(
         platform.backend().events().iter().any(|event| matches!(
@@ -987,6 +1257,12 @@ fn command_palette_uses_native_popup_work_when_backend_supports_it() {
     platform.start().expect("platform should start host");
 
     let window = platform.host().windows()[0].id();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("first redraw should present");
     platform.backend_mut().events.clear();
     platform
         .handle_event(host::Event::window(
@@ -998,6 +1274,12 @@ fn command_palette_uses_native_popup_work_when_backend_supports_it() {
             },
         ))
         .expect("palette shortcut should open command palette");
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("redraw should present the command palette");
 
     assert!(
         platform.backend().events().iter().any(|event| matches!(
@@ -1049,6 +1331,12 @@ fn popup_pointer_motion_without_presentation_does_not_close_native_popups() {
     platform.start().expect("platform should start host");
 
     let window = platform.host().windows()[0].id();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("first redraw should present");
     let presentation = platform
         .host()
         .presentation(window)
@@ -1080,6 +1368,12 @@ fn popup_pointer_motion_without_presentation_does_not_close_native_popups() {
             },
         ))
         .expect("pointer up should open menu");
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("redraw should present the open menu");
     assert!(
         platform
             .backend()
@@ -1138,6 +1432,12 @@ fn platform_applies_and_deduplicates_pointer_cursor_updates() {
 
     platform.start().expect("platform should start");
     let window = platform.host().windows()[0].id();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("first redraw should present");
     let presentation = platform
         .host()
         .presentation(window)

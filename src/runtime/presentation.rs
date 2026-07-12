@@ -500,7 +500,66 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             self.pending_tasks(),
             self.pending_task_completions(),
             self.animation_schedule(),
+            self.pending_redraw_windows(),
         )
+    }
+
+    pub(crate) fn drain_immediate(&mut self) -> work::ImmediateWork {
+        work::ImmediateWork::new(
+            self.requests(),
+            self.session.take_cursor_updates(),
+            self.pending_tasks(),
+            self.pending_task_completions(),
+            self.animation_schedule(),
+            self.pending_redraw_windows(),
+        )
+    }
+
+    pub(crate) fn drain_window_scene(
+        &mut self,
+        window: window::Id,
+        size: geometry::Size,
+    ) -> work::RenderWork {
+        let mut presentations = Vec::new();
+        let mut popup_presentations = Vec::new();
+        let mut ime_updates = Vec::new();
+
+        if let Some(invalidation) = self
+            .frame_need(window)
+            .map(FrameNeed::immediate_invalidation)
+        {
+            let theme = self.active_theme();
+            if let Some(prepared) =
+                self.prepare_pending_frame(window, size, invalidation, &theme, Instant::now())
+            {
+                let realized = prepared.realize();
+                presentations.push(realized.presentation);
+                popup_presentations.extend(realized.popup_presentations);
+                ime_updates.push(realized.ime_update);
+            }
+        }
+
+        let popup_presentations = (!presentations.is_empty()).then_some(popup_presentations);
+        work::RenderWork::new(
+            presentations,
+            popup_presentations,
+            ime_updates,
+            self.requests(),
+            self.session.take_cursor_updates(),
+            self.pending_tasks(),
+            self.pending_task_completions(),
+            self.animation_schedule(),
+            self.pending_redraw_windows(),
+        )
+    }
+
+    fn pending_redraw_windows(&self) -> Vec<window::Id> {
+        self.session
+            .windows()
+            .iter()
+            .filter(|window| window.redraw_requested())
+            .map(session::Window::id)
+            .collect()
     }
 
     pub(crate) fn present(&mut self, window: window::Id) -> Option<view::View> {
@@ -794,6 +853,24 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         })
     }
 
+    fn prepare_pending_frame(
+        &mut self,
+        window: window::Id,
+        size: geometry::Size,
+        invalidation: response::Invalidation,
+        theme: &crate::theme::Theme,
+        now: Instant,
+    ) -> Option<PreparedFrame> {
+        self.prepare_frame(
+            window,
+            size,
+            invalidation,
+            theme,
+            now,
+            self.overlay_capabilities,
+        )
+    }
+
     pub fn render_scene(
         &mut self,
         window: window::Id,
@@ -861,14 +938,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let now = Instant::now();
 
         for (window, invalidation) in windows {
-            let Some(prepared) = self.prepare_frame(
-                window,
-                size_for(window),
-                invalidation,
-                &theme,
-                now,
-                self.overlay_capabilities,
-            ) else {
+            let Some(prepared) =
+                self.prepare_pending_frame(window, size_for(window), invalidation, &theme, now)
+            else {
                 continue;
             };
             let realized = prepared.realize();

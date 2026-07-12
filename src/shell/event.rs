@@ -87,6 +87,7 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
     pub fn handle_event(&mut self, event: Event) -> Result<Work, Error> {
         let window = event.window_id();
         let started_at = Instant::now();
+        let mut redraw = None;
         let result = match event {
             Event::Started => {
                 self.start();
@@ -97,7 +98,7 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 Ok(())
             }
             Event::RedrawRequested { window } => {
-                self.runtime.request_redraw(window);
+                redraw = Some(window);
                 Ok(())
             }
             Event::CloseRequested { window } => {
@@ -182,6 +183,9 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
         }
 
         result?;
-        Ok(self.drain())
+        Ok(match redraw {
+            Some(window) => self.redraw(window),
+            None => self.drain_immediate(),
+        })
     }
 }

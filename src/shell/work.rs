@@ -14,6 +14,7 @@ pub struct Work {
     pending_tasks: usize,
     task_completions: usize,
     animation_schedule: animation::Schedule,
+    redraw_windows: Vec<window::Id>,
 }
 
 #[derive(Default)]
@@ -43,6 +44,26 @@ impl Work {
             pending_tasks: work.pending_tasks(),
             task_completions: work.task_completions(),
             animation_schedule: work.animation_schedule(),
+            redraw_windows: work.redraw_windows().to_vec(),
+        }
+    }
+
+    pub(super) fn from_immediate_work(
+        work: runtime::work::ImmediateWork,
+        changes: WindowChanges,
+    ) -> Self {
+        Self {
+            opened_windows: changes.opened,
+            closed_windows: changes.closed,
+            presentations: Vec::new(),
+            popup_presentations: None,
+            ime_updates: Vec::new(),
+            requests: work.requests().to_vec(),
+            cursor_updates: work.cursor_updates().to_vec(),
+            pending_tasks: work.pending_tasks(),
+            task_completions: work.task_completions(),
+            animation_schedule: work.animation_schedule(),
+            redraw_windows: work.redraw_windows().to_vec(),
         }
     }
 
@@ -90,6 +111,10 @@ impl Work {
         self.animation_schedule
     }
 
+    pub(crate) fn redraw_windows(&self) -> &[window::Id] {
+        &self.redraw_windows
+    }
+
     pub fn is_empty(&self) -> bool {
         self.opened_windows.is_empty()
             && self.closed_windows.is_empty()
@@ -101,5 +126,6 @@ impl Work {
             && self.pending_tasks == 0
             && self.task_completions == 0
             && self.animation_schedule == animation::Schedule::Idle
+            && self.redraw_windows.is_empty()
     }
 }

@@ -163,6 +163,10 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
                 .open_window(context, &Window::from_shell(window))?;
         }
 
+        for window in work.redraw_windows() {
+            self.backend.request_redraw(context, *window)?;
+        }
+
         let synchronized_popup_parents = work
             .presentations()
             .iter()
@@ -170,13 +174,17 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             .collect::<Vec<_>>();
         for presentation in work.presentations() {
             let report = self.backend.present(context, presentation)?;
-            self.host.shell_mut().runtime_mut().finish_render_report(
+            let retry = self.host.shell_mut().runtime_mut().finish_render_report(
                 presentation.window(),
                 presentation.epoch(),
                 presentation.invalidation(),
                 presentation.layout(),
                 report,
             );
+            if retry {
+                self.backend
+                    .request_redraw(context, presentation.window())?;
+            }
         }
         if let Some(popup_presentations) = work.popup_presentations() {
             self.backend.present_overlay_popups(
