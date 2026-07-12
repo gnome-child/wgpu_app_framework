@@ -1,5 +1,9 @@
 use super::*;
 
+fn successful_render_report() -> diagnostics::RenderReport {
+    diagnostics::RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now())
+}
+
 #[test]
 fn store_starts_clean_with_initial_revision() {
     let store = state::Store::new(EditorState::default());
@@ -8,6 +12,172 @@ fn store_starts_clean_with_initial_revision() {
     assert_eq!(store.saved_revision(), state::Revision::initial());
     assert!(!store.is_dirty());
     assert!(store.changes().is_empty());
+}
+
+#[test]
+fn skipped_presentation_retains_visible_geometry_and_retries_the_same_epoch() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 660);
+    let candidate = app
+        .render_scene(window, size)
+        .expect("first candidate should prepare");
+    let epoch = candidate.epoch();
+
+    app.finish_render_report(
+        window,
+        epoch,
+        candidate.invalidation(),
+        candidate.layout(),
+        successful_render_report().with_presented(false),
+    );
+
+    assert!(app.presented_layout(window).is_none());
+    assert_eq!(app.acknowledged_presentation_epoch(window), None);
+    assert_eq!(
+        app.session()
+            .window(window)
+            .expect("window should remain")
+            .desired_presentation_epoch(),
+        epoch,
+        "retrying the same truth must not mint a freshness epoch"
+    );
+    assert!(app.session().window(window).unwrap().redraw_requested());
+
+    let retry = app
+        .render_scene(window, size)
+        .expect("pending invalidation should prepare a retry");
+    assert_eq!(retry.epoch(), epoch);
+    app.finish_render_report(
+        window,
+        retry.epoch(),
+        retry.invalidation(),
+        retry.layout(),
+        successful_render_report(),
+    );
+
+    assert_eq!(app.acknowledged_presentation_epoch(window), Some(epoch));
+    assert_eq!(
+        app.presented_layout(window).map(layout::Layout::size),
+        Some(size)
+    );
+}
+
+#[test]
+fn older_successful_receipt_cannot_replace_newer_presented_geometry() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let older_size = geometry::Size::new(500, 400);
+    let newer_size = geometry::Size::new(700, 600);
+    let older = app
+        .render_scene(window, older_size)
+        .expect("older candidate should prepare");
+
+    app.request_redraw(window);
+    let newer = app
+        .render_scene(window, newer_size)
+        .expect("newer candidate should prepare");
+    assert!(newer.epoch() > older.epoch());
+    app.finish_render_report(
+        window,
+        newer.epoch(),
+        newer.invalidation(),
+        newer.layout(),
+        successful_render_report(),
+    );
+    app.finish_render_report(
+        window,
+        older.epoch(),
+        older.invalidation(),
+        older.layout(),
+        successful_render_report(),
+    );
+
+    assert_eq!(
+        app.acknowledged_presentation_epoch(window),
+        Some(newer.epoch())
+    );
+    assert_eq!(
+        app.presented_layout(window).map(layout::Layout::size),
+        Some(newer_size)
+    );
+}
+
+#[test]
+fn model_revision_desired_epoch_and_acknowledged_epoch_are_independent_facts() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let revision = app.revision();
+    let desired = app
+        .session()
+        .window(window)
+        .unwrap()
+        .desired_presentation_epoch();
+
+    app.request_redraw(window);
+    let next_desired = app
+        .session()
+        .window(window)
+        .unwrap()
+        .desired_presentation_epoch();
+    assert!(next_desired > desired);
+    assert_eq!(app.revision(), revision);
+    assert_eq!(app.acknowledged_presentation_epoch(window), None);
+
+    let candidate = app
+        .render_scene(window, geometry::Size::new(760, 660))
+        .expect("candidate should prepare");
+    app.finish_render_report(
+        window,
+        candidate.epoch(),
+        candidate.invalidation(),
+        candidate.layout(),
+        successful_render_report(),
+    );
+    assert_eq!(app.revision(), revision);
+    assert_eq!(
+        app.acknowledged_presentation_epoch(window),
+        Some(next_desired)
+    );
+
+    app.change(state::Reason::programmatic("model-only witness"), |state| {
+        state.clicks += 1;
+    });
+    assert!(app.revision() > revision);
+    assert_eq!(
+        app.acknowledged_presentation_epoch(window),
+        Some(next_desired),
+        "model truth may advance while visible geometry remains older"
+    );
+}
+
+#[test]
+fn window_teardown_removes_acknowledged_geometry() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let candidate = app
+        .render_scene(window, geometry::Size::new(760, 660))
+        .expect("candidate should prepare");
+    app.finish_render_report(
+        window,
+        candidate.epoch(),
+        candidate.invalidation(),
+        candidate.layout(),
+        successful_render_report(),
+    );
+    assert_eq!(app.window_residues(window).presented_geometry, 1);
+
+    app.invoke_focused(window, app.trigger::<session::CloseWindow>(()))
+        .output
+        .expect("window close should succeed");
+
+    assert!(!app.session().contains(window));
+    assert_eq!(app.window_residues(window).presented_geometry, 0);
+    assert!(app.presented_layout(window).is_none());
 }
 
 #[test]

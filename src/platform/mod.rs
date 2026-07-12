@@ -170,9 +170,11 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             .collect::<Vec<_>>();
         for presentation in work.presentations() {
             let report = self.backend.present(context, presentation)?;
-            self.host.shell_mut().runtime_mut().record_render_report(
+            self.host.shell_mut().runtime_mut().finish_render_report(
                 presentation.window(),
                 presentation.epoch(),
+                presentation.invalidation(),
+                presentation.layout(),
                 report,
             );
         }

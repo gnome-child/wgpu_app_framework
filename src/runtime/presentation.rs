@@ -18,6 +18,7 @@ struct PreparedFrame {
     window: window::Id,
     revision: state::Revision,
     epoch: window::PresentationEpoch,
+    invalidation: response::Invalidation,
     layout: layout::Layout,
     scene: scene::Scene,
     layers: Vec<crate::overlay::Layer>,
@@ -78,6 +79,7 @@ impl PreparedFrame {
                 self.window,
                 self.revision,
                 self.epoch,
+                self.invalidation,
                 self.layout,
                 self.scene,
             ),
@@ -245,7 +247,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     fn frame_need(&self, window: window::Id) -> Option<FrameNeed> {
         let revision = self.revision();
         let window_state = self.session.window(window)?;
-        let stale = window_state.presented_revision() != Some(revision)
+        let stale = window_state.projected_revision() != Some(revision)
             || self.composition.get(window).is_none();
 
         if stale {
@@ -640,7 +642,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .get_mut(window)
             .pipeline
             .record_composition_reconciliation(reconciliation_started_at.elapsed());
-        self.session.mark_presented(window, self.revision());
+        self.session.mark_projected(window, self.revision());
         self.diagnostics
             .get_mut(window)
             .pipeline
@@ -717,7 +719,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .windows()
             .iter()
             .filter(|window| {
-                window.redraw_requested() || window.presented_revision() != Some(revision)
+                window.redraw_requested() || window.projected_revision() != Some(revision)
             })
             .map(session::Window::id)
             .collect::<Vec<_>>();
@@ -742,7 +744,6 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         capabilities: crate::overlay::Capabilities,
     ) -> Option<PreparedFrame> {
         let revision = self.revision();
-        let epoch = self.session.window(window)?.desired_presentation_epoch();
         if invalidation == response::Invalidation::Rebuild {
             self.present(window)?;
         }
@@ -751,6 +752,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let frame = self.frame_at(now);
         let layout = self.layout_for_scene(window, size, theme, frame, invalidation)?;
         self.apply_layout_feedback(window, &layout);
+        let epoch = self.session.window(window)?.desired_presentation_epoch();
         let assembly_started_at = Instant::now();
         let interaction = self.session.interaction(window).cloned();
         let visual_update =
@@ -782,6 +784,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             window,
             revision,
             epoch,
+            invalidation,
             layout,
             scene,
             layers,

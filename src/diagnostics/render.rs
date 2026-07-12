@@ -260,6 +260,10 @@ impl Report {
     pub fn presented_at(self) -> Instant {
         self.presented_at
     }
+
+    pub(crate) fn presented(self) -> bool {
+        self.presented
+    }
 }
 
 fn duration_micros(duration: Duration) -> u128 {

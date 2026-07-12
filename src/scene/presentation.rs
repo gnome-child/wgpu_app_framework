@@ -1,4 +1,4 @@
-use super::super::{geometry, layout, state, window};
+use super::super::{geometry, layout, response, state, window};
 use super::Scene;
 
 #[derive(Clone)]
@@ -6,6 +6,7 @@ pub struct Presentation {
     window: window::Id,
     revision: state::Revision,
     epoch: window::PresentationEpoch,
+    invalidation: response::Invalidation,
     layout: layout::Layout,
     scene: Scene,
 }
@@ -15,6 +16,7 @@ impl Presentation {
         window: window::Id,
         revision: state::Revision,
         epoch: window::PresentationEpoch,
+        invalidation: response::Invalidation,
         layout: layout::Layout,
         scene: Scene,
     ) -> Self {
@@ -22,6 +24,7 @@ impl Presentation {
             window,
             revision,
             epoch,
+            invalidation,
             layout,
             scene,
         }
@@ -31,10 +34,11 @@ impl Presentation {
         window: window::Id,
         revision: state::Revision,
         epoch: window::PresentationEpoch,
+        invalidation: response::Invalidation,
         layout: layout::Layout,
         scene: Scene,
     ) -> Self {
-        Self::new(window, revision, epoch, layout, scene)
+        Self::new(window, revision, epoch, invalidation, layout, scene)
     }
 
     pub fn window(&self) -> window::Id {
@@ -47,6 +51,10 @@ impl Presentation {
 
     pub(crate) fn epoch(&self) -> window::PresentationEpoch {
         self.epoch
+    }
+
+    pub(crate) fn invalidation(&self) -> response::Invalidation {
+        self.invalidation
     }
 
     pub fn size(&self) -> geometry::Size {

@@ -47,6 +47,12 @@ struct CachedLayout {
     layout: layout::Layout,
 }
 
+#[derive(Clone)]
+#[allow(dead_code)] // Becomes the input-routing source in checkpoint 3.
+struct PresentedGeometry {
+    layout: layout::Layout,
+}
+
 type VirtualMaterializations =
     HashMap<crate::interaction::Id, crate::virtual_list::Materialization>;
 type VirtualMeasurements = HashMap<crate::interaction::Id, crate::virtual_list::Measurements>;
@@ -76,6 +82,7 @@ pub struct Runtime<M: state::State, E: Send + 'static = (), V = ()> {
     overlays: overlay::Store,
     overlay_capabilities: overlay::Capabilities,
     layout_cache: departed::WindowMap<CachedLayout>,
+    presented_geometry: departed::WindowMap<PresentedGeometry>,
     virtual_materializations: departed::WindowMap<VirtualMaterializations>,
     virtual_measurements: departed::WindowMap<VirtualMeasurements>,
 }
@@ -111,6 +118,7 @@ impl<M: state::State> Runtime<M> {
             overlays: overlay::Store::new(),
             overlay_capabilities: overlay::Capabilities::default(),
             layout_cache: departed::WindowMap::default(),
+            presented_geometry: departed::WindowMap::default(),
             virtual_materializations: departed::WindowMap::default(),
             virtual_measurements: departed::WindowMap::default(),
         }

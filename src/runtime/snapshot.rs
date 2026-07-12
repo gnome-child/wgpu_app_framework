@@ -83,6 +83,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         self.visual_animations.clear();
         self.overlays.clear();
         self.layout_cache.clear();
+        self.presented_geometry.clear();
         self.virtual_materializations.clear();
         self.virtual_measurements.clear();
         self.diagnostics.restore_windows(self.session.windows());

@@ -155,10 +155,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .record_native_event_pass(duration);
     }
 
-    pub(crate) fn record_render_report(
+    pub(crate) fn finish_render_report(
         &mut self,
         window: window::Id,
         epoch: window::PresentationEpoch,
+        invalidation: super::super::response::Invalidation,
+        layout: &super::super::layout::Layout,
         report: super::super::diagnostics::RenderReport,
     ) {
         if !self.session.contains(window) {
@@ -202,6 +204,39 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 diagnostics.render.inline_text_shape_calls_total,
             );
         }
+
+        if report.presented() {
+            if self.session.acknowledge_presentation(window, epoch) {
+                self.presented_geometry.insert(
+                    window,
+                    super::PresentedGeometry {
+                        layout: layout.clone(),
+                    },
+                );
+            }
+        } else {
+            self.session.retry_invalidation(window, invalidation);
+        }
+    }
+
+    #[allow(dead_code)] // Becomes the input-routing source in checkpoint 3.
+    pub(crate) fn presented_layout(
+        &self,
+        window: window::Id,
+    ) -> Option<&super::super::layout::Layout> {
+        self.presented_geometry
+            .get(&window)
+            .map(|geometry| &geometry.layout)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn acknowledged_presentation_epoch(
+        &self,
+        window: window::Id,
+    ) -> Option<window::PresentationEpoch> {
+        self.session
+            .window(window)
+            .and_then(session::Window::acknowledged_presentation_epoch)
     }
 
     pub(in crate::runtime) fn request_all_redraws(&mut self) {
