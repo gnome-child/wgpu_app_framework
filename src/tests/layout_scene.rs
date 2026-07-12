@@ -3602,6 +3602,83 @@ fn generic_scroll_measures_content_clips_children_and_paints_scrollbar() {
 }
 
 #[test]
+fn deferred_focus_outline_retains_its_generic_scroll_clip() {
+    let focus = session::Focus::text("scroll.clipped.focus").keyboard();
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Clipped Focus"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.add(
+                    widget::Scroll::new()
+                        .id("scroll.clipped.focus")
+                        .height(view::Dimension::fixed(48))
+                        .children(|ui| {
+                            ui.text_box(widget::TextBox::new("Focused field").focus(focus));
+                            for index in 0..5 {
+                                ui.label(format!("Following row {index}"));
+                            }
+                        }),
+                );
+            })
+        });
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 100);
+    assert!(app.focus(window, focus));
+    let initial = app
+        .render_scene(window, size)
+        .expect("focused scroll should render");
+    let scroll = first_scroll_frame(&initial);
+    let viewport = scroll
+        .viewport()
+        .expect("scroll should expose viewport")
+        .rect();
+    app.scroll_at(
+        window,
+        size,
+        frame_point_at(viewport),
+        interaction::ScrollDelta::vertical(16),
+    )
+    .expect("scroll should be handled");
+
+    let rendered = app
+        .render_scene(window, size)
+        .expect("partly clipped focus should render");
+    let focused = rendered
+        .layout()
+        .find_role(view::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("focused field should remain laid out");
+    assert!(focused.rect().y() < viewport.y());
+    assert!(focused.rect().bottom() > viewport.y());
+
+    assert_outline_is_scoped_by_clip(rendered.scene(), focused.rect(), viewport);
+
+    app.scroll_at(
+        window,
+        size,
+        frame_point_at(viewport),
+        interaction::ScrollDelta::vertical(64),
+    )
+    .expect("second scroll should be handled");
+    let fully_clipped = app
+        .render_scene(window, size)
+        .expect("fully clipped focus should render");
+    let focused = fully_clipped
+        .layout()
+        .find_role(view::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("focused field should remain laid out while clipped");
+    assert!(focused.rect().bottom() <= viewport.y());
+    assert_outline_is_scoped_by_clip(fully_clipped.scene(), focused.rect(), viewport);
+}
+
+#[test]
 fn viewport_content_extent_equals_placed_child_bounds() {
     let padding = view::Padding::edges(5, 7, 3, 11);
     let scroll = view::Node::scroll()
@@ -7884,6 +7961,73 @@ fn focus_outline_uses_frame_rounding() {
 }
 
 #[test]
+fn popup_focus_outline_retains_popup_local_rounded_clip() {
+    let mut app = text_editor::app(text_editor::State::default());
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(800, 600);
+    let file_menu = app
+        .present(window)
+        .expect("text editor should present")
+        .menus()
+        .into_iter()
+        .find(|menu| menu.label_text() == Some("File"))
+        .and_then(view::Node::menu_action)
+        .expect("file menu should expose an open action");
+    app.handle_view(window, file_menu)
+        .expect("file menu should open");
+
+    let opened = app
+        .render_scene_after_overlay_fade(window, size)
+        .expect("open menu should render");
+    let target = opened
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.role() == view::Role::Binding && frame.label_text() == Some("Open"))
+        .and_then(layout::Frame::target)
+        .cloned()
+        .expect("open binding should expose a focus target");
+    assert!(app.focus(window, session::Focus::control(&target).keyboard()));
+
+    let focused = app
+        .render_scene_after_overlay_fade(window, size)
+        .expect("focused popup should render");
+    let frame = focused
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.target() == Some(&target) && frame.is_focused())
+        .expect("popup binding should receive keyboard focus");
+    let popup = focused
+        .layout()
+        .find_role(view::Role::FloatingPanel)
+        .into_iter()
+        .next()
+        .expect("focused binding should remain in a popup");
+    assert_outline_is_scoped_by_clip(focused.scene(), frame.rect(), popup.rect());
+
+    let outline_index = focused
+        .scene()
+        .primitives()
+        .iter()
+        .position(|primitive| {
+            matches!(primitive, scene::Primitive::Outline(outline) if outline.rect() == frame.rect())
+        })
+        .expect("popup focus outline should paint");
+    let clip = focused.scene().primitives()[..outline_index]
+        .iter()
+        .rev()
+        .find_map(|primitive| match primitive {
+            scene::Primitive::Clip(clip) if clip.rect() == popup.rect() => Some(clip),
+            _ => None,
+        })
+        .expect("popup focus outline should retain its rounded clip");
+    assert_eq!(clip.rounding(), Theme::default().floating_panel().rounding);
+}
+
+#[test]
 fn scene_preserves_popup_paint_order_after_base_content() {
     let mut app = text_editor::app(text_editor::State::default());
 
@@ -8543,6 +8687,34 @@ fn assert_no_choice_label_overlay(presentation: &scene::Presentation, rect: geom
             .any(|quad| quad.rect() == rect && quad.fill() == pressed_tint),
         "choice label region should not paint the pressed tint"
     );
+}
+
+fn assert_outline_is_scoped_by_clip(
+    scene: &scene::Scene,
+    outline_rect: geometry::Rect,
+    clip_rect: geometry::Rect,
+) {
+    let primitives = scene.primitives();
+    let outline_index = primitives
+        .iter()
+        .position(|primitive| {
+            matches!(primitive, scene::Primitive::Outline(outline) if outline.rect() == outline_rect)
+        })
+        .expect("focused frame should retain a deferred outline");
+    let clip_index = primitives[..outline_index]
+        .iter()
+        .rposition(|primitive| {
+            matches!(primitive, scene::Primitive::Clip(clip) if clip.rect() == clip_rect)
+        })
+        .expect("the originating clip should precede the deferred outline");
+    let pop_index = primitives[outline_index + 1..]
+        .iter()
+        .position(|primitive| matches!(primitive, scene::Primitive::PopClip))
+        .map(|offset| outline_index + 1 + offset)
+        .expect("the originating clip should close after the deferred outline");
+
+    assert!(clip_index < outline_index);
+    assert!(outline_index < pop_index);
 }
 
 fn frame_point_at(rect: geometry::Rect) -> geometry::Point {

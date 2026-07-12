@@ -33,7 +33,7 @@ witness. No campaign commit is pushed.
 | Checkpoint | Contract | Status | Boundary proof |
 | --- | --- | --- | --- |
 | 1 | Retained measured virtual geometry is separate from materialization | Complete | Independent retained owner, same-range transition witness, and heterogeneous wrapped-row sequence green |
-| 2 | Deferred focus paint retains originating clip provenance | Pending | — |
+| 2 | Deferred focus paint retains originating clip provenance | Complete | Generic partial/full clip, rounded popup-local clip, and four-scale native projection green |
 | 3 | Focus indication consumes visibility and projected edit truth | Pending | — |
 | 4 | Compact and Expanded share one cell recipe under two policies | Pending | — |
 
@@ -114,6 +114,9 @@ table contents itself.
 | E-001 | Same-range retained-geometry witness | A constant sequence and measured sequence reused one identity and materialized range. The measured owner now survives the transition and rebuild independently of `Materialization` equality. |
 | E-002 | Generic heterogeneous sequence witness | A 72-pixel viewport of wrapped non-table members covered focus pinning, a 720-pixel scroll, and width resize from 180 to 110. Members reported their own heights; the same retained measurement owner converged without table knowledge. |
 | E-003 | Checkpoint 1 boundary | Green: 885 passed, 8 ignored; all targets, three smokes, formatting, diff hygiene, and protected comparison state held. |
+| E-004 | Generic escaped-focus witness | A keyboard-focused TextBox was scrolled partially, then fully, outside a 48-pixel generic Scroll viewport. Before repair its deferred outline followed the viewport `PopClip`; after repair the original clip brackets the outline in both states. |
+| E-005 | Rounded and native clip witnesses | A popup binding retains the popup-local rounded clip. Clip/outline/pop ordering survives native projection at scales 1.0, 1.25, 1.5, and 2.0. |
+| E-006 | Checkpoint 2 boundary | Green: 888 passed, 8 ignored; all targets, three smokes, formatting, diff hygiene, and protected comparison state held. |
 
 ### Checkpoint 1 receipt
 
@@ -128,6 +131,18 @@ table contents itself.
 - Presentation now uses a bounded fixed-point refinement for measured
   sequences. Uniform sequences remain on the existing constant-extent path.
 - No table-specific sizing arithmetic and no public API were introduced.
+
+### Checkpoint 2 receipt
+
+- The defect reproduced outside tables: scene construction deferred a bare
+  focus outline until after the frame's inherited clip had been popped.
+- The internal deferred record now carries the already-resolved `Clip` beside
+  its `Outline`; late paint replays clip, outline, and pop without changing or
+  pre-clamping the outline rectangle.
+- Base/chrome and popup-local scenes consume the same narrow focus record, so
+  layer ownership remains where it already lived.
+- The caller census found no second deferred primitive. Selection and other
+  inline paint remain inline; no generalized deferred-paint system was added.
 
 ## Public API flags
 
@@ -149,4 +164,5 @@ caller requires vocabulary.
 | Boundary | Commit | Files | Insertions | Deletions | Receipt |
 | --- | --- | ---: | ---: | ---: | --- |
 | Campaign open | `ac1ab69b` | 2 | 142 | 0 | Baseline, admission census, and roadmap marker |
-| Checkpoint 1 | pending | 10 | 361 | 76 | Separate measured geometry owner; generic same-range and heterogeneous-sequence witnesses |
+| Checkpoint 1 | `b3b4e8cf` | 11 | 381 | 78 | Separate measured geometry owner; generic same-range and heterogeneous-sequence witnesses |
+| Checkpoint 2 | pending | 3 | 285 | 15 | Preserve clip provenance through deferred focus paint and native projection |

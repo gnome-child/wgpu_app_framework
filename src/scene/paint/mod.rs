@@ -19,6 +19,12 @@ enum Layer {
     Floating,
 }
 
+#[derive(Clone, Copy)]
+struct FocusOverlay {
+    outline: Outline,
+    clip: Option<Clip>,
+}
+
 pub(super) fn paint_layout_with_theme(
     layout: &layout::Layout,
     scene: &mut Scene,
@@ -52,9 +58,7 @@ pub(super) fn paint_layout_with_theme(
             paint_chrome(chrome, scene, theme, visuals);
         }
 
-        for outline in focus_overlays {
-            scene.push_outline(outline);
-        }
+        paint_focus_overlays(scene, focus_overlays);
     }
 
     paint_overlay_entries(layout, scene.clear(), theme, visuals)
@@ -98,9 +102,7 @@ fn paint_overlay_entries(
                 paint_chrome(chrome, &mut scene, theme, visuals);
             }
 
-            for outline in focus_overlays {
-                scene.push_outline(outline);
-            }
+            paint_focus_overlays(&mut scene, focus_overlays);
 
             (!scene.is_empty()).then(|| {
                 overlay::Draft::new(id, panel.rect(), scene)
@@ -210,14 +212,16 @@ fn paint_frame_with_clip(
     scene: &mut Scene,
     theme: &Theme,
     visuals: &Visuals,
-    overlays: &mut Vec<Outline>,
+    overlays: &mut Vec<FocusOverlay>,
 ) {
-    let clip = frame.clip();
+    let clip = frame
+        .clip()
+        .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
     if let Some(clip) = clip {
-        scene.push_clip(Clip::new(clip.rect()).with_rounding(clip.rounding()));
+        scene.push_clip(clip);
     }
 
-    paint_frame(frame, scene, theme, visuals, overlays);
+    paint_frame(frame, scene, theme, visuals, overlays, clip);
 
     if clip.is_some() {
         scene.pop_clip();
@@ -229,7 +233,8 @@ fn paint_frame(
     scene: &mut Scene,
     theme: &Theme,
     visuals: &Visuals,
-    overlays: &mut Vec<Outline>,
+    overlays: &mut Vec<FocusOverlay>,
+    clip: Option<Clip>,
 ) {
     if is_floating_panel_role(frame.role()) {
         paint_floating_panel_shadow(frame, scene, theme);
@@ -320,18 +325,31 @@ fn paint_frame(
     }
 
     if let Some(color) = focus_outline_color_for(frame, theme) {
-        overlays.push(
-            Outline::new(focus_outline_rect_for(frame), color)
+        overlays.push(FocusOverlay {
+            outline: Outline::new(focus_outline_rect_for(frame), color)
                 .with_width(theme.focus().width as f32)
                 .with_offset(theme.focus().offset)
                 .with_rounding(focus_outline_rounding_for(frame, rounding, theme)),
-        );
+            clip,
+        });
     } else if let Some(color) = outline_color_for(frame, theme) {
         scene.push_outline(
             Outline::new(focus_outline_rect_for(frame), color)
                 .with_width(theme.focus().width as f32)
                 .with_rounding(focus_outline_rounding_for(frame, rounding, theme)),
         );
+    }
+}
+
+fn paint_focus_overlays(scene: &mut Scene, overlays: Vec<FocusOverlay>) {
+    for overlay in overlays {
+        if let Some(clip) = overlay.clip {
+            scene.push_clip(clip);
+        }
+        scene.push_outline(overlay.outline);
+        if overlay.clip.is_some() {
+            scene.pop_clip();
+        }
     }
 }
 

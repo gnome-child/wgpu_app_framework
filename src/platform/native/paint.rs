@@ -398,7 +398,8 @@ mod tests {
     use super::*;
     use crate::{
         Command, Runtime, command, context::Context, control_gallery, geometry, glass_tuner, input,
-        layout, response::Response, session, target::Target, theme::Theme, view, widget, window,
+        interaction, layout, response::Response, session, target::Target, theme::Theme, view,
+        widget, window,
     };
     use std::time::{Duration, Instant};
 
@@ -945,6 +946,85 @@ mod tests {
         assert_approx_eq(left_gap, bottom_gap);
         assert!(grid.rect_is_aligned(outset.inner_rect));
         assert!(grid.rect_is_aligned(outset.outer_rect));
+    }
+
+    #[test]
+    fn clipped_focus_scope_survives_native_projection_at_supported_scales() {
+        let focus = session::Focus::text("native.clipped.focus").keyboard();
+        let mut app = Runtime::new(NativeTextBoxState)
+            .started(|cx| {
+                cx.open_window(window::Options::new("Native Clipped Focus"));
+            })
+            .view(move |_, _| {
+                widget::view(|ui| {
+                    ui.add(
+                        widget::Scroll::new()
+                            .id("native.clipped.focus")
+                            .height(view::Dimension::fixed(48))
+                            .children(|ui| {
+                                ui.text_box(widget::TextBox::new("Focused").focus(focus));
+                                for index in 0..5 {
+                                    ui.label(format!("Row {index}"));
+                                }
+                            }),
+                    );
+                })
+            });
+        app.start();
+
+        let window = app.session().windows()[0].id();
+        let size = geometry::Size::new(240, 100);
+        assert!(app.focus(window, focus));
+        let initial = app
+            .render_scene(window, size)
+            .expect("focused scroll should render");
+        let viewport = initial
+            .layout()
+            .find_role(view::Role::Scroll)
+            .into_iter()
+            .next()
+            .and_then(layout::Frame::viewport)
+            .expect("scroll should expose a viewport")
+            .rect();
+        app.scroll_at(
+            window,
+            size,
+            geometry::Point::new(
+                viewport.x() + viewport.width() / 2,
+                viewport.y() + viewport.height() / 2,
+            ),
+            interaction::ScrollDelta::vertical(16),
+        )
+        .expect("scroll should be handled");
+        let focused = app
+            .render_scene(window, size)
+            .expect("partly clipped focus should render");
+        let focus_brush = paint::Brush::solid(super::super::color::paint_color(
+            Theme::default().focus().color,
+        ));
+
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            let projected = to_paint_scene_at_scale(focused.scene(), scale);
+            let outline_index = projected
+                .items()
+                .iter()
+                .position(|item| {
+                    matches!(item, paint::Item::Outline(outline) if outline.brush == focus_brush)
+                })
+                .expect("native projection should retain the focus outline");
+            let clip_index = projected.items()[..outline_index]
+                .iter()
+                .rposition(|item| matches!(item, paint::Item::Clip(_)))
+                .expect("native projection should retain the focus clip");
+            let pop_index = projected.items()[outline_index + 1..]
+                .iter()
+                .position(|item| matches!(item, paint::Item::PopClip))
+                .map(|offset| outline_index + 1 + offset)
+                .expect("native projection should close the focus clip");
+
+            assert!(clip_index < outline_index, "scale {scale}");
+            assert!(outline_index < pop_index, "scale {scale}");
+        }
     }
 
     fn assert_approx_eq(actual: f32, expected: f32) {
