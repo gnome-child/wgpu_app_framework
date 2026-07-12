@@ -6,6 +6,7 @@ use crate::table;
 pub(crate) struct Tables {
     widths: HashMap<table::HeaderCell, i32>,
     active_columns: HashMap<crate::interaction::Id, crate::interaction::Id>,
+    editing: Option<table::Cell>,
     rejections: HashMap<table::Cell, String>,
 }
 
@@ -42,6 +43,26 @@ impl Tables {
         true
     }
 
+    pub(crate) fn editing(&self) -> Option<table::Cell> {
+        self.editing
+    }
+
+    pub(crate) fn begin_edit(&mut self, cell: table::Cell) -> bool {
+        if self.editing == Some(cell) {
+            return false;
+        }
+        self.editing = Some(cell);
+        true
+    }
+
+    pub(crate) fn finish_edit(&mut self, cell: table::Cell) -> bool {
+        if self.editing != Some(cell) {
+            return false;
+        }
+        self.editing = None;
+        true
+    }
+
     pub(crate) fn reject(&mut self, cell: table::Cell, reason: String) -> bool {
         if self.rejections.get(&cell) == Some(&reason) {
             return false;
@@ -61,7 +82,11 @@ impl Tables {
     pub(crate) fn prune_removed(&mut self, cells: &[table::Cell]) -> bool {
         let before = self.rejections.len();
         self.rejections.retain(|cell, _| !cells.contains(cell));
-        before != self.rejections.len()
+        let edit_removed = self.editing.is_some_and(|cell| cells.contains(&cell));
+        if edit_removed {
+            self.editing = None;
+        }
+        before != self.rejections.len() || edit_removed
     }
 
     pub(crate) fn snapshot(

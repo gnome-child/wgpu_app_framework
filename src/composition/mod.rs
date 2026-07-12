@@ -76,6 +76,16 @@ impl Composition {
             .next_focus_retained(&self.tree, current, direction)
     }
 
+    pub(crate) fn next_focus_outside_table(
+        &self,
+        current: session::Focus,
+        direction: view::FocusDirection,
+        table: interaction::Id,
+    ) -> Option<session::Focus> {
+        self.view
+            .next_focus_outside_table_retained(&self.tree, current, direction, table)
+    }
+
     pub(crate) fn virtual_list_pins(
         &self,
         focus: Option<session::Focus>,

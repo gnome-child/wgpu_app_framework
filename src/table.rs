@@ -36,6 +36,8 @@ pub trait EditText: Value + Sized {
 
 /// Supplies the next value for a directly toggled table cell.
 pub trait EditToggle: Value + Sized {
+    fn is_on(&self) -> bool;
+
     fn toggled(&self) -> Self;
 }
 
@@ -276,6 +278,7 @@ pub struct TextEditor {
     validation: Arc<Validation>,
     trigger: Option<command::AnyValueTrigger<String>>,
     input: text::Input,
+    presentation: Presentation,
 }
 
 pub struct NumberEditor {
@@ -293,7 +296,12 @@ type NumberValidation = dyn Fn(i64) -> Result<(), String> + Send + Sync;
 #[derive(Clone)]
 pub(crate) struct Edit {
     cell: Cell,
+    text: String,
+    placeholder: Option<String>,
     validation: Arc<Validation>,
+    trigger: Option<command::AnyValueTrigger<String>>,
+    input: text::Input,
+    presentation: Presentation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -567,13 +575,14 @@ where
         let accessor = Rc::clone(&self.accessor);
         let validation = Arc::clone(&self.validation);
         let map = Arc::new(map);
-        self.cell = Some(Rc::new(move |record, cell, _| {
+        self.cell = Some(Rc::new(move |record, cell, presentation| {
             let value = accessor(record);
             let draft_validation = Arc::clone(&validation);
             let commit_validation = Arc::clone(&validation);
             let commit_map = Arc::clone(&map);
             widget::Widget::into_node(
                 TextEditor::new(cell, value.edit_text().into_owned())
+                    .display(presentation)
                     .input(V::input())
                     .validate(move |draft| {
                         let parsed = V::parse(draft)?;
@@ -605,9 +614,10 @@ where
         let accessor = Rc::clone(&self.accessor);
         let map = Rc::new(map);
         self.cell = Some(Rc::new(move |record, cell, _| {
-            let next = accessor(record).toggled();
+            let value = accessor(record);
+            let next = value.toggled();
             widget::Widget::into_node(
-                widget::Checkbox::new("", false).trigger::<C>(map(cell, next)),
+                widget::Checkbox::new("", value.is_on()).trigger::<C>(map(cell, next)),
             )
         }));
         self
@@ -813,7 +823,13 @@ impl TextEditor {
             validation: Arc::new(|_| Ok(())),
             trigger: None,
             input: text::Input::unrestricted(),
+            presentation: Presentation::Compact,
         }
+    }
+
+    fn display(mut self, presentation: Presentation) -> Self {
+        self.presentation = presentation;
+        self
     }
 
     pub fn input(mut self, input: text::Input) -> Self {
@@ -899,14 +915,16 @@ impl NumberEditor {
 
 impl widget::Widget for TextEditor {
     fn into_node(self) -> view::Node {
-        editor_node(
+        Edit::new(
             self.cell,
             self.text,
             self.placeholder,
             self.validation,
             self.trigger,
             self.input,
+            self.presentation,
         )
+        .node(false)
     }
 }
 
@@ -920,24 +938,78 @@ impl widget::Widget for NumberEditor {
                 .map_err(|_| "Enter a whole number".to_owned())?;
             domain(value)
         });
-        editor_node(
+        Edit::new(
             self.cell,
             self.value.to_string(),
             self.placeholder,
             validation,
             self.trigger,
             self.input,
+            Presentation::Compact,
         )
+        .node(false)
     }
 }
 
 impl Edit {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        cell: Cell,
+        text: String,
+        placeholder: Option<String>,
+        validation: Arc<Validation>,
+        trigger: Option<command::AnyValueTrigger<String>>,
+        input: text::Input,
+        presentation: Presentation,
+    ) -> Self {
+        Self {
+            cell,
+            text,
+            placeholder,
+            validation,
+            trigger,
+            input,
+            presentation,
+        }
+    }
+
     pub(crate) fn cell(&self) -> Cell {
         self.cell
     }
 
     pub(crate) fn validate(&self, text: &str) -> Result<(), String> {
         (self.validation)(text)
+    }
+
+    pub(crate) fn node(&self, editing: bool) -> view::Node {
+        let focus = session::Focus::table_cell(self.cell);
+        let mut node = if editing {
+            let mut model = view::TextBox::new(self.text.clone())
+                .with_focus(focus)
+                .with_input(self.input);
+            if let Some(placeholder) = self.placeholder.as_ref() {
+                model = model.with_placeholder(placeholder.clone());
+            }
+            view::Node::text_box_state(model)
+        } else {
+            match self.presentation {
+                Presentation::Compact => view::Node::text_box_state(
+                    view::TextBox::new(self.text.clone())
+                        .with_focus(focus)
+                        .read_only(),
+                ),
+                Presentation::Expanded => view::Node::text_area_state(
+                    view::TextArea::new(self.text.clone())
+                        .with_focus(focus)
+                        .with_wrap(view::Wrap::Word)
+                        .read_only(),
+                ),
+            }
+        };
+        if let Some(trigger) = self.trigger.clone() {
+            node = node.bind_text_trigger(self.text.clone(), context::Source::Input, trigger);
+        }
+        node.with_table_edit(self.clone())
     }
 }
 
@@ -1033,27 +1105,6 @@ fn sized(node: view::Node, width: view::Dimension) -> view::Node {
     node.with_style(style)
 }
 
-fn editor_node(
-    cell: Cell,
-    text: String,
-    placeholder: Option<String>,
-    validation: Arc<Validation>,
-    trigger: Option<command::AnyValueTrigger<String>>,
-    input: text::Input,
-) -> view::Node {
-    let mut model = view::TextBox::new(text.clone())
-        .with_focus(session::Focus::table_cell(cell))
-        .with_input(input);
-    if let Some(placeholder) = placeholder {
-        model = model.with_placeholder(placeholder);
-    }
-    let mut node = view::Node::text_box_state(model);
-    if let Some(trigger) = trigger {
-        node = node.bind_text_trigger(text, crate::context::Source::Input, trigger);
-    }
-    node.with_table_edit(Edit { cell, validation })
-}
-
 fn value_node<V: Value>(
     value: &V,
     overflow: text::Overflow,
@@ -1109,6 +1160,10 @@ impl Sort for bool {
 }
 
 impl EditToggle for bool {
+    fn is_on(&self) -> bool {
+        *self
+    }
+
     fn toggled(&self) -> Self {
         !self
     }
@@ -1198,6 +1253,10 @@ mod tests {
     }
 
     impl EditToggle for Rank {
+        fn is_on(&self) -> bool {
+            self.0 >= 0
+        }
+
         fn toggled(&self) -> Self {
             Self(-self.0)
         }
@@ -1208,6 +1267,7 @@ mod tests {
         assert_eq!(Rank(7).text(), "rank 7");
         assert_eq!(Rank(2).order(&Rank(9)), Ordering::Less);
         assert_eq!(Rank::parse("-4").expect("signed rank").0, -4);
+        assert!(Rank(5).is_on());
         assert_eq!(Rank(5).toggled().0, -5);
     }
 

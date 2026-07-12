@@ -14,6 +14,7 @@ pub enum Key {
     End,
     PageUp,
     PageDown,
+    F2,
     F4,
     Character(char),
     Other,

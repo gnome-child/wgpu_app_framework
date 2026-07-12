@@ -46,8 +46,8 @@ range/TSV spreadsheet behavior, or push is permitted.
 | 1 | Expanded rows consume intrinsic content at resolved track widths | Complete | `5af6d17b`; 876 passed, 8 ignored; exact 28/128 px rows, resize to 108 px, scroll invariance, generic variable-list preservation, three smokes and all boundary checks green |
 | 2 | Internal table naming consumes the existing subject channel | Complete | `c401ebe9`; 877 passed, 8 ignored; retained subject and painted-text absence witnesses; three smokes and all boundary checks green |
 | 3 | Active sort indication is trailing header structure, never label text | Complete | `503bd6d3`; 878 passed, 8 ignored; active-only caret geometry, both directions, wrapping, target and resize precedence, three smokes and all boundary checks green |
-| 4 | Vertical scrollbar chrome consumes the visible body projection | Green; commit pending | 879 passed, 8 ignored; overlay and gutter anchors, stable horizontal-scroll geometry, hit ownership, page extent, fully-clipped absence, three smokes and all boundary checks green |
-| 5 | Read, select, navigate, then deliberately edit | Pending | — |
+| 4 | Vertical scrollbar chrome consumes the visible body projection | Complete | `c8fbc548`; 879 passed, 8 ignored; overlay and gutter anchors, stable horizontal-scroll geometry, hit ownership, page extent, fully-clipped absence, three smokes and all boundary checks green |
+| 5 | Read, select, navigate, then deliberately edit | Green; commit pending | 883 passed, 8 ignored; read-only selection/copy, deliberate edit activation, canonical keyboard movement, native bool control, virtualization pruning, three smokes and all boundary checks green |
 | 6 | Resistance audit and campaign close-out | Pending | — |
 
 ## Boundary ritual
@@ -176,7 +176,69 @@ Checkpoint commits are not pushed.
 - Pending eyes: verify overlay fade and gutter density in the comparison example
   after the interaction checkpoint; horizontal and vertical scroll ownership
   intentionally remain separate sources joined only by visible geometry.
-- Commit receipt: pending checkpoint commit; the next ledger boundary records
+- Commit receipt: `c8fbc548`; 6 files changed, 237 insertions, 71 deletions.
+
+## Checkpoint 5 census and boundary — deliberate editing
+
+- Existing lower owners were retained. `FieldMode` owns editable, read-only,
+  and disabled capabilities; document editing owns selection, clipboard,
+  history, validation, caret, and IME behavior; retained `table::Cell` identity
+  owns the current cell; `interaction::Tables` owns the sole active edit
+  identity; providers and application commands remain the only value owners.
+- `TextEditor` and `NumberEditor` now project a read-only text surface at rest
+  and construct the editable projection only while the canonical cell is in
+  the edit session. The display surface keeps table-cell chrome. It permits
+  selection and copy while `FieldMode::allows_edit` centrally rejects cut,
+  paste, deletion, history mutation, text input, and IME mutation.
+- The edit descriptor is capability data, not a dormant editor. It retains the
+  source text, input and validation policy, presentation, and commit intent so
+  a rebuild can derive exactly one editor when the session changes mode. The
+  display and editor never coexist as active text owners.
+- Existing text pointer behavior was generalized to accept the platform click
+  class. Windows double-click timing and distance come from the native system
+  metrics; the pointer session retains one sequence and cancels it on drag.
+  Single-click and selection drag remain display operations. Only a double
+  click on an editable table cell emits the begin-edit transition; double and
+  triple click on non-editable/read-only text retain word/all selection.
+- Grid navigation consumes provider keys and column identities rather than
+  frame positions. Arrows, row Home/End, table Ctrl+Home/Ctrl+End, Page,
+  Tab/Shift+Tab, Enter, Shift+Enter, and F2 converge on one `CellMove`
+  vocabulary and the existing vertical/horizontal reveal paths. Direct child
+  controls receive focus and keep native button/toggle key grammar.
+- Successful commit routes through the existing validated commit binding,
+  closes the edit session, and establishes the destination as current. Failed
+  validation retains the editor and blocks movement. Escape clears draft,
+  rejection, and edit identity without application mutation. Deliberate cell
+  movement commits first; window deactivation, overlay opening, measurement
+  refinement, and unrelated rebuilds do not accidentally commit.
+- Retained reconciliation prunes an edit when its row or column disappears.
+  Compact and Expanded presentations carry the same cell identity and
+  interaction state; no mode-specific edit session was introduced.
+- Boolean typed cells now derive their checked state from the existing
+  `EditToggle` capability and retain native single-click/Space behavior. This
+  deletes the gallery's affordance lie without teaching table navigation a
+  private toggle mechanism.
+- Exact witnesses prove display drag selection and copy without editing;
+  mutation commands rejected while read-only; a platform-classified second
+  click constructs exactly one editor with word selection; F2/Enter entry;
+  Escape cancellation; Enter/Shift+Enter/Tab/Shift+Tab validated movement;
+  horizontal reveal through overflow; bool click/Space behavior; and safe row
+  removal during an active edit.
+- Public API effects are limited to two demonstrated external capabilities:
+  `input::Key::F2`, needed by application/platform key handling, and
+  `EditToggle::is_on`, needed by external typed boolean columns to project
+  application state. Table edit-session, read-only bridging, click sequence,
+  and navigation vocabulary remain internal.
+- Principled non-merges: value-only/custom cells without a canonical text
+  projection keep their own behavior; no table export or synthetic text owner
+  was invented. The reserved accessibility seam has no implemented data-grid
+  vocabulary to consume, so this checkpoint preserves roles/subjects and
+  records semantic grid position and sort/edit metadata as follow-up rather
+  than minting table-only accessibility state.
+- Explicit absences: no printable type-to-replace, range selection, TSV,
+  paste, fill, column reorder, multi-sort, formulas, frozen columns, or
+  Shift+Wheel remapping entered the tree.
+- Commit receipt: pending checkpoint commit; the close-out boundary records
   its hash and diff statistics.
 
 ## Execution ledger
@@ -192,12 +254,15 @@ Checkpoint commits are not pushed.
 | E-006 | Checkpoint 3 full boundary | Held: 878 passed, 8 ignored; three smokes, formatting, all targets, diff and absence checks, compact million-row witness, and protected state green |
 | E-007 | Checkpoint 4 focused projection and interaction | Held: visible-edge overlay and gutter anchors, stable track through horizontal scroll, chrome hit target, visible page extent, and fully-clipped absence |
 | E-008 | Checkpoint 4 full boundary | Held: 879 passed, 8 ignored; three smokes, formatting, all targets, diff check, compact million-row witness, and protected state green |
+| E-009 | Checkpoint 5 focused interaction grammar | Held: read-only drag selection/copy, platform double-click entry, canonical edit-key movement, horizontal reveal, native bool click/Space, and removal pruning witnesses |
+| E-010 | Checkpoint 5 full boundary | Held: 883 passed, 8 ignored; three smokes, formatting, all targets, diff check, compact million-row witness, and protected state green |
 
 ## Public API flags
 
-None opened. Internal corrections must use existing `view::Dimension`,
-`table::Projection`, `subject`, text surface modes, focus, clipboard, and
-viewport chrome concepts before proposing public vocabulary.
+Checkpoint 5 added public `input::Key::F2` and required `EditToggle::is_on`.
+Both have demonstrated callers at the platform/application boundary. All other
+corrections consume existing `view::Dimension`, `table::Projection`, `subject`,
+text surface modes, focus, clipboard, and viewport chrome concepts.
 
 ## Watch lines and explicit deferrals
 
@@ -218,4 +283,5 @@ viewport chrome concepts before proposing public vocabulary.
 | Checkpoint 1 | `5af6d17b` | 5 | 282 | 37 | Resolved-track intrinsic row and header measurement |
 | Checkpoint 2 | `c401ebe9` | 3 | 66 | 9 | Existing subject channel replaces painted internal scroll label |
 | Checkpoint 3 | `503bd6d3` | 12 | 357 | 30 | Active sort state projects into header-owned label and caret subparts |
-| Checkpoint 4 | pending | pending | pending | pending | Scroll chrome consumes one visible viewport projection |
+| Checkpoint 4 | `c8fbc548` | 6 | 237 | 71 | Scroll chrome consumes one visible viewport projection |
+| Checkpoint 5 | pending | pending | pending | pending | Display selection and deliberate editing consume existing text and table-session owners |

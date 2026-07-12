@@ -360,13 +360,9 @@ fn field_model(text_box: &view::TextBox) -> text_engine::edit::Field {
         })
     });
     let state = text_engine::edit::State::new(cursor, selection);
-    let field = text_engine::edit::Field::new(buffer).with_state(state);
-
-    if text_box.cursor().is_some() {
-        field
-    } else {
-        field.read_only()
-    }
+    text_engine::edit::Field::new(buffer)
+        .with_state(state)
+        .with_mode(text_box.mode())
 }
 
 fn field_style(theme: &Theme) -> text_engine::document::Style {

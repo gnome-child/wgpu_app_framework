@@ -5,7 +5,7 @@ use super::FocusedTextBox;
 
 impl Target<document::SelectAll> for FocusedTextBox<'_> {
     fn state(&self, _: &(), _: &command_context::Context) -> command::State {
-        if self.draft().is_some_and(|draft| !draft.text().is_empty()) {
+        if self.is_selectable() && self.draft().is_some_and(|draft| !draft.text().is_empty()) {
             command::State::enabled()
         } else {
             command::State::disabled()
@@ -19,7 +19,7 @@ impl Target<document::SelectAll> for FocusedTextBox<'_> {
 
 impl Target<document::Delete> for FocusedTextBox<'_> {
     fn state(&self, _: &(), _: &command_context::Context) -> command::State {
-        if self.draft().is_some_and(|draft| !draft.text().is_empty()) {
+        if self.is_editable() && self.draft().is_some_and(|draft| !draft.text().is_empty()) {
             command::State::enabled()
         } else {
             command::State::disabled()

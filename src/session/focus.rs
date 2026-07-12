@@ -95,10 +95,6 @@ impl Focus {
         matches!(self.kind, Kind::Text(_) | Kind::TableCell(_))
     }
 
-    pub(crate) fn is_text_input(self) -> bool {
-        self.accepts_keyboard_input()
-    }
-
     pub fn target(self) -> interaction::Id {
         match self.kind {
             Kind::Text(target) => target,

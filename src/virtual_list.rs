@@ -257,6 +257,10 @@ impl Model {
         (index < self.len()).then(|| self.provider.key(index))
     }
 
+    pub(crate) fn index_of(&self, key: Key) -> Option<usize> {
+        self.provider.index_of(key)
+    }
+
     pub(crate) fn initial_materialization(&self) -> Materialization {
         Materialization::new(0..self.len().min(INITIAL_ROWS), Vec::new())
     }

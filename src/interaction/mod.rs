@@ -10,7 +10,7 @@ mod target;
 pub(crate) use command_palette::CommandPalette;
 pub use id::Id;
 pub use menu::Menu;
-pub(crate) use pointer::{Capture, Pointer, PressIntent};
+pub(crate) use pointer::{Capture, ClickCount, Pointer, PressIntent};
 pub(crate) use scroll::Scroll;
 pub use scroll::{ScrollDelta, ScrollOffset};
 pub(crate) use selection::Selections;
@@ -50,6 +50,19 @@ impl Pruned {
 }
 
 impl Interaction {
+    pub(crate) fn classify_click(
+        &mut self,
+        target: &Target,
+        point: crate::geometry::Point,
+        at: Instant,
+    ) -> ClickCount {
+        self.pointer.classify_click(target, point, at)
+    }
+
+    pub(crate) fn cancel_click_sequence(&mut self) -> bool {
+        self.pointer.cancel_click_sequence()
+    }
+
     pub(crate) fn new(draft_limit: usize) -> Self {
         let mut interaction = Self::default();
         interaction.set_text_draft_limit(draft_limit);

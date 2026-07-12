@@ -94,4 +94,16 @@ impl Hit {
 
         self.frame.action_at_with_engine(point, engine)
     }
+
+    pub(crate) fn text_action_at_with_engine(
+        &self,
+        point: Point,
+        kind: crate::text::edit::PointerEditKind,
+        engine: &mut engine::Engine,
+    ) -> Option<view::Action> {
+        if self.chrome.is_some() || self.target.is_some() {
+            return None;
+        }
+        self.frame.text_action_at_with_engine(point, kind, engine)
+    }
 }

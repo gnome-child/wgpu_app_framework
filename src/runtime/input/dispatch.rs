@@ -1,6 +1,6 @@
 use super::super::Runtime;
 use crate::{
-    context as command_context, error::Error, input, interaction, response, state, window,
+    context as command_context, error::Error, input, interaction, response, session, state, window,
 };
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
@@ -20,6 +20,16 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 }
 
                 if self.session.close_menu(window) {
+                    return Ok(self.window_outcome(window, false, response::Effect::Rebuild));
+                }
+
+                if let Some(cell) = self.session.editing_table_cell(window) {
+                    self.session
+                        .clear_text_draft(window, session::Focus::table_cell(cell));
+                    self.session.clear_table_edit_error(window, cell);
+                    self.session.finish_table_edit(window, cell);
+                    self.session
+                        .request_invalidation(window, response::Invalidation::Rebuild);
                     return Ok(self.window_outcome(window, false, response::Effect::Rebuild));
                 }
 

@@ -73,6 +73,14 @@ impl View {
             .unwrap_or_default()
     }
 
+    pub(crate) fn table_cell_is_editable(&self, cell: crate::table::Cell) -> bool {
+        self.root.table_cell_is_editable(cell)
+    }
+
+    pub(crate) fn table_cell_focus(&self, cell: crate::table::Cell) -> Option<session::Focus> {
+        self.root.table_cell_focus(cell)
+    }
+
     pub(crate) fn selectable_virtual_list_for_focus(
         &self,
         tree: &composition::Tree,
@@ -200,6 +208,28 @@ impl View {
         next_focus_in_order(self.focus_order_retained(tree), current, direction)
     }
 
+    pub(crate) fn next_focus_outside_table_retained(
+        &self,
+        tree: &composition::Tree,
+        current: session::Focus,
+        direction: FocusDirection,
+        table: interaction::Id,
+    ) -> Option<session::Focus> {
+        let order = self.focus_order_retained(tree);
+        let index = order
+            .iter()
+            .position(|candidate| candidate.same_target(&current))?;
+        let outside = |candidate: &&session::Focus| {
+            candidate
+                .table_cell_identity()
+                .is_none_or(|cell| cell.table() != table)
+        };
+        match direction {
+            FocusDirection::Forward => order.iter().skip(index + 1).find(outside).copied(),
+            FocusDirection::Backward => order.iter().take(index).rev().find(outside).copied(),
+        }
+    }
+
     pub(super) fn text_commit_action(&self, focus: session::Focus, text: String) -> Option<Action> {
         self.root.text_commit_action(focus, text)
     }
@@ -218,6 +248,13 @@ impl View {
 
     pub(super) fn text_box_input(&self, focus: session::Focus) -> Option<crate::text::Input> {
         self.root.text_box_for_focus(focus).map(TextBox::input)
+    }
+
+    pub(crate) fn text_surface_mode(
+        &self,
+        focus: session::Focus,
+    ) -> Option<crate::text::edit::FieldMode> {
+        self.root.text_surface_mode_for_focus(focus)
     }
 
     pub(super) fn text_input_target(&self, focus: session::Focus) -> Option<interaction::Target> {

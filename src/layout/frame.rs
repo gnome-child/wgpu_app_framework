@@ -141,6 +141,7 @@ pub(crate) struct Frame {
     table_header_presentation: Option<crate::table::HeaderPresentation>,
     table_projection: Option<table::Projection>,
     table_edit_error: Option<String>,
+    table_editable: bool,
     participation: Option<view::Participation>,
     force_overlay_group: bool,
     native_popup_material_preference: view::NativePopupMaterialPreference,
@@ -275,6 +276,7 @@ impl Frame {
             table_header_presentation: node.table_header_presentation(),
             table_projection: None,
             table_edit_error: node.table_edit_error().map(str::to_owned),
+            table_editable: node.table_edit().is_some(),
             participation: node.participation(),
             force_overlay_group: node.force_overlay_group(),
             native_popup_material_preference: node.native_popup_material_preference(),
@@ -432,6 +434,10 @@ impl Frame {
 
     pub(crate) fn table_edit_error(&self) -> Option<&str> {
         self.table_edit_error.as_deref()
+    }
+
+    pub(crate) fn is_table_editable(&self) -> bool {
+        self.table_editable
     }
 
     pub(crate) fn force_overlay_group(&self) -> bool {
@@ -673,6 +679,32 @@ impl Frame {
         }
 
         self.action_at(point)
+    }
+
+    pub(crate) fn text_action_at_with_engine(
+        &self,
+        point: Point,
+        kind: crate::text::edit::PointerEditKind,
+        engine: &mut engine::Engine,
+    ) -> Option<view::Action> {
+        if self.role() == view::Role::TextArea {
+            let text_area = self.text_area()?;
+            let layout = self.text_area_layout()?;
+            let position = engine.text_area_position_at(text_area, layout, self.rect, point)?;
+            return text_area.pointer_action(kind, position);
+        }
+        if self.role() == view::Role::TextBox {
+            let text_box = self.text_box()?;
+            let layout = self.text_box_layout()?;
+            let position = engine.text_field_position_at(
+                text_box,
+                layout,
+                self.text_box_text_rect(),
+                point,
+            )?;
+            return text_box.pointer_action(kind, position);
+        }
+        None
     }
 
     pub(crate) fn drag_action_at_with_engine(

@@ -855,6 +855,7 @@ fn active_descendant_reveal_offset(
     margin: i32,
 ) -> Option<interaction::ScrollOffset> {
     let palette_results_target = interaction::CommandPalette::results_target();
+    let table_scroll = layout.is_table_scroll_target(target);
     let mut palette_row = 0_usize;
 
     layout.reveal_offset_for_descendant(target, margin, |frame| {
@@ -866,6 +867,10 @@ fn active_descendant_reveal_offset(
             let selected = selected_palette_index == Some(palette_row);
             palette_row = palette_row.saturating_add(1);
             return selected;
+        }
+
+        if table_scroll {
+            return frame.table_cell().is_some() && frame.is_active_item();
         }
 
         if frame.provided_row().is_some() {

@@ -33,6 +33,7 @@ pub(crate) enum Action {
     },
     ToggleMenu(interaction::Menu),
     TextEdit(text::edit::Edit),
+    BeginTableEdit(crate::table::Cell),
     ResizeTableColumn {
         column: crate::table::HeaderCell,
         width: i32,
@@ -130,16 +131,14 @@ impl Action {
         focus.map(|focus| Self::focus(focus.pointer()))
     }
 
-    pub(crate) fn text_click(
+    pub(crate) fn text_pointer(
         focus: Option<session::Focus>,
+        kind: text::edit::PointerEditKind,
         position: text::buffer::Position,
     ) -> Option<Self> {
         Some(Self::sequence([
             Self::text_pointer_focus(focus)?,
-            Self::text_edit(text::edit::Edit::pointer(
-                text::edit::PointerEditKind::Click,
-                position,
-            )),
+            Self::text_edit(text::edit::Edit::pointer(kind, position)),
         ]))
     }
 
@@ -148,5 +147,9 @@ impl Action {
             text::edit::PointerEditKind::Drag,
             position,
         ))
+    }
+
+    pub(crate) fn begin_table_edit(cell: crate::table::Cell) -> Self {
+        Self::BeginTableEdit(cell)
     }
 }

@@ -864,6 +864,9 @@ fn text_color_for(frame: &layout::Frame, theme: &Theme) -> super::Color {
     if frame.table_part() == Some(view::TablePart::PassiveToggle) {
         return theme.text().muted;
     }
+    if frame.table_part() == Some(view::TablePart::Cell) {
+        return theme.text().primary;
+    }
 
     match frame.role() {
         view::Role::TextBox

@@ -201,6 +201,7 @@ pub fn key(key: &WinitKey) -> input::Key {
         WinitKey::Named(NamedKey::End) => input::Key::End,
         WinitKey::Named(NamedKey::PageUp) => input::Key::PageUp,
         WinitKey::Named(NamedKey::PageDown) => input::Key::PageDown,
+        WinitKey::Named(NamedKey::F2) => input::Key::F2,
         WinitKey::Named(NamedKey::F4) => input::Key::F4,
         WinitKey::Character(value) => {
             let mut chars = value.chars();

@@ -47,6 +47,28 @@ impl<'a> FocusedTextBox<'a> {
             .unwrap_or_else(text::Input::unrestricted)
     }
 
+    fn mode(&self) -> text::edit::FieldMode {
+        if self
+            .focus
+            .table_cell_identity()
+            .is_some_and(|cell| self.session.editing_table_cell(self.window) == Some(cell))
+        {
+            return text::edit::FieldMode::Editable;
+        }
+        self.composition
+            .get(self.window)
+            .and_then(|composition| composition.view().text_surface_mode(self.focus))
+            .unwrap_or(text::edit::FieldMode::Editable)
+    }
+
+    fn is_editable(&self) -> bool {
+        self.mode() == text::edit::FieldMode::Editable
+    }
+
+    fn is_selectable(&self) -> bool {
+        self.mode() != text::edit::FieldMode::Disabled
+    }
+
     fn draft(&self) -> Option<draft::State> {
         let base = self.base_text()?;
         let target = interaction::Target::text_area(self.focus);
@@ -74,6 +96,13 @@ impl<'a> FocusedTextBox<'a> {
         edit: text::edit::Edit,
         clipboard_changed: bool,
     ) -> Response<document::Outcome> {
+        if !self.mode().allows_edit(&edit) {
+            return Response::output(document::Outcome::from_text_change(
+                false,
+                false,
+                clipboard_changed,
+            ));
+        }
         let Some(base) = self.base_text() else {
             return Response::output(document::Outcome::from_text_change(
                 false,

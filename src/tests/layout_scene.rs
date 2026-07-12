@@ -255,6 +255,7 @@ fn editable_table_app(state: EditableTableState) -> Runtime<EditableTableState, 
     Runtime::new(state)
         .commands(|commands| {
             commands
+                .install(document::Editing::standard())
                 .register::<SetRecordName>(command::Spec::new("Set record name"))
                 .register::<SetRecordCount>(command::Spec::new("Set record count"));
         })
@@ -1012,6 +1013,96 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
 }
 
 #[test]
+fn table_keyboard_navigation_reveals_current_cell_across_horizontal_overflow() {
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Keyboard reveal table"));
+        })
+        .view(|_, _| {
+            widget::view_node(
+                crate::Table::new(
+                    "keyboard.reveal.table",
+                    20,
+                    [
+                        crate::table::Column::new("name", "Name", view::Dimension::fixed(100)),
+                        crate::table::Column::new("detail", "Detail", view::Dimension::fixed(120)),
+                        crate::table::Column::new("action", "Action", view::Dimension::fixed(90)),
+                    ],
+                    MillionTableProvider {
+                        cell_calls: Rc::new(Cell::new(0)),
+                    },
+                )
+                .height(view::Dimension::fixed(108)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 108);
+    let initial = app
+        .render_scene(window, size)
+        .expect("wide table should render");
+    let name = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(0)
+                    && cell.column() == interaction::Id::new("name")
+            })
+        })
+        .expect("first name cell");
+    app.pointer_down_at(window, size, frame_point_at(name.rect()))
+        .expect("cell click should establish grid focus");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::End, input::Modifiers::default()),
+    )
+    .expect("End should move to the row's final cell");
+    let revealed = app
+        .render_scene(window, size)
+        .expect("final cell should be revealed");
+    let horizontal = revealed
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_projection().is_some())
+        .and_then(layout::Frame::viewport)
+        .expect("table horizontal viewport");
+    assert_eq!(
+        horizontal.resolved_scroll().x(),
+        horizontal.max_scroll().x()
+    );
+    assert!(revealed.layout().frames().iter().any(|frame| {
+        frame.is_active_item()
+            && frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(0)
+                    && cell.column() == interaction::Id::new("action")
+            })
+    }));
+
+    app.handle_input(
+        window,
+        Input::key_down(
+            input::Key::Home,
+            input::Modifiers::new(false, true, false, false),
+        ),
+    )
+    .expect("Ctrl+Home should move to the table's first cell");
+    let returned = app
+        .render_scene(window, size)
+        .expect("first cell should be revealed");
+    let horizontal = returned
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_projection().is_some())
+        .and_then(layout::Frame::viewport)
+        .expect("table horizontal viewport");
+    assert_eq!(horizontal.resolved_scroll().x(), 0);
+}
+
+#[test]
 fn table_gutter_scrollbar_and_body_clip_share_visible_viewport_geometry() {
     let view = widget::view(|ui| {
         ui.add(
@@ -1705,9 +1796,12 @@ fn table_keyboard_tracks_a_keyed_logical_row_and_column_without_scanning() {
     let calls_before_end = cell_calls.get();
     app.handle_input(
         window,
-        Input::key_down(input::Key::End, input::Modifiers::default()),
+        Input::key_down(
+            input::Key::End,
+            input::Modifiers::new(false, true, false, false),
+        ),
     )
-    .expect("End should move to the final logical row");
+    .expect("Ctrl+End should move to the final logical row and column");
     let moved = app
         .render_scene(window, size)
         .expect("distant active table cell should materialize");
@@ -1760,6 +1854,11 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
 
     app.handle_input(window, Input::focus(session::Focus::table_cell(name)))
         .expect("text cell should focus");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::F2, input::Modifiers::default()),
+    )
+    .expect("F2 should deliberately enter the text cell");
     app.handle_input(window, Input::text_commit("Ada"))
         .expect("text cell should accept a draft");
     app.handle_input(
@@ -1771,6 +1870,11 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
 
     app.handle_input(window, Input::focus(session::Focus::table_cell(count)))
         .expect("numeric cell should focus");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::F2, input::Modifiers::default()),
+    )
+    .expect("F2 should deliberately enter the numeric cell");
     app.handle_input(window, Input::text_commit("2"))
         .expect("numeric cell should accept draft text");
     app.handle_input(
@@ -1784,6 +1888,11 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
     assert!(app.redo());
     assert_eq!(app.state().records[0].count, 42);
 
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::F2, input::Modifiers::default()),
+    )
+    .expect("F2 should re-enter the committed numeric cell");
     app.handle_input(window, Input::text_commit("x"))
         .expect("invalid numeric draft should remain editable");
     app.handle_input(
@@ -1845,6 +1954,118 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
 }
 
 #[test]
+fn table_display_text_selects_and_copies_while_double_click_alone_enters_editing() {
+    let clipboard = crate::clipboard::Clipboard::default();
+    let mut app = editable_table_app(EditableTableState {
+        records: vec![EditableRecord {
+            key: 7,
+            name: "Ada Lovelace".to_owned(),
+            count: 4,
+        }],
+    })
+    .with_clipboard(clipboard.clone());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 124);
+    let cell = crate::table::Cell::new(
+        interaction::Id::new("editable.table"),
+        crate::virtual_list::Key::new(7),
+        interaction::Id::new("name"),
+    );
+    let initial = app
+        .render_scene(window, size)
+        .expect("display cell should render");
+    let frame = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("name display cell");
+    assert_eq!(frame.table_part(), Some(view::TablePart::Cell));
+    let start = geometry::Point::new(
+        frame.rect().x() + 8,
+        frame.rect().y() + frame.rect().height() / 2,
+    );
+    let end = geometry::Point::new(frame.rect().x() + 42, start.y());
+
+    app.pointer_down_at(window, size, start)
+        .expect("single press should focus display text");
+    app.pointer_drag_at(window, size, end)
+        .expect("display drag should extend text selection");
+    app.pointer_up_at(window, size, end)
+        .expect("display drag should release without activation");
+    assert_eq!(app.session().editing_table_cell(window), None);
+    let focus = session::Focus::table_cell(cell);
+    let selected = text_draft(&app, window, focus)
+        .selected_text()
+        .expect("display text drag should own a selection");
+    assert!(!selected.is_empty());
+    app.handle_input(window, Input::shortcut("Ctrl+C"))
+        .expect("copy should route to the read-only text surface");
+    assert_eq!(
+        clipboard.text().expect("clipboard available"),
+        Some(selected)
+    );
+    assert_eq!(app.state().records[0].name, "Ada Lovelace");
+    clipboard
+        .put(&crate::clipboard::Text::new("Injected"))
+        .expect("test clipboard write");
+    app.handle_input(window, Input::shortcut("Ctrl+V"))
+        .expect("paste shortcut should be rejected by read-only capability");
+    app.handle_input(window, Input::shortcut("Ctrl+X"))
+        .expect("cut shortcut should be rejected by read-only capability");
+    assert_eq!(text_draft(&app, window, focus).text(), "Ada Lovelace");
+    assert_eq!(app.state().records[0].name, "Ada Lovelace");
+    assert_eq!(app.session().editing_table_cell(window), None);
+
+    app.handle_input(window, Input::cancel())
+        .expect("cancel should clear display selection");
+    let display = app
+        .render_scene(window, size)
+        .expect("display cell should return");
+    let point = frame_point_at(
+        display
+            .layout()
+            .frames()
+            .iter()
+            .find(|frame| frame.table_cell() == Some(cell))
+            .expect("display cell after selection")
+            .rect(),
+    );
+    app.pointer_down_at(window, size, point)
+        .expect("first click should make the cell current");
+    app.pointer_up_at(window, size, point)
+        .expect("first click should release");
+    assert_eq!(app.session().editing_table_cell(window), None);
+    let singly_clicked = app
+        .render_scene(window, size)
+        .expect("single-click display");
+    assert!(singly_clicked.layout().frames().iter().any(|frame| {
+        frame.table_cell() == Some(cell) && frame.table_part() == Some(view::TablePart::Cell)
+    }));
+
+    app.pointer_down_at(window, size, point)
+        .expect("second platform-classified click should enter editing");
+    assert_eq!(app.session().editing_table_cell(window), Some(cell));
+    let editing = app
+        .render_scene(window, size)
+        .expect("editor should project");
+    assert_eq!(
+        editing
+            .layout()
+            .frames()
+            .iter()
+            .filter(|frame| {
+                frame.table_cell() == Some(cell)
+                    && frame.table_part() == Some(view::TablePart::Editor)
+            })
+            .count(),
+        1
+    );
+    assert!(text_draft(&app, window, focus).selected_text().is_some());
+}
+
+#[test]
 fn editable_table_draft_pins_through_scroll_follows_reorder_and_dies_on_deletion() {
     let mut app = editable_table_app(EditableTableState {
         records: (0..50)
@@ -1869,6 +2090,11 @@ fn editable_table_draft_pins_through_scroll_follows_reorder_and_dies_on_deletion
     let focus = session::Focus::table_cell(cell);
     app.handle_input(window, Input::focus(focus))
         .expect("editable cell should focus");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::F2, input::Modifiers::default()),
+    )
+    .expect("F2 should deliberately enter the pinned cell");
     app.handle_input(window, Input::text_commit("draft"))
         .expect("editable cell should retain draft");
     let list = initial.layout().find_role(view::Role::VirtualList)[0];
@@ -1915,6 +2141,7 @@ fn editable_table_draft_pins_through_scroll_follows_reorder_and_dies_on_deletion
             .draft_for(&target)
             .is_none()
     );
+    assert_eq!(app.session().editing_table_cell(window), None);
     assert!(app.session().focused(window).is_none());
 }
 
@@ -1957,9 +2184,12 @@ fn editable_table_keyboard_enters_commits_leaves_and_materializes_cells() {
     ));
     app.handle_input(
         window,
-        Input::key_down(input::Key::End, input::Modifiers::default()),
+        Input::key_down(
+            input::Key::End,
+            input::Modifiers::new(false, true, false, false),
+        ),
     )
-    .expect("End should select and reveal the distant row");
+    .expect("Ctrl+End should select and reveal the final table cell");
     app.render_scene(window, size)
         .expect("reveal should materialize the distant active row before entry");
     assert_eq!(
@@ -1968,6 +2198,11 @@ fn editable_table_keyboard_enters_commits_leaves_and_materializes_cells() {
             .map(crate::table::Cell::row),
         Some(crate::virtual_list::Key::new(49))
     );
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Home, input::Modifiers::default()),
+    )
+    .expect("Home should move to the first cell in the final row");
     app.handle_input(
         window,
         Input::key_down(input::Key::Enter, input::Modifiers::default()),
@@ -1989,7 +2224,7 @@ fn editable_table_keyboard_enters_commits_leaves_and_materializes_cells() {
         window,
         Input::key_down(input::Key::Enter, input::Modifiers::default()),
     )
-    .expect("Enter should commit while keeping the editor active");
+    .expect("Enter should commit and attempt to move down");
     assert_eq!(app.state().records[49].name, "X");
     app.handle_input(
         window,
@@ -2005,6 +2240,108 @@ fn editable_table_keyboard_enters_commits_leaves_and_materializes_cells() {
         app.session()
             .focused(window)
             .is_some_and(|focus| focus.same_target(&session::Focus::table_cell(last_count)))
+    );
+}
+
+#[test]
+fn table_edit_commit_keys_move_canonical_current_cell_without_trapping_tab() {
+    let mut app = editable_table_app(EditableTableState {
+        records: (0..3)
+            .map(|key| EditableRecord {
+                key,
+                name: String::new(),
+                count: key as i64,
+            })
+            .collect(),
+    });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 124);
+    let initial = app.render_scene(window, size).expect("editable table");
+    let first_name = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(0)
+                    && cell.column() == interaction::Id::new("name")
+            })
+        })
+        .expect("first name cell");
+    app.pointer_down_at(window, size, frame_point_at(first_name.rect()))
+        .expect("first cell should become current");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Enter, input::Modifiers::default()),
+    )
+    .expect("Enter should begin editing");
+    app.handle_input(window, Input::text_commit("A"))
+        .expect("first draft");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Enter, input::Modifiers::default()),
+    )
+    .expect("Enter should commit and move down");
+    assert_eq!(app.state().records[0].name, "A");
+    assert_eq!(app.session().editing_table_cell(window), None);
+    assert_eq!(
+        app.session()
+            .active_table_cell(window, interaction::Id::new("editable.table")),
+        Some(crate::table::Cell::new(
+            interaction::Id::new("editable.table"),
+            crate::virtual_list::Key::new(1),
+            interaction::Id::new("name"),
+        ))
+    );
+
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Enter, input::Modifiers::default()),
+    )
+    .expect("Enter should begin the next edit");
+    app.handle_input(window, Input::text_commit("B"))
+        .expect("second draft");
+    app.handle_input(
+        window,
+        Input::key_down(
+            input::Key::Enter,
+            input::Modifiers::new(true, false, false, false),
+        ),
+    )
+    .expect("Shift+Enter should commit and move up");
+    assert_eq!(app.state().records[1].name, "B");
+    assert_eq!(
+        app.session()
+            .active_table_cell(window, interaction::Id::new("editable.table"))
+            .map(crate::table::Cell::row),
+        Some(crate::virtual_list::Key::new(0))
+    );
+
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Tab, input::Modifiers::default()),
+    )
+    .expect("Tab should advance within the row");
+    assert_eq!(
+        app.session()
+            .active_table_cell(window, interaction::Id::new("editable.table"))
+            .map(crate::table::Cell::column),
+        Some(interaction::Id::new("count"))
+    );
+    app.handle_input(
+        window,
+        Input::key_down(
+            input::Key::Tab,
+            input::Modifiers::new(true, false, false, false),
+        ),
+    )
+    .expect("Shift+Tab should move backward within the row");
+    assert_eq!(
+        app.session()
+            .active_table_cell(window, interaction::Id::new("editable.table"))
+            .map(crate::table::Cell::column),
+        Some(interaction::Id::new("name"))
     );
 }
 
@@ -6723,7 +7060,7 @@ fn table_participation_changes_chrome_without_changing_control_behavior() {
         .iter()
         .find(|frame| frame.table_cell() == Some(cell))
         .expect("editor frame");
-    assert_eq!(idle_editor.table_part(), Some(view::TablePart::Editor));
+    assert_eq!(idle_editor.table_part(), Some(view::TablePart::Cell));
     assert_eq!(idle_editor.role(), view::Role::TextBox);
     assert!(idle.scene().quads().iter().all(|quad| {
         quad.rect() != idle_editor.rect() || quad.fill() != theme.text_input().field_background
@@ -6735,15 +7072,32 @@ fn table_participation_changes_chrome_without_changing_control_behavior() {
             Input::focus(session::Focus::table_cell(cell)),
         )
         .expect("editor should focus");
+    let focused_display = editable
+        .render_scene(editable_window, editable_size)
+        .expect("focused display cell should render");
+    let focused_cell = focused_display
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("focused display cell frame");
+    assert_eq!(focused_cell.table_part(), Some(view::TablePart::Cell));
+    editable
+        .handle_input(
+            editable_window,
+            Input::key_down(input::Key::F2, input::Modifiers::default()),
+        )
+        .expect("F2 should enter the focused cell");
     let focused = editable
         .render_scene(editable_window, editable_size)
-        .expect("focused editor should render");
+        .expect("active editor should render");
     let focused_editor = focused
         .layout()
         .frames()
         .iter()
         .find(|frame| frame.table_cell() == Some(cell))
-        .expect("focused editor frame");
+        .expect("active editor frame");
+    assert_eq!(focused_editor.table_part(), Some(view::TablePart::Editor));
     let inset = geometry::Rect::new(
         focused_editor.rect().x() + 1,
         focused_editor.rect().y() + 1,
@@ -6755,6 +7109,52 @@ fn table_participation_changes_chrome_without_changing_control_behavior() {
             && outline.color() == theme.focus().color
             && outline.rounding() == scene::Rounding::none()
     }));
+}
+
+#[test]
+fn typed_boolean_table_cells_project_value_and_keep_native_toggle_grammar() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 900);
+    let initial = app
+        .render_scene(window, size)
+        .expect("control gallery table should render");
+    let enabled = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(0)
+                    && cell.column() == interaction::Id::new("enabled")
+            })
+        })
+        .expect("first enabled cell");
+    assert!(enabled.checkbox().is_some_and(view::Checkbox::checked));
+    let point = frame_point_at(enabled.active_rect());
+
+    app.pointer_down_at(window, size, point)
+        .expect("single click should press the native checkbox");
+    app.pointer_up_at(window, size, point)
+        .expect("single click should toggle the native checkbox");
+    assert_eq!(app.state().record_enabled.get(&0), Some(&false));
+
+    let unchecked = app
+        .render_scene(window, size)
+        .expect("unchecked value should reproject");
+    assert!(unchecked.layout().frames().iter().any(|frame| {
+        frame.table_cell().is_some_and(|cell| {
+            cell.row() == crate::virtual_list::Key::new(0)
+                && cell.column() == interaction::Id::new("enabled")
+        }) && frame.checkbox().is_some_and(|checkbox| !checkbox.checked())
+    }));
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Space, input::Modifiers::default()),
+    )
+    .expect("Space should activate the focused native checkbox");
+    assert_eq!(app.state().record_enabled.get(&0), Some(&true));
 }
 
 #[test]

@@ -5,10 +5,11 @@ use super::{FocusedTextBox, put_clipboard_text};
 
 impl Target<document::Copy> for FocusedTextBox<'_> {
     fn state(&self, _: &(), _: &command_context::Context) -> command::State {
-        if self
-            .draft()
-            .and_then(|draft| draft.selected_text())
-            .is_some()
+        if self.is_selectable()
+            && self
+                .draft()
+                .and_then(|draft| draft.selected_text())
+                .is_some()
         {
             command::State::enabled()
         } else {
@@ -33,7 +34,11 @@ impl Target<document::Copy> for FocusedTextBox<'_> {
 
 impl Target<document::Cut> for FocusedTextBox<'_> {
     fn state(&self, args: &(), cx: &command_context::Context) -> command::State {
-        Target::<document::Copy>::state(self, args, cx)
+        if self.is_editable() {
+            Target::<document::Copy>::state(self, args, cx)
+        } else {
+            command::State::disabled()
+        }
     }
 
     fn invoke(&mut self, _: (), cx: &mut command_context::Context) -> Response<document::Outcome> {
@@ -53,7 +58,11 @@ impl Target<document::Cut> for FocusedTextBox<'_> {
 
 impl Target<document::Paste> for FocusedTextBox<'_> {
     fn state(&self, _: &(), cx: &command_context::Context) -> command::State {
-        document::Paste::availability(cx)
+        if self.is_editable() {
+            document::Paste::availability(cx)
+        } else {
+            command::State::disabled()
+        }
     }
 
     fn invoke(&mut self, _: (), cx: &mut command_context::Context) -> Response<document::Outcome> {

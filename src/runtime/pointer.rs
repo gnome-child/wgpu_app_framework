@@ -1,6 +1,6 @@
 use super::super::{
-    error::Error, geometry, input, interaction, layout, pointer, response, session, state, view,
-    window,
+    error::Error, geometry, input, interaction, layout, pointer, response, session, state, text,
+    view, window,
 };
 use super::Runtime;
 impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
@@ -50,6 +50,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             self.set_pointer_cursor(window, pointer::Cursor::Default);
             return self.clear_pointer_focus(window);
         };
+        let table_cell = hit.table_cell();
         let selection_change = self.select_virtual_row_for_hit(window, &hit, point, modifiers);
         let selection_row = selection_change.is_some();
         let selection_changed = selection_change.unwrap_or(false);
@@ -64,6 +65,15 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         };
         let dismissed_overlays = self.dismiss_overlays_for_hit(window, Some(&hit));
 
+        let click_count =
+            self.session
+                .classify_click(window, &target, point, std::time::Instant::now());
+        let text_click = match click_count {
+            interaction::ClickCount::Single => text::edit::PointerEditKind::Click,
+            interaction::ClickCount::Double => text::edit::PointerEditKind::DoubleClick,
+            interaction::ClickCount::Triple => text::edit::PointerEditKind::TripleClick,
+        };
+
         let action = if target.kind() == interaction::Kind::TableDivider {
             view::Action::pointer_down(target)
         } else if hit.is_chrome() {
@@ -73,8 +83,17 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             view::Role::TextArea | view::Role::TextBox
         ) {
             let pointer_down = text_pointer_down_action(hit.frame(), target.clone());
-            hit.action_at_with_engine(point, &mut self.layout)
-                .map(|action| view::Action::sequence([pointer_down.clone(), action]))
+            hit.text_action_at_with_engine(point, text_click, &mut self.layout)
+                .map(|action| {
+                    let mut actions = vec![pointer_down.clone(), action];
+                    if click_count == interaction::ClickCount::Double
+                        && hit.frame().is_table_editable()
+                        && let Some(cell) = table_cell
+                    {
+                        actions.push(view::Action::begin_table_edit(cell));
+                    }
+                    view::Action::sequence(actions)
+                })
                 .unwrap_or(pointer_down)
         } else if hit.frame().role() == view::Role::Slider {
             hit.action_at_with_engine(point, &mut self.layout)
@@ -198,6 +217,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         size: geometry::Size,
         point: geometry::Point,
     ) -> std::result::Result<input::Outcome, Error> {
+        self.session.cancel_click_sequence(window);
         let Some(composition) = self.composition.get(window) else {
             return Ok(input::Outcome::ignored());
         };

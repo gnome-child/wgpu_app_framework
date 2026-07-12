@@ -10,6 +10,7 @@ pub struct TextBox {
     text: String,
     placeholder: Option<String>,
     input: text::Input,
+    mode: text::edit::FieldMode,
     focus: Option<session::Focus>,
     focused: bool,
     focus_visible: bool,
@@ -25,6 +26,7 @@ impl TextBox {
             text: text.into(),
             placeholder: None,
             input: text::Input::unrestricted(),
+            mode: text::edit::FieldMode::Editable,
             focus: None,
             focused: false,
             focus_visible: false,
@@ -48,6 +50,19 @@ impl TextBox {
     pub fn with_input(mut self, input: text::Input) -> Self {
         self.input = input;
         self
+    }
+
+    pub(crate) fn with_mode(mut self, mode: text::edit::FieldMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    pub(crate) fn read_only(self) -> Self {
+        self.with_mode(text::edit::FieldMode::ReadOnly)
+    }
+
+    pub(crate) fn mode(&self) -> text::edit::FieldMode {
+        self.mode
     }
 
     pub fn text(&self) -> &str {
@@ -103,7 +118,15 @@ impl TextBox {
     }
 
     pub(crate) fn click_action(&self, position: text::buffer::Position) -> Option<Action> {
-        Action::text_click(self.focus, position)
+        self.pointer_action(text::edit::PointerEditKind::Click, position)
+    }
+
+    pub(crate) fn pointer_action(
+        &self,
+        kind: text::edit::PointerEditKind,
+        position: text::buffer::Position,
+    ) -> Option<Action> {
+        Action::text_pointer(self.focus, kind, position)
     }
 
     pub(crate) fn drag_action(&self, position: text::buffer::Position) -> Action {

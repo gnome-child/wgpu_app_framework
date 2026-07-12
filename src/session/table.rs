@@ -3,6 +3,20 @@ use crate::{table, window as app_window};
 use super::Session;
 
 impl Session {
+    pub(crate) fn editing_table_cell(&self, window: app_window::Id) -> Option<table::Cell> {
+        self.window(window)?.interaction.tables().editing()
+    }
+
+    pub(crate) fn begin_table_edit(&mut self, window: app_window::Id, cell: table::Cell) -> bool {
+        self.window_mut(window)
+            .is_some_and(|window| window.interaction.tables_mut().begin_edit(cell))
+    }
+
+    pub(crate) fn finish_table_edit(&mut self, window: app_window::Id, cell: table::Cell) -> bool {
+        self.window_mut(window)
+            .is_some_and(|window| window.interaction.tables_mut().finish_edit(cell))
+    }
+
     pub fn table_edit_error(&self, window: app_window::Id, cell: table::Cell) -> Option<&str> {
         self.window(window)?.interaction.tables().rejection(cell)
     }

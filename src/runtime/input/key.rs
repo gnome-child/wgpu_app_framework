@@ -1,5 +1,5 @@
 use super::super::Runtime;
-use crate::{context as command_context, error::Error, input, state, view, window};
+use crate::{context as command_context, error::Error, input, session, state, view, window};
 
 fn text_for_key(
     key: input::Key,
@@ -35,20 +35,24 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return self.handle_input(window, input::Input::cancel());
         }
 
+        if let Some(outcome) = self.handle_command_palette_scope_key(window, key, modifiers)? {
+            return Ok(outcome);
+        }
+
+        if let Some(outcome) = self.handle_table_edit_key(window, key, modifiers)? {
+            return Ok(outcome);
+        }
+
+        if let Some(outcome) = self.handle_virtual_selection_key(window, key, modifiers) {
+            return Ok(outcome);
+        }
+
         if key == input::Key::Tab
             && !modifiers.control()
             && !modifiers.alt()
             && !modifiers.super_key()
         {
             return self.handle_tab_focus(window, modifiers.shift());
-        }
-
-        if let Some(outcome) = self.handle_command_palette_scope_key(window, key, modifiers)? {
-            return Ok(outcome);
-        }
-
-        if let Some(outcome) = self.handle_virtual_selection_key(window, key, modifiers) {
-            return Ok(outcome);
         }
 
         if let Some(outcome) = self.handle_text_box_key_shortcut(window, key, modifiers)? {
@@ -85,7 +89,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         self.handle_text_edit(window, edit, command_context::Source::Keyboard)
     }
 
-    fn handle_tab_focus(
+    pub(in crate::runtime::input) fn handle_tab_focus(
         &mut self,
         window: window::Id,
         reverse: bool,
@@ -95,8 +99,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         } else {
             view::FocusDirection::Forward
         };
+        let current = self.session.focused(window);
         let Some(next) = self.composition.get(window).and_then(|composition| {
-            composition.next_focus(self.session.focused(window), direction)
+            current
+                .and_then(session::Focus::table_cell_identity)
+                .map(|cell| composition.next_focus_outside_table(current?, direction, cell.table()))
+                .unwrap_or_else(|| composition.next_focus(current, direction))
         }) else {
             return Ok(input::Outcome::ignored());
         };

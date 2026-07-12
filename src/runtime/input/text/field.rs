@@ -26,6 +26,17 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         self.composition.get(window)?.view().text_box_input(focus)
     }
 
+    pub(in crate::runtime) fn text_surface_mode(
+        &self,
+        window: window::Id,
+        focus: session::Focus,
+    ) -> Option<text::edit::FieldMode> {
+        self.composition
+            .get(window)?
+            .view()
+            .text_surface_mode(focus)
+    }
+
     pub(super) fn handle_text_box_edit(
         &mut self,
         window: window::Id,
@@ -48,6 +59,18 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let Some(base) = self.text_box_base_text(window, focus) else {
             return Ok(None);
         };
+        let mut mode = self
+            .text_surface_mode(window, focus)
+            .unwrap_or(text::edit::FieldMode::Editable);
+        let editing = focus
+            .table_cell_identity()
+            .is_some_and(|cell| self.session.editing_table_cell(window) == Some(cell));
+        if editing {
+            mode = text::edit::FieldMode::Editable;
+        }
+        if !mode.allows_edit(&edit) {
+            return Ok(None);
+        }
         let input = self
             .text_box_input(window, focus)
             .unwrap_or_else(text::Input::unrestricted);

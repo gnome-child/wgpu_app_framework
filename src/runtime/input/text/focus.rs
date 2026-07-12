@@ -147,6 +147,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             handled = true;
             effect = effect.then(response::Effect::Layout);
         }
+        if let Some(cell) = current.table_cell_identity()
+            && self.session.finish_table_edit(window, cell)
+        {
+            handled = true;
+            effect = effect.then(response::Effect::Rebuild);
+        }
 
         if handled {
             self.apply_window_update(window, changed_state, &effect);

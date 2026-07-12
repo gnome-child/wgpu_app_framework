@@ -164,6 +164,27 @@ impl Layout {
             })
     }
 
+    pub(crate) fn table_scroll_target(
+        &self,
+        table: interaction::Id,
+    ) -> Option<interaction::Target> {
+        self.frames
+            .iter()
+            .find(|frame| {
+                frame
+                    .table_projection()
+                    .is_some_and(|projection| projection.table() == table)
+            })
+            .and_then(Frame::target)
+            .cloned()
+    }
+
+    pub(crate) fn is_table_scroll_target(&self, target: &interaction::Target) -> bool {
+        self.frames
+            .iter()
+            .any(|frame| frame.target() == Some(target) && frame.table_projection().is_some())
+    }
+
     pub(crate) fn text_caret_rect(&self) -> Option<Rect> {
         self.frames.iter().find_map(Frame::text_caret_rect)
     }

@@ -3,6 +3,23 @@ use crate::{interaction, window as app_window};
 use super::super::Session;
 
 impl Session {
+    pub(crate) fn classify_click(
+        &mut self,
+        id: app_window::Id,
+        target: &interaction::Target,
+        point: crate::geometry::Point,
+        at: std::time::Instant,
+    ) -> interaction::ClickCount {
+        self.window_mut(id)
+            .map(|window| window.interaction.classify_click(target, point, at))
+            .unwrap_or(interaction::ClickCount::Single)
+    }
+
+    pub(crate) fn cancel_click_sequence(&mut self, id: app_window::Id) -> bool {
+        self.window_mut(id)
+            .is_some_and(|window| window.interaction.cancel_click_sequence())
+    }
+
     pub fn pointer_move(
         &mut self,
         id: app_window::Id,

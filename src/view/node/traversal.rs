@@ -15,6 +15,28 @@ use crate::{
 use std::collections::HashMap;
 
 impl Node {
+    pub(in crate::view) fn table_cell_is_editable(&self, cell: crate::table::Cell) -> bool {
+        (self.table_cell() == Some(cell) && self.table_edit().is_some())
+            || self
+                .children
+                .iter()
+                .any(|child| child.table_cell_is_editable(cell))
+    }
+
+    pub(in crate::view) fn table_cell_focus(
+        &self,
+        cell: crate::table::Cell,
+    ) -> Option<session::Focus> {
+        if self.table_cell() == Some(cell) {
+            return self
+                .focus_at(false)
+                .or_else(|| self.children.iter().find_map(|child| child.focus_at(false)));
+        }
+        self.children
+            .iter()
+            .find_map(|child| child.table_cell_focus(cell))
+    }
+
     pub(in crate::view) fn table_edit_action(
         &self,
         focus: session::Focus,
@@ -162,6 +184,9 @@ impl Node {
         selections: &[(interaction::Id, crate::selection::Selection)],
     ) {
         if let Some(cell) = self.table_cell() {
+            if self.table_edit().is_some() {
+                self.project_table_edit(tables.editing() == Some(cell));
+            }
             let active_row = selections
                 .iter()
                 .find(|(table, _)| *table == cell.table())
@@ -360,6 +385,32 @@ impl Node {
         self.children
             .iter()
             .find_map(|child| child.text_box_for_focus(focus))
+    }
+
+    pub(in crate::view) fn text_surface_mode_for_focus(
+        &self,
+        focus: session::Focus,
+    ) -> Option<crate::text::edit::FieldMode> {
+        if let Some(mode) = self.text_box_model().and_then(|text_box| {
+            text_box
+                .focus()
+                .is_some_and(|candidate| candidate.same_target(&focus))
+                .then(|| text_box.mode())
+        }) {
+            return Some(mode);
+        }
+        if let Some(mode) = self.text_area_model().and_then(|text_area| {
+            text_area
+                .focus()
+                .is_some_and(|candidate| candidate.same_target(&focus))
+                .then(|| text_area.mode())
+        }) {
+            return Some(mode);
+        }
+
+        self.children
+            .iter()
+            .find_map(|child| child.text_surface_mode_for_focus(focus))
     }
 
     pub(in crate::view) fn text_input_target_for_focus(

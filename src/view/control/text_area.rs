@@ -11,6 +11,7 @@ pub struct TextArea {
     buffer: text::Buffer,
     state: text::edit::State,
     wrap: Wrap,
+    mode: text::edit::FieldMode,
     focus: Option<session::Focus>,
     focused: bool,
     focus_visible: bool,
@@ -32,6 +33,7 @@ impl TextArea {
             buffer,
             state,
             wrap: Wrap::Word,
+            mode: text::edit::FieldMode::Editable,
             focus: None,
             focused: false,
             focus_visible: false,
@@ -52,6 +54,19 @@ impl TextArea {
         self
     }
 
+    pub(crate) fn with_mode(mut self, mode: text::edit::FieldMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    pub(crate) fn read_only(self) -> Self {
+        self.with_mode(text::edit::FieldMode::ReadOnly)
+    }
+
+    pub(crate) fn mode(&self) -> text::edit::FieldMode {
+        self.mode
+    }
+
     pub fn buffer(&self) -> &text::Buffer {
         &self.buffer
     }
@@ -68,7 +83,11 @@ impl TextArea {
         let area = text::edit::Area::new(self.buffer.clone())
             .with_state(self.state)
             .with_wrap(wrap);
-        if self.focused { area } else { area.read_only() }
+        match self.mode {
+            text::edit::FieldMode::Editable if self.focused => area,
+            text::edit::FieldMode::Editable | text::edit::FieldMode::ReadOnly => area.read_only(),
+            text::edit::FieldMode::Disabled => area.disabled(),
+        }
     }
 
     pub(crate) fn view_state_at(&self, now: Instant) -> text::edit::ViewState {
@@ -113,7 +132,15 @@ impl TextArea {
     }
 
     pub(crate) fn click_action(&self, position: text::buffer::Position) -> Option<Action> {
-        Action::text_click(self.focus, position)
+        self.pointer_action(text::edit::PointerEditKind::Click, position)
+    }
+
+    pub(crate) fn pointer_action(
+        &self,
+        kind: text::edit::PointerEditKind,
+        position: text::buffer::Position,
+    ) -> Option<Action> {
+        Action::text_pointer(self.focus, kind, position)
     }
 
     pub(crate) fn drag_action(&self, position: text::buffer::Position) -> Action {

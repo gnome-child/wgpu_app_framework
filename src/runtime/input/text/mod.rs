@@ -22,6 +22,14 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         };
 
         if self.text_box_base_text(window, focus).is_some() {
+            let editing = focus
+                .table_cell_identity()
+                .is_some_and(|cell| self.session.editing_table_cell(window) == Some(cell));
+            if self.text_surface_mode(window, focus) != Some(text::edit::FieldMode::Editable)
+                && !editing
+            {
+                return Ok(input::Outcome::ignored());
+            }
             return self.handle_text_box_edit(window, focus, text::edit::Edit::ime_commit(text));
         }
 
