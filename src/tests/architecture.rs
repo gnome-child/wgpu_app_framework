@@ -2697,9 +2697,11 @@ fn composition_popup_closeout_has_one_geometry_edge_and_timeline_owner() {
         "popup visual reach must consume shared shadow bounds without an arbitrary margin"
     );
     assert!(
-        composition.contains("project_shadow(recipe, silhouette, scale_factor)")
-            && composition.contains("sync_shadow(shadow, popup_silhouette, scale_factor)"),
-        "the composition shadow must derive from the material-region silhouette"
+        composition.contains("project_shadow(recipe, silhouette)")
+            && composition.contains("sync_shadow(shadow, popup_silhouette)")
+            && composition.contains("panel_offset_dips")
+            && !composition.contains("panel_offset_physical"),
+        "the composition shadow must derive from the DIP material-region silhouette without consuming physical geometry"
     );
     assert!(
         native_window.contains("with_undecorated_shadow(!composition_backed)")

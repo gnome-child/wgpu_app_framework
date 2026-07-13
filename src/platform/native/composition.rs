@@ -403,7 +403,7 @@ impl Host {
         requests: &[scene::MaterialRegion],
         scale_factor: f32,
         ancestor_opacity: f32,
-        panel_offset_physical: (i32, i32),
+        panel_offset_dips: paint::point::Logical,
         shadow: Option<scene::Shadow>,
     ) -> Vec<scene::MaterialRealizationReport> {
         let started = std::time::Instant::now();
@@ -431,12 +431,9 @@ impl Host {
         }
 
         for request in requests {
-            let Some(projected) = project_region(
-                request,
-                scale_factor,
-                ancestor_opacity,
-                panel_offset_physical,
-            ) else {
+            let Some(projected) =
+                project_region(request, scale_factor, ancestor_opacity, panel_offset_dips)
+            else {
                 log::debug!(target: "wgpu_l3::native_popup", "material region {:?} declined: clip or per-corner geometry is not representable by host frost", request.id());
                 continue;
             };
@@ -473,7 +470,7 @@ impl Host {
         }
 
         self.material_regions.retain(|id, _| retained.contains(id));
-        if let Err(error) = self.sync_shadow(shadow, popup_silhouette, scale_factor) {
+        if let Err(error) = self.sync_shadow(shadow, popup_silhouette) {
             log::warn!(target: "wgpu_l3::native_popup", "cannot synchronize composition popup shadow: {error}");
         }
         let removed = prior_count
@@ -503,13 +500,12 @@ impl Host {
         &self,
         recipe: Option<scene::Shadow>,
         silhouette: Option<ProjectedRegion>,
-        scale_factor: f32,
     ) -> Result<()> {
         let (Some(recipe), Some(silhouette)) = (recipe, silhouette) else {
             self.shadow.SetOpacity(0.0)?;
             return Ok(());
         };
-        let Some(projected) = project_shadow(recipe, silhouette, scale_factor) else {
+        let Some(projected) = project_shadow(recipe, silhouette) else {
             self.shadow.SetOpacity(0.0)?;
             return Ok(());
         };
@@ -539,17 +535,12 @@ impl Host {
     }
 }
 
-fn project_shadow(
-    recipe: scene::Shadow,
-    silhouette: ProjectedRegion,
-    scale_factor: f32,
-) -> Option<ProjectedShadow> {
+fn project_shadow(recipe: scene::Shadow, silhouette: ProjectedRegion) -> Option<ProjectedShadow> {
     let (_, _, _, alpha) = recipe.color().channels();
     if alpha == 0 {
         return None;
     }
-    let scale_factor = paint::Grid::new(scale_factor).scale_factor();
-    let spread = recipe.spread().max(0.0) * scale_factor;
+    let spread = recipe.spread().max(0.0);
     Some(ProjectedShadow {
         mask_offset: Vector2 {
             X: silhouette.offset.X - spread,
@@ -560,10 +551,10 @@ fn project_shadow(
             Y: silhouette.size.Y + spread * 2.0,
         },
         mask_radius: silhouette.radius + spread,
-        blur_radius: recipe.blur().max(0.0) * scale_factor,
+        blur_radius: recipe.blur().max(0.0),
         offset: Vector3 {
-            X: recipe.offset().x() * scale_factor,
-            Y: recipe.offset().y() * scale_factor,
+            X: recipe.offset().x(),
+            Y: recipe.offset().y(),
             Z: 0.0,
         },
         color: recipe.color(),
@@ -614,7 +605,7 @@ fn project_region(
     request: &scene::MaterialRegion,
     scale_factor: f32,
     ancestor_opacity: f32,
-    panel_offset_physical: (i32, i32),
+    panel_offset_dips: paint::point::Logical,
 ) -> Option<ProjectedRegion> {
     if !matches!(request.material(), scene::Material::Glass(_))
         || !clips_preserve_geometry(request.rect(), request.rounding(), request.clips())
@@ -631,8 +622,8 @@ fn project_region(
         },
         scale_factor,
     )?;
-    projected.offset.X += panel_offset_physical.0 as f32;
-    projected.offset.Y += panel_offset_physical.1 as f32;
+    projected.offset.X += panel_offset_dips.x();
+    projected.offset.Y += panel_offset_dips.y();
     Some(projected)
 }
 
@@ -651,18 +642,17 @@ fn project_geometry(
     {
         return None;
     }
-    let scale = grid.scale_factor();
     Some(ProjectedRegion {
         offset: Vector3 {
-            X: rect.origin.x() * scale,
-            Y: rect.origin.y() * scale,
+            X: rect.origin.x(),
+            Y: rect.origin.y(),
             Z: 0.0,
         },
         size: Vector2 {
-            X: rect.area.width() * scale,
-            Y: rect.area.height() * scale,
+            X: rect.area.width(),
+            Y: rect.area.height(),
         },
-        radius: rounding[0] * scale,
+        radius: rounding[0],
         opacity: opacity.clamp(0.0, 1.0),
     })
 }
@@ -705,7 +695,7 @@ mod tests {
     }
 
     #[test]
-    fn region_projection_consumes_the_shared_grid_at_all_campaign_scales() {
+    fn region_projection_emits_snapped_dips_at_all_campaign_scales() {
         let source = geometry::Rect::new(3, 5, 40, 24);
         for scale in [1.0, 1.25, 1.5, 2.0] {
             let projected = project_geometry(source, scene::Rounding::fixed(7.0), 0.65, scale)
@@ -716,11 +706,39 @@ mod tests {
                 projected.offset.X + projected.size.X,
                 projected.offset.Y + projected.size.Y,
             ] {
-                assert_eq!(edge.fract(), 0.0, "physical edge at scale {scale}");
+                assert_eq!(
+                    (edge * scale).fract(),
+                    0.0,
+                    "DIP edge resolves to a physical pixel at scale {scale}"
+                );
             }
             assert_eq!(projected.opacity, 0.65);
-            assert!((projected.radius - 7.0 * scale).abs() < f32::EPSILON);
+            assert!((projected.radius - 7.0).abs() < f32::EPSILON);
         }
+    }
+
+    #[test]
+    fn composition_projection_never_reuses_the_physical_projection() {
+        let scale = 1.25;
+        let projected = project_geometry(
+            geometry::Rect::new(48, 16, 80, 40),
+            scene::Rounding::fixed(8.0),
+            1.0,
+            scale,
+        )
+        .expect("uniform popup silhouette should project");
+
+        assert_eq!(projected.offset.X, 48.0, "Composition consumes DIPs");
+        assert_eq!(
+            projected.offset.X * scale,
+            60.0,
+            "48 DIPs resolve to the intended 60 physical pixels"
+        );
+        assert_ne!(
+            60.0 * scale,
+            projected.offset.X * scale,
+            "the renderer's 60px projection must not be fed back as 60 DIPs"
+        );
     }
 
     #[test]
@@ -750,16 +768,16 @@ mod tests {
                     scale,
                 )
                 .expect("uniform popup silhouette should project");
-                let shadow = project_shadow(recipe, silhouette, scale)
-                    .expect("production shadow is visible");
-                let spread = recipe.spread() * scale;
+                let shadow =
+                    project_shadow(recipe, silhouette).expect("production shadow is visible");
+                let spread = recipe.spread();
                 assert_eq!(shadow.mask_offset.X, silhouette.offset.X - spread);
                 assert_eq!(shadow.mask_offset.Y, silhouette.offset.Y - spread);
                 assert_eq!(shadow.mask_size.X, silhouette.size.X + spread * 2.0);
                 assert_eq!(shadow.mask_size.Y, silhouette.size.Y + spread * 2.0);
                 assert_eq!(shadow.mask_radius, silhouette.radius + spread);
-                assert_eq!(shadow.blur_radius, recipe.blur() * scale);
-                assert_eq!(shadow.offset.Y, recipe.offset().y() * scale);
+                assert_eq!(shadow.blur_radius, recipe.blur());
+                assert_eq!(shadow.offset.Y, recipe.offset().y());
             }
         }
     }

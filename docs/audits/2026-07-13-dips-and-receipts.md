@@ -36,7 +36,7 @@ height edit and is outside this campaign.
 | Checkpoint | State | Evidence |
 |---|---|---|
 | 1. Zero-hold readiness probe | Complete | Controlled static-underlay capture probe; `GetCommitBatch(Effect)` alone was unstable in 1/10 runs at 100 ms (19.607 mean-channel delta). Two imperceptible host frames followed by the visible-root commit were stable in 10/10 runs (maximum 0.104 delta from 100 ms to 1 second). |
-| 2. One logical silhouette, two projections | Pending | Four-scale arithmetic tests plus current-hardware screen-space agreement. |
+| 2. One logical silhouette, two projections | Code complete; pending final hardware eye | Composition consumes snapped DIPs and a named 48 DIP -> 60 px regression; four campaign scales and the full 948-test library suite are green. |
 | 3. Generation-bound material readiness | Pending | Receipt-order, stale-generation, teardown, and single-reveal witnesses. |
 
 ## Checkpoint 1 verdict
@@ -62,6 +62,20 @@ Production vocabulary therefore remains `Pending -> Committed -> Ready`:
 `Committed` is the effect receipt, while `Ready` requires the generation's
 imperceptible host-frame preparation to finish. The probe's 100 ms capture is
 an observation point only; it is not part of the readiness mechanism.
+
+## Checkpoint 2 implementation
+
+The scene's logical material region remains the source. The Composition boundary
+uses the shared grid only to snap that logical truth, then passes the resulting
+logical coordinates directly as DIPs. It no longer multiplies offsets, sizes,
+radii, shadow spread, blur, or shadow offset by scale. The renderer retains its
+independent logical-to-physical projection and popup input retains the existing
+physical panel offset.
+
+The named regression pins the observed arithmetic: at scale 1.25, 48 DIPs land
+at 60 physical pixels; the renderer's already-physical 60 px value cannot feed
+back into Composition as 60 DIPs and land at 75 px. Architecture witnesses also
+forbid `panel_offset_physical` from the Composition module.
 
 ## Evidence boundary
 
