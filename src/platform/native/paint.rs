@@ -186,6 +186,11 @@ fn to_paint_material(material: &scene::Material) -> paint::Material {
 fn to_paint_glass(glass: &scene::Glass) -> paint::Glass {
     paint::Glass {
         fallback: to_paint_brush(glass.fallback()),
+        base: match glass.base() {
+            scene::GlassBase::FrameworkBackdrop => paint::GlassBase::FrameworkBackdrop,
+            scene::GlassBase::Transparent => paint::GlassBase::Transparent,
+            scene::GlassBase::Fallback => paint::GlassBase::Fallback,
+        },
         backdrop_layers: glass
             .backdrop_layers()
             .iter()
@@ -498,6 +503,7 @@ mod tests {
         let paint::Material::Glass(glass) = &pane.material else {
             panic!("popup pane should carry glass material");
         };
+        assert_eq!(glass.base, paint::GlassBase::FrameworkBackdrop);
         assert!(glass.backdrop_layers.iter().any(|layer| {
             matches!(layer, paint::BackdropLayer::Blur(blur) if blur.sigma == 44.55)
         }));

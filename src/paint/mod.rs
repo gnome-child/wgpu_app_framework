@@ -353,8 +353,16 @@ pub enum Material {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Glass {
     pub fallback: Brush,
+    pub base: GlassBase,
     pub backdrop_layers: Vec<BackdropLayer>,
     pub surface_layers: Vec<SurfaceLayer>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GlassBase {
+    FrameworkBackdrop,
+    Transparent,
+    Fallback,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1343,6 +1351,7 @@ mod tests {
             Rect::new(point::logical(20.0, 30.0), area::logical(50.0, 40.0)),
             Material::Glass(Glass {
                 fallback: Brush::solid(Color::BLACK),
+                base: GlassBase::FrameworkBackdrop,
                 backdrop_layers: vec![BackdropLayer::Blur(BackdropBlur {
                     sigma: 10.0,
                     edge_mode: BackdropEdgeMode::Mirror,
@@ -1399,6 +1408,7 @@ mod tests {
             Rect::new(point::logical(20.0, 30.0), area::logical(50.0, 40.0)),
             Material::Glass(Glass {
                 fallback: Brush::solid(Color::BLACK),
+                base: GlassBase::FrameworkBackdrop,
                 backdrop_layers: vec![BackdropLayer::Blur(BackdropBlur {
                     sigma: 44.55,
                     edge_mode: BackdropEdgeMode::Mirror,

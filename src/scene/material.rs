@@ -10,8 +10,16 @@ pub enum Material {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Glass {
     fallback: Brush,
+    base: GlassBase,
     backdrop_layers: Vec<BackdropLayer>,
     surface_layers: Vec<SurfaceLayer>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GlassBase {
+    FrameworkBackdrop,
+    Transparent,
+    Fallback,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -85,6 +93,7 @@ impl Glass {
     pub fn panel_dark() -> Self {
         Self {
             fallback: Brush::solid(Color::rgb(28, 28, 30)),
+            base: GlassBase::FrameworkBackdrop,
             backdrop_layers: vec![
                 BackdropLayer::Blur(BackdropBlur::new(44.55)),
                 BackdropLayer::Luminosity(Luminosity::new(Color::rgb(28, 28, 30), 0.92)),
@@ -102,6 +111,7 @@ impl Glass {
     pub fn panel_light() -> Self {
         Self {
             fallback: Brush::solid(Color::rgb(249, 249, 249)),
+            base: GlassBase::FrameworkBackdrop,
             backdrop_layers: vec![
                 BackdropLayer::Blur(BackdropBlur::new(30.0)),
                 BackdropLayer::Luminosity(Luminosity::new(Color::rgb(252, 252, 252), 0.85)),
@@ -120,6 +130,10 @@ impl Glass {
         self.fallback
     }
 
+    pub(crate) const fn base(&self) -> GlassBase {
+        self.base
+    }
+
     pub fn backdrop_layers(&self) -> &[BackdropLayer] {
         &self.backdrop_layers
     }
@@ -131,6 +145,7 @@ impl Glass {
     pub(crate) fn without_backdrop_layers(&self) -> Self {
         Self {
             fallback: self.fallback,
+            base: GlassBase::Fallback,
             backdrop_layers: Vec::new(),
             surface_layers: self.surface_layers.clone(),
         }
@@ -140,6 +155,7 @@ impl Glass {
         let mut residual = self.clone();
         if parts.backdrop_frost() {
             residual.backdrop_layers.clear();
+            residual.base = GlassBase::Transparent;
         }
         if parts.surface_tint() {
             residual

@@ -7,6 +7,7 @@ mod region;
 mod visual;
 
 pub use color::Color;
+pub(crate) use material::GlassBase;
 pub use material::{
     BackdropBlur, BackdropEdgeMode, BackdropLayer, Glass, Luminosity, Material, Noise, Refraction,
     SurfaceLayer,
@@ -956,6 +957,7 @@ mod tests {
             glass.backdrop_layers().is_empty(),
             "ghost panes must not backdrop-sample"
         );
+        assert_eq!(glass.base(), GlassBase::Fallback);
         assert!(
             !glass.surface_layers().is_empty(),
             "ghost panes keep paint-only surface layers"
@@ -1003,6 +1005,7 @@ mod tests {
             panic!("residual material keeps its glass recipe");
         };
         assert!(glass.backdrop_layers().is_empty());
+        assert_eq!(glass.base(), GlassBase::Transparent);
         assert!(glass.tint().is_none());
     }
 

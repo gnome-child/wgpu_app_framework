@@ -594,6 +594,7 @@ fn high_sigma_blur_pane() -> paint::Pane {
         ),
         paint::Material::Glass(paint::Glass {
             fallback: paint::Brush::solid(paint::Color::BLACK),
+            base: paint::GlassBase::FrameworkBackdrop,
             backdrop_layers: vec![paint::BackdropLayer::Blur(paint::BackdropBlur {
                 sigma: 44.55,
                 edge_mode: paint::BackdropEdgeMode::Mirror,

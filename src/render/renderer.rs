@@ -590,35 +590,39 @@ impl<'a> SceneEncoder<'a> {
                     render::material::layer_sequence(glass),
                 );
 
-                if glass.backdrop_layers.is_empty() {
-                    self.encode_pane_brush(pane.rect, glass.fallback, scissor);
-                } else {
-                    let filter = render::material::backdrop_filter(pane, glass);
-                    if !filter.ops.is_empty() {
-                        let Some(output) =
-                            current_target_view(self.base_view, &self.layers, &self.clip_stack)
-                        else {
-                            return;
-                        };
-                        let source = render::material::backdrop_source(
-                            self.inside_group,
-                            self.current_target_dirty(),
-                            pane,
-                            output,
-                            self.output_target,
-                            self.backdrop_view,
-                            self.backdrop_target,
-                        );
-                        self.filter_renderer.draw(render::filter::FilterDraw {
-                            render_context: self.render_context,
-                            encoder: self.encoder,
-                            target: self.output_target,
-                            source,
-                            output,
-                            filter,
-                            scissor: Some(scissor),
-                        });
-                        self.mark_current_dirty();
+                match glass.base {
+                    paint::GlassBase::Fallback => {
+                        self.encode_pane_brush(pane.rect, glass.fallback, scissor);
+                    }
+                    paint::GlassBase::Transparent => {}
+                    paint::GlassBase::FrameworkBackdrop => {
+                        let filter = render::material::backdrop_filter(pane, glass);
+                        if !filter.ops.is_empty() {
+                            let Some(output) =
+                                current_target_view(self.base_view, &self.layers, &self.clip_stack)
+                            else {
+                                return;
+                            };
+                            let source = render::material::backdrop_source(
+                                self.inside_group,
+                                self.current_target_dirty(),
+                                pane,
+                                output,
+                                self.output_target,
+                                self.backdrop_view,
+                                self.backdrop_target,
+                            );
+                            self.filter_renderer.draw(render::filter::FilterDraw {
+                                render_context: self.render_context,
+                                encoder: self.encoder,
+                                target: self.output_target,
+                                source,
+                                output,
+                                filter,
+                                scissor: Some(scissor),
+                            });
+                            self.mark_current_dirty();
+                        }
                     }
                 }
 
@@ -1225,6 +1229,44 @@ mod tests {
             .expect("rounded quad should produce at least one fractional AA edge pixel");
 
         assert_premultiplied_red(sample, "quad AA edge");
+    }
+
+    #[test]
+    #[ignore = "GPU readback witness for resolved native material coverage"]
+    fn resolved_glass_base_witness_distinguishes_transparent_from_fallback() {
+        fn scene(base: paint::GlassBase) -> paint::Scene {
+            let mut scene = paint::Scene::new();
+            scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0));
+            scene.push_pane(paint::Pane::new(
+                Rect::new(
+                    paint::point::logical(2.0, 2.0),
+                    paint::area::logical(12.0, 12.0),
+                ),
+                paint::Material::Glass(paint::Glass {
+                    fallback: paint::Brush::solid(paint::Color::rgba(1.0, 0.0, 0.0, 1.0)),
+                    base,
+                    backdrop_layers: Vec::new(),
+                    surface_layers: Vec::new(),
+                }),
+            ));
+            scene
+        }
+
+        let transparent = pollster::block_on(read_premultiplied_scene_pixels(
+            scene(paint::GlassBase::Transparent),
+            16,
+            16,
+        ))
+        .expect("transparent resolved material should render and read back");
+        let fallback = pollster::block_on(read_premultiplied_scene_pixels(
+            scene(paint::GlassBase::Fallback),
+            16,
+            16,
+        ))
+        .expect("fallback resolved material should render and read back");
+
+        assert_eq!(transparent[8 * 16 + 8], [0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(fallback[8 * 16 + 8], [1.0, 0.0, 0.0, 1.0]);
     }
 
     #[test]

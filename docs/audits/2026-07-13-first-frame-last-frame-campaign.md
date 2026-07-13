@@ -62,7 +62,7 @@ silhouette and one opacity owner.
 | Checkpoint | State | Boundary |
 | --- | --- | --- |
 | 0. Reductions, census, DropShadow gate | Complete | Four reductions, bounds census, hardware probe verdict |
-| 1. Explicit material resolution | Pending | Realized frost remains transparent; fallback is selected, not guessed |
+| 1. Explicit material resolution | Complete | Explicit framework-backdrop / transparent / fallback base; GPU alpha witness |
 | 2. One silhouette and visual bounds | Pending | Popup surface consumes existing shadow reach while hit geometry stays panel-local |
 | 3. One framework edge | Pending | Composition-backed DWM border/rounding retired; four-scale silhouette agreement |
 | 4. One compositor timeline | Pending | Frost, content, border, shadow fade under one root; hide precedes teardown |
@@ -134,6 +134,30 @@ surface envelope and event target exist.
 
 > A visual may cast beyond its layout bounds only when its silhouette mask is
 > live and its carrier is not clipped to that silhouette.
+
+## Checkpoint 1 — explicit material resolution
+
+The material projection now carries a resolved base disposition independently
+of its remaining operation lists:
+
+- `FrameworkBackdrop` asks the renderer to execute retained backdrop work;
+- `Transparent` leaves the platform-realized frost uncovered;
+- `Fallback` paints the declared readable base.
+
+Native realization selects `Transparent`; missing, duplicated, or mismatched
+reports still resolve to the fallback quad; paint-only ghosts explicitly select
+`Fallback` while retaining their surface layers. The renderer no longer asks
+whether `backdrop_layers` is empty to choose a base.
+
+Hardware readback
+`resolved_glass_base_witness_distinguishes_transparent_from_fallback` passed:
+the center pixel was `[0, 0, 0, 0]` for a transparent realized base and
+`[1, 0, 0, 1]` for the same recipe resolved to fallback. The ordinary boundary
+held at 939 passed, 9 deliberate ignores, four doctests, all targets, and all
+three application smokes.
+
+> Fallback is selected by resolution truth, never guessed from the absence of
+> work.
 
 > One framework silhouette defines every popup pixel; the platform realizes
 > declared effects, and one compositor timeline carries them from first frame

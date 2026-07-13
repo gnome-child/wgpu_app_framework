@@ -180,6 +180,7 @@ mod tests {
             ),
             paint::Material::Glass(paint::Glass {
                 fallback: paint::Brush::solid(paint::Color::BLACK),
+                base: paint::GlassBase::FrameworkBackdrop,
                 backdrop_layers: vec![paint::BackdropLayer::Blur(paint::BackdropBlur {
                     sigma: 10.0,
                     edge_mode: paint::BackdropEdgeMode::Mirror,
