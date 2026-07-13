@@ -51,6 +51,7 @@ struct PopupKey {
 struct PopupWindow {
     window: window::Window,
     bounds: geometry::Rect,
+    panel_offset_physical: (i32, i32),
     geometry: PopupGeometryState,
     accent: PopupAccentState,
     border: PopupBorderState,
@@ -95,6 +96,7 @@ pub(in crate::platform) struct PopupEventTarget {
     parent: app_window::Id,
     id: interaction::Id,
     bounds: geometry::Rect,
+    panel_offset_physical: (i32, i32),
     scale_factor: f64,
     first_present_elapsed_micros: u128,
     first_present_stage: &'static str,
@@ -146,6 +148,7 @@ impl PopupWindow {
         Self {
             window,
             bounds: geometry::Rect::new(0, 0, 0, 0),
+            panel_offset_physical: (0, 0),
             geometry: PopupGeometryState::default(),
             accent: PopupAccentState::default(),
             border: PopupBorderState::default(),
@@ -178,6 +181,10 @@ impl PopupEventTarget {
 
     pub(in crate::platform) fn bounds(self) -> geometry::Rect {
         self.bounds
+    }
+
+    pub(in crate::platform) fn panel_offset_physical(self) -> (i32, i32) {
+        self.panel_offset_physical
     }
 
     pub(in crate::platform) fn scale_factor(self) -> f64 {

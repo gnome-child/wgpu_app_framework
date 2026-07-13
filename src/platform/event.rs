@@ -125,12 +125,18 @@ impl Events {
         &mut self,
         parent: window::Id,
         bounds: geometry::Rect,
+        panel_offset_physical: (i32, i32),
         popup_scale_factor: f64,
         event: &WinitWindowEvent,
     ) -> Option<host::Event> {
         let event = match event {
             WinitWindowEvent::CursorMoved { position, .. } => {
-                let point = popup_point_from_physical(*position, popup_scale_factor, bounds);
+                let point = popup_point_from_physical(
+                    *position,
+                    popup_scale_factor,
+                    bounds,
+                    panel_offset_physical,
+                );
                 self.window_state(parent).pointer = point;
                 host::WindowEvent::PointerMoved { point }
             }
@@ -248,8 +254,15 @@ pub fn popup_point_from_physical(
     position: PhysicalPosition<f64>,
     scale_factor: f64,
     bounds: geometry::Rect,
+    panel_offset_physical: (i32, i32),
 ) -> geometry::Point {
-    let local = point_from_physical(position, scale_factor);
+    let local = point_from_physical(
+        PhysicalPosition::new(
+            position.x - f64::from(panel_offset_physical.0),
+            position.y - f64::from(panel_offset_physical.1),
+        ),
+        scale_factor,
+    );
     geometry::Point::new(
         bounds.x().saturating_add(local.x()),
         bounds.y().saturating_add(local.y()),

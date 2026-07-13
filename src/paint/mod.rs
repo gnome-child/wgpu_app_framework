@@ -962,6 +962,21 @@ pub(crate) fn group_from_items(items: &[Item], opacity: f32, grid: Grid) -> Opti
     })
 }
 
+pub(crate) fn shadow_visual_bounds(shadow: Shadow, grid: Grid) -> Rect {
+    item_bounds(&Item::Shadow(shadow), grid).expect("a shadow always owns visual bounds")
+}
+
+pub(crate) fn union_visual_bounds(a: Rect, b: Rect) -> Rect {
+    union_rect(a, b)
+}
+
+impl Scene {
+    pub(crate) fn translated_from_origin(mut self, origin: point::Logical, grid: Grid) -> Self {
+        self.items = translate_items_for_group(&self.items, origin, grid);
+        self
+    }
+}
+
 fn group_bounds(items: &[Item], grid: Grid) -> Option<Rect> {
     items
         .iter()

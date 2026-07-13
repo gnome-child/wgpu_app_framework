@@ -244,6 +244,7 @@ impl Host {
         requests: &[scene::MaterialRegion],
         scale_factor: f32,
         ancestor_opacity: f32,
+        panel_offset_physical: (i32, i32),
     ) -> Vec<scene::MaterialRealizationReport> {
         let started = std::time::Instant::now();
         if !self.host_backdrop_enabled {
@@ -269,7 +270,12 @@ impl Host {
         }
 
         for request in requests {
-            let Some(projected) = project_region(request, scale_factor, ancestor_opacity) else {
+            let Some(projected) = project_region(
+                request,
+                scale_factor,
+                ancestor_opacity,
+                panel_offset_physical,
+            ) else {
                 log::debug!(target: "wgpu_l3::native_popup", "material region {:?} declined: clip or per-corner geometry is not representable by host frost", request.id());
                 continue;
             };
@@ -373,13 +379,14 @@ fn project_region(
     request: &scene::MaterialRegion,
     scale_factor: f32,
     ancestor_opacity: f32,
+    panel_offset_physical: (i32, i32),
 ) -> Option<ProjectedRegion> {
     if !matches!(request.material(), scene::Material::Glass(_))
         || !clips_preserve_geometry(request.rect(), request.rounding(), request.clips())
     {
         return None;
     }
-    project_geometry(
+    let mut projected = project_geometry(
         request.rect(),
         request.rounding(),
         if ancestor_opacity > f32::EPSILON {
@@ -388,7 +395,10 @@ fn project_region(
             0.0
         },
         scale_factor,
-    )
+    )?;
+    projected.offset.X += panel_offset_physical.0 as f32;
+    projected.offset.Y += panel_offset_physical.1 as f32;
+    Some(projected)
 }
 
 fn project_geometry(
@@ -461,6 +471,21 @@ mod tests {
             assert_eq!(projected.opacity, 0.65);
             assert!((projected.radius - 7.0 * scale).abs() < f32::EPSILON);
         }
+    }
+
+    #[test]
+    fn panel_surface_offset_translates_material_without_changing_its_shape() {
+        let source = geometry::Rect::new(0, 0, 80, 40);
+        let base = project_geometry(source, scene::Rounding::fixed(8.0), 1.0, 1.5)
+            .expect("uniform material region should project");
+        let mut shifted = base;
+        shifted.offset.X += 27.0;
+        shifted.offset.Y += 21.0;
+
+        assert_eq!(shifted.size, base.size);
+        assert_eq!(shifted.radius, base.radius);
+        assert_eq!(shifted.offset.X - base.offset.X, 27.0);
+        assert_eq!(shifted.offset.Y - base.offset.Y, 21.0);
     }
 
     #[test]

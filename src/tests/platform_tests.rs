@@ -298,10 +298,11 @@ fn popup_window_events_map_to_parent_overlay_coordinates() {
         .popup_window_event(
             parent,
             bounds,
+            (12, 9),
             1.5,
             &WinitWindowEvent::CursorMoved {
                 device_id: DeviceId::dummy(),
-                position: PhysicalPosition::new(15.0, 30.0),
+                position: PhysicalPosition::new(27.0, 39.0),
             },
         )
         .expect("popup cursor move should map into parent coordinates");
@@ -321,6 +322,7 @@ fn popup_window_events_map_to_parent_overlay_coordinates() {
         .popup_window_event(
             parent,
             bounds,
+            (12, 9),
             1.5,
             &WinitWindowEvent::MouseInput {
                 device_id: DeviceId::dummy(),
@@ -345,6 +347,7 @@ fn popup_window_events_map_to_parent_overlay_coordinates() {
         .popup_window_event(
             parent,
             bounds,
+            (12, 9),
             1.5,
             &WinitWindowEvent::MouseWheel {
                 device_id: DeviceId::dummy(),
@@ -378,6 +381,7 @@ fn popup_ime_events_route_to_parent_text_input() {
         .popup_window_event(
             parent,
             bounds,
+            (0, 0),
             1.25,
             &WinitWindowEvent::Ime(Ime::Preedit("compose".to_owned(), Some((1, 4)))),
         )
@@ -398,6 +402,7 @@ fn popup_ime_events_route_to_parent_text_input() {
         .popup_window_event(
             parent,
             bounds,
+            (0, 0),
             1.25,
             &WinitWindowEvent::Ime(Ime::Commit("text".to_owned())),
         )
@@ -425,6 +430,7 @@ fn popup_window_event_adapter_forwards_non_left_buttons() {
         .popup_window_event(
             parent,
             bounds,
+            (0, 0),
             2.0,
             &WinitWindowEvent::CursorMoved {
                 device_id: DeviceId::dummy(),
@@ -443,6 +449,7 @@ fn popup_window_event_adapter_forwards_non_left_buttons() {
             .popup_window_event(
                 parent,
                 bounds,
+                (0, 0),
                 2.0,
                 &WinitWindowEvent::MouseInput {
                     device_id: DeviceId::dummy(),
@@ -478,6 +485,7 @@ fn popup_window_focused_events_do_not_change_framework_focus_truth() {
         .popup_window_event(
             parent,
             bounds,
+            (0, 0),
             1.0,
             &WinitWindowEvent::CursorMoved {
                 device_id: DeviceId::dummy(),
@@ -489,7 +497,13 @@ fn popup_window_focused_events_do_not_change_framework_focus_truth() {
     for focused in [true, false] {
         assert!(
             events
-                .popup_window_event(parent, bounds, 1.0, &WinitWindowEvent::Focused(focused))
+                .popup_window_event(
+                    parent,
+                    bounds,
+                    (0, 0),
+                    1.0,
+                    &WinitWindowEvent::Focused(focused),
+                )
                 .is_none(),
             "popup focused({focused}) must not become a framework window event"
         );

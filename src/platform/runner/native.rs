@@ -52,8 +52,13 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
             popup.first_present_stage(),
             popup.first_present_elapsed_micros()
         );
-        self.events
-            .popup_window_event(popup.parent(), popup.bounds(), popup.scale_factor(), event)
+        self.events.popup_window_event(
+            popup.parent(),
+            popup.bounds(),
+            popup.panel_offset_physical(),
+            popup.scale_factor(),
+            event,
+        )
     }
 
     pub(in crate::platform::runner) fn sync_native_event_state(&mut self) {

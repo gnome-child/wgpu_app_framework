@@ -1,9 +1,8 @@
 use std::collections::HashSet;
 use std::time::Instant;
 
-use crate::{geometry, overlay, paint, render, window as app_window};
+use crate::{overlay, paint, render, window as app_window};
 
-use super::surface::native_logical_area;
 use super::window::{InitialSize, Options, Window as NativeWindow};
 use super::{
     ApplyDue, Native, NativeContext, NativeError, PopupFirstPresentAction, PopupFirstPresentState,
@@ -173,10 +172,16 @@ impl Native {
             .composition
             .as_mut()
             .map(|composition| {
+                let projection = super::paint::PopupProjection::resolve(
+                    presentation.scene(),
+                    popup.window.canvas().scale_factor(),
+                    true,
+                );
                 composition.sync_material_regions(
                     presentation.scene().material_regions(),
                     popup.window.canvas().scale_factor(),
                     presentation.opacity(),
+                    projection.panel_offset_physical(),
                 )
             })
             .unwrap_or_default();
@@ -276,10 +281,15 @@ impl Native {
             material_resolution.fidelity(),
             material_resolution.region_fidelity()
         );
-        let scene = super::paint::to_paint_scene_at_scale(
+        let projection = super::paint::PopupProjection::resolve(
             source_scene,
             popup.window.canvas().scale_factor(),
+            uses_composition,
         );
+        let scene = projection.translate_scene(super::paint::to_paint_scene_at_scale(
+            source_scene,
+            popup.window.canvas().scale_factor(),
+        ));
         let canvas = popup.window.canvas();
         let observed_area = popup.window.inner_area();
         log::debug!(
@@ -386,11 +396,14 @@ impl Native {
                 window: presentation.parent(),
             }
         })?;
+        let initial_projection = super::paint::PopupProjection::resolve(
+            presentation.scene(),
+            parent.scale_factor() as f32,
+            presentation_mode == PopupPresentationMode::CompositionBacked,
+        );
         let native_options = Options {
             title: format!("wgpu_l3 popup {}", presentation.id().as_str()),
-            inner_size: InitialSize::Logical(native_logical_area(
-                geometry::LogicalArea::from_size(presentation.scene().size()),
-            )),
+            inner_size: InitialSize::Logical(initial_projection.logical_area()),
             kind: app_window::Kind::Popup,
             owner: Some(parent.handle()),
             popup_presentation_mode: Some(presentation_mode),
@@ -526,21 +539,28 @@ impl Native {
         });
         let parent_scale = parent.scale_factor();
         let bounds = presentation.bounds();
-        let x = parent_origin
-            .x
-            .saturating_add(((bounds.x() as f64) * parent_scale).round() as i32);
-        let y = parent_origin
-            .y
-            .saturating_add(((bounds.y() as f64) * parent_scale).round() as i32);
-
         let popup = self
             .popups
             .get_mut(&key)
             .expect("popup should exist before configuring");
+        let projection = super::paint::PopupProjection::resolve(
+            presentation.scene(),
+            popup.window.scale_factor() as f32,
+            popup.composition.is_some(),
+        );
+        let (visual_dx, visual_dy) = projection.visual_offset_physical();
+        let x = parent_origin
+            .x
+            .saturating_add(((bounds.x() as f64) * parent_scale).round() as i32)
+            .saturating_add(visual_dx);
+        let y = parent_origin
+            .y
+            .saturating_add(((bounds.y() as f64) * parent_scale).round() as i32)
+            .saturating_add(visual_dy);
+
         popup.bounds = bounds;
-        let area = native_logical_area(geometry::LogicalArea::from_size(
-            presentation.scene().size(),
-        ));
+        popup.panel_offset_physical = projection.panel_offset_physical();
+        let area = projection.logical_area();
         let desired = PopupGeometry {
             x,
             y,

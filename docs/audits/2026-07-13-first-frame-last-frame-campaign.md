@@ -63,7 +63,7 @@ silhouette and one opacity owner.
 | --- | --- | --- |
 | 0. Reductions, census, DropShadow gate | Complete | Four reductions, bounds census, hardware probe verdict |
 | 1. Explicit material resolution | Complete | Explicit framework-backdrop / transparent / fallback base; GPU alpha witness |
-| 2. One silhouette and visual bounds | Pending | Popup surface consumes existing shadow reach while hit geometry stays panel-local |
+| 2. One silhouette and visual bounds | Complete | Shared shadow reach expands composition surface; panel-local paint, frost, and input offsets |
 | 3. One framework edge | Pending | Composition-backed DWM border/rounding retired; four-scale silhouette agreement |
 | 4. One compositor timeline | Pending | Frost, content, border, shadow fade under one root; hide precedes teardown |
 | 5. Honest redirected fallback | Pending | Vulkan opens and closes immediately; delayed pseudo-fade absent |
@@ -158,6 +158,33 @@ three application smokes.
 
 > Fallback is selected by resolution truth, never guessed from the absence of
 > work.
+
+## Checkpoint 2 — one silhouette and visual bounds
+
+`PopupProjection` resolves the panel and its visual envelope once per scale.
+Its visual reach calls the existing `paint::shadow_visual_bounds` owner—the
+same blur, spread, offset, and physical-pixel fringe used by group
+compositing—then supplies:
+
+- HWND/swapchain logical area and screen origin;
+- panel origin within the expanded surface;
+- paint-scene translation;
+- composition material-region translation;
+- physical-to-parent pointer translation.
+
+Composition-backed popups consume the expanded envelope. Redirected popups
+remain panel-sized because their shell shadow is not a framework composition
+visual. The screen-edge policy preserves the panel anchor and permits visual
+reach to clip at the physical screen edge; it never moves the panel to save a
+shadow. Margin events translate outside the panel's retained bounds and cannot
+become panel hits, containment, cursor, or accessibility geometry.
+
+Four-scale projection tests prove positive integral physical offsets, larger
+shadow envelopes, and exact pane translation. The popup event witness now
+starts from a nonzero physical panel offset and lands on the unchanged parent
+coordinate.
+
+> Layout owns participation; visual bounds own reach.
 
 > One framework silhouette defines every popup pixel; the platform realizes
 > declared effects, and one compositor timeline carries them from first frame
