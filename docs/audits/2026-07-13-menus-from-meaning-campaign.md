@@ -58,8 +58,8 @@ Scope does not contain topology.
 | Checkpoint | State | Acceptance boundary |
 | --- | --- | --- |
 | 0. Freeze sealed policies | Complete | Authored bar, context capture/traversal, palette membership/order, chords, registry order, same-scope case, ordinary nodes, and opt-in behavior pinned |
-| 1. Promote standard meaning | In progress | Role lives on `Spec`; Delete admitted; CloseWindow corrected; defaults/overrides and uniqueness proven; authored menus unchanged |
-| 2. One population owner | Pending | Shared primitives/policies with live bar targeting and captured context targeting; no observable context/palette drift |
+| 1. Promote standard meaning | Complete | Role lives on `Spec`; Delete admitted; CloseWindow corrected; defaults/overrides and uniqueness proven; authored menus unchanged |
+| 2. One population owner | In progress | Shared primitives/policies with live bar targeting and captured context targeting; no observable context/palette drift |
 | 3. Cultural topology | Pending | `command::menu::{Category, Placement}`, virtual slots, platform reuse, custom categories, shortcut visibility, pure topology witnesses |
 | 4. Automatic bar | Pending | `ui.standard_menu_bar()` emits ordinary nodes with stable disabled membership and no ambient UI |
 | 5. Authored deviations | Pending | Static metadata and typed dynamic/replacement extensions coexist with unchanged authored bars |
@@ -130,6 +130,29 @@ Scope does not contain topology.
 
 Checkpoint 0 changes documentation and witnesses only. Production population,
 role, and topology behavior remains untouched at this boundary.
+
+## Checkpoint 1 — standard meaning owns its projections
+
+- `Spec::standard(Standard)` is the primary declaration; `Spec::new(label).role(Standard)`
+  preserves an explicit label while deriving the role chord, and either chord
+  builder remains an explicit override.
+- `Standard::Delete` is admitted from the existing document command and maps to
+  the platform Delete key. Its menu shortcut-visibility decision remains a
+  topology projection for checkpoint 3.
+- Editing, timeline, session, and text-editor file registrations now derive
+  conventional labels and chords from their role. `CloseWindow` therefore
+  projects “Close Window”, never “Exit”.
+- Registry installation rejects a second command type claiming an occupied
+  standard role before replacing either registration. Re-registering the same
+  command type may replace or release its role without moving discovery order.
+- `KeyChordKind::Standard` remains the chord projection; public
+  `KeyChord::standard` remains available for authored and migration cases.
+- API flags: `Spec::standard`, `Spec::role`, `Spec::standard_role`, and
+  `Standard::Delete` are new public vocabulary. Duplicate roles are treated as
+  deterministic configuration errors at registration time.
+- Validation: 1,010 library tests passed, 10 ignored; all targets compile;
+  doctests, formatting, and diff checks pass. The checkpoint-0 authored/no-bar
+  witness remains green, so no automatic bar exists yet.
 
 ## Platform contract
 

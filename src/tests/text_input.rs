@@ -1083,7 +1083,7 @@ fn text_editor_file_menu_exit_closes_framework_window() {
         .expect("exit command should be in the view");
 
     assert!(exit.is_enabled());
-    assert_eq!(exit.state().label.as_deref(), Some("Exit"));
+    assert_eq!(exit.state().label.as_deref(), Some("Close Window"));
     assert_eq!(
         exit.state().shortcut.map(|shortcut| shortcut.as_str()),
         Some("Standard::CloseWindow")

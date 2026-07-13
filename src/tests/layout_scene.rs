@@ -6691,7 +6691,7 @@ fn palette_arrow_navigation_reaches_last_command() {
         .expect("results should expose viewport")
         .rect();
 
-    assert_eq!(selected.label_text(), Some("Exit"));
+    assert_eq!(selected.label_text(), Some("Close Window"));
     assert!(selected.rect().y() >= viewport.y());
     assert!(selected.rect().bottom() <= viewport.bottom());
 }
@@ -9140,7 +9140,9 @@ fn menu_popup_rows_use_row_layout_for_labels_shortcuts_and_separators() {
         .layout()
         .frames()
         .iter()
-        .find(|frame| frame.role() == view::Role::Binding && frame.label_text() == Some("Exit"))
+        .find(|frame| {
+            frame.role() == view::Role::Binding && frame.label_text() == Some("Close Window")
+        })
         .expect("exit row should be laid out");
     let theme = Theme::default();
     let parts = layout::menu_row_parts(exit.rect(), exit.shortcut_width(), &theme);
@@ -9148,7 +9150,7 @@ fn menu_popup_rows_use_row_layout_for_labels_shortcuts_and_separators() {
         .scene()
         .texts()
         .into_iter()
-        .find(|text| text.value() == "Exit")
+        .find(|text| text.value() == "Close Window")
         .expect("exit label should paint");
     let exit_shortcut = rendered
         .scene()
@@ -9785,7 +9787,7 @@ fn scene_preserves_popup_paint_order_after_base_content() {
         .position(|primitive| {
             matches!(
                 primitive,
-                scene::Primitive::Text(text) if text.value() == "Exit"
+                scene::Primitive::Text(text) if text.value() == "Close Window"
             )
         })
         .expect("popup exit command text should be painted");

@@ -63,12 +63,6 @@ impl<M: state::State> Undoable for Service<'_, M> {
 
 pub(crate) fn register(commands: &mut command::Registry) {
     commands
-        .register::<Undo>(
-            command::Spec::new("Undo")
-                .key_chord(command::KeyChord::standard(command::Standard::Undo)),
-        )
-        .register::<Redo>(
-            command::Spec::new("Redo")
-                .key_chord(command::KeyChord::standard(command::Standard::Redo)),
-        );
+        .register::<Undo>(command::Spec::standard(command::Standard::Undo))
+        .register::<Redo>(command::Spec::standard(command::Standard::Redo));
 }

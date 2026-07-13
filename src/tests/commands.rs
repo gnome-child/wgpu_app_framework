@@ -9,6 +9,7 @@ fn standard_editing_is_an_enumerable_declinable_set() {
             (
                 member.command_name(),
                 member.spec().display_name(),
+                member.spec().standard_role(),
                 member
                     .spec()
                     .declared_key_chord()
@@ -20,12 +21,37 @@ fn standard_editing_is_an_enumerable_declinable_set() {
     assert_eq!(
         members,
         vec![
-            ("document.apply_edit", "Edit", None),
-            ("edit.cut", "Cut", Some("Standard::Cut")),
-            ("edit.copy", "Copy", Some("Standard::Copy")),
-            ("edit.paste", "Paste", Some("Standard::Paste")),
-            ("edit.delete", "Delete", None),
-            ("edit.select_all", "Select All", Some("Standard::SelectAll")),
+            ("document.apply_edit", "Edit", None, None),
+            (
+                "edit.cut",
+                "Cut",
+                Some(command::Standard::Cut),
+                Some("Standard::Cut")
+            ),
+            (
+                "edit.copy",
+                "Copy",
+                Some(command::Standard::Copy),
+                Some("Standard::Copy")
+            ),
+            (
+                "edit.paste",
+                "Paste",
+                Some(command::Standard::Paste),
+                Some("Standard::Paste")
+            ),
+            (
+                "edit.delete",
+                "Delete",
+                Some(command::Standard::Delete),
+                Some("Standard::Delete")
+            ),
+            (
+                "edit.select_all",
+                "Select All",
+                Some(command::Standard::SelectAll),
+                Some("Standard::SelectAll")
+            ),
         ]
     );
 
@@ -452,7 +478,7 @@ fn command_palette_navigation_and_escape_restore_captured_focus() {
     )
     .expect("arrow down should move selection");
     let projected = app.present(window).expect("palette should project");
-    assert_eq!(selected_palette_labels(&projected), vec!["Exit"]);
+    assert_eq!(selected_palette_labels(&projected), vec!["Close Window"]);
 
     app.handle_input(
         window,

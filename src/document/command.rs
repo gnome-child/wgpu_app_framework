@@ -86,23 +86,11 @@ impl Editing {
     pub fn standard() -> command::Set {
         command::Set::new()
             .include::<ApplyEdit>(command::Spec::new("Edit"))
-            .include::<Cut>(
-                command::Spec::new("Cut")
-                    .key_chord(command::KeyChord::standard(command::Standard::Cut)),
-            )
-            .include::<Copy>(
-                command::Spec::new("Copy")
-                    .key_chord(command::KeyChord::standard(command::Standard::Copy)),
-            )
-            .include::<Paste>(
-                command::Spec::new("Paste")
-                    .key_chord(command::KeyChord::standard(command::Standard::Paste)),
-            )
-            .include::<Delete>(command::Spec::new("Delete"))
-            .include::<SelectAll>(
-                command::Spec::new("Select All")
-                    .key_chord(command::KeyChord::standard(command::Standard::SelectAll)),
-            )
+            .include::<Cut>(command::Spec::standard(command::Standard::Cut))
+            .include::<Copy>(command::Spec::standard(command::Standard::Copy))
+            .include::<Paste>(command::Spec::standard(command::Standard::Paste))
+            .include::<Delete>(command::Spec::standard(command::Standard::Delete))
+            .include::<SelectAll>(command::Spec::standard(command::Standard::SelectAll))
     }
 }
 

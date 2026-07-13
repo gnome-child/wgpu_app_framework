@@ -12,6 +12,7 @@ pub enum Standard {
     Cut,
     Copy,
     Paste,
+    Delete,
     SelectAll,
     New,
     Open,
@@ -123,6 +124,7 @@ pub struct Spec {
     pub(in crate::command) display_name: &'static str,
     pub(in crate::command) shortcut: Option<KeyChord>,
     pub(in crate::command) listing: Listing,
+    pub(in crate::command) standard: Option<Standard>,
 }
 
 /// Whether a command may appear in surfaces that describe the current command world.
@@ -140,7 +142,29 @@ impl Spec {
             display_name,
             shortcut: None,
             listing: Listing::Included,
+            standard: None,
         }
+    }
+
+    /// Declares a conventional command meaning and derives its default label and chord.
+    pub fn standard(standard: Standard) -> Self {
+        Self {
+            display_name: standard.default_label(),
+            shortcut: Some(KeyChord::standard(standard)),
+            listing: Listing::Included,
+            standard: Some(standard),
+        }
+    }
+
+    /// Attaches conventional meaning to an explicitly labelled command.
+    ///
+    /// The standard chord is derived unless this spec already declares an override.
+    pub fn role(mut self, standard: Standard) -> Self {
+        self.standard = Some(standard);
+        if self.shortcut.is_none() {
+            self.shortcut = Some(KeyChord::standard(standard));
+        }
+        self
     }
 
     pub fn shortcut(mut self, shortcut: &'static str) -> Self {
@@ -164,6 +188,10 @@ impl Spec {
 
     pub fn declared_key_chord(&self) -> Option<KeyChord> {
         self.shortcut
+    }
+
+    pub fn standard_role(&self) -> Option<Standard> {
+        self.standard
     }
 }
 
@@ -303,6 +331,24 @@ impl ParsedModifiers {
 }
 
 impl Standard {
+    pub(crate) fn default_label(self) -> &'static str {
+        match self {
+            Self::Undo => "Undo",
+            Self::Redo => "Redo",
+            Self::Cut => "Cut",
+            Self::Copy => "Copy",
+            Self::Paste => "Paste",
+            Self::Delete => "Delete",
+            Self::SelectAll => "Select All",
+            Self::New => "New",
+            Self::Open => "Open",
+            Self::Save => "Save",
+            Self::SaveAs => "Save As",
+            Self::CloseWindow => "Close Window",
+            Self::CommandPalette => "Command Palette",
+        }
+    }
+
     fn declared(self) -> &'static str {
         match self {
             Self::Undo => "Standard::Undo",
@@ -310,6 +356,7 @@ impl Standard {
             Self::Cut => "Standard::Cut",
             Self::Copy => "Standard::Copy",
             Self::Paste => "Standard::Paste",
+            Self::Delete => "Standard::Delete",
             Self::SelectAll => "Standard::SelectAll",
             Self::New => "Standard::New",
             Self::Open => "Standard::Open",
@@ -318,5 +365,52 @@ impl Standard {
             Self::CloseWindow => "Standard::CloseWindow",
             Self::CommandPalette => "Standard::CommandPalette",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn standard_spec_derives_role_label_and_chord_from_one_meaning() {
+        let spec = Spec::standard(Standard::Copy);
+
+        assert_eq!(spec.standard_role(), Some(Standard::Copy));
+        assert_eq!(spec.display_name(), "Copy");
+        assert_eq!(
+            spec.declared_key_chord().map(KeyChord::as_str),
+            Some("Standard::Copy")
+        );
+    }
+
+    #[test]
+    fn role_sugar_preserves_explicit_label_and_chord_overrides() {
+        let labelled = Spec::new("Copy Frame").role(Standard::Copy);
+        assert_eq!(labelled.display_name(), "Copy Frame");
+        assert_eq!(labelled.standard_role(), Some(Standard::Copy));
+        assert_eq!(
+            labelled.declared_key_chord().map(KeyChord::as_str),
+            Some("Standard::Copy")
+        );
+
+        let chorded = Spec::new("Copy Frame")
+            .shortcut("Primary+Shift+C")
+            .role(Standard::Copy);
+        assert_eq!(chorded.display_name(), "Copy Frame");
+        assert_eq!(chorded.standard_role(), Some(Standard::Copy));
+        assert_eq!(
+            chorded.declared_key_chord().map(KeyChord::as_str),
+            Some("Primary+Shift+C")
+        );
+
+        let standard_then_override = Spec::standard(Standard::Copy).shortcut("Primary+Shift+C");
+        assert_eq!(standard_then_override.standard_role(), Some(Standard::Copy));
+        assert_eq!(
+            standard_then_override
+                .declared_key_chord()
+                .map(KeyChord::as_str),
+            Some("Primary+Shift+C")
+        );
     }
 }

@@ -12,12 +12,13 @@ use super::super::{
 };
 use super::{
     AnyTrigger, Candidates, Command, Global, History, HistoryGroup, KeyChord, Local,
-    ResolvedAction, ResolvedActions, Set, Spec, State, surface::Candidate,
+    ResolvedAction, ResolvedActions, Set, Spec, Standard, State, surface::Candidate,
 };
 #[derive(Default)]
 pub struct Registry {
     commands: HashMap<TypeId, AnyCommand>,
     shortcuts: HashMap<KeyChord, Vec<TypeId>>,
+    standard_roles: HashMap<Standard, TypeId>,
     order: Vec<TypeId>,
 }
 
@@ -74,9 +75,14 @@ impl Registry {
     {
         let shortcut = spec.shortcut;
         let command_type = TypeId::of::<C>();
+        self.assert_standard_role_available::<C>(spec.standard);
         self.remove_shortcuts_for(command_type);
+        self.remove_standard_role_for(command_type);
         if !self.order.contains(&command_type) {
             self.order.push(command_type);
+        }
+        if let Some(standard) = spec.standard {
+            self.standard_roles.insert(standard, command_type);
         }
         self.commands.insert(
             command_type,
@@ -462,6 +468,25 @@ impl Registry {
         });
     }
 
+    fn assert_standard_role_available<C: Command>(&self, standard: Option<Standard>) {
+        let Some(standard) = standard else {
+            return;
+        };
+        let Some(owner) = self.standard_roles.get(&standard) else {
+            return;
+        };
+        assert_eq!(
+            *owner,
+            TypeId::of::<C>(),
+            "standard role {standard:?} is already registered by another command type"
+        );
+    }
+
+    fn remove_standard_role_for(&mut self, command_type: TypeId) {
+        self.standard_roles
+            .retain(|_, registered| *registered != command_type);
+    }
+
     fn shortcut_command_names(&self, command_types: &[TypeId]) -> Vec<&'static str> {
         command_types
             .iter()
@@ -554,6 +579,33 @@ mod tests {
             command_types,
             vec![TypeId::of::<Second>(), TypeId::of::<First>()],
             "re-registration may replace metadata but must not move discovery order"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "standard role Copy is already registered by another command type")]
+    fn different_command_types_cannot_claim_one_standard_role() {
+        let mut registry = Registry::default();
+        registry
+            .register::<First>(Spec::standard(Standard::Copy))
+            .register::<Second>(Spec::standard(Standard::Copy));
+    }
+
+    #[test]
+    fn one_command_type_can_replace_or_release_its_standard_role() {
+        let mut registry = Registry::default();
+        registry
+            .register::<First>(Spec::standard(Standard::Copy))
+            .register::<First>(Spec::standard(Standard::Cut))
+            .register::<Second>(Spec::standard(Standard::Copy));
+
+        assert_eq!(
+            registry.command::<First>().unwrap().spec.standard_role(),
+            Some(Standard::Cut)
+        );
+        assert_eq!(
+            registry.command::<Second>().unwrap().spec.standard_role(),
+            Some(Standard::Copy)
         );
     }
 }

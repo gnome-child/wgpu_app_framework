@@ -93,15 +93,9 @@ impl Target<OpenCommandPalette> for Service<'_> {
 
 pub(crate) fn register(commands: &mut command::Registry) {
     commands
-        .register::<CloseWindow>(
-            command::Spec::new("Exit")
-                .key_chord(command::KeyChord::standard(command::Standard::CloseWindow)),
-        )
+        .register::<CloseWindow>(command::Spec::standard(command::Standard::CloseWindow))
         .register::<OpenCommandPalette>(
-            command::Spec::new("Command Palette")
-                .key_chord(command::KeyChord::standard(
-                    command::Standard::CommandPalette,
-                ))
+            command::Spec::standard(command::Standard::CommandPalette)
                 .listing(command::Listing::Describer),
         );
 }

@@ -14,13 +14,13 @@ pub fn runtime(state: State) -> Runtime<State, Event> {
         .commands(|commands| {
             commands
                 .install(document::Editing::standard())
-                .register::<document::NewFile>(command::Spec::new("New").shortcut("Primary+N"))
-                .register::<document::OpenFile>(command::Spec::new("Open").shortcut("Primary+O"))
+                .register::<document::NewFile>(command::Spec::standard(command::Standard::New))
+                .register::<document::OpenFile>(command::Spec::standard(command::Standard::Open))
                 .register::<document::OpenPath>(command::Spec::new("Open Path"))
-                .register::<document::SaveFile>(command::Spec::new("Save").shortcut("Primary+S"))
-                .register::<document::SaveAsFile>(
-                    command::Spec::new("Save As").shortcut("Primary+Shift+S"),
-                )
+                .register::<document::SaveFile>(command::Spec::standard(command::Standard::Save))
+                .register::<document::SaveAsFile>(command::Spec::standard(
+                    command::Standard::SaveAs,
+                ))
                 .register::<document::SaveToPath>(command::Spec::new("Save To Path"))
                 .register::<LoadStressText>(command::Spec::new("Load Stress Text"))
                 .register::<ToggleWrapText>(command::Spec::new("Wrap text"))

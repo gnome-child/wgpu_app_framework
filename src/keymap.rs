@@ -222,6 +222,10 @@ impl Profile {
             (_, Standard::Cut) => vec![ConcreteChord::new(Key::Character('x'), primary)],
             (_, Standard::Copy) => vec![ConcreteChord::new(Key::Character('c'), primary)],
             (_, Standard::Paste) => vec![ConcreteChord::new(Key::Character('v'), primary)],
+            (_, Standard::Delete) => vec![ConcreteChord::new(
+                Key::Delete,
+                input::Modifiers::new(false, false, false, false),
+            )],
             (_, Standard::SelectAll) => vec![ConcreteChord::new(Key::Character('a'), primary)],
             (_, Standard::New) => vec![ConcreteChord::new(Key::Character('n'), primary)],
             (_, Standard::Open) => vec![ConcreteChord::new(Key::Character('o'), primary)],
@@ -645,7 +649,7 @@ mod tests {
     #[test]
     fn every_standard_role_keeps_its_cross_platform_chord_projection() {
         use Standard::{
-            CloseWindow, CommandPalette, Copy, Cut, New, Open, Paste, Redo, Save, SaveAs,
+            CloseWindow, CommandPalette, Copy, Cut, Delete, New, Open, Paste, Redo, Save, SaveAs,
             SelectAll, Undo,
         };
 
@@ -655,6 +659,7 @@ mod tests {
             (Cut, "Ctrl+X", "Command+X", 1, 1),
             (Copy, "Ctrl+C", "Command+C", 1, 1),
             (Paste, "Ctrl+V", "Command+V", 1, 1),
+            (Delete, "Delete", "Delete", 1, 1),
             (SelectAll, "Ctrl+A", "Command+A", 1, 1),
             (New, "Ctrl+N", "Command+N", 1, 1),
             (Open, "Ctrl+O", "Command+O", 1, 1),
