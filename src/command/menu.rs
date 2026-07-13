@@ -89,13 +89,12 @@ pub(in crate::command) struct Topology {
 
 pub(in crate::command) struct TopologyCategory {
     category: Category,
-    label: &'static str,
     sections: Vec<Vec<TopologyEntry>>,
 }
 
 #[derive(Clone, Copy)]
 pub(in crate::command) struct TopologyEntry {
-    command_type: TypeId,
+    command_type: Option<TypeId>,
     standard: Option<Standard>,
     show_shortcut: bool,
 }
@@ -178,6 +177,10 @@ impl Category {
         self.label
     }
 
+    pub(in crate::command) fn id(self) -> &'static str {
+        self.identity_name
+    }
+
     pub(in crate::command) fn is_standard(self) -> bool {
         !matches!(self.identity, CategoryIdentity::Custom(_))
     }
@@ -242,10 +245,28 @@ impl Placement {
 }
 
 impl Topology {
+    #[cfg(test)]
     pub(in crate::command) fn resolve(
         platform: Platform,
         registered_categories: &HashMap<Category, Category>,
+        items: Vec<Item>,
+    ) -> Self {
+        Self::resolve_mode(platform, registered_categories, items, false)
+    }
+
+    pub(in crate::command) fn blueprint(
+        platform: Platform,
+        registered_categories: &HashMap<Category, Category>,
+        items: Vec<Item>,
+    ) -> Self {
+        Self::resolve_mode(platform, registered_categories, items, true)
+    }
+
+    fn resolve_mode(
+        platform: Platform,
+        registered_categories: &HashMap<Category, Category>,
         mut items: Vec<Item>,
+        retain_virtual_slots: bool,
     ) -> Self {
         items.sort_by(|left, right| {
             left.command_name
@@ -253,59 +274,19 @@ impl Topology {
                 .then_with(|| left.command_type_name.cmp(right.command_type_name))
         });
         validate_placements(&items, registered_categories);
-        let mut declared_categories = standard_categories()
-            .into_iter()
-            .map(|category| (category, category))
-            .collect::<HashMap<_, _>>();
-        declared_categories.extend(
-            registered_categories
-                .iter()
-                .map(|(identity, declaration)| (*identity, *declaration)),
-        );
-
-        let mut category_ids = standard_categories()
-            .into_iter()
-            .map(|category| category.identity)
-            .collect::<Vec<_>>();
-        category_ids.extend(
-            registered_categories
-                .values()
-                .map(|category| category.identity),
-        );
-        category_ids.sort_by(|left, right| {
-            compare_categories(
-                declared_categories
-                    .get(&Category::from_identity(*left))
-                    .copied()
-                    .expect("category declaration"),
-                declared_categories
-                    .get(&Category::from_identity(*right))
-                    .copied()
-                    .expect("category declaration"),
-            )
-        });
-        category_ids.dedup();
-
         let mut categories = Vec::new();
-        for category_id in category_ids {
-            let category = declared_categories
-                .get(&Category::from_identity(category_id))
-                .copied()
-                .expect("category declaration");
+        for category in category_catalog(registered_categories) {
             let sections = resolve_category(
                 platform,
-                category_id,
+                category.identity,
                 registered_categories,
                 items.iter().filter(|item| !item.suppressed),
+                retain_virtual_slots,
             );
             if sections.is_empty() {
                 continue;
             }
-            categories.push(TopologyCategory {
-                category,
-                label: category.label().expect("registered category label"),
-                sections,
-            });
+            categories.push(TopologyCategory { category, sections });
         }
 
         Self { categories }
@@ -317,17 +298,8 @@ impl Topology {
 }
 
 impl TopologyCategory {
-    pub(in crate::command) fn id(&self) -> &'static str {
-        self.category.identity_name
-    }
-
-    #[cfg(test)]
     pub(in crate::command) fn category(&self) -> Category {
         self.category
-    }
-
-    pub(in crate::command) fn label(&self) -> &'static str {
-        self.label
     }
 
     pub(in crate::command) fn sections(&self) -> &[Vec<TopologyEntry>] {
@@ -336,7 +308,7 @@ impl TopologyCategory {
 }
 
 impl TopologyEntry {
-    pub(in crate::command) fn command_type(self) -> TypeId {
+    pub(in crate::command) fn command_type(self) -> Option<TypeId> {
         self.command_type
     }
 
@@ -347,6 +319,16 @@ impl TopologyEntry {
     pub(in crate::command) fn show_shortcut(self) -> bool {
         self.show_shortcut
     }
+}
+
+pub(in crate::command) fn category_catalog(
+    registered_categories: &HashMap<Category, Category>,
+) -> Vec<Category> {
+    let mut categories = standard_categories().to_vec();
+    categories.extend(registered_categories.values().copied());
+    categories.sort_by(|left, right| compare_categories(*left, *right));
+    categories.dedup();
+    categories
 }
 
 impl Category {
@@ -373,6 +355,7 @@ fn resolve_category<'a>(
     category: CategoryIdentity,
     registered_categories: &HashMap<Category, Category>,
     items: impl Iterator<Item = &'a Item> + Clone,
+    retain_virtual_slots: bool,
 ) -> Vec<Vec<TopologyEntry>> {
     let mut sections = Vec::new();
     let template = template_sections(platform, category);
@@ -413,12 +396,16 @@ fn resolve_category<'a>(
                     })
                     .map(|item| topology_entry(platform, item)),
             );
-            section.extend(
-                items
-                    .clone()
-                    .filter(|item| item.standard == Some(role) && item.placement.is_none())
-                    .map(|item| topology_entry(platform, item)),
-            );
+            let role_items = items
+                .clone()
+                .filter(|item| item.standard == Some(role) && item.placement.is_none())
+                .map(|item| topology_entry(platform, item))
+                .collect::<Vec<_>>();
+            if role_items.is_empty() && retain_virtual_slots {
+                section.push(TopologyEntry::virtual_slot(platform, role));
+            } else {
+                section.extend(role_items);
+            }
             section.extend(
                 items
                     .clone()
@@ -464,13 +451,23 @@ fn resolve_category<'a>(
 
 fn topology_entry(platform: Platform, item: &Item) -> TopologyEntry {
     TopologyEntry {
-        command_type: item.command_type,
+        command_type: Some(item.command_type),
         standard: item.standard,
         show_shortcut: item.shortcut_visibility.unwrap_or_else(|| {
             item.standard.is_none_or(|role| {
                 standard_slot(platform, role).is_none_or(|slot| slot.show_shortcut)
             })
         }),
+    }
+}
+
+impl TopologyEntry {
+    fn virtual_slot(platform: Platform, standard: Standard) -> Self {
+        Self {
+            command_type: None,
+            standard: Some(standard),
+            show_shortcut: standard_slot(platform, standard).is_none_or(|slot| slot.show_shortcut),
+        }
     }
 }
 
@@ -499,7 +496,7 @@ fn validate_placements(items: &[Item], registered_categories: &HashMap<Category,
     }
 }
 
-pub(in crate::command) fn standard_is_placed(standard: Standard) -> bool {
+pub(crate) fn standard_is_placed(standard: Standard) -> bool {
     [Platform::Windows, Platform::Mac, Platform::Linux]
         .into_iter()
         .any(|platform| standard_slot(platform, standard).is_some())
@@ -552,8 +549,7 @@ fn standard_slot(platform: Platform, standard: Standard) -> Option<Slot> {
         category,
         section,
         ordinal,
-        show_shortcut: !(matches!(platform, Platform::Windows | Platform::Linux)
-            && standard == Standard::Delete),
+        show_shortcut: true,
     })
 }
 
@@ -730,7 +726,7 @@ mod tests {
             .iter()
             .map(|category| {
                 (
-                    category.label(),
+                    category.category().label().expect("category label"),
                     category
                         .sections()
                         .iter()
@@ -820,7 +816,7 @@ mod tests {
         assert_eq!(file.sections()[0].len(), 1);
         assert_eq!(
             file.sections()[0][0].command_type(),
-            TypeId::of::<AfterOpen>()
+            Some(TypeId::of::<AfterOpen>())
         );
     }
 
@@ -845,7 +841,7 @@ mod tests {
             topology
                 .categories()
                 .iter()
-                .map(TopologyCategory::label)
+                .map(|category| category.category().label().expect("category label"))
                 .collect::<Vec<_>>(),
             vec!["View", "Controls", "Tools"]
         );
@@ -874,12 +870,18 @@ mod tests {
             topology.categories()[0].category(),
             topology.categories()[1].category()
         );
-        assert_eq!(topology.categories()[0].label(), "Same Label");
-        assert_eq!(topology.categories()[1].label(), "Same Label");
+        assert_eq!(
+            topology.categories()[0].category().label(),
+            Some("Same Label")
+        );
+        assert_eq!(
+            topology.categories()[1].category().label(),
+            Some("Same Label")
+        );
     }
 
     #[test]
-    fn shortcut_visibility_is_platform_policy_with_an_explicit_override() {
+    fn delete_shortcut_uses_the_shared_glyph_projection_unless_explicitly_hidden() {
         let registry = {
             let mut registry = Registry::default();
             registry.register::<DeleteCommand>(Spec::standard(Standard::Delete));
@@ -887,14 +889,21 @@ mod tests {
         };
         let windows = registry.population().menu_topology(Platform::Windows);
         let mac = registry.population().menu_topology(Platform::Mac);
-        assert!(!windows.categories()[0].sections()[0][0].show_shortcut());
+        assert!(windows.categories()[0].sections()[0][0].show_shortcut());
         assert!(mac.categories()[0].sections()[0][0].show_shortcut());
+        assert_eq!(
+            crate::keymap::Profile::windows().display(
+                crate::command::KeyChord::standard(Standard::Delete),
+                crate::keymap::DisplayStyle::Default,
+            ),
+            "⌦"
+        );
 
         let mut overridden = Registry::default();
         overridden
-            .register::<DeleteCommand>(Spec::standard(Standard::Delete).show_menu_shortcut(true));
+            .register::<DeleteCommand>(Spec::standard(Standard::Delete).show_menu_shortcut(false));
         assert!(
-            overridden
+            !overridden
                 .population()
                 .menu_topology(Platform::Windows)
                 .categories()[0]

@@ -1,8 +1,8 @@
 use crate::{interaction, view};
 
 use super::{
-    Button, Checkbox, Element, Label, Menu, MenuBar, Radio, Scroll, Separator, Slider, TextArea,
-    TextBox, Widget,
+    Button, Checkbox, Element, Label, Menu, MenuBar, Radio, Scroll, Separator, Slider,
+    StandardMenuBar, TextArea, TextBox, Widget,
 };
 
 pub struct Ui {
@@ -51,8 +51,17 @@ impl Ui {
     ///
     /// The bar is opt-in: registering commands alone never creates UI.
     pub fn standard_menu_bar(&mut self) -> &mut Self {
-        self.nodes.push(view::Node::standard_menu_bar());
-        self
+        self.add(StandardMenuBar::new())
+    }
+
+    /// Places a conventional bar and applies explicit authored deviations.
+    pub fn standard_menu_bar_with(
+        &mut self,
+        extensions: impl FnOnce(&mut StandardMenuBar),
+    ) -> &mut Self {
+        let mut bar = StandardMenuBar::new();
+        extensions(&mut bar);
+        self.add(bar)
     }
 
     pub fn menu(

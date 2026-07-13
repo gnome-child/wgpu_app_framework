@@ -13,7 +13,7 @@ pub use binding::Binding;
 pub use control::{Button, Checkbox, Label, Radio, Separator, Slider, TextArea, TextBox};
 pub use element::Element;
 pub use layout::{Direction, Layout};
-pub use menu::{Menu, MenuBar};
+pub use menu::{Menu, MenuBar, StandardMenuBar};
 pub use panel::Panel;
 pub use root::Root;
 pub use scroll::Scroll;

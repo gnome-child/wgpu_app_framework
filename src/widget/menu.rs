@@ -1,8 +1,17 @@
-use crate::{interaction, view};
+use crate::{command, interaction, view};
 
 use super::{Ui, Widget};
 
 pub struct MenuBar {
+    node: view::Node,
+}
+
+/// An opt-in conventional menu bar with deliberate authored extensions.
+///
+/// Static commands belong in registration metadata. These methods are for
+/// dynamic lists, argument-bearing bindings, submenus, and explicit group or
+/// category replacement.
+pub struct StandardMenuBar {
     node: view::Node,
 }
 
@@ -38,7 +47,109 @@ impl Default for MenuBar {
     }
 }
 
+impl StandardMenuBar {
+    pub fn new() -> Self {
+        Self {
+            node: view::Node::standard_menu_bar(),
+        }
+    }
+
+    pub fn items_before(
+        &mut self,
+        anchor: command::Standard,
+        children: impl FnOnce(&mut Ui),
+    ) -> &mut Self {
+        self.extend(view::StandardMenuExtension::items_before(
+            anchor,
+            extension_nodes(children),
+        ))
+    }
+
+    pub fn items_after(
+        &mut self,
+        anchor: command::Standard,
+        children: impl FnOnce(&mut Ui),
+    ) -> &mut Self {
+        self.extend(view::StandardMenuExtension::items_after(
+            anchor,
+            extension_nodes(children),
+        ))
+    }
+
+    pub fn section_before(
+        &mut self,
+        anchor: command::Standard,
+        children: impl FnOnce(&mut Ui),
+    ) -> &mut Self {
+        self.extend(view::StandardMenuExtension::section_before(
+            anchor,
+            extension_nodes(children),
+        ))
+    }
+
+    pub fn section_after(
+        &mut self,
+        anchor: command::Standard,
+        children: impl FnOnce(&mut Ui),
+    ) -> &mut Self {
+        self.extend(view::StandardMenuExtension::section_after(
+            anchor,
+            extension_nodes(children),
+        ))
+    }
+
+    pub fn replace_section(
+        &mut self,
+        anchor: command::Standard,
+        children: impl FnOnce(&mut Ui),
+    ) -> &mut Self {
+        self.extend(view::StandardMenuExtension::replace_section(
+            anchor,
+            extension_nodes(children),
+        ))
+    }
+
+    pub fn append_section(
+        &mut self,
+        category: command::menu::Category,
+        children: impl FnOnce(&mut Ui),
+    ) -> &mut Self {
+        self.extend(view::StandardMenuExtension::append_section(
+            category,
+            extension_nodes(children),
+        ))
+    }
+
+    pub fn replace_category(
+        &mut self,
+        category: command::menu::Category,
+        children: impl FnOnce(&mut Ui),
+    ) -> &mut Self {
+        self.extend(view::StandardMenuExtension::replace_category(
+            category,
+            extension_nodes(children),
+        ))
+    }
+
+    fn extend(&mut self, extension: view::StandardMenuExtension) -> &mut Self {
+        self.node.push_standard_menu_extension(extension);
+        self
+    }
+}
+
+impl Default for StandardMenuBar {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Widget for MenuBar {
+    fn into_node(self) -> view::Node {
+        self.node
+    }
+}
+
+impl Widget for StandardMenuBar {
     fn into_node(self) -> view::Node {
         self.node
     }
@@ -70,4 +181,10 @@ impl Widget for Menu {
     fn into_node(self) -> view::Node {
         self.node
     }
+}
+
+fn extension_nodes(children: impl FnOnce(&mut Ui)) -> Vec<view::Node> {
+    let mut ui = Ui::new();
+    children(&mut ui);
+    ui.into_nodes()
 }

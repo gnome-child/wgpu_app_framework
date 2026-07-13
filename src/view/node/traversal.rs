@@ -24,27 +24,30 @@ impl Node {
         projection: &command::BarProjection,
     ) {
         if self.standard_menu_bar {
-            self.children.clear();
-            for category in projection.categories() {
-                let mut menu = Node::menu(category.id(), category.label());
-                for (section_index, section) in category.sections().iter().enumerate() {
-                    if section_index > 0 {
-                        menu.push_child(Node::separator());
-                    }
-                    for entry in section {
-                        menu.push_child(Node::resolved_bar_action(
-                            entry.action(),
-                            entry.show_shortcut(),
-                        ));
-                    }
-                }
-                self.children.push(menu);
-            }
+            self.children =
+                super::standard_menu::project(projection, &self.standard_menu_extensions);
             return;
         }
 
         for child in &mut self.children {
             child.project_standard_menu_bar(projection);
+        }
+    }
+
+    pub(in crate::view) fn resolve_standard_menu_extensions(
+        &mut self,
+        registry: &command::Registry,
+        chain: &mut responder::Chain<'_, impl state::State>,
+        cx: &CommandContext,
+    ) {
+        if self.standard_menu_bar {
+            for extension in &mut self.standard_menu_extensions {
+                extension.resolve_commands(registry, chain, cx);
+            }
+            return;
+        }
+        for child in &mut self.children {
+            child.resolve_standard_menu_extensions(registry, chain, cx);
         }
     }
 

@@ -50,6 +50,7 @@ pub(crate) enum ShortcutIcon {
     Alt,
     Option,
     Command,
+    Delete,
 }
 
 impl Platform {
@@ -308,7 +309,10 @@ impl ConcreteChord {
                 }
             }
         }
-        runs.push(ShortcutRun::Text(key_text(self.key, false)));
+        match self.key.normalized() {
+            input::Key::Delete => runs.push(ShortcutRun::Icon(ShortcutIcon::Delete)),
+            _ => runs.push(ShortcutRun::Text(key_text(self.key, true))),
+        }
 
         ShortcutDisplay::chord(runs)
     }
@@ -375,6 +379,7 @@ impl ShortcutIcon {
             Self::Alt => "Alt",
             Self::Option => "Option",
             Self::Command => "Command",
+            Self::Delete => "⌦",
         }
     }
 }
@@ -659,7 +664,7 @@ mod tests {
             (Cut, "Ctrl+X", "Command+X", 1, 1),
             (Copy, "Ctrl+C", "Command+C", 1, 1),
             (Paste, "Ctrl+V", "Command+V", 1, 1),
-            (Delete, "Delete", "Delete", 1, 1),
+            (Delete, "⌦", "⌦", 1, 1),
             (SelectAll, "Ctrl+A", "Command+A", 1, 1),
             (New, "Ctrl+N", "Command+N", 1, 1),
             (Open, "Ctrl+O", "Command+O", 1, 1),
@@ -729,6 +734,14 @@ mod tests {
                 ShortcutRun::Text("+".to_owned()),
                 ShortcutRun::Text("C".to_owned()),
             ]
+        );
+
+        let delete = Profile::windows()
+            .display_parts(KeyChord::standard(Standard::Delete), DisplayStyle::Default);
+        assert_eq!(
+            delete.runs(),
+            &[ShortcutRun::Icon(ShortcutIcon::Delete)],
+            "the Delete key uses the same icon-run path as shortcut modifiers"
         );
     }
 

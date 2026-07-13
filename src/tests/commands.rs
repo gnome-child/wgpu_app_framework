@@ -226,6 +226,125 @@ fn standard_menu_bar_derives_ordinary_live_menu_bindings_on_explicit_request() {
     assert_eq!(app.state().sources, vec![context::Source::Menu]);
 }
 
+struct ReviewMenu;
+
+#[test]
+fn mixed_standard_bar_keeps_dynamic_authorship_typed_and_explicit() {
+    let mut app = Runtime::new(EditorState::default())
+        .keymap(keymap::Profile::windows())
+        .commands(|commands| {
+            commands
+                .register::<OpenNamed>(command::Spec::new("Open Recent"))
+                .menu_category(
+                    command::menu::Category::new::<ReviewMenu>("Review")
+                        .after(command::menu::Category::VIEW),
+                );
+        })
+        .responders(|responders| {
+            responders.app().target::<OpenNamed>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Mixed menu"));
+        })
+        .view(|_, _| {
+            widget::view(|ui| {
+                ui.standard_menu_bar_with(|bar| {
+                    bar.items_after(command::Standard::Open, |ui| {
+                        ui.menu("menu.recent", "Recent", |ui| {
+                            ui.add(widget::Binding::<OpenNamed>::menu_with_args(
+                                "alpha.txt".to_owned(),
+                            ));
+                        });
+                    });
+                    bar.section_after(command::Standard::SaveAs, |ui| {
+                        ui.add(widget::Binding::<OpenNamed>::menu_with_args(
+                            "recovered.txt".to_owned(),
+                        ));
+                    });
+                    bar.replace_section(command::Standard::Undo, |ui| {
+                        ui.add(widget::Binding::<OpenNamed>::menu_with_args(
+                            "history.txt".to_owned(),
+                        ));
+                    });
+                    bar.append_section(command::menu::Category::VIEW, |ui| {
+                        ui.add(widget::Binding::<OpenNamed>::menu_with_args(
+                            "view.txt".to_owned(),
+                        ));
+                    });
+                    bar.append_section(command::menu::Category::of::<ReviewMenu>(), |ui| {
+                        ui.add(widget::Binding::<OpenNamed>::menu_with_args(
+                            "review.txt".to_owned(),
+                        ));
+                    });
+                    bar.replace_category(command::menu::Category::TOOLS, |ui| {
+                        ui.add(widget::Binding::<OpenNamed>::menu_with_args(
+                            "tools.txt".to_owned(),
+                        ));
+                    });
+                });
+            })
+        });
+
+    app.start();
+    let window = app.session().windows()[0].id();
+    let projected = app.present(window).expect("mixed bar should project");
+    let bar = find_view_node(projected.root(), view::Role::MenuBar).expect("standard bar");
+    let category = |label| {
+        bar.children()
+            .iter()
+            .find(|node| node.label_text() == Some(label))
+            .unwrap_or_else(|| panic!("missing {label} category"))
+    };
+
+    assert_eq!(
+        bar.children()
+            .iter()
+            .filter_map(view::Node::label_text)
+            .collect::<Vec<_>>(),
+        vec!["File", "Edit", "View", "Review", "Tools"],
+        "empty standard and registered custom categories should enter their cultural position only when extended"
+    );
+    let recent = category("File")
+        .children()
+        .iter()
+        .find(|node| node.label_text() == Some("Recent"))
+        .expect("an extension anchored to an absent Open slot must not drift");
+    let recent_binding = recent
+        .children()
+        .iter()
+        .find_map(view::Node::binding)
+        .expect("argument-bearing authored entry should remain an ordinary binding");
+    assert!(recent_binding.is_enabled());
+
+    let edit = category("Edit");
+    let history = edit
+        .children()
+        .iter()
+        .take_while(|node| node.role() != view::Role::Separator)
+        .filter_map(view::Node::binding)
+        .map(view::Binding::command_name)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        history,
+        vec![OpenNamed::NAME],
+        "group replacement is explicit and removes the conventional group"
+    );
+    for label in ["View", "Review", "Tools"] {
+        assert!(
+            category(label)
+                .children()
+                .iter()
+                .filter_map(view::Node::binding)
+                .all(view::Binding::is_enabled),
+            "dynamic category entries resolve through the live Task chain"
+        );
+    }
+
+    app.activate_in(window, recent_binding)
+        .expect("mixed authored binding should use normal menu activation");
+    assert_eq!(app.state().event_count, "alpha.txt".len());
+}
+
 #[test]
 fn typing_history_group_carries_the_text_owned_coalesce_window() {
     let typing =

@@ -62,18 +62,25 @@ pub(crate) struct BarAction {
 /// Complete conventional-bar projection. It contains ordinary command
 /// actions, grouped by the platform topology, but no view vocabulary.
 pub(crate) struct BarProjection {
+    catalog: Vec<BarCategoryInfo>,
     categories: Vec<BarCategory>,
 }
 
-pub(crate) struct BarCategory {
+pub(crate) struct BarCategoryInfo {
+    category: super::menu::Category,
     id: &'static str,
     label: &'static str,
+}
+
+pub(crate) struct BarCategory {
+    category: super::menu::Category,
     sections: Vec<Vec<BarEntry>>,
 }
 
 #[derive(Clone)]
 pub(crate) struct BarEntry {
-    action: BarAction,
+    action: Option<BarAction>,
+    standard: Option<Standard>,
     show_shortcut: bool,
 }
 
@@ -168,12 +175,24 @@ impl<'a> Population<'a> {
         )
     }
 
+    #[cfg(test)]
     pub(in crate::command) fn menu_topology(
         &self,
         platform: crate::keymap::Platform,
     ) -> super::menu::Topology {
-        let items = self
-            .bar_candidates()
+        super::menu::Topology::resolve(platform, &self.registry.menu_categories, self.menu_items())
+    }
+
+    fn menu_blueprint(&self, platform: crate::keymap::Platform) -> super::menu::Topology {
+        super::menu::Topology::blueprint(
+            platform,
+            &self.registry.menu_categories,
+            self.menu_items(),
+        )
+    }
+
+    fn menu_items(&self) -> Vec<super::menu::Item> {
+        self.bar_candidates()
             .into_entries()
             .into_iter()
             .filter_map(|candidate| {
@@ -191,8 +210,7 @@ impl<'a> Population<'a> {
                     shortcut_visibility: command.spec.menu_shortcut_visibility,
                 })
             })
-            .collect();
-        super::menu::Topology::resolve(platform, &self.registry.menu_categories, items)
+            .collect()
     }
 
     pub(crate) fn resolve_claimed<P>(
@@ -280,13 +298,21 @@ impl<'a> Population<'a> {
         chain: &mut responder::Chain<'_, impl state::State>,
         cx: &command_context::Context,
     ) -> BarProjection {
-        let topology = self.menu_topology(platform);
+        let topology = self.menu_blueprint(platform);
         let actions = self
             .resolve_bar(self.bar_candidates(), chain, cx)
             .into_iter()
             .map(|action| (action.command_type(), action))
             .collect::<HashMap<_, _>>();
 
+        let catalog = super::menu::category_catalog(&self.registry.menu_categories)
+            .into_iter()
+            .map(|category| BarCategoryInfo {
+                category,
+                id: category.id(),
+                label: category.label().expect("registered category label"),
+            })
+            .collect();
         let categories = topology
             .categories()
             .iter()
@@ -297,28 +323,34 @@ impl<'a> Population<'a> {
                     .filter_map(|section| {
                         let entries = section
                             .iter()
-                            .filter_map(|entry| {
-                                actions.get(&entry.command_type()).cloned().map(|action| {
+                            .map(|entry| {
+                                let action = entry
+                                    .command_type()
+                                    .and_then(|command_type| actions.get(&command_type).cloned());
+                                if let Some(action) = action.as_ref() {
                                     debug_assert_eq!(entry.standard(), action.standard());
-                                    BarEntry {
-                                        action,
-                                        show_shortcut: entry.show_shortcut(),
-                                    }
-                                })
+                                }
+                                BarEntry {
+                                    action,
+                                    standard: entry.standard(),
+                                    show_shortcut: entry.show_shortcut(),
+                                }
                             })
                             .collect::<Vec<_>>();
-                        (!entries.is_empty()).then_some(entries)
+                        Some(entries)
                     })
                     .collect::<Vec<_>>();
-                (!sections.is_empty()).then_some(BarCategory {
-                    id: category.id(),
-                    label: category.label(),
+                Some(BarCategory {
+                    category: category.category(),
                     sections,
                 })
             })
             .collect();
 
-        BarProjection { categories }
+        BarProjection {
+            catalog,
+            categories,
+        }
     }
 }
 
@@ -475,18 +507,32 @@ impl BarAction {
 }
 
 impl BarProjection {
+    pub(crate) fn catalog(&self) -> &[BarCategoryInfo] {
+        &self.catalog
+    }
+
     pub(crate) fn categories(&self) -> &[BarCategory] {
         &self.categories
     }
 }
 
-impl BarCategory {
+impl BarCategoryInfo {
+    pub(crate) fn category(&self) -> super::menu::Category {
+        self.category
+    }
+
     pub(crate) fn id(&self) -> &'static str {
         self.id
     }
 
     pub(crate) fn label(&self) -> &'static str {
         self.label
+    }
+}
+
+impl BarCategory {
+    pub(crate) fn category(&self) -> super::menu::Category {
+        self.category
     }
 
     pub(crate) fn sections(&self) -> &[Vec<BarEntry>] {
@@ -495,8 +541,12 @@ impl BarCategory {
 }
 
 impl BarEntry {
-    pub(crate) fn action(&self) -> &BarAction {
-        &self.action
+    pub(crate) fn action(&self) -> Option<&BarAction> {
+        self.action.as_ref()
+    }
+
+    pub(crate) fn standard(&self) -> Option<Standard> {
+        self.standard
     }
 
     pub(crate) fn show_shortcut(&self) -> bool {

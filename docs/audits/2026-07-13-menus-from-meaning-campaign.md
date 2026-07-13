@@ -62,8 +62,8 @@ Scope does not contain topology.
 | 2. One population owner | Complete | Shared primitives/policies with live bar targeting and captured context targeting; no observable context/palette drift |
 | 3. Cultural topology | Complete | `command::menu::{Category, Placement}`, virtual slots, platform reuse, custom categories, shortcut visibility, pure topology witnesses |
 | 4. Automatic bar | Complete | `ui.standard_menu_bar()` emits ordinary nodes with stable disabled membership and no ambient UI |
-| 5. Authored deviations | In progress | Static metadata and typed dynamic/replacement extensions coexist with unchanged authored bars |
-| 6. Migration and closeout | Pending | Examples delete duplicated culture; full witness matrix and ritual green; item 30 pruned |
+| 5. Authored deviations | Complete | Static metadata and typed dynamic/replacement extensions coexist with unchanged authored bars |
+| 6. Migration and closeout | In progress | Examples delete duplicated culture; full witness matrix and ritual green; item 30 pruned |
 
 ## Checkpoint 0 — census and behavioral pins
 
@@ -196,8 +196,9 @@ role, and topology behavior remains untouched at this boundary.
 - Standard slots remain in the resolver when their command is absent, so
   before/after and section-before/after anchors do not drift. Empty sections
   and categories are removed only after projection.
-- Delete's Windows/initial-Linux menu chord is hidden by policy while its key
-  interaction remains registered; macOS shows it. Spec metadata can override
+- Delete uses the shared shortcut icon-run path and the Phosphor delete-key
+  glyph on every platform; `⌦` is only its text fallback. The menu topology
+  does not hide or reformat it. Spec metadata can explicitly suppress
   visibility without changing the chord.
 - Static placement on a non-unit command is rejected at registration. Missing
   custom categories, conflicting category declarations, and anchors with no
@@ -243,6 +244,38 @@ role, and topology behavior remains untouched at this boundary.
   integration witness proves ordinary node roles, topology-owned separators,
   enabled/disabled stable membership, the unplaced role exclusion, and live
   menu-source activation.
+
+## Checkpoint 5 — authorship declares only deviations
+
+- `ui.standard_menu_bar_with(...)` and `widget::StandardMenuBar` add a narrow
+  authored layer over the same derived projection. Static commands still use
+  `Spec::placement`/`unplaced`; the builder is reserved for runtime nodes.
+- Typed operations cover item insertion before/after a standard role, a new
+  section before/after a standard group, explicit group replacement, section
+  append in a typed category, and explicit category replacement. Their payload
+  is ordinary authored `Ui`, so argument-bearing bindings, recent-file/window
+  lists, and dynamic submenus retain the existing widget and activation paths.
+- The population owner carries a private blueprint with virtual standard
+  markers through mixed composition. Those markers never become nodes, but
+  keep a dynamic extension anchored to an absent optional role or empty
+  standard section from drifting.
+- Registered custom categories contribute identity, label, and cultural
+  position even when their contents are entirely dynamic. An unregistered
+  custom category and a standard role without a cultural slot fail before
+  exposure; labels never participate in lookup or merging.
+- Extension bindings resolve on the same live Task chain as the derived bar,
+  while their authored nodes remain ordinary menu bindings. Fully authored,
+  fully derived, and mixed bars therefore coexist without changing the sealed
+  authored API.
+- API flags: `Ui::standard_menu_bar_with`, public `StandardMenuBar`, and its
+  typed extension methods are new. Replacement is named explicitly; there is
+  no implicit label-based replacement.
+- Validation: 1,022 library tests passed, 10 deep-tier tests ignored; all
+  targets, doctests, formatting, and diff checks pass. The mixed integration
+  witness covers an argument-bearing recent-file submenu, an absent virtual
+  anchor, explicit History replacement, standard-category extension,
+  dynamic-only registered custom category placement, category replacement,
+  and ordinary live activation.
 
 ## Platform contract
 

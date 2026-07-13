@@ -8,10 +8,12 @@ mod action;
 mod axis;
 mod builder;
 mod role;
+mod standard_menu;
 mod traversal;
 
 pub use axis::Axis;
 pub(crate) use role::Role;
+pub(crate) use standard_menu::Extension as StandardMenuExtension;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TextKind {
@@ -103,6 +105,7 @@ pub struct Node {
     participation: Option<Participation>,
     context_menu: bool,
     standard_menu_bar: bool,
+    standard_menu_extensions: Vec<StandardMenuExtension>,
     children: Vec<Node>,
 }
 

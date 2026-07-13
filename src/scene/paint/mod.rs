@@ -273,6 +273,16 @@ mod clip_scope_tests {
             1
         );
     }
+
+    #[test]
+    fn delete_shortcut_icon_resolves_to_a_real_font_glyph() {
+        assert!(
+            shortcut_icon(keymap::ShortcutIcon::Delete)
+                .glyph()
+                .is_some(),
+            "Delete shortcut chrome must use the icon font rather than a Unicode text run"
+        );
+    }
 }
 
 fn paint_frame(
@@ -746,6 +756,7 @@ fn shortcut_icon(icon: keymap::ShortcutIcon) -> icons::Icon {
         keymap::ShortcutIcon::Shift => "arrow-fat-up",
         keymap::ShortcutIcon::Alt | keymap::ShortcutIcon::Option => "option",
         keymap::ShortcutIcon::Command => "command",
+        keymap::ShortcutIcon::Delete => "backspace",
     };
 
     icons::Icon::phosphor(icons::Id::new(id))

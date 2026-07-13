@@ -28,6 +28,14 @@ impl Node {
         node
     }
 
+    pub(crate) fn push_standard_menu_extension(&mut self, extension: super::StandardMenuExtension) {
+        assert!(
+            self.standard_menu_bar,
+            "standard-menu extensions require a standard menu bar"
+        );
+        self.standard_menu_extensions.push(extension);
+    }
+
     pub fn menu(id: impl Into<interaction::Id>, label: impl Into<String>) -> Self {
         Self::new(Role::Menu).with_id(id).with_label(label)
     }
@@ -463,6 +471,7 @@ impl Node {
             participation: None,
             context_menu: false,
             standard_menu_bar: false,
+            standard_menu_extensions: Vec::new(),
             children: Vec::new(),
         }
     }

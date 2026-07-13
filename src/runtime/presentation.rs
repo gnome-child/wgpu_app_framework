@@ -688,6 +688,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 .responders
                 .chain_for_scope(&mut self.store, live_scope)
                 .with_service(services);
+            view.resolve_standard_menu_extensions(&self.registry, &mut chain, &cx);
             let population = self.registry.population();
             let bar = population.standard_bar(self.keymap.platform(), &mut chain, &cx);
             view.project_standard_menu_bar(&bar);

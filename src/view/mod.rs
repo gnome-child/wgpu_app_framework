@@ -24,6 +24,7 @@ pub(crate) use command_palette::{CommandPalette, Entry as CommandPaletteEntry};
 pub use context::Context;
 pub(crate) use context_menu::ContextMenu;
 pub use control::{Button, Checkbox, Radio, Slider, TextArea, TextBox, Wrap};
+pub(crate) use node::StandardMenuExtension;
 pub use node::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node};
 pub(crate) use node::{Participation, ProvidedRow, Role, TablePart};
 #[cfg(test)]
@@ -111,6 +112,16 @@ impl View {
 
     pub(crate) fn project_standard_menu_bar(&mut self, projection: &command::BarProjection) {
         self.root.project_standard_menu_bar(projection);
+    }
+
+    pub(crate) fn resolve_standard_menu_extensions(
+        &mut self,
+        registry: &command::Registry,
+        chain: &mut responder::Chain<'_, impl super::state::State>,
+        cx: &CommandContext,
+    ) {
+        self.root
+            .resolve_standard_menu_extensions(registry, chain, cx);
     }
 
     pub(crate) fn materialize_virtual_lists(
