@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use crate::table;
+use crate::{feedback, table};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Tables {
     widths: HashMap<table::HeaderCell, i32>,
     active_columns: HashMap<crate::interaction::Id, crate::interaction::Id>,
     editing: Option<table::Cell>,
-    rejections: HashMap<table::Cell, String>,
+    feedback: HashMap<table::Cell, feedback::Stack>,
 }
 
 impl Tables {
@@ -63,30 +63,51 @@ impl Tables {
         true
     }
 
-    pub(crate) fn reject(&mut self, cell: table::Cell, reason: String) -> bool {
-        if self.rejections.get(&cell) == Some(&reason) {
-            return false;
-        }
-        self.rejections.insert(cell, reason);
-        true
+    pub(crate) fn reject(&mut self, cell: table::Cell, reason: impl std::fmt::Display) -> bool {
+        self.feedback
+            .entry(cell)
+            .or_default()
+            .report(feedback::Severity::Error, reason)
     }
 
     pub(crate) fn clear_rejection(&mut self, cell: table::Cell) -> bool {
-        self.rejections.remove(&cell).is_some()
+        let changed = self
+            .feedback
+            .get_mut(&cell)
+            .is_some_and(|feedback| feedback.clear(feedback::Severity::Error));
+        if self
+            .feedback
+            .get(&cell)
+            .is_some_and(feedback::Stack::is_empty)
+        {
+            self.feedback.remove(&cell);
+        }
+        changed
     }
 
     pub(crate) fn rejection(&self, cell: table::Cell) -> Option<&str> {
-        self.rejections.get(&cell).map(String::as_str)
+        self.feedback
+            .get(&cell)?
+            .winner()
+            .filter(|entry| entry.severity() == feedback::Severity::Error)
+            .map(feedback::Entry::text)
+    }
+
+    pub(crate) fn feedback(&self, cell: table::Cell) -> Option<(feedback::Severity, &str)> {
+        self.feedback
+            .get(&cell)
+            .and_then(feedback::Stack::winner)
+            .map(|entry| (entry.severity(), entry.text()))
     }
 
     pub(crate) fn prune_removed(&mut self, cells: &[table::Cell]) -> bool {
-        let before = self.rejections.len();
-        self.rejections.retain(|cell, _| !cells.contains(cell));
+        let before = self.feedback.len();
+        self.feedback.retain(|cell, _| !cells.contains(cell));
         let edit_removed = self.editing.is_some_and(|cell| cells.contains(&cell));
         if edit_removed {
             self.editing = None;
         }
-        before != self.rejections.len() || edit_removed
+        before != self.feedback.len() || edit_removed
     }
 
     pub(crate) fn snapshot(

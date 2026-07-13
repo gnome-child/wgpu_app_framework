@@ -67,3 +67,18 @@ separate campaign.
   gallery and editor commands declare descriptions.
 - The accepted 12-pixel menu-title insets are pinned by a behavior-shaped
   regression instead of the stale square-title assumption found at preflight.
+
+### 2. First-party feedback truth
+
+- `feedback::Severity::{Info, Warning, Error}` is the entire public
+  vocabulary. Reporting accepts `Display` and eagerly retains one formatted
+  string; there is no framework error trait or public message wrapper.
+- Typed owners remain typed: table cells retain their own feedback stacks and
+  windows retain theirs in ephemeral session state.
+- A severity stack preserves independent runtime facts while projecting the
+  highest-priority current fact (`Error`, then `Warning`, then `Info`).
+- Runtime context exposes report and clear operations without requiring an
+  application to construct a panel. Window destruction destroys its feedback.
+- Existing table rejection strings now occupy the Error slot without changing
+  focus behavior; presentation and complete draft lifetimes remain checkpoint
+  3 work.

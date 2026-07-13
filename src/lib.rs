@@ -6,6 +6,7 @@ pub mod context;
 pub mod diagnostics;
 pub mod document;
 pub mod error;
+pub mod feedback;
 pub mod geometry;
 pub mod host;
 pub mod icon;

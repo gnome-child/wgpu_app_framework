@@ -1,6 +1,6 @@
 use crate::{
-    diagnostics, diagnostics::Diagnostics, session, state, state::Store, task, timeline::Timeline,
-    window,
+    diagnostics, diagnostics::Diagnostics, feedback, session, state, state::Store, task,
+    timeline::Timeline, window,
 };
 
 pub struct Context<'a, M: state::State> {
@@ -81,6 +81,23 @@ impl<'a, M: state::State> Context<'a, M> {
 
     pub fn request_redraw(&mut self, id: window::Id) -> bool {
         self.session.request_redraw(id)
+    }
+
+    pub fn report_feedback(
+        &mut self,
+        window: window::Id,
+        severity: feedback::Severity,
+        message: impl std::fmt::Display,
+    ) -> bool {
+        self.session.report_feedback(window, severity, message)
+    }
+
+    pub fn clear_feedback(&mut self, window: window::Id, severity: feedback::Severity) -> bool {
+        self.session.clear_feedback(window, severity)
+    }
+
+    pub fn clear_all_feedback(&mut self, window: window::Id) -> bool {
+        self.session.clear_all_feedback(window)
     }
 
     pub fn spawn<E: Send + 'static>(&mut self, task: task::Task<E>) -> Option<task::Id> {

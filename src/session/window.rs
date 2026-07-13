@@ -1,4 +1,6 @@
-use super::super::{geometry, interaction, pointer, response, scene, state, window as app_window};
+use super::super::{
+    feedback, geometry, interaction, pointer, response, scene, state, window as app_window,
+};
 use super::{FileDialog, Focus, Session, Snapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,6 +15,7 @@ pub struct Window {
     pub(super) focus: Option<Focus>,
     pub(super) menu_restore_focus: Option<Focus>,
     pub(super) file_dialog: Option<FileDialog>,
+    pub(super) feedback: feedback::Stack,
     pub(super) interaction: interaction::Interaction,
 }
 
@@ -38,6 +41,7 @@ impl Window {
             focus: None,
             menu_restore_focus: None,
             file_dialog: None,
+            feedback: feedback::Stack::default(),
             interaction: interaction::Interaction::new(draft_limit),
         }
     }
@@ -59,6 +63,7 @@ impl Window {
             focus: snapshot.focus,
             menu_restore_focus: None,
             file_dialog: None,
+            feedback: feedback::Stack::default(),
             interaction,
         }
     }
@@ -118,6 +123,12 @@ impl Window {
 
     pub(crate) fn interaction(&self) -> &interaction::Interaction {
         &self.interaction
+    }
+
+    pub fn feedback(&self) -> Option<(feedback::Severity, &str)> {
+        self.feedback
+            .winner()
+            .map(|entry| (entry.severity(), entry.text()))
     }
 }
 
@@ -203,6 +214,44 @@ impl Session {
 
     pub fn request_redraw(&mut self, id: app_window::Id) -> bool {
         self.request_invalidation(id, response::Invalidation::Rebuild)
+    }
+
+    pub fn report_feedback(
+        &mut self,
+        id: app_window::Id,
+        severity: feedback::Severity,
+        message: impl std::fmt::Display,
+    ) -> bool {
+        let Some(window) = self.window_mut(id) else {
+            return false;
+        };
+        if !window.feedback.report(severity, message) {
+            return false;
+        }
+        self.request_redraw(id);
+        true
+    }
+
+    pub fn clear_feedback(&mut self, id: app_window::Id, severity: feedback::Severity) -> bool {
+        let Some(window) = self.window_mut(id) else {
+            return false;
+        };
+        if !window.feedback.clear(severity) {
+            return false;
+        }
+        self.request_redraw(id);
+        true
+    }
+
+    pub fn clear_all_feedback(&mut self, id: app_window::Id) -> bool {
+        let Some(window) = self.window_mut(id) else {
+            return false;
+        };
+        if !window.feedback.clear_all() {
+            return false;
+        }
+        self.request_redraw(id);
+        true
     }
 
     pub(crate) fn request_invalidation(
@@ -355,5 +404,42 @@ impl Session {
 
     pub(in crate::session) fn window_mut(&mut self, id: app_window::Id) -> Option<&mut Window> {
         self.windows.iter_mut().find(|window| window.id() == id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn window_feedback_is_ephemeral_ranked_session_truth() {
+        let mut session = Session::default();
+        let window = session.open_window(app_window::Options::new("Feedback"));
+        session.clear_redraw_request(window);
+
+        assert!(session.report_feedback(window, feedback::Severity::Info, "saved"));
+        assert!(session.report_feedback(window, feedback::Severity::Warning, "offline"));
+        assert!(session.report_feedback(window, feedback::Severity::Error, "save failed"));
+        assert_eq!(
+            session.window(window).and_then(Window::feedback),
+            Some((feedback::Severity::Error, "save failed"))
+        );
+        assert!(session.clear_feedback(window, feedback::Severity::Error));
+        assert_eq!(
+            session.window(window).and_then(Window::feedback),
+            Some((feedback::Severity::Warning, "offline"))
+        );
+        assert!(session.clear_all_feedback(window));
+        assert_eq!(session.window(window).and_then(Window::feedback), None);
+    }
+
+    #[test]
+    fn closing_window_destroys_its_feedback() {
+        let mut session = Session::default();
+        let window = session.open_window(app_window::Options::new("Feedback"));
+        session.report_feedback(window, feedback::Severity::Info, "temporary");
+
+        assert!(session.close_window(window));
+        assert_eq!(session.window(window), None);
     }
 }

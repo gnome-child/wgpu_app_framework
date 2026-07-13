@@ -21,6 +21,14 @@ impl Session {
         self.window(window)?.interaction.tables().rejection(cell)
     }
 
+    pub fn table_edit_feedback(
+        &self,
+        window: app_window::Id,
+        cell: table::Cell,
+    ) -> Option<(crate::feedback::Severity, &str)> {
+        self.window(window)?.interaction.tables().feedback(cell)
+    }
+
     pub(crate) fn reject_table_edit(
         &mut self,
         window: app_window::Id,
