@@ -1,8 +1,9 @@
 use super::{
     State,
     command::{
-        EditRecordCount, EditRecordNote, IncrementClicks, ResetControls, SelectMode, SetLevel,
-        SetRecordEnabled, SubmitQuery, ToggleAdvanced, ToggleExpandedRows, ToggleGrid, ToggleWrap,
+        EditRecordCount, EditRecordNote, IncrementClicks, OpenRecord, ResetControls, SelectMode,
+        SetLevel, SetRecordEnabled, SubmitQuery, ToggleAdvanced, ToggleExpandedRows, ToggleGrid,
+        ToggleWrap,
     },
     view,
     view::{CANVAS_COLOR, WINDOW_TITLE, window_size},
@@ -26,7 +27,8 @@ pub fn app(state: State) -> Runtime<State, (), View> {
                 .register::<EditRecordNote>(command::Spec::new("Edit record note"))
                 .register::<EditRecordCount>(command::Spec::new("Edit record count"))
                 .register::<SetRecordEnabled>(command::Spec::new("Set record enabled"))
-                .register::<ToggleExpandedRows>(command::Spec::new("Expanded rows"));
+                .register::<ToggleExpandedRows>(command::Spec::new("Expanded rows"))
+                .register::<OpenRecord>(command::Spec::new("Open record"));
         })
         .responders(|responders| {
             responders
@@ -43,7 +45,8 @@ pub fn app(state: State) -> Runtime<State, (), View> {
                 .target::<EditRecordNote>()
                 .target::<EditRecordCount>()
                 .target::<SetRecordEnabled>()
-                .target::<ToggleExpandedRows>();
+                .target::<ToggleExpandedRows>()
+                .target::<OpenRecord>();
         })
         .started(|cx| {
             cx.open_window(

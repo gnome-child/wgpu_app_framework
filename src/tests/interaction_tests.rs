@@ -1,17 +1,23 @@
 use super::*;
+use crate::virtual_list;
 
 #[derive(Clone)]
 struct ReplacingInteractionState {
     level: f64,
     invocations: usize,
     visible: bool,
+    available: bool,
 }
 
 impl State for ReplacingInteractionState {}
 
 impl Target<SetLevel> for ReplacingInteractionState {
     fn state(&self, _: &f64, _: &Context) -> command::State {
-        command::State::enabled()
+        if self.available {
+            command::State::enabled()
+        } else {
+            command::State::disabled()
+        }
     }
 
     fn invoke(&mut self, level: f64, _: &mut Context) -> Response<f64> {
@@ -53,11 +59,128 @@ impl Target<RecordSource> for HiddenLocalRouteState {
     }
 }
 
+struct ContextRow;
+
+impl Command for ContextRow {
+    type Args = virtual_list::Key;
+    type Output = ();
+
+    const NAME: &'static str = "test.context_row";
+}
+
+struct ContextToggle;
+
+impl Command for ContextToggle {
+    type Args = (crate::table::Cell, bool);
+    type Output = ();
+
+    const NAME: &'static str = "test.context_toggle";
+}
+
+#[derive(Clone, Default)]
+struct TableContextState {
+    visible: bool,
+    row_invoked: Option<virtual_list::Key>,
+    toggled: Option<(crate::table::Cell, bool)>,
+}
+
+impl State for TableContextState {}
+
+impl Target<ContextRow> for TableContextState {
+    fn state(&self, _: &virtual_list::Key, _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, key: virtual_list::Key, _: &mut Context) -> Response<()> {
+        self.row_invoked = Some(key);
+        Response::changed(())
+    }
+}
+
+impl Target<ContextToggle> for TableContextState {
+    fn state(&self, _: &(crate::table::Cell, bool), _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, args: (crate::table::Cell, bool), _: &mut Context) -> Response<()> {
+        self.toggled = Some(args);
+        Response::changed(())
+    }
+}
+
+#[derive(Clone)]
+struct ContextRecord {
+    name: String,
+    enabled: bool,
+}
+
+fn table_context_app() -> Runtime<TableContextState, (), View> {
+    Runtime::new(TableContextState {
+        visible: true,
+        ..TableContextState::default()
+    })
+    .commands(|commands| {
+        commands
+            .register::<ContextRow>(command::Spec::new("Open row"))
+            .register::<ContextToggle>(command::Spec::new("Toggle enabled"));
+    })
+    .responders(|responders| {
+        responders
+            .app()
+            .target::<ContextRow>()
+            .target::<ContextToggle>();
+    })
+    .view(|state, _| {
+        let len = usize::from(state.visible);
+        let source = crate::table::Source::new(
+            len,
+            |_| virtual_list::Key::new(17),
+            move |key| (len == 1 && key == virtual_list::Key::new(17)).then_some(0),
+            |_| ContextRecord {
+                name: "Seventeen".to_owned(),
+                enabled: false,
+            },
+        );
+        let columns = vec![
+            crate::table::Column::text(
+                "name",
+                "Name",
+                view::Dimension::fixed(120),
+                |record: &ContextRecord| &record.name,
+            )
+            .unsortable()
+            .build(),
+            crate::table::Column::boolean(
+                "enabled",
+                "Enabled",
+                view::Dimension::fixed(80),
+                |record: &ContextRecord| &record.enabled,
+            )
+            .toggle::<ContextToggle>(|cell, value| (cell, value))
+            .unsortable()
+            .build()
+            .context_menu(),
+        ];
+        widget::view(|ui| {
+            ui.add(
+                crate::Table::typed("context.table", 24, columns, source)
+                    .context_rows::<ContextRow>(|key| key)
+                    .width(view::Dimension::fixed(200))
+                    .height(view::Dimension::fixed(90)),
+            );
+        })
+    })
+    .started(|cx| {
+        cx.open_window(window::Options::new("Table context"));
+    })
+}
+
 fn contextual_binding_app() -> Runtime<ReplacingInteractionState, (), View> {
     Runtime::new(ReplacingInteractionState {
         level: 0.0,
         invocations: 0,
         visible: true,
+        available: true,
     })
     .commands(|commands| {
         commands.register::<SetLevel>(command::Spec::new("Set level"));
@@ -128,6 +251,39 @@ fn contextual_binding_derives_one_existing_menu_row_and_preserves_arguments() {
 }
 
 #[test]
+fn open_context_menu_reprojects_live_command_state() {
+    let mut app = contextual_binding_app();
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 180);
+    let initial = app.show_scene(window, size).expect("view should render");
+    let owner = labeled_frame(initial.layout(), view::Role::Binding, "Set level");
+    app.open_context_menu_at(window, size, frame_point(owner))
+        .expect("context menu should open");
+
+    app.change(
+        state::Reason::programmatic("disable-context-action"),
+        |state| {
+            state.available = false;
+        },
+    );
+    let projected = app.present(window).expect("open menu should reproject");
+    let action = projected
+        .bindings()
+        .into_iter()
+        .find(|binding| binding.source() == context::Source::Menu)
+        .expect("disabled context action should remain visible");
+
+    assert!(!action.state().is_enabled());
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(Interaction::open_menu)
+            .is_some_and(interaction::Menu::is_context)
+    );
+}
+
+#[test]
 fn unmarked_space_does_not_scan_the_application_command_world() {
     let mut app = contextual_binding_app();
     app.start();
@@ -146,6 +302,47 @@ fn unmarked_space_does_not_scan_the_application_command_world() {
             .interaction(window)
             .and_then(Interaction::open_menu),
         None
+    );
+}
+
+#[test]
+fn explicitly_contextual_root_projects_its_bounded_application_targets() {
+    let mut app = Runtime::new(SourceState::default())
+        .commands(|commands| {
+            commands.register::<RecordSource>(command::Spec::new("Application action"));
+        })
+        .responders(|responders| {
+            responders.app().target::<RecordSource>();
+        })
+        .view(|_, _| {
+            widget::view_node(widget::context_menu(
+                widget::Root::new().child(widget::Label::new("Application canvas")),
+            ))
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Application context"));
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 180);
+    let initial = app.show_scene(window, size).expect("root should render");
+    let canvas = labeled_frame(initial.layout(), view::Role::Label, "Application canvas");
+
+    app.open_context_menu_at(window, size, frame_point(canvas))
+        .expect("explicit application context should open");
+    let projected = app
+        .present(window)
+        .expect("application menu should project");
+    let actions = projected
+        .bindings()
+        .into_iter()
+        .filter(|binding| binding.source() == context::Source::Menu)
+        .collect::<Vec<_>>();
+
+    assert_eq!(actions.len(), 1);
+    assert_eq!(
+        actions[0].command_type(),
+        std::any::TypeId::of::<RecordSource>()
     );
 }
 
@@ -320,6 +517,22 @@ fn text_context_uses_the_existing_local_service_without_moving_focus() {
             .is_some_and(interaction::Menu::is_context)
     );
     assert_eq!(app.session().focused(window), Some(focus));
+
+    app.handle_input(window, Input::cancel())
+        .expect("keyboard context should close");
+    let menu_key = app
+        .handle_input(
+            window,
+            Input::key_down(input::Key::ContextMenu, input::Modifiers::default()),
+        )
+        .expect("Menu key should request the same context menu");
+    assert!(menu_key.is_handled());
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(Interaction::open_menu)
+            .is_some_and(interaction::Menu::is_context)
+    );
 }
 
 #[test]
@@ -356,6 +569,98 @@ fn hidden_exact_target_does_not_fall_through_to_the_application() {
 
     assert!(!outcome.is_handled());
     assert_eq!(app.state().app_invocations, 0);
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(Interaction::open_menu),
+        None
+    );
+}
+
+#[test]
+fn table_context_cells_override_row_actions_and_virtual_removal_prunes_the_menu() {
+    let mut app = table_context_app();
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 180);
+    let initial = app.show_scene(window, size).expect("table should render");
+    let key = virtual_list::Key::new(17);
+    let name = crate::table::Cell::new("context.table".into(), key, "name".into());
+    let enabled = crate::table::Cell::new("context.table".into(), key, "enabled".into());
+    let row = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_row().is_some())
+        .expect("virtual row should be materialized");
+    assert_eq!(
+        row.target(),
+        None,
+        "context-only rows must not become buttons"
+    );
+    let name_frame = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(name) && frame.role() == view::Role::TextArea)
+        .expect("text cell should be laid out");
+
+    app.open_context_menu_at(window, size, frame_point(name_frame))
+        .expect("row context should open through an unmarked cell");
+    let projected = app.present(window).expect("row menu should project");
+    let row_action = projected
+        .bindings()
+        .into_iter()
+        .find(|binding| binding.source() == context::Source::Menu)
+        .expect("row should contribute one context action");
+    assert_eq!(
+        row_action.command_type(),
+        std::any::TypeId::of::<ContextRow>()
+    );
+    app.handle_view(window, row_action.action())
+        .expect("row action should invoke");
+    assert_eq!(app.state().row_invoked, Some(key));
+
+    let current = app.show_scene(window, size).expect("table should rebuild");
+    let enabled_frame = current
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(enabled) && frame.role() == view::Role::Checkbox)
+        .expect("Boolean cell should be laid out");
+    app.open_context_menu_at(window, size, frame_point(enabled_frame))
+        .expect("cell context should open");
+    let projected = app.present(window).expect("cell menu should project");
+    let actions = projected
+        .bindings()
+        .into_iter()
+        .filter(|binding| binding.source() == context::Source::Menu)
+        .collect::<Vec<_>>();
+    assert_eq!(actions.len(), 1);
+    assert_eq!(
+        actions[0].command_type(),
+        std::any::TypeId::of::<ContextToggle>()
+    );
+    app.handle_view(window, actions[0].action())
+        .expect("Boolean context action should invoke");
+    assert_eq!(app.state().toggled, Some((enabled, true)));
+
+    let current = app
+        .show_scene(window, size)
+        .expect("table should remain visible");
+    let name_frame = current
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(name) && frame.role() == view::Role::TextArea)
+        .expect("text cell should still be laid out");
+    app.open_context_menu_at(window, size, frame_point(name_frame))
+        .expect("row context should reopen");
+    app.change(state::Reason::programmatic("remove-context-row"), |state| {
+        state.visible = false;
+    });
+    app.show_scene(window, size)
+        .expect("virtual row removal should reconcile");
     assert_eq!(
         app.session()
             .interaction(window)
@@ -739,6 +1044,7 @@ fn rebuilding_away_captured_command_prunes_pointer_and_history_gesture() {
         level: 0.0,
         invocations: 0,
         visible: true,
+        available: true,
     })
     .commands(|commands| {
         commands.register::<SetLevel>(command::Spec::new("Set Level"));

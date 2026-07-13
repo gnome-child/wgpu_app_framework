@@ -1,6 +1,6 @@
 # The Nearest Command World — context-menu campaign
 
-Status: in flight.
+Status: complete; manual native-popup comparison remains pending eyes.
 
 ## Mission
 
@@ -116,7 +116,7 @@ must decide and record each surface's policy deliberately.
 | 3 | Secondary/keyboard request through one menu session | Complete |
 | 4 | Existing menu-row and overlay projection | Complete |
 | 5 | One placement solver with viewport/work-area bounds | Complete |
-| 6 | Gallery, absence witnesses, doctrine, and full closeout | Pending |
+| 6 | Gallery, absence witnesses, doctrine, and full closeout | Complete |
 
 ## Explicit exclusions
 
@@ -199,6 +199,45 @@ must decide and record each surface's policy deliberately.
 - Boundary verification: point-corner, rectangle-anchor, oversize, layout
   integration, work-area projection, and all 32 interaction witnesses passed;
   library compilation is warning-free.
+
+### Checkpoint 6
+
+- The control gallery exercises three ownership altitudes without authored menu
+  recipes: a contextual checkbox, a focused text service, and a virtual table.
+  Table rows capture one typed `OpenRecord` command from their stable key;
+  generated Boolean cells opt in independently and therefore win as the nearer
+  contextual owner.
+- `Table::context_rows<C>` and `TypedColumn::context_menu` keep construction
+  typed. The heterogeneous row carrier is private and erased only after the
+  command arguments have been captured. A separate context-only node binding
+  prevents row context from accidentally becoming primary-click behavior.
+- Live-state and lifecycle witnesses prove that an open menu re-resolves
+  disabled state, a disappearing virtual row prunes the shared session, and a
+  marked cell shadows its marked row without either falling through globally.
+  Secondary release, Shift+F10, and the Menu key all enter that same session.
+- Surface policy is explicit: the palette excludes its own global describer;
+  nearest-owner context discovery has no blanket describer exclusion, so a
+  describer deliberately registered in that bounded local world remains an
+  honest candidate.
+- Four structural-absence tests pin the negative architecture: one private
+  resolver, type-distinct global/local providers, no registry import in layout,
+  no context row painter or second session, no native platform menu, and one
+  placement request consumed by both hosts.
+- Public API flags for morning review: `TypedColumn::context_menu` and
+  `Table::context_rows<C>` are the only table conveniences added by closeout;
+  the general widget-level `context_menu` marker was established earlier in
+  the campaign. No erased trigger or target became public.
+- Verification: formatting and all-target compilation pass; 982 ordinary
+  library tests pass with 10 ignored; all four doctests pass; the text editor,
+  control gallery, and glass tuner smoke binaries pass; comparison mode remains
+  open. Nine of ten explicit deep-tier witnesses pass, including every GPU,
+  alpha, shader, and text-correctness witness. The pre-existing 8 MiB text-load
+  performance gate exceeded its threshold twice (272.7 ms and 266.2 ms); no
+  context-menu code participates in that path, so the result is recorded rather
+  than hidden or repaired out of scope.
+- Pending eyes: native placement, hover, fade, and activation should still be
+  compared manually under Vulkan and DX12. Mechanical closeout does not claim
+  those human-visible observations.
 
 ## Structural-absence witnesses
 

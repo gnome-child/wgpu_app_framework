@@ -2,8 +2,8 @@ use super::{
     Mode, State,
     command::{
         EditRecordCount, EditRecordCountArgs, EditRecordNote, EditRecordNoteArgs, IncrementClicks,
-        ResetControls, SelectMode, SetLevel, SetRecordEnabled, SetRecordEnabledArgs, SubmitQuery,
-        ToggleAdvanced, ToggleExpandedRows, ToggleGrid, ToggleWrap,
+        OpenRecord, ResetControls, SelectMode, SetLevel, SetRecordEnabled, SetRecordEnabledArgs,
+        SubmitQuery, ToggleAdvanced, ToggleExpandedRows, ToggleGrid, ToggleWrap,
     },
     state::{RECORD_COUNT, RecordOrder},
 };
@@ -219,7 +219,8 @@ pub fn view(state: &State, _: ViewContext) -> View {
                                 cell,
                                 value,
                             })
-                            .build(),
+                            .build()
+                            .context_menu(),
                             table::Column::custom(
                                 "action",
                                 "Action",
@@ -248,6 +249,7 @@ pub fn view(state: &State, _: ViewContext) -> View {
                             } else {
                                 table::Presentation::Compact
                             })
+                            .context_rows::<OpenRecord>(|key| key)
                             .width(Dimension::grow())
                             .height(Dimension::fixed(136)),
                         );
@@ -290,7 +292,9 @@ fn toggle_panel(state: &State) -> widget::Element {
         })
         .height(Dimension::fixed(44))
         .children(|ui| {
-            ui.checkbox(widget::Checkbox::new("Wrap text", state.wrap).trigger::<ToggleWrap>(()));
+            ui.context_menu(
+                widget::Checkbox::new("Wrap text", state.wrap).trigger::<ToggleWrap>(()),
+            );
             ui.checkbox(widget::Checkbox::new("Show grid", state.grid).trigger::<ToggleGrid>(()));
             ui.checkbox(
                 widget::Checkbox::new("Advanced", state.show_advanced)
@@ -331,7 +335,7 @@ fn input_panel(state: &State) -> widget::Element {
         .height(Dimension::fixed(44))
         .children(|ui| {
             ui.label("Search");
-            ui.text_box(
+            ui.context_menu(
                 widget::TextBox::new(state.query.clone())
                     .placeholder("Type to search")
                     .focus(wgpu_l3::session::Focus::text(QUERY_FOCUS))

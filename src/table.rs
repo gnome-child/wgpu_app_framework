@@ -202,11 +202,27 @@ where
 type CellProjection<R> = dyn Fn(&R, Cell, Presentation) -> view::Node;
 type ValueValidation<V> = dyn Fn(&V) -> Result<(), String> + Send + Sync;
 type OrderProjection = dyn Fn(&dyn Any, &dyn Any) -> Ordering;
+type RowContext = dyn Fn(virtual_list::Key) -> command::AnyTrigger;
 
 /// A heterogeneous typed column after its value and capabilities are erased.
 pub struct TypedColumn<R> {
     column: Column,
     cell: Rc<CellProjection<R>>,
+}
+
+impl<R> TypedColumn<R>
+where
+    R: 'static,
+{
+    /// Marks every generated cell in this column as a contextual owner while
+    /// preserving its existing binding, responder, and widget species.
+    pub fn context_menu(mut self) -> Self {
+        let cell = Rc::clone(&self.cell);
+        self.cell = Rc::new(move |record, identity, presentation| {
+            cell(record, identity, presentation).with_context_menu()
+        });
+        self
+    }
 }
 
 #[doc(hidden)]
@@ -333,6 +349,7 @@ pub struct Table {
     presentation: Presentation,
     presentation_projection: Option<Rc<std::cell::Cell<Presentation>>>,
     sort_projection: Option<Rc<std::cell::Cell<Option<SortState>>>>,
+    row_context: Option<Rc<RowContext>>,
 }
 
 pub struct TextEditor {
@@ -463,6 +480,7 @@ struct Rows {
     table: interaction::Id,
     model: Model,
     provider: Rc<dyn Provider>,
+    row_context: Option<Rc<RowContext>>,
 }
 
 impl Column {
@@ -844,6 +862,7 @@ impl Table {
             presentation: Presentation::Compact,
             presentation_projection: None,
             sort_projection: None,
+            row_context: None,
         }
     }
 
@@ -938,6 +957,19 @@ impl Table {
         self.background = Some(background);
         self
     }
+
+    /// Adds one typed context-only command to each virtual row. The stable row
+    /// key supplies concrete arguments without changing primary-click behavior.
+    pub fn context_rows<C>(mut self, map: impl Fn(virtual_list::Key) -> C::Args + 'static) -> Self
+    where
+        C: command::Command,
+        C::Args: Clone,
+    {
+        self.row_context = Some(Rc::new(move |key| {
+            command::AnyTrigger::command::<C>(map(key))
+        }));
+        self
+    }
 }
 
 impl widget::Widget for Table {
@@ -955,6 +987,7 @@ impl widget::Widget for Table {
             table: self.id,
             model: model.clone(),
             provider: self.provider,
+            row_context: self.row_context,
         };
         let list = match self.presentation {
             Presentation::Compact => crate::VirtualList::new(self.id, self.row_height, rows),
@@ -1283,14 +1316,15 @@ impl virtual_list::Provider for Rows {
                     .with_table_cell(cell)
             })
             .collect();
-        children.into_iter().fold(
-            view::Node::stack(view::Axis::Horizontal).with_table_row(Row {
-                table: self.table,
-                key,
-                index,
-            }),
-            view::Node::child,
-        )
+        let mut row = view::Node::stack(view::Axis::Horizontal).with_table_row(Row {
+            table: self.table,
+            key,
+            index,
+        });
+        if let Some(context) = self.row_context.as_ref() {
+            row = row.bind_context_trigger(context(key)).with_context_menu();
+        }
+        children.into_iter().fold(row, view::Node::child)
     }
 }
 

@@ -1,0 +1,57 @@
+const COMMAND_MOD: &str = include_str!("../command/mod.rs");
+const COMMAND_REGISTRY: &str = include_str!("../command/registry.rs");
+const COMMAND_SURFACE: &str = include_str!("../command/surface.rs");
+const CONTEXT_RUNTIME: &str = include_str!("../runtime/context_menu.rs");
+const PALETTE_RUNTIME: &str = include_str!("../runtime/palette.rs");
+const INTERACTION_MENU: &str = include_str!("../interaction/menu.rs");
+const MENU_SESSION: &str = include_str!("../session/interaction/menu.rs");
+const LAYOUT_ALGORITHM: &str = include_str!("../layout/algorithm.rs");
+const LAYOUT_CONTROL: &str = include_str!("../layout/control.rs");
+const SCENE_PAINT: &str = include_str!("../scene/paint/mod.rs");
+const NATIVE_POPUP: &str = include_str!("../platform/native/popup.rs");
+const WINDOWS_SYS: &str = include_str!("../platform/native/sys/windows.rs");
+
+#[test]
+fn command_surfaces_share_one_private_erased_resolution_boundary() {
+    assert_eq!(
+        COMMAND_REGISTRY.matches("fn resolve_candidates").count(),
+        1,
+        "the registry should own one command-surface resolver"
+    );
+    assert!(!COMMAND_REGISTRY.contains("resolved_unit_commands"));
+    assert!(!PALETTE_RUNTIME.contains("resolved_unit_commands"));
+    assert!(COMMAND_SURFACE.contains("pub(crate) enum Global"));
+    assert!(COMMAND_SURFACE.contains("pub(crate) enum Local"));
+    assert!(COMMAND_MOD.contains("pub(crate) use trigger::{AnyTrigger, AnyValueTrigger}"));
+    assert!(!COMMAND_MOD.contains("pub use trigger::{AnyTrigger"));
+}
+
+#[test]
+fn contextual_discovery_cannot_cross_into_global_registry_scanning() {
+    assert!(CONTEXT_RUNTIME.contains("local_candidates"));
+    assert!(!CONTEXT_RUNTIME.contains("global_candidates"));
+    assert!(PALETTE_RUNTIME.contains("global_candidates"));
+    assert!(!LAYOUT_ALGORITHM.contains("command::Registry"));
+    assert!(!LAYOUT_CONTROL.contains("command::Registry"));
+    assert!(!LAYOUT_ALGORITHM.contains("context_actions"));
+}
+
+#[test]
+fn contextual_menus_reuse_menu_lifecycle_and_row_presentation() {
+    assert!(INTERACTION_MENU.contains("enum Origin"));
+    assert!(INTERACTION_MENU.contains("Context {"));
+    assert!(!INTERACTION_MENU.contains("command::State"));
+    assert!(!MENU_SESSION.contains("ContextMenuSession"));
+    assert!(!LAYOUT_CONTROL.contains("context_menu"));
+    assert!(!SCENE_PAINT.contains("paint_context_menu"));
+    assert!(!SCENE_PAINT.contains("ContextMenuRow"));
+}
+
+#[test]
+fn platform_hosts_supply_bounds_without_owning_menu_policy() {
+    assert!(LAYOUT_ALGORITHM.contains("PlacementRequest"));
+    assert!(NATIVE_POPUP.contains("placement.resolve(available)"));
+    assert!(!NATIVE_POPUP.contains("TrackPopupMenu"));
+    assert!(!WINDOWS_SYS.contains("TrackPopupMenu"));
+    assert!(!WINDOWS_SYS.contains("CreatePopupMenu"));
+}

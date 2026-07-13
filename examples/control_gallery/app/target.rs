@@ -2,8 +2,8 @@ use super::{
     State,
     command::{
         EditRecordCount, EditRecordCountArgs, EditRecordNote, EditRecordNoteArgs, IncrementClicks,
-        ResetControls, SelectMode, SetLevel, SetRecordEnabled, SetRecordEnabledArgs, SubmitQuery,
-        ToggleAdvanced, ToggleExpandedRows, ToggleGrid, ToggleWrap,
+        OpenRecord, ResetControls, SelectMode, SetLevel, SetRecordEnabled, SetRecordEnabledArgs,
+        SubmitQuery, ToggleAdvanced, ToggleExpandedRows, ToggleGrid, ToggleWrap,
     },
 };
 use wgpu_l3::{Context, Response, Target, command};
@@ -189,6 +189,17 @@ impl Target<ToggleExpandedRows> for State {
     fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
         self.expanded_rows = !self.expanded_rows;
         self.last_status = format!("expanded rows {}", on_off(self.expanded_rows));
+        Response::changed(())
+    }
+}
+
+impl Target<OpenRecord> for State {
+    fn state(&self, _: &wgpu_l3::virtual_list::Key, _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, key: wgpu_l3::virtual_list::Key, _: &mut Context) -> Response<()> {
+        self.last_status = format!("opened record {}", key.value());
         Response::changed(())
     }
 }

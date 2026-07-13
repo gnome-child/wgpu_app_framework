@@ -17,9 +17,6 @@ is next.
 
 ## Specced and ready
 
-4. **Context menu** — right-click → hit-scoped claims → derived command menu
-   at the pointer, on the native popup backend. The popup arc's original
-   payoff feature.
 
 ## Pending manual verification
 

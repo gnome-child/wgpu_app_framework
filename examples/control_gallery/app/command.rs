@@ -13,6 +13,7 @@ pub struct EditRecordNote;
 pub struct EditRecordCount;
 pub struct SetRecordEnabled;
 pub struct ToggleExpandedRows;
+pub struct OpenRecord;
 
 #[derive(Clone)]
 pub struct EditRecordNoteArgs {
@@ -118,4 +119,11 @@ impl Command for ToggleExpandedRows {
     type Output = ();
 
     const NAME: &'static str = "control_gallery.toggle_expanded_rows";
+}
+
+impl Command for OpenRecord {
+    type Args = wgpu_l3::virtual_list::Key;
+    type Output = ();
+
+    const NAME: &'static str = "control_gallery.open_record";
 }

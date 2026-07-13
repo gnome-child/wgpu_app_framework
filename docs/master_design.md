@@ -879,6 +879,34 @@ focused-text service, while a selected row invokes its command against the
 captured scope. Command descriptions omit commands marked `Listing::Describer`:
 a description does not include the act of describing.
 
+A command surface has three separate stages: candidate discovery, live command
+resolution, and presentation. The palette discovers globally and presents
+search results; a context menu stops at the nearest explicitly contextual
+owner and presents the resulting actions as ordinary menu rows. Both consume
+one private erased command projection. Public construction remains typed, and
+candidate-provider types keep global and nearest-owner discovery
+unsubstitutable.
+
+Context identity is not keyboard focus. A contextual scope may name an exact
+responder and an optional text focus independently; opening a context menu
+never manufactures focus to discover a target. The route that advertised an
+automatic responder or service action is also the route revalidated for
+invocation, so a disappearing local owner cannot fall through to a broader
+target. Sessions retain owner and anchor, never command availability; state is
+re-resolved while the menu remains open.
+
+Generated virtual rows may capture one typed context-only command from their
+stable key. That command is erased only after capture and does not become an
+ordinary primary-click binding. Generated table cells opt in through the same
+column wrapper and preserve their existing widget binding, making a marked
+cell the honest nearest owner above its marked row.
+
+Menu placement is one geometry projection shared by authored and contextual
+menus. An anchor and intrinsic size resolve against availability supplied by
+the realization host: inherited viewport visibility for in-frame menus and
+the anchor monitor's work area for native popups. Layout and platform code
+consume the same request; neither owns separate flip or clamp arithmetic.
+
 Target labels are debug and presentation data, not identity. Target identity
 is its kind, stable id or retained node identity, and routing source. Changing
 a target label or capture behavior must not fork hover, scroll, draft, or

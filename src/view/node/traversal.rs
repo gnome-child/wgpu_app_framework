@@ -29,7 +29,7 @@ impl Node {
                 owner,
                 retained.element_id(),
                 focus,
-                self.binding().cloned(),
+                self.context_binding().or_else(|| self.binding()).cloned(),
                 self.role == Role::Root,
             ));
         }

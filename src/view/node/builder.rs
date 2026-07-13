@@ -358,6 +358,11 @@ impl Node {
         self
     }
 
+    pub(crate) fn bind_context_trigger(mut self, trigger: command::AnyTrigger) -> Self {
+        self.context_binding = Some(Binding::from_trigger(trigger, Source::Button));
+        self
+    }
+
     pub(crate) fn with_selected(mut self, selected: bool) -> Self {
         self.selected = selected;
         self
@@ -420,6 +425,7 @@ impl Node {
             label: None,
             text_kind: super::TextKind::Author,
             binding: None,
+            context_binding: None,
             control: None,
             focused: false,
             focus_visible: false,

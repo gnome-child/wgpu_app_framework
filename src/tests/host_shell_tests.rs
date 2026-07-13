@@ -217,6 +217,82 @@ fn shell_drains_text_editor_to_scene_work_and_requests() {
 }
 
 #[test]
+fn shell_opens_context_menus_on_secondary_release_not_press() {
+    let app = Runtime::new(SourceState::default())
+        .commands(|commands| {
+            commands.register::<RecordSource>(command::Spec::new("Context action"));
+        })
+        .responders(|responders| {
+            responders.app().target::<RecordSource>();
+        })
+        .view(|_, _| {
+            widget::view(|ui| {
+                ui.context_menu(widget::Binding::<RecordSource>::button());
+            })
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Secondary context"));
+        });
+    let mut shell = Shell::new(app);
+    shell.start();
+    let window = shell.runtime().session().windows()[0].id();
+    assert!(shell.set_window_size(window, geometry::Size::new(320, 180)));
+    let work = shell.drain();
+    let owner = work
+        .presentations()
+        .last()
+        .expect("resized shell should present")
+        .layout()
+        .find_role(view::Role::Binding)
+        .into_iter()
+        .next()
+        .expect("context binding should be laid out");
+    let point = frame_point(owner);
+    acknowledge_shell_work(&mut shell, &work);
+    let retained_layout = shell
+        .runtime()
+        .presented_layout(window)
+        .expect("shell should retain its presented layout");
+    let node = retained_layout
+        .context_node_at(point)
+        .expect("context point should hit retained geometry");
+    assert!(
+        shell
+            .runtime()
+            .composition(window)
+            .and_then(|composition| composition.context_owner_for_node(node))
+            .is_some(),
+        "shell context geometry should retain its owner"
+    );
+
+    let pressed = shell
+        .pointer_down(window, point, pointer::Button::Secondary)
+        .expect("secondary press should be valid input");
+    assert!(!pressed.is_handled());
+    assert_eq!(
+        shell
+            .runtime()
+            .session()
+            .interaction(window)
+            .and_then(Interaction::open_menu),
+        None
+    );
+
+    let released = shell
+        .pointer_up(window, point, pointer::Button::Secondary)
+        .expect("secondary release should request context");
+    assert!(released.is_handled());
+    assert!(
+        shell
+            .runtime()
+            .session()
+            .interaction(window)
+            .and_then(Interaction::open_menu)
+            .is_some_and(interaction::Menu::is_context)
+    );
+}
+
+#[test]
 fn shell_routes_coordinate_input_and_task_completions() {
     let path = temp_text_path("shell_task_completion.txt");
     let mut shell = Shell::new(text_editor::app(text_editor::State::default()));

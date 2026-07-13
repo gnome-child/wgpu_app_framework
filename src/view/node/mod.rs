@@ -83,6 +83,7 @@ pub struct Node {
     label: Option<String>,
     text_kind: TextKind,
     binding: Option<Binding>,
+    context_binding: Option<Binding>,
     control: Option<Control>,
     focused: bool,
     focus_visible: bool,

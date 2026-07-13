@@ -63,24 +63,27 @@ pub(in crate::platform::native) fn popup_available_bounds(
     anchor: geometry::PlacementAnchor,
 ) -> Option<geometry::Rect> {
     #[cfg(target_os = "windows")]
-    return windows::popup_available_bounds(window, anchor);
+    return windows::popup_available_bounds(window, anchor)
+        .or_else(|| monitor_available_bounds(window));
 
     #[cfg(not(target_os = "windows"))]
-    {
-        let monitor = window.current_monitor()?;
-        let origin = window.inner_position().ok()?;
-        let position = monitor.position();
-        let size = monitor.size();
-        Some(physical_bounds_as_parent_logical(
-            position.x,
-            position.y,
-            size.width as i32,
-            size.height as i32,
-            origin.x,
-            origin.y,
-            window.scale_factor(),
-        ))
-    }
+    return monitor_available_bounds(window);
+}
+
+fn monitor_available_bounds(window: &winit::window::Window) -> Option<geometry::Rect> {
+    let monitor = window.current_monitor()?;
+    let origin = window.inner_position().ok()?;
+    let position = monitor.position();
+    let size = monitor.size();
+    Some(physical_bounds_as_parent_logical(
+        position.x,
+        position.y,
+        size.width as i32,
+        size.height as i32,
+        origin.x,
+        origin.y,
+        window.scale_factor(),
+    ))
 }
 
 fn physical_bounds_as_parent_logical(

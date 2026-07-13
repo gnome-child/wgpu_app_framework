@@ -17,6 +17,14 @@ fn platform_key_and_modifier_conversion_matches_winit_inputs() {
         input::Key::F4
     );
     assert_eq!(
+        platform::key(&WinitKey::Named(NamedKey::F10)),
+        input::Key::F10
+    );
+    assert_eq!(
+        platform::key(&WinitKey::Named(NamedKey::ContextMenu)),
+        input::Key::ContextMenu
+    );
+    assert_eq!(
         platform::key(&WinitKey::Character("A".into())),
         input::Key::Character('A')
     );

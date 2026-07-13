@@ -390,4 +390,33 @@ mod placement_tests {
             Rect::new(95, 75, 30, 20)
         );
     }
+
+    #[test]
+    fn contextual_floating_panel_honors_nested_available_bounds() {
+        let available = Rect::new(10, 10, 40, 30);
+        let panel = view::Node::floating_panel("nested-context")
+            .with_menu_placement(
+                crate::geometry::PlacementAnchor::Point(Point::new(48, 38)),
+                available,
+            )
+            .with_style(
+                view::Style::new()
+                    .with_width(view::Dimension::fixed(30))
+                    .with_height(view::Dimension::fixed(20)),
+            );
+        let view = view::View::new(view::Node::root().child(panel));
+        let mut engine = Engine::new();
+        let layout = Layout::compose(&view, Size::new(200, 160), &mut engine);
+        let panel = layout
+            .find_role(view::Role::FloatingPanel)
+            .into_iter()
+            .next()
+            .expect("nested context panel should be laid out");
+
+        assert_eq!(panel.rect(), Rect::new(18, 18, 30, 20));
+        assert!(panel.rect().x() >= available.x());
+        assert!(panel.rect().y() >= available.y());
+        assert!(panel.rect().right() <= available.right());
+        assert!(panel.rect().bottom() <= available.bottom());
+    }
 }

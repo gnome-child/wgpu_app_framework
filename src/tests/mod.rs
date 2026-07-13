@@ -778,6 +778,7 @@ impl runtime::Persistence<EditorState> for EditorPersistence {
 mod architecture;
 mod commands;
 mod composition_tests;
+mod context_menu_architecture;
 mod document_editor;
 mod host_adapter_tests;
 mod host_shell_tests;

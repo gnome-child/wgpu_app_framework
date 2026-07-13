@@ -76,6 +76,10 @@ impl Node {
         self.binding.as_ref()
     }
 
+    pub(crate) fn context_binding(&self) -> Option<&Binding> {
+        self.context_binding.as_ref()
+    }
+
     pub(crate) fn has_context_menu(&self) -> bool {
         self.context_menu
     }
