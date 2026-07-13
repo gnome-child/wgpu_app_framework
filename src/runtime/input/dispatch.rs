@@ -61,6 +61,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             }
             input::Input::Focus(focus) => self.focus_committing_text_box(window, focus),
             input::Input::PointerMove(target) => {
+                let hover_tip_was_visible = self.session.hover_tip_visible(window);
                 let menu_switch = target
                     .as_ref()
                     .and_then(interaction::Target::as_menu)
@@ -71,7 +72,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                             .is_some_and(|open| *open != menu)
                     });
                 let effect = if self.session.pointer_move(window, target) {
-                    if menu_switch {
+                    if menu_switch || hover_tip_was_visible {
                         response::Effect::Rebuild
                     } else {
                         response::Effect::Paint
@@ -83,13 +84,18 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 Ok(self.window_outcome(window, false, effect))
             }
             input::Input::PointerDown(target) => {
+                let hover_tip_was_visible = self.session.hover_tip_visible(window);
                 self.begin_pointer_gesture(window, &target);
                 let effect =
                     if self
                         .session
                         .pointer_down(window, target, interaction::PressIntent::Activate)
                     {
-                        response::Effect::Paint
+                        if hover_tip_was_visible {
+                            response::Effect::Rebuild
+                        } else {
+                            response::Effect::Paint
+                        }
                     } else {
                         response::Effect::None
                     };
@@ -97,13 +103,18 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 Ok(self.window_outcome(window, false, effect))
             }
             input::Input::PointerManipulate(target) => {
+                let hover_tip_was_visible = self.session.hover_tip_visible(window);
                 self.begin_pointer_gesture(window, &target);
                 let effect = if self.session.pointer_down(
                     window,
                     target,
                     interaction::PressIntent::Manipulate,
                 ) {
-                    response::Effect::Paint
+                    if hover_tip_was_visible {
+                        response::Effect::Rebuild
+                    } else {
+                        response::Effect::Paint
+                    }
                 } else {
                     response::Effect::None
                 };
@@ -111,8 +122,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 Ok(self.window_outcome(window, false, effect))
             }
             input::Input::PointerDrag(hovered) => {
+                let hover_tip_was_visible = self.session.hover_tip_visible(window);
                 let effect = if self.session.pointer_move(window, hovered) {
-                    response::Effect::Paint
+                    if hover_tip_was_visible {
+                        response::Effect::Rebuild
+                    } else {
+                        response::Effect::Paint
+                    }
                 } else {
                     response::Effect::None
                 };
@@ -121,8 +137,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             }
             input::Input::PointerUp(target) => self.handle_pointer_up_input(window, target, true),
             input::Input::PointerLeft => {
+                let hover_tip_was_visible = self.session.hover_tip_visible(window);
                 let effect = if self.session.pointer_left(window) {
-                    response::Effect::Paint
+                    if hover_tip_was_visible {
+                        response::Effect::Rebuild
+                    } else {
+                        response::Effect::Paint
+                    }
                 } else {
                     response::Effect::None
                 };

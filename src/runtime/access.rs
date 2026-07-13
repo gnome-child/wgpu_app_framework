@@ -226,7 +226,33 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                     })
                 });
                 let hovered = hit.as_ref().and_then(|hit| hit.target().cloned());
-                self.session.project_pointer_hover(window, hovered);
+                let hover_tip_eligible = hovered.as_ref().is_some_and(|target| {
+                    self.composition.get(window).is_some_and(|composition| {
+                        composition.view().hover_tip_eligible(
+                            composition.tree(),
+                            target,
+                            layout.overflow_tip_for_target(target).is_some(),
+                        )
+                    })
+                });
+                self.session
+                    .project_pointer_hover(window, hovered, hover_tip_eligible);
+                if let Some(deadline) = self.session.hover_tip_deadline(
+                    window,
+                    std::time::Duration::from_millis(
+                        self.active_theme().auxiliary_panel().hover_delay_ms,
+                    ),
+                ) {
+                    let current = self
+                        .animation_schedules
+                        .get(&window)
+                        .copied()
+                        .unwrap_or(crate::animation::Schedule::Idle);
+                    self.animation_schedules.insert(
+                        window,
+                        current.merge(crate::animation::Schedule::At(deadline)),
+                    );
+                }
                 self.session
                     .set_cursor(window, super::pointer::pointer_cursor_for_hit(hit.as_ref()));
             }

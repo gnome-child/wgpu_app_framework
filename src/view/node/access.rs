@@ -3,7 +3,10 @@ use super::super::{
     control::{Button, Checkbox, Control, Radio, Slider, TextArea, TextBox},
     style::Style,
 };
-use super::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node, Role};
+use super::{
+    AuxiliaryChrome, Axis, FloatingPlacement, NativePopupMaterialPreference, Node, PanelPolicy,
+    Role,
+};
 use crate::{interaction, subject};
 
 impl Node {
@@ -23,16 +26,32 @@ impl Node {
         self.floating_placement
     }
 
-    pub(crate) fn menu_anchor(&self) -> Option<crate::geometry::PlacementAnchor> {
-        self.menu_anchor
+    pub(crate) fn placement_anchor(&self) -> Option<crate::geometry::PlacementAnchor> {
+        self.placement_anchor
     }
 
-    pub(crate) fn menu_available(&self) -> Option<crate::geometry::Rect> {
-        self.menu_available
+    pub(crate) fn placement_available(&self) -> Option<crate::geometry::Rect> {
+        self.placement_available
     }
 
     pub(crate) fn popup_context(&self) -> Option<crate::popup::ContextFingerprint> {
         self.popup_context
+    }
+
+    pub(crate) fn panel_policy(&self) -> PanelPolicy {
+        self.panel_policy
+    }
+
+    pub(crate) fn auxiliary_chrome(&self) -> Option<AuxiliaryChrome> {
+        self.auxiliary_chrome
+    }
+
+    pub(crate) fn table_panel_anchor(&self) -> Option<crate::table::Cell> {
+        self.table_panel_anchor
+    }
+
+    pub(crate) fn panel_anchor_target(&self) -> Option<&interaction::Target> {
+        self.panel_anchor_target.as_ref()
     }
 
     pub(crate) fn force_overlay_group(&self) -> bool {

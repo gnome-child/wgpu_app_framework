@@ -271,6 +271,11 @@ impl Node {
         self
     }
 
+    pub(crate) fn with_auxiliary_text_participation(mut self) -> Self {
+        self.participation = Some(Participation::AuxiliaryText);
+        self
+    }
+
     pub(crate) fn with_table_header_presentation(
         mut self,
         presentation: crate::table::HeaderPresentation,
@@ -337,13 +342,18 @@ impl Node {
         self
     }
 
-    pub(crate) fn with_menu_placement(
+    pub(crate) fn with_panel_placement(
         mut self,
         anchor: crate::geometry::PlacementAnchor,
         available: crate::geometry::Rect,
     ) -> Self {
-        self.menu_anchor = Some(anchor);
-        self.menu_available = Some(available);
+        self.placement_anchor = Some(anchor);
+        self.placement_available = Some(available);
+        self
+    }
+
+    pub(crate) fn with_panel_anchor(mut self, anchor: crate::geometry::PlacementAnchor) -> Self {
+        self.placement_anchor = Some(anchor);
         self
     }
 
@@ -352,6 +362,30 @@ impl Node {
         fingerprint: crate::popup::ContextFingerprint,
     ) -> Self {
         self.popup_context = Some(fingerprint);
+        self
+    }
+
+    pub(crate) fn with_panel_policy(mut self, policy: super::PanelPolicy) -> Self {
+        debug_assert_eq!(self.role, Role::FloatingPanel);
+        self.panel_policy = policy;
+        self
+    }
+
+    pub(crate) fn with_auxiliary_chrome(mut self, chrome: super::AuxiliaryChrome) -> Self {
+        debug_assert_eq!(self.role, Role::FloatingPanel);
+        self.auxiliary_chrome = Some(chrome);
+        self
+    }
+
+    pub(crate) fn with_table_panel_anchor(mut self, cell: crate::table::Cell) -> Self {
+        debug_assert_eq!(self.role, Role::FloatingPanel);
+        self.table_panel_anchor = Some(cell);
+        self
+    }
+
+    pub(crate) fn with_panel_anchor_target(mut self, target: interaction::Target) -> Self {
+        debug_assert_eq!(self.role, Role::FloatingPanel);
+        self.panel_anchor_target = Some(target);
         self
     }
 
@@ -448,9 +482,13 @@ impl Node {
             axis: None,
             style: Style::default(),
             floating_placement: FloatingPlacement::Default,
-            menu_anchor: None,
-            menu_available: None,
+            placement_anchor: None,
+            placement_available: None,
             popup_context: None,
+            panel_policy: super::PanelPolicy::Interactive,
+            auxiliary_chrome: None,
+            table_panel_anchor: None,
+            panel_anchor_target: None,
             force_overlay_group: false,
             native_popup_material_preference: NativePopupMaterialPreference::System,
             subject: None,

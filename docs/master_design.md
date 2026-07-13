@@ -1036,6 +1036,35 @@ history-bearing content change, the listener should speak an imperative
 command. Internal framework notifications are also distinct from future
 OS-facing toasts or user-visible system alerts.
 
+`feedback`
+
+Owns runtime facts that should be communicated now. Reporting accepts
+`Display` and eagerly snapshots its text at the reporting boundary; retained
+feedback is severity plus formatted text, while its typed store owns identity
+and lifetime. Severity orders and dresses facts (`Error`, `Warning`, `Info`)
+but never implies focus trapping, persistence, dismissal, or interaction.
+
+Command description, contextual command hint, runtime feedback, and resolved
+text overflow remain separate truths on separate clocks. An element's
+auxiliary-content resolver consults them without copying one into another:
+feedback by severity, then hint, description, and confirmed overflow. Retained
+severity is also distinct from presentation chrome: descriptive content may
+use informational chrome, while overflow revelation is plain and glyphless.
+
+Every auxiliary panel consumes the ordinary floating-panel path: complete
+content measurement, one placement request, host selection, realization,
+generation receipt, and exposure. Hover tips and noninteractive feedback are
+policies on that path, not alternate overlay species; they are unfocusable,
+hit-transparent, and absent from keyboard traversal. Content size is resolved
+before placement, and the measured paint, host, and hit-transparent geometry
+are one rectangle.
+
+Accessibility consumes the semantic truths independently of panel visibility.
+`Spec::description` maps to direct AccessKit Description; node-supplied
+description may use DescribedBy; validation uses Invalid plus ErrorMessage;
+runtime dialogue may later use Live when its caller proves an announcement
+policy. `State::hint` remains contextual and never replaces description.
+
 `window::Departed` is the single past-tense close fact. Runtime publication is
 only a listener registry: layout caches, overlay entries and ghosts, animation
 schedules, visual animations, composition, diagnostics, pointer gestures, and

@@ -1,16 +1,18 @@
 use super::{
     State,
     command::{
-        EditRecordCount, EditRecordCountArgs, EditRecordNote, EditRecordNoteArgs, IncrementClicks,
-        OpenRecord, ResetControls, SelectMode, SetLevel, SetRecordEnabled, SetRecordEnabledArgs,
-        SubmitQuery, ToggleAdvanced, ToggleExpandedRows, ToggleGrid, ToggleWrap,
+        ClearFeedback, EditRecordCount, EditRecordCountArgs, EditRecordNote, EditRecordNoteArgs,
+        IncrementClicks, OpenRecord, ResetControls, SelectMode, SetLevel, SetRecordEnabled,
+        SetRecordEnabledArgs, ShowInfoFeedback, ShowWarningFeedback, SubmitQuery, ToggleAdvanced,
+        ToggleExpandedRows, ToggleGrid, ToggleWrap,
     },
+    runtime::Event,
 };
-use wgpu_l3::{Context, Response, Target, command};
+use wgpu_l3::{Context, Response, Target, command, feedback, task::Task};
 
 impl Target<IncrementClicks> for State {
     fn state(&self, _: &(), _: &Context) -> command::State {
-        command::State::enabled()
+        command::State::enabled().with_hint("Adds one using the current gallery state")
     }
 
     fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
@@ -22,7 +24,13 @@ impl Target<IncrementClicks> for State {
 
 impl Target<ToggleWrap> for State {
     fn state(&self, _: &(), _: &Context) -> command::State {
-        command::State::enabled().checked(self.wrap)
+        command::State::enabled()
+            .checked(self.wrap)
+            .with_hint(if self.wrap {
+                "Disable wrapping in the text sample"
+            } else {
+                "Enable wrapping in the text sample"
+            })
     }
 
     fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
@@ -201,6 +209,39 @@ impl Target<OpenRecord> for State {
     fn invoke(&mut self, key: wgpu_l3::virtual_list::Key, _: &mut Context) -> Response<()> {
         self.last_status = format!("opened record {}", key.value());
         Response::changed(())
+    }
+}
+
+impl Target<ShowInfoFeedback> for State {
+    fn state(&self, _: &(), _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, _: (), cx: &mut Context) -> Response<()> {
+        let _ = cx.spawn(Task::ready(Event::Report(feedback::Severity::Info)));
+        Response::output(())
+    }
+}
+
+impl Target<ShowWarningFeedback> for State {
+    fn state(&self, _: &(), _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, _: (), cx: &mut Context) -> Response<()> {
+        let _ = cx.spawn(Task::ready(Event::Report(feedback::Severity::Warning)));
+        Response::output(())
+    }
+}
+
+impl Target<ClearFeedback> for State {
+    fn state(&self, _: &(), _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, _: (), cx: &mut Context) -> Response<()> {
+        let _ = cx.spawn(Task::ready(Event::ClearFeedback));
+        Response::output(())
     }
 }
 

@@ -6,9 +6,9 @@ use thiserror::Error;
 use crate::text as text_model;
 
 use super::{
-    Choice, CommandPalette, Control, FloatingPanel, Focus, Menu, Overlay, Palette, Scrollbar,
-    ScrollbarAppearance, ScrollbarMetrics, ScrollbarPolicy, Shortcuts, Slider, Surfaces, Text,
-    TextInput, Theme, TypeStyle, Typography, Variant, Viewport, keymap, scene,
+    AuxiliaryPanel, Choice, CommandPalette, Control, FloatingPanel, Focus, Menu, Overlay, Palette,
+    Scrollbar, ScrollbarAppearance, ScrollbarMetrics, ScrollbarPolicy, Shortcuts, Slider, Surfaces,
+    Text, TextInput, Theme, TypeStyle, Typography, Variant, Viewport, keymap, scene,
 };
 
 #[derive(Debug, Error)]
@@ -46,6 +46,8 @@ struct ThemePatch {
     text_input: Option<TextInputPatch>,
     #[serde(rename = "floating-panel")]
     floating_panel: Option<FloatingPanelPatch>,
+    #[serde(rename = "auxiliary-panel")]
+    auxiliary_panel: Option<AuxiliaryPanelPatch>,
     overlay: Option<OverlayPatch>,
     viewport: Option<ViewportPatch>,
     scrollbar: Option<ScrollbarPatch>,
@@ -198,6 +200,19 @@ struct FloatingPanelPatch {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
+struct AuxiliaryPanelPatch {
+    hover_delay_ms: Option<u64>,
+    max_width: Option<i32>,
+    max_height: Option<i32>,
+    icon_extent: Option<i32>,
+    icon_gap: Option<i32>,
+    info: Option<String>,
+    warning: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
 struct OverlayPatch {
     enter_fade_ms: Option<u64>,
     exit_fade_ms: Option<u64>,
@@ -319,6 +334,7 @@ struct ThemeExport {
     slider: SliderExport,
     text_input: TextInputExport,
     floating_panel: FloatingPanelExport,
+    auxiliary_panel: AuxiliaryPanelExport,
     overlay: OverlayExport,
     viewport: ViewportExport,
     scrollbar: ScrollbarExport,
@@ -437,6 +453,17 @@ struct FloatingPanelExport {
     content_gap: i32,
 }
 
+struct AuxiliaryPanelExport {
+    hover_delay_ms: u64,
+    max_width: i32,
+    max_height: i32,
+    icon_extent: i32,
+    icon_gap: i32,
+    info: String,
+    warning: String,
+    error: String,
+}
+
 struct OverlayExport {
     enter_fade_ms: u64,
     exit_fade_ms: u64,
@@ -520,6 +547,9 @@ pub(super) fn theme_from_str(input: &str) -> Result<Theme, ThemeTomlError> {
     }
     if let Some(floating_panel) = patch.floating_panel {
         apply_floating_panel(&mut theme.floating_panel, floating_panel, &palette)?;
+    }
+    if let Some(auxiliary_panel) = patch.auxiliary_panel {
+        apply_auxiliary_panel(&mut theme.auxiliary_panel, auxiliary_panel, &palette)?;
     }
     if let Some(overlay) = patch.overlay {
         apply_overlay(&mut theme.overlay, overlay);
@@ -873,6 +903,37 @@ fn apply_floating_panel(
     apply_f32(&mut floating_panel.shadow_offset_y, patch.shadow_offset_y);
     apply_i32(&mut floating_panel.padding, patch.padding);
     apply_i32(&mut floating_panel.content_gap, patch.content_gap);
+    Ok(())
+}
+
+fn apply_auxiliary_panel(
+    auxiliary: &mut AuxiliaryPanel,
+    patch: AuxiliaryPanelPatch,
+    palette: &HashMap<String, scene::Color>,
+) -> Result<(), ThemeTomlError> {
+    apply_u64(&mut auxiliary.hover_delay_ms, patch.hover_delay_ms);
+    apply_i32(&mut auxiliary.max_width, patch.max_width);
+    apply_i32(&mut auxiliary.max_height, patch.max_height);
+    apply_i32(&mut auxiliary.icon_extent, patch.icon_extent);
+    apply_i32(&mut auxiliary.icon_gap, patch.icon_gap);
+    apply_color(
+        &mut auxiliary.info,
+        patch.info,
+        palette,
+        "auxiliary-panel.info",
+    )?;
+    apply_color(
+        &mut auxiliary.warning,
+        patch.warning,
+        palette,
+        "auxiliary-panel.warning",
+    )?;
+    apply_color(
+        &mut auxiliary.error,
+        patch.error,
+        palette,
+        "auxiliary-panel.error",
+    )?;
     Ok(())
 }
 
@@ -1380,6 +1441,16 @@ impl ThemeExport {
                 padding: theme.floating_panel.padding,
                 content_gap: theme.floating_panel.content_gap,
             },
+            auxiliary_panel: AuxiliaryPanelExport {
+                hover_delay_ms: theme.auxiliary_panel.hover_delay_ms,
+                max_width: theme.auxiliary_panel.max_width,
+                max_height: theme.auxiliary_panel.max_height,
+                icon_extent: theme.auxiliary_panel.icon_extent,
+                icon_gap: theme.auxiliary_panel.icon_gap,
+                info: color_string(theme.auxiliary_panel.info, theme.palette),
+                warning: color_string(theme.auxiliary_panel.warning, theme.palette),
+                error: color_string(theme.auxiliary_panel.error, theme.palette),
+            },
             overlay: OverlayExport {
                 enter_fade_ms: theme.overlay.enter_fade_ms,
                 exit_fade_ms: theme.overlay.exit_fade_ms,
@@ -1573,6 +1644,21 @@ impl ThemeExport {
         );
         push_i32_field(&mut out, "padding", self.floating_panel.padding);
         push_i32_field(&mut out, "content-gap", self.floating_panel.content_gap);
+        push_blank_line(&mut out);
+
+        push_header(&mut out, "auxiliary-panel");
+        push_u64_field(
+            &mut out,
+            "hover-delay-ms",
+            self.auxiliary_panel.hover_delay_ms,
+        );
+        push_i32_field(&mut out, "max-width", self.auxiliary_panel.max_width);
+        push_i32_field(&mut out, "max-height", self.auxiliary_panel.max_height);
+        push_i32_field(&mut out, "icon-extent", self.auxiliary_panel.icon_extent);
+        push_i32_field(&mut out, "icon-gap", self.auxiliary_panel.icon_gap);
+        push_string_field(&mut out, "info", &self.auxiliary_panel.info);
+        push_string_field(&mut out, "warning", &self.auxiliary_panel.warning);
+        push_string_field(&mut out, "error", &self.auxiliary_panel.error);
         push_blank_line(&mut out);
 
         push_header(&mut out, "overlay");

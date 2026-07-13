@@ -15,6 +15,51 @@ use crate::{
 use std::collections::HashMap;
 
 impl Node {
+    pub(in crate::view) fn hover_tip_text_retained(
+        &self,
+        retained: &composition::Node,
+        target: &interaction::Target,
+        blocked_by_feedback: bool,
+    ) -> Option<(bool, Option<String>)> {
+        let blocked_by_feedback = blocked_by_feedback || self.table_edit_error().is_some();
+        if !blocked_by_feedback
+            && self
+                .node_pointer_target(require_retained_id(retained))
+                .as_ref()
+                == Some(target)
+        {
+            let text = self.binding().and_then(|binding| {
+                binding
+                    .hint()
+                    .map(str::to_owned)
+                    .or_else(|| binding.description().map(str::to_owned))
+            });
+            return Some((false, text));
+        }
+        if blocked_by_feedback
+            && self
+                .node_pointer_target(require_retained_id(retained))
+                .as_ref()
+                == Some(target)
+        {
+            return Some((true, None));
+        }
+
+        self.children.iter().enumerate().find_map(|(index, child)| {
+            child.hover_tip_text_retained(
+                retained_child(retained, index),
+                target,
+                blocked_by_feedback,
+            )
+        })
+    }
+
+    pub(in crate::view) fn first_table_rejection(&self) -> Option<(crate::table::Cell, String)> {
+        self.table_cell()
+            .zip(self.table_edit_error().map(str::to_owned))
+            .or_else(|| self.children.iter().find_map(Node::first_table_rejection))
+    }
+
     pub(in crate::view) fn has_standard_menu_bar(&self) -> bool {
         self.standard_menu_bar || self.children.iter().any(Node::has_standard_menu_bar)
     }
@@ -797,8 +842,11 @@ impl Node {
         order: &mut Vec<session::Focus>,
     ) -> bool {
         if self.role == Role::FloatingPanel {
-            self.collect_focus_order_retained_at(retained, order);
-            return true;
+            if self.panel_policy().accepts_input() {
+                self.collect_focus_order_retained_at(retained, order);
+                return true;
+            }
+            return false;
         }
 
         let mut found = false;

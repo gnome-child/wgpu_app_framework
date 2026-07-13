@@ -14,6 +14,9 @@ pub struct EditRecordCount;
 pub struct SetRecordEnabled;
 pub struct ToggleExpandedRows;
 pub struct OpenRecord;
+pub struct ShowInfoFeedback;
+pub struct ShowWarningFeedback;
+pub struct ClearFeedback;
 
 #[derive(Clone)]
 pub struct EditRecordNoteArgs {
@@ -126,4 +129,25 @@ impl Command for OpenRecord {
     type Output = ();
 
     const NAME: &'static str = "control_gallery.open_record";
+}
+
+impl Command for ShowInfoFeedback {
+    type Args = ();
+    type Output = ();
+
+    const NAME: &'static str = "control_gallery.show_info_feedback";
+}
+
+impl Command for ShowWarningFeedback {
+    type Args = ();
+    type Output = ();
+
+    const NAME: &'static str = "control_gallery.show_warning_feedback";
+}
+
+impl Command for ClearFeedback {
+    type Args = ();
+    type Output = ();
+
+    const NAME: &'static str = "control_gallery.clear_feedback";
 }

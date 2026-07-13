@@ -18,6 +18,7 @@ pub(crate) struct Draft {
     text_caret_rect: Option<geometry::Rect>,
     placement: Option<geometry::PlacementRequest>,
     context_fingerprint: Option<crate::popup::ContextFingerprint>,
+    accepts_input: bool,
     force_group_at_full_opacity: bool,
 }
 
@@ -33,6 +34,7 @@ struct Entry {
     text_caret_rect: Option<geometry::Rect>,
     placement: Option<geometry::PlacementRequest>,
     context_fingerprint: Option<crate::popup::ContextFingerprint>,
+    accepts_input: bool,
     opacity: f32,
     fade: PopupFade,
     state: State,
@@ -130,6 +132,7 @@ pub(crate) struct Layer {
     text_caret_rect: Option<geometry::Rect>,
     placement: Option<geometry::PlacementRequest>,
     context_fingerprint: Option<crate::popup::ContextFingerprint>,
+    accepts_input: bool,
     state: Option<State>,
     elapsed: Option<Duration>,
     force_group_at_full_opacity: bool,
@@ -191,6 +194,7 @@ pub(crate) struct PopupPresentation {
     paint_only: bool,
     kind: LayerKind,
     context_fingerprint: Option<crate::popup::ContextFingerprint>,
+    accepts_input: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -245,6 +249,7 @@ impl Draft {
             text_caret_rect: None,
             placement: None,
             context_fingerprint: None,
+            accepts_input: true,
             force_group_at_full_opacity: false,
         }
     }
@@ -287,6 +292,11 @@ impl Draft {
         self
     }
 
+    pub(crate) fn accepts_input(mut self, accepts_input: bool) -> Self {
+        self.accepts_input = accepts_input;
+        self
+    }
+
     fn identity(&self) -> Identity {
         Identity {
             id: self.id,
@@ -316,6 +326,7 @@ impl Entry {
             text_caret_rect: self.text_caret_rect,
             placement: self.placement,
             context_fingerprint: self.context_fingerprint,
+            accepts_input: self.accepts_input,
             state: Some(self.state),
             elapsed: Some(self.elapsed),
             force_group_at_full_opacity: self.force_group_at_full_opacity,
@@ -359,6 +370,7 @@ impl Ghost {
             text_caret_rect: None,
             placement: None,
             context_fingerprint: None,
+            accepts_input: false,
             state: None,
             elapsed: Some(now.saturating_duration_since(self.started_at)),
             force_group_at_full_opacity: false,
@@ -406,6 +418,7 @@ impl RetiringPopup {
             text_caret_rect: None,
             placement: self.placement,
             context_fingerprint: self.context_fingerprint,
+            accepts_input: false,
             state: None,
             elapsed: Some(now.saturating_duration_since(self.started_at)),
             force_group_at_full_opacity: false,
@@ -471,6 +484,10 @@ impl Layer {
 
     pub(crate) fn context_fingerprint(&self) -> Option<crate::popup::ContextFingerprint> {
         self.context_fingerprint
+    }
+
+    pub(crate) fn accepts_input(&self) -> bool {
+        self.accepts_input
     }
 
     pub(crate) fn state(&self) -> Option<State> {
@@ -568,6 +585,7 @@ impl PopupPresentation {
         paint_only: bool,
         kind: LayerKind,
         context_fingerprint: Option<crate::popup::ContextFingerprint>,
+        accepts_input: bool,
     ) -> Self {
         Self {
             parent,
@@ -583,6 +601,7 @@ impl PopupPresentation {
             paint_only,
             kind,
             context_fingerprint,
+            accepts_input,
         }
     }
 
@@ -628,6 +647,10 @@ impl PopupPresentation {
 
     pub(crate) fn paint_only(&self) -> bool {
         self.paint_only
+    }
+
+    pub(crate) fn accepts_input(&self) -> bool {
+        self.accepts_input
     }
 
     pub(crate) fn kind(&self) -> LayerKind {
@@ -806,6 +829,7 @@ impl Store {
                 text_caret_rect: draft.text_caret_rect,
                 placement: draft.placement,
                 context_fingerprint: draft.context_fingerprint,
+                accepts_input: draft.accepts_input,
                 opacity,
                 fade: if entering {
                     PopupFade::Entering {
@@ -1024,6 +1048,22 @@ mod tests {
         );
 
         assert_eq!(update.layers[0].backend(), Backend::NativePopup);
+    }
+
+    #[test]
+    fn noninteractive_panel_policy_survives_native_backend_selection() {
+        let mut store = Store::new();
+        let window = window::Id::new(26);
+        let update = store.update_window(
+            window,
+            vec![popup_draft("feedback").accepts_input(false)],
+            overlay_theme(0, 0),
+            Capabilities::with_native_popups(),
+            Instant::now(),
+        );
+
+        assert_eq!(update.layers[0].backend(), Backend::NativePopup);
+        assert!(!update.layers[0].accepts_input());
     }
 
     #[test]

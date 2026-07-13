@@ -10,6 +10,7 @@ pub(crate) struct OverflowProjection {
     source: String,
     visible: String,
     position_map: Option<PositionMap>,
+    overflowed: bool,
 }
 
 impl Engine {
@@ -34,8 +35,11 @@ impl Engine {
         overflow: Overflow,
     ) -> OverflowProjection {
         let width = finite_width(width);
-        if overflow == Overflow::Clip || self.fits(value, style, width) {
+        if self.fits(value, style, width) {
             return OverflowProjection::identity(value);
+        }
+        if overflow == Overflow::Clip {
+            return OverflowProjection::clipped(value);
         }
         if !self.fits(ELLIPSIS, style, width) {
             return OverflowProjection::empty(value);
@@ -75,6 +79,7 @@ impl Engine {
                     first_line.len(),
                     [(0, 0), (line_end, line_end)],
                 )),
+                overflowed: true,
             };
         }
         let width = finite_width(width);
@@ -176,6 +181,16 @@ impl OverflowProjection {
             source: source.to_owned(),
             visible: source.to_owned(),
             position_map: None,
+            overflowed: false,
+        }
+    }
+
+    fn clipped(source: &str) -> Self {
+        Self {
+            source: source.to_owned(),
+            visible: source.to_owned(),
+            position_map: None,
+            overflowed: true,
         }
     }
 
@@ -184,6 +199,7 @@ impl OverflowProjection {
             source: source.to_owned(),
             visible: String::new(),
             position_map: Some(PositionMap::new(source.len(), 0, [(0, 0)])),
+            overflowed: !source.is_empty(),
         }
     }
 
@@ -198,6 +214,7 @@ impl OverflowProjection {
                 [(0, 0), (head_end, head_end), (visible.len(), source.len())],
             )),
             visible,
+            overflowed: true,
         }
     }
 
@@ -223,11 +240,20 @@ impl OverflowProjection {
                 ],
             )),
             visible,
+            overflowed: true,
         }
     }
 
     pub(crate) fn visible(&self) -> &str {
         &self.visible
+    }
+
+    pub(crate) fn overflowed(&self) -> bool {
+        self.overflowed
+    }
+
+    pub(crate) fn source(&self) -> &str {
+        &self.source
     }
 
     pub(crate) fn source_position(&self, position: Position) -> Position {
@@ -347,10 +373,15 @@ mod tests {
     #[test]
     fn clip_preserves_source_even_when_it_does_not_fit() {
         let mut engine = Engine::new();
-        assert_eq!(
-            engine.resolve_overflow("world", style(), 0.0, Overflow::Clip),
-            "world"
-        );
+        let clipped = engine.resolve_overflow_projection("world", style(), 0.0, Overflow::Clip);
+        assert_eq!(clipped.visible(), "world");
+        assert_eq!(clipped.source(), "world");
+        assert!(clipped.overflowed());
+
+        let fitting_width = single_line_width(&mut engine, "world", style()) + 1.0;
+        let fitting =
+            engine.resolve_overflow_projection("world", style(), fitting_width, Overflow::Clip);
+        assert!(!fitting.overflowed());
     }
 
     #[test]

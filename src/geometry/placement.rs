@@ -43,7 +43,7 @@ impl Request {
         let best = candidates
             .into_iter()
             .max_by_key(|candidate| intersection_area(*candidate, available))
-            .expect("menu placement always has four candidates");
+            .expect("panel placement always has four candidates");
         clamp_origin(best, available)
     }
 }

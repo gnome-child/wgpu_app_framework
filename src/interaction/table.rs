@@ -60,6 +60,7 @@ impl Tables {
             return false;
         }
         self.editing = None;
+        self.clear_rejection(cell);
         true
     }
 
@@ -136,5 +137,41 @@ impl Tables {
     ) {
         self.widths = widths.into_iter().collect();
         self.active_columns = active_columns.into_iter().collect();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cell(row: u64) -> table::Cell {
+        table::Cell::new(
+            crate::interaction::Id::new("table"),
+            crate::virtual_list::Key::new(row),
+            crate::interaction::Id::new("value"),
+        )
+    }
+
+    #[test]
+    fn rejection_dies_when_editing_finishes() {
+        let mut tables = Tables::default();
+        let cell = cell(1);
+        assert!(tables.begin_edit(cell));
+        assert!(tables.reject(cell, "invalid"));
+
+        assert!(tables.finish_edit(cell));
+        assert_eq!(tables.rejection(cell), None);
+    }
+
+    #[test]
+    fn removed_cells_prune_feedback_and_active_editing() {
+        let mut tables = Tables::default();
+        let removed = cell(1);
+        assert!(tables.begin_edit(removed));
+        assert!(tables.reject(removed, "invalid"));
+
+        assert!(tables.prune_removed(&[removed]));
+        assert_eq!(tables.editing(), None);
+        assert_eq!(tables.feedback(removed), None);
     }
 }

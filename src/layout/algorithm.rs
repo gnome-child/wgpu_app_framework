@@ -653,13 +653,18 @@ fn root_floating_panel_rect(
     profile: keymap::Profile,
 ) -> (Rect, Option<geometry::PlacementRequest>) {
     let anchor = node
-        .menu_anchor()
+        .placement_anchor()
         .or_else(|| floating_panel_anchor(node, frames).map(geometry::PlacementAnchor::Rect));
     let width = match node.style().width() {
         Some(_) => resolved_width(node, root.width, engine, theme, profile),
         None if anchor.is_some() => floating_panel_width(node, engine, theme, profile),
         None => floating_panel_width(node, engine, theme, profile).min(root.width.max(0)),
-    };
+    }
+    .min(
+        node.auxiliary_chrome()
+            .map(|_| theme.auxiliary_panel().max_width)
+            .unwrap_or(i32::MAX),
+    );
     let height = match node.style().height() {
         Some(_) => resolved_height(node, root.height, theme),
         None if anchor.is_some() => {
@@ -667,11 +672,16 @@ fn root_floating_panel_rect(
         }
         None => floating_panel_height_for_width(node, width, engine, theme, profile)
             .min(root.height.max(0)),
-    };
+    }
+    .min(
+        node.auxiliary_chrome()
+            .map(|_| theme.auxiliary_panel().max_height)
+            .unwrap_or(i32::MAX),
+    );
 
     if let Some(anchor) = anchor {
         let request = geometry::PlacementRequest::new(anchor, Size::new(width, height));
-        let available = node.menu_available().unwrap_or(root);
+        let available = node.placement_available().unwrap_or(root);
         return (request.resolve(available), Some(request));
     }
 
@@ -700,13 +710,25 @@ fn root_floating_panel_rect(
 }
 
 fn floating_panel_anchor(node: &view::Node, frames: &[Frame]) -> Option<Rect> {
+    if let Some(cell) = node.table_panel_anchor() {
+        return frames
+            .iter()
+            .find_map(|frame| (frame.table_cell() == Some(cell)).then(|| frame.rect()));
+    }
+
+    if let Some(target) = node.panel_anchor_target() {
+        return frames
+            .iter()
+            .find_map(|frame| (frame.target() == Some(target)).then(|| frame.rect()));
+    }
+
     let anchor_id = node
         .pointer_target()
         .and_then(|target| target.element_id())?;
 
     frames.iter().find_map(|frame| {
         let target_id = frame.target().and_then(|target| target.element_id());
-        (frame.role() == view::Role::Menu && target_id == Some(anchor_id)).then(|| frame.rect())
+        (target_id == Some(anchor_id)).then(|| frame.rect())
     })
 }
 
@@ -1299,6 +1321,51 @@ fn layout_floating_panel(
             rect.width().saturating_sub(padding.saturating_mul(2)),
             rect.height().saturating_sub(padding.saturating_mul(2)),
         );
+
+        if node.auxiliary_chrome().is_some()
+            && let Some(child) = node.children().first()
+        {
+            let reserved = node.auxiliary_chrome().map_or(0, |chrome| {
+                i32::from(chrome.has_icon()).saturating_mul(
+                    ctx.theme
+                        .auxiliary_panel()
+                        .icon_extent
+                        .saturating_add(ctx.theme.auxiliary_panel().icon_gap),
+                )
+            });
+            let text_rect = Rect::new(
+                content.x().saturating_add(reserved),
+                content.y(),
+                content.width().saturating_sub(reserved),
+                content.height(),
+            );
+            let child_height = intrinsic_height_for_width(
+                child,
+                text_rect.width(),
+                ctx.engine,
+                ctx.theme,
+                ctx.keymap,
+            )
+            .min(text_rect.height());
+            let child_rect = Rect::new(
+                text_rect.x(),
+                text_rect
+                    .y()
+                    .saturating_add(text_rect.height().saturating_sub(child_height) / 2),
+                text_rect.width(),
+                child_height,
+            );
+            layout_node(
+                child,
+                retained_child(retained, 0),
+                path.child(0),
+                child_rect,
+                true,
+                None,
+                ctx,
+            );
+            return;
+        }
 
         match node.axis() {
             Some(view::Axis::Horizontal) => {

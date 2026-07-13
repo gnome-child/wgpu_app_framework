@@ -602,14 +602,30 @@ fn million_row_virtual_list_jump_scroll_and_resize_stay_bounded() {
         "jump should derive the distant logical range arithmetically"
     );
     assert!(jumped_values.len() <= 9);
-    assert!(jumped.layout().frames().len() <= 10);
+    assert!(
+        jumped
+            .layout()
+            .frames()
+            .iter()
+            .filter(|frame| frame.role() != view::Role::Root)
+            .count()
+            <= 10,
+        "the stable view root is infrastructure; materialized list frames stay bounded"
+    );
     assert!(row_calls.get().saturating_sub(calls_before_jump) <= 16);
 
     let tall = app
         .show_scene(window, geometry::Size::new(240, 180))
         .expect("resized virtual list should render");
     assert!(tall.scene().texts().len() <= 13);
-    assert!(tall.layout().frames().len() <= 14);
+    assert!(
+        tall.layout()
+            .frames()
+            .iter()
+            .filter(|frame| frame.role() != view::Role::Root)
+            .count()
+            <= 14
+    );
 }
 
 #[test]
@@ -1777,7 +1793,10 @@ fn expanded_table_rows_measure_intrinsic_content_at_resolved_track_widths() {
         .iter()
         .map(|(index, rect)| (*index, rect.height()))
         .collect::<std::collections::HashMap<_, _>>();
-    assert_eq!(initial_heights[&0], 28);
+    assert_eq!(
+        initial_heights[&0], 24,
+        "short expanded rows keep the configured floor when interface text needs no more space"
+    );
     assert!(initial_heights[&1] > initial_heights[&0]);
     for frame in rendered.layout().frames().iter().filter(|frame| {
         frame
@@ -1832,7 +1851,7 @@ fn expanded_table_rows_measure_intrinsic_content_at_resolved_track_widths() {
             })
         })
         .collect::<Vec<_>>();
-    assert_eq!(resized_rows[0], (0, 28));
+    assert_eq!(resized_rows[0], (0, 24));
     assert!(resized_rows[1].1 < initial_heights[&1]);
     assert_eq!(resized_detail_widths, vec![140, 140]);
 
@@ -2753,11 +2772,17 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
     .expect("F2 should re-enter the committed numeric cell");
     app.handle_input(window, Input::text_commit("x"))
         .expect("invalid numeric draft should remain editable");
-    app.handle_input(
-        window,
-        Input::key_down(input::Key::Enter, input::Modifiers::default()),
-    )
-    .expect("invalid numeric submit should be handled as rejection");
+    let rejected_outcome = app
+        .handle_input(
+            window,
+            Input::key_down(input::Key::Enter, input::Modifiers::default()),
+        )
+        .expect("invalid numeric submit should be handled as rejection");
+    assert_eq!(
+        rejected_outcome.effect().invalidation(),
+        Some(response::Invalidation::Rebuild),
+        "creating an anchored panel must rebuild immediately instead of waiting for unrelated input"
+    );
     assert_eq!(app.state().records[0].count, 42);
     assert_eq!(
         app.session().table_edit_error(window, count),
@@ -2795,6 +2820,101 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
         frame.table_cell() == Some(count)
             && frame.table_edit_error() == Some("Enter a whole number")
     }));
+    let rejected = app
+        .show_scene_after_overlay_fade(window, size)
+        .expect("anchored rejection should settle through the shared panel path");
+    let error_panel = rejected
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.interaction_id() == Some(interaction::Id::new("feedback.table")))
+        .expect("rejected cell should project one anchored error panel");
+    assert_eq!(error_panel.role(), view::Role::FloatingPanel);
+    assert_eq!(
+        error_panel.auxiliary_chrome(),
+        Some(view::AuxiliaryChrome::Error)
+    );
+    assert!(
+        error_panel.popup_placement().is_some(),
+        "error panel {:?} should retain placement request for cell {:?}",
+        error_panel.rect(),
+        rejected
+            .layout()
+            .frames()
+            .iter()
+            .find(|frame| frame.table_cell() == Some(count))
+            .map(layout::Frame::rect)
+    );
+    assert!(
+        error_panel.target().is_none(),
+        "feedback panels never accept input"
+    );
+    assert!(rejected.scene().texts().iter().any(|text| {
+        text.value() == "Enter a whole number" && text.wrap() == scene::TextWrap::WordOrGlyph
+    }));
+    assert!(rejected.scene().icons().iter().any(|icon| {
+        icon.icon().id().as_str() == "x-circle" && rect_contains(error_panel.rect(), icon.rect())
+    }));
+
+    let rejected_cell_point = rejected
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(count))
+        .map(frame_point)
+        .expect("rejected cell geometry");
+    app.pointer_move_at(window, size, rejected_cell_point)
+        .expect("rejected cell should still participate in ordinary hover routing");
+    assert_eq!(
+        app.session()
+            .hover_tip_deadline(window, std::time::Duration::from_millis(400)),
+        None,
+        "a live rejection suppresses lower-priority hover truth before scheduling work"
+    );
+    let priority = app
+        .show_scene_after_overlay_fade(window, size)
+        .expect("feedback priority frame");
+    assert!(
+        priority.layout().frames().iter().any(|frame| {
+            frame.interaction_id() == Some(interaction::Id::new("feedback.table"))
+        })
+    );
+    assert!(
+        priority.layout().frames().iter().all(|frame| {
+            frame.interaction_id() != Some(interaction::Id::new("feedback.hover"))
+        }),
+        "live anchored feedback must suppress hint, description, and overflow projection for the same anchor"
+    );
+
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Backspace, input::Modifiers::default()),
+    )
+    .expect("correcting a rejected draft should remain editable");
+    assert_eq!(
+        app.session().table_edit_error(window, count),
+        None,
+        "a rejection may not outlive the draft that produced it"
+    );
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Enter, input::Modifiers::default()),
+    )
+    .expect("corrected draft should commit");
+    assert_eq!(app.state().records[0].count, 42);
+
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::F2, input::Modifiers::default()),
+    )
+    .expect("F2 should re-enter the corrected numeric cell");
+    app.handle_input(window, Input::text_commit("x"))
+        .expect("invalid numeric draft should remain editable");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Enter, input::Modifiers::default()),
+    )
+    .expect("invalid submit should reject again");
 
     app.handle_input(window, Input::cancel())
         .expect("Escape should cancel the rejected draft");
@@ -8662,6 +8782,7 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         layout::table_content_rect(compact_count.rect(), &Theme::default()).right()
     );
     assert_eq!(compact_count.label_text(), Some("0"));
+    assert_eq!(compact_count.overflow_tip(), None);
     assert!(
         !compact_count
             .text_area_layout()
@@ -8725,6 +8846,7 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         expanded_note.world_text_overflow(),
         Some(text::Overflow::Clip)
     );
+    assert_eq!(expanded_note.overflow_tip(), None);
     let expanded_rows = expanded
         .layout()
         .frames()
@@ -10299,6 +10421,325 @@ fn top_level_group_count(scene: &Scene) -> usize {
         .iter()
         .filter(|primitive| matches!(primitive, scene::Primitive::Group(_)))
         .count()
+}
+
+#[test]
+fn command_hint_visually_wins_without_erasing_the_independent_description() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 660);
+    let initial = app
+        .show_scene_after_overlay_fade(window, size)
+        .expect("control gallery should render");
+    let view = app.present(window).expect("resolved gallery view");
+    let binding = |name| {
+        view.bindings()
+            .into_iter()
+            .find(|binding| binding.command_name() == name)
+            .expect("gallery command binding")
+    };
+    let both = binding("control_gallery.increment_clicks");
+    assert_eq!(
+        both.hint(),
+        Some("Adds one using the current gallery state")
+    );
+    assert_eq!(
+        both.description(),
+        Some("Increment the gallery click counter")
+    );
+    let hint_only = binding("control_gallery.toggle_wrap");
+    assert!(hint_only.hint().is_some());
+    assert_eq!(hint_only.description(), None);
+    let description_only = binding("control_gallery.toggle_expanded_rows");
+    assert_eq!(description_only.hint(), None);
+    assert!(description_only.description().is_some());
+    let neither = binding("control_gallery.select_mode");
+    assert_eq!(neither.hint(), None);
+    assert_eq!(neither.description(), None);
+    let click = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.label_text() == Some("Click") && frame.target().is_some())
+        .expect("described Click command should be present");
+    let point = frame_point(click);
+
+    app.pointer_move_at(window, size, point)
+        .expect("hover should be handled");
+    let before_delay = app
+        .show_scene(window, size)
+        .expect("hover scheduling frame should render");
+    assert!(
+        before_delay
+            .layout()
+            .frames()
+            .iter()
+            .all(|frame| frame.interaction_id() != Some(interaction::Id::new("feedback.hover"))),
+        "hint panel must not appear before the dwell deadline"
+    );
+    let crate::animation::Schedule::At(deadline) = app.animation_schedule() else {
+        panic!("hover dwell should schedule exactly one deadline");
+    };
+
+    app.invalidate_due_animation_frames(deadline);
+    let visible = app
+        .show_scene_after_overlay_fade(window, size)
+        .expect("due hover hint should rebuild through the shared panel path");
+    let panel = visible
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.interaction_id() == Some(interaction::Id::new("feedback.hover")))
+        .expect("hint should project as a floating hover panel");
+    assert_eq!(panel.role(), view::Role::FloatingPanel);
+    assert!(panel.target().is_none(), "hover panels never accept input");
+    assert!(
+        visible.scene().texts().iter().any(|text| {
+            text.value() == "Adds one using the current gallery state"
+                && text.wrap() == scene::TextWrap::WordOrGlyph
+        }),
+        "scene text: {:?}",
+        visible
+            .scene()
+            .texts()
+            .iter()
+            .map(|text| (text.value(), text.wrap()))
+            .collect::<Vec<_>>()
+    );
+    assert!(visible.scene().icons().iter().any(|icon| {
+        icon.icon().id().as_str() == "info" && rect_contains(panel.rect(), icon.rect())
+    }));
+
+    app.pointer_move_at(window, size, geometry::Point::new(1, 1))
+        .expect("leaving the anchor should dismiss the hover panel");
+    let dismissed = app
+        .show_scene_after_overlay_fade(window, size)
+        .expect("dismissal should rebuild through the shared panel path");
+    assert!(
+        dismissed
+            .layout()
+            .frames()
+            .iter()
+            .all(|frame| frame.interaction_id() != Some(interaction::Id::new("feedback.hover")))
+    );
+}
+
+#[test]
+fn confirmed_table_overflow_uses_a_glyphless_shared_hover_panel() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 700);
+    let initial = app
+        .show_scene_after_overlay_fade(window, size)
+        .expect("compact gallery table should render");
+    let overflowed = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some()
+                && frame.target().is_some()
+                && frame.overflow_tip().is_some()
+        })
+        .expect("compact table should expose a confirmed overflow projection");
+    let source = overflowed
+        .overflow_tip()
+        .expect("overflow source")
+        .to_owned();
+    let point = frame_point(overflowed);
+    drop(initial);
+
+    app.pointer_move_at(window, size, point)
+        .expect("overflowed cell should hover");
+    app.show_scene(window, size)
+        .expect("hover dwell should schedule");
+    let crate::animation::Schedule::At(deadline) = app.animation_schedule() else {
+        panic!("overflow hover should schedule a dwell deadline");
+    };
+    app.invalidate_due_animation_frames(deadline);
+    let visible = app
+        .show_scene_after_overlay_fade(window, size)
+        .expect("overflow revelation should enter the shared panel path");
+    let panel = visible
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.interaction_id() == Some(interaction::Id::new("feedback.hover")))
+        .expect("overflow should project one hover panel");
+
+    assert_eq!(panel.auxiliary_chrome(), Some(view::AuxiliaryChrome::Plain));
+    assert!(panel.target().is_none());
+    assert!(
+        visible
+            .scene()
+            .texts()
+            .iter()
+            .any(|text| { text.value() == source && text.wrap() == scene::TextWrap::WordOrGlyph })
+    );
+    assert!(visible.scene().icons().iter().all(|icon| {
+        icon.icon().id().as_str() != "info" || !rect_contains(panel.rect(), icon.rect())
+    }));
+}
+
+#[test]
+fn warning_feedback_uses_shared_panel_without_trapping_focus() {
+    let first = session::Focus::text("feedback.first");
+    let second = session::Focus::text("feedback.second");
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            let window = cx.open_window(window::Options::new("Feedback warning"));
+            assert!(cx.report_feedback(
+                window,
+                crate::feedback::Severity::Warning,
+                "The connection is unstable"
+            ));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.text_box(widget::TextBox::new("First").focus(first));
+                ui.text_box(widget::TextBox::new("Second").focus(second));
+            })
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(420, 180);
+    let visible = app
+        .show_scene_after_overlay_fade(window, size)
+        .expect("window feedback should render");
+    let panel = visible
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.interaction_id() == Some(interaction::Id::new("feedback.window")))
+        .expect("warning should project through the shared panel path");
+    assert_eq!(
+        panel.auxiliary_chrome(),
+        Some(view::AuxiliaryChrome::Warning)
+    );
+    assert_eq!(
+        panel
+            .popup_placement()
+            .expect("window feedback must enter the common placement-request path")
+            .anchor(),
+        geometry::PlacementAnchor::Point(geometry::Point::new(12, 12))
+    );
+    assert!(panel.target().is_none());
+    assert!(visible.scene().icons().iter().any(|icon| {
+        icon.icon().id().as_str() == "warning" && rect_contains(panel.rect(), icon.rect())
+    }));
+
+    assert!(app.focus(window, first));
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Tab, input::Modifiers::default()),
+    )
+    .expect("Tab should traverse beneath noninteractive feedback");
+    assert!(
+        app.session()
+            .focused(window)
+            .is_some_and(|focus| focus.same_target(&second)),
+        "warning severity must neither trap focus nor suppress the underlying focus order"
+    );
+}
+
+#[test]
+fn gallery_runtime_dialogue_projects_warning_and_information_without_authored_panels() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 660);
+
+    app.emit(control_gallery::runtime::Event::Report(
+        crate::feedback::Severity::Warning,
+    ));
+    let warning = app
+        .show_scene_after_overlay_fade(window, size)
+        .expect("gallery warning should render");
+    let warning_panel = warning
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.interaction_id() == Some(interaction::Id::new("feedback.window")))
+        .expect("gallery warning panel");
+    assert_eq!(
+        warning_panel.auxiliary_chrome(),
+        Some(view::AuxiliaryChrome::Warning)
+    );
+    assert!(warning.scene().icons().iter().any(|icon| {
+        icon.icon().id().as_str() == "warning" && rect_contains(warning_panel.rect(), icon.rect())
+    }));
+
+    app.emit(control_gallery::runtime::Event::ClearFeedback);
+    app.emit(control_gallery::runtime::Event::Report(
+        crate::feedback::Severity::Info,
+    ));
+    let info = app
+        .show_scene_after_overlay_fade(window, size)
+        .expect("gallery information should render");
+    let info_panel = info
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.interaction_id() == Some(interaction::Id::new("feedback.window")))
+        .expect("gallery information panel");
+    assert_eq!(
+        info_panel.auxiliary_chrome(),
+        Some(view::AuxiliaryChrome::Info)
+    );
+    assert!(info.scene().icons().iter().any(|icon| {
+        icon.icon().id().as_str() == "info" && rect_contains(info_panel.rect(), icon.rect())
+    }));
+}
+
+#[test]
+fn auxiliary_content_wraps_and_caps_before_shared_placement_without_a_scroll_species() {
+    let theme = Theme::from_toml_str(
+        r#"
+        [auxiliary-panel]
+        max-width = 140
+        max-height = 64
+        "#,
+    )
+    .expect("bounded auxiliary theme");
+    let long = "A deliberately long warning whose complete retained truth must wrap before placement and clip only at the themed residual-height boundary.";
+    let mut app = Runtime::new(SourceState::default())
+        .started(move |cx| {
+            let window = cx.open_window(window::Options::new("Bounded feedback"));
+            assert!(cx.report_feedback(window, crate::feedback::Severity::Warning, long));
+        })
+        .theme(move |_| theme.clone())
+        .view(|_, _| View::new(view::Node::label("Content")));
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(180, 100);
+    let visible = app
+        .show_scene_after_overlay_fade(window, size)
+        .expect("bounded feedback should render");
+    let panel = visible
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.interaction_id() == Some(interaction::Id::new("feedback.window")))
+        .expect("bounded feedback panel");
+
+    assert_eq!(panel.rect().width(), 140);
+    assert_eq!(panel.rect().height(), 64);
+    assert!(panel.popup_placement().is_some());
+    assert!(panel.rect().x() >= 0 && panel.rect().right() <= size.width());
+    assert!(panel.rect().y() >= 0 && panel.rect().bottom() <= size.height());
+    assert!(
+        visible.layout().find_role(view::Role::Scroll).is_empty(),
+        "residual overflow is clipping policy, not a nested scrollable panel species"
+    );
+    assert!(
+        visible
+            .scene()
+            .texts()
+            .iter()
+            .any(|text| { text.value() == long && text.wrap() == scene::TextWrap::WordOrGlyph })
+    );
 }
 
 fn assert_tint_quad(scene: &Scene, rect: geometry::Rect, color: scene::Color) {

@@ -7,7 +7,7 @@ mod viewport_chrome;
 
 use crate::icon as icons;
 
-use super::super::{geometry, interaction, keymap, layout, overlay, theme::Theme, view};
+use super::super::{geometry, keymap, layout, overlay, theme::Theme, view};
 use super::{
     Brush, Clip, Icon, Material, Offset, Outline, Pane, Quad, Scene, Shadow, Style, Text,
     TextAlign, TextStyle, TextWrap, Visuals,
@@ -72,7 +72,7 @@ fn paint_overlay_entries(
     root_floating_panels(layout)
         .into_iter()
         .filter_map(|panel| {
-            let id = panel.target().and_then(interaction::Target::element_id)?;
+            let id = panel.interaction_id()?;
             let mut scene = Scene::new_with_clear(layout.size(), clear);
             let mut late_chrome = Vec::new();
 
@@ -115,6 +115,7 @@ fn paint_overlay_entries(
                     .popup_material_preference(popup_material_preference(panel))
                     .popup_border(theme.floating_panel().border())
                     .text_caret_rect(text_caret_rect_for_panel(layout, panel))
+                    .accepts_input(panel.panel_accepts_input())
                     .force_group_at_full_opacity(panel.force_overlay_group())
             })
         })
@@ -301,6 +302,7 @@ fn paint_frame(
     if is_floating_panel_role(frame.role()) {
         paint_floating_panel_material(frame, scene, theme, clip);
         paint_floating_panel_border(frame, scene, theme);
+        paint_auxiliary_panel_icon(frame, scene, theme);
     } else if let Some(fill) = frame.background() {
         paint_brush_quad(scene, frame.rect(), fill, rounding);
     } else if let Some(fill) = role_fill(frame, theme) {
@@ -646,6 +648,44 @@ fn paint_floating_panel_border(frame: &layout::Frame, scene: &mut Scene, theme: 
     );
 }
 
+fn paint_auxiliary_panel_icon(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
+    let Some(chrome) = frame.auxiliary_chrome() else {
+        return;
+    };
+    if chrome == view::AuxiliaryChrome::Plain {
+        return;
+    }
+    let auxiliary = theme.auxiliary_panel();
+    let panel = theme.floating_panel();
+    let extent = auxiliary.icon_extent.max(1).min(
+        frame
+            .rect()
+            .height()
+            .saturating_sub(panel.padding.max(0).saturating_mul(2)),
+    );
+    let rect = geometry::Rect::new(
+        frame.rect().x().saturating_add(panel.padding.max(0)),
+        frame
+            .rect()
+            .y()
+            .saturating_add(frame.rect().height().saturating_sub(extent) / 2),
+        extent,
+        extent,
+    );
+    let (name, color) = match chrome {
+        view::AuxiliaryChrome::Plain => return,
+        view::AuxiliaryChrome::Info => ("info", auxiliary.info),
+        view::AuxiliaryChrome::Warning => ("warning", auxiliary.warning),
+        view::AuxiliaryChrome::Error => ("x-circle", auxiliary.error),
+    };
+    scene.push_icon(Icon::new(
+        rect,
+        icons::Icon::phosphor(icons::Id::new(name)),
+        color,
+        extent as f32,
+    ));
+}
+
 fn paint_menu_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
     let parts = layout::menu_row_parts(frame.rect(), frame.shortcut_width(), theme);
     let color = text_color_for(frame, theme);
@@ -975,7 +1015,7 @@ fn text_color_for(frame: &layout::Frame, theme: &Theme) -> super::Color {
 }
 
 fn text_style_for(frame: &layout::Frame, theme: &Theme) -> TextStyle {
-    if frame.table_part().is_some() {
+    if frame.table_part().is_some() || frame.is_auxiliary_text() {
         return scene_text_style(theme.typography().interface());
     }
 

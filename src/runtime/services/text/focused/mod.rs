@@ -110,6 +110,10 @@ impl<'a> FocusedDraft<'a> {
             ));
         };
         let input = self.input();
+        let had_table_rejection = self
+            .focus
+            .table_cell_identity()
+            .is_some_and(|cell| self.session.table_edit_error(self.window, cell).is_some());
         let Some(change) = self
             .session
             .edit_text_draft(self.window, self.focus, base, edit, input)
@@ -126,10 +130,14 @@ impl<'a> FocusedDraft<'a> {
             clipboard_changed,
         );
 
-        Response::output(output).with_effect(effect_for_change(&change))
+        Response::output(output).with_effect(effect_for_change(&change, had_table_rejection))
     }
 
     fn history_response(&mut self, redo: bool) -> Response<()> {
+        let had_table_rejection = self
+            .focus
+            .table_cell_identity()
+            .is_some_and(|cell| self.session.table_edit_error(self.window, cell).is_some());
         let change = if redo {
             self.session.redo_text_draft(self.window, self.focus)
         } else {
@@ -140,7 +148,7 @@ impl<'a> FocusedDraft<'a> {
             return Response::output(());
         };
 
-        Response::output(()).with_effect(effect_for_change(&change))
+        Response::output(()).with_effect(effect_for_change(&change, had_table_rejection))
     }
 }
 
@@ -152,8 +160,10 @@ fn put_clipboard_text(cx: &mut command_context::Context, text: String) -> clipbo
     clipboard.put(&clipboard::Text::new(text))
 }
 
-fn effect_for_change(change: &draft::Change) -> Effect {
-    if change.changed() {
+fn effect_for_change(change: &draft::Change, removed_table_rejection: bool) -> Effect {
+    if change.text_changed() && removed_table_rejection {
+        Effect::Rebuild
+    } else if change.changed() {
         Effect::Layout
     } else {
         Effect::None

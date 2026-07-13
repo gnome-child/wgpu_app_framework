@@ -13,6 +13,7 @@ mod command_palette;
 mod context;
 mod context_menu;
 mod control;
+mod feedback;
 mod node;
 #[cfg(test)]
 mod presentation;
@@ -25,8 +26,8 @@ pub use context::Context;
 pub(crate) use context_menu::ContextMenu;
 pub use control::{Button, Checkbox, Radio, Slider, TextArea, TextBox, Wrap};
 pub(crate) use node::StandardMenuExtension;
+pub(crate) use node::{AuxiliaryChrome, PanelPolicy, Participation, ProvidedRow, Role, TablePart};
 pub use node::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node};
-pub(crate) use node::{Participation, ProvidedRow, Role, TablePart};
 #[cfg(test)]
 pub(crate) use presentation::Presentation;
 pub use style::{Align, Dimension, Padding, Style};
@@ -99,11 +100,22 @@ impl ContextOwner {
 
 impl View {
     pub fn new(root: Node) -> Self {
+        let root = if root.role() == Role::Root {
+            root
+        } else {
+            Node::root().child(root)
+        };
         Self { root }
     }
 
     pub fn root(&self) -> &Node {
         &self.root
+    }
+
+    pub(in crate::view) fn push_floating_panel(&mut self, panel: Node) {
+        debug_assert_eq!(panel.role(), Role::FloatingPanel);
+        debug_assert_eq!(self.root.role(), Role::Root);
+        self.root.push_child(panel);
     }
 
     pub(crate) fn has_standard_menu_bar(&self) -> bool {
@@ -374,7 +386,7 @@ impl View {
                 .root
                 .floating_panel_for_menu(menu)
                 .unwrap_or_else(|| Node::floating_panel(menu.id()));
-            self.root.push_child(panel);
+            self.push_floating_panel(panel);
         }
     }
 

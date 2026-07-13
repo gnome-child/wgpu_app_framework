@@ -176,8 +176,10 @@ impl Interaction {
 
     pub(super) fn pointer_move(&mut self, target: Option<Target>) -> bool {
         let changed = self.pointer.hovered != target;
-        self.pointer.hovered = target;
-        changed
+        if changed {
+            self.pointer.hovered = target;
+        }
+        changed | (changed && self.pointer.dismiss_hover_tip())
     }
 
     pub(crate) fn set_pointer_position(
@@ -191,10 +193,13 @@ impl Interaction {
         changed
     }
 
-    pub(crate) fn project_pointer_hover(&mut self, target: Option<Target>) -> bool {
-        let changed = self.pointer.hovered != target;
-        self.pointer.hovered = target;
-        changed
+    pub(crate) fn project_pointer_hover(
+        &mut self,
+        target: Option<Target>,
+        tip_eligible: bool,
+    ) -> bool {
+        self.pointer
+            .update_projected_hover(target, tip_eligible, std::time::Instant::now())
     }
 
     pub(super) fn pointer_down(&mut self, target: Target, intent: PressIntent) -> bool {
@@ -207,7 +212,7 @@ impl Interaction {
         self.pointer.pressed = Some(target.clone());
         self.pointer.capture = target.captures().then(|| Capture::new(target));
         self.pointer.press_intent = Some(intent);
-        changed
+        changed | self.pointer.dismiss_hover_tip()
     }
 
     pub(super) fn pointer_up(&mut self, target: Option<Target>) -> bool {
@@ -219,7 +224,7 @@ impl Interaction {
         self.pointer.capture = None;
         self.pointer.press_intent = None;
         self.pointer.hovered = target;
-        changed
+        changed | self.pointer.dismiss_hover_tip()
     }
 
     pub(super) fn set_pointer_press_intent(
@@ -247,7 +252,7 @@ impl Interaction {
             self.pointer.pressed = None;
             self.pointer.press_intent = None;
         }
-        changed
+        changed | self.pointer.dismiss_hover_tip()
     }
 
     pub(super) fn cancel_pointer(&mut self) -> bool {
@@ -255,7 +260,15 @@ impl Interaction {
         self.pointer.pressed = None;
         self.pointer.capture = None;
         self.pointer.press_intent = None;
-        changed
+        changed | self.pointer.dismiss_hover_tip()
+    }
+
+    pub(crate) fn promote_hover_tip(
+        &mut self,
+        now: std::time::Instant,
+        delay: std::time::Duration,
+    ) -> bool {
+        self.pointer.promote_hover_tip(now, delay)
     }
 
     pub(super) fn scroll_by(&mut self, target: Target, delta: ScrollDelta) -> bool {

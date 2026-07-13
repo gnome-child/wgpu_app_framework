@@ -59,6 +59,13 @@ fn platform_events_translate_winit_window_events_to_host_events() {
     let window = window::Id::new(42);
     let mut events = platform::Events::new().with_scale_factor(2.0);
 
+    assert!(
+        events
+            .window_event(window, &WinitWindowEvent::Focused(false))
+            .is_none(),
+        "system window deactivation must not become a deliberate framework focus departure"
+    );
+
     let resized = events
         .window_event(
             window,

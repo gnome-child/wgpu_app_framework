@@ -42,6 +42,7 @@ impl WorldText {
 pub(crate) enum Participation {
     MenuRow,
     PaletteRow,
+    AuxiliaryText,
     Table(TablePart),
 }
 
@@ -71,6 +72,49 @@ pub enum NativePopupMaterialPreference {
     NoAccent,
 }
 
+/// Behavioral policy applied to content that shares the floating-panel path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PanelPolicy {
+    Interactive,
+    HoverTip,
+    AnchoredFeedback,
+    WindowFeedback,
+}
+
+impl PanelPolicy {
+    pub(crate) const fn accepts_input(self) -> bool {
+        matches!(self, Self::Interactive)
+    }
+}
+
+/// Visual treatment for auxiliary-panel content.
+///
+/// This is deliberately separate from retained feedback severity: descriptive
+/// and overflow content also use the panel recipe without becoming feedback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AuxiliaryChrome {
+    Plain,
+    Info,
+    Warning,
+    Error,
+}
+
+impl AuxiliaryChrome {
+    pub(crate) const fn has_icon(self) -> bool {
+        !matches!(self, Self::Plain)
+    }
+}
+
+impl From<crate::feedback::Severity> for AuxiliaryChrome {
+    fn from(severity: crate::feedback::Severity) -> Self {
+        match severity {
+            crate::feedback::Severity::Info => Self::Info,
+            crate::feedback::Severity::Warning => Self::Warning,
+            crate::feedback::Severity::Error => Self::Error,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Node {
     role: Role,
@@ -78,9 +122,13 @@ pub struct Node {
     axis: Option<Axis>,
     style: Style,
     floating_placement: FloatingPlacement,
-    menu_anchor: Option<crate::geometry::PlacementAnchor>,
-    menu_available: Option<crate::geometry::Rect>,
+    placement_anchor: Option<crate::geometry::PlacementAnchor>,
+    placement_available: Option<crate::geometry::Rect>,
     popup_context: Option<crate::popup::ContextFingerprint>,
+    panel_policy: PanelPolicy,
+    auxiliary_chrome: Option<AuxiliaryChrome>,
+    table_panel_anchor: Option<crate::table::Cell>,
+    panel_anchor_target: Option<interaction::Target>,
     force_overlay_group: bool,
     native_popup_material_preference: NativePopupMaterialPreference,
     subject: Option<subject::Segment>,

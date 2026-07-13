@@ -10,7 +10,14 @@ pub(crate) struct Pointer {
     pub(super) pressed: Option<Target>,
     pub(super) capture: Option<Capture>,
     pub(super) press_intent: Option<PressIntent>,
+    hover_tip: HoverTip,
     last_click: Option<Click>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct HoverTip {
+    started_at: Option<Instant>,
+    visible: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,6 +85,64 @@ impl Pointer {
 
     pub(crate) fn hovered(&self) -> Option<&Target> {
         self.hovered.as_ref()
+    }
+
+    pub(crate) fn hover_tip_visible(&self) -> bool {
+        self.hover_tip.visible
+    }
+
+    pub(crate) fn hover_tip_deadline(&self, delay: std::time::Duration) -> Option<Instant> {
+        (!self.hover_tip.visible)
+            .then_some(self.hover_tip.started_at)
+            .flatten()
+            .map(|started_at| started_at + delay)
+    }
+
+    pub(super) fn update_projected_hover(
+        &mut self,
+        target: Option<Target>,
+        tip_eligible: bool,
+        at: Instant,
+    ) -> bool {
+        let target_changed = self.hovered != target;
+        if target_changed {
+            self.hovered = target;
+            self.hover_tip = HoverTip::default();
+        }
+        let tip_eligible = tip_eligible && self.hovered.is_some();
+        let tip_active = self.hover_tip.visible || self.hover_tip.started_at.is_some();
+        let eligibility_changed = tip_active != tip_eligible;
+        if eligibility_changed {
+            self.hover_tip = if tip_eligible {
+                HoverTip {
+                    started_at: Some(at),
+                    visible: false,
+                }
+            } else {
+                HoverTip::default()
+            };
+        }
+        target_changed || eligibility_changed
+    }
+
+    pub(super) fn promote_hover_tip(&mut self, now: Instant, delay: std::time::Duration) -> bool {
+        if self.hover_tip.visible || self.hovered.is_none() {
+            return false;
+        }
+        let Some(started_at) = self.hover_tip.started_at else {
+            return false;
+        };
+        if now < started_at + delay {
+            return false;
+        }
+        self.hover_tip.visible = true;
+        true
+    }
+
+    pub(super) fn dismiss_hover_tip(&mut self) -> bool {
+        let changed = self.hover_tip.visible || self.hover_tip.started_at.is_some();
+        self.hover_tip = HoverTip::default();
+        changed
     }
 
     pub(crate) fn position(&self) -> Option<Point> {

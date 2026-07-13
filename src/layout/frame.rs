@@ -138,6 +138,7 @@ struct SeparatorContent {
 #[derive(Clone)]
 pub(crate) struct Frame {
     node_id: composition::NodeId,
+    interaction_id: Option<interaction::Id>,
     path: path::Path,
     content: FrameContent,
     rect: Rect,
@@ -161,6 +162,9 @@ pub(crate) struct Frame {
     native_popup_material_preference: view::NativePopupMaterialPreference,
     popup_placement: Option<crate::geometry::PlacementRequest>,
     popup_context: Option<crate::popup::ContextFingerprint>,
+    panel_policy: view::PanelPolicy,
+    auxiliary_chrome: Option<view::AuxiliaryChrome>,
+    overflow_projection: Option<text::Selectable>,
     floating_layer: bool,
     background: Option<scene::Brush>,
     clip: Option<Clip>,
@@ -221,6 +225,22 @@ impl Frame {
                 )
             })
         });
+        let label_projection = text_area
+            .is_none()
+            .then(|| {
+                label_for(node).and_then(|label| {
+                    world_text_overflow.map(|overflow| {
+                        engine.resolve_selectable_text(
+                            label,
+                            world_text_rect.width(),
+                            label_style,
+                            world_text_wrap.unwrap_or(view::Wrap::None),
+                            overflow,
+                        )
+                    })
+                })
+            })
+            .flatten();
         let text_area_display = text_area.as_ref().map(|text_area| {
             let Some(projection) = text_area_projection.as_ref() else {
                 return text_area.clone();
@@ -238,19 +258,20 @@ impl Frame {
         let text_area_layout = text_area_display.as_ref().map(|text_area| {
             engine.text_area_layout(text_area, text_area_text_rect, theme, text_area_color, now)
         });
-        let label = if let Some(projection) = text_area_projection.as_ref() {
-            Some(projection.visible().to_owned())
-        } else {
-            label_for(node).map(|label| match world_text_overflow {
-                Some(overflow) => engine.resolve_label_overflow(
-                    label,
-                    world_text_rect.width(),
-                    label_style,
-                    overflow,
-                ),
-                None => label.to_owned(),
-            })
-        };
+        let label =
+            if let Some(projection) = text_area_projection.as_ref().or(label_projection.as_ref()) {
+                Some(projection.visible().to_owned())
+            } else {
+                label_for(node).map(|label| match world_text_overflow {
+                    Some(overflow) => engine.resolve_label_overflow(
+                        label,
+                        world_text_rect.width(),
+                        label_style,
+                        overflow,
+                    ),
+                    None => label.to_owned(),
+                })
+            };
         let label_width = label
             .as_deref()
             .map(|label| {
@@ -312,7 +333,7 @@ impl Frame {
             node,
             text_area,
             text_area_display,
-            text_area_projection,
+            text_area_projection.clone(),
             text_area_layout,
             text_area_text_rect,
             text_box_layout,
@@ -331,6 +352,7 @@ impl Frame {
         Self {
             path,
             node_id,
+            interaction_id: node.id(),
             content,
             rect,
             active_rect,
@@ -353,6 +375,9 @@ impl Frame {
             native_popup_material_preference: node.native_popup_material_preference(),
             popup_placement: None,
             popup_context: node.popup_context(),
+            panel_policy: node.panel_policy(),
+            auxiliary_chrome: node.auxiliary_chrome(),
+            overflow_projection: text_area_projection.or(label_projection),
             floating_layer,
             background: node.style().background(),
             clip,
@@ -422,6 +447,10 @@ impl Frame {
         self.node_id
     }
 
+    pub(crate) fn interaction_id(&self) -> Option<interaction::Id> {
+        self.interaction_id
+    }
+
     pub(crate) fn role(&self) -> view::Role {
         self.content.role()
     }
@@ -440,6 +469,13 @@ impl Frame {
 
     pub(crate) fn label_width(&self) -> i32 {
         self.label_width
+    }
+
+    pub(crate) fn overflow_tip(&self) -> Option<&str> {
+        self.overflow_projection
+            .as_ref()
+            .filter(|projection| projection.overflowed())
+            .map(text::Selectable::source)
     }
 
     pub(crate) fn world_text_overflow(&self) -> Option<text_model::Overflow> {
@@ -550,6 +586,14 @@ impl Frame {
 
     pub(crate) fn popup_context(&self) -> Option<crate::popup::ContextFingerprint> {
         self.popup_context
+    }
+
+    pub(crate) fn panel_accepts_input(&self) -> bool {
+        self.panel_policy.accepts_input()
+    }
+
+    pub(crate) fn auxiliary_chrome(&self) -> Option<view::AuxiliaryChrome> {
+        self.auxiliary_chrome
     }
 
     pub(crate) fn is_floating_layer(&self) -> bool {
@@ -756,6 +800,10 @@ impl Frame {
 
     pub(crate) fn is_palette_row(&self) -> bool {
         self.participation == Some(view::Participation::PaletteRow)
+    }
+
+    pub(crate) fn is_auxiliary_text(&self) -> bool {
+        self.participation == Some(view::Participation::AuxiliaryText)
     }
 
     pub(crate) fn table_part(&self) -> Option<view::TablePart> {

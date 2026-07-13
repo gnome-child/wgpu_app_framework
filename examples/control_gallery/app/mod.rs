@@ -1,5 +1,5 @@
 mod command;
-mod runtime;
+pub mod runtime;
 mod state;
 mod target;
 mod view;

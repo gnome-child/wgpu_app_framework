@@ -235,9 +235,22 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .collect::<Vec<_>>();
 
         for window in due {
-            log::debug!("animation frame due for window {window:?}; requesting paint");
-            self.session
-                .request_invalidation(window, response::Invalidation::Paint);
+            let hover_delay = std::time::Duration::from_millis(
+                self.active_theme().auxiliary_panel().hover_delay_ms,
+            );
+            let hover_tip_due = self.session.promote_hover_tip(window, now, hover_delay);
+            log::debug!(
+                "animation frame due for window {window:?}; requesting {}",
+                if hover_tip_due { "rebuild" } else { "paint" }
+            );
+            self.session.request_invalidation(
+                window,
+                if hover_tip_due {
+                    response::Invalidation::Rebuild
+                } else {
+                    response::Invalidation::Paint
+                },
+            );
         }
     }
 
@@ -292,7 +305,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .position()
             .and_then(|point| layout.hit_test_on_surface(point, interaction.pointer().surface()))
             .and_then(|hit| hit.target().cloned());
-        interaction.project_pointer_hover(hovered);
+        interaction.project_pointer_hover(hovered, false);
         Some(interaction)
     }
 
@@ -647,6 +660,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         if let Some(interaction) = interaction.as_ref() {
             view.project_active_table_cells(interaction.tables(), &virtual_selections);
         }
+        let window_feedback = self
+            .session
+            .window(window)
+            .and_then(session::Window::feedback)
+            .map(|(severity, text)| (severity, text.to_owned()));
+        view.project_feedback(window_feedback);
         let mut focus = self.session.focused(window);
         if focus.is_some_and(|focus| focus.target_id().is_some() && !view.contains_focus(focus)) {
             log::debug!("clearing stale focus before command resolution for window {window:?}");
@@ -697,7 +716,24 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             view.project_surfaces(interaction);
         }
         let reconciliation_started_at = Instant::now();
-        let (tree, changes) = self.composition.prepare(window, &view);
+        let (mut tree, mut changes) = self.composition.prepare(window, &view);
+        let hover_tip = self
+            .session
+            .interaction(window)
+            .filter(|interaction| interaction.pointer().hover_tip_visible())
+            .and_then(|interaction| interaction.pointer().hovered().cloned());
+        if let Some(target) = hover_tip
+            && view.project_hover_tip(
+                &tree,
+                &target,
+                self.presented_geometry
+                    .get(&window)
+                    .and_then(|presented| presented.layout.overflow_tip_for_target(&target))
+                    .map(str::to_owned),
+            )
+        {
+            (tree, changes) = self.composition.prepare(window, &view);
+        }
         if !changes.is_empty() {
             log::debug!(
                 "composition changed for window {:?}: removed={}, removed_elements={}",
@@ -902,7 +938,16 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let (layers, overlay_schedule) = overlay_update.into_parts();
         let schedule = caret_animation_schedule(&layout, now)
             .merge(visual_schedule)
-            .merge(overlay_schedule);
+            .merge(overlay_schedule)
+            .merge(
+                self.session
+                    .hover_tip_deadline(
+                        window,
+                        std::time::Duration::from_millis(theme.auxiliary_panel().hover_delay_ms),
+                    )
+                    .map(animation::Schedule::At)
+                    .unwrap_or(animation::Schedule::Idle),
+            );
         self.set_animation_schedule(window, schedule);
         let assembly_elapsed = assembly_started_at.elapsed();
         for layer in layers
@@ -1238,6 +1283,7 @@ fn append_or_present_overlay_layer(
                 paint_only,
                 layer.kind(),
                 layer.context_fingerprint(),
+                layer.accepts_input(),
             ));
         }
         crate::overlay::Backend::NativePopup => {}

@@ -27,7 +27,7 @@ impl ContextMenu {
 impl View {
     pub(crate) fn project_context_menu(&mut self, menu: ContextMenu) {
         let mut panel = Node::floating_panel(interaction::Menu::context_id())
-            .with_menu_placement(
+            .with_panel_placement(
                 geometry::PlacementAnchor::Point(menu.anchor),
                 menu.available,
             )
@@ -40,6 +40,6 @@ impl View {
                 panel = panel.child(Node::resolved_menu_action(action));
             }
         }
-        self.root.push_child(panel);
+        self.push_floating_panel(panel);
     }
 }

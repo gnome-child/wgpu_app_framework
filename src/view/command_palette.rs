@@ -43,7 +43,7 @@ impl Entry {
 
 impl View {
     pub(crate) fn project_command_palette(&mut self, palette: CommandPalette) {
-        self.root.push_child(panel_node(palette));
+        self.push_floating_panel(panel_node(palette));
     }
 }
 

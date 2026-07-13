@@ -165,6 +165,13 @@ impl Layout {
         &self.frames
     }
 
+    pub(crate) fn overflow_tip_for_target(&self, target: &interaction::Target) -> Option<&str> {
+        self.frames
+            .iter()
+            .find(|frame| frame.target() == Some(target))
+            .and_then(Frame::overflow_tip)
+    }
+
     pub(crate) fn frame_for_node(&self, node: composition::NodeId) -> Option<&Frame> {
         self.frames.iter().find(|frame| frame.node_id() == node)
     }
@@ -467,7 +474,7 @@ mod placement_tests {
     #[test]
     fn contextual_floating_panel_uses_the_shared_edge_solver() {
         let panel = view::Node::floating_panel("context")
-            .with_menu_placement(
+            .with_panel_placement(
                 crate::geometry::PlacementAnchor::Point(Point::new(95, 75)),
                 Rect::new(0, 0, 100, 80),
             )
@@ -499,7 +506,7 @@ mod placement_tests {
     fn contextual_floating_panel_honors_nested_available_bounds() {
         let available = Rect::new(10, 10, 40, 30);
         let panel = view::Node::floating_panel("nested-context")
-            .with_menu_placement(
+            .with_panel_placement(
                 crate::geometry::PlacementAnchor::Point(Point::new(48, 38)),
                 available,
             )

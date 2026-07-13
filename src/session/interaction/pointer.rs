@@ -3,6 +3,29 @@ use crate::{interaction, window as app_window};
 use super::super::Session;
 
 impl Session {
+    pub(crate) fn hover_tip_visible(&self, id: app_window::Id) -> bool {
+        self.interaction(id)
+            .is_some_and(|interaction| interaction.pointer().hover_tip_visible())
+    }
+
+    pub(crate) fn hover_tip_deadline(
+        &self,
+        id: app_window::Id,
+        delay: std::time::Duration,
+    ) -> Option<std::time::Instant> {
+        self.interaction(id)?.pointer().hover_tip_deadline(delay)
+    }
+
+    pub(crate) fn promote_hover_tip(
+        &mut self,
+        id: app_window::Id,
+        now: std::time::Instant,
+        delay: std::time::Duration,
+    ) -> bool {
+        self.window_mut(id)
+            .is_some_and(|window| window.interaction.promote_hover_tip(now, delay))
+    }
+
     pub(crate) fn set_pointer_position(
         &mut self,
         id: app_window::Id,
@@ -17,9 +40,13 @@ impl Session {
         &mut self,
         id: app_window::Id,
         target: Option<interaction::Target>,
+        tip_eligible: bool,
     ) -> bool {
-        self.window_mut(id)
-            .is_some_and(|window| window.interaction.project_pointer_hover(target))
+        self.window_mut(id).is_some_and(|window| {
+            window
+                .interaction
+                .project_pointer_hover(target, tip_eligible)
+        })
     }
 
     pub(crate) fn classify_click(

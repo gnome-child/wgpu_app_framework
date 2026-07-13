@@ -95,7 +95,7 @@ pub(in crate::layout) fn intrinsic_height_for_width(
             if node.label_text().is_some() && node.children().is_empty() =>
         {
             if node.world_text_wrap() == Some(view::Wrap::None) {
-                body_line_height(theme)
+                line_height(typography::label_style(node, theme))
             } else {
                 node.label_text()
                     .map(|label| {
@@ -103,11 +103,11 @@ pub(in crate::layout) fn intrinsic_height_for_width(
                             .label_size_for_width_with_style(
                                 label,
                                 content_width,
-                                theme.typography().body(),
+                                typography::label_style(node, theme),
                             )
                             .height()
                     })
-                    .unwrap_or_else(|| body_line_height(theme))
+                    .unwrap_or_else(|| line_height(typography::label_style(node, theme)))
             }
         }
         view::Role::SectionHeader => node
@@ -179,7 +179,26 @@ pub(in crate::layout) fn floating_panel_height_for_width(
 ) -> i32 {
     let padding = theme.floating_panel().padding.max(0);
     let content_width = width.max(0).saturating_sub(padding.saturating_mul(2));
-    let content_height = if control::is_menu_panel(node) {
+    let content_height = if let Some(chrome) = node.auxiliary_chrome() {
+        let reserved = i32::from(chrome.has_icon()).saturating_mul(
+            theme
+                .auxiliary_panel()
+                .icon_extent
+                .saturating_add(theme.auxiliary_panel().icon_gap),
+        );
+        stack_intrinsic_height_for_width(
+            node,
+            content_width.saturating_sub(reserved),
+            engine,
+            theme,
+            profile,
+        )
+        .max(if chrome.has_icon() {
+            theme.auxiliary_panel().icon_extent
+        } else {
+            0
+        })
+    } else if control::is_menu_panel(node) {
         node.children()
             .iter()
             .map(|child| intrinsic_height_for_width(child, content_width, engine, theme, profile))
@@ -220,7 +239,15 @@ pub(in crate::layout) fn floating_panel_width(
     theme: &theme::Theme,
     profile: keymap::Profile,
 ) -> i32 {
-    let content_width = if control::is_menu_panel(node) {
+    let content_width = if let Some(chrome) = node.auxiliary_chrome() {
+        let reserved = i32::from(chrome.has_icon()).saturating_mul(
+            theme
+                .auxiliary_panel()
+                .icon_extent
+                .saturating_add(theme.auxiliary_panel().icon_gap),
+        );
+        stack_intrinsic_width(node, engine, theme, profile).saturating_add(reserved)
+    } else if control::is_menu_panel(node) {
         node.children()
             .iter()
             .map(|child| {
@@ -902,7 +929,11 @@ pub(crate) fn section_header_height(theme: &theme::Theme) -> i32 {
 }
 
 fn body_line_height(theme: &theme::Theme) -> i32 {
-    theme.typography().body().size().ceil().max(1.0) as i32
+    line_height(theme.typography().body())
+}
+
+fn line_height(style: theme::TypeStyle) -> i32 {
+    style.size().ceil().max(1.0) as i32
 }
 
 fn has_single_character_label(node: &view::Node) -> bool {

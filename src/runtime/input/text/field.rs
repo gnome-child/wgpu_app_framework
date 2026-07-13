@@ -70,6 +70,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let input = self
             .text_draft_input(window, focus)
             .unwrap_or_else(text::Input::unrestricted);
+        let had_table_rejection = focus
+            .table_cell_identity()
+            .is_some_and(|cell| self.session.table_edit_error(window, cell).is_some());
         let Some(change) = self
             .session
             .edit_text_draft(window, focus, base, edit, input)
@@ -84,7 +87,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 .request_invalidation(window, response::Invalidation::Rebuild);
         }
 
-        let outcome = self.finish_text_box_change(window, focus, change.clone())?;
+        let outcome =
+            self.finish_text_box_change(window, focus, change.clone(), had_table_rejection)?;
         Ok(Some((change, outcome)))
     }
 
@@ -93,12 +97,14 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         window: window::Id,
         focus: session::Focus,
         change: draft::Change,
+        had_table_rejection: bool,
     ) -> std::result::Result<input::Outcome, Error> {
         let mut handled = change.changed() || change.submit();
         let mut changed_state = false;
         let mut effect = if change.changed() {
-            if focus.same_target(&interaction::CommandPalette::query_focus())
-                && change.text_changed()
+            if change.text_changed()
+                && (focus.same_target(&interaction::CommandPalette::query_focus())
+                    || had_table_rejection)
             {
                 response::Effect::Rebuild
             } else {
@@ -193,7 +199,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 return Ok(Some(self.window_outcome(
                     window,
                     false,
-                    response::Effect::Layout,
+                    response::Effect::Rebuild,
                 )));
             }
             Some(Ok((cell, action))) => {

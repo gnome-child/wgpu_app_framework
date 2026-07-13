@@ -79,13 +79,24 @@ fn mismatched_old_node_reports_removed_subtree_before_rebuild() {
     let old_child = retained_id(&first.root().children()[0]);
 
     let (second, changes) = first.reconcile(
-        &View::new(view::Node::stack(view::Axis::Vertical)),
+        &View::new(view::Node::root().child(view::Node::stack(view::Axis::Vertical))),
         &mut next_node_id,
     );
 
-    assert_ne!(retained_id(second.root()), old_root);
-    assert_eq!(changes.removed(), &[old_root, old_child]);
+    assert_eq!(retained_id(second.root()), old_root);
+    assert_ne!(retained_id(&second.root().children()[0]), old_child);
+    assert_eq!(changes.removed(), &[old_child]);
     assert_eq!(changes.removed_elements(), &[interaction::Id::new("old")]);
+}
+
+#[test]
+fn every_view_has_one_stable_root_before_auxiliary_panels_are_projected() {
+    let content = view::Node::label("Content").with_interaction_id("stable.content");
+    let view = View::new(content);
+
+    assert_eq!(view.root().role(), view::Role::Root);
+    assert_eq!(view.root().children().len(), 1);
+    assert_eq!(view.root().children()[0].label_text(), Some("Content"));
 }
 
 #[test]

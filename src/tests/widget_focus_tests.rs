@@ -91,11 +91,24 @@ fn focused_menu_opens_with_enter_and_tabs_within_popup() {
 
     app.show_scene_after_overlay_fade(window, size)
         .expect("open menu should render popup before popup tab navigation");
-    app.handle_input(
-        window,
-        Input::key_down(input::Key::Tab, input::Modifiers::default()),
-    )
-    .expect("tab should move into open popup");
+    for _ in 0..8 {
+        app.handle_input(
+            window,
+            Input::key_down(input::Key::Tab, input::Modifiers::default()),
+        )
+        .expect("tab should move through the open popup");
+        let click_is_focused = app
+            .show_scene(window, size)
+            .expect("popup focus should remain presentable")
+            .layout()
+            .frames()
+            .iter()
+            .find(|frame| frame.is_focused())
+            .is_some_and(|frame| frame.label_text() == Some("Click"));
+        if click_is_focused {
+            break;
+        }
+    }
 
     let popup_focus = app
         .show_scene(window, size)
@@ -665,16 +678,16 @@ fn app_menu_command_commits_and_deactivates_focused_text_box_before_dispatch() {
     assert_eq!(text_box.text(), "");
 }
 
-fn open_gallery_edit_menu(
-    app: &mut Runtime<control_gallery::State, (), View>,
+fn open_gallery_edit_menu<E: Send + 'static>(
+    app: &mut Runtime<control_gallery::State, E, View>,
     window: window::Id,
     size: geometry::Size,
 ) {
     open_gallery_menu(app, window, size, "Edit");
 }
 
-fn open_gallery_menu(
-    app: &mut Runtime<control_gallery::State, (), View>,
+fn open_gallery_menu<E: Send + 'static>(
+    app: &mut Runtime<control_gallery::State, E, View>,
     window: window::Id,
     size: geometry::Size,
     label: &'static str,
@@ -689,8 +702,8 @@ fn open_gallery_menu(
     pointer_up_then_present(app, window, size, point);
 }
 
-fn activate_gallery_edit_binding(
-    app: &mut Runtime<control_gallery::State, (), View>,
+fn activate_gallery_edit_binding<E: Send + 'static>(
+    app: &mut Runtime<control_gallery::State, E, View>,
     window: window::Id,
     size: geometry::Size,
     label: &'static str,
@@ -706,8 +719,8 @@ fn activate_gallery_edit_binding(
     pointer_up_then_present(app, window, size, point)
 }
 
-fn click_gallery_frame(
-    app: &mut Runtime<control_gallery::State, (), View>,
+fn click_gallery_frame<E: Send + 'static>(
+    app: &mut Runtime<control_gallery::State, E, View>,
     window: window::Id,
     size: geometry::Size,
     role: view::Role,
@@ -723,8 +736,8 @@ fn click_gallery_frame(
     pointer_up_then_present(app, window, size, point)
 }
 
-fn drag_gallery_slider_to_fraction(
-    app: &mut Runtime<control_gallery::State, (), View>,
+fn drag_gallery_slider_to_fraction<E: Send + 'static>(
+    app: &mut Runtime<control_gallery::State, E, View>,
     window: window::Id,
     size: geometry::Size,
     fraction: f64,

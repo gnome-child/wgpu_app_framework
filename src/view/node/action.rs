@@ -17,6 +17,10 @@ impl Node {
         &self,
         node_id: composition::NodeId,
     ) -> Option<interaction::Target> {
+        if self.role() == Role::FloatingPanel && !self.panel_policy().accepts_input() {
+            return None;
+        }
+
         if let Some(target) = self.text_control_target() {
             return Some(target);
         }

@@ -80,7 +80,8 @@ impl Native {
         self.popups
             .get_mut(&key)
             .expect("popup should exist before assigning lifecycle participation")
-            .accepts_input = presentation.kind() == overlay::LayerKind::Live;
+            .accepts_input =
+            presentation.kind() == overlay::LayerKind::Live && presentation.accepts_input();
         self.prepare_popup_generation(presentation, now)?;
         self.configure_popup_window(presentation, now)?;
 

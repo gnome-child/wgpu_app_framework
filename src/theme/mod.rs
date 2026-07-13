@@ -23,6 +23,7 @@ pub struct Theme {
     slider: Slider,
     text_input: TextInput,
     floating_panel: FloatingPanel,
+    auxiliary_panel: AuxiliaryPanel,
     overlay: Overlay,
     viewport: Viewport,
     scrollbar: Scrollbar,
@@ -169,6 +170,18 @@ pub struct FloatingPanel {
     pub(crate) shadow_offset_y: f32,
     pub(crate) padding: i32,
     pub(crate) content_gap: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AuxiliaryPanel {
+    pub(crate) hover_delay_ms: u64,
+    pub(crate) max_width: i32,
+    pub(crate) max_height: i32,
+    pub(crate) icon_extent: i32,
+    pub(crate) icon_gap: i32,
+    pub(crate) info: scene::Color,
+    pub(crate) warning: scene::Color,
+    pub(crate) error: scene::Color,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -346,6 +359,16 @@ impl Theme {
                 padding: 6,
                 content_gap: 6,
             },
+            auxiliary_panel: AuxiliaryPanel {
+                hover_delay_ms: 400,
+                max_width: 360,
+                max_height: 240,
+                icon_extent: 16,
+                icon_gap: 8,
+                info: scene::Color::rgb(100, 180, 255),
+                warning: scene::Color::rgb(255, 204, 0),
+                error: scene::Color::rgb(255, 69, 58),
+            },
             overlay: Overlay {
                 enter_fade_ms: 100,
                 exit_fade_ms: 100,
@@ -483,6 +506,16 @@ impl Theme {
                 padding: 6,
                 content_gap: 6,
             },
+            auxiliary_panel: AuxiliaryPanel {
+                hover_delay_ms: 400,
+                max_width: 360,
+                max_height: 240,
+                icon_extent: 16,
+                icon_gap: 8,
+                info: scene::Color::rgb(42, 104, 230),
+                warning: scene::Color::rgb(180, 120, 0),
+                error: scene::Color::rgb(190, 40, 40),
+            },
             overlay: Overlay {
                 enter_fade_ms: 90,
                 exit_fade_ms: 120,
@@ -598,6 +631,10 @@ impl Theme {
 
     pub fn floating_panel_mut(&mut self) -> &mut FloatingPanel {
         &mut self.floating_panel
+    }
+
+    pub fn auxiliary_panel(&self) -> &AuxiliaryPanel {
+        &self.auxiliary_panel
     }
 
     pub(crate) fn overlay(&self) -> Overlay {
