@@ -61,7 +61,7 @@ silhouette and one opacity owner.
 
 | Checkpoint | State | Boundary |
 | --- | --- | --- |
-| 0. Reductions, census, DropShadow gate | In progress | Four reductions, bounds census, hardware probe verdict |
+| 0. Reductions, census, DropShadow gate | Complete | Four reductions, bounds census, hardware probe verdict |
 | 1. Explicit material resolution | Pending | Realized frost remains transparent; fallback is selected, not guessed |
 | 2. One silhouette and visual bounds | Pending | Popup surface consumes existing shadow reach while hit geometry stays panel-local |
 | 3. One framework edge | Pending | Composition-backed DWM border/rounding retired; four-scale silhouette agreement |
@@ -107,6 +107,33 @@ silhouette and one opacity owner.
 The lower concept is therefore a promotion: the native surface becomes the
 second consumer of existing visual-reach truth. Panel bounds remain the input
 and containment currency.
+
+### DropShadow gate verdict
+
+The Windows hardware probe admits a composition `DropShadow`, with two
+constraints that production must preserve:
+
+- the shadow carrier itself must remain unclipped; clipping the carrier to the
+  panel silhouette also clips away the blur outset;
+- the rounded alpha mask must come from a visual participating in the live
+  composition tree. An unattached `CompositionVisualSurface` source silently
+  degenerates to a rectangular caster on this machine.
+
+The accepted probe uses the framework's rounded panel geometry for frost,
+surface tint, and the shadow mask; suppresses DWM border/shadow treatment; and
+animates the container root while the application schedules only the next
+phase deadline. Frost, tint, and shadow fade continuously with no redraw loop
+or swapchain submission. A transparent dedicated caster was rejected because
+it produces no shadow; production must use the already-visible residual
+content/tint visual as the caster rather than add an opaque lid.
+
+The probe's static capture background is instrumentation only. Transparent
+surface margins, screen-edge placement, DPI derivation, and panel-local hit
+geometry remain acceptance riders on checkpoints 2 through 4, where the real
+surface envelope and event target exist.
+
+> A visual may cast beyond its layout bounds only when its silhouette mask is
+> live and its carrier is not clipped to that silhouette.
 
 > One framework silhouette defines every popup pixel; the platform realizes
 > declared effects, and one compositor timeline carries them from first frame
