@@ -6,7 +6,14 @@ is next.
 
 ## In flight
 
-No campaign is currently in flight.
+14. **Pay Once — renderer economics and warm popup hosts** — execution of the
+    renderer-economics item established by the presentation-clock campaign.
+    PIX names CPU encoding, GPU execution, pass, allocation, clip, and popup
+    preparation costs before code changes. Then one-owner clip realization,
+    reusable geometry storage, semantic render-pass scopes, and a probe-gated
+    bounded popup-host pool remove work that does not represent a real visual
+    boundary. Retained/damage layers and custom presentation remain excluded.
+    Ledger: `docs/audits/2026-07-13-renderer-economics-campaign.md`.
 
 ## Specced and ready
 
@@ -97,21 +104,6 @@ No campaign is currently in flight.
     (campaign closed at `bc4df416`).
 13. **Trading terminal** (flagship two) — charts primitive domain, real-time
     invalidation stress, tabular figures, kiosk-scoped BSD session.
-14. **Renderer economics before targeted redraw** — presentation-clock
-    profiling supplied the caller but not yet the mechanism: a full-height
-    table projects roughly 690 scene items into 677 render batches, and
-    encode/submit/present dominates after shaping misses settle to zero.
-    Investigate in this order: separate CPU command encoding from GPU
-    execution/present wait; census why adjacent table primitives do not batch;
-    then choose among batch fusion, retained base layers, targeted redraw, or
-    damage. Cache enlargement is rejected by current evidence. Any retained
-    layer must state its ownership and invalidation boundary without duplicating
-    layout truth; damage waits for a demonstrated GPU residual.
-    The popup open-bill trace adds a bounded second receipt: the same small
-    menu costs 18–20 ms to draw on DX12 versus 3.7 ms on Vulkan, and the command
-    palette 24.1 ms versus 7.4 ms, after view/layout/scene work is below 4 ms
-    and popup presentation no longer waits behind the parent frame. The popup
-    campaign owns no renderer workaround for that backend-amplified cost.
 28. **Presentation Clock — COMPLETE** (`20c31cae`, 2026-07-13; 939 tests at
     the last behavioral boundary). Events update truth immediately; redraw is
     the frame boundary; successful presentation receipts alone promote visible
