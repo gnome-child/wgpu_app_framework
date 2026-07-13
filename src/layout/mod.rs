@@ -264,6 +264,16 @@ impl Layout {
             .map(Frame::node_id)
     }
 
+    pub(crate) fn context_available_for_node(&self, node: composition::NodeId) -> Option<Rect> {
+        let frame = self.frame_for_node(node)?;
+        Some(
+            frame
+                .clip()
+                .map(|clip| clip.rect())
+                .unwrap_or_else(|| Rect::from_size(self.size)),
+        )
+    }
+
     pub(crate) fn drag_action_for_target(
         &self,
         target: &interaction::Target,
@@ -343,5 +353,41 @@ impl Layout {
             .iter()
             .filter(|frame| frame.role() == role)
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+
+    #[test]
+    fn contextual_floating_panel_uses_the_shared_edge_solver() {
+        let panel = view::Node::floating_panel("context")
+            .with_menu_placement(
+                crate::geometry::PlacementAnchor::Point(Point::new(95, 75)),
+                Rect::new(0, 0, 100, 80),
+            )
+            .with_style(
+                view::Style::new()
+                    .with_width(view::Dimension::fixed(30))
+                    .with_height(view::Dimension::fixed(20)),
+            );
+        let view = view::View::new(view::Node::root().child(panel));
+        let mut engine = Engine::new();
+        let layout = Layout::compose(&view, Size::new(100, 80), &mut engine);
+        let panel = layout
+            .find_role(view::Role::FloatingPanel)
+            .into_iter()
+            .next()
+            .expect("context panel should be laid out");
+
+        assert_eq!(panel.rect(), Rect::new(65, 55, 30, 20));
+        assert_eq!(
+            panel
+                .popup_placement()
+                .expect("context panel should retain its placement request")
+                .resolve(Rect::new(-100, -100, 300, 300)),
+            Rect::new(95, 75, 30, 20)
+        );
     }
 }

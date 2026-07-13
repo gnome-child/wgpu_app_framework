@@ -159,6 +159,7 @@ pub(crate) struct Frame {
     participation: Option<view::Participation>,
     force_overlay_group: bool,
     native_popup_material_preference: view::NativePopupMaterialPreference,
+    popup_placement: Option<crate::geometry::PlacementRequest>,
     floating_layer: bool,
     background: Option<scene::Brush>,
     clip: Option<Clip>,
@@ -349,6 +350,7 @@ impl Frame {
             participation: node.participation(),
             force_overlay_group: node.force_overlay_group(),
             native_popup_material_preference: node.native_popup_material_preference(),
+            popup_placement: None,
             floating_layer,
             background: node.style().background(),
             clip,
@@ -364,6 +366,13 @@ impl Frame {
             _ => panic!("only Scroll frame content accepts a viewport"),
         }
         self
+    }
+
+    pub(super) fn set_popup_placement(
+        &mut self,
+        placement: Option<crate::geometry::PlacementRequest>,
+    ) {
+        self.popup_placement = placement;
     }
 
     pub(super) fn with_table_projection(mut self, projection: table::Projection) -> Self {
@@ -532,6 +541,10 @@ impl Frame {
 
     pub(crate) fn native_popup_material_preference(&self) -> view::NativePopupMaterialPreference {
         self.native_popup_material_preference
+    }
+
+    pub(crate) fn popup_placement(&self) -> Option<crate::geometry::PlacementRequest> {
+        self.popup_placement
     }
 
     pub(crate) fn is_floating_layer(&self) -> bool {

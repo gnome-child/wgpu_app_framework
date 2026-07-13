@@ -16,6 +16,7 @@ pub(crate) struct Draft {
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
     text_caret_rect: Option<geometry::Rect>,
+    placement: Option<geometry::PlacementRequest>,
     force_group_at_full_opacity: bool,
 }
 
@@ -29,6 +30,7 @@ struct Entry {
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
     text_caret_rect: Option<geometry::Rect>,
+    placement: Option<geometry::PlacementRequest>,
     opacity: f32,
     fade: PopupFade,
     state: State,
@@ -57,6 +59,7 @@ struct RetiringPopup {
     scene: scene::Scene,
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
+    placement: Option<geometry::PlacementRequest>,
     started_at: Instant,
     duration: Duration,
     from_opacity: f32,
@@ -113,6 +116,7 @@ pub(crate) struct Layer {
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
     text_caret_rect: Option<geometry::Rect>,
+    placement: Option<geometry::PlacementRequest>,
     state: Option<State>,
     elapsed: Option<Duration>,
     force_group_at_full_opacity: bool,
@@ -164,6 +168,7 @@ pub(crate) struct PopupPresentation {
     parent: window::Id,
     id: interaction::Id,
     bounds: geometry::Rect,
+    placement: Option<geometry::PlacementRequest>,
     scene: scene::Scene,
     opacity: f32,
     fade: PopupFade,
@@ -207,6 +212,7 @@ struct Live {
     native_animation: bool,
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
+    placement: Option<geometry::PlacementRequest>,
     appeared_at: Instant,
     demotion_logged: bool,
 }
@@ -221,6 +227,7 @@ impl Draft {
             popup_material_preference: PopupMaterialPreference::System,
             popup_border: scene::Color::rgba(0, 0, 0, 0),
             text_caret_rect: None,
+            placement: None,
             force_group_at_full_opacity: false,
         }
     }
@@ -250,6 +257,11 @@ impl Draft {
         self
     }
 
+    pub(crate) fn placement(mut self, placement: Option<geometry::PlacementRequest>) -> Self {
+        self.placement = placement;
+        self
+    }
+
     pub(crate) fn id(&self) -> interaction::Id {
         self.id
     }
@@ -274,6 +286,7 @@ impl Entry {
             popup_material_preference: self.popup_material_preference,
             popup_border: self.popup_border,
             text_caret_rect: self.text_caret_rect,
+            placement: self.placement,
             state: Some(self.state),
             elapsed: Some(self.elapsed),
             force_group_at_full_opacity: self.force_group_at_full_opacity,
@@ -306,6 +319,7 @@ impl Ghost {
             popup_material_preference: PopupMaterialPreference::System,
             popup_border: scene::Color::rgba(0, 0, 0, 0),
             text_caret_rect: None,
+            placement: None,
             state: None,
             elapsed: Some(now.saturating_duration_since(self.started_at)),
             force_group_at_full_opacity: false,
@@ -351,6 +365,7 @@ impl RetiringPopup {
             popup_material_preference: self.popup_material_preference,
             popup_border: self.popup_border,
             text_caret_rect: None,
+            placement: self.placement,
             state: None,
             elapsed: Some(now.saturating_duration_since(self.started_at)),
             force_group_at_full_opacity: false,
@@ -408,6 +423,10 @@ impl Layer {
 
     pub(crate) fn text_caret_rect(&self) -> Option<geometry::Rect> {
         self.text_caret_rect
+    }
+
+    pub(crate) fn placement(&self) -> Option<geometry::PlacementRequest> {
+        self.placement
     }
 
     pub(crate) fn state(&self) -> Option<State> {
@@ -495,6 +514,7 @@ impl PopupPresentation {
         parent: window::Id,
         id: interaction::Id,
         bounds: geometry::Rect,
+        placement: Option<geometry::PlacementRequest>,
         scene: scene::Scene,
         opacity: f32,
         fade: PopupFade,
@@ -507,6 +527,7 @@ impl PopupPresentation {
             parent,
             id,
             bounds,
+            placement,
             scene,
             opacity,
             fade,
@@ -527,6 +548,10 @@ impl PopupPresentation {
 
     pub(crate) fn bounds(&self) -> geometry::Rect {
         self.bounds
+    }
+
+    pub(crate) fn placement(&self) -> Option<geometry::PlacementRequest> {
+        self.placement
     }
 
     pub(crate) fn scene(&self) -> &scene::Scene {
@@ -639,6 +664,7 @@ impl Store {
                     scene: live.scene.clone(),
                     popup_material_preference: live.popup_material_preference,
                     popup_border: live.popup_border,
+                    placement: live.placement,
                     started_at: now,
                     duration,
                     from_opacity,
@@ -701,6 +727,7 @@ impl Store {
                 native_animation,
                 popup_material_preference: draft.popup_material_preference,
                 popup_border: draft.popup_border,
+                placement: draft.placement,
                 appeared_at,
                 demotion_logged: demotion_logged || demotion_marker,
             };
@@ -714,6 +741,7 @@ impl Store {
                 popup_material_preference: draft.popup_material_preference,
                 popup_border: draft.popup_border,
                 text_caret_rect: draft.text_caret_rect,
+                placement: draft.placement,
                 opacity,
                 fade: if entering {
                     PopupFade::Entering {

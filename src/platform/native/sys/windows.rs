@@ -2,9 +2,12 @@ use super::PopupAccentMaterial;
 use crate::paint;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{
     DWMWA_BORDER_COLOR, DWMWA_CLOAK, DWMWA_USE_IMMERSIVE_DARK_MODE, DwmFlush, DwmSetWindowAttribute,
+};
+use windows_sys::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
 };
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
@@ -150,6 +153,44 @@ pub(super) fn configure_popup_bounds(
             SWP_NOACTIVATE | SWP_NOOWNERZORDER,
         );
     }
+}
+
+pub(super) fn popup_available_bounds(
+    window: &winit::window::Window,
+    anchor: crate::geometry::PlacementAnchor,
+) -> Option<crate::geometry::Rect> {
+    let parent_origin = window.inner_position().ok()?;
+    let scale = window.scale_factor();
+    let anchor = anchor.reference_point();
+    let point = POINT {
+        x: parent_origin
+            .x
+            .saturating_add((f64::from(anchor.x()) * scale).round() as i32),
+        y: parent_origin
+            .y
+            .saturating_add((f64::from(anchor.y()) * scale).round() as i32),
+    };
+    let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
+    if monitor.is_null() {
+        return None;
+    }
+
+    let mut info: MONITORINFO = unsafe { core::mem::zeroed() };
+    info.cbSize = core::mem::size_of::<MONITORINFO>() as u32;
+    if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+        return None;
+    }
+
+    let work = info.rcWork;
+    Some(super::physical_bounds_as_parent_logical(
+        work.left,
+        work.top,
+        work.right.saturating_sub(work.left),
+        work.bottom.saturating_sub(work.top),
+        parent_origin.x,
+        parent_origin.y,
+        scale,
+    ))
 }
 
 pub(super) fn set_popup_visible(window: &winit::window::Window, visible: bool) {

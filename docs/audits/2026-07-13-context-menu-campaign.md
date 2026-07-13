@@ -115,7 +115,7 @@ must decide and record each surface's policy deliberately.
 | 2 | Retained contextual ownership and exact local discovery | Complete |
 | 3 | Secondary/keyboard request through one menu session | Complete |
 | 4 | Existing menu-row and overlay projection | Complete |
-| 5 | One placement solver with viewport/work-area bounds | Pending |
+| 5 | One placement solver with viewport/work-area bounds | Complete |
 | 6 | Gallery, absence witnesses, doctrine, and full closeout | Pending |
 
 ## Explicit exclusions
@@ -177,6 +177,28 @@ must decide and record each surface's policy deliberately.
   exact-route invocation, hidden-local non-fallthrough, text-service discovery
   with focus preservation, keyboard invocation, and stale-owner pruning.
   All 32 interaction tests passed, as did all-target compilation and formatting.
+
+### Checkpoint 5
+
+- `geometry::PlacementRequest` is the one pure placement projection. Point and
+  rectangle anchors share down-right/down-left/up-right/up-left preference,
+  full-fit selection, greatest-visible-area fallback, and origin clamping
+  without changing the requested menu size.
+- Layout resolves that request against the contextual owner's inherited clip,
+  so nested viewports constrain an in-frame menu without teaching layout about
+  commands or platform monitors. Authored menu-title anchors enter the same
+  solver through a rectangle anchor.
+- The request survives scene extraction, overlay retention, native-popup
+  presentation, and retirement. A native host re-resolves it against the work
+  area of the monitor containing the anchor; an unsupported native forecast
+  retains the already resolved in-frame bounds. Placement policy therefore
+  remains shared while availability stays host-owned.
+- The Windows boundary projects the physical monitor work area into the
+  parent's logical coordinate system once. Scale witnesses at 1.0, 1.25, 1.5,
+  and 2.0 and a negative-origin monitor witness pin that conversion.
+- Boundary verification: point-corner, rectangle-anchor, oversize, layout
+  integration, work-area projection, and all 32 interaction witnesses passed;
+  library compilation is warning-free.
 
 ## Structural-absence witnesses
 

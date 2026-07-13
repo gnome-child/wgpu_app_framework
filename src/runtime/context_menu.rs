@@ -37,8 +37,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .composition
             .get(window)?
             .context_owner_for_node(owner_id)?;
+        let available = self
+            .presented_layout(window)
+            .and_then(|layout| layout.context_available_for_node(owner_id))?;
         let actions = self.context_actions(window, &owner);
-        (!actions.is_empty()).then(|| view::ContextMenu::new(anchor, actions))
+        (!actions.is_empty()).then(|| view::ContextMenu::new(anchor, available, actions))
     }
 
     pub(in crate::runtime) fn open_context_menu_for_focus(

@@ -1167,6 +1167,7 @@ fn append_or_present_overlay_layer(
                 window,
                 layer.id(),
                 layer.bounds(),
+                layer.placement(),
                 popup_scene,
                 layer.opacity(),
                 layer.fade(),

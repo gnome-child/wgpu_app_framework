@@ -110,6 +110,7 @@ fn paint_overlay_entries(
             (!scene.is_empty()).then(|| {
                 overlay::Draft::new(id, panel.rect(), scene)
                     .prefer(overlay::Preference::NativePopup)
+                    .placement(panel.popup_placement())
                     .popup_material_preference(popup_material_preference(panel))
                     .popup_border(theme.floating_panel().border())
                     .text_caret_rect(text_caret_rect_for_panel(layout, panel))

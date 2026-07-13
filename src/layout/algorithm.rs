@@ -1,6 +1,6 @@
 use super::super::{
     composition,
-    geometry::{Rect, Size},
+    geometry::{self, Rect, Size},
     interaction, keymap, theme, view,
 };
 use super::{
@@ -606,7 +606,7 @@ fn layout_root(
         let retained_child = retained_child(retained, index);
         let child_path = path.child(index);
         if child.role() == view::Role::FloatingPanel {
-            let popup_rect = root_floating_panel_rect(
+            let (popup_rect, popup_placement) = root_floating_panel_rect(
                 child,
                 &ctx.frames,
                 rect,
@@ -623,6 +623,13 @@ fn layout_root(
                 None,
                 ctx,
             );
+            if let Some(panel) = ctx
+                .frames
+                .iter_mut()
+                .find(|frame| frame.node_id() == retained_child.node_id())
+            {
+                panel.set_popup_placement(popup_placement);
+            }
         } else {
             layout_node(
                 child,
@@ -644,22 +651,31 @@ fn root_floating_panel_rect(
     engine: &mut engine::Engine,
     theme: &theme::Theme,
     profile: keymap::Profile,
-) -> Rect {
+) -> (Rect, Option<geometry::PlacementRequest>) {
+    let anchor = node
+        .menu_anchor()
+        .or_else(|| floating_panel_anchor(node, frames).map(geometry::PlacementAnchor::Rect));
     let width = match node.style().width() {
         Some(_) => resolved_width(node, root.width, engine, theme, profile),
+        None if anchor.is_some() => floating_panel_width(node, engine, theme, profile),
         None => floating_panel_width(node, engine, theme, profile).min(root.width.max(0)),
     };
     let height = match node.style().height() {
         Some(_) => resolved_height(node, root.height, theme),
+        None if anchor.is_some() => {
+            floating_panel_height_for_width(node, width, engine, theme, profile)
+        }
         None => floating_panel_height_for_width(node, width, engine, theme, profile)
             .min(root.height.max(0)),
     };
 
-    if let Some(anchor) = floating_panel_anchor(node, frames) {
-        return Rect::new(anchor.x(), anchor.bottom(), width, height);
+    if let Some(anchor) = anchor {
+        let request = geometry::PlacementRequest::new(anchor, Size::new(width, height));
+        let available = node.menu_available().unwrap_or(root);
+        return (request.resolve(available), Some(request));
     }
 
-    match node.floating_placement() {
+    let rect = match node.floating_placement() {
         view::FloatingPlacement::Default => Rect::new(root.x(), root.y(), width, height),
         view::FloatingPlacement::Offset { x, y } => Rect::new(
             root.x().saturating_add(x),
@@ -679,7 +695,8 @@ fn root_floating_panel_rect(
                 .saturating_add(root.height().saturating_sub(envelope_height) / 2);
             Rect::new(x, y, width, height)
         }
-    }
+    };
+    (rect, None)
 }
 
 fn floating_panel_anchor(node: &view::Node, frames: &[Frame]) -> Option<Rect> {

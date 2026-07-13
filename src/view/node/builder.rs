@@ -314,6 +314,16 @@ impl Node {
         self
     }
 
+    pub(crate) fn with_menu_placement(
+        mut self,
+        anchor: crate::geometry::PlacementAnchor,
+        available: crate::geometry::Rect,
+    ) -> Self {
+        self.menu_anchor = Some(anchor);
+        self.menu_available = Some(available);
+        self
+    }
+
     pub(crate) fn with_force_overlay_group(mut self, force: bool) -> Self {
         self.force_overlay_group = force;
         self
@@ -402,6 +412,8 @@ impl Node {
             axis: None,
             style: Style::default(),
             floating_placement: FloatingPlacement::Default,
+            menu_anchor: None,
+            menu_available: None,
             force_overlay_group: false,
             native_popup_material_preference: NativePopupMaterialPreference::System,
             subject: None,

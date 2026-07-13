@@ -23,6 +23,14 @@ impl Node {
         self.floating_placement
     }
 
+    pub(crate) fn menu_anchor(&self) -> Option<crate::geometry::PlacementAnchor> {
+        self.menu_anchor
+    }
+
+    pub(crate) fn menu_available(&self) -> Option<crate::geometry::Rect> {
+        self.menu_available
+    }
+
     pub(crate) fn force_overlay_group(&self) -> bool {
         self.force_overlay_group
     }

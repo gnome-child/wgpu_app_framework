@@ -624,14 +624,14 @@ impl Native {
         let Some(parent) = self.windows.get(&parent_id) else {
             return Err(NativeError::MissingWindow { window: parent_id });
         };
-        let parent_origin = parent.handle().inner_position().unwrap_or_else(|error| {
+        let parent_handle = parent.handle();
+        let parent_origin = parent_handle.inner_position().unwrap_or_else(|error| {
             log::warn!(
                 target: "wgpu_l3::native_popup",
                 "cannot read parent client origin for popup {:?}: {error}; falling back to outer origin",
                 presentation.id()
             );
-            parent
-                .handle()
+            parent_handle
                 .outer_position()
                 .unwrap_or_else(|fallback_error| {
                     log::warn!(
@@ -643,7 +643,13 @@ impl Native {
                 })
         });
         let parent_scale = parent.scale_factor();
-        let bounds = presentation.bounds();
+        let bounds = presentation
+            .placement()
+            .and_then(|placement| {
+                super::sys::popup_available_bounds(&parent_handle, placement.anchor())
+                    .map(|available| placement.resolve(available))
+            })
+            .unwrap_or_else(|| presentation.bounds());
         let popup = self
             .popups
             .get_mut(&key)

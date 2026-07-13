@@ -1,8 +1,7 @@
 #[cfg(target_os = "windows")]
 mod windows;
 
-use crate::paint;
-use crate::scene;
+use crate::{geometry, paint, scene};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::platform::native) enum PopupAccentMaterial {
@@ -56,6 +55,81 @@ pub(in crate::platform::native) fn configure_popup_bounds(
         window.set_outer_position(PhysicalPosition::new(x, y));
         let _ =
             window.request_inner_size(LogicalSize::new(area.width() as f64, area.height() as f64));
+    }
+}
+
+pub(in crate::platform::native) fn popup_available_bounds(
+    window: &winit::window::Window,
+    anchor: geometry::PlacementAnchor,
+) -> Option<geometry::Rect> {
+    #[cfg(target_os = "windows")]
+    return windows::popup_available_bounds(window, anchor);
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let monitor = window.current_monitor()?;
+        let origin = window.inner_position().ok()?;
+        let position = monitor.position();
+        let size = monitor.size();
+        Some(physical_bounds_as_parent_logical(
+            position.x,
+            position.y,
+            size.width as i32,
+            size.height as i32,
+            origin.x,
+            origin.y,
+            window.scale_factor(),
+        ))
+    }
+}
+
+fn physical_bounds_as_parent_logical(
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    parent_x: i32,
+    parent_y: i32,
+    scale: f64,
+) -> geometry::Rect {
+    let logical = |value: i32| ((f64::from(value)) / scale).round() as i32;
+    geometry::Rect::new(
+        logical(x.saturating_sub(parent_x)),
+        logical(y.saturating_sub(parent_y)),
+        logical(width),
+        logical(height),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::physical_bounds_as_parent_logical;
+    use crate::geometry::Rect;
+
+    #[test]
+    fn monitor_work_area_projects_to_parent_logical_space_at_supported_scales() {
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            assert_eq!(
+                physical_bounds_as_parent_logical(
+                    100,
+                    50,
+                    (800.0 * scale) as i32,
+                    (600.0 * scale) as i32,
+                    100,
+                    50,
+                    scale,
+                ),
+                Rect::new(0, 0, 800, 600)
+            );
+        }
+    }
+
+    #[test]
+    fn monitor_work_area_may_extend_beyond_the_parent_surface() {
+        assert_eq!(
+            physical_bounds_as_parent_logical(-1920, 0, 1920, 1040, -1200, 100, 1.0),
+            Rect::new(-720, -100, 1920, 1040)
+        );
     }
 }
 
