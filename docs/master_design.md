@@ -1015,6 +1015,35 @@ realization capabilities decide whether each layer joins the parent scene or
 becomes a native popup. Headless and native callers supply capabilities rather
 than selecting recipe behavior with mode booleans.
 
+**Presentation clock.** Events and frames are separate clocks. Input applies
+model mutations, cumulative deltas, discrete commands, and window-local
+session changes immediately and in order. It strengthens one pending
+invalidation and requests a native redraw; it does not prepare or present a
+frame. `RedrawRequested` samples the latest truths once. Coalescing therefore
+removes obsolete candidate frames, never semantic input.
+
+Application `state::Revision` and per-window `PresentationEpoch` name different
+facts. Revision is model truth. The epoch advances presentation freshness for
+scroll, resize, focus, hover, animation, and other session or visual changes
+that need not mutate the model. A prepared frame captures an epoch and
+candidate layout, but prepared is not presented: only a successful platform
+receipt acknowledges the epoch and promotes that layout to
+`PresentedGeometry`. Skipped, lost, occluded, or otherwise unsuccessful
+attempts leave the previously visible geometry authoritative.
+
+Pointer input is interpreted through last-presented geometry, because the user
+cannot target a private candidate they never saw. Interaction retains logical
+pointer position as truth; hover and cursor are projections of that point
+through visible geometry and are rederived before changed geometry paints.
+Capture continues to route gestures to retained identity independently of
+ordinary hover. With no presented geometry, geometry-dependent input is inert.
+
+Direct manipulation updates its session sources. In particular, table column
+width overrides project into retained composition before layout, so divider
+movement requests layout rather than rebuilding application view structure.
+Width-sensitive shaping and virtual measurement are paid once for each width
+selected by a frame, not once for every raw pointer message.
+
 `diagnostics`
 
 Owns framework-visible counters and sample windows that turn performance and
@@ -1037,9 +1066,11 @@ instrument map is:
 | `wgpu_l3::overlay::backend` | overlay runtime | entry material realization, backend preference, resolved backend, and fallback capability flags |
 | `wgpu_l3::native_popup` | native platform | popup shell style, geometry, routing, and native-window lifecycle decisions |
 
-Render latency samples are revision-tagged: a key/input sample records only
-when the presented frame revision includes the state change it produced.
-`key->present` means input-to-present-call, not input-to-glass.
+Render latency samples are presentation-epoch-tagged: an input sample records
+only when a successfully presented frame acknowledges the epoch it requested.
+This covers session-only scroll, hover, focus, and resize changes without
+overloading model revision. `key->present` means input-to-present-call, not
+input-to-glass.
 
 The log-target rows above are the compositor diagnostic catalog. They stay quiet
 under the examples' default `RUST_LOG=info`; enable only the narrow target under

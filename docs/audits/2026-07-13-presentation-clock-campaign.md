@@ -1,6 +1,6 @@
 # Presentation Clock campaign
 
-Status: in flight. `comparison_open: true`. No push.
+Status: complete. `comparison_open: true`. No push.
 
 Mission: input updates model and session truth at event rate; presentation
 samples the latest truth at the platform frame boundary. Many events may
@@ -59,11 +59,11 @@ coalesce into one frame, but no semantic input is discarded.
 | 0. Evidence harness and backend verdict | Complete | `4abc2472`; phase timings and event/frame counts; release 136/500/800-pixel Vulkan/DX12-Visual/DX12-HWND matrix |
 | 1. Presentation receipts and geometry epochs | Complete | `713ff311`; candidate geometry travels with epoch/invalidation; only a successful backend receipt promotes it |
 | 2. Presentation-rate coalescing | Complete | `3b95c174`; ordinary work is immediate/non-rendering; `RedrawRequested` is the sole platform frame boundary |
-| 3. Last-presented input geometry | Pending | No event-local speculative layout |
-| 4. Pointer truth and hover projection | Pending | Pointer position retained; hover re-hits before changed frame paint |
-| 5. Transient table widths | Pending | Divider drag is layout-only, never a view rebuild |
-| 6. Backend scope verdict | Pending | Apply only the measured DX12/presentation conclusion |
-| 7. Reprofile and doctrine | Pending | Admit only remaining evidenced mechanism; close roadmap and laws |
+| 3. Last-presented input geometry | Complete | `dbd648e7`; all geometry-dependent input consumes the successfully presented layout; routing layouts deleted |
+| 4. Pointer truth and hover projection | Complete | `485e8a2a`; logical position retained; candidate visual and successful receipt derive hover from visible geometry |
+| 5. Transient table widths | Complete | `92ff736d`; body/header/track geometry consumes session projection; resize requests Layout and performs no view rebuild |
+| 6. Backend scope verdict | Complete | `20c31cae`; Visual/HWND track; no surface-policy change or second graphics context admitted |
+| 7. Reprofile and doctrine | Complete | Final ritual green; master design owns the clock and roadmap item 14 owns the measured renderer residual |
 
 ## Checkpoint 0 initial receipts
 
@@ -400,3 +400,66 @@ into the presentation-clock campaign.
 
 Checkpoint 6 is deletion-shaped: the measured backend verdict changes no
 surface policy and admits no second context.
+
+## Checkpoint 7 — close-out and admission gates
+
+The post-campaign profile satisfies the structural contract. Native input
+handlers perform no view reconstruction, routing layout, scene assembly,
+surface acquisition, or presentation. They apply every semantic mutation and
+strengthen one pending invalidation. `RedrawRequested` samples the latest truth
+once. Controlled wheel streams produce roughly two events per frame; a
+manually saturated stream retained 711 events in 310 frames without backlog;
+and the deterministic divider reduction retains all 100 positions while
+preparing exactly one frame at the final width.
+
+Model revision and presentation freshness now have separate currencies.
+Candidate geometry travels with its presentation epoch, and only a successful
+backend receipt promotes it. Input uses that promoted layout. Logical pointer
+position is retained truth; candidate paint and the successful receipt derive
+hover and cursor from the geometry becoming visible. Scroll has no pre-scroll
+layout, and divider movement has no application view rebuild.
+
+### Acceptance matrix
+
+| Surface | Closing evidence |
+| --- | --- |
+| Idle, hover, wheel, horizontal scroll, divider drag | Release counters plus deterministic coalescing, stationary-hover, sticky-header, scrolled-header, and held-divider witnesses |
+| Selection drag and text selection | Existing capture, selectable-text, clipped-overlay, and presented-geometry suites remain green |
+| Compact/expanded, small/full-height, variable rows | Shared table projection, measured-row virtualization, width-sensitive shaping, and 136/500/800-pixel release runs |
+| Sortable headers, boolean cells, editing, rejection drafts | Typed-table, standard-capability, active-editor, parse-rejection, and sort/toggle suites remain green |
+| Palette, menus, popup cursor, popup IME | Command/palette/menu suites and all three application smokes remain green |
+| Startup, resize, DPI, occlusion, loss, close/reopen | First-presentation, scale, skipped-acquire, surface-recovery, teardown, and geometry-epoch witnesses remain green |
+| Animation, popup fade, task completion | Animation scheduling, popup lifecycle/fade, and task/runtime suites remain green |
+| Backends and scales | Vulkan, DX12-Visual, and DX12-HWND release matrix; table geometry witnesses at 1.0, 1.25, 1.5, and 2.0 |
+
+### Mechanisms not admitted
+
+- Targeted redraw and retained base layers are not implemented here. The
+  profile establishes a renderer cost but does not yet distinguish CPU command
+  encoding from GPU execution or present wait, nor explain the nearly
+  one-item/one-batch table scene.
+- Damage tracking waits for that split to demonstrate a GPU residual.
+- Shaping-cache enlargement is rejected: misses settle to zero while the cost
+  remains.
+- A second Vulkan-main/DX12-popup context is rejected: it adds a second device
+  ownership problem while leaving the backend-independent visible-scene
+  scaling cost intact.
+- Input throttling remains absent. Semantic work is lossless; only obsolete
+  candidate frames coalesce.
+
+The remaining dominant cost is therefore not unowned. Roadmap item 14 now
+owns a renderer-economics investigation: separate encoding from execution and
+present wait, census batch fragmentation, then admit only the mechanism those
+receipts select. Item 28 is pruned from pending work and recorded as the
+completed Presentation Clock arc. `master_design.md` records the event/frame,
+epoch/receipt, presented-geometry, hover-projection, and transient-width laws.
+
+Final boundary: formatting and all-target compilation passed; 939 of 947
+library tests passed with 8 deliberate ignores; all 4 doctests and the
+`text_editor`, `control_gallery`, and `glass_tuner` smokes passed. Diff hygiene
+passed. The user's 500-pixel gallery comparison remains the sole unrelated
+working-tree modification and was neither staged nor rewritten. No push was
+performed.
+
+> Many events may become one frame; every semantic mutation survives, and the
+> frame presents the latest truth.

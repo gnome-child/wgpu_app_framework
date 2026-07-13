@@ -27,24 +27,6 @@ No campaign is currently in flight.
 6. Local visual-test edits in `examples/glass_tuner/app/state.rs` — revert
    when tuning sessions end.
 
-28. **Presentation-rate coalescing** (was: table frame economics) — the
-    missing concept behind large-view framerate dips, DX12 amplification,
-    resize lag, and hover-after-scroll: every input event is handled and
-    synchronously presented before the next is processed. Receipts:
-    `scroll_at` composes routing layout; width changes request full Rebuild
-    (`routing.rs`) because widths project only during view rebuild
-    (`presentation.rs:515`); hover retains target but no pointer coordinate;
-    hit tests accept stale layouts. Final order: (1) instrument phase timings
-    across Vulkan / DX12-visual / DX12-HWND, (2) decouple input from
-    presentation — session updates immediately, presentation coalesces to one
-    latest-state frame per window, (3) pointer interprets against the last
-    PRESENTED layout, (4) width overrides become layout-transient, dividers
-    downgrade Rebuild to Layout, (5) retained pointer position re-hits after
-    geometry change before paint, (6) re-profile before admitting targeted
-    redraw or caching. Open A/B: is main-window `DxgiFromVisual` the DX12
-    regression (popups don't need it — explicit visual targets bypass the
-    instance default).
-
 ## Decisions awaiting product taste
 
 7. **Dirty-document confirmation flow** — one destructive-intent coordinator
@@ -115,9 +97,25 @@ No campaign is currently in flight.
     (campaign closed at `bc4df416`).
 13. **Trading terminal** (flagship two) — charts primitive domain, real-time
     invalidation stress, tabular figures, kiosk-scoped BSD session.
-14. **Targeted redraw** — v0.5: overlay/fade frames skip base re-render
-    (cheap, ready when profiling asks). Full damage-tracking arc after
-    tables.
+14. **Renderer economics before targeted redraw** — presentation-clock
+    profiling supplied the caller but not yet the mechanism: a full-height
+    table projects roughly 690 scene items into 677 render batches, and
+    encode/submit/present dominates after shaping misses settle to zero.
+    Investigate in this order: separate CPU command encoding from GPU
+    execution/present wait; census why adjacent table primitives do not batch;
+    then choose among batch fusion, retained base layers, targeted redraw, or
+    damage. Cache enlargement is rejected by current evidence. Any retained
+    layer must state its ownership and invalidation boundary without duplicating
+    layout truth; damage waits for a demonstrated GPU residual.
+28. **Presentation Clock — COMPLETE** (`20c31cae`, 2026-07-13; 939 tests at
+    the last behavioral boundary). Events update truth immediately; redraw is
+    the frame boundary; successful presentation receipts alone promote visible
+    geometry; input targets that geometry; pointer position derives hover; and
+    table widths are layout-transient. One hundred divider positions now cause
+    zero view rebuilds and one latest-state frame. The Vulkan / DX12-Visual /
+    DX12-HWND matrix acquits `DxgiFromVisual`; DX12 amplifies the remaining
+    renderer cost but does not own it. Ledger:
+    `docs/audits/2026-07-13-presentation-clock-campaign.md`.
 
 ## Deferred until a caller or hardware appears
 
