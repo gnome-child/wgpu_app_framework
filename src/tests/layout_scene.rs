@@ -2171,6 +2171,11 @@ fn held_count_enabled_boundary_moves_with_the_pointer_without_reallocating_other
         .expect("table diagnostics")
         .pipeline
         .clone();
+    let before_drag_frame = app
+        .diagnostics(window)
+        .expect("table diagnostics")
+        .frame
+        .clone();
     app.pointer_down_at(window, size, start)
         .expect("Count/Enabled boundary should capture");
     assert_eq!(
@@ -2192,6 +2197,16 @@ fn held_count_enabled_boundary_moves_with_the_pointer_without_reallocating_other
         let rendered = app
             .show_scene(window, size)
             .expect("held-boundary projection");
+        let diagnostics = app.diagnostics(window).expect("table diagnostics");
+        assert_eq!(
+            diagnostics.frame.view_rebuilds, before_drag_frame.view_rebuilds,
+            "divider movement projects session widths without rebuilding the application view"
+        );
+        assert_eq!(
+            diagnostics.frame.layout_recomposes,
+            before_drag_frame.layout_recomposes + (delta / 9) as usize,
+            "each selected presentation width composes once"
+        );
         let count = column_track(&rendered, "count");
         assert_eq!(count.boundary(), pointer.x());
         assert_eq!(
@@ -2277,6 +2292,79 @@ fn held_count_enabled_boundary_moves_with_the_pointer_without_reallocating_other
     assert_eq!(header_rect(&wider, "count").width(), settled_count.width());
     assert!(header_rect(&wider, "detail").width() > settled_detail.width());
     assert!(header_rect(&wider, "note").width() > settled_note.width());
+}
+
+#[test]
+fn one_hundred_divider_positions_coalesce_into_one_layout_at_the_latest_width() {
+    let mut state = control_gallery::State::default();
+    state.show_advanced = false;
+    let mut app = control_gallery::app(state);
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 700);
+    let initial = app
+        .show_scene(window, size)
+        .expect("gallery table should render");
+    let count = initial
+        .layout()
+        .table_tracks()
+        .iter()
+        .find(|track| {
+            track
+                .column_identity()
+                .is_some_and(|cell| cell.column() == interaction::Id::new("count"))
+        })
+        .expect("Count track");
+    let start = frame_point_at(count.divider_hit_rect().expect("Count resize zone"));
+    let before = app.diagnostics(window).expect("table diagnostics").clone();
+    drop(initial);
+
+    app.pointer_down_at(window, size, start)
+        .expect("Count divider should capture");
+    for delta in 1..=100 {
+        app.pointer_move_at(
+            window,
+            size,
+            geometry::Point::new(start.x() + delta, start.y()),
+        )
+        .expect("raw divider position should update session truth");
+    }
+
+    let pending = app.diagnostics(window).expect("table diagnostics");
+    assert_eq!(pending.frame.view_rebuilds, before.frame.view_rebuilds);
+    assert_eq!(
+        pending.frame.layout_recomposes,
+        before.frame.layout_recomposes
+    );
+    assert_eq!(
+        pending.pipeline.frames_prepared,
+        before.pipeline.frames_prepared
+    );
+
+    let shown = app
+        .show_scene(window, size)
+        .expect("latest divider width should present once");
+    let count = shown
+        .layout()
+        .table_tracks()
+        .iter()
+        .find(|track| {
+            track
+                .column_identity()
+                .is_some_and(|cell| cell.column() == interaction::Id::new("count"))
+        })
+        .expect("resized Count track");
+    assert_eq!(count.boundary(), start.x() + 100);
+    let after = app.diagnostics(window).expect("table diagnostics");
+    assert_eq!(after.frame.view_rebuilds, before.frame.view_rebuilds);
+    assert_eq!(
+        after.frame.layout_recomposes,
+        before.frame.layout_recomposes + 1
+    );
+    assert_eq!(
+        after.pipeline.frames_prepared,
+        before.pipeline.frames_prepared + 1
+    );
 }
 
 #[test]

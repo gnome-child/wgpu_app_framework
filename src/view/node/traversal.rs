@@ -86,6 +86,15 @@ impl Node {
                 .clone()
                 .with_width(super::super::Dimension::fixed(width));
         }
+        if let Some(cell) = self.table_cell()
+            && let Some(width) =
+                tables.width(crate::table::HeaderCell::new(cell.table(), cell.column()))
+        {
+            self.style = self
+                .style
+                .clone()
+                .with_width(super::super::Dimension::fixed(width));
+        }
         for child in &mut self.children {
             child.project_table_widths(tables);
         }

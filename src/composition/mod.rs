@@ -50,6 +50,7 @@ impl Composition {
     ) {
         let tree = self.tree.clone();
         if let Some(interaction) = interaction {
+            self.view.project_table_widths(interaction.tables());
             let selections = interaction.selections().snapshot();
             self.view.project_virtual_selections(&selections);
             self.view

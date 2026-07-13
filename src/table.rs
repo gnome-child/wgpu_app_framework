@@ -395,6 +395,10 @@ pub(crate) struct Model {
 }
 
 impl HeaderCell {
+    pub(crate) fn new(table: interaction::Id, column: interaction::Id) -> Self {
+        Self { table, column }
+    }
+
     pub(crate) fn table(self) -> interaction::Id {
         self.table
     }

@@ -163,7 +163,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                     window,
                     false,
                     if changed {
-                        response::Effect::Rebuild
+                        response::Effect::Layout
                     } else {
                         response::Effect::None
                     },

@@ -314,3 +314,31 @@ witnesses remain green.
 Checkpoint boundary: 938 library tests passed with 8 deliberate ignores; all
 4 doctests, three application smokes, formatting, all-target compilation, and
 diff hygiene passed. The protected 500-pixel gallery edit remains untouched.
+
+## Checkpoint 5 — table widths are transient layout truth
+
+Column resize overrides remain framework session state, but no longer require
+application view reconstruction to reach layout. The retained composition now
+projects table widths alongside scroll, selection, focus, and text-session
+facts before layout. The table model, header node, materialized body cells,
+rules, divider hit zones, horizontal extent, and variable-row measurement all
+consume that same projected width. `ResizeTableColumn` consequently requests
+`Layout`, not `Rebuild`.
+
+The existing direct-manipulation law remains intact: the held boundary follows
+the latest pointer, left tracks retain their geometry, right tracks translate
+rigidly, and total width flows into horizontal overflow. Compact and expanded
+tables, active editors, sort state, final-column clamping, and the four-scale
+rule witnesses remain green.
+
+The named coalescing reduction sends 100 divider positions without a redraw.
+It records zero application view rebuilds, zero layout recompositions, and zero
+prepared frames during the stream. The next redraw performs exactly one layout
+and one frame at the hundredth width. The per-frame held-boundary witness also
+records zero view rebuilds and exactly one layout per selected presentation
+width, proving that width-sensitive shaping and virtual refinement are paid by
+frames rather than raw messages.
+
+Checkpoint boundary: 939 library tests passed with 8 deliberate ignores; all
+4 doctests, three application smokes, formatting, all-target compilation, and
+diff hygiene passed. The protected 500-pixel gallery edit remains untouched.
