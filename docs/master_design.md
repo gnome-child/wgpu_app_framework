@@ -677,9 +677,11 @@ application redraw or repeated `DwmFlush`. First presentation earns exposure;
 it is not an animation clock. Reopen retargets from the prior compositor
 timeline's mathematically current opacity, never from a freshly sampled zero.
 At retirement completion every path cloaks/hides the HWND before its tree,
-surface, subclass, or window is dismantled. Legacy
-non-tenancy applies opacity once in scene paint and keeps native material facts
-stable. On dismissal, a noninteractive `RetiringPopup` keeps the same native
+surface, subclass, or window is dismantled. Legacy non-tenancy has native
+placement but no native animator: it exposes the fresh first frame at full
+opacity, hides immediately on dismissal, and allocates no pseudo-fade deadline
+or retiring surface. On composition-backed dismissal, a noninteractive
+`RetiringPopup` keeps the same native
 surface and material facts alive through the exit timeline, then native
 synchronization closes it. It never becomes a parent-window ghost.
 

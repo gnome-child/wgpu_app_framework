@@ -63,7 +63,7 @@ impl Backend for Native {
 
     #[allow(private_interfaces)]
     fn overlay_capabilities(&self) -> overlay::Capabilities {
-        Native::overlay_capabilities()
+        Native::overlay_capabilities(self)
     }
 
     #[allow(private_interfaces)]

@@ -148,6 +148,7 @@ pub(crate) enum PopupMaterialPreference {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Capabilities {
     native_popups: bool,
+    native_popup_animation: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -199,6 +200,7 @@ struct Live {
     bounds: geometry::Rect,
     scene: scene::Scene,
     backend: Backend,
+    native_animation: bool,
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
     appeared_at: Instant,
@@ -426,17 +428,30 @@ impl Capabilities {
     pub(crate) fn in_frame_only() -> Self {
         Self {
             native_popups: false,
+            native_popup_animation: false,
         }
     }
 
     pub(crate) fn with_native_popups() -> Self {
         Self {
             native_popups: true,
+            native_popup_animation: true,
+        }
+    }
+
+    pub(crate) fn with_immediate_native_popups() -> Self {
+        Self {
+            native_popups: true,
+            native_popup_animation: false,
         }
     }
 
     pub(crate) fn native_popups_supported(self) -> bool {
         self.native_popups
+    }
+
+    pub(crate) fn native_popup_animation_supported(self) -> bool {
+        self.native_popup_animation
     }
 }
 
@@ -578,7 +593,9 @@ impl Store {
             .values()
             .filter(|live| !current_ids.contains(&live.id))
         {
-            if overlay.exit_fade_ms == 0 {
+            if overlay.exit_fade_ms == 0
+                || (live.backend == Backend::NativePopup && !live.native_animation)
+            {
                 continue;
             }
             let duration = Duration::from_millis(overlay.exit_fade_ms);
@@ -627,14 +644,22 @@ impl Store {
             let backend = resolve_backend(draft.preference, capabilities);
             log::debug!(
                 target: "wgpu_l3::overlay::backend",
-                "resolved overlay backend id={:?} preference={:?} material_preference={:?} backend={:?} native_popups={}",
+                "resolved overlay backend id={:?} preference={:?} material_preference={:?} backend={:?} native_popups={} native_animation={}",
                 draft.id,
                 draft.preference,
                 draft.popup_material_preference,
                 backend,
-                capabilities.native_popups_supported()
+                capabilities.native_popups_supported(),
+                capabilities.native_popup_animation_supported()
             );
-            let (opacity, entering) = live_opacity(appeared_at, overlay.enter_fade_ms, now);
+            let native_animation =
+                backend != Backend::NativePopup || capabilities.native_popup_animation_supported();
+            let enter_fade_ms = if native_animation {
+                overlay.enter_fade_ms
+            } else {
+                0
+            };
+            let (opacity, entering) = live_opacity(appeared_at, enter_fade_ms, now);
             let state_kind = if entering {
                 State::Entering
             } else {
@@ -650,6 +675,7 @@ impl Store {
                 bounds: draft.bounds,
                 scene: draft.scene.clone(),
                 backend,
+                native_animation,
                 popup_material_preference: draft.popup_material_preference,
                 popup_border: draft.popup_border,
                 appeared_at,
@@ -668,7 +694,7 @@ impl Store {
                 opacity,
                 fade: if entering {
                     PopupFade::Entering {
-                        duration: Duration::from_millis(overlay.enter_fade_ms),
+                        duration: Duration::from_millis(enter_fade_ms),
                         started_at: appeared_at,
                     }
                 } else {
@@ -1010,6 +1036,33 @@ mod tests {
         assert_eq!(settled.layers[0].opacity, 1.0);
         assert_eq!(settled.layers[0].state, Some(State::Live));
         assert_eq!(settled.schedule, animation::Schedule::Idle);
+    }
+
+    #[test]
+    fn immediate_native_popup_skips_both_pseudo_fades_and_afterlife() {
+        let mut store = Store::new();
+        let window = window::Id::new(27);
+        let now = Instant::now();
+        let theme = overlay_theme(90, 120);
+        let capabilities = Capabilities::with_immediate_native_popups();
+
+        let opened =
+            store.update_window(window, vec![popup_draft("menu")], theme, capabilities, now);
+        assert_eq!(opened.layers.len(), 1);
+        assert_eq!(opened.layers[0].opacity(), 1.0);
+        assert_eq!(opened.layers[0].fade(), PopupFade::Stable);
+        assert_eq!(opened.schedule, animation::Schedule::Idle);
+
+        let closed = store.update_window(
+            window,
+            Vec::new(),
+            theme,
+            capabilities,
+            now + Duration::from_millis(1),
+        );
+        assert!(closed.layers.is_empty());
+        assert_eq!(store.retiring_popup_count(window), 0);
+        assert_eq!(closed.schedule, animation::Schedule::Idle);
     }
 
     #[test]

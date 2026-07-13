@@ -11,11 +11,18 @@ use super::{
 };
 
 impl Native {
-    pub(in crate::platform::native) fn overlay_capabilities() -> overlay::Capabilities {
-        if native_popups_supported() {
+    pub(in crate::platform::native) fn overlay_capabilities(&self) -> overlay::Capabilities {
+        if !native_popups_supported() {
+            return overlay::Capabilities::in_frame_only();
+        }
+        if self
+            .context
+            .as_ref()
+            .is_some_and(|context| context.adapter().get_info().backend == wgpu::Backend::Dx12)
+        {
             overlay::Capabilities::with_native_popups()
         } else {
-            overlay::Capabilities::in_frame_only()
+            overlay::Capabilities::with_immediate_native_popups()
         }
     }
 

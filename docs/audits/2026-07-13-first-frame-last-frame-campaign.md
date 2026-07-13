@@ -66,7 +66,7 @@ silhouette and one opacity owner.
 | 2. One silhouette and visual bounds | Complete | Shared shadow reach expands composition surface; panel-local paint, frost, and input offsets |
 | 3. One framework edge | Complete | DWM edge/corner/shadow retired for composition; painted one-pixel edge and framework shadow |
 | 4. One compositor timeline | Complete | Root owns every visible part; retarget is continuous; hide precedes every teardown |
-| 5. Honest redirected fallback | Pending | Vulkan opens and closes immediately; delayed pseudo-fade absent |
+| 5. Honest redirected fallback | Complete | Native placement and animation split; Vulkan opens/closes with no pseudo-fade or afterlife |
 | 6. Complete open-bill trace | Pending | Semantic-open through fade-complete timings; measured verdict applied |
 | 7. Resistance and close-out | Pending | Deletion census, hardware eyes, doctrine, roadmap, full ritual |
 
@@ -229,6 +229,25 @@ content, duplicate border, shadow tail, or naked HWND frame.
 
 > First presentation earns exposure; one compositor timeline owns every frame
 > until disappearance.
+
+## Checkpoint 5 — honest redirected fallback
+
+Overlay capabilities now report native placement and native animation as
+separate facts. A live DX12 context reports both. Explicit Vulkan and an
+uninitialized/non-DX12 context report placement without animation.
+
+Immediate native entries start stable at opacity one, schedule no fade
+completion, and allocate no `RetiringPopup` when removed. They still cross the
+fresh-first-present gate before exposure, retain legacy accent acrylic when it
+realizes, and use readable fallback otherwise. The composition path is
+unchanged.
+
+The explicit-Vulkan release witness captured full menu content on the first
+state observation after the click and no popup on the first observation after
+dismissal. There was no 80/90 ms blank entrance, translucent first sample,
+invisible retiring HWND, WinRT composition runtime, or DX12 device.
+
+> Unsupported animation becomes immediate lifecycle, not simulated latency.
 
 > One framework silhouette defines every popup pixel; the platform realizes
 > declared effects, and one compositor timeline carries them from first frame
