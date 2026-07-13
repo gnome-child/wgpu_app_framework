@@ -75,13 +75,16 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
         point: geometry::Point,
         button: pointer::Button,
     ) -> Result<input::Outcome, Error> {
-        if button != pointer::Button::Primary {
-            return Ok(input::Outcome::ignored());
-        }
-
         let Some(size) = self.window_size(window) else {
             return Ok(input::Outcome::ignored());
         };
+
+        if button == pointer::Button::Secondary {
+            return self.runtime.open_context_menu_at(window, size, point);
+        }
+        if button != pointer::Button::Primary {
+            return Ok(input::Outcome::ignored());
+        }
 
         self.runtime.pointer_up_at(window, size, point)
     }

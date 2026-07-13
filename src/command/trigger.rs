@@ -150,13 +150,15 @@ impl AnyTrigger {
         self.args.as_any()
     }
 
-    pub(crate) fn state(
+    pub(crate) fn state_on(
         &self,
+        route: responder::Route,
         registry: &Registry,
         chain: &mut responder::Chain<'_, impl state::State>,
         cx: &Context,
     ) -> State {
-        registry.state_any(
+        registry.state_any_on(
+            route,
             self.command_type,
             self.command_name,
             self.args.as_any(),
@@ -165,14 +167,16 @@ impl AnyTrigger {
         )
     }
 
-    pub(crate) fn invoke(
+    pub(crate) fn invoke_on(
         &self,
+        route: responder::Route,
         registry: &Registry,
         chain: &mut responder::Chain<'_, impl state::State>,
         cx: &mut Context,
     ) -> AnyResponse {
         registry
-            .invoke_any(
+            .invoke_any_on(
+                route,
                 self.command_type,
                 self.command_name,
                 self.args.clone_any(),

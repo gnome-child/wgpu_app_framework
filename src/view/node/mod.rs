@@ -97,6 +97,7 @@ pub struct Node {
     table_edit: Option<crate::table::Edit>,
     table_edit_error: Option<String>,
     participation: Option<Participation>,
+    context_menu: bool,
     children: Vec<Node>,
 }
 

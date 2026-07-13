@@ -613,6 +613,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         if let Some(palette) = self.command_palette_projection(window) {
             view.project_command_palette(palette);
         }
+        if let Some(menu) = self.context_menu_projection(window) {
+            view.project_context_menu(menu);
+        }
         let selectable_virtual_lists = view.selectable_virtual_lists();
         self.session
             .reconcile_virtual_selections(window, &selectable_virtual_lists);
@@ -641,8 +644,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 
         let command_focus = self.session.command_focus(window);
         let command_scope = self
-            .session
-            .command_palette_captured_scope(window)
+            .context_menu_scope(window)
+            .or_else(|| self.session.command_palette_captured_scope(window))
             .unwrap_or_else(|| responder::Scope::focused(command_focus));
         let cx = command_context::Context::with_clipboard(&mut self.clipboard);
         {
@@ -655,7 +658,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             );
             let mut chain = self
                 .responders
-                .chain_for(&mut self.store, command_focus)
+                .chain_for_scope(&mut self.store, command_scope)
                 .with_service(services);
 
             view.resolve_commands(&self.registry, &mut chain, &cx);

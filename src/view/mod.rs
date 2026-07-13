@@ -11,6 +11,7 @@ mod action;
 mod binding;
 mod command_palette;
 mod context;
+mod context_menu;
 mod control;
 mod node;
 #[cfg(test)]
@@ -21,6 +22,7 @@ pub(crate) use action::{Action, FocusDirection};
 pub use binding::Binding;
 pub(crate) use command_palette::{CommandPalette, Entry as CommandPaletteEntry};
 pub use context::Context;
+pub(crate) use context_menu::ContextMenu;
 pub use control::{Button, Checkbox, Radio, Slider, TextArea, TextBox, Wrap};
 pub use node::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node};
 pub(crate) use node::{Participation, ProvidedRow, Role, TablePart};
@@ -31,6 +33,53 @@ pub use style::{Align, Dimension, Padding, Style};
 #[derive(Clone)]
 pub struct View {
     root: Node,
+}
+
+#[derive(Clone)]
+pub(crate) struct ContextOwner {
+    node_id: composition::NodeId,
+    responder: Option<interaction::Id>,
+    focus: Option<session::Focus>,
+    binding: Option<Binding>,
+    application: bool,
+}
+
+impl ContextOwner {
+    pub(crate) fn new(
+        node_id: composition::NodeId,
+        responder: Option<interaction::Id>,
+        focus: Option<session::Focus>,
+        binding: Option<Binding>,
+        application: bool,
+    ) -> Self {
+        Self {
+            node_id,
+            responder,
+            focus,
+            binding,
+            application,
+        }
+    }
+
+    pub(crate) fn node_id(&self) -> composition::NodeId {
+        self.node_id
+    }
+
+    pub(crate) fn responder(&self) -> Option<interaction::Id> {
+        self.responder
+    }
+
+    pub(crate) fn focus(&self) -> Option<session::Focus> {
+        self.focus
+    }
+
+    pub(crate) fn binding(&self) -> Option<&Binding> {
+        self.binding.as_ref()
+    }
+
+    pub(crate) fn is_application(&self) -> bool {
+        self.application
+    }
 }
 
 impl View {
@@ -285,6 +334,9 @@ impl View {
 
     pub(crate) fn project_surfaces(&mut self, interaction: &interaction::Interaction) {
         if let Some(menu) = interaction.open_menu() {
+            if menu.is_context() {
+                return;
+            }
             let panel = self
                 .root
                 .floating_panel_for_menu(menu)
@@ -326,6 +378,14 @@ impl View {
     ) -> Option<subject::Path> {
         self.root
             .subject_path_for_focus_retained(focus, tree.root())
+    }
+
+    pub(crate) fn context_owner_retained(
+        &self,
+        tree: &composition::Tree,
+        owner: composition::NodeId,
+    ) -> Option<ContextOwner> {
+        self.root.context_owner_retained(tree.root(), owner)
     }
 
     pub(super) fn resolve_commands(

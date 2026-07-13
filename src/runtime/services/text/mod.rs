@@ -10,7 +10,7 @@ mod focused;
 use super::target as service_target;
 use focused::FocusedDraft;
 
-const RESPONDER_NAME: &str = "focused_text";
+pub(super) const RESPONDER_NAME: &str = "focused_text";
 
 struct Text<'a> {
     session: &'a mut session::Session,
@@ -110,6 +110,21 @@ pub(super) fn owns_command(
 
     service_target::handles(&targets, command_type)
         && base_text_for(composition, window, focus).is_some()
+}
+
+pub(super) fn contextual_target_types(
+    composition: &composition::Store,
+    window: Option<window::Id>,
+    focus: Option<session::Focus>,
+) -> Vec<TypeId> {
+    if base_text_for(composition, window, focus).is_none() {
+        return Vec::new();
+    }
+
+    targets()
+        .iter()
+        .map(service_target::AnyTarget::command_type)
+        .collect()
 }
 
 pub(super) fn invoke(

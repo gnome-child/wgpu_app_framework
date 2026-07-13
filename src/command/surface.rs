@@ -7,10 +7,9 @@ use crate::responder;
 /// palette. The uninhabited marker keeps discovery policy in the type.
 pub(crate) enum Global {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::command) enum Route {
-    Chain,
-}
+/// Nearest-owner discovery. Keeping this marker distinct from [`Global`]
+/// makes a context surface unconstructible over registry-wide discovery.
+pub(crate) enum Local {}
 
 pub(crate) struct Candidates<P> {
     entries: Vec<Candidate>,
@@ -21,7 +20,7 @@ pub(in crate::command) struct Candidate {
     registration_index: usize,
     trigger: AnyTrigger,
     listing: Listing,
-    route: Route,
+    route: responder::Route,
 }
 
 pub(crate) struct ResolvedActions<P> {
@@ -38,6 +37,7 @@ pub(crate) struct ResolvedAction {
     state: State,
     claim: responder::Claim,
     listing: Listing,
+    route: responder::Route,
 }
 
 impl<P> Candidates<P> {
@@ -58,7 +58,7 @@ impl Candidate {
         registration_index: usize,
         trigger: AnyTrigger,
         listing: Listing,
-        route: Route,
+        route: responder::Route,
     ) -> Self {
         Self {
             registration_index,
@@ -84,7 +84,7 @@ impl Candidate {
         self.listing
     }
 
-    pub(in crate::command) fn route(&self) -> Route {
+    pub(in crate::command) fn route(&self) -> responder::Route {
         self.route
     }
 }
@@ -114,6 +114,7 @@ impl ResolvedAction {
         state: State,
         claim: responder::Claim,
         listing: Listing,
+        route: responder::Route,
     ) -> Self {
         Self {
             registration_index,
@@ -123,6 +124,7 @@ impl ResolvedAction {
             state,
             claim,
             listing,
+            route,
         }
     }
 
@@ -156,5 +158,9 @@ impl ResolvedAction {
 
     pub(crate) fn listing(&self) -> Listing {
         self.listing
+    }
+
+    pub(crate) fn route(&self) -> responder::Route {
+        self.route
     }
 }

@@ -11,9 +11,8 @@ use super::super::{
     state,
 };
 use super::{
-    AnyTrigger, Candidates, Command, Global, History, HistoryGroup, KeyChord, ResolvedAction,
-    ResolvedActions, Set, Spec, State,
-    surface::{Candidate, Route},
+    AnyTrigger, Candidates, Command, Global, History, HistoryGroup, KeyChord, Local,
+    ResolvedAction, ResolvedActions, Set, Spec, State, surface::Candidate,
 };
 #[derive(Default)]
 pub struct Registry {
@@ -137,6 +136,28 @@ impl Registry {
         state.with_command(command)
     }
 
+    pub(crate) fn state_any_on(
+        &self,
+        route: responder::Route,
+        command_type: TypeId,
+        command_name: &'static str,
+        args: &dyn Any,
+        chain: &mut responder::Chain<'_, impl state::State>,
+        cx: &Context,
+    ) -> State {
+        let Some(command) = self.commands.get(&command_type) else {
+            return State::hidden();
+        };
+
+        let state = match chain.claim_on(route, command_type, command_name, args, cx) {
+            Ok(Some(claim)) => claim.state().clone(),
+            Ok(None) => State::disabled(),
+            Err(error) => State::disabled().with_tooltip(error.to_string()),
+        };
+
+        state.with_command(command)
+    }
+
     pub(crate) fn global_candidates(&self) -> Candidates<Global> {
         Candidates::new(
             self.order
@@ -149,12 +170,54 @@ impl Registry {
                             registration_index,
                             command.unit_trigger(),
                             command.spec.listing,
-                            Route::Chain,
+                            responder::Route::Chain,
                         )
                     })
                 })
                 .collect(),
         )
+    }
+
+    pub(crate) fn local_candidates(
+        &self,
+        binding: Option<AnyTrigger>,
+        targets: impl IntoIterator<Item = (TypeId, responder::Route)>,
+    ) -> Candidates<Local> {
+        let mut entries = Vec::new();
+        let mut seen = Vec::new();
+
+        if let Some(trigger) = binding
+            && let Some(command) = self.commands.get(&trigger.command_type())
+        {
+            seen.push(trigger.command_type());
+            entries.push(Candidate::new(
+                entries.len(),
+                trigger,
+                command.spec.listing,
+                responder::Route::Chain,
+            ));
+        }
+
+        for (command_type, route) in targets {
+            if seen.contains(&command_type) {
+                continue;
+            }
+            let Some(command) = self.commands.get(&command_type) else {
+                continue;
+            };
+            if !command.accepts_shortcut_args() {
+                continue;
+            }
+            seen.push(command_type);
+            entries.push(Candidate::new(
+                entries.len(),
+                command.unit_trigger(),
+                command.spec.listing,
+                route,
+            ));
+        }
+
+        Candidates::new(entries)
     }
 
     pub(crate) fn resolve_candidates<P>(
@@ -168,16 +231,16 @@ impl Registry {
             .into_iter()
             .filter_map(|candidate| {
                 let command = self.commands.get(&candidate.trigger().command_type())?;
-                let claim = match candidate.route() {
-                    Route::Chain => match chain.claim_any(
-                        command.command_type,
-                        command.command_name,
-                        candidate.trigger().args(),
-                        cx,
-                    ) {
-                        Ok(Some(claim)) => claim,
-                        Ok(None) | Err(_) => return None,
-                    },
+                let route = candidate.route();
+                let claim = match chain.claim_on(
+                    route,
+                    command.command_type,
+                    command.command_name,
+                    candidate.trigger().args(),
+                    cx,
+                ) {
+                    Ok(Some(claim)) => claim,
+                    Ok(None) | Err(_) => return None,
                 };
                 let state = claim.state().clone().with_command(command);
                 let registration_index = candidate.registration_index();
@@ -190,6 +253,7 @@ impl Registry {
                     state,
                     claim,
                     listing,
+                    route,
                 ))
             })
             .collect();
@@ -225,6 +289,28 @@ impl Registry {
         Some(
             chain
                 .invoke_any(command_type, command_name, args, cx)
+                .unwrap_or_else(|| {
+                    AnyResponse::failed(Error::MissingTarget {
+                        command: command_name,
+                    })
+                }),
+        )
+    }
+
+    pub(crate) fn invoke_any_on(
+        &self,
+        route: responder::Route,
+        command_type: TypeId,
+        command_name: &'static str,
+        args: Box<dyn Any + Send>,
+        chain: &mut responder::Chain<'_, impl state::State>,
+        cx: &mut Context,
+    ) -> Option<AnyResponse> {
+        self.commands.get(&command_type)?;
+
+        Some(
+            chain
+                .invoke_on(route, command_type, command_name, args, cx)
                 .unwrap_or_else(|| {
                     AnyResponse::failed(Error::MissingTarget {
                         command: command_name,

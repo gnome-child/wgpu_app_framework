@@ -10,6 +10,7 @@ pub struct Binding {
     trigger: command::AnyTrigger,
     state: command::State,
     source: Source,
+    route: responder::Route,
     slider_trigger: Option<command::AnyValueTrigger<f64>>,
     text_trigger: Option<command::AnyValueTrigger<String>>,
 }
@@ -28,6 +29,7 @@ impl Binding {
             trigger,
             state: command::State::hidden(),
             source,
+            route: responder::Route::Chain,
             slider_trigger: None,
             text_trigger: None,
         }
@@ -42,6 +44,7 @@ impl Binding {
             trigger: slider_trigger.trigger(value),
             state: command::State::hidden(),
             source,
+            route: responder::Route::Chain,
             slider_trigger: Some(slider_trigger),
             text_trigger: None,
         }
@@ -56,6 +59,7 @@ impl Binding {
             trigger: text_trigger.trigger(text),
             state: command::State::hidden(),
             source,
+            route: responder::Route::Chain,
             slider_trigger: None,
             text_trigger: Some(text_trigger),
         }
@@ -71,6 +75,10 @@ impl Binding {
 
     pub(crate) fn history_group(&self) -> Option<command::HistoryGroup> {
         self.trigger.history_group()
+    }
+
+    pub(crate) fn trigger(&self) -> command::AnyTrigger {
+        self.trigger.clone()
     }
 
     pub fn state(&self) -> &command::State {
@@ -91,6 +99,17 @@ impl Binding {
 
     pub fn source(&self) -> Source {
         self.source
+    }
+
+    pub(crate) fn from_resolved(action: command::ResolvedAction, source: Source) -> Self {
+        Self {
+            trigger: action.trigger(),
+            state: action.state().clone(),
+            source,
+            route: action.route(),
+            slider_trigger: None,
+            text_trigger: None,
+        }
     }
 
     pub(crate) fn action(&self) -> Action {
@@ -136,7 +155,7 @@ impl Binding {
         cx: &CommandContext,
     ) {
         let cx = cx.sourced(self.source);
-        self.state = self.trigger.state(registry, chain, &cx);
+        self.state = self.trigger.state_on(self.route, registry, chain, &cx);
     }
 
     pub(crate) fn invoke<M: state::State>(
@@ -145,7 +164,7 @@ impl Binding {
         chain: &mut responder::Chain<'_, M>,
         cx: &mut CommandContext,
     ) -> response::AnyResponse {
-        self.trigger.invoke(registry, chain, cx)
+        self.trigger.invoke_on(self.route, registry, chain, cx)
     }
 
     fn with_slider_value(&self, value: f64) -> Option<Self> {
@@ -155,6 +174,7 @@ impl Binding {
             trigger: slider_trigger.trigger(value),
             state: self.state.clone(),
             source: self.source,
+            route: self.route,
             slider_trigger: Some(slider_trigger),
             text_trigger: self.text_trigger.clone(),
         })
@@ -167,6 +187,7 @@ impl Binding {
             trigger: text_trigger.trigger(text),
             state: self.state.clone(),
             source: self.source,
+            route: self.route,
             slider_trigger: self.slider_trigger.clone(),
             text_trigger: Some(text_trigger),
         })

@@ -5,10 +5,18 @@ use crate::{
     command::{self, Command, State},
     context::Context,
     error::{Error, Result},
+    interaction,
     notification::{Notification, Reaction},
     response::{AnyResponse, Response},
     state,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Route {
+    Chain,
+    Responder(interaction::Id),
+    Service(&'static str),
+}
 
 pub(crate) trait Service<M: state::State> {
     fn claim(
@@ -28,6 +36,30 @@ pub(crate) trait Service<M: state::State> {
         args: Box<dyn Any + Send>,
         cx: &mut Context,
     ) -> Option<AnyResponse>;
+
+    fn claim_exact(
+        &mut self,
+        _store: &mut state::Store<M>,
+        _service: &'static str,
+        _command_type: TypeId,
+        _command_name: &'static str,
+        _args: &dyn Any,
+        _cx: &Context,
+    ) -> Result<Option<Claim>> {
+        Ok(None)
+    }
+
+    fn invoke_exact(
+        &mut self,
+        _store: &mut state::Store<M>,
+        _service: &'static str,
+        _command_type: TypeId,
+        _command_name: &'static str,
+        _args: Box<dyn Any + Send>,
+        _cx: &mut Context,
+    ) -> Option<AnyResponse> {
+        None
+    }
 }
 
 /// Runtime command resolution is an explicit chain built from focus/capture state.
@@ -155,6 +187,39 @@ impl<'a, M: state::State> Chain<'a, M> {
         Ok(None)
     }
 
+    pub(crate) fn claim_on(
+        &mut self,
+        route: Route,
+        command_type: TypeId,
+        command_name: &'static str,
+        args: &dyn Any,
+        cx: &Context,
+    ) -> Result<Option<Claim>> {
+        match route {
+            Route::Chain => self.claim_any(command_type, command_name, args, cx),
+            Route::Responder(identity) => Ok(self
+                .responder_claim_exact(identity, command_type, command_name, args, cx)?
+                .map(|claim| claim.claim)),
+            Route::Service(name) => {
+                for (service_index, service) in self.services.iter_mut().enumerate() {
+                    if let Some(claim) = service.claim_exact(
+                        self.store,
+                        name,
+                        command_type,
+                        command_name,
+                        args,
+                        cx,
+                    )? {
+                        return Ok(Some(
+                            claim.with_order(self.responders.len() + service_index),
+                        ));
+                    }
+                }
+                Ok(None)
+            }
+        }
+    }
+
     pub(crate) fn invoke<C: Command>(
         &mut self,
         args: C::Args,
@@ -212,6 +277,83 @@ impl<'a, M: state::State> Chain<'a, M> {
         }
 
         None
+    }
+
+    pub(crate) fn invoke_on(
+        &mut self,
+        route: Route,
+        command_type: TypeId,
+        command_name: &'static str,
+        args: Box<dyn Any + Send>,
+        cx: &mut Context,
+    ) -> Option<AnyResponse> {
+        match route {
+            Route::Chain => self.invoke_any(command_type, command_name, args, cx),
+            Route::Responder(identity) => {
+                let claim = match self.responder_claim_exact(
+                    identity,
+                    command_type,
+                    command_name,
+                    args.as_ref(),
+                    cx,
+                ) {
+                    Ok(claim) => claim?,
+                    Err(error) => return Some(AnyResponse::failed(error)),
+                };
+                match claim.claim.state.availability {
+                    command::Availability::Hidden => unreachable!("hidden targets are not claims"),
+                    command::Availability::Disabled => Some(AnyResponse::failed(Error::Disabled {
+                        command: command_name,
+                    })),
+                    command::Availability::Enabled => Some(
+                        self.responders[claim.responder].targets[claim.target].invoke_any(
+                            self.store.model_mut(),
+                            args,
+                            cx,
+                        ),
+                    ),
+                }
+            }
+            Route::Service(name) => {
+                for service in &mut self.services {
+                    match service.claim_exact(
+                        self.store,
+                        name,
+                        command_type,
+                        command_name,
+                        args.as_ref(),
+                        cx,
+                    ) {
+                        Ok(Some(claim)) => {
+                            if !claim.state().is_enabled() {
+                                return Some(AnyResponse::failed(Error::Disabled {
+                                    command: command_name,
+                                }));
+                            }
+                            return Some(
+                                service
+                                    .invoke_exact(
+                                        self.store,
+                                        name,
+                                        command_type,
+                                        command_name,
+                                        args,
+                                        cx,
+                                    )
+                                    .unwrap_or_else(|| {
+                                        AnyResponse::failed(Error::MissingTarget {
+                                            command: command_name,
+                                        })
+                                    }),
+                            );
+                        }
+                        Ok(None) => {}
+                        Err(error) => return Some(AnyResponse::failed(error)),
+                    }
+                }
+                None
+            }
+        }
     }
 
     pub(crate) fn notify<N: Notification>(&mut self, payload: &N::Payload) -> Reaction {
@@ -276,5 +418,52 @@ impl<'a, M: state::State> Chain<'a, M> {
         }
 
         Ok(None)
+    }
+
+    fn responder_claim_exact(
+        &mut self,
+        identity: interaction::Id,
+        command_type: TypeId,
+        command_name: &'static str,
+        args: &dyn Any,
+        cx: &Context,
+    ) -> Result<Option<TargetClaim>> {
+        let Some(responder_index) = self
+            .responders
+            .iter()
+            .position(|responder| responder.identity() == identity)
+        else {
+            return Ok(None);
+        };
+        let responder = self.responders[responder_index];
+        let mut claim = None;
+
+        for (target_index, target) in responder
+            .targets
+            .iter()
+            .enumerate()
+            .filter(|(_, target)| target.handles_type(command_type))
+        {
+            let state = target.state_any(self.store.model_mut(), args, cx)?;
+            if state.is_hidden() {
+                continue;
+            }
+            if claim.is_some() {
+                return Err(Error::AmbiguousTarget {
+                    command: command_name,
+                    responder: responder.name,
+                });
+            }
+            claim = Some(TargetClaim {
+                responder: responder_index,
+                target: target_index,
+                claim: Claim::new(
+                    Provenance::new(responder.kind, responder.name, responder_index),
+                    state,
+                ),
+            });
+        }
+
+        Ok(claim)
     }
 }

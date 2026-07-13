@@ -120,4 +120,69 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
 
         system::invoke(self, store, command_type, command_name, args, cx)
     }
+
+    fn claim_exact(
+        &mut self,
+        _store: &mut state::Store<M>,
+        service: &'static str,
+        command_type: TypeId,
+        command_name: &'static str,
+        args: &dyn Any,
+        cx: &context::Context,
+    ) -> result::Result<Option<responder::Claim>, Error> {
+        if service != text::RESPONDER_NAME {
+            return Ok(None);
+        }
+        text::claim(
+            self.session,
+            self.composition,
+            self.window,
+            self.scope.focus(),
+            self.scope.kind(),
+            command_type,
+            command_name,
+            args,
+            cx,
+        )
+    }
+
+    fn invoke_exact(
+        &mut self,
+        _store: &mut state::Store<M>,
+        service: &'static str,
+        command_type: TypeId,
+        command_name: &'static str,
+        args: Box<dyn Any + Send>,
+        cx: &mut context::Context,
+    ) -> Option<AnyResponse> {
+        if service != text::RESPONDER_NAME {
+            return None;
+        }
+        text::invoke(
+            self.session,
+            self.composition,
+            self.window,
+            self.scope.focus(),
+            command_type,
+            command_name,
+            args,
+            cx,
+        )
+    }
+}
+
+pub(super) fn contextual_targets(
+    composition: &composition::Store,
+    window: window::Id,
+    focus: Option<session::Focus>,
+) -> Vec<(TypeId, responder::Route)> {
+    text::contextual_target_types(composition, Some(window), focus)
+        .into_iter()
+        .map(|command_type| {
+            (
+                command_type,
+                responder::Route::Service(text::RESPONDER_NAME),
+            )
+        })
+        .collect()
 }

@@ -51,6 +51,10 @@ impl<S> AnyTarget<S> {
         self.command_type == command_type
     }
 
+    pub(super) fn command_type(&self) -> TypeId {
+        self.command_type
+    }
+
     fn state(&self, service: &mut S, args: &dyn Any, cx: &Context) -> Result<command::State> {
         (self.state)(service, args, cx)
     }

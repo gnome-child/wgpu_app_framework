@@ -35,6 +35,16 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return self.handle_input(window, input::Input::cancel());
         }
 
+        if key == input::Key::ContextMenu
+            || (key == input::Key::F10
+                && modifiers.shift()
+                && !modifiers.control()
+                && !modifiers.alt()
+                && !modifiers.super_key())
+        {
+            return self.open_context_menu_for_focus(window);
+        }
+
         if let Some(outcome) = self.handle_command_palette_scope_key(window, key, modifiers)? {
             return Ok(outcome);
         }

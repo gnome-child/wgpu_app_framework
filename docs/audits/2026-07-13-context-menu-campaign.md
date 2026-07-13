@@ -112,9 +112,9 @@ must decide and record each surface's policy deliberately.
 |---|---|---|
 | 0 | Census, constitution, protected baseline, and roadmap ignition | Complete |
 | 1 | One erased command projection with type-distinct providers | Complete — palette now consumes `Candidates<Global>` through one generic resolver; surface policy owns self-describer exclusion |
-| 2 | Retained contextual ownership and exact local discovery | Pending |
-| 3 | Secondary/keyboard request through one menu session | Pending |
-| 4 | Existing menu-row and overlay projection | Pending |
+| 2 | Retained contextual ownership and exact local discovery | Complete |
+| 3 | Secondary/keyboard request through one menu session | Complete |
+| 4 | Existing menu-row and overlay projection | Complete |
 | 5 | One placement solver with viewport/work-area bounds | Pending |
 | 6 | Gallery, absence witnesses, doctrine, and full closeout | Pending |
 
@@ -146,6 +146,37 @@ must decide and record each surface's policy deliberately.
 - Verification at the boundary: 12 palette/layout/platform tests passed; the
   invocation-source regression passed; all-target check passed; format and
   diff checks clean.
+
+### Checkpoints 2–4
+
+- One `context_menu` bit is retained on the ordinary composition node. A
+  context geometry query includes inert display nodes without changing normal
+  activation hit testing, then ancestor walking stops at the first marked
+  owner.
+- `Scope::contextual` separates exact responder identity from optional text
+  focus. Exact responder and service candidates carry a private
+  `responder::Route`; the same route is revalidated by the ordinary `Binding`
+  during presentation and invocation. Direct bindings retain their concrete
+  erased arguments and ordinary chain semantics.
+- Application and runtime-service target storage remain distinct. Each reports
+  only command types into `Candidates<Local>`; `Candidates<Global>` cannot be
+  substituted by construction.
+- Secondary-button release now reaches the runtime through the existing shell
+  pointer path. Shift+F10 and the Menu key enter the same derivation path from
+  focused-owner geometry. Opening never mutates focus for discovery.
+- `interaction::Menu` gained only a contextual origin (owner plus anchor).
+  Authored and derived menus still share exclusivity, focus restoration,
+  Escape/outside dismissal, stale-node pruning, `Source::Menu`, overlay drafts,
+  native popup hosts, fades, activation transactions, and history.
+- Context actions project as ordinary `Role::Binding` children of the existing
+  floating panel. Existing menu participation supplies measurement, shortcut
+  and checked-state geometry, disabled chrome, painting, and hit behavior; no
+  context row role or recipe exists.
+- Boundary witnesses cover concrete argument preservation, exactly one bound
+  action, unmarked-space resistance to global scans, nearest nested ownership,
+  exact-route invocation, hidden-local non-fallthrough, text-service discovery
+  with focus preservation, keyboard invocation, and stale-owner pruning.
+  All 32 interaction tests passed, as did all-target compilation and formatting.
 
 ## Structural-absence witnesses
 

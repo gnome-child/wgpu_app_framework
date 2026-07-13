@@ -15,6 +15,30 @@ use crate::{
 use std::collections::HashMap;
 
 impl Node {
+    pub(in crate::view) fn context_owner_retained(
+        &self,
+        retained: &composition::Node,
+        owner: composition::NodeId,
+    ) -> Option<super::super::ContextOwner> {
+        if retained.node_id() == owner {
+            let focus = self
+                .text_area_model()
+                .and_then(TextArea::focus)
+                .or_else(|| self.text_box_model().and_then(TextBox::focus));
+            return Some(super::super::ContextOwner::new(
+                owner,
+                retained.element_id(),
+                focus,
+                self.binding().cloned(),
+                self.role == Role::Root,
+            ));
+        }
+
+        self.children.iter().enumerate().find_map(|(index, child)| {
+            child.context_owner_retained(retained_child(retained, index), owner)
+        })
+    }
+
     pub(in crate::view) fn table_cell_is_editable(&self, cell: crate::table::Cell) -> bool {
         (self.table_cell() == Some(cell) && self.table_edit().is_some())
             || self

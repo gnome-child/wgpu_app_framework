@@ -21,6 +21,349 @@ impl Target<SetLevel> for ReplacingInteractionState {
     }
 }
 
+#[derive(Clone, Default)]
+struct HiddenLocalTarget;
+
+#[derive(Clone, Default)]
+struct HiddenLocalRouteState {
+    local: HiddenLocalTarget,
+    app_invocations: usize,
+}
+
+impl State for HiddenLocalRouteState {}
+
+impl Target<RecordSource> for HiddenLocalTarget {
+    fn state(&self, _: &(), _: &Context) -> command::State {
+        command::State::hidden()
+    }
+
+    fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
+        unreachable!("a hidden exact target must not invoke")
+    }
+}
+
+impl Target<RecordSource> for HiddenLocalRouteState {
+    fn state(&self, _: &(), _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
+        self.app_invocations += 1;
+        Response::changed(())
+    }
+}
+
+fn contextual_binding_app() -> Runtime<ReplacingInteractionState, (), View> {
+    Runtime::new(ReplacingInteractionState {
+        level: 0.0,
+        invocations: 0,
+        visible: true,
+    })
+    .commands(|commands| {
+        commands.register::<SetLevel>(command::Spec::new("Set level"));
+    })
+    .responders(|responders| {
+        responders.app().target::<SetLevel>();
+    })
+    .view(|state, _| {
+        widget::view(|ui| {
+            ui.column(|ui| {
+                if state.visible {
+                    ui.add(widget::context_menu(
+                        widget::Binding::<SetLevel>::button_with_args(42.0),
+                    ));
+                }
+                ui.label("Unmarked");
+            });
+        })
+    })
+    .started(|cx| {
+        cx.open_window(window::Options::new("Context menu"));
+    })
+}
+
+#[test]
+fn contextual_binding_derives_one_existing_menu_row_and_preserves_arguments() {
+    let mut app = contextual_binding_app();
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 180);
+    let initial = app.show_scene(window, size).expect("view should render");
+    let owner = labeled_frame(initial.layout(), view::Role::Binding, "Set level");
+    let focus_before = app.session().focused(window);
+
+    let opened = app
+        .open_context_menu_at(window, size, frame_point(owner))
+        .expect("context request should be handled");
+
+    assert!(opened.is_handled());
+    assert_eq!(app.session().focused(window), focus_before);
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(Interaction::open_menu)
+            .is_some_and(interaction::Menu::is_context)
+    );
+
+    let projected = app.present(window).expect("context menu should project");
+    let menu_bindings = projected
+        .bindings()
+        .into_iter()
+        .filter(|binding| binding.source() == context::Source::Menu)
+        .collect::<Vec<_>>();
+    assert_eq!(menu_bindings.len(), 1);
+    let action = menu_bindings[0].action();
+
+    app.handle_view(window, action)
+        .expect("derived menu binding should invoke normally");
+
+    assert_eq!(app.state().level, 42.0);
+    assert_eq!(app.state().invocations, 1);
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(Interaction::open_menu),
+        None
+    );
+}
+
+#[test]
+fn unmarked_space_does_not_scan_the_application_command_world() {
+    let mut app = contextual_binding_app();
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 180);
+    let initial = app.show_scene(window, size).expect("view should render");
+    let unmarked = labeled_frame(initial.layout(), view::Role::Label, "Unmarked");
+
+    let outcome = app
+        .open_context_menu_at(window, size, frame_point(unmarked))
+        .expect("context request should be valid input");
+
+    assert!(!outcome.is_handled());
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(Interaction::open_menu),
+        None
+    );
+}
+
+#[test]
+fn removing_a_context_owner_prunes_the_shared_menu_session() {
+    let mut app = contextual_binding_app();
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 180);
+    let initial = app.show_scene(window, size).expect("view should render");
+    let owner = labeled_frame(initial.layout(), view::Role::Binding, "Set level");
+    app.open_context_menu_at(window, size, frame_point(owner))
+        .expect("context menu should open");
+
+    app.change(
+        state::Reason::programmatic("remove-context-owner"),
+        |state| {
+            state.visible = false;
+        },
+    );
+    app.show_scene(window, size)
+        .expect("view should reconcile owner removal");
+
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(Interaction::open_menu),
+        None
+    );
+}
+
+#[test]
+fn nested_context_owners_stop_at_the_nearest_exact_responder() {
+    let mut app = Runtime::new(SourceState::default())
+        .commands(|commands| {
+            commands
+                .register::<RecordSource>(command::Spec::new("Inner action"))
+                .register::<DisabledRecordSource>(command::Spec::new("Outer action"));
+        })
+        .responders(|responders| {
+            responders
+                .object("outer", |state| state)
+                .target::<DisabledRecordSource>();
+            responders
+                .object("inner", |state| state)
+                .target::<RecordSource>();
+        })
+        .view(|_, _| {
+            widget::view_node(widget::context_menu(
+                widget::Element::new()
+                    .id("outer")
+                    .child(widget::context_menu(
+                        widget::Element::new()
+                            .id("inner")
+                            .child(widget::Label::new("Nearest")),
+                    )),
+            ))
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Nearest context"));
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 180);
+    let initial = app.show_scene(window, size).expect("view should render");
+    let nearest = labeled_frame(initial.layout(), view::Role::Label, "Nearest");
+    let point = frame_point(nearest);
+    let node = initial
+        .layout()
+        .context_node_at(point)
+        .expect("nearest label should have context geometry");
+    let owner = app
+        .composition(window)
+        .and_then(|composition| composition.context_owner_for_node(node))
+        .expect("nearest label should inherit a contextual owner");
+    assert_eq!(owner.responder(), Some(interaction::Id::new("inner")));
+
+    let opened = app
+        .open_context_menu_at(window, size, point)
+        .expect("nearest context owner should open");
+    assert!(opened.is_handled());
+    let projected = app.present(window).expect("context menu should project");
+    let menu_bindings = projected
+        .bindings()
+        .into_iter()
+        .filter(|binding| binding.source() == context::Source::Menu)
+        .collect::<Vec<_>>();
+
+    assert_eq!(menu_bindings.len(), 1);
+    assert_eq!(
+        menu_bindings[0].command_type(),
+        std::any::TypeId::of::<RecordSource>()
+    );
+    let action = menu_bindings[0].action();
+    app.handle_view(window, action)
+        .expect("exact responder action should invoke");
+    assert_eq!(app.state().sources, vec![context::Source::Menu]);
+}
+
+#[test]
+fn text_context_uses_the_existing_local_service_without_moving_focus() {
+    let focus = session::Focus::text("context-text");
+    let mut app = Runtime::new(SourceState::default())
+        .commands(|commands| {
+            commands.install(document::Editing::standard());
+        })
+        .view(move |_, _| {
+            widget::view_node(widget::context_menu(
+                widget::TextBox::new("selectable text").focus(focus),
+            ))
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Text context"));
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 180);
+    let initial = app
+        .show_scene(window, size)
+        .expect("text view should render");
+    let text_box = initial
+        .layout()
+        .find_role(view::Role::TextBox)
+        .into_iter()
+        .next()
+        .expect("text box should be laid out");
+
+    app.open_context_menu_at(window, size, frame_point(text_box))
+        .expect("text context should open");
+    assert_eq!(app.session().focused(window), None);
+    let projected = app.present(window).expect("text context should project");
+    let commands = projected
+        .bindings()
+        .into_iter()
+        .filter(|binding| binding.source() == context::Source::Menu)
+        .map(view::Binding::command_name)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        commands,
+        vec![
+            "edit.select_all",
+            "edit.copy",
+            "edit.cut",
+            "edit.delete",
+            "edit.paste",
+            "edit.undo",
+            "edit.redo",
+        ]
+    );
+    assert!(!commands.contains(&"document.apply_edit"));
+    assert_eq!(app.session().focused(window), None);
+
+    app.handle_input(window, Input::cancel())
+        .expect("pointer context should close");
+    app.handle_input(window, Input::focus(focus))
+        .expect("text focus should be accepted");
+    let keyboard = app
+        .handle_input(
+            window,
+            Input::key_down(
+                input::Key::F10,
+                input::Modifiers::new(true, false, false, false),
+            ),
+        )
+        .expect("Shift+F10 should request the same context menu");
+    assert!(keyboard.is_handled());
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(Interaction::open_menu)
+            .is_some_and(interaction::Menu::is_context)
+    );
+    assert_eq!(app.session().focused(window), Some(focus));
+}
+
+#[test]
+fn hidden_exact_target_does_not_fall_through_to_the_application() {
+    let mut app = Runtime::new(HiddenLocalRouteState::default())
+        .commands(|commands| {
+            commands.register::<RecordSource>(command::Spec::new("Record"));
+        })
+        .responders(|responders| {
+            responders.app().target::<RecordSource>();
+            responders
+                .object("hidden-local", |state| &mut state.local)
+                .target::<RecordSource>();
+        })
+        .view(|_, _| {
+            widget::view_node(widget::context_menu(
+                widget::Element::new()
+                    .id("hidden-local")
+                    .child(widget::Label::new("Hidden local")),
+            ))
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Hidden context"));
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 180);
+    let initial = app.show_scene(window, size).expect("view should render");
+    let label = labeled_frame(initial.layout(), view::Role::Label, "Hidden local");
+
+    let outcome = app
+        .open_context_menu_at(window, size, frame_point(label))
+        .expect("context request should remain valid input");
+
+    assert!(!outcome.is_handled());
+    assert_eq!(app.state().app_invocations, 0);
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(Interaction::open_menu),
+        None
+    );
+}
+
 #[test]
 fn text_editor_menu_open_state_is_framework_owned_interaction() {
     let mut app = text_editor::app(text_editor::State::default());

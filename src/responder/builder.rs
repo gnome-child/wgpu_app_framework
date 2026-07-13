@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, rc::Rc};
 
-use super::{Chain, Kind, Responder};
+use super::{Chain, Kind, Responder, Scope};
 use crate::{
     command::Command,
     notification::{self, Notification},
@@ -70,11 +70,19 @@ impl<M: state::State> Builder<M> {
         store: &'a mut state::Store<M>,
         focus: Option<session::Focus>,
     ) -> Chain<'a, M> {
+        self.chain_for_scope(store, Scope::focused(focus))
+    }
+
+    pub(crate) fn chain_for_scope<'a>(
+        &'a self,
+        store: &'a mut state::Store<M>,
+        scope: Scope,
+    ) -> Chain<'a, M> {
         let mut responders = self
             .specs
             .iter()
             .enumerate()
-            .filter(|(_, spec)| spec.matches_focus(focus))
+            .filter(|(_, spec)| spec.matches_scope(scope))
             .map(|(index, spec)| (spec.kind.rank(), index, spec))
             .collect::<Vec<_>>();
 
@@ -86,6 +94,27 @@ impl<M: state::State> Builder<M> {
             .collect();
 
         Chain::nearest_first(store, responders)
+    }
+
+    pub(crate) fn target_types_for(
+        &self,
+        identity: crate::interaction::Id,
+    ) -> Vec<std::any::TypeId> {
+        self.specs
+            .iter()
+            .find(|responder| responder.identity() == identity)
+            .map(|responder| {
+                responder
+                    .targets
+                    .iter()
+                    .map(AnyTarget::command_type)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn app_identity() -> crate::interaction::Id {
+        crate::interaction::Id::new("app")
     }
 }
 

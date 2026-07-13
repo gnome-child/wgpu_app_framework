@@ -44,6 +44,7 @@ pub(crate) struct Node {
     element_id: Option<interaction::Id>,
     subject: Option<subject::Segment>,
     provided_row: Option<view::ProvidedRow>,
+    context_menu: bool,
     parent: Option<Identity>,
     children: Vec<Node>,
 }
@@ -310,6 +311,7 @@ impl Node {
             element_id: element_id_for(view),
             subject: subject_for(view),
             provided_row: view.provided_row(),
+            context_menu: view.has_context_menu(),
             parent,
             children: Vec::new(),
         }
@@ -383,6 +385,10 @@ impl Node {
 
     pub(crate) fn provided_row(&self) -> Option<view::ProvidedRow> {
         self.provided_row
+    }
+
+    pub(crate) fn has_context_menu(&self) -> bool {
+        self.context_menu
     }
 
     pub(crate) fn children(&self) -> &[Node] {

@@ -16,7 +16,7 @@ pub(crate) use spec::KeyChordKind;
 pub use spec::{KeyChord, Listing, Spec, Standard};
 pub(crate) use state::Availability;
 pub use state::State;
-pub(crate) use surface::{Candidates, Global, ResolvedAction, ResolvedActions};
+pub(crate) use surface::{Candidates, Global, Local, ResolvedAction, ResolvedActions};
 pub use trigger::Trigger;
 pub(crate) use trigger::{AnyTrigger, AnyValueTrigger};
 

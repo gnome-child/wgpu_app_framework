@@ -402,6 +402,8 @@ fn key_symbol(key: input::Key) -> String {
         input::Key::PageDown => "⇟".to_owned(),
         input::Key::F2 => "F2".to_owned(),
         input::Key::F4 => "F4".to_owned(),
+        input::Key::F10 => "F10".to_owned(),
+        input::Key::ContextMenu => "Menu".to_owned(),
         input::Key::Character(' ') => "Space".to_owned(),
         input::Key::Character(character) => character.to_uppercase().collect(),
         input::Key::Other => "?".to_owned(),
@@ -440,6 +442,8 @@ fn key_text(key: input::Key, glyph_keys: bool) -> String {
         input::Key::PageDown => "PageDown".to_owned(),
         input::Key::F2 => "F2".to_owned(),
         input::Key::F4 => "F4".to_owned(),
+        input::Key::F10 => "F10".to_owned(),
+        input::Key::ContextMenu => "Menu".to_owned(),
         input::Key::Character(' ') => "Space".to_owned(),
         input::Key::Character(character) => character.to_uppercase().collect(),
         input::Key::Other => "?".to_owned(),
@@ -509,6 +513,8 @@ fn windows_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<
         | input::Key::PageDown
         | input::Key::F2
         | input::Key::F4
+        | input::Key::F10
+        | input::Key::ContextMenu
         | input::Key::Character(_)
         | input::Key::Other => None,
     }
@@ -577,6 +583,8 @@ fn mac_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<text
         | input::Key::PageDown
         | input::Key::F2
         | input::Key::F4
+        | input::Key::F10
+        | input::Key::ContextMenu
         | input::Key::Character(_)
         | input::Key::Other => None,
     }

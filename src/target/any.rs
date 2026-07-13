@@ -53,6 +53,10 @@ impl<M: state::State> AnyTarget<M> {
         self.command_type == command_type
     }
 
+    pub(crate) fn command_type(&self) -> TypeId {
+        self.command_type
+    }
+
     pub(crate) fn state_any(&self, model: &mut M, args: &dyn Any, cx: &Context) -> Result<State> {
         (self.state)(model, args, cx)
     }

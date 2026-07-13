@@ -34,7 +34,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let revision_before = self.revision();
         let task_sink = self.tasks.sink();
         let scope = window
-            .map(|window| self.session.command_scope(window, focus))
+            .and_then(|window| self.context_menu_scope(window))
+            .or_else(|| window.map(|window| self.session.command_scope(window, focus)))
             .unwrap_or_else(|| responder::Scope::focused(focus));
         let mut cx =
             command_context::Context::with_services_source(&mut self.clipboard, task_sink, source)
@@ -48,7 +49,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         );
         let mut chain = self
             .responders
-            .chain_for(&mut self.store, focus)
+            .chain_for_scope(&mut self.store, scope)
             .with_service(services);
         let mut response = match invoke(&self.registry, &mut chain, &mut cx) {
             Ok(Some(response)) => response,

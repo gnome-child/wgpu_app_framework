@@ -23,6 +23,10 @@ impl Ui {
         self.add(child)
     }
 
+    pub fn context_menu(&mut self, child: impl Widget) -> &mut Self {
+        self.add(super::context_menu(child))
+    }
+
     pub fn row(&mut self, children: impl FnOnce(&mut Ui)) -> &mut Self {
         self.add(Element::new().row().children(children))
     }

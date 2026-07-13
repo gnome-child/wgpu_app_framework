@@ -68,6 +68,10 @@ impl Node {
         self.binding.as_ref()
     }
 
+    pub(crate) fn has_context_menu(&self) -> bool {
+        self.context_menu
+    }
+
     pub fn is_hidden_binding(&self) -> bool {
         self.binding.as_ref().is_some_and(Binding::is_hidden)
     }

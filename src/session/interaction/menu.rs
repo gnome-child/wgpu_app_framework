@@ -4,6 +4,7 @@ use super::super::{Focus, Session, Window};
 
 impl Session {
     pub fn open_menu(&mut self, id: app_window::Id, menu: interaction::Menu) -> bool {
+        let closed_palette = self.close_command_palette(id);
         let Some(window) = self.window_mut(id) else {
             return false;
         };
@@ -12,10 +13,11 @@ impl Session {
             window.menu_restore_focus = restore_focus_for_menu(window);
         }
 
-        window.interaction.open_menu_with(menu)
+        window.interaction.open_menu_with(menu) || closed_palette
     }
 
     pub fn toggle_menu(&mut self, id: app_window::Id, menu: interaction::Menu) -> bool {
+        let closed_palette = self.close_command_palette(id);
         let Some(window) = self.window_mut(id) else {
             return false;
         };
@@ -23,14 +25,14 @@ impl Session {
         if window.interaction.open_menu() == Some(&menu) {
             let closed = window.interaction.close_menu();
             let restored = restore_menu_focus(window);
-            return closed || restored;
+            return closed || restored || closed_palette;
         }
 
         if window.interaction.open_menu().is_none() {
             window.menu_restore_focus = restore_focus_for_menu(window);
         }
 
-        window.interaction.toggle_menu(menu)
+        window.interaction.toggle_menu(menu) || closed_palette
     }
 
     pub fn close_menu(&mut self, id: app_window::Id) -> bool {

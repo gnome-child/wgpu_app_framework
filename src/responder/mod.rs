@@ -7,11 +7,11 @@ pub use builder::Builder;
 pub use builder::Object;
 pub use chain::Chain;
 pub(crate) use chain::Service;
-pub(crate) use chain::{Claim, Provenance};
+pub(crate) use chain::{Claim, Provenance, Route};
 pub use kind::Kind;
 pub(crate) use scope::Scope;
 
-use super::{interaction, notification, session, state, target::AnyTarget};
+use super::{interaction, notification, state, target::AnyTarget};
 
 pub struct Responder<M: state::State> {
     pub(super) kind: Kind,
@@ -32,13 +32,16 @@ impl<M: state::State> Responder<M> {
         }
     }
 
-    pub(super) fn matches_focus(&self, focus: Option<session::Focus>) -> bool {
+    pub(super) fn matches_scope(&self, scope: Scope) -> bool {
         match self.kind {
-            Kind::Focused => focus
-                .as_ref()
-                .and_then(session::Focus::target_id)
+            Kind::Focused => scope
+                .responder()
                 .is_some_and(|target| self.identity == target),
             _ => true,
         }
+    }
+
+    pub(super) fn identity(&self) -> interaction::Id {
+        self.identity
     }
 }

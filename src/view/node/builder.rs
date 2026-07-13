@@ -56,6 +56,10 @@ impl Node {
         Self::new(Role::Binding).with_binding(Binding::new::<C>(args, Source::Menu))
     }
 
+    pub(crate) fn resolved_menu_action(action: command::ResolvedAction) -> Self {
+        Self::new(Role::Binding).with_binding(Binding::from_resolved(action, Source::Menu))
+    }
+
     pub fn separator() -> Self {
         Self::new(Role::Separator)
     }
@@ -386,6 +390,11 @@ impl Node {
         self
     }
 
+    pub(crate) fn with_context_menu(mut self) -> Self {
+        self.context_menu = true;
+        self
+    }
+
     fn new(role: Role) -> Self {
         Self {
             role,
@@ -415,6 +424,7 @@ impl Node {
             table_edit: None,
             table_edit_error: None,
             participation: None,
+            context_menu: false,
             children: Vec::new(),
         }
     }

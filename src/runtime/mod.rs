@@ -15,6 +15,7 @@ use std::{
 mod access;
 mod builder;
 mod context;
+mod context_menu;
 mod departed;
 mod dispatch;
 mod fuzzy;

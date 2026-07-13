@@ -209,6 +209,8 @@ pub fn key(key: &WinitKey) -> input::Key {
         WinitKey::Named(NamedKey::PageDown) => input::Key::PageDown,
         WinitKey::Named(NamedKey::F2) => input::Key::F2,
         WinitKey::Named(NamedKey::F4) => input::Key::F4,
+        WinitKey::Named(NamedKey::F10) => input::Key::F10,
+        WinitKey::Named(NamedKey::ContextMenu) => input::Key::ContextMenu,
         WinitKey::Character(value) => {
             let mut chars = value.chars();
             match (chars.next(), chars.next()) {

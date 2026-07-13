@@ -16,6 +16,8 @@ pub enum Key {
     PageDown,
     F2,
     F4,
+    F10,
+    ContextMenu,
     Character(char),
     Other,
 }

@@ -140,6 +140,18 @@ impl Composition {
         false
     }
 
+    pub(crate) fn context_owner_for_node(&self, node_id: NodeId) -> Option<view::ContextOwner> {
+        let mut current = Some(node_id);
+        while let Some(id) = current {
+            let node = self.tree.node(id)?;
+            if node.has_context_menu() {
+                return self.view.context_owner_retained(&self.tree, id);
+            }
+            current = node.parent();
+        }
+        None
+    }
+
     pub(crate) fn provided_row_for_node(&self, node_id: NodeId) -> Option<view::ProvidedRow> {
         let mut current = Some(node_id);
         while let Some(id) = current {

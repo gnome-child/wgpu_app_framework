@@ -365,6 +365,14 @@ impl Interaction {
             self.text_input
                 .prune_removed(removed_nodes, removed_elements, removed_table_cells);
         let tables_changed = self.tables.prune_removed(removed_table_cells);
+        let menu_changed = self
+            .open_menu
+            .as_ref()
+            .and_then(Menu::context_owner)
+            .is_some_and(|owner| removed_nodes.contains(&owner));
+        if menu_changed {
+            self.open_menu = None;
+        }
 
         Pruned {
             changed: hovered_changed
@@ -372,7 +380,8 @@ impl Interaction {
                 || capture_changed
                 || scroll_changed
                 || text_changed
-                || tables_changed,
+                || tables_changed
+                || menu_changed,
             capture_removed: capture_changed,
         }
     }

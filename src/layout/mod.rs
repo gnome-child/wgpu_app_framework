@@ -1,7 +1,7 @@
 use super::{
     composition,
     geometry::{Point, Rect, Size},
-    interaction, keymap,
+    interaction, keymap, session,
     theme::Theme,
     view,
 };
@@ -138,6 +138,18 @@ impl Layout {
         &self.frames
     }
 
+    pub(crate) fn frame_for_node(&self, node: composition::NodeId) -> Option<&Frame> {
+        self.frames.iter().find(|frame| frame.node_id() == node)
+    }
+
+    pub(crate) fn frame_for_focus(&self, focus: session::Focus) -> Option<&Frame> {
+        self.frames.iter().find(|frame| {
+            frame
+                .target()
+                .is_some_and(|target| focus.matches_target(target))
+        })
+    }
+
     pub(crate) fn chrome(&self) -> &[Chrome] {
         &self.chrome
     }
@@ -240,6 +252,16 @@ impl Layout {
             .cloned()
             .map(Hit::new)
             .map(|hit| hit.with_table_cell(table_cell))
+    }
+
+    /// Returns the deepest laid-out node under a point, including inert
+    /// display nodes that ordinary activation hit testing intentionally skips.
+    pub(crate) fn context_node_at(&self, point: Point) -> Option<composition::NodeId> {
+        self.frames
+            .iter()
+            .rev()
+            .find(|frame| frame.rect().contains(point) && frame.clip_contains(point))
+            .map(Frame::node_id)
     }
 
     pub(crate) fn drag_action_for_target(
