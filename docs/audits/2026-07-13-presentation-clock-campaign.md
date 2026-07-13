@@ -342,3 +342,61 @@ frames rather than raw messages.
 Checkpoint boundary: 939 library tests passed with 8 deliberate ignores; all
 4 doctests, three application smokes, formatting, all-target compilation, and
 diff hygiene passed. The protected 500-pixel gallery edit remains untouched.
+
+## Checkpoint 6 — backend scope correction
+
+The checkpoint-0 release matrix was repeated from isolated binaries at 136,
+500, and 800 table pixels. The current machine was under materially higher GPU
+load than the first baseline, so absolute timings are not compared across the
+two runs. Backend and size comparisons within this run remain decisive.
+
+### Post-coalescing release matrix
+
+| Height / backend | Events / frames | Native p95 | Presentation layout p95 | Encode/present p95 | Draw p95 | Scene items / batches |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 136 / Vulkan | 64 / 30 | 11.2 ms | 1.7 ms | 13.2 ms | 13.9 ms | 258 / 245 |
+| 136 / DX12 Visual | 62 / 30 | 20.9 ms | 2.1 ms | 82.1 ms | 85.5 ms | 258 / 245 |
+| 136 / DX12 HWND | 62 / 30 | 16.6 ms | 1.5 ms | 76.0 ms | 78.5 ms | 258 / 245 |
+| 500 / Vulkan | 60 / 30 | 37.9 ms | 15.0 ms | 39.0 ms | 43.2 ms | 672 / 658 |
+| 500 / DX12 Visual, long warm stream | 711 / 310 | 48.6 ms | 6.6 ms | 42.2 ms | 45.8 ms | 666 / 653 |
+| 500 / DX12 HWND, short stream | 61 / 30 | 70.4 ms | 15.6 ms | 206.3 ms | 210.5 ms | 624 / 610 |
+| 800 / Vulkan | 44 / 20 | 42.7 ms | 15.3 ms | 40.6 ms | 53.6 ms | 690 / 677 |
+| 800 / DX12 Visual | 41 / 20 | 102.8 ms | 14.9 ms | 222.9 ms | 227.4 ms | 744 / 730 |
+| 800 / DX12 HWND | 40 / 20 | 218.7 ms | 19.3 ms | 212.1 ms | 216.7 ms | 744 / 730 |
+
+The 500-pixel DX12 histories have different warm-up lengths and are recorded
+for completeness, not used to distinguish presentation systems. The matched
+136- and 800-pixel rows, together with checkpoint 0, answer that question:
+Visual and HWND track one another; `DxgiFromVisual` is not the amplification.
+Surface acquisition remains negligible (roughly 0.02-0.07 ms).
+
+The structural results are stable across all nine runs. Routing layouts remain
+zero. Event handling stays in tens of microseconds. Frames follow redraw
+opportunities rather than raw messages: the controlled wheel runs retain about
+two translated events per frame, and a manually saturated 500-pixel DX12 run
+retained 711 events in 310 frames without an input backlog. Divider reductions
+already prove a much stronger 100-to-one coalescing boundary.
+
+### Applied backend verdict
+
+No backend-policy code changes. The single-context Windows path keeps
+`DxgiFromVisual`, because it is not the regression and it is the path that
+supports native material tenancy. Vulkan remains an explicit functional
+override. A second Vulkan-main/DX12-popup context is not admitted here: the
+matched matrix proves a backend residual, but also proves a backend-independent
+visible-scene scaling residual (Vulkan rises from 13.9 to 53.6 ms). Splitting
+devices before the renderer-economics census would add ownership, resource,
+teardown, and device-loss machinery while leaving the shared large-scene cost
+untouched.
+
+The remaining cost now has an owner and a narrower question: 690 scene items
+become 677 render batches, and encode/submit/present dominates while shaping
+misses settle to zero. The next renderer-economics investigation must separate
+GPU execution/present wait from command encoding and census why adjacent table
+primitives fail to batch before choosing batch fusion, retained layers,
+targeted redraw, or damage. Cache growth is rejected by evidence; shaping is
+not the residual. This follow-up is recorded at close-out rather than smuggled
+into the presentation-clock campaign.
+
+Checkpoint 6 is deletion-shaped: the measured backend verdict changes no
+surface policy and admits no second context.
