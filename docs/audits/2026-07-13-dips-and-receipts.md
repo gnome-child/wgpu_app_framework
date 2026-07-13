@@ -1,6 +1,6 @@
 # DIPs and Receipts — One Silhouette, Atomic Popup Arrival
 
-Status: in flight. Comparison remains open. No push during the campaign.
+Status: complete. `comparison_open: true`. No push during the campaign.
 
 ## Constitution
 
@@ -127,8 +127,37 @@ their intrinsic scene opacity unchanged, while `PopupPresentation::opacity`
 remains the sole entrance/exit source at the compositor root (or at the legacy
 renderer boundary). `Scene::with_material_opacity` and the Composition
 ancestor-division parameter were deleted. Architecture witnesses now forbid
-that duplicate path. A final production timing rerun remains the last closeout
-witness.
+that duplicate path. The production timing rerun below is the closeout witness.
+
+The final release DX12 rerun closed that witness at scale 1.25. Exactly one
+material generation was created, remained current, committed at 123.380 ms,
+and became ready/exposed at 137.371 ms. The three evidenced host-frame barriers
+cost 12.664 ms and required zero application redraws after entrance began. No
+generation 2 appeared. Against the superseded 258.938 ms run, removing the
+duplicate opacity owner saved 121.567 ms (47 percent) while retaining atomic
+first-frame frost. The temporary file logger used to capture this timeline was
+removed before closeout and never entered history.
+
+## Final boundary
+
+- one logical silhouette projects independently to physical renderer/input
+  space and Composition DIPs; the 48 DIP -> 60 px -> not-75 px regression is
+  pinned at 1.25 and projection arithmetic is green at 1.0/1.25/1.5/2.0;
+- the controlled static-underlay probe distinguishes `Committed` from `Ready`,
+  uses no readiness delay, and remained stable in 10/10 cold runs;
+- current-generation content and material receipts meet at one reveal gate;
+  stale, duplicate, replacement, and no-material cases are pinned;
+- the production 1.25 capture shows content, frost, border, and shadow aligned;
+  immediate and settled dismissal captures show one atomic timeline with no
+  border tail;
+- formatting and all-target compilation pass; 952 library tests pass with 9
+  deliberate hardware/acceptance ignores; all four doctests and all three
+  application smokes pass;
+- `comparison_open: true` is preserved, Shea's 136-to-500 gallery-height edit
+  is the only working-tree change, and no push was performed.
+
+> One logical silhouette, two independent projections; one current material
+> generation, two receipts, one atomic reveal.
 
 ## Evidence boundary
 
