@@ -1,6 +1,6 @@
 const COMMAND_MOD: &str = include_str!("../command/mod.rs");
 const COMMAND_REGISTRY: &str = include_str!("../command/registry.rs");
-const COMMAND_SURFACE: &str = include_str!("../command/surface.rs");
+const COMMAND_POPULATION: &str = include_str!("../command/population.rs");
 const CONTEXT_RUNTIME: &str = include_str!("../runtime/context_menu.rs");
 const PALETTE_RUNTIME: &str = include_str!("../runtime/palette.rs");
 const TEXT_SERVICE: &str = include_str!("../runtime/services/text/mod.rs");
@@ -15,23 +15,36 @@ const WINDOWS_SYS: &str = include_str!("../platform/native/sys/windows.rs");
 #[test]
 fn command_surfaces_share_one_private_erased_resolution_boundary() {
     assert_eq!(
-        COMMAND_REGISTRY.matches("fn resolve_candidates").count(),
+        COMMAND_POPULATION.matches("fn resolve_claimed").count(),
         1,
-        "the registry should own one command-surface resolver"
+        "the population domain should own one claimed-action resolver"
     );
     assert!(!COMMAND_REGISTRY.contains("resolved_unit_commands"));
     assert!(!PALETTE_RUNTIME.contains("resolved_unit_commands"));
-    assert!(COMMAND_SURFACE.contains("pub(crate) enum Global"));
-    assert!(COMMAND_SURFACE.contains("pub(crate) enum Local"));
+    assert!(COMMAND_POPULATION.contains("pub(crate) enum Palette"));
+    assert!(COMMAND_POPULATION.contains("pub(crate) enum Context"));
+    assert!(COMMAND_POPULATION.contains("pub(crate) enum Bar"));
+    assert!(COMMAND_POPULATION.contains("claim: responder::Claim"));
+    assert!(!COMMAND_POPULATION.contains("claim: Option<responder::Claim>"));
+    let bar_entry = COMMAND_POPULATION
+        .split("pub(crate) struct BarAction")
+        .nth(1)
+        .and_then(|source| source.split("impl<'a> Population").next())
+        .expect("bar entry projection should exist");
+    assert!(bar_entry.contains("standard: Standard"));
+    assert!(!bar_entry.contains("claim:"));
+    assert!(!COMMAND_REGISTRY.contains("fn palette_candidates"));
+    assert!(!COMMAND_REGISTRY.contains("fn context_candidates"));
+    assert!(!COMMAND_REGISTRY.contains("fn bar_candidates"));
     assert!(COMMAND_MOD.contains("pub(crate) use trigger::{AnyTrigger, AnyValueTrigger}"));
     assert!(!COMMAND_MOD.contains("pub use trigger::{AnyTrigger"));
 }
 
 #[test]
 fn contextual_discovery_cannot_cross_into_global_registry_scanning() {
-    assert!(CONTEXT_RUNTIME.contains("local_candidates"));
-    assert!(!CONTEXT_RUNTIME.contains("global_candidates"));
-    assert!(PALETTE_RUNTIME.contains("global_candidates"));
+    assert!(CONTEXT_RUNTIME.contains("context_candidates"));
+    assert!(!CONTEXT_RUNTIME.contains("palette_candidates"));
+    assert!(PALETTE_RUNTIME.contains("palette_candidates"));
     assert!(!LAYOUT_ALGORITHM.contains("command::Registry"));
     assert!(!LAYOUT_CONTROL.contains("command::Registry"));
     assert!(!LAYOUT_ALGORITHM.contains("context_actions"));

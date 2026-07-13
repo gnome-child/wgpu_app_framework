@@ -128,7 +128,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 owner.table(),
             ));
             let binding = owner.binding().map(view::Binding::trigger);
-            let candidates = self.registry.local_candidates(binding, targets);
+            let population = self.registry.population();
+            let candidates = population.context_candidates(binding, targets);
             let cx = command_context::Context::with_clipboard_source(
                 &mut self.clipboard,
                 command_context::Source::Menu,
@@ -144,9 +145,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 .responders
                 .chain_for_path(&mut self.store, &responder_path, traversal)
                 .with_service(services);
-            let section = self
-                .registry
-                .resolve_candidates(candidates, &mut chain, &cx)
+            let section = population
+                .resolve_claimed(candidates, &mut chain, &cx)
                 .into_iter()
                 .filter(|action| consumed.insert(action.command_type()))
                 .collect::<Vec<_>>();

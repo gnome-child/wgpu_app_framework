@@ -59,8 +59,8 @@ Scope does not contain topology.
 | --- | --- | --- |
 | 0. Freeze sealed policies | Complete | Authored bar, context capture/traversal, palette membership/order, chords, registry order, same-scope case, ordinary nodes, and opt-in behavior pinned |
 | 1. Promote standard meaning | Complete | Role lives on `Spec`; Delete admitted; CloseWindow corrected; defaults/overrides and uniqueness proven; authored menus unchanged |
-| 2. One population owner | In progress | Shared primitives/policies with live bar targeting and captured context targeting; no observable context/palette drift |
-| 3. Cultural topology | Pending | `command::menu::{Category, Placement}`, virtual slots, platform reuse, custom categories, shortcut visibility, pure topology witnesses |
+| 2. One population owner | Complete | Shared primitives/policies with live bar targeting and captured context targeting; no observable context/palette drift |
+| 3. Cultural topology | In progress | `command::menu::{Category, Placement}`, virtual slots, platform reuse, custom categories, shortcut visibility, pure topology witnesses |
 | 4. Automatic bar | Pending | `ui.standard_menu_bar()` emits ordinary nodes with stable disabled membership and no ambient UI |
 | 5. Authored deviations | Pending | Static metadata and typed dynamic/replacement extensions coexist with unchanged authored bars |
 | 6. Migration and closeout | Pending | Examples delete duplicated culture; full witness matrix and ritual green; item 30 pruned |
@@ -153,6 +153,29 @@ role, and topology behavior remains untouched at this boundary.
 - Validation: 1,010 library tests passed, 10 ignored; all targets compile;
   doctests, formatting, and diff checks pass. The checkpoint-0 authored/no-bar
   witness remains green, so no automatic bar exists yet.
+
+## Checkpoint 2 — one population owner, distinct policies
+
+- `command::population` now owns candidate discovery, typed policy markers,
+  erased triggers, registry metadata lookup, claim resolution, and bar-state
+  composition. The prior generic `command::surface` module and Registry-owned
+  discovery/resolution loops are deleted.
+- `Palette`, `Context`, and `Bar` are explicit policy types over the same
+  `Candidates<P>` machinery. Runtime palette and context callers are adapters
+  into that owner while retaining their surface-local filtering and ordering.
+- Context and palette still receive `ResolvedAction` with a mandatory
+  `responder::Claim`; the field was not weakened to `Option`.
+- Bar resolution has a distinct claim-free projection. Its named witness proves
+  a registered-but-unclaimed role remains disabled, then becomes enabled when
+  the live responder chain changes. No claim or captured target is retained.
+- Context continues supplying captured routes and its focal path; palette keeps
+  its captured Task chain. The complete checkpoint-0 policy witness family is
+  green without expectation changes.
+- A narrowly scoped temporary dead-code allowance marks the bar projection
+  between this internal boundary and checkpoint 4's first UI consumer; it must
+  disappear when `standard_menu_bar` lands.
+- Validation: 1,011 library tests passed, 10 ignored, zero failures; warning-free
+  library checking and formatting pass.
 
 ## Platform contract
 

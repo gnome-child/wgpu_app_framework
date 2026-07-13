@@ -1,0 +1,451 @@
+use std::{any::TypeId, marker::PhantomData};
+
+use super::{AnyTrigger, HistoryGroup, Listing, Registry, Standard, State};
+use crate::{context as command_context, responder, state};
+
+/// Registry-wide discovery for the captured task described by the palette.
+pub(crate) enum Palette {}
+
+/// Nearest-owner discovery for a captured inspection or editing path.
+pub(crate) enum Context {}
+
+/// Stable registered-standard discovery for a live task chain.
+#[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
+pub(crate) enum Bar {}
+
+/// The single command-population owner. Surface markers select policy without
+/// conflating the different membership, traversal, and ordering contracts.
+pub(crate) struct Population<'a> {
+    registry: &'a Registry,
+}
+
+pub(crate) struct Candidates<P> {
+    entries: Vec<Candidate>,
+    policy: PhantomData<fn() -> P>,
+}
+
+pub(in crate::command) struct Candidate {
+    registration_index: usize,
+    trigger: AnyTrigger,
+    listing: Listing,
+    route: responder::Route,
+}
+
+pub(crate) struct ResolvedActions<P> {
+    entries: Vec<ResolvedAction>,
+    policy: PhantomData<fn() -> P>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ResolvedAction {
+    registration_index: usize,
+    command_type: TypeId,
+    command_name: &'static str,
+    trigger: AnyTrigger,
+    state: State,
+    claim: responder::Claim,
+    listing: Listing,
+    route: responder::Route,
+}
+
+#[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
+pub(crate) struct BarActions {
+    entries: Vec<BarAction>,
+}
+
+#[derive(Clone)]
+#[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
+pub(crate) struct BarAction {
+    registration_index: usize,
+    standard: Standard,
+    trigger: AnyTrigger,
+    state: State,
+}
+
+impl<'a> Population<'a> {
+    pub(in crate::command) fn new(registry: &'a Registry) -> Self {
+        Self { registry }
+    }
+
+    pub(crate) fn palette_candidates(&self) -> Candidates<Palette> {
+        Candidates::new(
+            self.registry
+                .order
+                .iter()
+                .enumerate()
+                .filter_map(|(registration_index, command_type)| {
+                    let command = self.registry.commands.get(command_type)?;
+                    command.accepts_shortcut_args().then(|| {
+                        Candidate::new(
+                            registration_index,
+                            command.unit_trigger(),
+                            command.spec.listing,
+                            responder::Route::Chain,
+                        )
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    pub(crate) fn context_candidates(
+        &self,
+        binding: Option<AnyTrigger>,
+        targets: impl IntoIterator<Item = (TypeId, responder::Route)>,
+    ) -> Candidates<Context> {
+        let mut entries = Vec::new();
+        let mut seen = Vec::new();
+
+        if let Some(trigger) = binding
+            && let Some(command) = self.registry.commands.get(&trigger.command_type())
+        {
+            seen.push(trigger.command_type());
+            entries.push(Candidate::new(
+                entries.len(),
+                trigger,
+                command.spec.listing,
+                responder::Route::Chain,
+            ));
+        }
+
+        for (command_type, route) in targets {
+            if seen.contains(&command_type) {
+                continue;
+            }
+            let Some(command) = self.registry.commands.get(&command_type) else {
+                continue;
+            };
+            if !command.accepts_shortcut_args() {
+                continue;
+            }
+            seen.push(command_type);
+            entries.push(Candidate::new(
+                entries.len(),
+                command.unit_trigger(),
+                command.spec.listing,
+                route,
+            ));
+        }
+
+        Candidates::new(entries)
+    }
+
+    #[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
+    pub(crate) fn bar_candidates(&self) -> Candidates<Bar> {
+        Candidates::new(
+            self.registry
+                .order
+                .iter()
+                .enumerate()
+                .filter_map(|(registration_index, command_type)| {
+                    let command = self.registry.commands.get(command_type)?;
+                    (command.accepts_shortcut_args() && command.spec.standard.is_some()).then(
+                        || {
+                            Candidate::new(
+                                registration_index,
+                                command.unit_trigger(),
+                                command.spec.listing,
+                                responder::Route::Chain,
+                            )
+                        },
+                    )
+                })
+                .collect(),
+        )
+    }
+
+    pub(crate) fn resolve_claimed<P>(
+        &self,
+        candidates: Candidates<P>,
+        chain: &mut responder::Chain<'_, impl state::State>,
+        cx: &command_context::Context,
+    ) -> ResolvedActions<P> {
+        let entries = candidates
+            .into_entries()
+            .into_iter()
+            .filter_map(|candidate| {
+                let command = self
+                    .registry
+                    .commands
+                    .get(&candidate.trigger().command_type())?;
+                let route = candidate.route();
+                let claim = match chain.claim_on(
+                    route,
+                    command.command_type,
+                    command.command_name,
+                    candidate.trigger().args(),
+                    cx,
+                ) {
+                    Ok(Some(claim)) => claim,
+                    Ok(None) | Err(_) => return None,
+                };
+                let state = claim.state().clone().with_command(command);
+                let registration_index = candidate.registration_index();
+                let listing = candidate.listing();
+                let trigger = candidate.into_trigger();
+
+                Some(ResolvedAction::new(
+                    registration_index,
+                    trigger,
+                    state,
+                    claim,
+                    listing,
+                    route,
+                ))
+            })
+            .collect();
+
+        ResolvedActions::new(entries)
+    }
+
+    #[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
+    pub(crate) fn resolve_bar(
+        &self,
+        candidates: Candidates<Bar>,
+        chain: &mut responder::Chain<'_, impl state::State>,
+        cx: &command_context::Context,
+    ) -> BarActions {
+        let entries = candidates
+            .into_entries()
+            .into_iter()
+            .filter_map(|candidate| {
+                let command = self
+                    .registry
+                    .commands
+                    .get(&candidate.trigger().command_type())?;
+                let standard = command.spec.standard?;
+                let state = self.registry.state_any_on(
+                    candidate.route(),
+                    command.command_type,
+                    command.command_name,
+                    candidate.trigger().args(),
+                    chain,
+                    cx,
+                );
+                Some(BarAction {
+                    registration_index: candidate.registration_index(),
+                    standard,
+                    trigger: candidate.into_trigger(),
+                    state,
+                })
+            })
+            .collect();
+
+        BarActions { entries }
+    }
+}
+
+impl<P> Candidates<P> {
+    fn new(entries: Vec<Candidate>) -> Self {
+        Self {
+            entries,
+            policy: PhantomData,
+        }
+    }
+
+    pub(in crate::command) fn into_entries(self) -> Vec<Candidate> {
+        self.entries
+    }
+}
+
+impl Candidate {
+    fn new(
+        registration_index: usize,
+        trigger: AnyTrigger,
+        listing: Listing,
+        route: responder::Route,
+    ) -> Self {
+        Self {
+            registration_index,
+            trigger,
+            listing,
+            route,
+        }
+    }
+
+    fn registration_index(&self) -> usize {
+        self.registration_index
+    }
+
+    pub(in crate::command) fn trigger(&self) -> &AnyTrigger {
+        &self.trigger
+    }
+
+    fn into_trigger(self) -> AnyTrigger {
+        self.trigger
+    }
+
+    fn listing(&self) -> Listing {
+        self.listing
+    }
+
+    fn route(&self) -> responder::Route {
+        self.route
+    }
+}
+
+impl<P> ResolvedActions<P> {
+    fn new(entries: Vec<ResolvedAction>) -> Self {
+        Self {
+            entries,
+            policy: PhantomData,
+        }
+    }
+}
+
+impl<P> IntoIterator for ResolvedActions<P> {
+    type Item = ResolvedAction;
+    type IntoIter = std::vec::IntoIter<ResolvedAction>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.entries.into_iter()
+    }
+}
+
+impl ResolvedAction {
+    fn new(
+        registration_index: usize,
+        trigger: AnyTrigger,
+        state: State,
+        claim: responder::Claim,
+        listing: Listing,
+        route: responder::Route,
+    ) -> Self {
+        Self {
+            registration_index,
+            command_type: trigger.command_type(),
+            command_name: trigger.command_name(),
+            trigger,
+            state,
+            claim,
+            listing,
+            route,
+        }
+    }
+
+    pub(crate) fn registration_index(&self) -> usize {
+        self.registration_index
+    }
+
+    pub(crate) fn command_type(&self) -> TypeId {
+        self.command_type
+    }
+
+    pub(crate) fn command_name(&self) -> &'static str {
+        self.command_name
+    }
+
+    pub(crate) fn trigger(&self) -> AnyTrigger {
+        self.trigger.clone()
+    }
+
+    pub(crate) fn history_group(&self) -> Option<HistoryGroup> {
+        self.trigger.history_group()
+    }
+
+    pub(crate) fn state(&self) -> &State {
+        &self.state
+    }
+
+    pub(crate) fn claim(&self) -> &responder::Claim {
+        &self.claim
+    }
+
+    pub(crate) fn listing(&self) -> Listing {
+        self.listing
+    }
+
+    pub(crate) fn route(&self) -> responder::Route {
+        self.route
+    }
+}
+
+#[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
+impl IntoIterator for BarActions {
+    type Item = BarAction;
+    type IntoIter = std::vec::IntoIter<BarAction>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.entries.into_iter()
+    }
+}
+
+#[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
+impl BarAction {
+    pub(crate) fn registration_index(&self) -> usize {
+        self.registration_index
+    }
+
+    pub(crate) fn standard(&self) -> Standard {
+        self.standard
+    }
+
+    pub(crate) fn trigger(&self) -> AnyTrigger {
+        self.trigger.clone()
+    }
+
+    pub(crate) fn state(&self) -> &State {
+        &self.state
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{command::Command, context::Context as CommandContext, response::Response, target};
+
+    #[derive(Clone)]
+    struct Model;
+
+    impl state::State for Model {}
+
+    struct CopyValue;
+
+    impl Command for CopyValue {
+        type Args = ();
+        type Output = ();
+
+        const NAME: &'static str = "test.copy_value";
+    }
+
+    impl target::Target<CopyValue> for Model {
+        fn state(&self, _args: &(), _cx: &CommandContext) -> State {
+            State::enabled()
+        }
+
+        fn invoke(&mut self, _args: (), _cx: &mut CommandContext) -> Response<()> {
+            Response::output(())
+        }
+    }
+
+    #[test]
+    fn bar_population_retains_unclaimed_roles_and_reads_the_live_chain() {
+        let mut registry = Registry::default();
+        registry.register::<CopyValue>(super::super::Spec::standard(Standard::Copy));
+        let mut store = state::Store::new(Model);
+        let no_targets = responder::Builder::default();
+        let mut chain = no_targets.chain(&mut store);
+        let population = registry.population();
+        let actions = population.resolve_bar(
+            population.bar_candidates(),
+            &mut chain,
+            &CommandContext::default(),
+        );
+        let action = actions.into_iter().next().expect("registered role remains");
+        assert_eq!(action.standard(), Standard::Copy);
+        assert!(!action.state().is_enabled());
+        drop(chain);
+
+        let mut live_targets = responder::Builder::default();
+        live_targets.app().target::<CopyValue>();
+        let mut chain = live_targets.chain(&mut store);
+        let population = registry.population();
+        let actions = population.resolve_bar(
+            population.bar_candidates(),
+            &mut chain,
+            &CommandContext::default(),
+        );
+        let action = actions.into_iter().next().expect("registered role remains");
+        assert!(action.state().is_enabled());
+    }
+}

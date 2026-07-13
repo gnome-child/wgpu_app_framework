@@ -1,22 +1,22 @@
 mod observer;
+mod population;
 mod registry;
 mod set;
 mod spec;
 mod state;
-mod surface;
 mod trigger;
 
 use std::time::Duration;
 
 pub use observer::Observation;
 pub(crate) use observer::Observers;
+pub(crate) use population::{Population, ResolvedAction};
 pub use registry::Registry;
 pub use set::{Member, Set};
 pub(crate) use spec::KeyChordKind;
 pub use spec::{KeyChord, Listing, Spec, Standard};
 pub(crate) use state::Availability;
 pub use state::State;
-pub(crate) use surface::{Candidates, Global, Local, ResolvedAction, ResolvedActions};
 pub use trigger::Trigger;
 pub(crate) use trigger::{AnyTrigger, AnyValueTrigger};
 

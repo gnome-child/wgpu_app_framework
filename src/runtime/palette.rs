@@ -221,10 +221,10 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .chain_for_path(&mut self.store, &path, responder::Traversal::Task)
             .with_service(services);
 
-        let candidates = self.registry.global_candidates();
-        let mut entries = self
-            .registry
-            .resolve_candidates(candidates, &mut chain, &cx)
+        let population = self.registry.population();
+        let candidates = population.palette_candidates();
+        let mut entries = population
+            .resolve_claimed(candidates, &mut chain, &cx)
             .into_iter()
             .filter(|command| command.state().is_enabled())
             .filter(|command| {

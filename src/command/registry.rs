@@ -10,16 +10,13 @@ use super::super::{
     response::{AnyResponse, Response},
     state,
 };
-use super::{
-    AnyTrigger, Candidates, Command, Global, History, HistoryGroup, KeyChord, Local,
-    ResolvedAction, ResolvedActions, Set, Spec, Standard, State, surface::Candidate,
-};
+use super::{Command, History, HistoryGroup, KeyChord, Population, Set, Spec, Standard, State};
 #[derive(Default)]
 pub struct Registry {
-    commands: HashMap<TypeId, AnyCommand>,
+    pub(in crate::command) commands: HashMap<TypeId, AnyCommand>,
     shortcuts: HashMap<KeyChord, Vec<TypeId>>,
     standard_roles: HashMap<Standard, TypeId>,
-    order: Vec<TypeId>,
+    pub(in crate::command) order: Vec<TypeId>,
 }
 
 pub(crate) struct AnyCommand {
@@ -48,7 +45,7 @@ impl AnyCommand {
         (self.history_group)(args)
     }
 
-    fn accepts_shortcut_args(&self) -> bool {
+    pub(in crate::command) fn accepts_shortcut_args(&self) -> bool {
         self.args_type == TypeId::of::<()>()
     }
 
@@ -56,12 +53,16 @@ impl AnyCommand {
         self.accepts_shortcut_args().then_some(self.spec.shortcut?)
     }
 
-    fn unit_trigger(&self) -> AnyTrigger {
-        AnyTrigger::unit(self.command_type, self.command_name, self.history_group)
+    pub(in crate::command) fn unit_trigger(&self) -> super::AnyTrigger {
+        super::AnyTrigger::unit(self.command_type, self.command_name, self.history_group)
     }
 }
 
 impl Registry {
+    pub(crate) fn population(&self) -> Population<'_> {
+        Population::new(self)
+    }
+
     pub fn install(&mut self, set: Set) -> &mut Self {
         for entry in set.entries {
             (entry.install)(self, entry.spec);
@@ -162,109 +163,6 @@ impl Registry {
         };
 
         state.with_command(command)
-    }
-
-    pub(crate) fn global_candidates(&self) -> Candidates<Global> {
-        Candidates::new(
-            self.order
-                .iter()
-                .enumerate()
-                .filter_map(|(registration_index, command_type)| {
-                    let command = self.commands.get(command_type)?;
-                    command.accepts_shortcut_args().then(|| {
-                        Candidate::new(
-                            registration_index,
-                            command.unit_trigger(),
-                            command.spec.listing,
-                            responder::Route::Chain,
-                        )
-                    })
-                })
-                .collect(),
-        )
-    }
-
-    pub(crate) fn local_candidates(
-        &self,
-        binding: Option<AnyTrigger>,
-        targets: impl IntoIterator<Item = (TypeId, responder::Route)>,
-    ) -> Candidates<Local> {
-        let mut entries = Vec::new();
-        let mut seen = Vec::new();
-
-        if let Some(trigger) = binding
-            && let Some(command) = self.commands.get(&trigger.command_type())
-        {
-            seen.push(trigger.command_type());
-            entries.push(Candidate::new(
-                entries.len(),
-                trigger,
-                command.spec.listing,
-                responder::Route::Chain,
-            ));
-        }
-
-        for (command_type, route) in targets {
-            if seen.contains(&command_type) {
-                continue;
-            }
-            let Some(command) = self.commands.get(&command_type) else {
-                continue;
-            };
-            if !command.accepts_shortcut_args() {
-                continue;
-            }
-            seen.push(command_type);
-            entries.push(Candidate::new(
-                entries.len(),
-                command.unit_trigger(),
-                command.spec.listing,
-                route,
-            ));
-        }
-
-        Candidates::new(entries)
-    }
-
-    pub(crate) fn resolve_candidates<P>(
-        &self,
-        candidates: Candidates<P>,
-        chain: &mut responder::Chain<'_, impl state::State>,
-        cx: &Context,
-    ) -> ResolvedActions<P> {
-        let entries = candidates
-            .into_entries()
-            .into_iter()
-            .filter_map(|candidate| {
-                let command = self.commands.get(&candidate.trigger().command_type())?;
-                let route = candidate.route();
-                let claim = match chain.claim_on(
-                    route,
-                    command.command_type,
-                    command.command_name,
-                    candidate.trigger().args(),
-                    cx,
-                ) {
-                    Ok(Some(claim)) => claim,
-                    Ok(None) | Err(_) => return None,
-                };
-                let state = claim.state().clone().with_command(command);
-                let registration_index = candidate.registration_index();
-                let listing = candidate.listing();
-                let trigger = candidate.into_trigger();
-
-                Some(ResolvedAction::new(
-                    registration_index,
-                    trigger,
-                    state,
-                    claim,
-                    listing,
-                    route,
-                ))
-            })
-            .collect();
-
-        ResolvedActions::new(entries)
     }
 
     pub fn invoke<C: Command>(
@@ -569,7 +467,8 @@ mod tests {
             .register::<Second>(Spec::new("Second replacement"));
 
         let command_types = registry
-            .global_candidates()
+            .population()
+            .palette_candidates()
             .into_entries()
             .into_iter()
             .map(|candidate| candidate.trigger().command_type())
