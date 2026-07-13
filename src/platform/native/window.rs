@@ -102,6 +102,10 @@ impl Window {
         super::sys::remove_popup_subclass(&self.handle);
     }
 
+    pub fn hide_popup_before_teardown(&self) {
+        super::sys::hide_popup_before_teardown(&self.handle);
+    }
+
     pub fn configure_popup_bounds(&self, x: i32, y: i32, area: paint::area::Logical) {
         super::sys::configure_popup_bounds(&self.handle, x, y, area);
     }

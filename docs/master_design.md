@@ -671,8 +671,13 @@ observed inner size, canvas physical area, surface size, and popup scale. Real
 fixtures include disabled menu shortcuts and live hover/drag sliders.
 
 Native popup fades have one opacity owner per realization. Tenancy animates the
-common composition root, so content, host frost, and framework residual chrome
-share one compositor timeline without per-frame application redraw. Legacy
+common composition root, so composition shadow, host frost, wgpu content, and
+framework residual chrome share one compositor timeline without per-frame
+application redraw or repeated `DwmFlush`. First presentation earns exposure;
+it is not an animation clock. Reopen retargets from the prior compositor
+timeline's mathematically current opacity, never from a freshly sampled zero.
+At retirement completion every path cloaks/hides the HWND before its tree,
+surface, subclass, or window is dismantled. Legacy
 non-tenancy applies opacity once in scene paint and keeps native material facts
 stable. On dismissal, a noninteractive `RetiringPopup` keeps the same native
 surface and material facts alive through the exit timeline, then native

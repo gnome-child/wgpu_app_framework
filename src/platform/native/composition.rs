@@ -58,7 +58,7 @@ pub(super) struct Host {
     compositor: Compositor,
     host_backdrop_enabled: bool,
     material_regions: HashMap<composition::NodeId, RegionVisual>,
-    fade: Option<FadeKey>,
+    fade: Option<FadeState>,
 }
 
 struct RegionVisual {
@@ -90,6 +90,27 @@ struct FadeKey {
     phase: u8,
     duration: std::time::Duration,
     from_opacity_bits: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FadeState {
+    key: FadeKey,
+    started_at: std::time::Instant,
+    duration: std::time::Duration,
+    from: f32,
+    target: f32,
+}
+
+impl FadeState {
+    fn opacity_at(self, now: std::time::Instant) -> f32 {
+        if self.duration.is_zero() {
+            return self.target;
+        }
+        let progress = now.saturating_duration_since(self.started_at).as_secs_f32()
+            / self.duration.as_secs_f32();
+        let eased = crate::animation::Easing::EaseOutCubic.sample(progress.clamp(0.0, 1.0));
+        self.from + (self.target - self.from) * eased
+    }
 }
 
 impl Runtime {
@@ -250,10 +271,16 @@ impl Host {
                     duration: std::time::Duration::ZERO,
                     from_opacity_bits: 1.0_f32.to_bits(),
                 };
-                if self.fade != Some(key) {
+                if self.fade.map(|state| state.key) != Some(key) {
                     self.root.StopAnimation(&HSTRING::from("Opacity"))?;
                     self.root.SetOpacity(1.0)?;
-                    self.fade = Some(key);
+                    self.fade = Some(FadeState {
+                        key,
+                        started_at: now,
+                        duration: std::time::Duration::ZERO,
+                        from: 1.0,
+                        target: 1.0,
+                    });
                 }
                 return Ok(());
             }
@@ -271,17 +298,23 @@ impl Host {
                 0.0,
             ),
         };
-        if self.fade == Some(key) {
+        if self.fade.map(|state| state.key) == Some(key) {
             return Ok(());
         }
 
         let remaining = key.duration.saturating_sub(elapsed);
-        self.root.SetOpacity(sampled_opacity.clamp(0.0, 1.0))?;
+        let start = self
+            .fade
+            .map(|state| state.opacity_at(now))
+            .unwrap_or(sampled_opacity)
+            .clamp(0.0, 1.0);
+        self.root.StopAnimation(&HSTRING::from("Opacity"))?;
+        self.root.SetOpacity(start)?;
         if remaining.is_zero() {
             self.root.SetOpacity(target)?;
         } else {
             let animation = self.compositor.CreateScalarKeyFrameAnimation()?;
-            animation.InsertKeyFrame(0.0, sampled_opacity.clamp(0.0, 1.0))?;
+            animation.InsertKeyFrame(0.0, start)?;
             let easing = self.compositor.CreateCubicBezierEasingFunction(
                 Vector2 { X: 0.33, Y: 1.0 },
                 Vector2 { X: 0.68, Y: 1.0 },
@@ -293,7 +326,13 @@ impl Host {
             self.root
                 .StartAnimation(&HSTRING::from("Opacity"), &animation)?;
         }
-        self.fade = Some(key);
+        self.fade = Some(FadeState {
+            key,
+            started_at: now,
+            duration: remaining,
+            from: start,
+            target,
+        });
         Ok(())
     }
 
@@ -659,6 +698,42 @@ mod tests {
             assert_eq!(shadow.blur_radius, recipe.blur() * scale);
             assert_eq!(shadow.offset.Y, recipe.offset().y() * scale);
         }
+    }
+
+    #[test]
+    fn compositor_retarget_starts_from_the_prior_timeline_without_a_jump() {
+        let now = std::time::Instant::now();
+        let retiring = FadeState {
+            key: FadeKey {
+                phase: 2,
+                duration: std::time::Duration::from_millis(100),
+                from_opacity_bits: 1.0_f32.to_bits(),
+            },
+            started_at: now,
+            duration: std::time::Duration::from_millis(100),
+            from: 1.0,
+            target: 0.0,
+        };
+        let retargeted_at = now + std::time::Duration::from_millis(50);
+        let inherited = retiring.opacity_at(retargeted_at);
+        let entering = FadeState {
+            key: FadeKey {
+                phase: 0,
+                duration: std::time::Duration::from_millis(80),
+                from_opacity_bits: 0.0_f32.to_bits(),
+            },
+            started_at: retargeted_at,
+            duration: std::time::Duration::from_millis(80),
+            from: inherited,
+            target: 1.0,
+        };
+
+        assert_eq!(entering.opacity_at(retargeted_at), inherited);
+        assert!(inherited > 0.0 && inherited < 1.0);
+        assert_eq!(
+            entering.opacity_at(retargeted_at + std::time::Duration::from_millis(80)),
+            1.0
+        );
     }
 
     #[test]

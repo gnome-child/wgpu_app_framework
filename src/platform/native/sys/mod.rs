@@ -90,6 +90,14 @@ pub(in crate::platform::native) fn expose_popup_after_present(
     }
 }
 
+pub(in crate::platform::native) fn hide_popup_before_teardown(window: &winit::window::Window) {
+    #[cfg(target_os = "windows")]
+    windows::hide_popup_before_teardown(window);
+
+    #[cfg(not(target_os = "windows"))]
+    window.set_visible(false);
+}
+
 pub(in crate::platform::native) fn synchronize_popup_presentation() -> Result<(), i32> {
     #[cfg(target_os = "windows")]
     return windows::synchronize_popup_presentation();

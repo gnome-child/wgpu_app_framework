@@ -176,6 +176,11 @@ pub(super) fn set_popup_visible(window: &winit::window::Window, visible: bool) {
     }
 }
 
+pub(super) fn hide_popup_before_teardown(window: &winit::window::Window) {
+    let _ = set_popup_cloaked(window, true);
+    set_popup_visible(window, false);
+}
+
 pub(super) fn prepare_popup_first_present(window: &winit::window::Window) -> Result<(), i32> {
     set_popup_cloaked(window, true)?;
     set_popup_visible(window, true);

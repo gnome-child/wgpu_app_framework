@@ -65,7 +65,7 @@ silhouette and one opacity owner.
 | 1. Explicit material resolution | Complete | Explicit framework-backdrop / transparent / fallback base; GPU alpha witness |
 | 2. One silhouette and visual bounds | Complete | Shared shadow reach expands composition surface; panel-local paint, frost, and input offsets |
 | 3. One framework edge | Complete | DWM edge/corner/shadow retired for composition; painted one-pixel edge and framework shadow |
-| 4. One compositor timeline | Pending | Frost, content, border, shadow fade under one root; hide precedes teardown |
+| 4. One compositor timeline | Complete | Root owns every visible part; retarget is continuous; hide precedes every teardown |
 | 5. Honest redirected fallback | Pending | Vulkan opens and closes immediately; delayed pseudo-fade absent |
 | 6. Complete open-bill trace | Pending | Semantic-open through fade-complete timings; measured verdict applied |
 | 7. Resistance and close-out | Pending | Deletion census, hardware eyes, doctrine, roadmap, full ritual |
@@ -206,6 +206,29 @@ behind the transparent residual, and no second DWM edge. Light-theme and
 remaining scale captures stay in the final pending-eyes matrix.
 
 > One visible edge has one painter.
+
+## Checkpoint 4 — one composition timeline
+
+The existing root animation is now the sole opacity owner for the composition
+shadow, host-frost regions, transparent wgpu tenant, residual tint/noise,
+controls, and painted border. Overlay scheduling still emits one semantic
+presentation plus one completion deadline—no frame-rate redraw loop or
+per-frame `DwmFlush` was introduced.
+
+Retargeting no longer restarts from the new overlay model's zero sample. The
+host retains the previous timeline parameters, evaluates their current eased
+opacity at the retarget instant, and starts the replacement animation from that
+exact value. A deterministic midpoint witness proves no discontinuity.
+
+`PopupWindow::drop` now cloaks and hides the HWND before removing its subclass
+or releasing any field. This covers ordinary retirement, parent teardown,
+surface failure cleanup, and every other removal path; composition objects are
+dropped only after the shell is no longer visible. A rapid 35 ms
+open/close/reopen production DX12 witness retained one popup with no stale
+content, duplicate border, shadow tail, or naked HWND frame.
+
+> First presentation earns exposure; one compositor timeline owns every frame
+> until disappearance.
 
 > One framework silhouette defines every popup pixel; the platform realizes
 > declared effects, and one compositor timeline carries them from first frame

@@ -166,7 +166,12 @@ impl PopupWindow {
 
 impl Drop for PopupWindow {
     fn drop(&mut self) {
+        self.window.hide_popup_before_teardown();
         self.window.remove_popup_subclass();
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "popup lifecycle stage=hidden-before-teardown"
+        );
     }
 }
 
