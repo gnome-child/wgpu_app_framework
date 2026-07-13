@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::{geometry, ime as app_ime, interaction, overlay, pointer, render, scene};
+use crate::{ime as app_ime, interaction, overlay, pointer, render, scene};
 
 use super::super::{session, window as app_window};
 
@@ -31,6 +31,10 @@ pub struct Native {
     renderers: HashMap<wgpu::TextureFormat, render::Renderer>,
     windows: HashMap<app_window::Id, window::Window>,
     popups: HashMap<PopupKey, PopupWindow>,
+    popup_pool: HashMap<app_window::Id, Vec<PopupHost>>,
+    popup_pool_capacity: HashMap<app_window::Id, usize>,
+    popup_prewarm: HashMap<app_window::Id, PopupPrewarmState>,
+    next_popup_generation: u64,
     raw_windows: HashMap<winit::window::WindowId, app_window::Id>,
     raw_popups: HashMap<winit::window::WindowId, PopupKey>,
     cursor_hosts: HashMap<app_window::Id, CursorHost>,
@@ -46,13 +50,18 @@ pub struct Native {
 struct PopupKey {
     parent: app_window::Id,
     id: interaction::Id,
+    context_fingerprint: Option<crate::popup::ContextFingerprint>,
 }
 
 struct PopupWindow {
-    window: window::Window,
-    bounds: geometry::Rect,
-    panel_offset_physical: (i32, i32),
+    host: PopupHost,
+    accepts_input: bool,
+    realization: Option<crate::popup::Realization>,
+    pending_realization: Option<crate::popup::Realization>,
+    generation: crate::popup::Generation,
+    reconfiguring: bool,
     geometry: PopupGeometryState,
+    pending_geometry: Option<PopupGeometry>,
     accent: PopupAccentState,
     border: PopupBorderState,
     presentation_prepared: bool,
@@ -61,8 +70,15 @@ struct PopupWindow {
     first_present: PopupFirstPresentTrace,
     material_readiness: PopupMaterialReadiness,
     material: Option<overlay::PopupMaterial>,
-    presentation_mode: PopupPresentationMode,
     material_realization: Option<PopupMaterialRealization>,
+    source_scene: Option<crate::scene::Scene>,
+    context_fingerprint: Option<crate::popup::ContextFingerprint>,
+}
+
+struct PopupHost {
+    window: window::Window,
+    presentation_mode: PopupPresentationMode,
+    reused: bool,
     #[cfg(target_os = "windows")]
     composition: Option<composition::Host>,
 }
@@ -73,6 +89,13 @@ enum PopupMaterialReadiness {
     Pending(u64),
     Committed(u64),
     Ready(u64),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PopupPrewarmState {
+    Armed,
+    Scheduled,
+    Complete,
 }
 
 impl PopupMaterialReadiness {
@@ -143,10 +166,7 @@ enum PopupMaterialRealization {
 
 #[derive(Debug, Clone, Copy)]
 pub(in crate::platform) struct PopupEventTarget {
-    parent: app_window::Id,
-    id: interaction::Id,
-    bounds: geometry::Rect,
-    panel_offset_physical: (i32, i32),
+    realization: crate::popup::Realization,
     scale_factor: f64,
     first_present_elapsed_micros: u128,
     first_present_stage: &'static str,
@@ -159,6 +179,7 @@ type PopupBorderState = SysApplicator<scene::Color>;
 #[derive(Debug)]
 struct PopupFirstPresentTrace {
     created_at: Instant,
+    generation: crate::popup::Generation,
     configured: bool,
     acquire_attempts: u32,
     state: PopupFirstPresentState,
@@ -189,38 +210,107 @@ struct PopupGeometry {
 
 impl PopupKey {
     fn new(parent: app_window::Id, id: interaction::Id) -> Self {
-        Self { parent, id }
+        Self {
+            parent,
+            id,
+            context_fingerprint: None,
+        }
+    }
+
+    fn for_presentation(presentation: &overlay::PopupPresentation) -> Self {
+        Self {
+            parent: presentation.parent(),
+            id: presentation.id(),
+            context_fingerprint: presentation.context_fingerprint(),
+        }
     }
 }
 
 impl PopupWindow {
     fn new(
-        window: window::Window,
-        presentation_mode: PopupPresentationMode,
+        mut host: PopupHost,
         lifecycle_epoch: Instant,
+        generation: crate::popup::Generation,
     ) -> Self {
+        let material_readiness = host.readiness_for_session();
         Self {
-            window,
-            bounds: geometry::Rect::new(0, 0, 0, 0),
-            panel_offset_physical: (0, 0),
+            host,
+            accepts_input: false,
+            realization: None,
+            pending_realization: None,
+            generation,
+            reconfiguring: false,
             geometry: PopupGeometryState::default(),
+            pending_geometry: None,
             accent: PopupAccentState::default(),
             border: PopupBorderState::default(),
             presentation_prepared: false,
             exposed: false,
             last_presented_scene: None,
-            first_present: PopupFirstPresentTrace::new(lifecycle_epoch),
-            material_readiness: PopupMaterialReadiness::NotRequired,
+            first_present: PopupFirstPresentTrace::new(lifecycle_epoch, generation),
+            material_readiness,
             material: None,
-            presentation_mode,
             material_realization: None,
-            #[cfg(target_os = "windows")]
-            composition: None,
+            source_scene: None,
+            context_fingerprint: None,
         }
+    }
+
+    fn into_host(self) -> PopupHost {
+        self.host
     }
 }
 
-impl Drop for PopupWindow {
+impl PopupHost {
+    fn new(
+        window: window::Window,
+        presentation_mode: PopupPresentationMode,
+        #[cfg(target_os = "windows")] composition: Option<composition::Host>,
+    ) -> Self {
+        Self {
+            window,
+            presentation_mode,
+            reused: false,
+            #[cfg(target_os = "windows")]
+            composition,
+        }
+    }
+
+    fn readiness_for_session(&mut self) -> PopupMaterialReadiness {
+        #[cfg(target_os = "windows")]
+        let readiness = self
+            .composition
+            .as_mut()
+            .map(composition::Host::material_readiness)
+            .map(|readiness| match readiness {
+                composition::MaterialReadiness::NotRequired => PopupMaterialReadiness::NotRequired,
+                composition::MaterialReadiness::Pending(generation) => {
+                    PopupMaterialReadiness::Pending(generation)
+                }
+                composition::MaterialReadiness::Committed(generation) => {
+                    PopupMaterialReadiness::Committed(generation)
+                }
+            })
+            .unwrap_or(PopupMaterialReadiness::NotRequired);
+        #[cfg(not(target_os = "windows"))]
+        let readiness = PopupMaterialReadiness::NotRequired;
+
+        readiness_for_reused_session(readiness)
+    }
+}
+
+fn readiness_for_reused_session(readiness: PopupMaterialReadiness) -> PopupMaterialReadiness {
+    match readiness {
+        PopupMaterialReadiness::Ready(generation)
+        | PopupMaterialReadiness::Committed(generation) => {
+            PopupMaterialReadiness::Pending(generation)
+        }
+        PopupMaterialReadiness::Pending(generation) => PopupMaterialReadiness::Pending(generation),
+        PopupMaterialReadiness::NotRequired => PopupMaterialReadiness::NotRequired,
+    }
+}
+
+impl Drop for PopupHost {
     fn drop(&mut self) {
         self.window.hide_popup_before_teardown();
         self.window.remove_popup_subclass();
@@ -233,19 +323,15 @@ impl Drop for PopupWindow {
 
 impl PopupEventTarget {
     pub(in crate::platform) fn parent(self) -> app_window::Id {
-        self.parent
+        self.realization.parent()
     }
 
     pub(in crate::platform) fn id(self) -> interaction::Id {
-        self.id
+        self.realization.popup()
     }
 
-    pub(in crate::platform) fn bounds(self) -> geometry::Rect {
-        self.bounds
-    }
-
-    pub(in crate::platform) fn panel_offset_physical(self) -> (i32, i32) {
-        self.panel_offset_physical
+    pub(in crate::platform) fn realization(self) -> crate::popup::Realization {
+        self.realization
     }
 
     pub(in crate::platform) fn scale_factor(self) -> f64 {
@@ -266,9 +352,10 @@ impl PopupEventTarget {
 const POPUP_SYS_SETTLE_DELAY: Duration = Duration::from_millis(150);
 
 impl PopupFirstPresentTrace {
-    fn new(created_at: Instant) -> Self {
+    fn new(created_at: Instant, generation: crate::popup::Generation) -> Self {
         Self {
             created_at,
+            generation,
             configured: false,
             acquire_attempts: 0,
             state: PopupFirstPresentState::AwaitingFirst,
@@ -417,6 +504,10 @@ impl Native {
             renderers: HashMap::new(),
             windows: HashMap::new(),
             popups: HashMap::new(),
+            popup_pool: HashMap::new(),
+            popup_pool_capacity: HashMap::new(),
+            popup_prewarm: HashMap::new(),
+            next_popup_generation: 0,
             raw_windows: HashMap::new(),
             raw_popups: HashMap::new(),
             cursor_hosts: HashMap::new(),
@@ -448,8 +539,9 @@ impl Default for Native {
 mod tests {
     use super::{
         ApplyDue, CursorHost, Native, POPUP_SYS_SETTLE_DELAY, PopupAccentState, PopupBorderState,
-        PopupGeometry, PopupGeometryState, PopupKey, PopupMaterialRealization,
-        PopupPresentationMode, popup_accent_due, popup_border_due, popup_geometry_due,
+        PopupGeometry, PopupGeometryState, PopupKey, PopupMaterialReadiness,
+        PopupMaterialRealization, PopupPresentationMode, popup_accent_due, popup_border_due,
+        popup_geometry_due, readiness_for_reused_session,
     };
     use crate::overlay::PopupMaterialPreference;
     use crate::platform::native::sys::PopupAccentMaterial;
@@ -470,6 +562,26 @@ mod tests {
         PopupAccentMaterial::Acrylic {
             tint: scene::Color::rgba(red, 20, 30, 180),
         }
+    }
+
+    #[test]
+    fn reused_session_preserves_the_hosts_material_generation() {
+        assert_eq!(
+            readiness_for_reused_session(PopupMaterialReadiness::Ready(7)),
+            PopupMaterialReadiness::Pending(7)
+        );
+        assert_eq!(
+            readiness_for_reused_session(PopupMaterialReadiness::Committed(8)),
+            PopupMaterialReadiness::Pending(8)
+        );
+        assert_eq!(
+            readiness_for_reused_session(PopupMaterialReadiness::Pending(9)),
+            PopupMaterialReadiness::Pending(9)
+        );
+        assert_eq!(
+            readiness_for_reused_session(PopupMaterialReadiness::NotRequired),
+            PopupMaterialReadiness::NotRequired
+        );
     }
 
     #[test]
@@ -501,6 +613,30 @@ mod tests {
         native.set_cursor_host(parent, CursorHost::Popup(key));
         native.rehome_cursor_from_popup(key);
         assert_eq!(native.cursor_hosts.get(&parent), Some(&CursorHost::Parent));
+    }
+
+    #[test]
+    fn contextual_popup_hosts_are_keyed_by_captured_owner() {
+        let parent = crate::window::Id::new(42);
+        let id = crate::interaction::Id::new("context_menu");
+        let mut next = 1;
+        let first_owner = crate::composition::NodeId::layout(&mut next);
+        let second_owner = crate::composition::NodeId::layout(&mut next);
+        let first = PopupKey {
+            parent,
+            id,
+            context_fingerprint: Some(crate::popup::ContextFingerprint::from_owner(first_owner)),
+        };
+        let second = PopupKey {
+            parent,
+            id,
+            context_fingerprint: Some(crate::popup::ContextFingerprint::from_owner(second_owner)),
+        };
+
+        assert_ne!(
+            first, second,
+            "context retargeting must enter a fresh host while the old authored-menu host retires"
+        );
     }
 
     #[test]

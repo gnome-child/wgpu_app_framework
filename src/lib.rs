@@ -43,6 +43,7 @@ mod ime;
 mod layout;
 mod overlay;
 mod paint;
+mod popup;
 mod render;
 
 #[cfg(test)]

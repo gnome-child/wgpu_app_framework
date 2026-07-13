@@ -260,8 +260,7 @@ fn shell_opens_context_menus_on_secondary_release_not_press() {
         shell
             .runtime()
             .composition(window)
-            .and_then(|composition| composition.context_owner_for_node(node))
-            .is_some(),
+            .is_some_and(|composition| !composition.context_path_for_node(node).is_empty()),
         "shell context geometry should retain its owner"
     );
 

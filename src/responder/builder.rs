@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, rc::Rc};
 
-use super::{Chain, Kind, Responder, Scope};
+use super::{Chain, Kind, Path, Responder, Scope, Traversal};
 use crate::{
     command::Command,
     notification::{self, Notification},
@@ -78,20 +78,40 @@ impl<M: state::State> Builder<M> {
         store: &'a mut state::Store<M>,
         scope: Scope,
     ) -> Chain<'a, M> {
-        let mut responders = self
+        self.chain_for_path(store, &Path::single(scope), Traversal::Task)
+    }
+
+    pub(crate) fn chain_for_path<'a>(
+        &'a self,
+        store: &'a mut state::Store<M>,
+        path: &Path,
+        traversal: Traversal,
+    ) -> Chain<'a, M> {
+        let ordered_identities = path
+            .scopes(traversal)
+            .filter_map(Scope::responder)
+            .collect::<Vec<_>>();
+        let mut responders = ordered_identities
+            .iter()
+            .filter_map(|identity| self.specs.iter().find(|spec| spec.identity() == *identity))
+            .collect::<Vec<_>>();
+
+        let mut broad = self
             .specs
             .iter()
             .enumerate()
-            .filter(|(_, spec)| spec.matches_scope(scope))
-            .map(|(index, spec)| (spec.kind.rank(), index, spec))
+            .filter(|(_, spec)| {
+                spec.kind != Kind::Focused
+                    && !responders
+                        .iter()
+                        .any(|existing| existing.identity() == spec.identity())
+            })
+            .map(|(index, spec)| (spec.kind.structural_order(), index, spec))
             .collect::<Vec<_>>();
 
-        responders.sort_by_key(|(rank, index, _)| (*rank, *index));
+        broad.sort_by_key(|(rank, index, _)| (*rank, *index));
 
-        let responders = responders
-            .into_iter()
-            .map(|(_, _, responder)| responder)
-            .collect();
+        responders.extend(broad.into_iter().map(|(_, _, responder)| responder));
 
         Chain::nearest_first(store, responders)
     }

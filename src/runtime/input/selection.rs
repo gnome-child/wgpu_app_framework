@@ -122,13 +122,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
 
         let primary = modifiers.control() || modifiers.super_key();
-        if focus.table_cell_identity().is_some()
-            && primary
-            && !modifiers.alt()
-            && key.normalized() == input::Key::Character('a')
-        {
-            return None;
-        }
         if !table_columns.is_empty() {
             let movement = match key {
                 input::Key::ArrowLeft => Some(CellMove::Column(-1)),

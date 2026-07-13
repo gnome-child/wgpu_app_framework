@@ -17,6 +17,7 @@ pub(crate) struct Draft {
     popup_border: scene::Color,
     text_caret_rect: Option<geometry::Rect>,
     placement: Option<geometry::PlacementRequest>,
+    context_fingerprint: Option<crate::popup::ContextFingerprint>,
     force_group_at_full_opacity: bool,
 }
 
@@ -31,6 +32,7 @@ struct Entry {
     popup_border: scene::Color,
     text_caret_rect: Option<geometry::Rect>,
     placement: Option<geometry::PlacementRequest>,
+    context_fingerprint: Option<crate::popup::ContextFingerprint>,
     opacity: f32,
     fade: PopupFade,
     state: State,
@@ -60,9 +62,19 @@ struct RetiringPopup {
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
     placement: Option<geometry::PlacementRequest>,
+    context_fingerprint: Option<crate::popup::ContextFingerprint>,
     started_at: Instant,
     duration: Duration,
     from_opacity: f32,
+}
+
+/// The semantic overlay instance that may be updated in place. Contextual
+/// panels share one public interaction id, so their captured responder path is
+/// part of the identity that decides whether this is an update or a retarget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct Identity {
+    id: interaction::Id,
+    context_fingerprint: Option<crate::popup::ContextFingerprint>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,6 +129,7 @@ pub(crate) struct Layer {
     popup_border: scene::Color,
     text_caret_rect: Option<geometry::Rect>,
     placement: Option<geometry::PlacementRequest>,
+    context_fingerprint: Option<crate::popup::ContextFingerprint>,
     state: Option<State>,
     elapsed: Option<Duration>,
     force_group_at_full_opacity: bool,
@@ -167,7 +180,7 @@ pub(crate) struct Update {
 pub(crate) struct PopupPresentation {
     parent: window::Id,
     id: interaction::Id,
-    bounds: geometry::Rect,
+    local_bounds: geometry::Rect,
     placement: Option<geometry::PlacementRequest>,
     scene: scene::Scene,
     opacity: f32,
@@ -176,6 +189,8 @@ pub(crate) struct PopupPresentation {
     border: scene::Color,
     lifecycle_epoch: Instant,
     paint_only: bool,
+    kind: LayerKind,
+    context_fingerprint: Option<crate::popup::ContextFingerprint>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,6 +228,7 @@ struct Live {
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
     placement: Option<geometry::PlacementRequest>,
+    context_fingerprint: Option<crate::popup::ContextFingerprint>,
     appeared_at: Instant,
     demotion_logged: bool,
 }
@@ -228,6 +244,7 @@ impl Draft {
             popup_border: scene::Color::rgba(0, 0, 0, 0),
             text_caret_rect: None,
             placement: None,
+            context_fingerprint: None,
             force_group_at_full_opacity: false,
         }
     }
@@ -262,8 +279,19 @@ impl Draft {
         self
     }
 
-    pub(crate) fn id(&self) -> interaction::Id {
-        self.id
+    pub(crate) fn context_fingerprint(
+        mut self,
+        fingerprint: Option<crate::popup::ContextFingerprint>,
+    ) -> Self {
+        self.context_fingerprint = fingerprint;
+        self
+    }
+
+    fn identity(&self) -> Identity {
+        Identity {
+            id: self.id,
+            context_fingerprint: self.context_fingerprint,
+        }
     }
 
     #[cfg(test)]
@@ -287,12 +315,22 @@ impl Entry {
             popup_border: self.popup_border,
             text_caret_rect: self.text_caret_rect,
             placement: self.placement,
+            context_fingerprint: self.context_fingerprint,
             state: Some(self.state),
             elapsed: Some(self.elapsed),
             force_group_at_full_opacity: self.force_group_at_full_opacity,
             demotion_marker: self.demotion_marker,
             frame_number: self.frame_number,
             lifecycle_epoch: self.lifecycle_epoch,
+        }
+    }
+}
+
+impl Live {
+    fn identity(&self) -> Identity {
+        Identity {
+            id: self.id,
+            context_fingerprint: self.context_fingerprint,
         }
     }
 }
@@ -320,6 +358,7 @@ impl Ghost {
             popup_border: scene::Color::rgba(0, 0, 0, 0),
             text_caret_rect: None,
             placement: None,
+            context_fingerprint: None,
             state: None,
             elapsed: Some(now.saturating_duration_since(self.started_at)),
             force_group_at_full_opacity: false,
@@ -366,6 +405,7 @@ impl RetiringPopup {
             popup_border: self.popup_border,
             text_caret_rect: None,
             placement: self.placement,
+            context_fingerprint: self.context_fingerprint,
             state: None,
             elapsed: Some(now.saturating_duration_since(self.started_at)),
             force_group_at_full_opacity: false,
@@ -427,6 +467,10 @@ impl Layer {
 
     pub(crate) fn placement(&self) -> Option<geometry::PlacementRequest> {
         self.placement
+    }
+
+    pub(crate) fn context_fingerprint(&self) -> Option<crate::popup::ContextFingerprint> {
+        self.context_fingerprint
     }
 
     pub(crate) fn state(&self) -> Option<State> {
@@ -513,7 +557,7 @@ impl PopupPresentation {
     pub(crate) fn new(
         parent: window::Id,
         id: interaction::Id,
-        bounds: geometry::Rect,
+        local_bounds: geometry::Rect,
         placement: Option<geometry::PlacementRequest>,
         scene: scene::Scene,
         opacity: f32,
@@ -522,11 +566,13 @@ impl PopupPresentation {
         border: scene::Color,
         lifecycle_epoch: Instant,
         paint_only: bool,
+        kind: LayerKind,
+        context_fingerprint: Option<crate::popup::ContextFingerprint>,
     ) -> Self {
         Self {
             parent,
             id,
-            bounds,
+            local_bounds,
             placement,
             scene,
             opacity,
@@ -535,6 +581,8 @@ impl PopupPresentation {
             border,
             lifecycle_epoch,
             paint_only,
+            kind,
+            context_fingerprint,
         }
     }
 
@@ -546,8 +594,8 @@ impl PopupPresentation {
         self.id
     }
 
-    pub(crate) fn bounds(&self) -> geometry::Rect {
-        self.bounds
+    pub(crate) fn local_bounds(&self) -> geometry::Rect {
+        self.local_bounds
     }
 
     pub(crate) fn placement(&self) -> Option<geometry::PlacementRequest> {
@@ -580,6 +628,14 @@ impl PopupPresentation {
 
     pub(crate) fn paint_only(&self) -> bool {
         self.paint_only
+    }
+
+    pub(crate) fn kind(&self) -> LayerKind {
+        self.kind
+    }
+
+    pub(crate) fn context_fingerprint(&self) -> Option<crate::popup::ContextFingerprint> {
+        self.context_fingerprint
     }
 }
 
@@ -627,19 +683,23 @@ impl Store {
         state.frame_number = state.frame_number.saturating_add(1);
         let frame_number = state.frame_number;
         let previous_live = std::mem::take(&mut state.live);
-        let mut previous_by_id = previous_live
+        let mut previous_by_identity = previous_live
             .into_iter()
-            .map(|live| (live.id, live))
+            .map(|live| (live.identity(), live))
             .collect::<HashMap<_, _>>();
-        let current_ids = drafts.iter().map(Draft::id).collect::<HashSet<_>>();
+        let current_identities = drafts.iter().map(Draft::identity).collect::<HashSet<_>>();
 
         state.ghosts.retain(|ghost| !ghost.expired_at(now));
-        state
-            .retiring_popups
-            .retain(|popup| !popup.expired_at(now) && !current_ids.contains(&popup.id));
-        for live in previous_by_id
+        state.retiring_popups.retain(|popup| {
+            !popup.expired_at(now)
+                && !current_identities.contains(&Identity {
+                    id: popup.id,
+                    context_fingerprint: popup.context_fingerprint,
+                })
+        });
+        for live in previous_by_identity
             .values()
-            .filter(|live| !current_ids.contains(&live.id))
+            .filter(|live| !current_identities.contains(&live.identity()))
         {
             if overlay.exit_fade_ms == 0
                 || (live.backend == Backend::NativePopup && !live.native_animation)
@@ -665,6 +725,7 @@ impl Store {
                     popup_material_preference: live.popup_material_preference,
                     popup_border: live.popup_border,
                     placement: live.placement,
+                    context_fingerprint: live.context_fingerprint,
                     started_at: now,
                     duration,
                     from_opacity,
@@ -682,8 +743,9 @@ impl Store {
 
         let mut entries = Vec::with_capacity(drafts.len());
         for draft in drafts {
-            let (order, appeared_at, demotion_logged) = previous_by_id
-                .remove(&draft.id)
+            let identity = draft.identity();
+            let (order, appeared_at, demotion_logged) = previous_by_identity
+                .remove(&identity)
                 .map(|live| (live.order, live.appeared_at, live.demotion_logged))
                 .unwrap_or_else(|| {
                     let order = state.next_order;
@@ -728,6 +790,7 @@ impl Store {
                 popup_material_preference: draft.popup_material_preference,
                 popup_border: draft.popup_border,
                 placement: draft.placement,
+                context_fingerprint: draft.context_fingerprint,
                 appeared_at,
                 demotion_logged: demotion_logged || demotion_marker,
             };
@@ -742,6 +805,7 @@ impl Store {
                 popup_border: draft.popup_border,
                 text_caret_rect: draft.text_caret_rect,
                 placement: draft.placement,
+                context_fingerprint: draft.context_fingerprint,
                 opacity,
                 fade: if entering {
                     PopupFade::Entering {
@@ -918,6 +982,11 @@ mod tests {
 
     fn popup_draft(id: &'static str) -> Draft {
         draft(id).prefer(Preference::NativePopup)
+    }
+
+    fn context_popup_draft(owner: crate::composition::NodeId) -> Draft {
+        popup_draft("context_menu")
+            .context_fingerprint(Some(crate::popup::ContextFingerprint::from_owner(owner)))
     }
 
     fn assert_close(actual: f32, expected: f32) {
@@ -1309,6 +1378,46 @@ mod tests {
         assert_eq!(store.retiring_popup_count(window), 0);
         assert!(expired.layers.is_empty());
         assert_eq!(expired.schedule, animation::Schedule::Idle);
+    }
+
+    #[test]
+    fn contextual_retarget_reuses_the_authored_menu_lifecycle() {
+        let mut store = Store::new();
+        let window = window::Id::new(26);
+        let now = Instant::now();
+        let theme = overlay_theme(100, 120);
+        let mut next = 1;
+        let first_owner = crate::composition::NodeId::layout(&mut next);
+        let second_owner = crate::composition::NodeId::layout(&mut next);
+
+        store.update_window(
+            window,
+            vec![context_popup_draft(first_owner)],
+            theme,
+            Capabilities::with_native_popups(),
+            now,
+        );
+        let retargeted = store.update_window(
+            window,
+            vec![context_popup_draft(second_owner)],
+            theme,
+            Capabilities::with_native_popups(),
+            now + Duration::from_millis(40),
+        );
+
+        assert_eq!(store.retiring_popup_count(window), 1);
+        assert_eq!(retargeted.layers.len(), 2);
+        assert_eq!(retargeted.layers[0].kind(), LayerKind::RetiringPopup);
+        assert_eq!(retargeted.layers[1].kind(), LayerKind::Live);
+        assert_eq!(retargeted.layers[1].state(), Some(State::Entering));
+        assert_eq!(
+            retargeted.layers[0].context_fingerprint(),
+            Some(crate::popup::ContextFingerprint::from_owner(first_owner))
+        );
+        assert_eq!(
+            retargeted.layers[1].context_fingerprint(),
+            Some(crate::popup::ContextFingerprint::from_owner(second_owner))
+        );
     }
 
     #[test]

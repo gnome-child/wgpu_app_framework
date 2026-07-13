@@ -290,7 +290,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let hovered = interaction
             .pointer()
             .position()
-            .and_then(|point| layout.hit_test(point))
+            .and_then(|point| layout.hit_test_on_surface(point, interaction.pointer().surface()))
             .and_then(|hit| hit.target().cloned());
         interaction.project_pointer_hover(hovered);
         Some(interaction)
@@ -363,6 +363,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         size: geometry::Size,
         theme: &crate::theme::Theme,
         frame: animation::Frame,
+        popup_surfaces: layout::PopupSurfaces,
     ) -> Option<layout::Layout> {
         self.refresh_presented_projection(window)?;
         let mut layout = {
@@ -374,6 +375,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 theme,
                 frame,
                 self.keymap,
+                popup_surfaces,
             )
         };
 
@@ -396,6 +398,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 theme,
                 frame,
                 self.keymap,
+                popup_surfaces,
             );
         }
 
@@ -409,6 +412,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 theme,
                 frame,
                 self.keymap,
+                popup_surfaces,
             );
         }
 
@@ -421,9 +425,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         size: geometry::Size,
         theme: &crate::theme::Theme,
         frame: animation::Frame,
+        popup_surfaces: layout::PopupSurfaces,
     ) -> Option<layout::Layout> {
         let started_at = Instant::now();
-        let layout = self.compose_layout_for_scene(window, size, theme, frame)?;
+        let layout = self.compose_layout_for_scene(window, size, theme, frame, popup_surfaces)?;
         self.diagnostics
             .get_mut(window)
             .pipeline
@@ -436,9 +441,11 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         window: window::Id,
         size: geometry::Size,
         theme: &crate::theme::Theme,
+        popup_surfaces: layout::PopupSurfaces,
     ) -> Option<layout::Layout> {
         let cached = self.layout_cache.get(&window)?;
-        (cached.size == size && cached.theme == *theme).then(|| cached.layout.clone())
+        (cached.size == size && cached.theme == *theme && cached.popup_surfaces == popup_surfaces)
+            .then(|| cached.layout.clone())
     }
 
     fn cache_layout(
@@ -446,6 +453,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         window: window::Id,
         size: geometry::Size,
         theme: &crate::theme::Theme,
+        popup_surfaces: layout::PopupSurfaces,
         layout: &layout::Layout,
     ) {
         self.layout_cache.insert(
@@ -453,6 +461,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             CachedLayout {
                 size,
                 theme: theme.clone(),
+                popup_surfaces,
                 layout: layout.clone(),
             },
         );
@@ -465,18 +474,20 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         theme: &crate::theme::Theme,
         frame: animation::Frame,
         invalidation: response::Invalidation,
+        popup_surfaces: layout::PopupSurfaces,
     ) -> Option<layout::Layout> {
         if invalidation == response::Invalidation::Paint
-            && let Some(layout) = self.cached_layout(window, size, theme)
+            && let Some(layout) = self.cached_layout(window, size, theme, popup_surfaces)
         {
             if self.apply_active_descendant_reveals(window, &layout, theme) {
                 log::debug!(
                     "paint-only scene render for window {:?} promoted to layout by reveal feedback",
                     window
                 );
-                let layout = self.compose_presentation_layout(window, size, theme, frame)?;
+                let layout =
+                    self.compose_presentation_layout(window, size, theme, frame, popup_surfaces)?;
                 self.record_layout_diagnostics(window, &layout);
-                self.cache_layout(window, size, theme, &layout);
+                self.cache_layout(window, size, theme, popup_surfaces, &layout);
                 return Some(layout);
             }
 
@@ -484,9 +495,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             return Some(layout);
         }
 
-        let layout = self.compose_presentation_layout(window, size, theme, frame)?;
+        let layout =
+            self.compose_presentation_layout(window, size, theme, frame, popup_surfaces)?;
         self.record_layout_diagnostics(window, &layout);
-        self.cache_layout(window, size, theme, &layout);
+        self.cache_layout(window, size, theme, popup_surfaces, &layout);
         Some(layout)
     }
 
@@ -764,6 +776,16 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .get(window)
             .map(|composition| composition.virtual_list_pins(focus, &targets))
             .unwrap_or_default();
+        if let Some(owner) = interaction
+            .open_menu()
+            .and_then(crate::interaction::Menu::context_owner)
+            && let Some(row) = self
+                .composition
+                .get(window)
+                .and_then(|composition| composition.provided_row_for_node(owner))
+        {
+            pins.entry(row.list()).or_default().push(row.key());
+        }
         for target in interaction.scroll().active_descendant_targets() {
             let Some(list) = target.element_id() else {
                 continue;
@@ -833,7 +855,13 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 
         let frame = self.frame_at(now);
         let layout_started_at = Instant::now();
-        let layout = self.layout_for_scene(window, size, theme, frame, invalidation)?;
+        let popup_surfaces = if capabilities.native_popups_supported() {
+            layout::PopupSurfaces::Native
+        } else {
+            layout::PopupSurfaces::InFrame
+        };
+        let layout =
+            self.layout_for_scene(window, size, theme, frame, invalidation, popup_surfaces)?;
         let layout_elapsed = layout_started_at.elapsed();
         self.apply_layout_feedback(window, &layout);
         let epoch = self.session.window(window)?.desired_presentation_epoch();
@@ -1059,14 +1087,25 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         (rendered, popup_presentations, ime_updates)
     }
 
+    #[cfg(test)]
     pub(crate) fn hit_test(
         &mut self,
         window: window::Id,
         _size: geometry::Size,
         point: geometry::Point,
     ) -> Option<layout::Hit> {
+        self.hit_test_on_surface(window, _size, point, crate::popup::Surface::Parent)
+    }
+
+    pub(crate) fn hit_test_on_surface(
+        &mut self,
+        window: window::Id,
+        _size: geometry::Size,
+        point: geometry::Point,
+        surface: crate::popup::Surface,
+    ) -> Option<layout::Hit> {
         let layout = self.presented_layout(window)?;
-        layout.hit_test(point)
+        layout.hit_test_on_surface(point, surface)
     }
 }
 
@@ -1179,6 +1218,8 @@ fn append_or_present_overlay_layer(
                 layer.popup_border(),
                 layer.lifecycle_epoch(),
                 paint_only,
+                layer.kind(),
+                layer.context_fingerprint(),
             ));
         }
         crate::overlay::Backend::NativePopup => {}

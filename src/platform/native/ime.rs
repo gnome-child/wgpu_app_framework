@@ -3,6 +3,20 @@ use crate::{ime as app_ime, window as app_window};
 use super::{ImeHost, Native, PopupKey};
 
 impl Native {
+    pub(in crate::platform::native) fn release_ime_from_popup(&mut self, key: PopupKey) {
+        let belongs_to_popup = matches!(
+            self.ime_targets.get(&key.parent),
+            Some(app_ime::Target::Popup { id, .. }) if *id == key.id
+        );
+        if !belongs_to_popup {
+            return;
+        }
+        self.ime_targets.remove(&key.parent);
+        if let Some(parent) = self.windows.get(&key.parent) {
+            parent.set_ime_allowed(false);
+        }
+    }
+
     pub(in crate::platform::native) fn apply_ime_update(&mut self, update: app_ime::Update) {
         let parent = update.parent();
         let previous = self.ime_targets.get(&parent).copied();
@@ -17,7 +31,7 @@ impl Native {
             && let Some(ImeHost::Popup(key)) = previous_host
             && let Some(popup) = self.popups.get(&key)
         {
-            popup.window.set_ime_allowed(false);
+            popup.host.window.set_ime_allowed(false);
         }
 
         match next {
@@ -66,7 +80,7 @@ impl Native {
     ) -> Option<&super::window::Window> {
         match host {
             ImeHost::Parent => self.windows.get(&parent),
-            ImeHost::Popup(key) => self.popups.get(&key).map(|popup| &popup.window),
+            ImeHost::Popup(key) => self.popups.get(&key).map(|popup| &popup.host.window),
         }
     }
 }
@@ -106,5 +120,22 @@ mod tests {
             ),
             ImeHost::Popup(PopupKey::new(parent, id))
         );
+    }
+
+    #[test]
+    fn retiring_popup_releases_its_native_ime_session() {
+        let parent = app_window::Id::new(52);
+        let id = interaction::Id::new("palette");
+        let key = PopupKey::new(parent, id);
+        let target = app_ime::Target::Popup {
+            id,
+            area: geometry::Rect::new(3, 4, 1, 18),
+        };
+        let mut native = Native::new();
+        native.ime_targets.insert(parent, target);
+
+        native.release_ime_from_popup(key);
+
+        assert!(!native.ime_targets.contains_key(&parent));
     }
 }

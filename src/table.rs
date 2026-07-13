@@ -210,21 +210,6 @@ pub struct TypedColumn<R> {
     cell: Rc<CellProjection<R>>,
 }
 
-impl<R> TypedColumn<R>
-where
-    R: 'static,
-{
-    /// Marks every generated cell in this column as a contextual owner while
-    /// preserving its existing binding, responder, and widget species.
-    pub fn context_menu(mut self) -> Self {
-        let cell = Rc::clone(&self.cell);
-        self.cell = Rc::new(move |record, identity, presentation| {
-            cell(record, identity, presentation).with_context_menu()
-        });
-        self
-    }
-}
-
 #[doc(hidden)]
 pub struct DefaultSort;
 
@@ -1273,12 +1258,10 @@ impl Edit {
 }
 
 impl Row {
-    #[cfg(test)]
     pub(crate) fn table(self) -> interaction::Id {
         self.table
     }
 
-    #[cfg(test)]
     pub(crate) fn key(self) -> virtual_list::Key {
         self.key
     }
@@ -1322,7 +1305,7 @@ impl virtual_list::Provider for Rows {
             index,
         });
         if let Some(context) = self.row_context.as_ref() {
-            row = row.bind_context_trigger(context(key)).with_context_menu();
+            row = row.bind_context_trigger(context(key));
         }
         children.into_iter().fold(row, view::Node::child)
     }

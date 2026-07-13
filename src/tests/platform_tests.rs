@@ -288,8 +288,32 @@ fn platform_events_keep_pointer_and_scale_per_window() {
     assert_eq!(events.scale_factor(second), 1.0);
 }
 
+fn test_popup_realization(
+    parent: window::Id,
+    bounds: geometry::Rect,
+    panel_offset: geometry::Point,
+    scale: f64,
+) -> crate::popup::Realization {
+    crate::popup::Realization::native(
+        interaction::Id::new("test.popup"),
+        parent,
+        crate::popup::Generation::initial(),
+        bounds,
+        bounds,
+        bounds,
+        geometry::Rect::new(
+            bounds.x().saturating_sub(panel_offset.x()),
+            bounds.y().saturating_sub(panel_offset.y()),
+            bounds.width().saturating_add(panel_offset.x()),
+            bounds.height().saturating_add(panel_offset.y()),
+        ),
+        panel_offset,
+        scale,
+    )
+}
+
 #[test]
-fn popup_window_events_map_to_parent_overlay_coordinates() {
+fn popup_window_events_retain_popup_surface_and_map_to_retained_coordinates() {
     use winit::{
         dpi::PhysicalPosition,
         event::{
@@ -300,13 +324,12 @@ fn popup_window_events_map_to_parent_overlay_coordinates() {
 
     let parent = window::Id::new(7);
     let bounds = geometry::Rect::new(100, 50, 300, 200);
+    let realization = test_popup_realization(parent, bounds, geometry::Point::new(8, 6), 1.5);
     let mut events = platform::Events::new().with_scale_factor(1.0);
 
     let moved = events
         .popup_window_event(
-            parent,
-            bounds,
-            (12, 9),
+            realization,
             1.5,
             &WinitWindowEvent::CursorMoved {
                 device_id: DeviceId::dummy(),
@@ -315,11 +338,13 @@ fn popup_window_events_map_to_parent_overlay_coordinates() {
         )
         .expect("popup cursor move should map into parent coordinates");
     match moved {
-        host::Event::Window {
-            window: event_window,
+        host::Event::Popup {
+            parent: event_window,
+            popup,
             event: host::WindowEvent::PointerMoved { point },
         } => {
             assert_eq!(event_window, parent);
+            assert_eq!(popup, realization.popup());
             assert_eq!(point, geometry::Point::new(110, 70));
         }
         _ => panic!("expected parent pointer move event"),
@@ -328,9 +353,7 @@ fn popup_window_events_map_to_parent_overlay_coordinates() {
 
     let pressed = events
         .popup_window_event(
-            parent,
-            bounds,
-            (12, 9),
+            realization,
             1.5,
             &WinitWindowEvent::MouseInput {
                 device_id: DeviceId::dummy(),
@@ -340,11 +363,13 @@ fn popup_window_events_map_to_parent_overlay_coordinates() {
         )
         .expect("popup secondary press should be forwarded");
     match pressed {
-        host::Event::Window {
-            window: event_window,
+        host::Event::Popup {
+            parent: event_window,
+            popup,
             event: host::WindowEvent::PointerDown { point, button, .. },
         } => {
             assert_eq!(event_window, parent);
+            assert_eq!(popup, realization.popup());
             assert_eq!(point, geometry::Point::new(110, 70));
             assert_eq!(button, pointer::Button::Secondary);
         }
@@ -353,9 +378,7 @@ fn popup_window_events_map_to_parent_overlay_coordinates() {
 
     let scrolled = events
         .popup_window_event(
-            parent,
-            bounds,
-            (12, 9),
+            realization,
             1.5,
             &WinitWindowEvent::MouseWheel {
                 device_id: DeviceId::dummy(),
@@ -365,11 +388,13 @@ fn popup_window_events_map_to_parent_overlay_coordinates() {
         )
         .expect("popup wheel should map through popup scale");
     match scrolled {
-        host::Event::Window {
-            window: event_window,
+        host::Event::Popup {
+            parent: event_window,
+            popup,
             event: host::WindowEvent::Scrolled { point, delta },
         } => {
             assert_eq!(event_window, parent);
+            assert_eq!(popup, realization.popup());
             assert_eq!(point, geometry::Point::new(110, 70));
             assert_eq!(delta, interaction::ScrollDelta::new(0, 20));
         }
@@ -383,20 +408,20 @@ fn popup_ime_events_route_to_parent_text_input() {
 
     let parent = window::Id::new(71);
     let bounds = geometry::Rect::new(100, 50, 300, 200);
+    let realization = test_popup_realization(parent, bounds, geometry::Point::new(0, 0), 1.25);
     let mut events = platform::Events::new();
 
     let preedit = events
         .popup_window_event(
-            parent,
-            bounds,
-            (0, 0),
+            realization,
             1.25,
             &WinitWindowEvent::Ime(Ime::Preedit("compose".to_owned(), Some((1, 4)))),
         )
         .expect("popup preedit should route to its logical parent");
     match preedit {
-        host::Event::Window {
-            window,
+        host::Event::Popup {
+            parent: window,
+            popup: _,
             event: host::WindowEvent::TextPreedit { preedit },
         } => {
             assert_eq!(window, parent);
@@ -408,17 +433,16 @@ fn popup_ime_events_route_to_parent_text_input() {
 
     let commit = events
         .popup_window_event(
-            parent,
-            bounds,
-            (0, 0),
+            realization,
             1.25,
             &WinitWindowEvent::Ime(Ime::Commit("text".to_owned())),
         )
         .expect("popup commit should route to its logical parent");
     assert!(matches!(
         commit,
-        host::Event::Window {
-            window,
+        host::Event::Popup {
+            parent: window,
+            popup: _,
             event: host::WindowEvent::TextCommitted { ref text },
         } if window == parent && text == "text"
     ));
@@ -433,12 +457,11 @@ fn popup_window_event_adapter_forwards_non_left_buttons() {
 
     let parent = window::Id::new(8);
     let bounds = geometry::Rect::new(40, 12, 200, 120);
+    let realization = test_popup_realization(parent, bounds, geometry::Point::new(0, 0), 2.0);
     let mut events = platform::Events::new();
     events
         .popup_window_event(
-            parent,
-            bounds,
-            (0, 0),
+            realization,
             2.0,
             &WinitWindowEvent::CursorMoved {
                 device_id: DeviceId::dummy(),
@@ -455,9 +478,7 @@ fn popup_window_event_adapter_forwards_non_left_buttons() {
     ] {
         let event = events
             .popup_window_event(
-                parent,
-                bounds,
-                (0, 0),
+                realization,
                 2.0,
                 &WinitWindowEvent::MouseInput {
                     device_id: DeviceId::dummy(),
@@ -467,7 +488,7 @@ fn popup_window_event_adapter_forwards_non_left_buttons() {
             )
             .expect("popup mouse button should be forwarded");
         match event {
-            host::Event::Window {
+            host::Event::Popup {
                 event: host::WindowEvent::PointerDown { point, button, .. },
                 ..
             } => {
@@ -488,12 +509,11 @@ fn popup_window_focused_events_do_not_change_framework_focus_truth() {
 
     let parent = window::Id::new(9);
     let bounds = geometry::Rect::new(40, 12, 200, 120);
+    let realization = test_popup_realization(parent, bounds, geometry::Point::new(0, 0), 1.0);
     let mut events = platform::Events::new();
     events
         .popup_window_event(
-            parent,
-            bounds,
-            (0, 0),
+            realization,
             1.0,
             &WinitWindowEvent::CursorMoved {
                 device_id: DeviceId::dummy(),
@@ -505,13 +525,7 @@ fn popup_window_focused_events_do_not_change_framework_focus_truth() {
     for focused in [true, false] {
         assert!(
             events
-                .popup_window_event(
-                    parent,
-                    bounds,
-                    (0, 0),
-                    1.0,
-                    &WinitWindowEvent::Focused(focused),
-                )
+                .popup_window_event(realization, 1.0, &WinitWindowEvent::Focused(focused),)
                 .is_none(),
             "popup focused({focused}) must not become a framework window event"
         );
@@ -1267,6 +1281,184 @@ fn menu_dropdown_uses_native_popup_work_when_backend_supports_it() {
         window::Kind::Application,
         "native popups do not become framework windows"
     );
+}
+
+#[test]
+fn native_popup_frames_are_interactive_only_on_their_realized_surface() {
+    let mut platform = Platform::new(
+        text_editor::shell(text_editor::State::default()),
+        FakeBackend::default().with_native_popups(),
+    );
+
+    platform.start().expect("platform should start host");
+    let window = platform.host().windows()[0].id();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("first redraw should present");
+    let initial = platform
+        .host()
+        .presentation(window)
+        .expect("initial presentation should exist");
+    let file = initial
+        .layout()
+        .find_role(view::Role::Menu)
+        .into_iter()
+        .find(|frame| frame.label_text() == Some("File"))
+        .expect("file menu should be laid out");
+    let file_point = frame_point(file);
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::PointerDown {
+                point: file_point,
+                button: pointer::Button::Primary,
+                modifiers: input::Modifiers::default(),
+            },
+        ))
+        .expect("pointer down should be handled");
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::PointerUp {
+                point: file_point,
+                button: pointer::Button::Primary,
+            },
+        ))
+        .expect("pointer up should open menu");
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("open menu should present");
+
+    let presented = platform
+        .host()
+        .presentation(window)
+        .expect("open menu presentation should exist");
+    let layout = presented.layout();
+    let panel = layout
+        .find_role(view::Role::FloatingPanel)
+        .into_iter()
+        .next()
+        .expect("open menu should have a floating panel");
+    let popup = panel
+        .target()
+        .and_then(interaction::Target::element_id)
+        .expect("floating panel should name its popup surface");
+    let row = layout
+        .find_role(view::Role::Binding)
+        .into_iter()
+        .find(|frame| frame.label_text() == Some("Open"))
+        .expect("file menu should contain Open");
+    let point = frame_point(row);
+    let expected = row
+        .target()
+        .cloned()
+        .expect("menu row should be interactive");
+
+    assert_ne!(
+        layout
+            .hit_test_on_surface(point, crate::popup::Surface::Parent)
+            .and_then(|hit| hit.target().cloned()),
+        Some(expected.clone()),
+        "the abandoned in-frame copy must not remain interactive"
+    );
+    assert_eq!(
+        layout
+            .hit_test_on_surface(point, crate::popup::Surface::Native(popup))
+            .and_then(|hit| hit.target().cloned()),
+        Some(expected.clone())
+    );
+    assert!(
+        layout
+            .hit_test_on_surface(
+                point,
+                crate::popup::Surface::Native(interaction::Id::new("other.popup")),
+            )
+            .is_none(),
+        "one popup surface may not address another popup's frames"
+    );
+
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::PointerMoved { point },
+        ))
+        .expect("parent pointer motion should route");
+    assert_ne!(
+        platform
+            .host()
+            .shell()
+            .runtime()
+            .session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().hovered())
+            .cloned(),
+        Some(expected.clone())
+    );
+
+    platform
+        .handle_event(host::Event::popup(
+            window,
+            popup,
+            host::WindowEvent::PointerMoved { point },
+        ))
+        .expect("popup pointer motion should route with surface identity");
+    assert_eq!(
+        platform
+            .host()
+            .shell()
+            .runtime()
+            .session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().hovered())
+            .cloned(),
+        Some(expected.clone())
+    );
+
+    for frame in 0..4 {
+        platform
+            .handle_event(host::Event::window(
+                window,
+                host::WindowEvent::RedrawRequested,
+            ))
+            .expect("popup hover repaint should preserve surface ownership");
+        assert_eq!(
+            platform
+                .host()
+                .shell()
+                .runtime()
+                .session()
+                .interaction(window)
+                .and_then(|interaction| interaction.pointer().hovered())
+                .cloned(),
+            Some(expected.clone()),
+            "frame {frame} must classify native ownership before hover projection"
+        );
+        let layout = platform
+            .host()
+            .presentation(window)
+            .expect("each redraw should retain a current presentation")
+            .layout();
+        assert_ne!(
+            layout
+                .hit_test_on_surface(point, crate::popup::Surface::Parent)
+                .and_then(|hit| hit.target().cloned()),
+            Some(expected.clone()),
+            "frame {frame} must not resurrect the abandoned parent hit region"
+        );
+        assert_eq!(
+            layout
+                .hit_test_on_surface(point, crate::popup::Surface::Native(popup))
+                .and_then(|hit| hit.target().cloned()),
+            Some(expected.clone()),
+            "frame {frame} must retain the popup surface hit region"
+        );
+    }
 }
 
 #[test]

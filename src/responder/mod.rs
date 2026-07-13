@@ -1,6 +1,7 @@
 mod builder;
 mod chain;
 mod kind;
+mod path;
 mod scope;
 
 pub use builder::Builder;
@@ -9,6 +10,7 @@ pub use chain::Chain;
 pub(crate) use chain::Service;
 pub(crate) use chain::{Claim, Provenance, Route};
 pub use kind::Kind;
+pub(crate) use path::{Path, Traversal};
 pub(crate) use scope::Scope;
 
 use super::{interaction, notification, state, target::AnyTarget};
@@ -29,15 +31,6 @@ impl<M: state::State> Responder<M> {
             identity: interaction::Id::new(name),
             targets: Vec::new(),
             listeners: Vec::new(),
-        }
-    }
-
-    pub(super) fn matches_scope(&self, scope: Scope) -> bool {
-        match self.kind {
-            Kind::Focused => scope
-                .responder()
-                .is_some_and(|target| self.identity == target),
-            _ => true,
         }
     }
 

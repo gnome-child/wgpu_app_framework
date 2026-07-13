@@ -21,6 +21,7 @@ use windows::Win32::System::WinRT::{
     CreateDispatcherQueueController, DQTAT_COM_NONE, DQTYPE_THREAD_CURRENT, DispatcherQueueOptions,
 };
 use windows::core::{HSTRING, Interface, Result};
+use windows_future::{AsyncStatus, IAsyncAction};
 use windows_numerics::{Vector2, Vector3};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -58,13 +59,15 @@ pub(super) struct Host {
     compositor: Compositor,
     host_backdrop_enabled: bool,
     material_regions: HashMap<composition::NodeId, RegionVisual>,
+    material_spares: Vec<RegionVisual>,
     material_projection: Vec<(composition::NodeId, ProjectedRegion)>,
     shadow_projection: Option<ProjectedShadow>,
     material_generation: u64,
     material_commit: Option<MaterialCommit>,
     committed_generation: Option<u64>,
     fade: Option<FadeState>,
-    pending_entrance: Option<std::time::Duration>,
+    entrance: EntranceState,
+    entrance_action: Option<IAsyncAction>,
 }
 
 struct RegionVisual {
@@ -76,6 +79,75 @@ struct RegionVisual {
 struct MaterialCommit {
     generation: u64,
     batch: CompositionCommitBatch,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PreparedEntrance {
+    generation: u64,
+    duration: std::time::Duration,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum EntranceReadiness {
+    NotRequired,
+    Pending(u64),
+    Committed(u64),
+}
+
+#[derive(Debug, Default)]
+struct EntranceState {
+    prepared: Option<PreparedEntrance>,
+    readiness: Option<EntranceReadiness>,
+}
+
+impl EntranceState {
+    fn begin(&mut self, prepared: PreparedEntrance) {
+        self.prepared = Some(prepared);
+        self.readiness = Some(EntranceReadiness::Pending(prepared.generation));
+    }
+
+    fn readiness_for(&self, generation: u64) -> EntranceReadiness {
+        let Some(prepared) = self.prepared else {
+            return EntranceReadiness::NotRequired;
+        };
+        let readiness = self
+            .readiness
+            .unwrap_or(EntranceReadiness::Pending(prepared.generation));
+        if prepared.generation == generation
+            && readiness == EntranceReadiness::Committed(generation)
+        {
+            readiness
+        } else {
+            EntranceReadiness::Pending(prepared.generation)
+        }
+    }
+
+    fn mark_committed(&mut self, generation: u64) -> bool {
+        if self
+            .prepared
+            .is_some_and(|prepared| prepared.generation == generation)
+            && self.readiness == Some(EntranceReadiness::Pending(generation))
+        {
+            self.readiness = Some(EntranceReadiness::Committed(generation));
+            true
+        } else {
+            false
+        }
+    }
+
+    fn take_committed(&mut self, generation: u64) -> Option<PreparedEntrance> {
+        if self.readiness_for(generation) != EntranceReadiness::Committed(generation) {
+            return None;
+        }
+        self.readiness = None;
+        self.prepared.take()
+    }
+}
+
+impl EntranceReadiness {
+    pub(super) fn waits_for_receipt(self) -> bool {
+        matches!(self, Self::Pending(_))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -265,13 +337,15 @@ impl Runtime {
             compositor: self.compositor.clone(),
             host_backdrop_enabled,
             material_regions: HashMap::new(),
+            material_spares: Vec::new(),
             material_projection: Vec::new(),
             shadow_projection: None,
             material_generation: 0,
             material_commit: None,
             committed_generation: None,
             fade: None,
-            pending_entrance: None,
+            entrance: EntranceState::default(),
+            entrance_action: None,
         })
     }
 }
@@ -283,26 +357,110 @@ impl SurfaceSeed {
 }
 
 impl Host {
-    pub(super) fn prepare_entrance(&mut self, duration: std::time::Duration) -> Result<()> {
-        if self.pending_entrance == Some(duration) {
+    pub(super) fn material_readiness(&mut self) -> MaterialReadiness {
+        self.poll_material_readiness()
+    }
+
+    pub(super) fn prewarm_material(&mut self) -> Result<MaterialReadiness> {
+        if !self.host_backdrop_enabled {
+            return Ok(MaterialReadiness::NotRequired);
+        }
+        if !self.material_spares.is_empty() || !self.material_regions.is_empty() {
+            return Ok(self.poll_material_readiness());
+        }
+
+        let region = RegionVisual::new(&self.compositor)?;
+        region.apply(ProjectedRegion {
+            offset: Vector3 {
+                X: 0.0,
+                Y: 0.0,
+                Z: 0.0,
+            },
+            size: Vector2 { X: 1.0, Y: 1.0 },
+            radius: 0.0,
+            opacity: 1.0,
+        })?;
+        self.regions.Children()?.InsertAtTop(&region.visual)?;
+        self.material_spares.push(region);
+        let readiness = self.begin_material_effect_commit();
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "composition material prewarm staged spares=1 readiness={readiness:?}"
+        );
+        Ok(readiness)
+    }
+
+    pub(super) fn prepare_entrance(
+        &mut self,
+        generation: u64,
+        duration: std::time::Duration,
+    ) -> Result<()> {
+        let prepared = PreparedEntrance {
+            generation,
+            duration,
+        };
+        if self.entrance.prepared == Some(prepared) {
             return Ok(());
         }
         self.root.StopAnimation(&HSTRING::from("Opacity"))?;
         self.root.SetOpacity(PREWARM_OPACITY)?;
         self.fade = None;
-        self.pending_entrance = Some(duration);
+        self.entrance.begin(prepared);
+        self.entrance_action = Some(self.compositor.RequestCommitAsync()?);
         log::debug!(
             target: "wgpu_l3::native_popup",
-            "composition entrance prepared opacity={PREWARM_OPACITY:.3} duration_us={} application_redraws=0 dwm_flushes=0",
+            "composition entrance prepared generation={generation} opacity={PREWARM_OPACITY:.3} duration_us={} commit_receipt=pending application_redraws=0 dwm_flushes=0",
             duration.as_micros()
         );
         Ok(())
     }
 
-    pub(super) fn start_prepared_entrance(&mut self, now: std::time::Instant) -> Result<()> {
-        let Some(duration) = self.pending_entrance.take() else {
+    pub(super) fn entrance_readiness(&mut self, generation: u64) -> Result<EntranceReadiness> {
+        let readiness = self.entrance.readiness_for(generation);
+        if readiness != EntranceReadiness::Pending(generation) {
+            return Ok(readiness);
+        }
+        let Some(action) = self.entrance_action.as_ref() else {
+            return Ok(readiness);
+        };
+        match action.Status()? {
+            AsyncStatus::Started => Ok(EntranceReadiness::Pending(generation)),
+            AsyncStatus::Completed => {
+                action.GetResults()?;
+                self.entrance_action = None;
+                if !self.entrance.mark_committed(generation) {
+                    return Ok(self.entrance.readiness_for(generation));
+                }
+                log::debug!(
+                    target: "wgpu_l3::native_popup",
+                    "composition entrance generation={generation} prepared-root commit completed"
+                );
+                Ok(EntranceReadiness::Committed(generation))
+            }
+            AsyncStatus::Canceled | AsyncStatus::Error => {
+                let code = action.ErrorCode()?;
+                Err(windows::core::Error::from_hresult(code))
+            }
+            _ => Ok(EntranceReadiness::Pending(generation)),
+        }
+    }
+
+    pub(super) fn start_prepared_entrance(
+        &mut self,
+        generation: u64,
+        now: std::time::Instant,
+    ) -> Result<()> {
+        if self.entrance_readiness(generation)? != EntranceReadiness::Committed(generation) {
+            return Err(windows::core::Error::new(
+                windows::core::HRESULT(0x8000_FFFF_u32 as i32),
+                "prepared popup entrance was exposed before its commit receipt",
+            ));
+        }
+        let Some(prepared) = self.entrance.take_committed(generation) else {
             return Ok(());
         };
+        let duration = prepared.duration;
+        self.entrance_action = None;
         let key = FadeKey {
             phase: 0,
             duration,
@@ -322,6 +480,13 @@ impl Host {
         fade: crate::overlay::PopupFade,
         now: std::time::Instant,
     ) -> Result<()> {
+        if stable_update_waits_for_prepared_entrance(fade, self.entrance.prepared.is_some()) {
+            log::trace!(
+                target: "wgpu_l3::native_popup",
+                "deferred stable popup opacity until the concealed prepared entrance is exposed"
+            );
+            return Ok(());
+        }
         let sampled_opacity = fade.opacity_at(now);
         let (key, elapsed, target) = match fade {
             crate::overlay::PopupFade::Entering {
@@ -437,7 +602,7 @@ impl Host {
         &mut self,
         requests: &[scene::MaterialRegion],
         scale_factor: f32,
-        panel_offset_dips: paint::point::Logical,
+        panel_offset_physical: (i32, i32),
         shadow: Option<scene::Shadow>,
     ) -> MaterialSync {
         let started = std::time::Instant::now();
@@ -452,13 +617,13 @@ impl Host {
         let desired = requests
             .iter()
             .filter_map(|request| {
-                project_region(request, scale_factor, panel_offset_dips)
+                project_region(request, scale_factor, panel_offset_physical)
                     .map(|projected| (request.id(), projected))
             })
             .collect::<Vec<_>>();
         let desired_shadow = shadow
             .zip(desired.first().map(|(_, projected)| *projected))
-            .and_then(|(recipe, silhouette)| project_shadow(recipe, silhouette));
+            .and_then(|(recipe, silhouette)| project_shadow(recipe, silhouette, scale_factor));
         if desired == self.material_projection && desired_shadow == self.shadow_projection {
             let readiness = self.poll_material_readiness();
             return MaterialSync {
@@ -469,9 +634,11 @@ impl Host {
 
         let prior_count = self.material_regions.len();
         let mut created = 0_usize;
+        let mut recycled = 0_usize;
         let mut updated = 0_usize;
         let mut retained = HashSet::new();
         let mut applied = Vec::new();
+        let desired_ids = desired.iter().map(|(id, _)| *id).collect::<HashSet<_>>();
         let children = match self.regions.Children() {
             Ok(children) => children,
             Err(error) => {
@@ -493,21 +660,38 @@ impl Host {
         }
 
         for (id, projected) in desired {
-            let region = if let Some(region) = self.material_regions.get_mut(&id) {
-                updated += 1;
-                region
+            if !self.material_regions.contains_key(&id) {
+                let recycled_region = self.material_spares.pop().or_else(|| {
+                    let obsolete = self
+                        .material_regions
+                        .keys()
+                        .find(|candidate| !desired_ids.contains(candidate))
+                        .copied()?;
+                    self.material_regions.remove(&obsolete)
+                });
+                let region = if let Some(region) = recycled_region {
+                    recycled += 1;
+                    region
+                } else {
+                    match RegionVisual::new(&self.compositor) {
+                        Ok(region) => {
+                            created += 1;
+                            region
+                        }
+                        Err(error) => {
+                            log::warn!(target: "wgpu_l3::native_popup", "material region {id:?} creation failed: {error}");
+                            continue;
+                        }
+                    }
+                };
+                self.material_regions.insert(id, region);
             } else {
-                match RegionVisual::new(&self.compositor) {
-                    Ok(region) => {
-                        created += 1;
-                        self.material_regions.entry(id).or_insert(region)
-                    }
-                    Err(error) => {
-                        log::warn!(target: "wgpu_l3::native_popup", "material region {id:?} creation failed: {error}");
-                        continue;
-                    }
-                }
-            };
+                updated += 1;
+            }
+            let region = self
+                .material_regions
+                .get_mut(&id)
+                .expect("material region should exist after creation or recycling");
             if let Err(error) = region.apply(projected) {
                 log::warn!(target: "wgpu_l3::native_popup", "material region {id:?} update failed: {error}");
                 continue;
@@ -520,55 +704,47 @@ impl Host {
             applied.push((id, projected));
         }
 
-        self.material_regions.retain(|id, _| retained.contains(id));
+        let obsolete = self
+            .material_regions
+            .keys()
+            .filter(|id| !retained.contains(id))
+            .copied()
+            .collect::<Vec<_>>();
+        for id in obsolete {
+            if let Some(region) = self.material_regions.remove(&id) {
+                self.material_spares.push(region);
+            }
+        }
         let projected_shadow = shadow
             .zip(applied.first().map(|(_, projected)| *projected))
-            .and_then(|(recipe, silhouette)| project_shadow(recipe, silhouette));
+            .and_then(|(recipe, silhouette)| project_shadow(recipe, silhouette, scale_factor));
         if let Err(error) = self.sync_shadow(projected_shadow) {
             log::warn!(target: "wgpu_l3::native_popup", "cannot synchronize composition popup shadow: {error}");
         }
         self.material_projection = applied;
         self.shadow_projection = projected_shadow;
-        let Some(generation) = self.material_generation.checked_add(1) else {
-            log::warn!(target: "wgpu_l3::native_popup", "composition material generation exhausted; using framework fallback");
-            self.disable_material();
-            return MaterialSync {
-                reports: Vec::new(),
-                readiness: MaterialReadiness::NotRequired,
-            };
-        };
-        self.material_generation = generation;
-        self.material_commit = None;
-        self.committed_generation = None;
         let readiness = if self.material_projection.is_empty() {
             MaterialReadiness::NotRequired
+        } else if created == 0
+            && (self.material_commit.is_some() || self.committed_generation.is_some())
+        {
+            self.poll_material_readiness()
         } else {
-            match self
-                .compositor
-                .GetCommitBatch(CompositionBatchTypes::Effect)
-            {
-                Ok(batch) => {
-                    self.material_commit = Some(MaterialCommit { generation, batch });
-                    MaterialReadiness::Pending(generation)
-                }
-                Err(error) => {
-                    log::warn!(target: "wgpu_l3::native_popup", "cannot acquire composition effect receipt; falling back to framework material: {error}");
-                    self.disable_material();
-                    MaterialReadiness::NotRequired
-                }
-            }
+            self.begin_material_effect_commit()
         };
-        let removed = prior_count
+        let retired = prior_count
             .saturating_add(created)
             .saturating_sub(self.material_regions.len());
         log::debug!(
             target: "wgpu_l3::native_popup",
-            "composition material-region sync requested={} realized={} created={} updated={} removed={} elapsed_us={}",
+            "composition material-region sync requested={} realized={} created={} recycled={} updated={} retired={} spares={} elapsed_us={}",
             requests.len(),
             self.material_projection.len(),
             created,
+            recycled,
             updated,
-            removed,
+            retired,
+            self.material_spares.len(),
             started.elapsed().as_micros()
         );
         MaterialSync {
@@ -582,6 +758,7 @@ impl Host {
             let _ = children.RemoveAll();
         }
         self.material_regions.clear();
+        self.material_spares.clear();
         self.material_projection.clear();
         self.shadow_projection = None;
         self.material_commit = None;
@@ -608,6 +785,31 @@ impl Host {
                 )
             })
             .collect()
+    }
+
+    fn begin_material_effect_commit(&mut self) -> MaterialReadiness {
+        let Some(generation) = self.material_generation.checked_add(1) else {
+            log::warn!(target: "wgpu_l3::native_popup", "composition material generation exhausted; using framework fallback");
+            self.disable_material();
+            return MaterialReadiness::NotRequired;
+        };
+        self.material_generation = generation;
+        self.material_commit = None;
+        self.committed_generation = None;
+        match self
+            .compositor
+            .GetCommitBatch(CompositionBatchTypes::Effect)
+        {
+            Ok(batch) => {
+                self.material_commit = Some(MaterialCommit { generation, batch });
+                MaterialReadiness::Pending(generation)
+            }
+            Err(error) => {
+                log::warn!(target: "wgpu_l3::native_popup", "cannot acquire composition effect receipt; falling back to framework material: {error}");
+                self.disable_material();
+                MaterialReadiness::NotRequired
+            }
+        }
     }
 
     fn poll_material_readiness(&mut self) -> MaterialReadiness {
@@ -665,12 +867,24 @@ impl Host {
     }
 }
 
-fn project_shadow(recipe: scene::Shadow, silhouette: ProjectedRegion) -> Option<ProjectedShadow> {
+fn stable_update_waits_for_prepared_entrance(
+    fade: crate::overlay::PopupFade,
+    entrance_prepared: bool,
+) -> bool {
+    entrance_prepared && fade == crate::overlay::PopupFade::Stable
+}
+
+fn project_shadow(
+    recipe: scene::Shadow,
+    silhouette: ProjectedRegion,
+    scale_factor: f32,
+) -> Option<ProjectedShadow> {
     let (_, _, _, alpha) = recipe.color().channels();
     if alpha == 0 {
         return None;
     }
-    let spread = recipe.spread().max(0.0);
+    let scale_factor = paint::Grid::new(scale_factor).scale_factor();
+    let spread = recipe.spread().max(0.0) * scale_factor;
     Some(ProjectedShadow {
         mask_offset: Vector2 {
             X: silhouette.offset.X - spread,
@@ -681,10 +895,10 @@ fn project_shadow(recipe: scene::Shadow, silhouette: ProjectedRegion) -> Option<
             Y: silhouette.size.Y + spread * 2.0,
         },
         mask_radius: silhouette.radius + spread,
-        blur_radius: recipe.blur().max(0.0),
+        blur_radius: recipe.blur().max(0.0) * scale_factor,
         offset: Vector3 {
-            X: recipe.offset().x(),
-            Y: recipe.offset().y(),
+            X: recipe.offset().x() * scale_factor,
+            Y: recipe.offset().y() * scale_factor,
             Z: 0.0,
         },
         color: recipe.color(),
@@ -734,7 +948,7 @@ impl RegionVisual {
 fn project_region(
     request: &scene::MaterialRegion,
     scale_factor: f32,
-    panel_offset_dips: paint::point::Logical,
+    panel_offset_physical: (i32, i32),
 ) -> Option<ProjectedRegion> {
     if !matches!(request.material(), scene::Material::Glass(_))
         || !clips_preserve_geometry(request.rect(), request.rounding(), request.clips())
@@ -747,8 +961,8 @@ fn project_region(
         request.opacity(),
         scale_factor,
     )?;
-    projected.offset.X += panel_offset_dips.x();
-    projected.offset.Y += panel_offset_dips.y();
+    projected.offset.X += panel_offset_physical.0 as f32;
+    projected.offset.Y += panel_offset_physical.1 as f32;
     Some(projected)
 }
 
@@ -767,17 +981,18 @@ fn project_geometry(
     {
         return None;
     }
+    let scale = grid.scale_factor();
     Some(ProjectedRegion {
         offset: Vector3 {
-            X: rect.origin.x(),
-            Y: rect.origin.y(),
+            X: rect.origin.x() * scale,
+            Y: rect.origin.y() * scale,
             Z: 0.0,
         },
         size: Vector2 {
-            X: rect.area.width(),
-            Y: rect.area.height(),
+            X: rect.area.width() * scale,
+            Y: rect.area.height() * scale,
         },
-        radius: rounding[0],
+        radius: rounding[0] * scale,
         opacity: opacity.clamp(0.0, 1.0),
     })
 }
@@ -820,7 +1035,7 @@ mod tests {
     }
 
     #[test]
-    fn region_projection_emits_snapped_dips_at_all_campaign_scales() {
+    fn region_projection_emits_snapped_physical_geometry_at_all_campaign_scales() {
         let source = geometry::Rect::new(3, 5, 40, 24);
         for scale in [1.0, 1.25, 1.5, 2.0] {
             let projected = project_geometry(source, scene::Rounding::fixed(7.0), 0.65, scale)
@@ -831,19 +1046,15 @@ mod tests {
                 projected.offset.X + projected.size.X,
                 projected.offset.Y + projected.size.Y,
             ] {
-                assert_eq!(
-                    (edge * scale).fract(),
-                    0.0,
-                    "DIP edge resolves to a physical pixel at scale {scale}"
-                );
+                assert_eq!(edge.fract(), 0.0, "physical edge at scale {scale}");
             }
             assert_eq!(projected.opacity, 0.65);
-            assert!((projected.radius - 7.0).abs() < f32::EPSILON);
+            assert!((projected.radius - 7.0 * scale).abs() < f32::EPSILON);
         }
     }
 
     #[test]
-    fn composition_projection_never_reuses_the_physical_projection() {
+    fn desktop_composition_projection_consumes_the_physical_projection() {
         let scale = 1.25;
         let projected = project_geometry(
             geometry::Rect::new(48, 16, 80, 40),
@@ -853,17 +1064,10 @@ mod tests {
         )
         .expect("uniform popup silhouette should project");
 
-        assert_eq!(projected.offset.X, 48.0, "Composition consumes DIPs");
-        assert_eq!(
-            projected.offset.X * scale,
-            60.0,
-            "48 DIPs resolve to the intended 60 physical pixels"
-        );
-        assert_ne!(
-            60.0 * scale,
-            projected.offset.X * scale,
-            "the renderer's 60px projection must not be fed back as 60 DIPs"
-        );
+        assert_eq!(projected.offset.X, 60.0);
+        assert_eq!(projected.offset.Y, 20.0);
+        assert_eq!(projected.size.X, 100.0);
+        assert_eq!(projected.size.Y, 50.0);
     }
 
     #[test]
@@ -893,16 +1097,16 @@ mod tests {
                     scale,
                 )
                 .expect("uniform popup silhouette should project");
-                let shadow =
-                    project_shadow(recipe, silhouette).expect("production shadow is visible");
-                let spread = recipe.spread();
+                let shadow = project_shadow(recipe, silhouette, scale)
+                    .expect("production shadow is visible");
+                let spread = recipe.spread() * scale;
                 assert_eq!(shadow.mask_offset.X, silhouette.offset.X - spread);
                 assert_eq!(shadow.mask_offset.Y, silhouette.offset.Y - spread);
                 assert_eq!(shadow.mask_size.X, silhouette.size.X + spread * 2.0);
                 assert_eq!(shadow.mask_size.Y, silhouette.size.Y + spread * 2.0);
                 assert_eq!(shadow.mask_radius, silhouette.radius + spread);
-                assert_eq!(shadow.blur_radius, recipe.blur());
-                assert_eq!(shadow.offset.Y, recipe.offset().y());
+                assert_eq!(shadow.blur_radius, recipe.blur() * scale);
+                assert_eq!(shadow.offset.Y, recipe.offset().y() * scale);
             }
         }
     }
@@ -941,6 +1145,65 @@ mod tests {
             entering.opacity_at(retargeted_at + std::time::Duration::from_millis(80)),
             1.0
         );
+    }
+
+    #[test]
+    fn logical_stability_cannot_overwrite_a_concealed_prepared_entrance() {
+        let stable = crate::overlay::PopupFade::Stable;
+        let entering = crate::overlay::PopupFade::Entering {
+            duration: std::time::Duration::from_millis(100),
+            started_at: std::time::Instant::now(),
+        };
+
+        assert!(stable_update_waits_for_prepared_entrance(stable, true));
+        assert!(!stable_update_waits_for_prepared_entrance(stable, false));
+        assert!(!stable_update_waits_for_prepared_entrance(entering, true));
+    }
+
+    #[test]
+    fn prepared_entrance_requires_its_exact_generation_receipt() {
+        let mut entrance = EntranceState::default();
+        let first = PreparedEntrance {
+            generation: 41,
+            duration: std::time::Duration::from_millis(100),
+        };
+        entrance.begin(first);
+
+        assert_eq!(entrance.readiness_for(41), EntranceReadiness::Pending(41));
+        assert!(entrance.readiness_for(41).waits_for_receipt());
+        assert!(!entrance.mark_committed(40), "a stale receipt is inert");
+        assert_eq!(entrance.readiness_for(41), EntranceReadiness::Pending(41));
+        assert!(entrance.mark_committed(41));
+        assert_eq!(entrance.readiness_for(41), EntranceReadiness::Committed(41));
+        assert!(!entrance.readiness_for(41).waits_for_receipt());
+        assert_eq!(entrance.take_committed(41), Some(first));
+        assert_eq!(entrance.readiness_for(41), EntranceReadiness::NotRequired);
+    }
+
+    #[test]
+    fn reused_host_cannot_accept_an_earlier_entrance_receipt() {
+        let mut entrance = EntranceState::default();
+        entrance.begin(PreparedEntrance {
+            generation: 7,
+            duration: std::time::Duration::from_millis(100),
+        });
+        assert!(entrance.mark_committed(7));
+        assert_eq!(
+            entrance.readiness_for(8),
+            EntranceReadiness::Pending(7),
+            "a committed prior tenant must not unlock the next popup generation"
+        );
+        assert_eq!(entrance.take_committed(8), None);
+
+        let replacement = PreparedEntrance {
+            generation: 8,
+            duration: std::time::Duration::from_millis(120),
+        };
+        entrance.begin(replacement);
+        assert!(!entrance.mark_committed(7), "late prior receipt is inert");
+        assert_eq!(entrance.readiness_for(8), EntranceReadiness::Pending(8));
+        assert!(entrance.mark_committed(8));
+        assert_eq!(entrance.take_committed(8), Some(replacement));
     }
 
     #[test]

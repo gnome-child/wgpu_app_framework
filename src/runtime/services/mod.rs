@@ -4,12 +4,13 @@ use std::{
 };
 
 use super::super::{
-    composition, context, error::Error, responder, response::AnyResponse, session, state,
-    timeline::Timeline, window,
+    composition, context, error::Error, interaction, responder, response::AnyResponse, session,
+    state, timeline::Timeline, window,
 };
 use super::Runtime;
 
 mod system;
+mod table;
 mod target;
 mod text;
 
@@ -37,6 +38,10 @@ impl<'a, M: state::State> Services<'a, M> {
             scope,
         }
     }
+
+    fn editing_table_scope(&self) -> bool {
+        editing_table_scope(self.session, self.window, self.scope.table())
+    }
 }
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
@@ -61,6 +66,22 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
         args: &dyn Any,
         cx: &context::Context,
     ) -> result::Result<Option<responder::Claim>, Error> {
+        if !self.editing_table_scope()
+            && let Some(claim) = table::claim(
+                self.session,
+                self.composition,
+                self.window,
+                self.scope.table(),
+                self.scope.kind(),
+                command_type,
+                command_name,
+                args,
+                cx,
+            )?
+        {
+            return Ok(Some(claim));
+        }
+
         if let Some(claim) = text::claim(
             self.session,
             self.composition,
@@ -90,6 +111,34 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
         args: Box<dyn Any + Send>,
         cx: &mut context::Context,
     ) -> Option<AnyResponse> {
+        if !self.editing_table_scope()
+            && table::claim(
+                self.session,
+                self.composition,
+                self.window,
+                self.scope.table(),
+                self.scope.kind(),
+                command_type,
+                command_name,
+                args.as_ref(),
+                cx,
+            )
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            return table::invoke(
+                self.session,
+                self.composition,
+                self.window,
+                self.scope.table(),
+                command_type,
+                command_name,
+                args,
+                cx,
+            );
+        }
+
         let text_claimed = match text::state(
             self.session,
             self.composition,
@@ -130,6 +179,22 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
         args: &dyn Any,
         cx: &context::Context,
     ) -> result::Result<Option<responder::Claim>, Error> {
+        if service == table::RESPONDER_NAME {
+            if self.editing_table_scope() {
+                return Ok(None);
+            }
+            return table::claim(
+                self.session,
+                self.composition,
+                self.window,
+                self.scope.table(),
+                self.scope.kind(),
+                command_type,
+                command_name,
+                args,
+                cx,
+            );
+        }
         if service != text::RESPONDER_NAME {
             return Ok(None);
         }
@@ -155,6 +220,21 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
         args: Box<dyn Any + Send>,
         cx: &mut context::Context,
     ) -> Option<AnyResponse> {
+        if service == table::RESPONDER_NAME {
+            if self.editing_table_scope() {
+                return None;
+            }
+            return table::invoke(
+                self.session,
+                self.composition,
+                self.window,
+                self.scope.table(),
+                command_type,
+                command_name,
+                args,
+                cx,
+            );
+        }
         if service != text::RESPONDER_NAME {
             return None;
         }
@@ -172,17 +252,46 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
 }
 
 pub(super) fn contextual_targets(
+    session: &session::Session,
     composition: &composition::Store,
     window: window::Id,
     focus: Option<session::Focus>,
+    table_id: Option<interaction::Id>,
 ) -> Vec<(TypeId, responder::Route)> {
-    text::contextual_target_types(composition, Some(window), focus)
-        .into_iter()
-        .map(|command_type| {
-            (
-                command_type,
-                responder::Route::Service(text::RESPONDER_NAME),
-            )
-        })
-        .collect()
+    let mut targets = if editing_table_scope(session, Some(window), table_id) {
+        Vec::new()
+    } else {
+        table::contextual_target_types(composition, Some(window), table_id)
+            .into_iter()
+            .map(|command_type| {
+                (
+                    command_type,
+                    responder::Route::Service(table::RESPONDER_NAME),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    targets.extend(
+        text::contextual_target_types(composition, Some(window), focus)
+            .into_iter()
+            .map(|command_type| {
+                (
+                    command_type,
+                    responder::Route::Service(text::RESPONDER_NAME),
+                )
+            }),
+    );
+    targets
+}
+
+fn editing_table_scope(
+    session: &session::Session,
+    window: Option<window::Id>,
+    table: Option<interaction::Id>,
+) -> bool {
+    window.is_some_and(|window| {
+        session
+            .editing_table_cell(window)
+            .is_some_and(|cell| Some(cell.table()) == table)
+    })
 }

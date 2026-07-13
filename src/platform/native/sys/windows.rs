@@ -2,7 +2,10 @@ use super::PopupAccentMaterial;
 use crate::paint;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{
     DWMWA_BORDER_COLOR, DWMWA_CLOAK, DWMWA_USE_IMMERSIVE_DARK_MODE, DwmFlush, DwmSetWindowAttribute,
 };
@@ -12,11 +15,12 @@ use windows_sys::Win32::Graphics::Gdi::{
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, HWND_TOPMOST, MA_NOACTIVATE, SW_HIDE,
-    SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
-    SWP_NOZORDER, SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_MOUSEACTIVATE,
-    WS_BORDER, WS_CAPTION, WS_DLGFRAME, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
+    GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, GetWindowRect, HTTRANSPARENT, HWND_TOPMOST,
+    MA_NOACTIVATE, SW_HIDE, SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos,
+    ShowWindow, WM_MOUSEACTIVATE, WM_NCHITTEST, WS_BORDER, WS_CAPTION, WS_DLGFRAME,
+    WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP,
+    WS_SYSMENU, WS_THICKFRAME,
 };
 use windows_sys::core::BOOL;
 
@@ -26,6 +30,11 @@ const ACCENT_DISABLED: i32 = 0;
 const ACCENT_ENABLE_ACRYLICBLURBEHIND: i32 = 4;
 const ACCENT_ENABLE_GRADIENT_COLOR: i32 = 2;
 const DWM_COLOR_NONE: u32 = 0xffff_fffe;
+
+fn popup_hit_regions() -> &'static Mutex<HashMap<isize, crate::geometry::Rect>> {
+    static REGIONS: OnceLock<Mutex<HashMap<isize, crate::geometry::Rect>>> = OnceLock::new();
+    REGIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 #[repr(C)]
 struct AccentPolicy {
@@ -114,6 +123,15 @@ pub(super) fn install_popup_subclass(window: &winit::window::Window) {
     }
 }
 
+pub(super) fn set_popup_hit_rect(window: &winit::window::Window, rect: crate::geometry::Rect) {
+    let Some(hwnd) = hwnd(window) else {
+        return;
+    };
+    if let Ok(mut regions) = popup_hit_regions().lock() {
+        regions.insert(hwnd as isize, rect);
+    }
+}
+
 pub(super) fn remove_popup_subclass(window: &winit::window::Window) {
     let Some(hwnd) = hwnd(window) else {
         log::warn!(target: "wgpu_l3::native_popup", "cannot remove popup subclass without HWND");
@@ -126,6 +144,9 @@ pub(super) fn remove_popup_subclass(window: &winit::window::Window) {
         } else {
             log::debug!(target: "wgpu_l3::native_popup", "removed popup subclass");
         }
+    }
+    if let Ok(mut regions) = popup_hit_regions().lock() {
+        regions.remove(&(hwnd as isize));
     }
 }
 
@@ -413,5 +434,53 @@ unsafe extern "system" fn popup_subclass_proc(
         return MA_NOACTIVATE as LRESULT;
     }
 
+    if message == WM_NCHITTEST {
+        let mut window_rect = RECT::default();
+        if unsafe { GetWindowRect(hwnd, &mut window_rect) } != 0
+            && popup_hit_regions()
+                .lock()
+                .ok()
+                .and_then(|regions| regions.get(&(hwnd as isize)).copied())
+                .is_some_and(|rect| {
+                    !rect_contains_point(
+                        rect,
+                        low_word_signed(lparam).saturating_sub(window_rect.left),
+                        high_word_signed(lparam).saturating_sub(window_rect.top),
+                    )
+                })
+        {
+            return HTTRANSPARENT as LRESULT;
+        }
+    }
+
     unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
+}
+
+fn low_word_signed(value: LPARAM) -> i32 {
+    (value as u16 as i16) as i32
+}
+
+fn high_word_signed(value: LPARAM) -> i32 {
+    ((value as usize >> 16) as u16 as i16) as i32
+}
+
+fn rect_contains_point(rect: crate::geometry::Rect, x: i32, y: i32) -> bool {
+    x >= rect.x() && x < rect.right() && y >= rect.y() && y < rect.bottom()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rect_contains_point;
+
+    #[test]
+    fn popup_shadow_margin_is_not_native_hit_geometry() {
+        let panel = crate::geometry::Rect::new(12, 10, 100, 60);
+
+        assert!(rect_contains_point(panel, 12, 10));
+        assert!(rect_contains_point(panel, 111, 69));
+        assert!(!rect_contains_point(panel, 11, 30));
+        assert!(!rect_contains_point(panel, 40, 9));
+        assert!(!rect_contains_point(panel, 112, 30));
+        assert!(!rect_contains_point(panel, 40, 70));
+    }
 }

@@ -167,6 +167,7 @@ fn idless_binding_hit_targets_use_retained_identity() {
         &Theme::default(),
         crate::animation::Frame::new(std::time::Instant::now()),
         crate::keymap::Profile::default(),
+        layout::PopupSurfaces::InFrame,
     );
     let hit = layout
         .hit_test(geometry::Point::new(1, 1))

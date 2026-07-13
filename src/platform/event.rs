@@ -121,22 +121,16 @@ impl Events {
         Some(host::Event::window(window, event))
     }
 
-    pub fn popup_window_event(
+    pub(crate) fn popup_window_event(
         &mut self,
-        parent: window::Id,
-        bounds: geometry::Rect,
-        panel_offset_physical: (i32, i32),
+        realization: crate::popup::Realization,
         popup_scale_factor: f64,
         event: &WinitWindowEvent,
     ) -> Option<host::Event> {
+        let parent = realization.parent();
         let event = match event {
             WinitWindowEvent::CursorMoved { position, .. } => {
-                let point = popup_point_from_physical(
-                    *position,
-                    popup_scale_factor,
-                    bounds,
-                    panel_offset_physical,
-                );
+                let point = popup_point_from_physical(*position, popup_scale_factor, realization);
                 self.window_state(parent).pointer = point;
                 host::WindowEvent::PointerMoved { point }
             }
@@ -161,7 +155,7 @@ impl Events {
             _ => return None,
         };
 
-        Some(host::Event::window(parent, event))
+        Some(host::Event::popup(parent, realization.popup(), event))
     }
 
     fn window_state(&mut self, window: window::Id) -> &mut WindowEvents {
@@ -252,23 +246,21 @@ pub fn point_from_physical(position: PhysicalPosition<f64>, scale_factor: f64) -
     )
 }
 
-pub fn popup_point_from_physical(
+pub(crate) fn popup_point_from_physical(
     position: PhysicalPosition<f64>,
     scale_factor: f64,
-    bounds: geometry::Rect,
-    panel_offset_physical: (i32, i32),
+    realization: crate::popup::Realization,
 ) -> geometry::Point {
+    let panel_offset = realization.panel_offset();
+    let scale_factor = normalized_scale_factor(scale_factor);
     let local = point_from_physical(
         PhysicalPosition::new(
-            position.x - f64::from(panel_offset_physical.0),
-            position.y - f64::from(panel_offset_physical.1),
+            position.x - f64::from(panel_offset.x()) * scale_factor,
+            position.y - f64::from(panel_offset.y()) * scale_factor,
         ),
         scale_factor,
     );
-    geometry::Point::new(
-        bounds.x().saturating_add(local.x()),
-        bounds.y().saturating_add(local.y()),
-    )
+    realization.retained_point(local)
 }
 
 pub fn scroll_delta(delta: MouseScrollDelta, scale_factor: f64) -> interaction::ScrollDelta {

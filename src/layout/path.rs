@@ -12,7 +12,6 @@ impl Path {
         Self(path)
     }
 
-    #[cfg(test)]
     pub(super) fn len(&self) -> usize {
         self.0.len()
     }

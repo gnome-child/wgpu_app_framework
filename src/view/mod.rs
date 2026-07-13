@@ -37,32 +37,34 @@ pub struct View {
 
 #[derive(Clone)]
 pub(crate) struct ContextOwner {
-    node_id: composition::NodeId,
     responder: Option<interaction::Id>,
     focus: Option<session::Focus>,
     binding: Option<Binding>,
     application: bool,
+    table: Option<interaction::Id>,
+    row: Option<crate::table::Row>,
+    cell: Option<crate::table::Cell>,
 }
 
 impl ContextOwner {
     pub(crate) fn new(
-        node_id: composition::NodeId,
         responder: Option<interaction::Id>,
         focus: Option<session::Focus>,
         binding: Option<Binding>,
         application: bool,
+        table: Option<interaction::Id>,
+        row: Option<crate::table::Row>,
+        cell: Option<crate::table::Cell>,
     ) -> Self {
         Self {
-            node_id,
             responder,
             focus,
             binding,
             application,
+            table,
+            row,
+            cell,
         }
-    }
-
-    pub(crate) fn node_id(&self) -> composition::NodeId {
-        self.node_id
     }
 
     pub(crate) fn responder(&self) -> Option<interaction::Id> {
@@ -79,6 +81,18 @@ impl ContextOwner {
 
     pub(crate) fn is_application(&self) -> bool {
         self.application
+    }
+
+    pub(crate) fn table(&self) -> Option<interaction::Id> {
+        self.table
+    }
+
+    pub(crate) fn row(&self) -> Option<crate::table::Row> {
+        self.row
+    }
+
+    pub(crate) fn cell(&self) -> Option<crate::table::Cell> {
+        self.cell
     }
 }
 
@@ -380,12 +394,15 @@ impl View {
             .subject_path_for_focus_retained(focus, tree.root())
     }
 
-    pub(crate) fn context_owner_retained(
+    pub(crate) fn context_path_retained(
         &self,
         tree: &composition::Tree,
-        owner: composition::NodeId,
-    ) -> Option<ContextOwner> {
-        self.root.context_owner_retained(tree.root(), owner)
+        target: composition::NodeId,
+    ) -> Vec<ContextOwner> {
+        let mut path = Vec::new();
+        self.root
+            .context_path_retained(tree.root(), target, &mut path);
+        path
     }
 
     pub(super) fn resolve_commands(

@@ -31,6 +31,9 @@ impl Target<SetLevel> for ReplacingInteractionState {
 struct HiddenLocalTarget;
 
 #[derive(Clone, Default)]
+struct DisabledLocalTarget;
+
+#[derive(Clone, Default)]
 struct HiddenLocalRouteState {
     local: HiddenLocalTarget,
     app_invocations: usize,
@@ -45,6 +48,16 @@ impl Target<RecordSource> for HiddenLocalTarget {
 
     fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
         unreachable!("a hidden exact target must not invoke")
+    }
+}
+
+impl Target<RecordSource> for DisabledLocalTarget {
+    fn state(&self, _: &(), _: &Context) -> command::State {
+        command::State::disabled()
+    }
+
+    fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
+        unreachable!("a disabled broad owner must not invoke")
     }
 }
 
@@ -77,9 +90,19 @@ impl Command for ContextToggle {
     const NAME: &'static str = "test.context_toggle";
 }
 
+struct CommitContextName;
+
+impl Command for CommitContextName {
+    type Args = (crate::table::Cell, String);
+    type Output = ();
+
+    const NAME: &'static str = "test.commit_context_name";
+}
+
 #[derive(Clone, Default)]
 struct TableContextState {
     visible: bool,
+    name: String,
     row_invoked: Option<virtual_list::Key>,
     toggled: Option<(crate::table::Cell, bool)>,
 }
@@ -108,36 +131,69 @@ impl Target<ContextToggle> for TableContextState {
     }
 }
 
+impl Target<CommitContextName> for TableContextState {
+    fn state(&self, _: &(crate::table::Cell, String), _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, (_, name): (crate::table::Cell, String), _: &mut Context) -> Response<()> {
+        self.name = name;
+        Response::changed(())
+    }
+}
+
 #[derive(Clone)]
 struct ContextRecord {
     name: String,
     enabled: bool,
 }
 
+#[derive(Clone)]
+struct PinnedContextState {
+    keys: Vec<u64>,
+}
+
+impl State for PinnedContextState {}
+
+impl Target<ContextRow> for PinnedContextState {
+    fn state(&self, _: &virtual_list::Key, _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, _: virtual_list::Key, _: &mut Context) -> Response<()> {
+        Response::output(())
+    }
+}
+
 fn table_context_app() -> Runtime<TableContextState, (), View> {
     Runtime::new(TableContextState {
         visible: true,
+        name: "Seventeen".to_owned(),
         ..TableContextState::default()
     })
     .commands(|commands| {
+        commands.install(document::Editing::standard());
         commands
             .register::<ContextRow>(command::Spec::new("Open row"))
-            .register::<ContextToggle>(command::Spec::new("Toggle enabled"));
+            .register::<ContextToggle>(command::Spec::new("Toggle enabled"))
+            .register::<CommitContextName>(command::Spec::new("Commit name"));
     })
     .responders(|responders| {
         responders
             .app()
             .target::<ContextRow>()
-            .target::<ContextToggle>();
+            .target::<ContextToggle>()
+            .target::<CommitContextName>();
     })
     .view(|state, _| {
         let len = usize::from(state.visible);
+        let name = state.name.clone();
         let source = crate::table::Source::new(
             len,
             |_| virtual_list::Key::new(17),
             move |key| (len == 1 && key == virtual_list::Key::new(17)).then_some(0),
-            |_| ContextRecord {
-                name: "Seventeen".to_owned(),
+            move |_| ContextRecord {
+                name: name.clone(),
                 enabled: false,
             },
         );
@@ -148,6 +204,7 @@ fn table_context_app() -> Runtime<TableContextState, (), View> {
                 view::Dimension::fixed(120),
                 |record: &ContextRecord| &record.name,
             )
+            .editable::<CommitContextName>(|cell, value| (cell, value))
             .unsortable()
             .build(),
             crate::table::Column::boolean(
@@ -158,8 +215,7 @@ fn table_context_app() -> Runtime<TableContextState, (), View> {
             )
             .toggle::<ContextToggle>(|cell, value| (cell, value))
             .unsortable()
-            .build()
-            .context_menu(),
+            .build(),
         ];
         widget::view(|ui| {
             ui.add(
@@ -192,9 +248,7 @@ fn contextual_binding_app() -> Runtime<ReplacingInteractionState, (), View> {
         widget::view(|ui| {
             ui.column(|ui| {
                 if state.visible {
-                    ui.add(widget::context_menu(
-                        widget::Binding::<SetLevel>::button_with_args(42.0),
-                    ));
+                    ui.add(widget::Binding::<SetLevel>::button_with_args(42.0));
                 }
                 ui.label("Unmarked");
             });
@@ -375,7 +429,7 @@ fn removing_a_context_owner_prunes_the_shared_menu_session() {
 }
 
 #[test]
-fn nested_context_owners_stop_at_the_nearest_exact_responder() {
+fn nested_context_owners_form_one_broad_to_exact_inspection_path() {
     let mut app = Runtime::new(SourceState::default())
         .commands(|commands| {
             commands
@@ -416,7 +470,7 @@ fn nested_context_owners_stop_at_the_nearest_exact_responder() {
         .expect("nearest label should have context geometry");
     let owner = app
         .composition(window)
-        .and_then(|composition| composition.context_owner_for_node(node))
+        .and_then(|composition| composition.context_path_for_node(node).pop())
         .expect("nearest label should inherit a contextual owner");
     assert_eq!(owner.responder(), Some(interaction::Id::new("inner")));
 
@@ -431,15 +485,86 @@ fn nested_context_owners_stop_at_the_nearest_exact_responder() {
         .filter(|binding| binding.source() == context::Source::Menu)
         .collect::<Vec<_>>();
 
-    assert_eq!(menu_bindings.len(), 1);
+    assert_eq!(menu_bindings.len(), 2);
     assert_eq!(
         menu_bindings[0].command_type(),
+        std::any::TypeId::of::<DisabledRecordSource>()
+    );
+    assert_eq!(
+        menu_bindings[1].command_type(),
         std::any::TypeId::of::<RecordSource>()
     );
-    let action = menu_bindings[0].action();
+    let action = menu_bindings[1].action();
     app.handle_view(window, action)
         .expect("exact responder action should invoke");
     assert_eq!(app.state().sources, vec![context::Source::Menu]);
+}
+
+#[test]
+fn disabled_broad_context_claim_consumes_the_exact_duplicate() {
+    #[derive(Clone, Default)]
+    struct ConsumptionState {
+        broad: DisabledLocalTarget,
+        exact_invocations: usize,
+    }
+
+    impl State for ConsumptionState {}
+
+    impl Target<RecordSource> for ConsumptionState {
+        fn state(&self, _: &(), _: &Context) -> command::State {
+            command::State::enabled()
+        }
+
+        fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
+            self.exact_invocations += 1;
+            Response::changed(())
+        }
+    }
+
+    let mut app = Runtime::new(ConsumptionState::default())
+        .commands(|commands| {
+            commands.register::<RecordSource>(command::Spec::new("Same command"));
+        })
+        .responders(|responders| {
+            responders
+                .object("broad", |state| &mut state.broad)
+                .target::<RecordSource>();
+            responders
+                .object("exact", |state| state)
+                .target::<RecordSource>();
+        })
+        .view(|_, _| {
+            widget::view_node(widget::context_menu(
+                widget::Element::new()
+                    .id("broad")
+                    .child(widget::context_menu(
+                        widget::Element::new()
+                            .id("exact")
+                            .child(widget::Label::new("Consumed")),
+                    )),
+            ))
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Consumed context"));
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 180);
+    let initial = app.show_scene(window, size).expect("view should render");
+    let label = labeled_frame(initial.layout(), view::Role::Label, "Consumed");
+
+    app.open_context_menu_at(window, size, frame_point(label))
+        .expect("inspection context should open");
+    let projected = app.present(window).expect("context menu should project");
+    let actions = projected
+        .bindings()
+        .into_iter()
+        .filter(|binding| binding.source() == context::Source::Menu)
+        .collect::<Vec<_>>();
+
+    assert_eq!(actions.len(), 1);
+    assert!(!actions[0].state().is_enabled());
+    assert_eq!(app.state().exact_invocations, 0);
 }
 
 #[test]
@@ -449,11 +574,7 @@ fn text_context_uses_the_existing_local_service_without_moving_focus() {
         .commands(|commands| {
             commands.install(document::Editing::standard());
         })
-        .view(move |_, _| {
-            widget::view_node(widget::context_menu(
-                widget::TextBox::new("selectable text").focus(focus),
-            ))
-        })
+        .view(move |_, _| widget::view_node(widget::TextBox::new("selectable text").focus(focus)))
         .started(|cx| {
             cx.open_window(window::Options::new("Text context"));
         });
@@ -608,15 +729,61 @@ fn table_context_cells_override_row_actions_and_virtual_removal_prunes_the_menu(
     app.open_context_menu_at(window, size, frame_point(name_frame))
         .expect("row context should open through an unmarked cell");
     let projected = app.present(window).expect("row menu should project");
-    let row_action = projected
+    let actions = projected
         .bindings()
         .into_iter()
-        .find(|binding| binding.source() == context::Source::Menu)
-        .expect("row should contribute one context action");
+        .filter(|binding| binding.source() == context::Source::Menu)
+        .collect::<Vec<_>>();
     assert_eq!(
-        row_action.command_type(),
-        std::any::TypeId::of::<ContextRow>()
+        actions[0].command_type(),
+        std::any::TypeId::of::<document::SelectAll>(),
+        "the containing table domain is the first inspection section"
     );
+    assert_eq!(
+        actions[1].command_type(),
+        std::any::TypeId::of::<ContextRow>(),
+        "the focal row follows its containing table"
+    );
+    assert_eq!(
+        actions
+            .iter()
+            .filter(|binding| {
+                binding.command_type() == std::any::TypeId::of::<document::SelectAll>()
+            })
+            .count(),
+        1,
+        "the broad table claim consumes the text facet's Select All"
+    );
+    assert!(
+        actions
+            .iter()
+            .any(|binding| { binding.command_type() == std::any::TypeId::of::<document::Copy>() })
+    );
+    assert!(
+        actions.iter().all(|binding| {
+            binding.command_type() != std::any::TypeId::of::<CommitContextName>()
+        }),
+        "the edit-commit input binding is not a contextual control action"
+    );
+    let context_panel = projected
+        .root()
+        .children()
+        .iter()
+        .find(|node| node.role() == view::Role::FloatingPanel)
+        .expect("context menu should project one floating panel");
+    assert_eq!(
+        context_panel
+            .children()
+            .iter()
+            .filter(|node| node.role() == view::Role::Separator)
+            .count(),
+        2,
+        "nonempty table, row, and text sections derive exactly two dividers"
+    );
+    let row_action = actions
+        .into_iter()
+        .find(|binding| binding.command_type() == std::any::TypeId::of::<ContextRow>())
+        .expect("row should contribute one context action");
     app.handle_view(window, row_action.action())
         .expect("row action should invoke");
     assert_eq!(app.state().row_invoked, Some(key));
@@ -636,12 +803,20 @@ fn table_context_cells_override_row_actions_and_virtual_removal_prunes_the_menu(
         .into_iter()
         .filter(|binding| binding.source() == context::Source::Menu)
         .collect::<Vec<_>>();
-    assert_eq!(actions.len(), 1);
+    assert_eq!(actions.len(), 3);
     assert_eq!(
         actions[0].command_type(),
+        std::any::TypeId::of::<document::SelectAll>()
+    );
+    assert_eq!(
+        actions[1].command_type(),
+        std::any::TypeId::of::<ContextRow>()
+    );
+    assert_eq!(
+        actions[2].command_type(),
         std::any::TypeId::of::<ContextToggle>()
     );
-    app.handle_view(window, actions[0].action())
+    app.handle_view(window, actions[2].action())
         .expect("Boolean context action should invoke");
     assert_eq!(app.state().toggled, Some((enabled, true)));
 
@@ -666,6 +841,80 @@ fn table_context_cells_override_row_actions_and_virtual_removal_prunes_the_menu(
             .interaction(window)
             .and_then(Interaction::open_menu),
         None
+    );
+}
+
+#[test]
+fn active_table_editor_uses_task_order_and_owns_select_all() {
+    let mut app = table_context_app();
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 180);
+    let cell = crate::table::Cell::new(
+        "context.table".into(),
+        virtual_list::Key::new(17),
+        "name".into(),
+    );
+    app.show_scene(window, size).expect("table should render");
+    app.handle_view(window, view::Action::begin_table_edit(cell))
+        .expect("the editable text cell should enter its task session");
+    let editing = app
+        .show_scene(window, size)
+        .expect("active editor should render");
+    let editor = editing
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.role() == view::Role::TextBox && frame.table_cell() == Some(cell))
+        .expect("active table editor should be laid out");
+
+    app.open_context_menu_at(window, size, frame_point(editor))
+        .expect("active editor context should open");
+    let projected = app.present(window).expect("editor context should project");
+    let actions = projected
+        .bindings()
+        .into_iter()
+        .filter(|binding| binding.source() == context::Source::Menu)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        actions[0].command_type(),
+        std::any::TypeId::of::<document::SelectAll>(),
+        "Task traversal starts at the active editor"
+    );
+    assert!(
+        actions
+            .iter()
+            .any(|binding| { binding.command_type() == std::any::TypeId::of::<ContextRow>() }),
+        "the focal row remains a broader task layer"
+    );
+    assert_eq!(
+        actions
+            .iter()
+            .filter(|binding| {
+                binding.command_type() == std::any::TypeId::of::<document::SelectAll>()
+            })
+            .count(),
+        1
+    );
+    assert!(
+        actions.iter().all(|binding| {
+            binding.command_type() != std::any::TypeId::of::<CommitContextName>()
+        })
+    );
+
+    app.handle_view(window, actions[0].action())
+        .expect("editor Select All should invoke");
+    let focus = session::Focus::table_cell(cell);
+    assert_eq!(
+        text_draft(&app, window, focus).selected_text().as_deref(),
+        Some("Seventeen")
+    );
+    assert!(
+        !app.session()
+            .selection(window, "context.table".into())
+            .is_some_and(crate::selection::Selection::is_all),
+        "the editor claim prevents the table service from consuming Select All"
     );
 }
 
@@ -727,6 +976,230 @@ fn text_editor_menu_open_state_is_framework_owned_interaction() {
 
     assert!(projected.floating_panels().is_empty());
     assert!(app.session().windows()[0].redraw_requested());
+}
+
+#[test]
+fn table_context_preserves_multiselection_and_table_consumes_select_all() {
+    let mut app = Runtime::new(SourceState::default())
+        .commands(|commands| {
+            commands.register::<document::SelectAll>(
+                command::Spec::new("Select All")
+                    .key_chord(command::KeyChord::standard(command::Standard::SelectAll)),
+            );
+        })
+        .view(|_, _| {
+            let source = crate::table::Source::new(
+                3,
+                |index| virtual_list::Key::new(index as u64),
+                |key| usize::try_from(key.value()).ok().filter(|index| *index < 3),
+                |index| ContextRecord {
+                    name: format!("Row {index}"),
+                    enabled: index % 2 == 0,
+                },
+            );
+            let columns = vec![
+                crate::table::Column::text(
+                    "name",
+                    "Name",
+                    view::Dimension::fixed(140),
+                    |record: &ContextRecord| &record.name,
+                )
+                .unsortable()
+                .build(),
+            ];
+            widget::view_node(
+                crate::Table::typed("selection.context", 24, columns, source)
+                    .width(view::Dimension::fixed(180))
+                    .height(view::Dimension::fixed(120)),
+            )
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Selection context"));
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 180);
+    let rendered = app.show_scene(window, size).expect("table should render");
+    let row_point = |key| {
+        let cell = crate::table::Cell::new(
+            "selection.context".into(),
+            virtual_list::Key::new(key),
+            "name".into(),
+        );
+        frame_point(
+            rendered
+                .layout()
+                .frames()
+                .iter()
+                .find(|frame| frame.table_cell() == Some(cell))
+                .expect("row cell should materialize"),
+        )
+    };
+    let primary = input::Modifiers::new(false, true, false, false);
+    app.pointer_down_at_with_modifiers(window, size, row_point(0), input::Modifiers::default())
+        .expect("first row should select");
+    app.pointer_down_at_with_modifiers(window, size, row_point(1), primary)
+        .expect("primary-click should toggle a second row");
+    let selection = app
+        .session()
+        .selection(window, "selection.context".into())
+        .expect("table should retain keyed selection");
+    assert_eq!(selection.len(), 2);
+
+    let body = rendered.layout().find_role(view::Role::VirtualList)[0].rect();
+    app.open_context_menu_at(
+        window,
+        size,
+        geometry::Point::new(body.x() + 1, body.bottom() - 1),
+    )
+    .expect("empty table space should open the table domain");
+    assert_eq!(
+        app.session()
+            .selection(window, "selection.context".into())
+            .map(crate::selection::Selection::len),
+        Some(2),
+        "secondary click on empty table space retains membership"
+    );
+    let empty_space = app
+        .present(window)
+        .expect("table-only context should project");
+    let empty_actions = empty_space
+        .bindings()
+        .into_iter()
+        .filter(|binding| binding.source() == context::Source::Menu)
+        .collect::<Vec<_>>();
+    assert_eq!(empty_actions.len(), 1);
+    assert_eq!(
+        empty_actions[0].command_type(),
+        std::any::TypeId::of::<document::SelectAll>()
+    );
+    app.handle_input(window, Input::cancel())
+        .expect("table-only context should close");
+
+    app.open_context_menu_at(window, size, row_point(1))
+        .expect("selected focal row should open context");
+    assert_eq!(
+        app.session()
+            .selection(window, "selection.context".into())
+            .map(crate::selection::Selection::len),
+        Some(2),
+        "secondary click on selected membership preserves the set"
+    );
+    let projected = app.present(window).expect("context menu should project");
+    let select_all = projected
+        .bindings()
+        .into_iter()
+        .find(|binding| {
+            binding.source() == context::Source::Menu
+                && binding.command_type() == std::any::TypeId::of::<document::SelectAll>()
+        })
+        .expect("the table domain should own canonical Select All");
+    app.handle_view(window, select_all.action())
+        .expect("Select All should invoke through the table service");
+    assert!(
+        app.session()
+            .selection(window, "selection.context".into())
+            .is_some_and(crate::selection::Selection::is_all)
+    );
+}
+
+#[test]
+fn context_capture_pins_a_dematerialized_focal_row_but_not_a_deleted_one() {
+    let mut app = Runtime::new(PinnedContextState {
+        keys: (0..50).collect(),
+    })
+    .commands(|commands| {
+        commands.register::<ContextRow>(command::Spec::new("Open row"));
+    })
+    .responders(|responders| {
+        responders.app().target::<ContextRow>();
+    })
+    .view(|state, _| {
+        let keys = state.keys.clone();
+        let source = crate::table::Source::new(
+            keys.len(),
+            {
+                let keys = keys.clone();
+                move |index| virtual_list::Key::new(keys[index])
+            },
+            {
+                let keys = keys.clone();
+                move |key| keys.iter().position(|candidate| *candidate == key.value())
+            },
+            move |index| ContextRecord {
+                name: format!("Row {}", keys[index]),
+                enabled: false,
+            },
+        );
+        let columns = vec![
+            crate::table::Column::text(
+                "name",
+                "Name",
+                view::Dimension::fixed(140),
+                |record: &ContextRecord| &record.name,
+            )
+            .unsortable()
+            .build(),
+        ];
+        widget::view_node(
+            crate::Table::typed("pinned.context", 24, columns, source)
+                .context_rows::<ContextRow>(|key| key)
+                .width(view::Dimension::fixed(180))
+                .height(view::Dimension::fixed(96)),
+        )
+    })
+    .started(|cx| {
+        cx.open_window(window::Options::new("Pinned context"));
+    });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(260, 120);
+    let initial = app.show_scene(window, size).expect("table should render");
+    let focal = crate::table::Cell::new(
+        "pinned.context".into(),
+        virtual_list::Key::new(0),
+        "name".into(),
+    );
+    let focal_point = frame_point(
+        initial
+            .layout()
+            .frames()
+            .iter()
+            .find(|frame| frame.table_cell() == Some(focal))
+            .expect("focal row should materialize"),
+    );
+    let list_rect = initial.layout().find_role(view::Role::VirtualList)[0].rect();
+    app.open_context_menu_at(window, size, focal_point)
+        .expect("focal context should open");
+    app.scroll_at(
+        window,
+        size,
+        geometry::Point::new(list_rect.x() + 1, list_rect.y() + 1),
+        interaction::ScrollDelta::vertical(720),
+    )
+    .expect("table should scroll while context is captured");
+    app.show_scene(window, size)
+        .expect("scrolled table should rebuild with its context pin");
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(Interaction::open_menu)
+            .is_some_and(interaction::Menu::is_context),
+        "dematerialization alone must not dismiss the focal context"
+    );
+
+    app.change(state::Reason::programmatic("delete-focal-row"), |state| {
+        state.keys.retain(|key| *key != 0);
+    });
+    app.show_scene(window, size)
+        .expect("provider deletion should reconcile");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(Interaction::open_menu),
+        None,
+        "provider deletion ends the captured subject and its menu"
+    );
 }
 
 #[test]

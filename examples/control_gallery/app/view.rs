@@ -219,8 +219,7 @@ pub fn view(state: &State, _: ViewContext) -> View {
                                 cell,
                                 value,
                             })
-                            .build()
-                            .context_menu(),
+                            .build(),
                             table::Column::custom(
                                 "action",
                                 "Action",
@@ -251,7 +250,7 @@ pub fn view(state: &State, _: ViewContext) -> View {
                             })
                             .context_rows::<OpenRecord>(|key| key)
                             .width(Dimension::grow())
-                            .height(Dimension::fixed(136)),
+                            .height(Dimension::fixed(500)),
                         );
                     }),
             );
@@ -292,9 +291,7 @@ fn toggle_panel(state: &State) -> widget::Element {
         })
         .height(Dimension::fixed(44))
         .children(|ui| {
-            ui.context_menu(
-                widget::Checkbox::new("Wrap text", state.wrap).trigger::<ToggleWrap>(()),
-            );
+            ui.checkbox(widget::Checkbox::new("Wrap text", state.wrap).trigger::<ToggleWrap>(()));
             ui.checkbox(widget::Checkbox::new("Show grid", state.grid).trigger::<ToggleGrid>(()));
             ui.checkbox(
                 widget::Checkbox::new("Advanced", state.show_advanced)
@@ -335,7 +332,7 @@ fn input_panel(state: &State) -> widget::Element {
         .height(Dimension::fixed(44))
         .children(|ui| {
             ui.label("Search");
-            ui.context_menu(
+            ui.text_box(
                 widget::TextBox::new(state.query.clone())
                     .placeholder("Type to search")
                     .focus(wgpu_l3::session::Focus::text(QUERY_FOCUS))

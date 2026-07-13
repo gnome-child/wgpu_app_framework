@@ -1455,6 +1455,45 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "GPU readback witness for alpha-preserving material noise"]
+    fn resolved_glass_noise_modulates_rgb_without_claiming_alpha() {
+        let mut scene = paint::Scene::new();
+        scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0));
+        scene.push_pane(paint::Pane::new(
+            Rect::new(
+                paint::point::logical(2.0, 2.0),
+                paint::area::logical(12.0, 12.0),
+            ),
+            paint::Material::Glass(paint::Glass {
+                fallback: paint::Brush::solid(paint::Color::BLACK),
+                base: paint::GlassBase::Transparent,
+                backdrop_layers: Vec::new(),
+                surface_layers: vec![
+                    paint::SurfaceLayer::Tint {
+                        brush: paint::Brush::solid(paint::Color::BLACK),
+                        opacity: 0.10,
+                    },
+                    paint::SurfaceLayer::Noise(paint::Noise { opacity: 0.022 }),
+                ],
+            }),
+        ));
+
+        let pixels = pollster::block_on(read_premultiplied_scene_pixels(scene, 16, 16))
+            .expect("resolved glass noise should render and read back");
+        let sample = pixels[8 * 16 + 8];
+
+        assert!(
+            (sample[3] - 0.10).abs() <= 0.02,
+            "noise must preserve the tint's source alpha, got {sample:?}"
+        );
+        assert!(
+            sample[0] <= sample[3] && sample[1] <= sample[3] && sample[2] <= sample[3],
+            "noise output must remain premultiplied, got {sample:?}"
+        );
+        assert_eq!(pixels[0], [0.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
     #[ignore = "GPU readback diagnostic for native popup foreground alpha investigation"]
     fn premultiplied_glyph_witness_preserves_fractional_coverage() {
         let mut scene = paint::Scene::new();

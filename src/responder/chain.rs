@@ -98,7 +98,7 @@ impl Provenance {
     }
 
     pub(crate) fn sort_key(&self) -> (usize, usize, &'static str) {
-        (self.kind.rank(), self.order, self.name)
+        (self.order, self.kind.structural_order(), self.name)
     }
 }
 

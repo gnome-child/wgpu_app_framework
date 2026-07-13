@@ -110,6 +110,10 @@ impl Window {
         super::sys::configure_popup_bounds(&self.handle, x, y, area);
     }
 
+    pub fn set_popup_hit_rect(&self, rect: crate::geometry::Rect) {
+        super::sys::set_popup_hit_rect(&self.handle, rect);
+    }
+
     pub fn set_popup_material_theme(&self, dark: bool) {
         let theme = if dark {
             winit::window::Theme::Dark
@@ -287,12 +291,13 @@ impl Native {
     ) -> Option<super::PopupEventTarget> {
         let key = self.raw_popups.get(&raw).copied()?;
         let popup = self.popups.get(&key)?;
+        let realization = popup.realization?;
+        if !popup.exposed || !popup.accepts_input || realization.generation() != popup.generation {
+            return None;
+        }
         Some(super::PopupEventTarget {
-            parent: key.parent,
-            id: key.id,
-            bounds: popup.bounds,
-            panel_offset_physical: popup.panel_offset_physical,
-            scale_factor: popup.window.scale_factor(),
+            realization,
+            scale_factor: popup.host.window.scale_factor(),
             first_present_elapsed_micros: popup.first_present.elapsed_micros(),
             first_present_stage: popup.first_present.stage(),
         })
@@ -403,7 +408,7 @@ impl Native {
     ) {
         let window = match host {
             CursorHost::Parent => self.windows.get(&parent),
-            CursorHost::Popup(key) => self.popups.get(&key).map(|popup| &popup.window),
+            CursorHost::Popup(key) => self.popups.get(&key).map(|popup| &popup.host.window),
             CursorHost::Outside => None,
         };
         if let Some(window) = window {

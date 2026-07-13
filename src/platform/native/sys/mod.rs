@@ -39,6 +39,19 @@ pub(in crate::platform::native) fn remove_popup_subclass(window: &winit::window:
     }
 }
 
+pub(in crate::platform::native) fn set_popup_hit_rect(
+    window: &winit::window::Window,
+    rect: geometry::Rect,
+) {
+    #[cfg(target_os = "windows")]
+    windows::set_popup_hit_rect(window, rect);
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, rect);
+    }
+}
+
 pub(in crate::platform::native) fn configure_popup_bounds(
     window: &winit::window::Window,
     x: i32,

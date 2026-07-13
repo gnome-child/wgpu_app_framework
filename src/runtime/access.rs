@@ -220,11 +220,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                         layout: std::sync::Arc::new(layout.clone()),
                     },
                 );
-                let hit = self
-                    .session
-                    .interaction(window)
-                    .and_then(|interaction| interaction.pointer().position())
-                    .and_then(|point| layout.hit_test(point));
+                let hit = self.session.interaction(window).and_then(|interaction| {
+                    interaction.pointer().position().and_then(|point| {
+                        layout.hit_test_on_surface(point, interaction.pointer().surface())
+                    })
+                });
                 let hovered = hit.as_ref().and_then(|hit| hit.target().cloned());
                 self.session.project_pointer_hover(window, hovered);
                 self.session

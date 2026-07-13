@@ -10,6 +10,11 @@ pub enum Event {
         window: window::Id,
         event: WindowEvent,
     },
+    Popup {
+        parent: window::Id,
+        popup: interaction::Id,
+        event: WindowEvent,
+    },
     FilePathSelected {
         window: window::Id,
         path: Option<PathBuf>,
@@ -58,9 +63,18 @@ impl Event {
         Self::Window { window, event }
     }
 
+    pub(crate) fn popup(parent: window::Id, popup: interaction::Id, event: WindowEvent) -> Self {
+        Self::Popup {
+            parent,
+            popup,
+            event,
+        }
+    }
+
     pub(crate) fn window_id(&self) -> Option<window::Id> {
         match self {
             Self::Window { window, .. } | Self::FilePathSelected { window, .. } => Some(*window),
+            Self::Popup { parent, .. } => Some(*parent),
             Self::Started | Self::Poll => None,
         }
     }
@@ -106,6 +120,45 @@ impl WindowEvent {
             },
             Self::TextCommitted { text } => shell::Event::TextCommitted { window, text },
             Self::TextPreedit { preedit } => shell::Event::TextPreedit { window, preedit },
+        }
+    }
+
+    pub(super) fn into_popup_shell_event(
+        self,
+        window: window::Id,
+        popup: interaction::Id,
+    ) -> shell::Event {
+        match self {
+            Self::PointerMoved { point } => shell::Event::PopupPointerMoved {
+                window,
+                popup,
+                point,
+            },
+            Self::PointerDown {
+                point,
+                button,
+                modifiers,
+            } => shell::Event::PopupPointerDown {
+                window,
+                popup,
+                point,
+                button,
+                modifiers,
+            },
+            Self::PointerUp { point, button } => shell::Event::PopupPointerUp {
+                window,
+                popup,
+                point,
+                button,
+            },
+            Self::PointerLeft => shell::Event::PopupPointerLeft { window, popup },
+            Self::Scrolled { point, delta } => shell::Event::PopupScrolled {
+                window,
+                popup,
+                point,
+                delta,
+            },
+            event => event.into_shell_event(window),
         }
     }
 }

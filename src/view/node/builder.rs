@@ -324,6 +324,14 @@ impl Node {
         self
     }
 
+    pub(crate) fn with_popup_context(
+        mut self,
+        fingerprint: crate::popup::ContextFingerprint,
+    ) -> Self {
+        self.popup_context = Some(fingerprint);
+        self
+    }
+
     pub(crate) fn with_force_overlay_group(mut self, force: bool) -> Self {
         self.force_overlay_group = force;
         self
@@ -419,6 +427,7 @@ impl Node {
             floating_placement: FloatingPlacement::Default,
             menu_anchor: None,
             menu_available: None,
+            popup_context: None,
             force_overlay_group: false,
             native_popup_material_preference: NativePopupMaterialPreference::System,
             subject: None,

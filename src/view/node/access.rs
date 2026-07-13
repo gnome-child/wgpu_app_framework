@@ -31,6 +31,10 @@ impl Node {
         self.menu_available
     }
 
+    pub(crate) fn popup_context(&self) -> Option<crate::popup::ContextFingerprint> {
+        self.popup_context
+    }
+
     pub(crate) fn force_overlay_group(&self) -> bool {
         self.force_overlay_group
     }
@@ -78,10 +82,6 @@ impl Node {
 
     pub(crate) fn context_binding(&self) -> Option<&Binding> {
         self.context_binding.as_ref()
-    }
-
-    pub(crate) fn has_context_menu(&self) -> bool {
-        self.context_menu
     }
 
     pub fn is_hidden_binding(&self) -> bool {

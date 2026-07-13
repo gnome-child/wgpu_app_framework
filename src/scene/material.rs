@@ -101,7 +101,7 @@ impl Glass {
             surface_layers: vec![
                 SurfaceLayer::Tint {
                     brush: Brush::solid(Color::rgb(28, 28, 30)),
-                    opacity: 0.88,
+                    opacity: 0.40,
                 },
                 SurfaceLayer::Noise(Noise::new(0.022)),
             ],

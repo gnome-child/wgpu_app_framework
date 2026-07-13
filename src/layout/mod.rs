@@ -6,6 +6,7 @@ use super::{
     view,
 };
 use crate::animation;
+use std::collections::HashSet;
 
 mod algorithm;
 mod chrome;
@@ -37,6 +38,12 @@ pub(crate) use typography::{
 };
 pub(crate) use viewport::Viewport;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PopupSurfaces {
+    InFrame,
+    Native,
+}
+
 #[derive(Clone)]
 pub(crate) struct Layout {
     size: Size,
@@ -44,6 +51,7 @@ pub(crate) struct Layout {
     chrome: Vec<Chrome>,
     table_tracks: Vec<TableTrack>,
     virtual_list_requests: Vec<crate::virtual_list::Request>,
+    native_popup_surfaces: HashSet<interaction::Id>,
 }
 
 impl Layout {
@@ -79,7 +87,16 @@ impl Layout {
         keymap: keymap::Profile,
     ) -> Self {
         let tree = composition::Tree::layout(view);
-        Self::compose_view_tree_with_theme_at(view, &tree, size, engine, theme, frame, keymap)
+        Self::compose_view_tree_with_theme_at(
+            view,
+            &tree,
+            size,
+            engine,
+            theme,
+            frame,
+            keymap,
+            PopupSurfaces::InFrame,
+        )
     }
 
     pub(crate) fn compose_composition_with_theme_at(
@@ -89,6 +106,7 @@ impl Layout {
         theme: &Theme,
         frame: animation::Frame,
         keymap: keymap::Profile,
+        popup_surfaces: PopupSurfaces,
     ) -> Self {
         Self::compose_view_tree_with_theme_at(
             composition.view(),
@@ -98,6 +116,7 @@ impl Layout {
             theme,
             frame,
             keymap,
+            popup_surfaces,
         )
     }
 
@@ -109,6 +128,7 @@ impl Layout {
         theme: &Theme,
         frame: animation::Frame,
         keymap: keymap::Profile,
+        popup_surfaces: PopupSurfaces,
     ) -> Self {
         let size = size.sanitized();
         let frames =
@@ -120,6 +140,12 @@ impl Layout {
             .filter_map(Frame::virtual_list_request)
             .cloned()
             .collect();
+        let native_popup_surfaces = match popup_surfaces {
+            PopupSurfaces::InFrame => HashSet::new(),
+            PopupSurfaces::Native => root_floating_panels(&frames)
+                .filter_map(|panel| panel.target()?.element_id())
+                .collect(),
+        };
 
         Self {
             size,
@@ -127,6 +153,7 @@ impl Layout {
             chrome,
             table_tracks,
             virtual_list_requests,
+            native_popup_surfaces,
         }
     }
 
@@ -160,6 +187,15 @@ impl Layout {
 
     pub(crate) fn virtual_list_requests(&self) -> &[crate::virtual_list::Request] {
         &self.virtual_list_requests
+    }
+
+    /// The floating panels that own independent presentation surfaces.
+    ///
+    /// Nested floating panels remain content of their nearest root panel; this
+    /// census is shared by surface ownership and overlay scene extraction so
+    /// interaction and presentation cannot disagree about the boundary.
+    pub(crate) fn root_floating_panels(&self) -> impl Iterator<Item = &Frame> {
+        root_floating_panels(&self.frames)
     }
 
     pub(crate) fn virtual_list_page(&self, id: interaction::Id, row_height: i32) -> Option<usize> {
@@ -201,13 +237,23 @@ impl Layout {
         self.frames.iter().find_map(Frame::text_caret_rect)
     }
 
+    #[cfg(test)]
     pub(crate) fn hit_test(&self, point: Point) -> Option<Hit> {
+        self.hit_test_on_surface(point, crate::popup::Surface::Parent)
+    }
+
+    pub(crate) fn hit_test_on_surface(
+        &self,
+        point: Point,
+        surface: crate::popup::Surface,
+    ) -> Option<Hit> {
         let table_cell = self
             .frames
             .iter()
             .rev()
             .find(|frame| {
-                frame.table_cell().is_some()
+                self.surface_accepts_frame(surface, frame)
+                    && frame.table_cell().is_some()
                     && frame.rect().contains(point)
                     && frame.clip_contains(point)
             })
@@ -218,11 +264,9 @@ impl Layout {
             .rev()
             .filter(|chrome| chrome.accepts_hit(point))
             .find_map(|chrome| {
-                let owner = self
-                    .frames
-                    .iter()
-                    .rev()
-                    .find(|frame| frame.node_id() == chrome.owner())?;
+                let owner = self.frames.iter().rev().find(|frame| {
+                    frame.node_id() == chrome.owner() && self.surface_accepts_frame(surface, frame)
+                })?;
                 Some((owner, chrome))
             })
         {
@@ -235,10 +279,10 @@ impl Layout {
             .rev()
             .find(|track| track.accepts_resize_hit(point))
         {
-            let header = self
-                .frames
-                .iter()
-                .find(|frame| Some(frame.node_id()) == track.header_node())?;
+            let header = self.frames.iter().find(|frame| {
+                Some(frame.node_id()) == track.header_node()
+                    && self.surface_accepts_frame(surface, frame)
+            })?;
             return Some(
                 Hit::table_divider(header.clone(), track.divider_target()?)
                     .with_table_cell(table_cell),
@@ -248,7 +292,7 @@ impl Layout {
         self.frames
             .iter()
             .rev()
-            .find(|frame| frame.accepts_hit(point))
+            .find(|frame| self.surface_accepts_frame(surface, frame) && frame.accepts_hit(point))
             .cloned()
             .map(Hit::new)
             .map(|hit| hit.with_table_cell(table_cell))
@@ -256,11 +300,24 @@ impl Layout {
 
     /// Returns the deepest laid-out node under a point, including inert
     /// display nodes that ordinary activation hit testing intentionally skips.
+    #[cfg(test)]
     pub(crate) fn context_node_at(&self, point: Point) -> Option<composition::NodeId> {
+        self.context_node_at_surface(point, crate::popup::Surface::Parent)
+    }
+
+    pub(crate) fn context_node_at_surface(
+        &self,
+        point: Point,
+        surface: crate::popup::Surface,
+    ) -> Option<composition::NodeId> {
         self.frames
             .iter()
             .rev()
-            .find(|frame| frame.rect().contains(point) && frame.clip_contains(point))
+            .find(|frame| {
+                self.surface_accepts_frame(surface, frame)
+                    && frame.rect().contains(point)
+                    && frame.clip_contains(point)
+            })
             .map(Frame::node_id)
     }
 
@@ -309,23 +366,59 @@ impl Layout {
             })
     }
 
+    #[cfg(test)]
     pub(crate) fn scroll_target_at(
         &self,
         point: Point,
         delta: interaction::ScrollDelta,
     ) -> Option<interaction::Target> {
+        self.scroll_target_at_surface(point, delta, crate::popup::Surface::Parent)
+    }
+
+    pub(crate) fn scroll_target_at_surface(
+        &self,
+        point: Point,
+        delta: interaction::ScrollDelta,
+        surface: crate::popup::Surface,
+    ) -> Option<interaction::Target> {
         self.frames
             .iter()
             .rev()
             .find(|frame| {
-                frame.viewport().is_some_and(|viewport| {
-                    viewport.rect().contains(point)
-                        && frame.clip_contains(point)
-                        && viewport.can_consume(delta)
-                })
+                self.surface_accepts_frame(surface, frame)
+                    && frame.viewport().is_some_and(|viewport| {
+                        viewport.rect().contains(point)
+                            && frame.clip_contains(point)
+                            && viewport.can_consume(delta)
+                    })
             })
             .and_then(Frame::target)
             .cloned()
+    }
+
+    fn surface_accepts_frame(&self, surface: crate::popup::Surface, frame: &Frame) -> bool {
+        let owner = self.native_popup_owner(frame);
+        match surface {
+            crate::popup::Surface::Parent => owner.is_none(),
+            crate::popup::Surface::Native(id) => owner == Some(id),
+        }
+    }
+
+    fn native_popup_owner(&self, frame: &Frame) -> Option<interaction::Id> {
+        self.frames
+            .iter()
+            .filter(|candidate| candidate.role() == view::Role::FloatingPanel)
+            .filter_map(|candidate| {
+                let id = candidate.target()?.element_id()?;
+                self.native_popup_surfaces
+                    .contains(&id)
+                    .then_some((id, candidate))
+            })
+            .filter(|(_, candidate)| {
+                candidate.node_id() == frame.node_id() || frame.is_descendant_of(candidate)
+            })
+            .max_by_key(|(_, candidate)| candidate.path_depth())
+            .map(|(id, _)| id)
     }
 
     pub(crate) fn reveal_offset_for_descendant(
@@ -354,6 +447,17 @@ impl Layout {
             .filter(|frame| frame.role() == role)
             .collect()
     }
+}
+
+fn root_floating_panels(frames: &[Frame]) -> impl Iterator<Item = &Frame> {
+    frames
+        .iter()
+        .filter(|frame| frame.role() == view::Role::FloatingPanel)
+        .filter(|frame| {
+            !frames.iter().any(|candidate| {
+                candidate.role() == view::Role::FloatingPanel && frame.is_descendant_of(candidate)
+            })
+        })
 }
 
 #[cfg(test)]

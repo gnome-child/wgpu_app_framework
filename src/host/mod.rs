@@ -104,6 +104,17 @@ impl<M: State, E: Send + 'static> Host<M, E> {
                 }
                 Some(event.into_shell_event(window))
             }
+            Event::Popup {
+                parent,
+                popup,
+                event,
+            } => {
+                if self.window(parent).is_none() {
+                    log::debug!("dropping popup event for unknown host window: {parent:?}");
+                    return None;
+                }
+                Some(event.into_popup_shell_event(parent, popup))
+            }
             Event::FilePathSelected { window, path } => {
                 let Some(window) = self.window(window) else {
                     log::warn!("dropping file dialog result for unknown host window: {window:?}");

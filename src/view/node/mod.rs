@@ -77,6 +77,7 @@ pub struct Node {
     floating_placement: FloatingPlacement,
     menu_anchor: Option<crate::geometry::PlacementAnchor>,
     menu_available: Option<crate::geometry::Rect>,
+    popup_context: Option<crate::popup::ContextFingerprint>,
     force_overlay_group: bool,
     native_popup_material_preference: NativePopupMaterialPreference,
     subject: Option<subject::Segment>,

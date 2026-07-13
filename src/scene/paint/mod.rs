@@ -111,6 +111,7 @@ fn paint_overlay_entries(
                 overlay::Draft::new(id, panel.rect(), scene)
                     .prefer(overlay::Preference::NativePopup)
                     .placement(panel.popup_placement())
+                    .context_fingerprint(panel.popup_context())
                     .popup_material_preference(popup_material_preference(panel))
                     .popup_border(theme.floating_panel().border())
                     .text_caret_rect(text_caret_rect_for_panel(layout, panel))
@@ -146,16 +147,7 @@ fn popup_material_preference(panel: &layout::Frame) -> overlay::PopupMaterialPre
 }
 
 fn root_floating_panels(layout: &layout::Layout) -> Vec<&layout::Frame> {
-    layout
-        .frames()
-        .iter()
-        .filter(|frame| is_floating_panel_role(frame.role()))
-        .filter(|frame| {
-            !layout.frames().iter().any(|candidate| {
-                is_floating_panel_role(candidate.role()) && frame.is_descendant_of(candidate)
-            })
-        })
-        .collect()
+    layout.root_floating_panels().collect()
 }
 
 fn chrome_belongs_to_panel(

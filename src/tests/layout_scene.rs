@@ -2920,6 +2920,50 @@ fn table_display_text_selects_and_copies_while_double_click_alone_enters_editing
     );
     assert!(!editing.scene().text_viewports().is_empty());
     assert!(text_draft(&app, window, focus).selected_text().is_some());
+
+    let context_node = editing
+        .layout()
+        .context_node_at(point)
+        .expect("active editor should retain a contextual node");
+    let context_path = app
+        .composition(window)
+        .expect("active editor composition")
+        .context_path_for_node(context_node);
+    assert!(
+        context_path.iter().any(|owner| owner.cell() == Some(cell)),
+        "the active editor path must retain its owning cell"
+    );
+
+    app.open_context_menu_at(window, size, point)
+        .expect("active editor context should open");
+    let context = app
+        .present(window)
+        .expect("active editor context should project");
+    let select_all = context
+        .bindings()
+        .into_iter()
+        .filter(|binding| {
+            binding.source() == context::Source::Menu
+                && binding.command_type() == std::any::TypeId::of::<document::SelectAll>()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        select_all.len(),
+        1,
+        "the active text task consumes Select All before the table domain"
+    );
+    app.handle_view(window, select_all[0].action())
+        .expect("active-editor Select All should invoke through text");
+    assert!(
+        !app.session()
+            .selection(window, interaction::Id::new("editable.table"))
+            .is_some_and(crate::selection::Selection::is_all),
+        "the table domain must not consume Select All while its editor is active"
+    );
+    assert_eq!(
+        text_draft(&app, window, focus).selected_text().as_deref(),
+        Some("Ada Lovelace")
+    );
 }
 
 #[test]
@@ -4029,6 +4073,30 @@ fn selectable_virtual_list_handles_click_toggle_range_and_bounded_select_all() {
     assert!(selection.contains(crate::virtual_list::Key::new(4)));
     assert_eq!(selection.anchor(), Some(crate::virtual_list::Key::new(2)));
     assert_eq!(selection.active(), Some(crate::virtual_list::Key::new(4)));
+
+    app.handle_input(
+        window,
+        Input::key_down(
+            input::Key::ArrowDown,
+            input::Modifiers::new(true, false, false, false),
+        ),
+    )
+    .expect("shift+down should extend the keyed range from its retained anchor");
+    let extended = app
+        .session()
+        .selection(window, list_id)
+        .expect("keyboard range should remain installed");
+    assert_eq!(extended.anchor(), Some(crate::virtual_list::Key::new(2)));
+    assert_eq!(extended.active(), Some(crate::virtual_list::Key::new(5)));
+    assert_eq!(extended.len(), 4);
+    app.handle_input(
+        window,
+        Input::key_down(
+            input::Key::ArrowUp,
+            input::Modifiers::new(true, false, false, false),
+        ),
+    )
+    .expect("shift+up should contract the same keyed range");
 
     let selected_scene = app
         .show_scene(window, size)
@@ -9997,7 +10065,7 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
             layer,
             scene::SurfaceLayer::Tint { brush, opacity }
                 if *brush == scene::Brush::solid(scene::Color::rgb(28, 28, 30))
-                    && *opacity == 0.88
+                    && *opacity == 0.40
         )
     }));
     assert!(initial.scene().texts().iter().any(|text| {
@@ -10038,7 +10106,7 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
             layer,
             scene::SurfaceLayer::Tint { brush, opacity }
                 if *brush == scene::Brush::solid(scene::Color::rgb(80, 28, 30))
-                    && *opacity == 0.88
+                    && *opacity == 0.40
         )
     }));
     assert!(tuned_glass.surface_layers().iter().any(|layer| {

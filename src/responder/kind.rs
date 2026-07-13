@@ -11,7 +11,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub(crate) fn rank(self) -> usize {
+    pub(crate) fn structural_order(self) -> usize {
         match self {
             Self::Captured => 0,
             Self::Transient => 1,

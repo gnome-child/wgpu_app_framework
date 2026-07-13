@@ -102,7 +102,7 @@ impl Default for State {
             foreground_mode: ForegroundMode::Acrylic,
             blur_sigma: 44.55,
             tint: Rgb::new(28, 28, 30),
-            tint_opacity: 0.88,
+            tint_opacity: 0.40,
             luminosity_opacity: 0.92,
             noise_opacity: 0.022,
             last_status: "ready".to_owned(),

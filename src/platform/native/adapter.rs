@@ -109,11 +109,12 @@ impl Backend for Native {
         Ok(())
     }
 
-    fn maintain(&mut self, _context: &mut Self::Context<'_>) -> Result<(), Self::Error> {
+    fn maintain(&mut self, context: &mut Self::Context<'_>) -> Result<(), Self::Error> {
         let now = std::time::Instant::now();
         let redraw_parents = self.apply_due_popup_accents(now);
         self.apply_due_popup_borders(now);
         self.request_popup_parent_redraws(&redraw_parents);
+        self.advance_popup_prewarm(context);
         Ok(())
     }
 }
@@ -128,9 +129,18 @@ impl notification::Listener<app_window::Departed> for Native {
             .collect::<Vec<_>>();
         for key in stale {
             if let Some(popup) = self.popups.remove(&key) {
-                self.raw_popups.remove(&popup.window.raw_id());
+                self.raw_popups.remove(&popup.host.window.raw_id());
             }
         }
+        if let Some(pool) = self.popup_pool.remove(window) {
+            log::debug!(
+                target: "wgpu_l3::native_popup",
+                "dropped dormant popup hosts with parent parent={window:?} count={}",
+                pool.len()
+            );
+        }
+        self.popup_pool_capacity.remove(window);
+        self.popup_prewarm.remove(window);
         self.cursor_hosts.remove(window);
         self.cursor_values.remove(window);
         self.ime_targets.remove(window);

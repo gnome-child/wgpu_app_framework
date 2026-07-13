@@ -34,6 +34,7 @@ impl Renderer {
                 FilterChainContext::new(pass.target, pass.output, prepared, pass.source);
 
             for op in pass.filter.ops {
+                let alpha_mode = filter_alpha_mode(op);
                 match op {
                     paint::FilterOp::Blur { amount } => {
                         if amount <= 0.0 {
@@ -89,7 +90,7 @@ impl Renderer {
                             prepared,
                             source_rect: intermediate.rect,
                             opacity: 1.0,
-                            alpha_mode: AlphaMode::Shape,
+                            alpha_mode,
                             scissor: pass.scissor,
                             labels: PassLabels::new(
                                 "Filter Blur Composite Bind Group",
@@ -153,7 +154,7 @@ impl Renderer {
                             prepared,
                             source_rect: intermediate.rect,
                             opacity: 1.0,
-                            alpha_mode: AlphaMode::Shape,
+                            alpha_mode,
                             scissor: pass.scissor,
                             labels: PassLabels::new(
                                 "Filter Backdrop Blur Composite Bind Group",
@@ -181,7 +182,7 @@ impl Renderer {
                             target: chain.target(),
                             prepared: chain.base_prepared(),
                             effect: refraction_effect(refraction),
-                            alpha_mode: AlphaMode::Shape,
+                            alpha_mode,
                             scissor: pass.scissor,
                         });
                         let intermediate = chain.local_intermediate(
@@ -196,7 +197,7 @@ impl Renderer {
                             prepared: chain.base_prepared(),
                             source_rect: intermediate.rect,
                             opacity: 1.0,
-                            alpha_mode: AlphaMode::Shape,
+                            alpha_mode,
                             scissor: pass.scissor,
                             labels: PassLabels::new(
                                 "Filter Refraction Composite Bind Group",
@@ -229,7 +230,7 @@ impl Renderer {
                                 luminosity.color.b,
                                 luminosity.opacity,
                             ],
-                            alpha_mode: AlphaMode::Shape,
+                            alpha_mode,
                             pipeline: &self.luminosity_pipeline,
                             scissor: pass.scissor,
                             labels: PassLabels::new(
@@ -250,7 +251,7 @@ impl Renderer {
                             prepared: chain.base_prepared(),
                             source_rect: intermediate.rect,
                             opacity: 1.0,
-                            alpha_mode: AlphaMode::Shape,
+                            alpha_mode,
                             scissor: pass.scissor,
                             labels: PassLabels::new(
                                 "Filter Luminosity Composite Bind Group",
@@ -278,7 +279,7 @@ impl Renderer {
                             target: chain.target(),
                             prepared: chain.base_prepared(),
                             effect: [noise.opacity, 0.0, 0.0, 0.0],
-                            alpha_mode: AlphaMode::Shape,
+                            alpha_mode,
                             pipeline: &self.noise_pipeline,
                             scissor: pass.scissor,
                             labels: PassLabels::new(
@@ -299,7 +300,7 @@ impl Renderer {
                             prepared: chain.base_prepared(),
                             source_rect: intermediate.rect,
                             opacity: 1.0,
-                            alpha_mode: AlphaMode::Shape,
+                            alpha_mode,
                             scissor: pass.scissor,
                             labels: PassLabels::new(
                                 "Filter Noise Composite Bind Group",
@@ -316,5 +317,35 @@ impl Renderer {
         if let ScratchTargets::Pooled(scratch) = scratch {
             self.recycle_scratch(scratch);
         }
+    }
+}
+
+fn filter_alpha_mode(op: paint::FilterOp) -> AlphaMode {
+    match op {
+        paint::FilterOp::Noise(_) => AlphaMode::Source,
+        paint::FilterOp::Blur { .. }
+        | paint::FilterOp::BackdropBlur(_)
+        | paint::FilterOp::Refraction(_)
+        | paint::FilterOp::Luminosity(_) => AlphaMode::Shape,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn noise_transforms_source_pixels_without_claiming_shape_coverage() {
+        assert_eq!(
+            filter_alpha_mode(paint::FilterOp::noise(paint::Noise { opacity: 0.022 })),
+            AlphaMode::Source
+        );
+        assert_eq!(
+            filter_alpha_mode(paint::FilterOp::backdrop_blur(paint::BackdropBlur {
+                sigma: 44.55,
+                edge_mode: paint::BackdropEdgeMode::Mirror,
+            })),
+            AlphaMode::Shape
+        );
     }
 }

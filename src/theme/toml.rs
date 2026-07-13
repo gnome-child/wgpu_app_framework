@@ -2471,7 +2471,7 @@ mod tests {
             .expect("theme should serialize");
 
         assert!(serialized.contains("rounding = { fixed = 4.0 }\n"));
-        assert!(serialized.contains("material = { kind = \"glass\", recipe = \"panel-dark\", blur-sigma = 44.55, tint = \"#1c1c1e\", tint-opacity = 0.88, luminosity-opacity = 0.92, noise-opacity = 0.022, fallback = \"#1c1c1e\" }\n"));
+        assert!(serialized.contains("material = { kind = \"glass\", recipe = \"panel-dark\", blur-sigma = 44.55, tint = \"#1c1c1e\", tint-opacity = 0.4, luminosity-opacity = 0.92, noise-opacity = 0.022, fallback = \"#1c1c1e\" }\n"));
         assert!(serialized.contains("content-gap = 6\n"));
         assert!(serialized.contains("[viewport]\n"));
         assert!(serialized.contains("[scrollbar]\n"));

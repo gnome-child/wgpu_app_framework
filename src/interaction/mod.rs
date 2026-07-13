@@ -183,9 +183,11 @@ impl Interaction {
     pub(crate) fn set_pointer_position(
         &mut self,
         position: Option<crate::geometry::Point>,
+        surface: crate::popup::Surface,
     ) -> bool {
-        let changed = self.pointer.position != position;
+        let changed = self.pointer.position != position || self.pointer.surface != surface;
         self.pointer.position = position;
+        self.pointer.surface = surface;
         changed
     }
 
@@ -239,6 +241,7 @@ impl Interaction {
             || self.pointer.hovered.is_some()
             || (self.pointer.capture.is_none() && self.pointer.pressed.is_some());
         self.pointer.position = None;
+        self.pointer.surface = crate::popup::Surface::Parent;
         self.pointer.hovered = None;
         if self.pointer.capture.is_none() {
             self.pointer.pressed = None;

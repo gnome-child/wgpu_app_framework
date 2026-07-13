@@ -4,7 +4,7 @@ use crate::{diagnostics, paint, render};
 
 use super::super::{NativeError, Window};
 use super::window::{InitialSize, Options, Window as NativeWindow};
-use super::{Native, NativeContext};
+use super::{Native, NativeContext, PopupPrewarmState};
 use crate::{geometry, shell, window as app_window};
 
 impl Native {
@@ -183,9 +183,17 @@ impl Native {
             );
         }
 
+        let presented = report.present_timing.is_some();
+        if presented
+            && context.windows_popup_composition_supported()
+            && !self.popup_prewarm.contains_key(&window)
+        {
+            self.popup_prewarm.insert(window, PopupPrewarmState::Armed);
+        }
+
         Ok(
             diagnostics::RenderReport::new(acquire_wait, draw, Instant::now())
-                .with_presented(report.present_timing.is_some())
+                .with_presented(presented)
                 .with_pipeline_timings(report.batch_prepare, encode_submit_present)
                 .with_draw_stats(report.stats)
                 .with_group_composites(group_composites)

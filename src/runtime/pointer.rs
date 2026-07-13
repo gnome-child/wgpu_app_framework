@@ -10,18 +10,29 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         size: geometry::Size,
         point: geometry::Point,
     ) -> std::result::Result<input::Outcome, Error> {
-        self.session.set_pointer_position(window, Some(point));
+        self.pointer_move_on_surface(window, size, point, crate::popup::Surface::Parent)
+    }
+
+    pub(crate) fn pointer_move_on_surface(
+        &mut self,
+        window: window::Id,
+        size: geometry::Size,
+        point: geometry::Point,
+        surface: crate::popup::Surface,
+    ) -> std::result::Result<input::Outcome, Error> {
+        self.session
+            .set_pointer_position(window, Some(point), surface);
         if self
             .session
             .interaction(window)
             .and_then(|interaction| interaction.pointer().pressed())
             .is_some()
         {
-            return self.pointer_drag_at(window, size, point);
+            return self.pointer_drag_on_surface(window, size, point, surface);
         }
 
         let target = self
-            .hit_test(window, size, point)
+            .hit_test_on_surface(window, size, point, surface)
             .inspect(|hit| self.set_cursor_for_hit(window, Some(hit)))
             .and_then(|hit| hit.target().cloned());
         if target.is_none() {
@@ -47,8 +58,26 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         point: geometry::Point,
         modifiers: input::Modifiers,
     ) -> std::result::Result<input::Outcome, Error> {
-        self.session.set_pointer_position(window, Some(point));
-        let Some(hit) = self.hit_test(window, size, point) else {
+        self.pointer_down_on_surface(
+            window,
+            size,
+            point,
+            modifiers,
+            crate::popup::Surface::Parent,
+        )
+    }
+
+    pub(crate) fn pointer_down_on_surface(
+        &mut self,
+        window: window::Id,
+        size: geometry::Size,
+        point: geometry::Point,
+        modifiers: input::Modifiers,
+        surface: crate::popup::Surface,
+    ) -> std::result::Result<input::Outcome, Error> {
+        self.session
+            .set_pointer_position(window, Some(point), surface);
+        let Some(hit) = self.hit_test_on_surface(window, size, point, surface) else {
             self.set_pointer_cursor(window, pointer::Cursor::Default);
             return self.clear_pointer_focus(window);
         };
@@ -197,8 +226,19 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         size: geometry::Size,
         point: geometry::Point,
     ) -> std::result::Result<input::Outcome, Error> {
-        self.session.set_pointer_position(window, Some(point));
-        let hit = self.hit_test(window, size, point);
+        self.pointer_up_on_surface(window, size, point, crate::popup::Surface::Parent)
+    }
+
+    pub(crate) fn pointer_up_on_surface(
+        &mut self,
+        window: window::Id,
+        size: geometry::Size,
+        point: geometry::Point,
+        surface: crate::popup::Surface,
+    ) -> std::result::Result<input::Outcome, Error> {
+        self.session
+            .set_pointer_position(window, Some(point), surface);
+        let hit = self.hit_test_on_surface(window, size, point, surface);
         self.set_cursor_for_hit(window, hit.as_ref());
         let target = hit.as_ref().and_then(|hit| hit.target().cloned());
         let action = hit.as_ref().and_then(|hit| {
@@ -220,12 +260,23 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         _size: geometry::Size,
         point: geometry::Point,
     ) -> std::result::Result<input::Outcome, Error> {
-        self.session.set_pointer_position(window, Some(point));
+        self.pointer_drag_on_surface(window, _size, point, crate::popup::Surface::Parent)
+    }
+
+    fn pointer_drag_on_surface(
+        &mut self,
+        window: window::Id,
+        _size: geometry::Size,
+        point: geometry::Point,
+        surface: crate::popup::Surface,
+    ) -> std::result::Result<input::Outcome, Error> {
+        self.session
+            .set_pointer_position(window, Some(point), surface);
         self.session.cancel_click_sequence(window);
         let Some(layout) = self.presented_layout(window) else {
             return Ok(input::Outcome::ignored());
         };
-        let hit = layout.hit_test(point);
+        let hit = layout.hit_test_on_surface(point, surface);
         let captured_target = self
             .session
             .interaction(window)
@@ -306,14 +357,28 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         point: geometry::Point,
         delta: interaction::ScrollDelta,
     ) -> std::result::Result<input::Outcome, Error> {
-        self.session.set_pointer_position(window, Some(point));
+        self.scroll_on_surface(window, _size, point, delta, crate::popup::Surface::Parent)
+    }
+
+    pub(crate) fn scroll_on_surface(
+        &mut self,
+        window: window::Id,
+        _size: geometry::Size,
+        point: geometry::Point,
+        delta: interaction::ScrollDelta,
+        surface: crate::popup::Surface,
+    ) -> std::result::Result<input::Outcome, Error> {
+        self.session
+            .set_pointer_position(window, Some(point), surface);
         let Some(layout) = self.presented_layout(window) else {
             return Ok(input::Outcome::ignored());
         };
-        let viewport_target = layout.scroll_target_at(point, delta);
-        let Some(target) = viewport_target
-            .or_else(|| layout.hit_test(point).and_then(|hit| hit.target().cloned()))
-        else {
+        let viewport_target = layout.scroll_target_at_surface(point, delta, surface);
+        let Some(target) = viewport_target.or_else(|| {
+            layout
+                .hit_test_on_surface(point, surface)
+                .and_then(|hit| hit.target().cloned())
+        }) else {
             return Ok(input::Outcome::ignored());
         };
 

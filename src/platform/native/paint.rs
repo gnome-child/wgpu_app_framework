@@ -6,7 +6,6 @@ use crate::{geometry, scene};
 pub(in crate::platform::native) struct PopupProjection {
     visual_bounds: paint::Rect,
     panel_bounds: paint::Rect,
-    shadow: Option<scene::Shadow>,
     scale_factor: f32,
 }
 
@@ -30,7 +29,6 @@ impl PopupProjection {
         Self {
             visual_bounds,
             panel_bounds,
-            shadow,
             scale_factor: grid.scale_factor(),
         }
     }
@@ -42,6 +40,28 @@ impl PopupProjection {
         )
     }
 
+    pub(in crate::platform::native) fn panel_offset_logical(self) -> geometry::Point {
+        let offset = self.panel_offset();
+        geometry::Point::new(offset.x().round() as i32, offset.y().round() as i32)
+    }
+
+    pub(in crate::platform::native) fn visual_bounds_at(
+        self,
+        panel: geometry::Rect,
+    ) -> geometry::Rect {
+        geometry::Rect::new(
+            panel
+                .x()
+                .saturating_add(self.visual_bounds.origin.x().round() as i32),
+            panel
+                .y()
+                .saturating_add(self.visual_bounds.origin.y().round() as i32),
+            self.visual_bounds.area.width().round() as i32,
+            self.visual_bounds.area.height().round() as i32,
+        )
+    }
+
+    #[cfg(test)]
     pub(in crate::platform::native) fn panel_offset_physical(self) -> (i32, i32) {
         let offset = self.panel_offset();
         (
@@ -61,11 +81,7 @@ impl PopupProjection {
         self.visual_bounds.area
     }
 
-    #[cfg(target_os = "windows")]
-    pub(in crate::platform::native) fn shadow(self) -> Option<scene::Shadow> {
-        self.shadow
-    }
-
+    #[cfg(test)]
     pub(in crate::platform::native) fn translate_scene(self, scene: paint::Scene) -> paint::Scene {
         scene.translated_from_origin(
             self.visual_bounds.origin,
@@ -112,6 +128,17 @@ pub(in crate::platform::native) fn to_paint_scene_at_scale(
     }
 
     scene
+}
+
+pub(in crate::platform::native) fn translate_popup_scene(
+    scene: paint::Scene,
+    realization: crate::popup::Realization,
+) -> paint::Scene {
+    let offset = realization.visual_offset();
+    scene.translated_from_origin(
+        paint::point::logical(offset.x() as f32, offset.y() as f32),
+        paint::Grid::new(realization.scale() as f32),
+    )
 }
 
 fn push_paint_primitive(primitive: &scene::Primitive, scene: &mut paint::Scene, grid: paint::Grid) {
@@ -593,7 +620,7 @@ mod tests {
                 layer,
                 paint::SurfaceLayer::Tint { brush, opacity }
                     if *brush == paint::Brush::solid(super::super::color::paint_color(scene::Color::rgb(28, 28, 30)))
-                        && *opacity == 0.88
+                        && *opacity == 0.40
             )
         }));
     }
@@ -649,6 +676,51 @@ mod tests {
                     .expect("floating panel should retain its one painted border");
                 assert!((outline.width * scale - 1.0).abs() <= f32::EPSILON);
             }
+        }
+    }
+
+    #[test]
+    fn popup_projection_survives_native_material_resolution_stripping_the_shadow() {
+        let theme = Theme::dark();
+        let view = view::View::new(
+            view::Node::root()
+                .child(view::Node::floating_panel("panel").child(view::Node::label("Row"))),
+        );
+        let mut engine = layout::Engine::new();
+        let layout = layout::Layout::compose_with_theme(
+            &view,
+            geometry::Size::new(240, 160),
+            &mut engine,
+            &theme,
+        );
+        let authored = scene::Scene::paint_with_theme(&layout, &theme);
+        let resolved =
+            authored.resolve_material(scene::MaterialRenderer::NativePopup { opaque: false }, &[]);
+        assert_eq!(authored.shadows().len(), 1);
+        assert!(resolved.scene().shadows().is_empty());
+
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            let projection = PopupProjection::resolve(&authored, scale, true);
+            let panel_offset = projection.panel_offset();
+            assert!(panel_offset.x() > 0.0 && panel_offset.y() > 0.0);
+
+            let translated =
+                projection.translate_scene(to_paint_scene_at_scale(resolved.scene(), scale));
+            let panel = translated
+                .items()
+                .iter()
+                .find_map(|item| match item {
+                    paint::Item::Quad(quad) => Some(quad.rect()),
+                    _ => None,
+                })
+                .expect("resolved popup panel should remain translated into visual bounds");
+            let painted = (
+                (panel.origin.x() * scale).round() as i32,
+                (panel.origin.y() * scale).round() as i32,
+            );
+            let projected = projection.panel_offset_physical();
+            assert!((painted.0 - projected.0).abs() <= 1);
+            assert!((painted.1 - projected.1).abs() <= 1);
         }
     }
 

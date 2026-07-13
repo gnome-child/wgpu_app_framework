@@ -23,8 +23,20 @@ pub enum Event {
         window: window::Id,
         point: geometry::Point,
     },
+    PopupPointerMoved {
+        window: window::Id,
+        popup: interaction::Id,
+        point: geometry::Point,
+    },
     PointerDown {
         window: window::Id,
+        point: geometry::Point,
+        button: pointer::Button,
+        modifiers: input::Modifiers,
+    },
+    PopupPointerDown {
+        window: window::Id,
+        popup: interaction::Id,
         point: geometry::Point,
         button: pointer::Button,
         modifiers: input::Modifiers,
@@ -34,11 +46,27 @@ pub enum Event {
         point: geometry::Point,
         button: pointer::Button,
     },
+    PopupPointerUp {
+        window: window::Id,
+        popup: interaction::Id,
+        point: geometry::Point,
+        button: pointer::Button,
+    },
     PointerLeft {
         window: window::Id,
     },
+    PopupPointerLeft {
+        window: window::Id,
+        popup: interaction::Id,
+    },
     Scrolled {
         window: window::Id,
+        point: geometry::Point,
+        delta: interaction::ScrollDelta,
+    },
+    PopupScrolled {
+        window: window::Id,
+        popup: interaction::Id,
         point: geometry::Point,
         delta: interaction::ScrollDelta,
     },
@@ -70,10 +98,15 @@ impl Event {
             | Self::RedrawRequested { window }
             | Self::CloseRequested { window }
             | Self::PointerMoved { window, .. }
+            | Self::PopupPointerMoved { window, .. }
             | Self::PointerDown { window, .. }
+            | Self::PopupPointerDown { window, .. }
             | Self::PointerUp { window, .. }
+            | Self::PopupPointerUp { window, .. }
             | Self::PointerLeft { window }
+            | Self::PopupPointerLeft { window, .. }
             | Self::Scrolled { window, .. }
+            | Self::PopupScrolled { window, .. }
             | Self::KeyDown { window, .. }
             | Self::TextCommitted { window, .. }
             | Self::TextPreedit { window, .. }
@@ -109,6 +142,14 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 self.pointer_move(window, point)?;
                 Ok(())
             }
+            Event::PopupPointerMoved {
+                window,
+                popup,
+                point,
+            } => {
+                self.pointer_move_on_popup(window, popup, point)?;
+                Ok(())
+            }
             Event::PointerDown {
                 window,
                 point,
@@ -116,6 +157,16 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 modifiers,
             } => {
                 self.pointer_down_with_modifiers(window, point, button, modifiers)?;
+                Ok(())
+            }
+            Event::PopupPointerDown {
+                window,
+                popup,
+                point,
+                button,
+                modifiers,
+            } => {
+                self.pointer_down_on_popup(window, popup, point, button, modifiers)?;
                 Ok(())
             }
             Event::PointerUp {
@@ -126,8 +177,21 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 self.pointer_up(window, point, button)?;
                 Ok(())
             }
+            Event::PopupPointerUp {
+                window,
+                popup,
+                point,
+                button,
+            } => {
+                self.pointer_up_on_popup(window, popup, point, button)?;
+                Ok(())
+            }
             Event::PointerLeft { window } => {
                 self.pointer_left(window)?;
+                Ok(())
+            }
+            Event::PopupPointerLeft { window, popup } => {
+                self.pointer_left_popup(window, popup)?;
                 Ok(())
             }
             Event::Scrolled {
@@ -136,6 +200,15 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 delta,
             } => {
                 self.scroll(window, point, delta)?;
+                Ok(())
+            }
+            Event::PopupScrolled {
+                window,
+                popup,
+                point,
+                delta,
+            } => {
+                self.scroll_popup(window, popup, point, delta)?;
                 Ok(())
             }
             Event::KeyDown {

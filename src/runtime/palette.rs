@@ -204,7 +204,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let Some(scope) = self.session.command_palette_captured_scope(window) else {
             return Vec::new();
         };
-        let focus = scope.focus();
         let cx = command_context::Context::with_clipboard_source(
             &mut self.clipboard,
             command_context::Source::Palette,
@@ -216,9 +215,10 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             Some(window),
             scope,
         );
+        let path = responder::Path::single(scope);
         let mut chain = self
             .responders
-            .chain_for(&mut self.store, focus)
+            .chain_for_path(&mut self.store, &path, responder::Traversal::Task)
             .with_service(services);
 
         let candidates = self.registry.global_candidates();

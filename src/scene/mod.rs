@@ -27,7 +27,7 @@ pub(crate) use visual::{Scalar as VisualScalar, Target as TargetVisual};
 
 use super::{composition, geometry, layout, overlay, theme, theme::Theme};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Scene {
     size: geometry::Size,
     clear: Color,
@@ -668,6 +668,7 @@ mod tests {
             &theme,
             crate::animation::Frame::new(std::time::Instant::now()),
             crate::keymap::Profile::default(),
+            layout::PopupSurfaces::InFrame,
         );
         let (_, entries) = Scene::paint_parts_with_clear_theme_and_visuals(
             &layout,
@@ -707,6 +708,7 @@ mod tests {
                 &theme,
                 crate::animation::Frame::new(std::time::Instant::now()),
                 crate::keymap::Profile::default(),
+                layout::PopupSurfaces::InFrame,
             );
             let (_, entries) = Scene::paint_parts_with_clear_theme_and_visuals(
                 &layout,
@@ -729,6 +731,7 @@ mod tests {
                 &theme,
                 crate::animation::Frame::new(std::time::Instant::now()),
                 crate::keymap::Profile::default(),
+                layout::PopupSurfaces::InFrame,
             );
             let (_, entries) = Scene::paint_parts_with_clear_theme_and_visuals(
                 &layout,
@@ -974,7 +977,7 @@ mod tests {
         let popup = source.native_popup_request(geometry::Rect::new(4, 6, 40, 24));
         let requested = popup.scene();
 
-        assert_eq!(popup.accent_tint(), Color::rgba(28, 28, 30, 224));
+        assert_eq!(popup.accent_tint(), Color::rgba(28, 28, 30, 102));
         assert_eq!(requested.size(), geometry::Size::new(40, 24));
         assert_eq!(requested.clear(), Color::rgba(0, 0, 0, 0));
         assert_eq!(requested.panes().len(), 1);

@@ -15,28 +15,74 @@ use crate::{
 use std::collections::HashMap;
 
 impl Node {
-    pub(in crate::view) fn context_owner_retained(
+    pub(in crate::view) fn context_path_retained(
         &self,
         retained: &composition::Node,
-        owner: composition::NodeId,
-    ) -> Option<super::super::ContextOwner> {
-        if retained.node_id() == owner {
-            let focus = self
-                .text_area_model()
-                .and_then(TextArea::focus)
-                .or_else(|| self.text_box_model().and_then(TextBox::focus));
-            return Some(super::super::ContextOwner::new(
-                owner,
-                retained.element_id(),
-                focus,
-                self.context_binding().or_else(|| self.binding()).cloned(),
-                self.role == Role::Root,
-            ));
+        target: composition::NodeId,
+        path: &mut Vec<super::super::ContextOwner>,
+    ) -> bool {
+        if retained.node_id() == target {
+            if self.is_context_layer() {
+                path.push(self.context_owner(retained, self.context_focus()));
+            }
+            return true;
         }
 
-        self.children.iter().enumerate().find_map(|(index, child)| {
-            child.context_owner_retained(retained_child(retained, index), owner)
+        for (index, child) in self.children.iter().enumerate() {
+            let child_retained = retained_child(retained, index);
+            let start = path.len();
+            if child.context_path_retained(child_retained, target, path) {
+                if self.is_context_layer() {
+                    path.insert(start, self.context_owner(retained, self.context_focus()));
+                }
+                return true;
+            }
+        }
+        false
+    }
+
+    fn is_context_layer(&self) -> bool {
+        self.context_menu
+            || self.table_model().is_some()
+            || self.table_row().is_some()
+            || self.table_cell().is_some()
+            || self.context_command_binding().is_some()
+            || self.context_focus().is_some()
+    }
+
+    fn context_command_binding(&self) -> Option<&super::super::Binding> {
+        self.context_binding().or_else(|| {
+            self.binding()
+                .filter(|binding| binding.source() == crate::context::Source::Button)
         })
+    }
+
+    fn context_focus(&self) -> Option<session::Focus> {
+        self.text_area_model()
+            .and_then(TextArea::focus)
+            .or_else(|| self.text_box_model().and_then(TextBox::focus))
+            .or_else(|| self.table_cell().map(session::Focus::table_cell))
+    }
+
+    fn context_owner(
+        &self,
+        retained: &composition::Node,
+        focus: Option<session::Focus>,
+    ) -> super::super::ContextOwner {
+        let table = self
+            .table_model()
+            .map(crate::table::Model::id)
+            .or_else(|| self.table_row().map(crate::table::Row::table))
+            .or_else(|| self.table_cell().map(crate::table::Cell::table));
+        super::super::ContextOwner::new(
+            retained.element_id(),
+            focus,
+            self.context_command_binding().cloned(),
+            self.role == Role::Root,
+            table,
+            self.table_row(),
+            self.table_cell(),
+        )
     }
 
     pub(in crate::view) fn table_cell_is_editable(&self, cell: crate::table::Cell) -> bool {

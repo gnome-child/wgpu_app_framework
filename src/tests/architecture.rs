@@ -2071,14 +2071,14 @@ fn ime_caret_geometry_follows_the_physical_text_host() {
         "IME host must exist before its cursor area is applied"
     );
     assert!(
-        native_ime.contains("popup.window.set_ime_allowed(false)")
+        native_ime.contains("popup.host.window.set_ime_allowed(false)")
             && native_ime.contains("parent_window.set_ime_allowed(true)")
             && native_ime.contains("matches!(host, ImeHost::Popup(_))")
             && native_ime.contains("window.set_ime_cursor_area(target.area())"),
         "native IME routing must retain parent input authority while moving popup geometry"
     );
     let popup_adapter = event
-        .split("pub fn popup_window_event")
+        .split("pub(crate) fn popup_window_event")
         .nth(1)
         .expect("popup event adapter should exist");
     assert!(
@@ -2219,13 +2219,64 @@ fn windows_native_popup_clicks_do_not_activate() {
     assert!(!native_window.contains("with_no_redirection_bitmap(false)"));
     assert!(!native_window.contains("with_has_shadow(false)"));
     assert!(
-        native_mod.contains("impl Drop for PopupWindow")
+        native_mod.contains("impl Drop for PopupHost")
             && native_mod.contains("remove_popup_subclass"),
-        "popup drop must remove the subclass before the HWND is released"
+        "popup-host drop must remove the subclass before the HWND is released"
     );
     assert!(
-        popup.contains("self.popups.remove(&key)") && adapter.contains("self.popups.remove(&key)"),
-        "stale popup and parent-close cleanup must drive PopupWindow drop"
+        popup.contains("self.popups.remove(&key)")
+            && adapter.contains("self.popups.remove(&key)")
+            && adapter.contains("self.popup_pool.remove(window)")
+            && adapter.contains("self.popup_prewarm.remove(window)"),
+        "stale sessions and parent-close cleanup must either pool or drop every popup host"
+    );
+}
+
+#[test]
+fn popup_pool_reuses_hosts_without_reusing_sessions() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let native_mod = std::fs::read_to_string(root.join("src/platform/native/mod.rs"))
+        .expect("native platform source should read");
+    let popup = std::fs::read_to_string(root.join("src/platform/native/popup.rs"))
+        .expect("native popup source should read");
+    let surface = std::fs::read_to_string(root.join("src/platform/native/surface.rs"))
+        .expect("native surface source should read");
+
+    assert!(
+        native_mod.contains("Vec<PopupHost>")
+            && !native_mod.contains("Vec<PopupWindow>")
+            && native_mod.contains("struct PopupHost")
+            && native_mod.contains("struct PopupWindow")
+            && popup.contains("popup_pool_capacity")
+            && popup.contains("(*capacity).max(depth)"),
+        "the pool must retain reusable infrastructure, never semantic popup sessions"
+    );
+    assert!(
+        popup.contains("let popup = PopupWindow::new(host, lifecycle_epoch, generation)")
+            && popup.contains("let host = popup.into_host()")
+            && popup.contains("self.raw_popups.remove(&popup.host.window.raw_id())")
+            && popup.contains("self.release_ime_from_popup(key)")
+            && popup.contains("popup.host.window.set_ime_allowed(false)")
+            && popup.contains("popup.host.window.set_cursor(pointer::Cursor::Default)")
+            && popup.contains("popup.host.window.hide_popup_before_teardown()")
+            && popup.contains("popup.presentation_mode == mode")
+            && popup.contains("popup.window.scale_factor() - scale_factor"),
+        "acquisition must mint a fresh session and retirement must make the host inert before pooling"
+    );
+    assert!(
+        native_mod
+            .contains("first_present: PopupFirstPresentTrace::new(lifecycle_epoch, generation)")
+            && popup.contains("popup.first_present = PopupFirstPresentTrace::new(now, generation)"),
+        "fresh-session construction, not host reset, must own presentation receipts"
+    );
+    assert!(
+        popup.contains("fn advance_popup_prewarm(")
+            && surface.contains("PopupPrewarmState::Armed")
+            && popup.contains("PopupPrewarmState::Scheduled")
+            && popup.contains("prepare_popup_first_present()")
+            && popup.contains("composition.prewarm_material()")
+            && popup.contains("self.schedule_poll_request()"),
+        "root-host prewarming must begin only after a stable parent frame and advance from an idle poll through a composition receipt"
     );
 }
 
@@ -2562,7 +2613,7 @@ fn native_popup_first_present_is_visible_traced_and_compositor_synchronized() {
         "concealed preparation must precede renderer draw/acquire"
     );
     let presented = popup[draw..]
-        .find("record_presented(key, timing)")
+        .find("record_presented(key, generation, timing)")
         .map(|offset| draw + offset)
         .expect("the current frame must be recorded after draw");
     let expose = popup[presented..]
@@ -2696,11 +2747,11 @@ fn composition_popup_closeout_has_one_geometry_edge_and_timeline_owner() {
         "popup visual reach must consume shared shadow bounds without an arbitrary margin"
     );
     assert!(
-        composition.contains("project_shadow(recipe, silhouette)")
+        composition.contains("project_shadow(recipe, silhouette, scale_factor)")
             && composition.contains("sync_shadow(projected_shadow)")
-            && composition.contains("panel_offset_dips")
-            && !composition.contains("panel_offset_physical"),
-        "the composition shadow must derive from the DIP material-region silhouette without consuming physical geometry"
+            && composition.contains("panel_offset_physical")
+            && !composition.contains("panel_offset_dips"),
+        "the desktop composition shadow must derive from the shared device-space material-region silhouette"
     );
     assert!(
         native_window.contains("with_undecorated_shadow(!composition_backed)")
@@ -2740,6 +2791,14 @@ fn composition_popup_readiness_is_receipted_and_generation_bound() {
             && composition.contains("commit.batch.IsEnded()")
             && !composition.contains("CompositionBatchTypes::None"),
         "material readiness must consume the current generation's Effect receipt"
+    );
+    assert!(
+        composition.contains("self.compositor.RequestCommitAsync()")
+            && composition.contains("prepared-root commit completed")
+            && composition.contains("entrance.take_committed(generation)")
+            && popup_production.contains("entrance_readiness(popup.generation.serial())")
+            && popup_production.contains("awaits prepared-root commit before exposure"),
+        "a concealed entrance must receive its current generation's root-property commit before exposure"
     );
     assert!(
         popup_production.contains("for barrier in 1..=2")
@@ -2845,7 +2904,7 @@ fn actual_material_reports_alone_authorize_residual_subtraction() {
     assert!(
         windows.contains("pub(super) fn set_popup_accent_material(")
             && windows.contains(") -> bool")
-            && popup.contains("if popup.window.set_popup_accent_material(accent)"),
+            && popup.contains("if popup.host.window.set_popup_accent_material(accent)"),
         "an attempted accent forecast must not be recorded as a successful realization"
     );
 }
@@ -3277,9 +3336,10 @@ fn windows_material_regions_are_keyed_projections_with_report_after_success() {
 
     assert!(
         composition.contains("HashMap<composition::NodeId, RegionVisual>")
-            && composition.contains("self.material_regions.entry(id)")
-            && composition.contains("self.material_regions.retain(|id, _|"),
-        "retained declaring identity must own material visuals independently from scene order"
+            && composition.contains("self.material_regions.insert(id, region)")
+            && composition.contains(".get_mut(&id)")
+            && composition.contains("self.material_regions.remove(&id)"),
+        "retained declaring identity must own the active visual mapping independently from scene order, even when host infrastructure is recycled"
     );
     let apply = composition
         .find("region.apply(projected)")

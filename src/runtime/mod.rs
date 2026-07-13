@@ -46,6 +46,7 @@ type ViewCallback<M, V> = Box<dyn Fn(&M, view::Context) -> V>;
 struct CachedLayout {
     size: geometry::Size,
     theme: theme::Theme,
+    popup_surfaces: layout::PopupSurfaces,
     layout: layout::Layout,
 }
 

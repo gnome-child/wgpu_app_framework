@@ -49,6 +49,39 @@ mod windows_probe {
     const INSPECTION_HOLD: Duration = Duration::from_millis(2_000);
     const FADE_DURATION: Duration = Duration::from_millis(1_000);
     const EXIT_AFTER_FADE: Duration = Duration::from_millis(250);
+    const REUSE_FADE_DURATION: Duration = Duration::from_millis(80);
+    const REUSE_VISIBLE_HOLD: Duration = Duration::from_millis(180);
+    const REUSE_INTERVALS: [Duration; 4] = [
+        Duration::from_millis(10),
+        Duration::from_millis(100),
+        Duration::from_secs(1),
+        Duration::from_secs(10),
+    ];
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum ProbeMode {
+        Fade,
+        Reuse,
+    }
+
+    impl Default for ProbeMode {
+        fn default() -> Self {
+            Self::Fade
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum ReusePhase {
+        Hidden { since: Instant },
+        Visible { since: Instant },
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct ReuseLadder {
+        cycle: usize,
+        phase: ReusePhase,
+        prior_outside: Option<[f64; 3]>,
+    }
 
     struct CompositionState {
         _dispatcher: DispatcherQueueController,
@@ -56,19 +89,19 @@ mod windows_probe {
         _underlay_root: ContainerVisual,
         _target: DesktopWindowTarget,
         _stage: ContainerVisual,
-        _background: SpriteVisual,
+        background: SpriteVisual,
         root: ContainerVisual,
-        _frost: SpriteVisual,
-        _frost_geometry: CompositionRoundedRectangleGeometry,
+        frost: SpriteVisual,
+        frost_geometry: CompositionRoundedRectangleGeometry,
         _frost_clip: CompositionGeometricClip,
-        _shadow_layer: LayerVisual,
-        _caster: SpriteVisual,
-        _caster_geometry: CompositionRoundedRectangleGeometry,
+        shadow_layer: LayerVisual,
+        caster: SpriteVisual,
+        caster_geometry: CompositionRoundedRectangleGeometry,
         _caster_clip: CompositionGeometricClip,
-        _mask_visual: SpriteVisual,
-        _mask_geometry: CompositionRoundedRectangleGeometry,
+        mask_visual: SpriteVisual,
+        mask_geometry: CompositionRoundedRectangleGeometry,
         _mask_clip: CompositionGeometricClip,
-        _mask_surface: CompositionVisualSurface,
+        mask_surface: CompositionVisualSurface,
         _mask_brush: CompositionSurfaceBrush,
         _shadow: DropShadow,
         compositor: Compositor,
@@ -78,10 +111,13 @@ mod windows_probe {
         fade_started_at: Option<Instant>,
         first_capture: Option<CaptureStats>,
         comparison_done: bool,
+        mode: ProbeMode,
+        reuse: Option<ReuseLadder>,
+        reuse_complete: bool,
     }
 
     impl CompositionState {
-        fn new(window: &Window, underlay: &Window) -> windows::core::Result<Self> {
+        fn new(window: &Window, underlay: &Window, mode: ProbeMode) -> windows::core::Result<Self> {
             let options = DispatcherQueueOptions {
                 dwSize: std::mem::size_of::<DispatcherQueueOptions>() as u32,
                 threadType: DQTYPE_THREAD_CURRENT,
@@ -258,19 +294,19 @@ mod windows_probe {
                 _underlay_root: underlay_root,
                 _target: target,
                 _stage: stage,
-                _background: background,
+                background,
                 root,
-                _frost: frost,
-                _frost_geometry: frost_geometry,
+                frost,
+                frost_geometry,
                 _frost_clip: frost_clip,
-                _shadow_layer: shadow_layer,
-                _caster: caster,
-                _caster_geometry: caster_geometry,
+                shadow_layer,
+                caster,
+                caster_geometry,
                 _caster_clip: caster_clip,
-                _mask_visual: mask_visual,
-                _mask_geometry: mask_geometry,
+                mask_visual,
+                mask_geometry,
                 _mask_clip: mask_clip,
-                _mask_surface: mask_surface,
+                mask_surface,
                 _mask_brush: mask_brush,
                 _shadow: shadow,
                 compositor,
@@ -280,6 +316,9 @@ mod windows_probe {
                 fade_started_at: None,
                 first_capture: None,
                 comparison_done: false,
+                mode,
+                reuse: None,
+                reuse_complete: false,
             };
             Ok(state)
         }
@@ -308,7 +347,188 @@ mod windows_probe {
             Ok(())
         }
 
-        fn update(&mut self, window: &Window) -> windows::core::Result<bool> {
+        fn start_reuse_fade(&self) -> windows::core::Result<()> {
+            let from = self.root.Opacity()?;
+            let animation = self.compositor.CreateScalarKeyFrameAnimation()?;
+            animation.InsertKeyFrame(0.0, from)?;
+            let easing = self.compositor.CreateCubicBezierEasingFunction(
+                Vector2 { X: 0.33, Y: 1.0 },
+                Vector2 { X: 0.68, Y: 1.0 },
+            )?;
+            animation.InsertKeyFrameWithEasingFunction(1.0, 1.0, &easing)?;
+            animation.SetDuration(TimeSpan {
+                Duration: (REUSE_FADE_DURATION.as_nanos() / 100) as i64,
+            })?;
+            self.root
+                .StartAnimation(&HSTRING::from("Opacity"), &animation)
+        }
+
+        fn resize_panel(&self, width: f32, height: f32) -> windows::core::Result<()> {
+            let size = Vector2 {
+                X: width,
+                Y: height,
+            };
+            self.frost.SetSize(size)?;
+            self.frost_geometry.SetSize(size)?;
+            self.shadow_layer.SetSize(size)?;
+            self.caster.SetSize(size)?;
+            self.caster_geometry.SetSize(size)?;
+            self.mask_visual.SetSize(size)?;
+            self.mask_geometry.SetSize(size)?;
+            self.mask_surface.SetSourceSize(size)
+        }
+
+        fn begin_reuse_ladder(&mut self, window: &Window) -> windows::core::Result<()> {
+            self.root.StopAnimation(&HSTRING::from("Opacity"))?;
+            self.root.SetOpacity(0.0)?;
+            unsafe { DwmFlush()? };
+            window.set_visible(false);
+            self.reuse = Some(ReuseLadder {
+                cycle: 0,
+                phase: ReusePhase::Hidden {
+                    since: Instant::now(),
+                },
+                prior_outside: None,
+            });
+            log::info!(
+                target: "wgpu_l3::material_shadow_probe",
+                "reuse ladder began host_creations=1 effect_receipts=1 intervals_ms=[10,100,1000,10000]"
+            );
+            Ok(())
+        }
+
+        fn update_reuse(
+            &mut self,
+            window: &Window,
+            underlay: &Window,
+        ) -> windows::core::Result<bool> {
+            if self.reuse_complete {
+                return Ok(true);
+            }
+            let Some(mut ladder) = self.reuse else {
+                self.begin_reuse_ladder(window)?;
+                return Ok(false);
+            };
+
+            match ladder.phase {
+                ReusePhase::Hidden { since }
+                    if since.elapsed() >= REUSE_INTERVALS[ladder.cycle] =>
+                {
+                    let positions = [(360, 160), (420, 190), (320, 140), (390, 210)];
+                    let sizes = [(420, 300), (460, 330), (400, 280), (440, 310)];
+                    let colors = [
+                        (196, 210, 232),
+                        (232, 196, 210),
+                        (196, 232, 206),
+                        (222, 206, 176),
+                    ];
+                    let panel_sizes = [
+                        (300.0, 180.0),
+                        (330.0, 200.0),
+                        (270.0, 170.0),
+                        (315.0, 190.0),
+                    ];
+                    let (x, y) = positions[ladder.cycle];
+                    let (width, height) = sizes[ladder.cycle];
+                    let (red, green, blue) = colors[ladder.cycle];
+                    let (panel_width, panel_height) = panel_sizes[ladder.cycle];
+                    underlay.set_outer_position(PhysicalPosition::new(x, y));
+                    window.set_outer_position(PhysicalPosition::new(x, y));
+                    let _ = underlay.request_inner_size(PhysicalSize::new(width, height));
+                    let _ = window.request_inner_size(PhysicalSize::new(width, height));
+                    self.background
+                        .SetBrush(&self.compositor.CreateColorBrushWithColor(
+                            windows::UI::Color {
+                                A: 255,
+                                R: red,
+                                G: green,
+                                B: blue,
+                            },
+                        )?)?;
+                    self.resize_panel(panel_width, panel_height)?;
+                    self.root.SetOpacity(INSPECTION_OPACITY)?;
+                    let show_started = Instant::now();
+                    window.set_visible(true);
+                    unsafe { DwmFlush()? };
+                    let first_capture = capture_screen(window)?;
+                    let first_contrast = channel_delta(first_capture.inside, first_capture.outside);
+                    if first_contrast <= 1.0 {
+                        return Err(windows::core::Error::new(
+                            E_FAIL,
+                            "reused host exposed before frost was visible",
+                        ));
+                    }
+                    self.start_reuse_fade()?;
+                    ladder.phase = ReusePhase::Visible {
+                        since: Instant::now(),
+                    };
+                    self.reuse = Some(ladder);
+                    log::info!(
+                        target: "wgpu_l3::material_shadow_probe",
+                        "reuse cycle={} hidden_ms={} host_size={}x{} panel_size={:.0}x{:.0} position=({}, {}) show_setup_us={} first_frame_frost_contrast={:.3} host_creations=0 effect_receipts=0 generation={}",
+                        ladder.cycle + 1,
+                        REUSE_INTERVALS[ladder.cycle].as_millis(),
+                        width,
+                        height,
+                        panel_width,
+                        panel_height,
+                        x,
+                        y,
+                        show_started.elapsed().as_micros(),
+                        first_contrast,
+                        ladder.cycle + 2,
+                    );
+                }
+                ReusePhase::Visible { since } if since.elapsed() >= REUSE_VISIBLE_HOLD => {
+                    unsafe { DwmFlush()? };
+                    let capture = capture_screen(window)?;
+                    let contrast = channel_delta(capture.inside, capture.outside);
+                    let content_delta = ladder
+                        .prior_outside
+                        .map_or(0.0, |prior| channel_delta(prior, capture.outside));
+                    log::info!(
+                        target: "wgpu_l3::material_shadow_probe",
+                        "reuse cycle={} verified visible_ms={} inside_rgb={:?} outside_rgb={:?} frost_contrast={:.3} fresh_content_delta={:.3} shadow_border_first_frame=screen-captured",
+                        ladder.cycle + 1,
+                        since.elapsed().as_millis(),
+                        capture.inside,
+                        capture.outside,
+                        contrast,
+                        content_delta,
+                    );
+                    if contrast <= 1.0 {
+                        return Err(windows::core::Error::new(
+                            E_FAIL,
+                            "reused host lost visible frost contrast",
+                        ));
+                    }
+                    if ladder.cycle + 1 == REUSE_INTERVALS.len() {
+                        self.reuse_complete = true;
+                        log::info!(
+                            target: "wgpu_l3::material_shadow_probe",
+                            "reuse ladder complete cycles=4 host_creations=1 effect_receipts=1 late_receipts=0"
+                        );
+                        return Ok(true);
+                    }
+
+                    self.root.StopAnimation(&HSTRING::from("Opacity"))?;
+                    self.root.SetOpacity(0.0)?;
+                    unsafe { DwmFlush()? };
+                    window.set_visible(false);
+                    ladder.cycle += 1;
+                    ladder.phase = ReusePhase::Hidden {
+                        since: Instant::now(),
+                    };
+                    ladder.prior_outside = Some(capture.outside);
+                    self.reuse = Some(ladder);
+                }
+                ReusePhase::Hidden { .. } | ReusePhase::Visible { .. } => {}
+            }
+
+            Ok(false)
+        }
+
+        fn update(&mut self, window: &Window, underlay: &Window) -> windows::core::Result<bool> {
             if self.committed_at.is_none() && self.commit_batch.IsEnded()? {
                 set_cloaked(window, false)?;
                 for _ in 0..2 {
@@ -323,6 +543,9 @@ mod windows_probe {
                     "effect committed; window uncloaked at {PREWARM_OPACITY:.3}, two host frames consumed, root raised to {INSPECTION_OPACITY:.3}, and visible commit synchronized at +{:?}; post_receipt_barriers=3 delay_constants=0 application_redraws=0",
                     now.duration_since(self.created_at),
                 );
+            }
+            if self.mode == ProbeMode::Reuse && self.committed_at.is_some() {
+                return self.update_reuse(window, underlay);
             }
             if let Some(committed) = self.committed_at
                 && !self.comparison_done
@@ -548,6 +771,7 @@ mod windows_probe {
         underlay: Option<Arc<Window>>,
         window: Option<Arc<Window>>,
         composition: Option<CompositionState>,
+        mode: ProbeMode,
     }
 
     impl ApplicationHandler for App {
@@ -588,7 +812,7 @@ mod windows_probe {
                     .create_window(attributes)
                     .expect("material shadow probe window should open"),
             );
-            match CompositionState::new(&window, &underlay) {
+            match CompositionState::new(&window, &underlay, self.mode) {
                 Ok(composition) => {
                     log::info!(
                         target: "wgpu_l3::material_shadow_probe",
@@ -627,9 +851,17 @@ mod windows_probe {
                 let Some(window) = self.window.as_deref() else {
                     return;
                 };
-                match composition.update(window) {
+                let Some(underlay) = self.underlay.as_deref() else {
+                    return;
+                };
+                match composition.update(window, underlay) {
                     Ok(true) => {
-                        log::info!(target: "wgpu_l3::material_shadow_probe", "zero-hold probe complete");
+                        if self.mode == ProbeMode::Fade {
+                            log::info!(
+                                target: "wgpu_l3::material_shadow_probe",
+                                "zero-hold probe complete"
+                            );
+                        }
                         event_loop.exit();
                         return;
                     }
@@ -649,7 +881,15 @@ mod windows_probe {
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
         let event_loop = EventLoop::new()?;
         event_loop.set_control_flow(ControlFlow::Wait);
-        event_loop.run_app(&mut App::default())?;
+        let mode = if std::env::args().any(|arg| arg == "--reuse-ladder") {
+            ProbeMode::Reuse
+        } else {
+            ProbeMode::Fade
+        };
+        event_loop.run_app(&mut App {
+            mode,
+            ..App::default()
+        })?;
         Ok(())
     }
 }
