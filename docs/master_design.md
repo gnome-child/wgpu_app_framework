@@ -626,6 +626,16 @@ removes the cloak. The first user-visible pixels therefore follow a current
 present; stale or empty swapchain content is never the mechanism used to make
 the window presentable.
 
+The latency epoch begins at retained overlay appearance, not at native-window
+construction. Popup scene preparation reports rebuild, layout, and assembly
+separately from HWND, surface, material, draw, acquire, synchronization, and
+exposure work. An independently presentable popup is submitted before its
+parent window's frame: popup visibility does not pay for unrelated parent
+rendering. Composition prepares an entering root at zero while concealed and
+starts the full entrance animation only after exposure. A retained transition
+to stable state that requests identical popup pixels updates the compositor
+timeline without another swapchain submission.
+
 `PopupFirstPresentTrace` records timestamped created, configured,
 prepared-concealed, acquire outcome, present, synchronization, and exposed
 stages under `wgpu_l3::native_popup`. A skipped acquire remains concealed and

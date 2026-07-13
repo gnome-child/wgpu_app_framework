@@ -36,6 +36,7 @@ struct Entry {
     force_group_at_full_opacity: bool,
     demotion_marker: bool,
     frame_number: u64,
+    lifecycle_epoch: Instant,
 }
 
 #[derive(Debug, Clone)]
@@ -117,6 +118,7 @@ pub(crate) struct Layer {
     force_group_at_full_opacity: bool,
     demotion_marker: bool,
     frame_number: u64,
+    lifecycle_epoch: Instant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,6 +169,8 @@ pub(crate) struct PopupPresentation {
     fade: PopupFade,
     material: PopupMaterial,
     border: scene::Color,
+    lifecycle_epoch: Instant,
+    paint_only: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -275,6 +279,7 @@ impl Entry {
             force_group_at_full_opacity: self.force_group_at_full_opacity,
             demotion_marker: self.demotion_marker,
             frame_number: self.frame_number,
+            lifecycle_epoch: self.lifecycle_epoch,
         }
     }
 }
@@ -306,6 +311,7 @@ impl Ghost {
             force_group_at_full_opacity: false,
             demotion_marker: false,
             frame_number,
+            lifecycle_epoch: self.started_at,
         })
     }
 
@@ -350,6 +356,7 @@ impl RetiringPopup {
             force_group_at_full_opacity: false,
             demotion_marker: false,
             frame_number,
+            lifecycle_epoch: self.started_at,
         })
     }
 
@@ -422,6 +429,10 @@ impl Layer {
     pub(crate) fn frame_number(&self) -> u64 {
         self.frame_number
     }
+
+    pub(crate) fn lifecycle_epoch(&self) -> Instant {
+        self.lifecycle_epoch
+    }
 }
 
 impl Capabilities {
@@ -489,6 +500,8 @@ impl PopupPresentation {
         fade: PopupFade,
         material: PopupMaterial,
         border: scene::Color,
+        lifecycle_epoch: Instant,
+        paint_only: bool,
     ) -> Self {
         Self {
             parent,
@@ -499,6 +512,8 @@ impl PopupPresentation {
             fade,
             material,
             border,
+            lifecycle_epoch,
+            paint_only,
         }
     }
 
@@ -532,6 +547,14 @@ impl PopupPresentation {
 
     pub(crate) fn border(&self) -> scene::Color {
         self.border
+    }
+
+    pub(crate) fn lifecycle_epoch(&self) -> Instant {
+        self.lifecycle_epoch
+    }
+
+    pub(crate) fn paint_only(&self) -> bool {
+        self.paint_only
     }
 }
 
@@ -705,6 +728,7 @@ impl Store {
                 force_group_at_full_opacity: draft.force_group_at_full_opacity,
                 demotion_marker,
                 frame_number,
+                lifecycle_epoch: appeared_at,
             });
         }
 

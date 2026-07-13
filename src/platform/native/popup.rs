@@ -63,6 +63,7 @@ impl Native {
         self.configure_popup_window(presentation, now)?;
 
         let key = PopupKey::new(presentation.parent(), presentation.id());
+        let surface_started = Instant::now();
         self.sync_popup_surface(key)?;
         let render_format = {
             let popup = self
@@ -71,7 +72,26 @@ impl Native {
                 .expect("popup should exist before selecting render format");
             super::surface::render_format_for_canvas(popup.window.canvas())
         };
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "first-present stage=surface-configured popup={:?} parent={:?} elapsed_us={} stage_us={}",
+            presentation.id(),
+            presentation.parent(),
+            presentation.lifecycle_epoch().elapsed().as_micros(),
+            surface_started.elapsed().as_micros()
+        );
+        let renderer_was_warm = self.renderers.contains_key(&render_format);
+        let renderer_started = Instant::now();
         self.ensure_renderer(render_format);
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "first-present stage=renderer-ready popup={:?} parent={:?} elapsed_us={} stage_us={} warm={}",
+            presentation.id(),
+            presentation.parent(),
+            presentation.lifecycle_epoch().elapsed().as_micros(),
+            renderer_started.elapsed().as_micros(),
+            renderer_was_warm
+        );
 
         let render_context = self
             .context
@@ -256,6 +276,7 @@ impl Native {
                 })
                 .into_iter(),
         );
+        let material_started = Instant::now();
         let material_resolution = presentation.scene().resolve_material(
             crate::scene::MaterialRenderer::NativePopup {
                 opaque: reports.is_empty(),
@@ -263,13 +284,23 @@ impl Native {
             &reports,
         );
         #[cfg(target_os = "windows")]
-        if let Some(composition) = popup.composition.as_mut()
-            && let Err(error) = composition.apply_fade(presentation.fade(), Instant::now())
-        {
-            log::warn!(
-                target: "wgpu_l3::native_popup",
-                "failed to project popup opacity into composition tree: {error}"
-            );
+        if let Some(composition) = popup.composition.as_mut() {
+            let fade_result = if !popup.exposed {
+                match presentation.fade() {
+                    overlay::PopupFade::Entering { duration, .. } => {
+                        composition.prepare_entrance(duration)
+                    }
+                    fade => composition.apply_fade(fade, Instant::now()),
+                }
+            } else {
+                composition.apply_fade(presentation.fade(), Instant::now())
+            };
+            if let Err(error) = fade_result {
+                log::warn!(
+                    target: "wgpu_l3::native_popup",
+                    "failed to project popup opacity into composition tree: {error}"
+                );
+            }
         }
         let faded_scene = (!uses_composition).then(|| {
             let mut scene = crate::scene::Scene::new_with_clear(
@@ -282,6 +313,14 @@ impl Native {
         let source_scene = faded_scene
             .as_ref()
             .unwrap_or_else(|| material_resolution.scene());
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "first-present stage=material-resolved popup={:?} parent={:?} elapsed_us={} stage_us={}",
+            presentation.id(),
+            presentation.parent(),
+            presentation.lifecycle_epoch().elapsed().as_micros(),
+            material_started.elapsed().as_micros()
+        );
         log::debug!(
             target: "wgpu_l3::native_popup",
             "native popup material resolution {:?}: fidelity={:?}, regions={:?}",
@@ -330,6 +369,25 @@ impl Native {
             popup.first_present.record_prepared(key);
         }
 
+        if uses_composition
+            && !popup_scene_needs_submission(
+                presentation.fade(),
+                presentation.paint_only(),
+                popup.exposed,
+                popup.first_present.needs_redraw(),
+                popup.last_presented_scene.as_ref(),
+                &scene,
+            )
+        {
+            log::debug!(
+                target: "wgpu_l3::native_popup",
+                "skipped unchanged composition popup submission {:?} for parent {:?}",
+                presentation.id(),
+                presentation.parent()
+            );
+            return Ok(false);
+        }
+
         let draw_started = Instant::now();
         let report = renderer.draw(render_context, popup.window.canvas_mut(), &scene)?;
         let draw = draw_started.elapsed();
@@ -337,6 +395,7 @@ impl Native {
             .first_present
             .record_acquire(key, report.acquire_outcome);
         let action = if let Some(timing) = report.present_timing {
+            popup.last_presented_scene = Some(scene.clone());
             let action = popup.first_present.record_presented(key, timing);
             log::debug!(
                 target: "wgpu_l3::native_popup",
@@ -373,6 +432,15 @@ impl Native {
             })?;
             popup.exposed = true;
             popup.first_present.record_exposed(key);
+            #[cfg(target_os = "windows")]
+            if let Some(composition) = popup.composition.as_mut()
+                && let Err(error) = composition.start_prepared_entrance(Instant::now())
+            {
+                log::warn!(
+                    target: "wgpu_l3::native_popup",
+                    "failed to start prepared popup entrance after exposure: {error}"
+                );
+            }
         }
 
         Ok(action == PopupFirstPresentAction::RequestRedraw)
@@ -388,7 +456,26 @@ impl Native {
             return Ok(());
         }
 
+        let lifecycle_epoch = presentation.lifecycle_epoch();
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "first-present stage=native-request popup={:?} parent={:?} elapsed_us={}",
+            presentation.id(),
+            presentation.parent(),
+            lifecycle_epoch.elapsed().as_micros()
+        );
+        let context_was_warm = self.context.is_some();
+        let context_started = Instant::now();
         self.ensure_context()?;
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "first-present stage=renderer-context popup={:?} parent={:?} elapsed_us={} stage_us={} warm={}",
+            presentation.id(),
+            presentation.parent(),
+            lifecycle_epoch.elapsed().as_micros(),
+            context_started.elapsed().as_micros(),
+            context_was_warm
+        );
         let presentation_mode = PopupPresentationMode::from_render_context(
             self.context
                 .as_ref()
@@ -416,7 +503,16 @@ impl Native {
             owner: Some(parent.handle()),
             popup_presentation_mode: Some(presentation_mode),
         };
+        let hwnd_started = Instant::now();
         let handle = NativeWindow::open(native_options, context.event_loop())?;
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "first-present stage=hwnd-created popup={:?} parent={:?} elapsed_us={} stage_us={}",
+            presentation.id(),
+            presentation.parent(),
+            lifecycle_epoch.elapsed().as_micros(),
+            hwnd_started.elapsed().as_micros()
+        );
         let inner_size = handle.inner_size();
         let canvas_options = || render::CanvasOptions {
             area: paint::area::physical(inner_size.width, inner_size.height).clamp_min(1),
@@ -484,7 +580,7 @@ impl Native {
         let canvas = render::Canvas::new(canvas_options(), render_context, handle.clone())?;
         let popup = NativeWindow::new(handle, canvas);
         popup.set_ime_allowed(false);
-        let mut popup = PopupWindow::new(popup, presentation_mode);
+        let mut popup = PopupWindow::new(popup, presentation_mode, lifecycle_epoch);
         #[cfg(target_os = "windows")]
         {
             popup.composition = composition;
@@ -928,6 +1024,24 @@ fn queue_popup_parent_redraw(redraw_parents: &mut HashSet<app_window::Id>, paren
     redraw_parents.insert(parent);
 }
 
+fn popup_scene_needs_submission(
+    fade: overlay::PopupFade,
+    paint_only: bool,
+    exposed: bool,
+    freshness_pending: bool,
+    last_presented: Option<&paint::Scene>,
+    requested: &paint::Scene,
+) -> bool {
+    if !exposed || freshness_pending {
+        return true;
+    }
+    match fade {
+        overlay::PopupFade::Exiting { .. } => false,
+        overlay::PopupFade::Stable if paint_only => last_presented != Some(requested),
+        overlay::PopupFade::Entering { .. } | overlay::PopupFade::Stable => true,
+    }
+}
+
 fn popup_is_stale(
     key: &PopupKey,
     synchronized_parents: &HashSet<app_window::Id>,
@@ -951,12 +1065,75 @@ fn native_popups_supported() -> bool {
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
+    use std::time::Instant;
 
     use super::{
         PopupFirstPresentAction, PopupFirstPresentState, PopupFirstPresentTrace, PopupKey,
-        first_present_follow_up, popup_is_stale, queue_popup_parent_redraw,
+        first_present_follow_up, popup_is_stale, popup_scene_needs_submission,
+        queue_popup_parent_redraw,
     };
-    use crate::{interaction, window};
+    use crate::{interaction, overlay, paint, window};
+
+    #[test]
+    fn unchanged_composition_scene_does_not_submit_after_fresh_exposure() {
+        let scene = paint::Scene::new();
+        let now = Instant::now();
+        let entering = overlay::PopupFade::Entering {
+            duration: std::time::Duration::from_millis(80),
+            started_at: now,
+        };
+        let exiting = overlay::PopupFade::Exiting {
+            duration: std::time::Duration::from_millis(90),
+            started_at: now,
+            from_opacity: 1.0,
+        };
+        assert!(popup_scene_needs_submission(
+            entering, false, false, false, None, &scene
+        ));
+        assert!(popup_scene_needs_submission(
+            overlay::PopupFade::Stable,
+            true,
+            true,
+            true,
+            Some(&scene),
+            &scene
+        ));
+        assert!(!popup_scene_needs_submission(
+            overlay::PopupFade::Stable,
+            true,
+            true,
+            false,
+            Some(&scene),
+            &scene
+        ));
+
+        let mut changed = paint::Scene::new();
+        changed.clear(paint::Color::BLACK);
+        assert!(popup_scene_needs_submission(
+            overlay::PopupFade::Stable,
+            true,
+            true,
+            false,
+            Some(&scene),
+            &changed
+        ));
+        assert!(popup_scene_needs_submission(
+            overlay::PopupFade::Stable,
+            false,
+            true,
+            false,
+            Some(&scene),
+            &scene
+        ));
+        assert!(!popup_scene_needs_submission(
+            exiting,
+            false,
+            true,
+            false,
+            Some(&scene),
+            &changed
+        ));
+    }
 
     #[test]
     fn popup_maintenance_redraws_coalesce_per_parent() {
@@ -1009,7 +1186,7 @@ mod tests {
             "a second freshly presented frame ends the bounded fallback without exposing stale content"
         );
 
-        let mut trace = PopupFirstPresentTrace::new();
+        let mut trace = PopupFirstPresentTrace::new(Instant::now());
         assert!(
             trace.needs_redraw(),
             "a skipped first acquire must retry because no present occurred"

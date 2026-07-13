@@ -2653,6 +2653,24 @@ fn native_popup_first_present_is_visible_traced_and_compositor_synchronized() {
 }
 
 #[test]
+fn native_popup_presentation_does_not_wait_behind_the_parent_frame() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let platform = std::fs::read_to_string(root.join("src").join("platform").join("mod.rs"))
+        .expect("platform source should read");
+    let popup = platform
+        .find("self.backend.present_overlay_popups")
+        .expect("platform should present native popups");
+    let parent = platform
+        .find("for presentation in work.presentations()")
+        .expect("platform should present parent windows");
+
+    assert!(
+        popup < parent,
+        "an independently presentable popup must not pay the parent renderer's frame cost before visibility"
+    );
+}
+
+#[test]
 fn material_regions_derive_identity_and_provenance_at_pane_emission() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let scene = std::fs::read_to_string(root.join("src").join("scene").join("mod.rs"))

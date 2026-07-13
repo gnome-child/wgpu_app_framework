@@ -65,6 +65,7 @@ impl PreparedFrame {
                         self.capabilities,
                         self.native_popup_dark,
                         &mut popup_presentations,
+                        self.invalidation == response::Invalidation::Paint,
                     );
                 }
                 crate::overlay::LayerKind::Ghost => {
@@ -817,14 +818,20 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         now: Instant,
         capabilities: crate::overlay::Capabilities,
     ) -> Option<PreparedFrame> {
+        let frame_started_at = Instant::now();
         let revision = self.revision();
+        let rebuilt = invalidation == response::Invalidation::Rebuild;
+        let rebuild_started_at = Instant::now();
         if invalidation == response::Invalidation::Rebuild {
             self.present(window)?;
         }
+        let rebuild_elapsed = rebuild_started_at.elapsed();
         self.session.clear_redraw_request(window);
 
         let frame = self.frame_at(now);
+        let layout_started_at = Instant::now();
         let layout = self.layout_for_scene(window, size, theme, frame, invalidation)?;
+        let layout_elapsed = layout_started_at.elapsed();
         self.apply_layout_feedback(window, &layout);
         let epoch = self.session.window(window)?.desired_presentation_epoch();
         let assembly_started_at = Instant::now();
@@ -848,10 +855,26 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .merge(visual_schedule)
             .merge(overlay_schedule);
         self.set_animation_schedule(window, schedule);
+        let assembly_elapsed = assembly_started_at.elapsed();
+        for layer in layers
+            .iter()
+            .filter(|layer| layer.backend() == crate::overlay::Backend::NativePopup)
+        {
+            log::debug!(
+                target: "wgpu_l3::native_popup",
+                "first-present stage=runtime-prepared popup={:?} parent={:?} elapsed_us={} frame_us={} rebuild_us={} rebuilt={} layout_us={} scene_us={}",
+                layer.id(),
+                window,
+                layer.lifecycle_epoch().elapsed().as_micros(),
+                frame_started_at.elapsed().as_micros(),
+                rebuild_elapsed.as_micros(),
+                rebuilt,
+                layout_elapsed.as_micros(),
+                assembly_elapsed.as_micros()
+            );
+        }
         let diagnostics = self.diagnostics.get_mut(window);
-        diagnostics
-            .pipeline
-            .record_scene_assembly(assembly_started_at.elapsed());
+        diagnostics.pipeline.record_scene_assembly(assembly_elapsed);
         diagnostics.pipeline.record_frame_prepared();
 
         Some(PreparedFrame {
@@ -1123,10 +1146,18 @@ fn append_or_present_overlay_layer(
     capabilities: crate::overlay::Capabilities,
     native_popup_dark: bool,
     popup_presentations: &mut Vec<crate::overlay::PopupPresentation>,
+    paint_only: bool,
 ) {
     match layer.backend() {
         crate::overlay::Backend::InFrame => append_overlay_layer(scene, layer),
         crate::overlay::Backend::NativePopup if capabilities.native_popups_supported() => {
+            log::debug!(
+                target: "wgpu_l3::native_popup",
+                "first-present stage=runtime-realized popup={:?} parent={:?} elapsed_us={}",
+                layer.id(),
+                window,
+                layer.lifecycle_epoch().elapsed().as_micros()
+            );
             let local = layer.scene().native_popup_request(layer.bounds());
             let popup_scene = local.scene().with_material_opacity(layer.opacity());
             popup_presentations.push(crate::overlay::PopupPresentation::new(
@@ -1142,6 +1173,8 @@ fn append_or_present_overlay_layer(
                     preference: layer.popup_material_preference(),
                 },
                 layer.popup_border(),
+                layer.lifecycle_epoch(),
+                paint_only,
             ));
         }
         crate::overlay::Backend::NativePopup => {}

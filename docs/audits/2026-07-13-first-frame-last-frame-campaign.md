@@ -67,7 +67,7 @@ silhouette and one opacity owner.
 | 3. One framework edge | Complete | DWM edge/corner/shadow retired for composition; painted one-pixel edge and framework shadow |
 | 4. One compositor timeline | Complete | Root owns every visible part; retarget is continuous; hide precedes every teardown |
 | 5. Honest redirected fallback | Complete | Native placement and animation split; Vulkan opens/closes with no pseudo-fade or afterlife |
-| 6. Complete open-bill trace | Pending | Semantic-open through fade-complete timings; measured verdict applied |
+| 6. Complete open-bill trace | Complete | Semantic-open trace; popup-first presentation; exposure-anchored compositor entrance; measured owner transfer |
 | 7. Resistance and close-out | Pending | Deletion census, hardware eyes, doctrine, roadmap, full ritual |
 
 ## Checkpoint 0 initial receipts
@@ -248,6 +248,77 @@ dismissal. There was no 80/90 ms blank entrance, translucent first sample,
 invisible retiring HWND, WinRT composition runtime, or DX12 device.
 
 > Unsupported animation becomes immediate lifecycle, not simulated latency.
+
+## Checkpoint 6 — measure and pay the open bill
+
+The lifecycle epoch now originates at retained overlay appearance rather than
+inside `PopupWindow::new`. The release trace reports semantic-to-prepared
+runtime work, native construction, surface/renderer readiness, material
+resolution, draw/acquire, the freshness barrier, exposure, and compositor
+animation. The initial full-height dark-gallery DX12 reduction proved that the
+80 ms entrance had already expired during hidden native construction: exposure
+occurred at 148 ms with root opacity one. Animation time had been misclassified
+as construction time.
+
+Two ownership corrections followed from that receipt:
+
+- A composition entrance is prepared at root opacity zero while concealed and
+  starts its full declared interval only after the fresh frame is exposed.
+  Stable retained state cannot interrupt that active compositor timeline.
+- Independently presentable native popups are submitted before the expensive
+  parent frame. The old order charged roughly 80 ms of parent rendering to the
+  popup before native construction even began. The new order is pinned by an
+  architecture witness.
+
+An exact final DX12 menu trace at scale 1.25 recorded:
+
+| Stage | Elapsed / duration |
+| --- | ---: |
+| Runtime prepared | 3.468 ms total |
+| View rebuild | 0.749 ms |
+| Presentation layout | 2.493 ms |
+| Scene assembly | 0.212 ms |
+| Runtime realized | 4.363 ms elapsed |
+| Native request | 5.475 ms elapsed |
+| HWND creation | 4.933 ms |
+| Popup canvas / composition tenancy | 25.368 ms |
+| Material-region synchronization | 0.036 ms |
+| Material complement resolution | 0.098 ms |
+| Prepared while concealed | 39.782 ms elapsed |
+| Popup draw | 20.171 ms |
+| Acquire | 0.085 ms |
+| `DwmFlush` freshness barrier | 4.070 ms |
+| Exposed | 64.990 ms elapsed |
+| Compositor entrance | 80.000 ms after exposure |
+
+The completion update and later maintenance redraw both found identical popup
+pixels and skipped renderer submission. The compositor log therefore shows one
+prepared swapchain frame, zero fade-interval application redraws, and zero
+fade-interval `DwmFlush` calls. Dismissal begins from the retained current
+opacity, receives the remaining semantic interval after a roughly 15 ms
+runtime/native handoff, submits no new popup pixels, and hides before teardown.
+
+Release comparison matrix on the same full-height dark gallery and scale:
+
+| Surface | DX12 composition | Explicit Vulkan |
+| --- | ---: | ---: |
+| Menu, semantic open to exposure | 61–65 ms | 56 ms |
+| Command palette, semantic open to exposure | 71 ms | 55 ms |
+| Menu draw | 18–20 ms | 3.7 ms |
+| Command-palette draw | 24.1 ms | 7.4 ms |
+| Entrance | 80 ms compositor-only | Immediate |
+| Dismissal | Compositor-only, no popup submission | Immediate |
+
+Before popup-first ordering, the same DX12 menu exposed at 148 ms. The roughly
+87 ms improvement removes an unrelated parent-frame tax without pooling HWNDs,
+retaining anonymous surfaces, prewarming speculative resources, weakening
+freshness, or adding policy API. The remaining DX12 draw delta is transferred
+as an additional item-14 renderer-economics receipt; this campaign does not
+optimize it. Four-scale silhouette and both-theme semantics remain structural
+test witnesses, while hardware eyes cover the available 1.25 dark environment.
+
+> Independent surfaces pay for their own fresh frame, not for an unrelated
+> parent presentation; animation begins when visibility begins.
 
 > One framework silhouette defines every popup pixel; the platform realizes
 > declared effects, and one compositor timeline carries them from first frame

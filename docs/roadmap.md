@@ -107,6 +107,11 @@ No campaign is currently in flight.
     damage. Cache enlargement is rejected by current evidence. Any retained
     layer must state its ownership and invalidation boundary without duplicating
     layout truth; damage waits for a demonstrated GPU residual.
+    The popup open-bill trace adds a bounded second receipt: the same small
+    menu costs 18–20 ms to draw on DX12 versus 3.7 ms on Vulkan, and the command
+    palette 24.1 ms versus 7.4 ms, after view/layout/scene work is below 4 ms
+    and popup presentation no longer waits behind the parent frame. The popup
+    campaign owns no renderer workaround for that backend-amplified cost.
 28. **Presentation Clock — COMPLETE** (`20c31cae`, 2026-07-13; 939 tests at
     the last behavioral boundary). Events update truth immediately; redraw is
     the frame boundary; successful presentation receipts alone promote visible

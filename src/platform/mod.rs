@@ -173,6 +173,13 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             .map(shell::Presentation::window)
             .collect::<Vec<_>>();
         let mut cursor_updates = work.cursor_updates().to_vec();
+        if let Some(popup_presentations) = work.popup_presentations() {
+            self.backend.present_overlay_popups(
+                context,
+                &synchronized_popup_parents,
+                popup_presentations,
+            )?;
+        }
         for presentation in work.presentations() {
             let report = self.backend.present(context, presentation)?;
             let retry = self.host.shell_mut().runtime_mut().finish_render_report(
@@ -188,13 +195,6 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             }
         }
         cursor_updates.extend(self.host.shell_mut().runtime_mut().take_cursor_updates());
-        if let Some(popup_presentations) = work.popup_presentations() {
-            self.backend.present_overlay_popups(
-                context,
-                &synchronized_popup_parents,
-                popup_presentations,
-            )?;
-        }
 
         for update in work.ime_updates() {
             self.backend.set_ime(context, *update)?;

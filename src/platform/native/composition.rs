@@ -59,6 +59,7 @@ pub(super) struct Host {
     host_backdrop_enabled: bool,
     material_regions: HashMap<composition::NodeId, RegionVisual>,
     fade: Option<FadeState>,
+    pending_entrance: Option<std::time::Duration>,
 }
 
 struct RegionVisual {
@@ -235,6 +236,7 @@ impl Runtime {
             host_backdrop_enabled,
             material_regions: HashMap::new(),
             fade: None,
+            pending_entrance: None,
         })
     }
 }
@@ -246,6 +248,40 @@ impl SurfaceSeed {
 }
 
 impl Host {
+    pub(super) fn prepare_entrance(&mut self, duration: std::time::Duration) -> Result<()> {
+        if self.pending_entrance == Some(duration) {
+            return Ok(());
+        }
+        self.root.StopAnimation(&HSTRING::from("Opacity"))?;
+        self.root.SetOpacity(0.0)?;
+        self.fade = None;
+        self.pending_entrance = Some(duration);
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "composition entrance prepared opacity=0 duration_us={} application_redraws=0 dwm_flushes=0",
+            duration.as_micros()
+        );
+        Ok(())
+    }
+
+    pub(super) fn start_prepared_entrance(&mut self, now: std::time::Instant) -> Result<()> {
+        let Some(duration) = self.pending_entrance.take() else {
+            return Ok(());
+        };
+        let key = FadeKey {
+            phase: 0,
+            duration,
+            from_opacity_bits: 0.0_f32.to_bits(),
+        };
+        self.start_fade(key, now, duration, 0.0, 1.0)?;
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "composition entrance started after exposure from=0 target=1 duration_us={} application_redraws=0 dwm_flushes=0",
+            duration.as_micros()
+        );
+        Ok(())
+    }
+
     pub(super) fn apply_fade(
         &mut self,
         fade: crate::overlay::PopupFade,
@@ -271,6 +307,12 @@ impl Host {
                     duration: std::time::Duration::ZERO,
                     from_opacity_bits: 1.0_f32.to_bits(),
                 };
+                if self
+                    .fade
+                    .is_some_and(|state| state.key.phase == 0 && state.opacity_at(now) < 1.0)
+                {
+                    return Ok(());
+                }
                 if self.fade.map(|state| state.key) != Some(key) {
                     self.root.StopAnimation(&HSTRING::from("Opacity"))?;
                     self.root.SetOpacity(1.0)?;
@@ -308,20 +350,40 @@ impl Host {
             .map(|state| state.opacity_at(now))
             .unwrap_or(sampled_opacity)
             .clamp(0.0, 1.0);
+        self.start_fade(key, now, remaining, start, target)?;
+        log::debug!(
+            target: "wgpu_l3::native_popup",
+            "composition fade phase={} from={:.6} target={:.6} remaining_us={} application_redraws=0 dwm_flushes=0",
+            key.phase,
+            start,
+            target,
+            remaining.as_micros()
+        );
+        Ok(())
+    }
+
+    fn start_fade(
+        &mut self,
+        key: FadeKey,
+        now: std::time::Instant,
+        duration: std::time::Duration,
+        from: f32,
+        target: f32,
+    ) -> Result<()> {
         self.root.StopAnimation(&HSTRING::from("Opacity"))?;
-        self.root.SetOpacity(start)?;
-        if remaining.is_zero() {
+        self.root.SetOpacity(from)?;
+        if duration.is_zero() {
             self.root.SetOpacity(target)?;
         } else {
             let animation = self.compositor.CreateScalarKeyFrameAnimation()?;
-            animation.InsertKeyFrame(0.0, start)?;
+            animation.InsertKeyFrame(0.0, from)?;
             let easing = self.compositor.CreateCubicBezierEasingFunction(
                 Vector2 { X: 0.33, Y: 1.0 },
                 Vector2 { X: 0.68, Y: 1.0 },
             )?;
             animation.InsertKeyFrameWithEasingFunction(1.0, target, &easing)?;
             animation.SetDuration(TimeSpan {
-                Duration: (remaining.as_nanos() / 100).min(i64::MAX as u128) as i64,
+                Duration: (duration.as_nanos() / 100).min(i64::MAX as u128) as i64,
             })?;
             self.root
                 .StartAnimation(&HSTRING::from("Opacity"), &animation)?;
@@ -329,8 +391,8 @@ impl Host {
         self.fade = Some(FadeState {
             key,
             started_at: now,
-            duration: remaining,
-            from: start,
+            duration,
+            from,
             target,
         });
         Ok(())

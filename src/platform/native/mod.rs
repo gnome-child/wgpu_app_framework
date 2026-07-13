@@ -57,6 +57,7 @@ struct PopupWindow {
     border: PopupBorderState,
     presentation_prepared: bool,
     exposed: bool,
+    last_presented_scene: Option<crate::paint::Scene>,
     first_present: PopupFirstPresentTrace,
     material: Option<overlay::PopupMaterial>,
     presentation_mode: PopupPresentationMode,
@@ -144,7 +145,11 @@ impl PopupKey {
 }
 
 impl PopupWindow {
-    fn new(window: window::Window, presentation_mode: PopupPresentationMode) -> Self {
+    fn new(
+        window: window::Window,
+        presentation_mode: PopupPresentationMode,
+        lifecycle_epoch: Instant,
+    ) -> Self {
         Self {
             window,
             bounds: geometry::Rect::new(0, 0, 0, 0),
@@ -154,7 +159,8 @@ impl PopupWindow {
             border: PopupBorderState::default(),
             presentation_prepared: false,
             exposed: false,
-            first_present: PopupFirstPresentTrace::new(),
+            last_presented_scene: None,
+            first_present: PopupFirstPresentTrace::new(lifecycle_epoch),
             material: None,
             presentation_mode,
             material_realization: None,
@@ -210,9 +216,9 @@ impl PopupEventTarget {
 const POPUP_SYS_SETTLE_DELAY: Duration = Duration::from_millis(150);
 
 impl PopupFirstPresentTrace {
-    fn new() -> Self {
+    fn new(created_at: Instant) -> Self {
         Self {
-            created_at: Instant::now(),
+            created_at,
             configured: false,
             acquire_attempts: 0,
             state: PopupFirstPresentState::AwaitingFirst,
