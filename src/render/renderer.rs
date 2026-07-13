@@ -15,6 +15,7 @@ pub(crate) struct DrawReport {
 pub struct Renderer {
     format: wgpu::TextureFormat,
     quad_pipeline: wgpu::RenderPipeline,
+    quad_arena: render::quad::Arena,
     filter_renderer: render::filter::Renderer,
     popup_packer: render::popup_pack::Packer,
     text_renderer: render::text_renderer::TextRenderer,
@@ -22,11 +23,17 @@ pub struct Renderer {
 
 enum RenderBatch {
     Shapes(render::quad::Batch),
-    Pane(paint::Pane),
+    Pane(PreparedPane),
     Text { renderer_index: usize },
     PushClip(paint::Clip),
     PopClip,
     Group(PreparedGroup),
+}
+
+struct PreparedPane {
+    pane: paint::Pane,
+    base: Option<render::quad::Batch>,
+    surface_layers: Vec<Option<render::quad::Batch>>,
 }
 
 struct PreparedScene {
@@ -70,6 +77,7 @@ impl ClipFrame {
 struct SceneEncoder<'a> {
     render_context: &'a render::Context,
     quad_pipeline: &'a wgpu::RenderPipeline,
+    quad_vertex_buffer: &'a wgpu::Buffer,
     filter_renderer: &'a render::filter::Renderer,
     text_renderer: &'a mut render::text_renderer::TextRenderer,
     output_target: render::filter::Target,
@@ -89,6 +97,7 @@ struct SceneEncoder<'a> {
 struct SceneEncoderInput<'a> {
     render_context: &'a render::Context,
     quad_pipeline: &'a wgpu::RenderPipeline,
+    quad_vertex_buffer: &'a wgpu::Buffer,
     filter_renderer: &'a render::filter::Renderer,
     text_renderer: &'a mut render::text_renderer::TextRenderer,
     encoder: &'a mut wgpu::CommandEncoder,
@@ -107,6 +116,7 @@ impl Renderer {
         Self {
             format,
             quad_pipeline: render::quad::pipeline(render_context, format),
+            quad_arena: render::quad::Arena::new(render_context),
             filter_renderer: render::filter::Renderer::new(render_context, format),
             popup_packer: render::popup_pack::Packer::new(render_context),
             text_renderer: render::text_renderer::TextRenderer::new(render_context, format),
@@ -167,13 +177,18 @@ impl Renderer {
 
         let mut text_renderer_index = 0;
         let mut stats = DrawStats::default();
+        self.quad_arena.begin_frame();
         let prepared_scene = self.prepare_scene_batches(
             render_context,
             main_viewport,
             &item_batches,
             &mut text_renderer_index,
         )?;
+        let geometry_upload = self.quad_arena.upload(render_context);
         stats.add(prepared_scene.stats);
+        stats.quad_vertices = geometry_upload.vertex_count;
+        stats.geometry_upload_bytes = geometry_upload.bytes;
+        stats.geometry_buffer_creations = usize::from(geometry_upload.buffer_created);
         stats.scene_items = scene.items().len();
         let batch_prepare = batch_prepare_started.elapsed();
 
@@ -204,6 +219,7 @@ impl Renderer {
             self.filter_renderer.prepare(render_context, canvas)
         };
         let quad_pipeline = &self.quad_pipeline;
+        let quad_vertex_buffer = self.quad_arena.buffer();
         let filter_renderer = &self.filter_renderer;
         let popup_packer = &self.popup_packer;
         let text_renderer = &mut self.text_renderer;
@@ -219,6 +235,7 @@ impl Renderer {
                 let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
                     render_context,
                     quad_pipeline,
+                    quad_vertex_buffer,
                     filter_renderer,
                     text_renderer,
                     encoder,
@@ -253,6 +270,7 @@ impl Renderer {
                 let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
                     render_context,
                     quad_pipeline,
+                    quad_vertex_buffer,
                     filter_renderer,
                     text_renderer,
                     encoder,
@@ -277,6 +295,7 @@ impl Renderer {
                 let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
                     render_context,
                     quad_pipeline,
+                    quad_vertex_buffer,
                     filter_renderer,
                     text_renderer,
                     encoder,
@@ -347,14 +366,14 @@ impl Renderer {
             match batch {
                 ItemBatch::Shapes(shapes) => {
                     if let Some(batch) =
-                        render::quad::prepare_batch(render_context, viewport, shapes)
+                        render::quad::prepare_batch(&mut self.quad_arena, viewport, shapes)
                     {
                         stats.quad_vertices += batch.vertex_count() as usize;
                         render_batches.push(RenderBatch::Shapes(batch));
                     }
                 }
                 ItemBatch::Pane(pane) => {
-                    render_batches.push(RenderBatch::Pane((*pane).clone()));
+                    render_batches.push(RenderBatch::Pane(self.prepare_pane(viewport, pane)));
                 }
                 ItemBatch::PushClip(clip) => {
                     render_batches.push(RenderBatch::PushClip(**clip));
@@ -411,6 +430,67 @@ impl Renderer {
             stats,
         })
     }
+
+    fn prepare_pane(&mut self, viewport: render::Viewport, pane: &paint::Pane) -> PreparedPane {
+        let base_brush = match &pane.material {
+            paint::Material::Solid(brush) => Some(*brush),
+            paint::Material::Glass(glass) if glass.base == paint::GlassBase::Fallback => {
+                Some(glass.fallback)
+            }
+            paint::Material::Glass(_) => None,
+        };
+        let surface_brushes = match &pane.material {
+            paint::Material::Solid(_) => Vec::new(),
+            paint::Material::Glass(glass) => glass
+                .surface_layers
+                .iter()
+                .map(|layer| match *layer {
+                    paint::SurfaceLayer::Tint { brush, opacity } => {
+                        Some(render::material::brush_with_opacity(brush, opacity))
+                    }
+                    paint::SurfaceLayer::Noise(_) => None,
+                })
+                .collect::<Vec<_>>(),
+        };
+
+        PreparedPane {
+            pane: pane.clone(),
+            base: base_brush.and_then(|brush| {
+                prepare_brush_batch(&mut self.quad_arena, viewport, pane.rect, brush)
+            }),
+            surface_layers: surface_brushes
+                .into_iter()
+                .map(|brush| {
+                    brush.and_then(|brush| {
+                        prepare_brush_batch(&mut self.quad_arena, viewport, pane.rect, brush)
+                    })
+                })
+                .collect(),
+        }
+    }
+}
+
+fn prepare_brush_batch(
+    arena: &mut render::quad::Arena,
+    viewport: render::Viewport,
+    rect: Rect,
+    brush: paint::Brush,
+) -> Option<render::quad::Batch> {
+    if !brush.is_visible() {
+        return None;
+    }
+    let quad = paint::Quad::resolved_for_grid(
+        rect,
+        paint::Style {
+            fill: Some(paint::Fill::Brush(brush)),
+            stroke: None,
+            tint: None,
+        },
+        paint::Rasterization::default(),
+        paint::Transform::identity(),
+        paint::Grid::new(viewport.scale_factor()),
+    );
+    render::quad::prepare_batch(arena, viewport, &[render::batch::Shape::Quad(&quad)])
 }
 
 impl DrawStats {
@@ -448,6 +528,8 @@ impl DrawStats {
         self.inline_icon_cache_misses += other.inline_icon_cache_misses;
         self.inline_icon_shape_calls += other.inline_icon_shape_calls;
         self.quad_vertices += other.quad_vertices;
+        self.geometry_upload_bytes += other.geometry_upload_bytes;
+        self.geometry_buffer_creations += other.geometry_buffer_creations;
         self.clip_batches += other.clip_batches;
         self.group_composites += other.group_composites;
         self.filter_layer_pool_entries += other.filter_layer_pool_entries;
@@ -526,6 +608,7 @@ impl<'a> SceneEncoder<'a> {
         Self {
             render_context: input.render_context,
             quad_pipeline: input.quad_pipeline,
+            quad_vertex_buffer: input.quad_vertex_buffer,
             filter_renderer: input.filter_renderer,
             text_renderer: input.text_renderer,
             output_target: render::filter::Target::from_viewport(input.viewport),
@@ -580,13 +663,14 @@ impl<'a> SceneEncoder<'a> {
             let mut pass = begin_main_pass(self.encoder, target_view, self.clear_color, false);
             pass.set_pipeline(self.quad_pipeline);
             pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
-            pass.set_vertex_buffer(0, batch.vertex_buffer().slice(..));
-            pass.draw(0..batch.vertex_count(), 0..1);
+            pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
+            pass.draw(batch.vertex_range(), 0..1);
         }
         self.mark_current_dirty();
     }
 
-    fn encode_pane(&mut self, pane: &paint::Pane) {
+    fn encode_pane(&mut self, prepared: &PreparedPane) {
+        let pane = &prepared.pane;
         let Some(scissor) = current_scissor(
             &self.clip_stack,
             self.viewport.physical_area(),
@@ -596,8 +680,10 @@ impl<'a> SceneEncoder<'a> {
         };
 
         match &pane.material {
-            paint::Material::Solid(brush) => {
-                self.encode_pane_brush(pane.rect, *brush, scissor);
+            paint::Material::Solid(_) => {
+                if let Some(batch) = prepared.base.as_ref() {
+                    self.encode_shapes(batch);
+                }
             }
             paint::Material::Glass(glass) => {
                 log::debug!(
@@ -612,7 +698,9 @@ impl<'a> SceneEncoder<'a> {
 
                 match glass.base {
                     paint::GlassBase::Fallback => {
-                        self.encode_pane_brush(pane.rect, glass.fallback, scissor);
+                        if let Some(batch) = prepared.base.as_ref() {
+                            self.encode_shapes(batch);
+                        }
                     }
                     paint::GlassBase::Transparent => {}
                     paint::GlassBase::FrameworkBackdrop => {
@@ -646,14 +734,14 @@ impl<'a> SceneEncoder<'a> {
                     }
                 }
 
-                for layer in &glass.surface_layers {
+                for (layer, prepared_layer) in
+                    glass.surface_layers.iter().zip(&prepared.surface_layers)
+                {
                     match *layer {
-                        paint::SurfaceLayer::Tint { brush, opacity } => {
-                            self.encode_pane_brush(
-                                pane.rect,
-                                render::material::brush_with_opacity(brush, opacity),
-                                scissor,
-                            );
+                        paint::SurfaceLayer::Tint { .. } => {
+                            if let Some(batch) = prepared_layer.as_ref() {
+                                self.encode_shapes(batch);
+                            }
                         }
                         paint::SurfaceLayer::Noise(noise) => {
                             if noise.opacity <= 0.0 {
@@ -690,42 +778,6 @@ impl<'a> SceneEncoder<'a> {
                 }
             }
         }
-    }
-
-    fn encode_pane_brush(&mut self, rect: Rect, brush: paint::Brush, scissor: render::Scissor) {
-        if !brush.is_visible() {
-            return;
-        }
-
-        let grid = paint::Grid::new(self.viewport.scale_factor());
-        let quad = paint::Quad::resolved_for_grid(
-            rect,
-            paint::Style {
-                fill: Some(paint::Fill::Brush(brush)),
-                stroke: None,
-                tint: None,
-            },
-            paint::Rasterization::default(),
-            paint::Transform::identity(),
-            grid,
-        );
-        let shapes = [render::batch::Shape::Quad(&quad)];
-        let Some(batch) = render::quad::prepare_batch(self.render_context, self.viewport, &shapes)
-        else {
-            return;
-        };
-        let Some(target_view) = current_target_view(self.base_view, &self.layers, &self.clip_stack)
-        else {
-            return;
-        };
-        {
-            let mut pass = begin_main_pass(self.encoder, target_view, self.clear_color, false);
-            pass.set_pipeline(self.quad_pipeline);
-            pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
-            pass.set_vertex_buffer(0, batch.vertex_buffer().slice(..));
-            pass.draw(0..batch.vertex_count(), 0..1);
-        }
-        self.mark_current_dirty();
     }
 
     fn encode_text(&mut self, renderer_index: usize) {
@@ -785,6 +837,7 @@ impl<'a> SceneEncoder<'a> {
             let mut group_encoder = SceneEncoder::new(SceneEncoderInput {
                 render_context: self.render_context,
                 quad_pipeline: self.quad_pipeline,
+                quad_vertex_buffer: self.quad_vertex_buffer,
                 filter_renderer: self.filter_renderer,
                 text_renderer: self.text_renderer,
                 encoder: self.encoder,
@@ -1483,6 +1536,7 @@ mod tests {
         );
         let item_batch_list = item_batches(scene.items());
         let mut text_renderer_index = 0;
+        renderer.quad_arena.begin_frame();
         let prepared_scene = renderer
             .prepare_scene_batches(
                 &context,
@@ -1491,6 +1545,7 @@ mod tests {
                 &mut text_renderer_index,
             )
             .map_err(|error| error.to_string())?;
+        renderer.quad_arena.upload(&context);
         let mut text_render_error = None;
         let mut encoder =
             context
@@ -1504,6 +1559,7 @@ mod tests {
         let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
             render_context: &context,
             quad_pipeline: &renderer.quad_pipeline,
+            quad_vertex_buffer: renderer.quad_arena.buffer(),
             filter_renderer: &renderer.filter_renderer,
             text_renderer: &mut renderer.text_renderer,
             encoder: &mut encoder,
@@ -1659,6 +1715,7 @@ mod tests {
         );
         let item_batch_list = item_batches(scene.items());
         let mut text_renderer_index = 0;
+        renderer.quad_arena.begin_frame();
         let prepared_scene = renderer
             .prepare_scene_batches(
                 &context,
@@ -1667,6 +1724,7 @@ mod tests {
                 &mut text_renderer_index,
             )
             .map_err(|error| error.to_string())?;
+        renderer.quad_arena.upload(&context);
         let mut text_render_error = None;
         let mut encoder =
             context
@@ -1680,6 +1738,7 @@ mod tests {
         let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
             render_context: &context,
             quad_pipeline: &renderer.quad_pipeline,
+            quad_vertex_buffer: renderer.quad_arena.buffer(),
             filter_renderer: &renderer.filter_renderer,
             text_renderer: &mut renderer.text_renderer,
             encoder: &mut encoder,
@@ -1825,6 +1884,7 @@ mod tests {
                 .prepare_frame(&context, text_batch_count);
         }
         let mut text_renderer_index = 0;
+        renderer.quad_arena.begin_frame();
         let prepared_scene = renderer
             .prepare_scene_batches(
                 &context,
@@ -1833,6 +1893,7 @@ mod tests {
                 &mut text_renderer_index,
             )
             .map_err(|error| error.to_string())?;
+        renderer.quad_arena.upload(&context);
         let mut text_render_error = None;
         let mut encoder =
             context
@@ -1846,6 +1907,7 @@ mod tests {
         let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
             render_context: &context,
             quad_pipeline: &renderer.quad_pipeline,
+            quad_vertex_buffer: renderer.quad_arena.buffer(),
             filter_renderer: &renderer.filter_renderer,
             text_renderer: &mut renderer.text_renderer,
             encoder: &mut encoder,

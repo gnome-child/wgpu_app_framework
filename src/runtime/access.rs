@@ -175,7 +175,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         if diagnostics.render.frames_presented.is_multiple_of(10) {
             log::debug!(
                 target: "wgpu_l3::presentation_clock",
-                "events={} prepared={} attempted={} presented={} view_rebuilds={} layout_recomposes={} layout_reuses={} routing_layouts={} event_p95_us={} native_p95_us={} rebuild_p95_us={} reconcile_p95_us={} routing_layout_p95_us={} presentation_layout_p95_us={} scene_p95_us={} batch_p95_us={} acquire_p95_us={} encode_present_p95_us={} draw_p95_us={} interval_p95_us={} scene_items={} batches={} glyph_batches={} text_hits={} text_misses={} shape_calls={} text_hits_total={} text_misses_total={} shape_calls_total={}",
+                "events={} prepared={} attempted={} presented={} view_rebuilds={} layout_recomposes={} layout_reuses={} routing_layouts={} event_p95_us={} native_p95_us={} rebuild_p95_us={} reconcile_p95_us={} routing_layout_p95_us={} presentation_layout_p95_us={} scene_p95_us={} batch_p95_us={} acquire_p95_us={} encode_present_p95_us={} draw_p95_us={} interval_p95_us={} scene_items={} batches={} glyph_batches={} geometry_vertices={} geometry_upload_bytes={} geometry_buffer_creations={} text_hits={} text_misses={} shape_calls={} text_hits_total={} text_misses_total={} shape_calls_total={}",
                 diagnostics.pipeline.events_received,
                 diagnostics.pipeline.frames_prepared,
                 diagnostics.render.frames_attempted,
@@ -199,6 +199,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 diagnostics.render.scene_items,
                 diagnostics.render.render_batches,
                 diagnostics.render.glyph_batches,
+                diagnostics.render.quad_vertices,
+                diagnostics.render.geometry_upload_bytes,
+                diagnostics.render.geometry_buffer_creations,
                 diagnostics.render.inline_text_cache_hits,
                 diagnostics.render.inline_text_cache_misses,
                 diagnostics.render.inline_text_shape_calls,

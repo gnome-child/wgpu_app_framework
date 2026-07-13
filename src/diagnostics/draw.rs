@@ -11,6 +11,8 @@ pub(crate) struct DrawStats {
     pub(crate) inline_icon_cache_misses: usize,
     pub(crate) inline_icon_shape_calls: usize,
     pub(crate) quad_vertices: usize,
+    pub(crate) geometry_upload_bytes: usize,
+    pub(crate) geometry_buffer_creations: usize,
     pub(crate) clip_batches: usize,
     pub(crate) group_composites: usize,
     pub(crate) filter_layer_pool_entries: usize,

@@ -1,4 +1,4 @@
-use wgpu::util::DeviceExt;
+use std::ops::Range;
 
 use crate::paint::{self, Grid, Rect};
 use crate::render;
@@ -10,19 +10,89 @@ use crate::render::silhouette::{
 
 const QUAD_WGSL: &str = include_str!("quad.wgsl");
 
+const INITIAL_VERTEX_CAPACITY: usize = 8_192;
+
 pub(in crate::render) struct Batch {
-    vertex_buffer: wgpu::Buffer,
-    vertex_count: u32,
+    vertex_range: Range<u32>,
 }
 
 impl Batch {
-    pub(in crate::render) fn vertex_buffer(&self) -> &wgpu::Buffer {
-        &self.vertex_buffer
+    pub(in crate::render) fn vertex_range(&self) -> Range<u32> {
+        self.vertex_range.clone()
     }
 
     pub(in crate::render) fn vertex_count(&self) -> u32 {
-        self.vertex_count
+        self.vertex_range.end - self.vertex_range.start
     }
+}
+
+pub(in crate::render) struct Arena {
+    buffer: wgpu::Buffer,
+    capacity: usize,
+    vertices: Vec<render::Vertex>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::render) struct Upload {
+    pub(in crate::render) vertex_count: usize,
+    pub(in crate::render) bytes: usize,
+    pub(in crate::render) buffer_created: bool,
+}
+
+impl Arena {
+    pub(in crate::render) fn new(render_context: &render::Context) -> Self {
+        Self {
+            buffer: create_vertex_buffer(render_context.device(), INITIAL_VERTEX_CAPACITY),
+            capacity: INITIAL_VERTEX_CAPACITY,
+            vertices: Vec::with_capacity(INITIAL_VERTEX_CAPACITY),
+        }
+    }
+
+    pub(in crate::render) fn begin_frame(&mut self) {
+        self.vertices.clear();
+    }
+
+    pub(in crate::render) fn upload(&mut self, render_context: &render::Context) -> Upload {
+        let required = self.vertices.len();
+        let mut buffer_created = false;
+        if let Some(capacity) = required_capacity(self.capacity, required) {
+            self.capacity = capacity;
+            self.buffer = create_vertex_buffer(render_context.device(), self.capacity);
+            buffer_created = true;
+        }
+
+        let bytes = bytemuck::cast_slice(&self.vertices);
+        if !bytes.is_empty() {
+            render_context.queue().write_buffer(&self.buffer, 0, bytes);
+        }
+
+        Upload {
+            vertex_count: required,
+            bytes: bytes.len(),
+            buffer_created,
+        }
+    }
+
+    pub(in crate::render) fn buffer(&self) -> &wgpu::Buffer {
+        &self.buffer
+    }
+}
+
+fn create_vertex_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Quad Geometry Arena"),
+        size: (capacity.max(1) * std::mem::size_of::<render::Vertex>()) as u64,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
+fn required_capacity(current: usize, required: usize) -> Option<usize> {
+    if required <= current {
+        return None;
+    }
+    let doubled = current.saturating_mul(2).max(INITIAL_VERTEX_CAPACITY);
+    Some(doubled.max(required.next_power_of_two()))
 }
 
 pub(in crate::render) fn pipeline(
@@ -79,32 +149,23 @@ pub(in crate::render) fn shader_source() -> String {
 }
 
 pub(in crate::render) fn prepare_batch(
-    render_context: &render::Context,
+    arena: &mut Arena,
     viewport: render::Viewport,
     shapes: &[batch::Shape<'_>],
 ) -> Option<Batch> {
-    let mut vertex_buf = Vec::new();
+    let start = arena.vertices.len();
     for shape in shapes {
-        push_shape_vertices(&mut vertex_buf, viewport, shape);
+        push_shape_vertices(&mut arena.vertices, viewport, shape);
     }
 
-    let vertex_count = vertex_buf.len() as u32;
+    let end = arena.vertices.len();
+    let vertex_count = end - start;
     if vertex_count == 0 {
         return None;
     }
 
-    let vertex_buffer =
-        render_context
-            .device()
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Quad Vertex Buffer"),
-                contents: bytemuck::cast_slice(&vertex_buf),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-
     Some(Batch {
-        vertex_buffer,
-        vertex_count,
+        vertex_range: start as u32..end as u32,
     })
 }
 
@@ -1535,5 +1596,24 @@ mod tests {
         );
         assert_eq!(shapes[0].outer_rounding[0], 15.0);
         assert_eq!(inner.rounding[0], 11.0);
+    }
+
+    #[test]
+    fn geometry_capacity_is_reused_until_a_frame_outgrows_it() {
+        assert_eq!(required_capacity(INITIAL_VERTEX_CAPACITY, 1), None);
+        assert_eq!(
+            required_capacity(INITIAL_VERTEX_CAPACITY, INITIAL_VERTEX_CAPACITY),
+            None
+        );
+        assert_eq!(
+            required_capacity(INITIAL_VERTEX_CAPACITY, INITIAL_VERTEX_CAPACITY + 1),
+            Some(INITIAL_VERTEX_CAPACITY * 2)
+        );
+    }
+
+    #[test]
+    fn geometry_capacity_growth_is_geometric_and_covers_sudden_frames() {
+        assert_eq!(required_capacity(16_384, 20_000), Some(32_768));
+        assert_eq!(required_capacity(16_384, 70_000), Some(131_072));
     }
 }

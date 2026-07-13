@@ -66,7 +66,7 @@ reviewed against the starting diff before commit.
 | --- | --- | --- |
 | 0. Name the bill with PIX | Complete | DX12 Timing Capture plus source/counter census; numeric floors pinned before renderer changes |
 | 1. One clip owner | Complete | Contiguous members share one scene scope; rectangular clips are scissor-only; rounded clips retain one mask layer |
-| 2. One reusable geometry arena | Pending | Zero steady-state ordinary-geometry buffer creation |
+| 2. One reusable geometry arena | Complete | One ordered frame upload; geometric growth only; zero steady-state ordinary-geometry buffer creation |
 | 3. Semantic render-pass scopes | Pending | Pass count reaches the evidenced semantic floor |
 | 4. Reusable popup-host probe and verdict | Pending | Reuse or negative result, never mechanism by assumption |
 | 5. Responsiveness verdict | Pending | Identical before/after matrix and human-eyes confirmation |
@@ -169,3 +169,31 @@ LIFO behavior. Boundary result: 955 library tests passed with 10 deliberate
 ignores; four doctests, all-target compilation, formatting, all three
 application smokes, and diff hygiene passed. The protected comparison state and
 preexisting DIPs/alpha work remain untouched.
+
+## Checkpoint 2 — one reusable geometry arena
+
+Ordinary quad geometry now has one renderer-owned arena rather than one GPU
+buffer per prepared batch. Shape, rule, outline, shadow, pane-base, and pane-tint
+vertices append in scene order; prepared batches retain only their vertex range.
+The arena uploads once after preparation, grows to a geometric capacity only
+when a frame exceeds its high-water mark, and retains that capacity for later
+small or large frames. Renderer recreation remains the device-loss boundary,
+so no GPU resource crosses devices.
+
+The change deliberately does not reorder or merge draws. It replaces storage
+ownership while leaving the command stream intact, including alpha-sensitive
+ordering and existing clip/group boundaries. Public diagnostics now report the
+frame's geometry vertex count, upload bytes, and buffer-growth count. The
+steady-state acceptance condition is therefore observable as
+`geometry_buffer_creations=0`; a growth frame reports one creation rather than
+hiding it as ordinary work.
+
+Capacity witnesses pin reuse at the current high-water mark and geometric
+growth for sudden table expansion. The same arena is rebuilt with the renderer
+after device loss, and viewport scale or popup-size changes alter generated
+vertices without changing resource ownership. Boundary result: 957 library
+tests passed with 10 deliberate ignores; four doctests, all-target compilation,
+formatting, all three application smokes, and diff hygiene passed. The required
+release hardware tier also passed all ten witnesses, including quad and glyph
+AA, direct alpha, group opacity, popup sRGB packing, material-base distinction,
+noise alpha preservation, and shared-shader compilation.
