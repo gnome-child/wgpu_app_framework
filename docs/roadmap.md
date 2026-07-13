@@ -86,7 +86,7 @@ is next.
 12. **Music player** (flagship one) — remaining framework blockers: image /
     texture primitive, file drag-and-drop, media keys / SMTC. Cleared: task
     executor, native menus, async atomic saves, virtualized editable tables
-    (campaign closed at `bc4df416`).
+    (campaign closed at `bc4df416`), meaning-derived menu bars (`33ab1cc4`).
 13. **Trading terminal** (flagship two) — charts primitive domain, real-time
     invalidation stress, tabular figures, kiosk-scoped BSD session.
 28. **Presentation Clock — COMPLETE** (`20c31cae`, 2026-07-13; 939 tests at
@@ -105,6 +105,18 @@ is next.
     existing keyed multiselection, focal row, and exact facet. Authored and
     contextual menus share one retirement/z-order lifecycle. Ledger:
     `docs/audits/2026-07-13-current-context-campaign.md`.
+30. **Menus From Meaning — COMPLETE** (`33ab1cc4`, 2026-07-13; 1,025 library
+    tests + 10 deep-tier witnesses; per-checkpoint commits). Registration is
+    the source of menu vocabulary: `Spec::standard` roles derive labels,
+    platform chords, chord-display policy, and cultural topology;
+    `command::menu::{Category, Placement}` place static deviations with
+    virtual-slot anchors; one `command::Population` owner discovers,
+    resolves, and composes candidates for bar, context, and palette under
+    distinct surface policies (bar resolves live at activation; context
+    keeps captured routes). `ui.standard_menu_bar()` replaced 19
+    conventional rows, 6 separators, and 4 literal chords across the
+    examples; authored menus remain, derivation is opt-in. Ledger:
+    `docs/audits/2026-07-13-menus-from-meaning-campaign.md`.
 
 ## Deferred until a caller or hardware appears
 
