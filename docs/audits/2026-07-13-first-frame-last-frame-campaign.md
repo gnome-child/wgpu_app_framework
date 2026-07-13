@@ -64,7 +64,7 @@ silhouette and one opacity owner.
 | 0. Reductions, census, DropShadow gate | Complete | Four reductions, bounds census, hardware probe verdict |
 | 1. Explicit material resolution | Complete | Explicit framework-backdrop / transparent / fallback base; GPU alpha witness |
 | 2. One silhouette and visual bounds | Complete | Shared shadow reach expands composition surface; panel-local paint, frost, and input offsets |
-| 3. One framework edge | Pending | Composition-backed DWM border/rounding retired; four-scale silhouette agreement |
+| 3. One framework edge | Complete | DWM edge/corner/shadow retired for composition; painted one-pixel edge and framework shadow |
 | 4. One compositor timeline | Pending | Frost, content, border, shadow fade under one root; hide precedes teardown |
 | 5. Honest redirected fallback | Pending | Vulkan opens and closes immediately; delayed pseudo-fade absent |
 | 6. Complete open-bill trace | Pending | Semantic-open through fade-complete timings; measured verdict applied |
@@ -185,6 +185,27 @@ starts from a nonzero physical panel offset and lands on the unchanged parent
 coordinate.
 
 > Layout owns participation; visual bounds own reach.
+
+## Checkpoint 3 — one framework edge and rounded shape
+
+Composition-backed window construction now disables independent DWM rounding
+and undecorated shadow. Its border applicator sends `DWMWA_COLOR_NONE` instead
+of the theme color; redirected fallback retains its rounded DWM shell, shadow,
+and `COLORREF` border path.
+
+The retained popup outline remains the only visible edge. Outline width crosses
+the scene-to-paint boundary as physical-pixel count, so the floating-panel
+border remains one physical pixel at 1.0, 1.25, 1.5, and 2.0. The same material
+region projection supplies the frost radius and the composition shadow mask.
+The shadow consumes the framework recipe's sRGB color, alpha, blur, spread,
+offset, and silhouette; no DWM shadow coexists on the composition path.
+
+The production DX12 gallery witness showed one rounded dark menu with clean
+corners, a natural unclipped shadow in the expanded envelope, visible material
+behind the transparent residual, and no second DWM edge. Light-theme and
+remaining scale captures stay in the final pending-eyes matrix.
+
+> One visible edge has one painter.
 
 > One framework silhouette defines every popup pixel; the platform realizes
 > declared effects, and one compositor timeline carries them from first frame

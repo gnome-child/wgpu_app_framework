@@ -6,8 +6,10 @@ use windows::Foundation::TimeSpan;
 use windows::System::DispatcherQueueController;
 use windows::UI::Composition::Desktop::DesktopWindowTarget;
 use windows::UI::Composition::{
-    CompositionGeometricClip, CompositionRoundedRectangleGeometry, CompositionSurfaceBrush,
-    Compositor, ContainerVisual, ICompositionSurface, SpriteVisual,
+    CompositionDropShadowSourcePolicy, CompositionGeometricClip,
+    CompositionRoundedRectangleGeometry, CompositionStretch, CompositionSurfaceBrush,
+    CompositionVisualSurface, Compositor, ContainerVisual, DropShadow, ICompositionSurface,
+    SpriteVisual,
 };
 use windows::Win32::Foundation::{E_HANDLE, E_NOINTERFACE, HWND};
 use windows::Win32::Graphics::DirectComposition::{
@@ -47,6 +49,12 @@ pub(super) struct Host {
     _content: SpriteVisual,
     _content_brush: CompositionSurfaceBrush,
     _wrapped_surface: ICompositionSurface,
+    shadow: DropShadow,
+    shadow_mask_visual: SpriteVisual,
+    shadow_mask_geometry: CompositionRoundedRectangleGeometry,
+    _shadow_mask_clip: CompositionGeometricClip,
+    shadow_mask_surface: CompositionVisualSurface,
+    shadow_mask_brush: CompositionSurfaceBrush,
     compositor: Compositor,
     host_backdrop_enabled: bool,
     material_regions: HashMap<composition::NodeId, RegionVisual>,
@@ -65,6 +73,16 @@ struct ProjectedRegion {
     size: Vector2,
     radius: f32,
     opacity: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ProjectedShadow {
+    mask_offset: Vector2,
+    mask_size: Vector2,
+    mask_radius: f32,
+    blur_radius: f32,
+    offset: Vector3,
+    color: scene::Color,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,10 +140,44 @@ impl Runtime {
         content.SetBrush(&content_brush)?;
         content.SetRelativeSizeAdjustment(Vector2 { X: 1.0, Y: 1.0 })?;
 
+        let shadow_mask_visual = self.compositor.CreateSpriteVisual()?;
+        shadow_mask_visual.SetOffset(Vector3 {
+            X: -16_384.0,
+            Y: -16_384.0,
+            Z: 0.0,
+        })?;
+        shadow_mask_visual.SetBrush(&self.compositor.CreateColorBrushWithColor(
+            windows::UI::Color {
+                A: 255,
+                R: 255,
+                G: 255,
+                B: 255,
+            },
+        )?)?;
+        let shadow_mask_geometry = self.compositor.CreateRoundedRectangleGeometry()?;
+        let shadow_mask_clip = self
+            .compositor
+            .CreateGeometricClipWithGeometry(&shadow_mask_geometry)?;
+        shadow_mask_visual.SetClip(&shadow_mask_clip)?;
+        let shadow_mask_surface = self.compositor.CreateVisualSurface()?;
+        shadow_mask_surface.SetSourceVisual(&shadow_mask_visual)?;
+        let shadow_mask_brush = self
+            .compositor
+            .CreateSurfaceBrushWithSurface(&shadow_mask_surface)?;
+        shadow_mask_brush.SetStretch(CompositionStretch::None)?;
+        shadow_mask_brush.SetHorizontalAlignmentRatio(0.0)?;
+        shadow_mask_brush.SetVerticalAlignmentRatio(0.0)?;
+        let shadow = self.compositor.CreateDropShadow()?;
+        shadow.SetMask(&shadow_mask_brush)?;
+        shadow.SetSourcePolicy(CompositionDropShadowSourcePolicy::Default)?;
+        shadow.SetOpacity(0.0)?;
+        content.SetShadow(&shadow)?;
+
         let root = self.compositor.CreateContainerVisual()?;
         root.SetRelativeSizeAdjustment(Vector2 { X: 1.0, Y: 1.0 })?;
         let regions = self.compositor.CreateContainerVisual()?;
         regions.SetRelativeSizeAdjustment(Vector2 { X: 1.0, Y: 1.0 })?;
+        root.Children()?.InsertAtBottom(&shadow_mask_visual)?;
         root.Children()?.InsertAtBottom(&regions)?;
         root.Children()?.InsertAtTop(&content)?;
 
@@ -152,6 +204,12 @@ impl Runtime {
             _content: content,
             _content_brush: content_brush,
             _wrapped_surface: wrapped_surface,
+            shadow,
+            shadow_mask_visual,
+            shadow_mask_geometry,
+            _shadow_mask_clip: shadow_mask_clip,
+            shadow_mask_surface,
+            shadow_mask_brush,
             compositor: self.compositor.clone(),
             host_backdrop_enabled,
             material_regions: HashMap::new(),
@@ -245,6 +303,7 @@ impl Host {
         scale_factor: f32,
         ancestor_opacity: f32,
         panel_offset_physical: (i32, i32),
+        shadow: Option<scene::Shadow>,
     ) -> Vec<scene::MaterialRealizationReport> {
         let started = std::time::Instant::now();
         if !self.host_backdrop_enabled {
@@ -257,6 +316,7 @@ impl Host {
         let mut updated = 0_usize;
         let mut retained = HashSet::new();
         let mut realized = Vec::new();
+        let mut popup_silhouette = None;
         let children = match self.regions.Children() {
             Ok(children) => children,
             Err(error) => {
@@ -279,6 +339,7 @@ impl Host {
                 log::debug!(target: "wgpu_l3::native_popup", "material region {:?} declined: clip or per-corner geometry is not representable by host frost", request.id());
                 continue;
             };
+            popup_silhouette.get_or_insert(projected);
             let id = request.id();
             let region = if let Some(region) = self.material_regions.get_mut(&id) {
                 updated += 1;
@@ -311,6 +372,9 @@ impl Host {
         }
 
         self.material_regions.retain(|id, _| retained.contains(id));
+        if let Err(error) = self.sync_shadow(shadow, popup_silhouette, scale_factor) {
+            log::warn!(target: "wgpu_l3::native_popup", "cannot synchronize composition popup shadow: {error}");
+        }
         let removed = prior_count
             .saturating_add(created)
             .saturating_sub(self.material_regions.len());
@@ -333,6 +397,76 @@ impl Host {
         }
         self.material_regions.clear();
     }
+
+    fn sync_shadow(
+        &self,
+        recipe: Option<scene::Shadow>,
+        silhouette: Option<ProjectedRegion>,
+        scale_factor: f32,
+    ) -> Result<()> {
+        let (Some(recipe), Some(silhouette)) = (recipe, silhouette) else {
+            self.shadow.SetOpacity(0.0)?;
+            return Ok(());
+        };
+        let Some(projected) = project_shadow(recipe, silhouette, scale_factor) else {
+            self.shadow.SetOpacity(0.0)?;
+            return Ok(());
+        };
+        let (r, g, b, a) = projected.color.channels();
+        if a == 0 {
+            self.shadow.SetOpacity(0.0)?;
+            return Ok(());
+        }
+        self.shadow_mask_visual.SetSize(projected.mask_size)?;
+        self.shadow_mask_geometry.SetSize(projected.mask_size)?;
+        self.shadow_mask_geometry.SetCornerRadius(Vector2 {
+            X: projected.mask_radius,
+            Y: projected.mask_radius,
+        })?;
+        self.shadow_mask_surface
+            .SetSourceSize(projected.mask_size)?;
+        self.shadow_mask_brush.SetOffset(projected.mask_offset)?;
+        self.shadow.SetBlurRadius(projected.blur_radius)?;
+        self.shadow.SetOffset(projected.offset)?;
+        self.shadow.SetColor(windows::UI::Color {
+            A: 255,
+            R: r,
+            G: g,
+            B: b,
+        })?;
+        self.shadow.SetOpacity(f32::from(a) / 255.0)
+    }
+}
+
+fn project_shadow(
+    recipe: scene::Shadow,
+    silhouette: ProjectedRegion,
+    scale_factor: f32,
+) -> Option<ProjectedShadow> {
+    let (_, _, _, alpha) = recipe.color().channels();
+    if alpha == 0 {
+        return None;
+    }
+    let scale_factor = paint::Grid::new(scale_factor).scale_factor();
+    let spread = recipe.spread().max(0.0) * scale_factor;
+    Some(ProjectedShadow {
+        mask_offset: Vector2 {
+            X: silhouette.offset.X - spread,
+            Y: silhouette.offset.Y - spread,
+        },
+        mask_size: Vector2 {
+            X: silhouette.size.X + spread * 2.0,
+            Y: silhouette.size.Y + spread * 2.0,
+        },
+        mask_radius: silhouette.radius + spread,
+        blur_radius: recipe.blur().max(0.0) * scale_factor,
+        offset: Vector3 {
+            X: recipe.offset().x() * scale_factor,
+            Y: recipe.offset().y() * scale_factor,
+            Z: 0.0,
+        },
+        color: recipe.color(),
+    })
 }
 
 impl Drop for Host {
@@ -452,7 +586,22 @@ fn clips_preserve_geometry(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geometry;
+    use crate::{geometry, layout, theme::Theme, view};
+
+    fn production_shadow() -> scene::Shadow {
+        let tree = view::View::new(
+            view::Node::root()
+                .child(view::Node::floating_panel("panel").child(view::Node::label("row"))),
+        );
+        let mut engine = layout::Engine::new();
+        let layout = layout::Layout::compose_with_theme(
+            &tree,
+            geometry::Size::new(240, 160),
+            &mut engine,
+            &Theme::dark(),
+        );
+        scene::Scene::paint_with_theme(&layout, &Theme::dark()).shadows()[0].to_owned()
+    }
 
     #[test]
     fn region_projection_consumes_the_shared_grid_at_all_campaign_scales() {
@@ -486,6 +635,30 @@ mod tests {
         assert_eq!(shifted.radius, base.radius);
         assert_eq!(shifted.offset.X - base.offset.X, 27.0);
         assert_eq!(shifted.offset.Y - base.offset.Y, 21.0);
+    }
+
+    #[test]
+    fn production_shadow_projects_from_the_same_rounded_silhouette_at_all_scales() {
+        let recipe = production_shadow();
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            let silhouette = project_geometry(
+                geometry::Rect::new(0, 0, 240, 160),
+                scene::Rounding::fixed(10.0),
+                1.0,
+                scale,
+            )
+            .expect("uniform popup silhouette should project");
+            let shadow =
+                project_shadow(recipe, silhouette, scale).expect("production shadow is visible");
+            let spread = recipe.spread() * scale;
+            assert_eq!(shadow.mask_offset.X, silhouette.offset.X - spread);
+            assert_eq!(shadow.mask_offset.Y, silhouette.offset.Y - spread);
+            assert_eq!(shadow.mask_size.X, silhouette.size.X + spread * 2.0);
+            assert_eq!(shadow.mask_size.Y, silhouette.size.Y + spread * 2.0);
+            assert_eq!(shadow.mask_radius, silhouette.radius + spread);
+            assert_eq!(shadow.blur_radius, recipe.blur() * scale);
+            assert_eq!(shadow.offset.Y, recipe.offset().y() * scale);
+        }
     }
 
     #[test]

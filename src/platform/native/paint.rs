@@ -6,6 +6,7 @@ use crate::{geometry, scene};
 pub(in crate::platform::native) struct PopupProjection {
     visual_bounds: paint::Rect,
     panel_bounds: paint::Rect,
+    shadow: Option<scene::Shadow>,
     scale_factor: f32,
 }
 
@@ -17,10 +18,10 @@ impl PopupProjection {
     ) -> Self {
         let grid = paint::Grid::new(scale_factor);
         let panel_bounds = into_paint_rect_at_scale(geometry::Rect::from_size(source.size()), grid);
+        let shadow = source.shadows().into_iter().next().copied();
         let visual_bounds = if include_visual_reach {
-            source
-                .shadows()
-                .into_iter()
+            shadow
+                .iter()
                 .map(|shadow| paint::shadow_visual_bounds(to_paint_shadow(shadow, grid), grid))
                 .fold(panel_bounds, paint::union_visual_bounds)
         } else {
@@ -29,6 +30,7 @@ impl PopupProjection {
         Self {
             visual_bounds,
             panel_bounds,
+            shadow,
             scale_factor: grid.scale_factor(),
         }
     }
@@ -57,6 +59,11 @@ impl PopupProjection {
 
     pub(in crate::platform::native) fn logical_area(self) -> paint::area::Logical {
         self.visual_bounds.area
+    }
+
+    #[cfg(target_os = "windows")]
+    pub(in crate::platform::native) fn shadow(self) -> Option<scene::Shadow> {
+        self.shadow
     }
 
     pub(in crate::platform::native) fn translate_scene(self, scene: paint::Scene) -> paint::Scene {
@@ -328,7 +335,7 @@ fn to_paint_outline(outline: &scene::Outline, grid: paint::Grid) -> paint::Outli
     paint::Outline {
         rect: into_paint_rounded_rect_at_scale(outline.rect(), outline.rounding(), grid),
         brush: paint::Brush::solid(super::color::paint_color(outline.color())),
-        width: outline.width(),
+        width: outline.width() * grid.logical_pixel(),
         offset: outline.offset(),
     }
 }
@@ -632,6 +639,15 @@ mod tests {
                 ),
                 (offset_x, offset_y),
             );
+            let outline = translated
+                .items()
+                .iter()
+                .find_map(|item| match item {
+                    paint::Item::Outline(outline) => Some(outline),
+                    _ => None,
+                })
+                .expect("floating panel should retain its one painted border");
+            assert!((outline.width * scale - 1.0).abs() <= f32::EPSILON);
         }
     }
 

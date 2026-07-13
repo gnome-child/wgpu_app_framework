@@ -138,6 +138,14 @@ pub(in crate::platform::native) fn set_popup_border_color(
     }
 }
 
+pub(in crate::platform::native) fn suppress_popup_border(window: &winit::window::Window) {
+    #[cfg(target_os = "windows")]
+    windows::suppress_popup_border(window);
+
+    #[cfg(not(target_os = "windows"))]
+    let _ = window;
+}
+
 pub(in crate::platform::native) fn accent_gradient_abgr(color: scene::Color) -> u32 {
     let (r, g, b, a) = color.channels();
     crate::color::aabbggrr(r, g, b, a)

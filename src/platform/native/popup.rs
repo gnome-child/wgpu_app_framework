@@ -182,6 +182,7 @@ impl Native {
                     popup.window.canvas().scale_factor(),
                     presentation.opacity(),
                     projection.panel_offset_physical(),
+                    projection.shadow(),
                 )
             })
             .unwrap_or_default();
@@ -768,7 +769,11 @@ fn apply_popup_border(key: PopupKey, popup: &mut PopupWindow, reason: ApplyDue) 
         reason,
         border
     );
-    popup.window.set_popup_border_color(border);
+    if popup.composition.is_some() {
+        super::sys::suppress_popup_border(&popup.window.handle());
+    } else {
+        popup.window.set_popup_border_color(border);
+    }
     popup.border.mark_applied(border);
 }
 

@@ -563,16 +563,16 @@ OS-side state crosses at the narrowest honest rate. Region presence, removal,
 and ordering are immediate because they change what exists. Stable scalar
 parameters may settle where the platform call is expensive. `SysApplicator<T>`
 continues to own desired/applied snapshots for geometry, the legacy accent
-bridge, and DWM border color; composition-region retention is its own keyed
-collection owner rather than another scalar applicator. Drag-rate parameter
-changes must not build a queue of native calls.
+bridge, and redirected-path DWM border color; composition-region retention is
+its own keyed collection owner rather than another scalar applicator.
+Drag-rate parameter changes must not build a queue of native calls.
 
 `FloatingPanel.border` remains the one popup border datum. In-frame and native
-residual paint use it as framework chrome; Windows also encodes the same sRGB
-bytes in DWM's border format while DWM still owns the outer HWND silhouette.
-Creation applies that attribute before first show and later theme changes use
-the settle-rate path. Removing the DWM copy requires an isolated witness that
-the composition/painted silhouette fully replaces it at every scale.
+residual paint use it as framework chrome. Composition-backed Windows popups
+suppress the DWM border and rounding because the painted border, transparent
+corners, host-frost clip, and composition shadow consume one framework
+silhouette. Redirected fallback still encodes the same sRGB bytes in DWM's
+border format and applies later theme changes through the settle-rate path.
 
 Native surface context creation owns the one cross-platform backend selection.
 Target-specific presentation policy belongs in render backend options, not
@@ -603,8 +603,18 @@ uses `SetWindowCompositionAttribute` with
 `ACCENT_ENABLE_ACRYLICBLURBEHIND` only for its supported single full-window
 region. Accent `GradientColor` is `AABBGGRR`/ABGR. Tenancy neither applies nor
 disables that legacy accent policy. `FloatingPanel.border` converts once to
-`COLORREF` (`0x00BBGGRR`) for `DWMWA_BORDER_COLOR` while that call remains the
-outer-silhouette owner.
+`COLORREF` (`0x00BBGGRR`) for redirected `DWMWA_BORDER_COLOR`; composition
+instead applies `DWMWA_COLOR_NONE`, disables independent DWM rounding and
+shadow, and keeps the painted edge beneath the popup root opacity.
+
+**Silhouette and reach.** One scale-resolved popup projection consumes the
+retained panel geometry and the existing paint shadow-reach calculation. Panel
+bounds remain placement, input, containment, and accessibility truth; visual
+bounds size and position the composition-backed HWND/swapchain. The projection
+also supplies the panel offset used by paint, material regions, and popup event
+translation. The platform may rasterize the declared rounded shadow, but its
+mask, color, blur, spread, offset, and surface envelope remain framework truth.
+One visible edge has one painter.
 
 **Presentation causality.** Window existence, OS presentation eligibility,
 GPU presentation, compositor pickup, and user visibility are separate facts.

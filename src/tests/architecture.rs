@@ -2207,13 +2207,16 @@ fn windows_native_popup_clicks_do_not_activate() {
             && !native_window.contains("with_system_backdrop"),
         "nonactivating native popups must not use focus-coupled DWM system backdrop"
     );
-    assert!(native_window.contains("CornerPreference::Round"));
+    assert!(
+        native_window.contains("CornerPreference::Round")
+            && native_window.contains("CornerPreference::DoNotRound")
+            && native_window.contains("composition_backed")
+    );
     assert!(native_window.contains("with_no_redirection_bitmap(mode.no_redirection_bitmap())"));
-    assert!(native_window.contains("with_undecorated_shadow(true)"));
+    assert!(native_window.contains("with_undecorated_shadow(!composition_backed)"));
     assert!(native_window.contains("with_has_shadow(true)"));
     assert!(!native_window.contains("with_no_redirection_bitmap(true)"));
     assert!(!native_window.contains("with_no_redirection_bitmap(false)"));
-    assert!(!native_window.contains("with_undecorated_shadow(false)"));
     assert!(!native_window.contains("with_has_shadow(false)"));
     assert!(
         native_mod.contains("impl Drop for PopupWindow")
@@ -2438,8 +2441,9 @@ fn popup_border_has_one_theme_datum_for_scene_and_windows() {
     assert!(
         native_mod.contains("type PopupBorderState = SysApplicator")
             && popup.contains("apply_due_popup_borders")
-            && windows.contains("DWMWA_BORDER_COLOR"),
-        "theme border changes must use settle-rate Windows application"
+            && windows.contains("DWMWA_BORDER_COLOR")
+            && popup.contains("suppress_popup_border"),
+        "redirected border changes stay settle-rate while composition suppresses the DWM copy"
     );
     assert!(
         sys.contains("crate::color::bbggrr(r, g, b)"),

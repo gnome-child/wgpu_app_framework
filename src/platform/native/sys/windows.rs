@@ -22,6 +22,7 @@ const WCA_ACCENT_POLICY: u32 = 19;
 const ACCENT_DISABLED: i32 = 0;
 const ACCENT_ENABLE_ACRYLICBLURBEHIND: i32 = 4;
 const ACCENT_ENABLE_GRADIENT_COLOR: i32 = 2;
+const DWM_COLOR_NONE: u32 = 0xffff_fffe;
 
 #[repr(C)]
 struct AccentPolicy {
@@ -327,6 +328,10 @@ pub(super) fn set_popup_border_color(window: &winit::window::Window, colorref: u
             "set popup border COLORREF {colorref:#08x}"
         );
     }
+}
+
+pub(super) fn suppress_popup_border(window: &winit::window::Window) {
+    set_popup_border_color(window, DWM_COLOR_NONE);
 }
 
 fn set_window_composition_attribute() -> Option<SetWindowCompositionAttributeFn> {

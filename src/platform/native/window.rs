@@ -207,11 +207,16 @@ fn configure_platform_popup_attributes(
     use winit::platform::windows::WindowAttributesExtWindows;
     use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
+    let composition_backed = mode == PopupPresentationMode::CompositionBacked;
     let mut attributes = attributes
         .with_skip_taskbar(true)
         .with_no_redirection_bitmap(mode.no_redirection_bitmap())
-        .with_undecorated_shadow(true)
-        .with_corner_preference(CornerPreference::Round);
+        .with_undecorated_shadow(!composition_backed)
+        .with_corner_preference(if composition_backed {
+            CornerPreference::DoNotRound
+        } else {
+            CornerPreference::Round
+        });
 
     if let Some(owner) = owner {
         if let Ok(handle) = owner.window_handle() {
