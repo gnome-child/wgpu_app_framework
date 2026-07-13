@@ -42,6 +42,7 @@ pub(crate) struct ResolvedAction {
     command_name: &'static str,
     trigger: AnyTrigger,
     state: State,
+    description: Option<&'static str>,
     claim: responder::Claim,
     listing: Listing,
     route: responder::Route,
@@ -57,6 +58,7 @@ pub(crate) struct BarAction {
     standard: Option<Standard>,
     trigger: AnyTrigger,
     state: State,
+    description: Option<&'static str>,
 }
 
 /// Complete conventional-bar projection. It contains ordinary command
@@ -247,6 +249,7 @@ impl<'a> Population<'a> {
                     registration_index,
                     trigger,
                     state,
+                    command.spec.description,
                     claim,
                     listing,
                     route,
@@ -285,6 +288,7 @@ impl<'a> Population<'a> {
                     standard,
                     trigger: candidate.into_trigger(),
                     state,
+                    description: command.spec.description,
                 })
             })
             .collect();
@@ -426,6 +430,7 @@ impl ResolvedAction {
         registration_index: usize,
         trigger: AnyTrigger,
         state: State,
+        description: Option<&'static str>,
         claim: responder::Claim,
         listing: Listing,
         route: responder::Route,
@@ -436,6 +441,7 @@ impl ResolvedAction {
             command_name: trigger.command_name(),
             trigger,
             state,
+            description,
             claim,
             listing,
             route,
@@ -464,6 +470,10 @@ impl ResolvedAction {
 
     pub(crate) fn state(&self) -> &State {
         &self.state
+    }
+
+    pub(crate) fn description(&self) -> Option<&'static str> {
+        self.description
     }
 
     pub(crate) fn claim(&self) -> &responder::Claim {
@@ -503,6 +513,10 @@ impl BarAction {
 
     pub(crate) fn state(&self) -> &State {
         &self.state
+    }
+
+    pub(crate) fn description(&self) -> Option<&'static str> {
+        self.description
     }
 }
 

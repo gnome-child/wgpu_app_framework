@@ -123,6 +123,7 @@ struct ParsedModifiers {
 #[derive(Debug, Clone)]
 pub struct Spec {
     pub(in crate::command) display_name: &'static str,
+    pub(in crate::command) description: Option<&'static str>,
     pub(in crate::command) shortcut: Option<KeyChord>,
     pub(in crate::command) listing: Listing,
     pub(in crate::command) standard: Option<Standard>,
@@ -144,6 +145,7 @@ impl Spec {
     pub fn new(display_name: &'static str) -> Self {
         Self {
             display_name,
+            description: None,
             shortcut: None,
             listing: Listing::Included,
             standard: None,
@@ -157,6 +159,7 @@ impl Spec {
     pub fn standard(standard: Standard) -> Self {
         Self {
             display_name: standard.default_label(),
+            description: None,
             shortcut: Some(KeyChord::standard(standard)),
             listing: Listing::Included,
             standard: Some(standard),
@@ -179,6 +182,12 @@ impl Spec {
 
     pub fn shortcut(mut self, shortcut: &'static str) -> Self {
         self.shortcut = Some(KeyChord::new(shortcut));
+        self
+    }
+
+    /// Describes the stable meaning of this command independently of its current state.
+    pub fn description(mut self, description: &'static str) -> Self {
+        self.description = Some(description);
         self
     }
 
@@ -214,6 +223,10 @@ impl Spec {
 
     pub fn display_name(&self) -> &'static str {
         self.display_name
+    }
+
+    pub fn declared_description(&self) -> Option<&'static str> {
+        self.description
     }
 
     pub fn declared_key_chord(&self) -> Option<KeyChord> {
@@ -447,6 +460,16 @@ mod tests {
                 .declared_key_chord()
                 .map(KeyChord::as_str),
             Some("Primary+Shift+C")
+        );
+    }
+
+    #[test]
+    fn description_is_stable_command_meaning() {
+        let spec = Spec::new("Save").description("Writes the current document to disk");
+
+        assert_eq!(
+            spec.declared_description(),
+            Some("Writes the current document to disk")
         );
     }
 }

@@ -22,9 +22,13 @@ pub fn runtime(state: State) -> Runtime<State, Event> {
                     command::Standard::SaveAs,
                 ))
                 .register::<document::SaveToPath>(command::Spec::new("Save To Path"))
-                .register::<LoadStressText>(command::Spec::new("Load Stress Text").placement(
-                    command::menu::Placement::section_after(command::Standard::SaveAs),
-                ))
+                .register::<LoadStressText>(
+                    command::Spec::new("Load Stress Text")
+                        .description("Replace the document with generated stress text")
+                        .placement(command::menu::Placement::section_after(
+                            command::Standard::SaveAs,
+                        )),
+                )
                 .register::<ToggleWrapText>(command::Spec::new("Wrap text").placement(
                     command::menu::Placement::category(command::menu::Category::VIEW),
                 ))

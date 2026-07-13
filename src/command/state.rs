@@ -12,7 +12,7 @@ pub struct State {
     pub(crate) checked: Option<bool>,
     pub(crate) label: Option<String>,
     pub(crate) shortcut: Option<KeyChord>,
-    pub(crate) tooltip: Option<String>,
+    pub(crate) hint: Option<String>,
 }
 
 impl State {
@@ -22,7 +22,7 @@ impl State {
             checked: None,
             label: None,
             shortcut: None,
-            tooltip: None,
+            hint: None,
         }
     }
 
@@ -32,7 +32,7 @@ impl State {
             checked: None,
             label: None,
             shortcut: None,
-            tooltip: None,
+            hint: None,
         }
     }
 
@@ -43,7 +43,7 @@ impl State {
             checked: None,
             label: None,
             shortcut: None,
-            tooltip: None,
+            hint: None,
         }
     }
 
@@ -63,8 +63,8 @@ impl State {
         self.shortcut
     }
 
-    pub fn tooltip(&self) -> Option<&str> {
-        self.tooltip.as_deref()
+    pub fn hint(&self) -> Option<&str> {
+        self.hint.as_deref()
     }
 
     pub fn checked_state(&self) -> Option<bool> {
@@ -81,8 +81,8 @@ impl State {
         self
     }
 
-    pub fn with_tooltip(mut self, tooltip: impl Into<String>) -> Self {
-        self.tooltip = Some(tooltip.into());
+    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
         self
     }
 
@@ -103,5 +103,17 @@ impl State {
         }
 
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hint_is_contextual_state() {
+        let state = State::disabled().with_hint("Choose a document first");
+
+        assert_eq!(state.hint(), Some("Choose a document first"));
     }
 }

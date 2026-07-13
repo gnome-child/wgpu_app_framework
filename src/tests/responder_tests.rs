@@ -145,7 +145,7 @@ fn same_responder_visible_targets_are_ambiguous() {
     assert_eq!(
         trigger
             .state(&registry, &mut chain, &Context::default())
-            .tooltip
+            .hint
             .as_deref(),
         Some("multiple targets claim command app.save in responder app")
     );

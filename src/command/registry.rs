@@ -141,7 +141,7 @@ impl Registry {
         let state = match chain.state::<C>(args, cx) {
             Ok(Some(state)) => state,
             Ok(None) => State::disabled(),
-            Err(error) => State::disabled().with_tooltip(error.to_string()),
+            Err(error) => State::disabled().with_hint(error.to_string()),
         };
 
         state.with_command(command)
@@ -162,7 +162,7 @@ impl Registry {
         let state = match chain.state_any(command_type, command_name, args, cx) {
             Ok(Some(state)) => state,
             Ok(None) => State::disabled(),
-            Err(error) => State::disabled().with_tooltip(error.to_string()),
+            Err(error) => State::disabled().with_hint(error.to_string()),
         };
 
         state.with_command(command)
@@ -184,7 +184,7 @@ impl Registry {
         let state = match chain.claim_on(route, command_type, command_name, args, cx) {
             Ok(Some(claim)) => claim.state().clone(),
             Ok(None) => State::disabled(),
-            Err(error) => State::disabled().with_tooltip(error.to_string()),
+            Err(error) => State::disabled().with_hint(error.to_string()),
         };
 
         state.with_command(command)
@@ -375,6 +375,12 @@ impl Registry {
         };
 
         state.with_command(command)
+    }
+
+    pub(crate) fn description(&self, command_type: TypeId) -> Option<&'static str> {
+        self.commands
+            .get(&command_type)
+            .and_then(|command| command.spec.description)
     }
 
     fn bind_shortcut(&mut self, shortcut: KeyChord, command_type: TypeId) {

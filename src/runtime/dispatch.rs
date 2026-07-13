@@ -39,7 +39,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         if !self.session.contains(window) {
             return self
                 .registry
-                .apply_spec::<C>(command::State::disabled().with_tooltip("window is not open"));
+                .apply_spec::<C>(command::State::disabled().with_hint("window is not open"));
         }
 
         let focus = self.session.focused(window);

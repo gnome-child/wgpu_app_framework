@@ -19,11 +19,12 @@ pub fn app(state: State) -> Runtime<State, (), View> {
                 .install(document::Editing::standard())
                 .menu_category(command::menu::Category::new::<ControlsMenu>("Controls"))
                 .register::<IncrementClicks>(
-                    command::Spec::new("Click").shortcut("Primary+K").placement(
-                        command::menu::Placement::category(command::menu::Category::of::<
-                            ControlsMenu,
-                        >()),
-                    ),
+                    command::Spec::new("Click")
+                        .description("Increment the gallery click counter")
+                        .shortcut("Primary+K")
+                        .placement(command::menu::Placement::category(
+                            command::menu::Category::of::<ControlsMenu>(),
+                        )),
                 )
                 .register::<ToggleWrap>(command::Spec::new("Wrap text").placement(
                     command::menu::Placement::category(command::menu::Category::VIEW),
@@ -48,8 +49,13 @@ pub fn app(state: State) -> Runtime<State, (), View> {
                 .register::<EditRecordNote>(command::Spec::new("Edit record note"))
                 .register::<EditRecordCount>(command::Spec::new("Edit record count"))
                 .register::<SetRecordEnabled>(command::Spec::new("Set record enabled"))
-                .register::<ToggleExpandedRows>(command::Spec::new("Expanded rows"))
-                .register::<OpenRecord>(command::Spec::new("Open record"));
+                .register::<ToggleExpandedRows>(
+                    command::Spec::new("Expanded rows")
+                        .description("Switch between compact and wrapped table rows"),
+                )
+                .register::<OpenRecord>(
+                    command::Spec::new("Open record").description("Open the row under inspection"),
+                );
         })
         .responders(|responders| {
             responders

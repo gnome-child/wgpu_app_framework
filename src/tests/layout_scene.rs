@@ -4618,7 +4618,7 @@ fn menu_bar_titles_use_their_own_padded_label_widths_without_gaps() {
 }
 
 #[test]
-fn single_character_menu_titles_are_square_from_menu_padding() {
+fn single_character_menu_titles_preserve_configured_side_padding() {
     let view = View::new(
         view::Node::root().child(
             view::Node::menu_bar()
@@ -4631,10 +4631,14 @@ fn single_character_menu_titles_are_square_from_menu_padding() {
     let menus = layout.find_role(view::Role::Menu);
 
     assert_eq!(menus.len(), 2);
-    for menu in menus {
-        assert_eq!(menu.rect().width(), menu.rect().height());
+    for menu in &menus {
         assert_eq!(menu.rect().height(), Theme::default().menu().bar_height);
+        assert!(
+            menu.rect().width() >= Theme::default().menu().padding.saturating_mul(2),
+            "even a one-character menu title keeps both configured side insets"
+        );
     }
+    assert_eq!(menus[0].rect().right(), menus[1].rect().x());
 }
 
 #[test]

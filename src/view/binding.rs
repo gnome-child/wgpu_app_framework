@@ -9,6 +9,7 @@ use super::Action;
 pub struct Binding {
     trigger: command::AnyTrigger,
     state: command::State,
+    description: Option<&'static str>,
     source: Source,
     route: responder::Route,
     slider_trigger: Option<command::AnyValueTrigger<f64>>,
@@ -28,6 +29,7 @@ impl Binding {
         Self {
             trigger,
             state: command::State::hidden(),
+            description: None,
             source,
             route: responder::Route::Chain,
             slider_trigger: None,
@@ -43,6 +45,7 @@ impl Binding {
         Self {
             trigger: slider_trigger.trigger(value),
             state: command::State::hidden(),
+            description: None,
             source,
             route: responder::Route::Chain,
             slider_trigger: Some(slider_trigger),
@@ -58,6 +61,7 @@ impl Binding {
         Self {
             trigger: text_trigger.trigger(text),
             state: command::State::hidden(),
+            description: None,
             source,
             route: responder::Route::Chain,
             slider_trigger: None,
@@ -97,6 +101,14 @@ impl Binding {
         self.state.shortcut
     }
 
+    pub fn hint(&self) -> Option<&str> {
+        self.state.hint()
+    }
+
+    pub fn description(&self) -> Option<&'static str> {
+        self.description
+    }
+
     pub fn source(&self) -> Source {
         self.source
     }
@@ -105,6 +117,7 @@ impl Binding {
         Self {
             trigger: action.trigger(),
             state: action.state().clone(),
+            description: action.description(),
             source,
             route: action.route(),
             slider_trigger: None,
@@ -120,6 +133,7 @@ impl Binding {
         Self {
             trigger: action.trigger(),
             state,
+            description: action.description(),
             source: Source::Menu,
             route: responder::Route::Chain,
             slider_trigger: None,
@@ -171,6 +185,7 @@ impl Binding {
     ) {
         let cx = cx.sourced(self.source);
         self.state = self.trigger.state_on(self.route, registry, chain, &cx);
+        self.description = registry.description(self.trigger.command_type());
     }
 
     pub(crate) fn invoke<M: state::State>(
@@ -188,6 +203,7 @@ impl Binding {
         Some(Self {
             trigger: slider_trigger.trigger(value),
             state: self.state.clone(),
+            description: self.description,
             source: self.source,
             route: self.route,
             slider_trigger: Some(slider_trigger),
@@ -201,6 +217,7 @@ impl Binding {
         Some(Self {
             trigger: text_trigger.trigger(text),
             state: self.state.clone(),
+            description: self.description,
             source: self.source,
             route: self.route,
             slider_trigger: self.slider_trigger.clone(),
