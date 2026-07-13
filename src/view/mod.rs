@@ -26,7 +26,9 @@ pub use context::Context;
 pub(crate) use context_menu::ContextMenu;
 pub use control::{Button, Checkbox, Radio, Slider, TextArea, TextBox, Wrap};
 pub(crate) use node::StandardMenuExtension;
-pub(crate) use node::{AuxiliaryChrome, PanelPolicy, Participation, ProvidedRow, Role, TablePart};
+pub(crate) use node::{
+    AuxiliaryChrome, PanelAttachment, PanelPolicy, Participation, ProvidedRow, Role, TablePart,
+};
 pub use node::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node};
 #[cfg(test)]
 pub(crate) use presentation::Presentation;

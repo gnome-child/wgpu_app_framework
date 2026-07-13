@@ -185,3 +185,14 @@ separate campaign.
   through the shared path.
 - `comparison_open: true` remains unchanged. No temporary diagnostics or
   alternate presentation mechanisms remain.
+
+## Post-closeout attachment refinement
+
+Field comparison favored pointer-adjacent hover revelation while retaining
+subject-attached validation. The follow-up promotes attachment into an
+independent internal axis: context menus and hover panels both consume the
+point-anchor candidate solver, but context menus capture the invocation point
+with zero clearance while hover panels capture the reveal-time pointer point
+with theme-owned clearance. Validation remains attached to its typed cell
+rectangle. The pointer snapshot is retained for the visible generation, so an
+unrelated rebuild cannot make the panel chase a newer pointer position.

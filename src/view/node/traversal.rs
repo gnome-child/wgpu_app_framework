@@ -762,7 +762,7 @@ impl Node {
         menu: &interaction::Menu,
     ) -> Option<Node> {
         if self.role == Role::Menu && self.id == Some(menu.id()) {
-            let mut panel = Node::floating_panel(menu.id());
+            let mut panel = Node::floating_panel(menu.id()).with_panel_anchor_element(menu.id());
             panel.children = self.children.clone();
             return Some(panel);
         }

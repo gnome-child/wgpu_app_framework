@@ -721,11 +721,18 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .session
             .interaction(window)
             .filter(|interaction| interaction.pointer().hover_tip_visible())
-            .and_then(|interaction| interaction.pointer().hovered().cloned());
-        if let Some(target) = hover_tip
+            .and_then(|interaction| {
+                interaction
+                    .pointer()
+                    .hovered()
+                    .cloned()
+                    .zip(interaction.pointer().hover_tip_anchor())
+            });
+        if let Some((target, pointer_anchor)) = hover_tip
             && view.project_hover_tip(
                 &tree,
                 &target,
+                pointer_anchor,
                 self.presented_geometry
                     .get(&window)
                     .and_then(|presented| presented.layout.overflow_tip_for_target(&target))

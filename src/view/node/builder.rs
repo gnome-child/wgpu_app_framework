@@ -347,13 +347,25 @@ impl Node {
         anchor: crate::geometry::PlacementAnchor,
         available: crate::geometry::Rect,
     ) -> Self {
-        self.placement_anchor = Some(anchor);
+        self.panel_attachment = Some(super::PanelAttachment::Geometry(anchor));
         self.placement_available = Some(available);
         self
     }
 
     pub(crate) fn with_panel_anchor(mut self, anchor: crate::geometry::PlacementAnchor) -> Self {
-        self.placement_anchor = Some(anchor);
+        self.panel_attachment = Some(super::PanelAttachment::Geometry(anchor));
+        self
+    }
+
+    pub(crate) fn with_pointer_panel_anchor(mut self, point: crate::geometry::Point) -> Self {
+        debug_assert_eq!(self.role, Role::FloatingPanel);
+        self.panel_attachment = Some(super::PanelAttachment::Pointer(point));
+        self
+    }
+
+    pub(crate) fn with_panel_anchor_element(mut self, id: impl Into<interaction::Id>) -> Self {
+        debug_assert_eq!(self.role, Role::FloatingPanel);
+        self.panel_attachment = Some(super::PanelAttachment::Element(id.into()));
         self
     }
 
@@ -379,13 +391,7 @@ impl Node {
 
     pub(crate) fn with_table_panel_anchor(mut self, cell: crate::table::Cell) -> Self {
         debug_assert_eq!(self.role, Role::FloatingPanel);
-        self.table_panel_anchor = Some(cell);
-        self
-    }
-
-    pub(crate) fn with_panel_anchor_target(mut self, target: interaction::Target) -> Self {
-        debug_assert_eq!(self.role, Role::FloatingPanel);
-        self.panel_anchor_target = Some(target);
+        self.panel_attachment = Some(super::PanelAttachment::TableCell(cell));
         self
     }
 
@@ -482,13 +488,11 @@ impl Node {
             axis: None,
             style: Style::default(),
             floating_placement: FloatingPlacement::Default,
-            placement_anchor: None,
+            panel_attachment: None,
             placement_available: None,
             popup_context: None,
             panel_policy: super::PanelPolicy::Interactive,
             auxiliary_chrome: None,
-            table_panel_anchor: None,
-            panel_anchor_target: None,
             force_overlay_group: false,
             native_popup_material_preference: NativePopupMaterialPreference::System,
             subject: None,

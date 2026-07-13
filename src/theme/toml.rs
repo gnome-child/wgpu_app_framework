@@ -202,6 +202,7 @@ struct FloatingPanelPatch {
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 struct AuxiliaryPanelPatch {
     hover_delay_ms: Option<u64>,
+    pointer_clearance: Option<i32>,
     max_width: Option<i32>,
     max_height: Option<i32>,
     icon_extent: Option<i32>,
@@ -455,6 +456,7 @@ struct FloatingPanelExport {
 
 struct AuxiliaryPanelExport {
     hover_delay_ms: u64,
+    pointer_clearance: i32,
     max_width: i32,
     max_height: i32,
     icon_extent: i32,
@@ -912,6 +914,7 @@ fn apply_auxiliary_panel(
     palette: &HashMap<String, scene::Color>,
 ) -> Result<(), ThemeTomlError> {
     apply_u64(&mut auxiliary.hover_delay_ms, patch.hover_delay_ms);
+    apply_i32(&mut auxiliary.pointer_clearance, patch.pointer_clearance);
     apply_i32(&mut auxiliary.max_width, patch.max_width);
     apply_i32(&mut auxiliary.max_height, patch.max_height);
     apply_i32(&mut auxiliary.icon_extent, patch.icon_extent);
@@ -1443,6 +1446,7 @@ impl ThemeExport {
             },
             auxiliary_panel: AuxiliaryPanelExport {
                 hover_delay_ms: theme.auxiliary_panel.hover_delay_ms,
+                pointer_clearance: theme.auxiliary_panel.pointer_clearance,
                 max_width: theme.auxiliary_panel.max_width,
                 max_height: theme.auxiliary_panel.max_height,
                 icon_extent: theme.auxiliary_panel.icon_extent,
@@ -1651,6 +1655,11 @@ impl ThemeExport {
             &mut out,
             "hover-delay-ms",
             self.auxiliary_panel.hover_delay_ms,
+        );
+        push_i32_field(
+            &mut out,
+            "pointer-clearance",
+            self.auxiliary_panel.pointer_clearance,
         );
         push_i32_field(&mut out, "max-width", self.auxiliary_panel.max_width);
         push_i32_field(&mut out, "max-height", self.auxiliary_panel.max_height);

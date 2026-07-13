@@ -54,6 +54,7 @@ impl View {
         &mut self,
         retained: &crate::composition::Tree,
         target: &interaction::Target,
+        pointer_anchor: geometry::Point,
         overflow: Option<String>,
     ) -> bool {
         let Some((blocked, command_text)) =
@@ -73,7 +74,7 @@ impl View {
 
         self.push_floating_panel(
             auxiliary_panel(HOVER_TIP_PANEL, chrome, text, PanelPolicy::HoverTip)
-                .with_panel_anchor_target(target.clone()),
+                .with_pointer_panel_anchor(pointer_anchor),
         );
         true
     }

@@ -175,6 +175,7 @@ pub struct FloatingPanel {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AuxiliaryPanel {
     pub(crate) hover_delay_ms: u64,
+    pub(crate) pointer_clearance: i32,
     pub(crate) max_width: i32,
     pub(crate) max_height: i32,
     pub(crate) icon_extent: i32,
@@ -361,6 +362,7 @@ impl Theme {
             },
             auxiliary_panel: AuxiliaryPanel {
                 hover_delay_ms: 400,
+                pointer_clearance: 12,
                 max_width: 360,
                 max_height: 240,
                 icon_extent: 16,
@@ -508,6 +510,7 @@ impl Theme {
             },
             auxiliary_panel: AuxiliaryPanel {
                 hover_delay_ms: 400,
+                pointer_clearance: 12,
                 max_width: 360,
                 max_height: 240,
                 icon_extent: 16,

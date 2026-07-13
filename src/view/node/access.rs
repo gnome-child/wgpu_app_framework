@@ -26,8 +26,8 @@ impl Node {
         self.floating_placement
     }
 
-    pub(crate) fn placement_anchor(&self) -> Option<crate::geometry::PlacementAnchor> {
-        self.placement_anchor
+    pub(crate) fn panel_attachment(&self) -> Option<super::PanelAttachment> {
+        self.panel_attachment
     }
 
     pub(crate) fn placement_available(&self) -> Option<crate::geometry::Rect> {
@@ -44,14 +44,6 @@ impl Node {
 
     pub(crate) fn auxiliary_chrome(&self) -> Option<AuxiliaryChrome> {
         self.auxiliary_chrome
-    }
-
-    pub(crate) fn table_panel_anchor(&self) -> Option<crate::table::Cell> {
-        self.table_panel_anchor
-    }
-
-    pub(crate) fn panel_anchor_target(&self) -> Option<&interaction::Target> {
-        self.panel_anchor_target.as_ref()
     }
 
     pub(crate) fn force_overlay_group(&self) -> bool {

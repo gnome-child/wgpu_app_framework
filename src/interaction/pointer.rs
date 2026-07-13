@@ -18,6 +18,7 @@ pub(crate) struct Pointer {
 struct HoverTip {
     started_at: Option<Instant>,
     visible: bool,
+    anchor: Option<Point>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,6 +118,7 @@ impl Pointer {
                 HoverTip {
                     started_at: Some(at),
                     visible: false,
+                    anchor: None,
                 }
             } else {
                 HoverTip::default()
@@ -135,7 +137,11 @@ impl Pointer {
         if now < started_at + delay {
             return false;
         }
+        let Some(anchor) = self.position else {
+            return false;
+        };
         self.hover_tip.visible = true;
+        self.hover_tip.anchor = Some(anchor);
         true
     }
 
@@ -147,6 +153,13 @@ impl Pointer {
 
     pub(crate) fn position(&self) -> Option<Point> {
         self.position
+    }
+
+    pub(crate) fn hover_tip_anchor(&self) -> Option<Point> {
+        self.hover_tip
+            .visible
+            .then_some(self.hover_tip.anchor)
+            .flatten()
     }
 
     pub(crate) fn surface(&self) -> crate::popup::Surface {
@@ -175,5 +188,30 @@ impl Capture {
 
     pub(crate) fn target(&self) -> &Target {
         &self.target
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn visible_hover_tip_keeps_its_reveal_point_when_pointer_moves_within_target() {
+        let mut pointer = Pointer::default();
+        let target = Target::label("hover.target", "Hover target");
+        let entered_at = Instant::now();
+        let reveal_point = Point::new(40, 30);
+
+        pointer.position = Some(reveal_point);
+        assert!(pointer.update_projected_hover(Some(target), true, entered_at));
+        assert!(pointer.promote_hover_tip(entered_at, std::time::Duration::ZERO));
+        assert_eq!(pointer.hover_tip_anchor(), Some(reveal_point));
+
+        pointer.position = Some(Point::new(80, 60));
+        assert_eq!(
+            pointer.hover_tip_anchor(),
+            Some(reveal_point),
+            "pointer attachment is a reveal snapshot, not a live-follow geometry clock"
+        );
     }
 }

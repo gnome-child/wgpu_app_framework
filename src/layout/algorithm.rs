@@ -652,9 +652,8 @@ fn root_floating_panel_rect(
     theme: &theme::Theme,
     profile: keymap::Profile,
 ) -> (Rect, Option<geometry::PlacementRequest>) {
-    let anchor = node
-        .placement_anchor()
-        .or_else(|| floating_panel_anchor(node, frames).map(geometry::PlacementAnchor::Rect));
+    let attachment = floating_panel_attachment(node, frames, theme);
+    let anchor = attachment.map(|(anchor, _)| anchor);
     let width = match node.style().width() {
         Some(_) => resolved_width(node, root.width, engine, theme, profile),
         None if anchor.is_some() => floating_panel_width(node, engine, theme, profile),
@@ -680,7 +679,9 @@ fn root_floating_panel_rect(
     );
 
     if let Some(anchor) = anchor {
-        let request = geometry::PlacementRequest::new(anchor, Size::new(width, height));
+        let clearance = attachment.map_or(0, |(_, clearance)| clearance);
+        let request = geometry::PlacementRequest::new(anchor, Size::new(width, height))
+            .with_clearance(clearance);
         let available = node.placement_available().unwrap_or(root);
         return (request.resolve(available), Some(request));
     }
@@ -709,27 +710,26 @@ fn root_floating_panel_rect(
     (rect, None)
 }
 
-fn floating_panel_anchor(node: &view::Node, frames: &[Frame]) -> Option<Rect> {
-    if let Some(cell) = node.table_panel_anchor() {
-        return frames
-            .iter()
-            .find_map(|frame| (frame.table_cell() == Some(cell)).then(|| frame.rect()));
+fn floating_panel_attachment(
+    node: &view::Node,
+    frames: &[Frame],
+    theme: &theme::Theme,
+) -> Option<(geometry::PlacementAnchor, i32)> {
+    match node.panel_attachment()? {
+        view::PanelAttachment::Geometry(anchor) => Some((anchor, 0)),
+        view::PanelAttachment::Pointer(point) => Some((
+            geometry::PlacementAnchor::Point(point),
+            theme.auxiliary_panel().pointer_clearance,
+        )),
+        view::PanelAttachment::Element(id) => frames.iter().find_map(|frame| {
+            (frame.target().and_then(interaction::Target::element_id) == Some(id))
+                .then(|| (geometry::PlacementAnchor::Rect(frame.rect()), 0))
+        }),
+        view::PanelAttachment::TableCell(cell) => frames.iter().find_map(|frame| {
+            (frame.table_cell() == Some(cell))
+                .then(|| (geometry::PlacementAnchor::Rect(frame.rect()), 0))
+        }),
     }
-
-    if let Some(target) = node.panel_anchor_target() {
-        return frames
-            .iter()
-            .find_map(|frame| (frame.target() == Some(target)).then(|| frame.rect()));
-    }
-
-    let anchor_id = node
-        .pointer_target()
-        .and_then(|target| target.element_id())?;
-
-    frames.iter().find_map(|frame| {
-        let target_id = frame.target().and_then(|target| target.element_id());
-        (target_id == Some(anchor_id)).then(|| frame.rect())
-    })
 }
 
 #[derive(Debug, Clone)]

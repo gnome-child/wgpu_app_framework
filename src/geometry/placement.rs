@@ -19,11 +19,23 @@ impl Anchor {
 pub(crate) struct Request {
     anchor: Anchor,
     desired: Size,
+    clearance: i32,
 }
 
 impl Request {
     pub(crate) fn new(anchor: Anchor, desired: Size) -> Self {
-        Self { anchor, desired }
+        Self {
+            anchor,
+            desired,
+            clearance: 0,
+        }
+    }
+
+    /// Keeps a point-attached panel away from its pointer hotspot while
+    /// preserving the same four-candidate edge solver used by context menus.
+    pub(crate) fn with_clearance(mut self, clearance: i32) -> Self {
+        self.clearance = clearance.max(0);
+        self
     }
 
     pub(crate) fn anchor(self) -> Anchor {
@@ -31,7 +43,7 @@ impl Request {
     }
 
     pub(crate) fn resolve(self, available: Rect) -> Rect {
-        let candidates = candidates(self.anchor, self.desired);
+        let candidates = candidates(self.anchor, self.desired, self.clearance);
         if let Some(candidate) = candidates
             .iter()
             .copied()
@@ -48,19 +60,27 @@ impl Request {
     }
 }
 
-fn candidates(anchor: Anchor, desired: Size) -> [Rect; 4] {
+fn candidates(anchor: Anchor, desired: Size, clearance: i32) -> [Rect; 4] {
     let (right_x, left_x, down_y, up_y) = match anchor {
         Anchor::Point(point) => (
-            point.x(),
-            point.x().saturating_sub(desired.width()),
-            point.y(),
-            point.y().saturating_sub(desired.height()),
+            point.x().saturating_add(clearance),
+            point
+                .x()
+                .saturating_sub(desired.width())
+                .saturating_sub(clearance),
+            point.y().saturating_add(clearance),
+            point
+                .y()
+                .saturating_sub(desired.height())
+                .saturating_sub(clearance),
         ),
         Anchor::Rect(rect) => (
             rect.x(),
             rect.right().saturating_sub(desired.width()),
-            rect.bottom(),
-            rect.y().saturating_sub(desired.height()),
+            rect.bottom().saturating_add(clearance),
+            rect.y()
+                .saturating_sub(desired.height())
+                .saturating_sub(clearance),
         ),
     };
 
@@ -152,5 +172,21 @@ mod tests {
         assert_eq!(resolved, Rect::new(-40, -20, 90, 70));
         assert_eq!(resolved.width(), desired.width());
         assert_eq!(resolved.height(), desired.height());
+    }
+
+    #[test]
+    fn point_clearance_survives_every_edge_flip() {
+        let available = Rect::new(0, 0, 100, 80);
+        let desired = Size::new(30, 20);
+        let resolve = |point| {
+            Request::new(Anchor::Point(point), desired)
+                .with_clearance(8)
+                .resolve(available)
+        };
+
+        assert_eq!(resolve(Point::new(20, 20)), Rect::new(28, 28, 30, 20));
+        assert_eq!(resolve(Point::new(80, 20)), Rect::new(42, 28, 30, 20));
+        assert_eq!(resolve(Point::new(20, 60)), Rect::new(28, 32, 30, 20));
+        assert_eq!(resolve(Point::new(80, 60)), Rect::new(42, 32, 30, 20));
     }
 }

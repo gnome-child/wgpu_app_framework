@@ -2834,16 +2834,20 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
         error_panel.auxiliary_chrome(),
         Some(view::AuxiliaryChrome::Error)
     );
-    assert!(
-        error_panel.popup_placement().is_some(),
-        "error panel {:?} should retain placement request for cell {:?}",
-        error_panel.rect(),
-        rejected
-            .layout()
-            .frames()
-            .iter()
-            .find(|frame| frame.table_cell() == Some(count))
-            .map(layout::Frame::rect)
+    let rejected_cell_rect = rejected
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(count))
+        .map(layout::Frame::rect)
+        .expect("rejected cell rectangle");
+    assert_eq!(
+        error_panel
+            .popup_placement()
+            .expect("error panel placement request")
+            .anchor(),
+        geometry::PlacementAnchor::Rect(rejected_cell_rect),
+        "persistent error remains attached to its subject rather than the pointer"
     );
     assert!(
         error_panel.target().is_none(),
@@ -10494,6 +10498,17 @@ fn command_hint_visually_wins_without_erasing_the_independent_description() {
         .expect("hint should project as a floating hover panel");
     assert_eq!(panel.role(), view::Role::FloatingPanel);
     assert!(panel.target().is_none(), "hover panels never accept input");
+    assert_eq!(
+        panel
+            .popup_placement()
+            .expect("hover panel placement request")
+            .anchor(),
+        geometry::PlacementAnchor::Point(point),
+        "hover revelation attaches to the pointer snapshot rather than the whole target rectangle"
+    );
+    let clearance = Theme::default().auxiliary_panel().pointer_clearance;
+    assert_eq!(panel.rect().x(), point.x().saturating_add(clearance));
+    assert_eq!(panel.rect().y(), point.y().saturating_add(clearance));
     assert!(
         visible.scene().texts().iter().any(|text| {
             text.value() == "Adds one using the current gallery state"

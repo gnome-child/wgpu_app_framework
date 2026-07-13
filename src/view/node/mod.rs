@@ -87,6 +87,18 @@ impl PanelPolicy {
     }
 }
 
+/// The independent geometry source used to attach a floating panel.
+///
+/// Semantic ownership remains on the target/cell/session that produced the
+/// panel; this value answers only where the shared placement request begins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PanelAttachment {
+    Geometry(crate::geometry::PlacementAnchor),
+    Pointer(crate::geometry::Point),
+    Element(interaction::Id),
+    TableCell(crate::table::Cell),
+}
+
 /// Visual treatment for auxiliary-panel content.
 ///
 /// This is deliberately separate from retained feedback severity: descriptive
@@ -122,13 +134,11 @@ pub struct Node {
     axis: Option<Axis>,
     style: Style,
     floating_placement: FloatingPlacement,
-    placement_anchor: Option<crate::geometry::PlacementAnchor>,
+    panel_attachment: Option<PanelAttachment>,
     placement_available: Option<crate::geometry::Rect>,
     popup_context: Option<crate::popup::ContextFingerprint>,
     panel_policy: PanelPolicy,
     auxiliary_chrome: Option<AuxiliaryChrome>,
-    table_panel_anchor: Option<crate::table::Cell>,
-    panel_anchor_target: Option<interaction::Target>,
     force_overlay_group: bool,
     native_popup_material_preference: NativePopupMaterialPreference,
     subject: Option<subject::Segment>,
