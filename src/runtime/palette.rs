@@ -1,16 +1,16 @@
-use std::cmp::Ordering;
+use std::{any::TypeId, cmp::Ordering};
 
 use super::{Runtime, fuzzy, services::Services, transaction};
 use crate::{
     command, context as command_context, error::Error, input, interaction, responder, response,
-    state, subject, view, window,
+    session, state, subject, view, window,
 };
 
 const PAGE_SIZE: usize = 8;
 
 #[derive(Clone)]
 struct Match {
-    command: command::ResolvedCommand,
+    command: command::ResolvedAction,
     score: fuzzy::Score,
 }
 
@@ -221,10 +221,16 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .chain_for(&mut self.store, focus)
             .with_service(services);
 
+        let candidates = self.registry.global_candidates();
         let mut entries = self
             .registry
-            .resolved_unit_commands(&mut chain, &cx)
+            .resolve_candidates(candidates, &mut chain, &cx)
             .into_iter()
+            .filter(|command| command.state().is_enabled())
+            .filter(|command| {
+                !(command.listing() == command::Listing::Describer
+                    && command.command_type() == TypeId::of::<session::OpenCommandPalette>())
+            })
             .filter_map(|command| {
                 score_command(query, &command).map(|score| Match { command, score })
             })
@@ -244,7 +250,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     }
 }
 
-fn score_command(query: &str, command: &command::ResolvedCommand) -> Option<fuzzy::Score> {
+fn score_command(query: &str, command: &command::ResolvedAction) -> Option<fuzzy::Score> {
     let label = command
         .state()
         .label

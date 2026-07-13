@@ -111,7 +111,7 @@ must decide and record each surface's policy deliberately.
 | # | Boundary | Status |
 |---|---|---|
 | 0 | Census, constitution, protected baseline, and roadmap ignition | Complete |
-| 1 | One erased command projection with type-distinct providers | Pending |
+| 1 | One erased command projection with type-distinct providers | Complete — palette now consumes `Candidates<Global>` through one generic resolver; surface policy owns self-describer exclusion |
 | 2 | Retained contextual ownership and exact local discovery | Pending |
 | 3 | Secondary/keyboard request through one menu session | Pending |
 | 4 | Existing menu-row and overlay projection | Pending |
@@ -128,6 +128,24 @@ must decide and record each surface's policy deliberately.
 - No retained command availability.
 - No submenu sessions. The anchor-general placement solver is their future
   seam; this campaign neither builds nested sessions nor implies them.
+
+## Boundary receipts
+
+### Checkpoint 1
+
+- The private command-surface vocabulary lives in `src/command/surface.rs`:
+  provider identity is carried by `Candidates<P>` and `ResolvedActions<P>`,
+  while `ResolvedAction` carries trigger, state, metadata, provenance, and
+  listing policy.
+- `Registry::global_candidates` performs only global discovery;
+  `Registry::resolve_candidates` is the single erased resolver. The former
+  palette-only `resolved_unit_commands` path is deleted.
+- Palette policy remains in `runtime/palette.rs`: enabled filtering, fuzzy
+  ranking, and exclusion of its own `OpenCommandPalette` describer happen
+  after shared resolution. `Listing::Describer` is not a blanket global ban.
+- Verification at the boundary: 12 palette/layout/platform tests passed; the
+  invocation-source regression passed; all-target check passed; format and
+  diff checks clean.
 
 ## Structural-absence witnesses
 

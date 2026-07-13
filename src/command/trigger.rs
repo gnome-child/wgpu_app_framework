@@ -146,6 +146,10 @@ impl AnyTrigger {
         self.args.history_group()
     }
 
+    pub(in crate::command) fn args(&self) -> &dyn Any {
+        self.args.as_any()
+    }
+
     pub(crate) fn state(
         &self,
         registry: &Registry,

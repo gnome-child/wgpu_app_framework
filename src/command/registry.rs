@@ -10,22 +10,16 @@ use super::super::{
     response::{AnyResponse, Response},
     state,
 };
-use super::{AnyTrigger, Command, History, HistoryGroup, KeyChord, Set, Spec, State};
+use super::{
+    AnyTrigger, Candidates, Command, Global, History, HistoryGroup, KeyChord, ResolvedAction,
+    ResolvedActions, Set, Spec, State,
+    surface::{Candidate, Route},
+};
 #[derive(Default)]
 pub struct Registry {
     commands: HashMap<TypeId, AnyCommand>,
     shortcuts: HashMap<KeyChord, Vec<TypeId>>,
     order: Vec<TypeId>,
-}
-
-#[derive(Clone)]
-pub(crate) struct ResolvedCommand {
-    registration_index: usize,
-    command_type: TypeId,
-    command_name: &'static str,
-    trigger: AnyTrigger,
-    state: State,
-    claim: responder::Claim,
 }
 
 pub(crate) struct AnyCommand {
@@ -64,36 +58,6 @@ impl AnyCommand {
 
     fn unit_trigger(&self) -> AnyTrigger {
         AnyTrigger::unit(self.command_type, self.command_name, self.history_group)
-    }
-}
-
-impl ResolvedCommand {
-    pub(crate) fn registration_index(&self) -> usize {
-        self.registration_index
-    }
-
-    pub(crate) fn command_type(&self) -> TypeId {
-        self.command_type
-    }
-
-    pub(crate) fn command_name(&self) -> &'static str {
-        self.command_name
-    }
-
-    pub(crate) fn trigger(&self) -> AnyTrigger {
-        self.trigger.clone()
-    }
-
-    pub(crate) fn history_group(&self) -> Option<HistoryGroup> {
-        self.trigger.history_group()
-    }
-
-    pub(crate) fn state(&self) -> &State {
-        &self.state
-    }
-
-    pub(crate) fn claim(&self) -> &responder::Claim {
-        &self.claim
     }
 }
 
@@ -173,43 +137,64 @@ impl Registry {
         state.with_command(command)
     }
 
-    pub(crate) fn resolved_unit_commands(
+    pub(crate) fn global_candidates(&self) -> Candidates<Global> {
+        Candidates::new(
+            self.order
+                .iter()
+                .enumerate()
+                .filter_map(|(registration_index, command_type)| {
+                    let command = self.commands.get(command_type)?;
+                    command.accepts_shortcut_args().then(|| {
+                        Candidate::new(
+                            registration_index,
+                            command.unit_trigger(),
+                            command.spec.listing,
+                            Route::Chain,
+                        )
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    pub(crate) fn resolve_candidates<P>(
         &self,
+        candidates: Candidates<P>,
         chain: &mut responder::Chain<'_, impl state::State>,
         cx: &Context,
-    ) -> Vec<ResolvedCommand> {
-        let args = ();
-        self.order
-            .iter()
-            .enumerate()
-            .filter_map(|(registration_index, command_type)| {
-                let command = self.commands.get(command_type)?;
-                if !command.accepts_shortcut_args() {
-                    return None;
-                }
-                if command.spec.listing == super::Listing::Describer {
-                    return None;
-                }
-                let claim =
-                    match chain.claim_any(command.command_type, command.command_name, &args, cx) {
+    ) -> ResolvedActions<P> {
+        let entries = candidates
+            .into_entries()
+            .into_iter()
+            .filter_map(|candidate| {
+                let command = self.commands.get(&candidate.trigger().command_type())?;
+                let claim = match candidate.route() {
+                    Route::Chain => match chain.claim_any(
+                        command.command_type,
+                        command.command_name,
+                        candidate.trigger().args(),
+                        cx,
+                    ) {
                         Ok(Some(claim)) => claim,
                         Ok(None) | Err(_) => return None,
-                    };
+                    },
+                };
                 let state = claim.state().clone().with_command(command);
-                if !state.is_enabled() {
-                    return None;
-                }
+                let registration_index = candidate.registration_index();
+                let listing = candidate.listing();
+                let trigger = candidate.into_trigger();
 
-                Some(ResolvedCommand {
+                Some(ResolvedAction::new(
                     registration_index,
-                    command_type: command.command_type,
-                    command_name: command.command_name,
-                    trigger: command.unit_trigger(),
+                    trigger,
                     state,
                     claim,
-                })
+                    listing,
+                ))
             })
-            .collect()
+            .collect();
+
+        ResolvedActions::new(entries)
     }
 
     pub fn invoke<C: Command>(
