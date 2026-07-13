@@ -17,6 +17,11 @@ pub(in crate::render) struct Batch {
 }
 
 impl Batch {
+    #[cfg(test)]
+    pub(in crate::render) fn from_vertex_range(vertex_range: Range<u32>) -> Self {
+        Self { vertex_range }
+    }
+
     pub(in crate::render) fn vertex_range(&self) -> Range<u32> {
         self.vertex_range.clone()
     }

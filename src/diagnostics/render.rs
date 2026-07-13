@@ -28,6 +28,7 @@ pub struct Render {
     pub quad_vertices: usize,
     pub geometry_upload_bytes: usize,
     pub geometry_buffer_creations: usize,
+    pub draw_passes: usize,
     pub clip_batches: usize,
     pub group_composites: usize,
     pub filter_layer_pool_entries: usize,
@@ -97,6 +98,7 @@ impl Render {
         self.quad_vertices = report.draw_stats.quad_vertices;
         self.geometry_upload_bytes = report.draw_stats.geometry_upload_bytes;
         self.geometry_buffer_creations = report.draw_stats.geometry_buffer_creations;
+        self.draw_passes = report.draw_stats.draw_passes;
         self.clip_batches = report.draw_stats.clip_batches;
         self.group_composites = report
             .group_composites
@@ -188,6 +190,7 @@ impl Default for Render {
             quad_vertices: 0,
             geometry_upload_bytes: 0,
             geometry_buffer_creations: 0,
+            draw_passes: 0,
             clip_batches: 0,
             group_composites: 0,
             filter_layer_pool_entries: 0,

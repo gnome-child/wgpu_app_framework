@@ -67,7 +67,7 @@ reviewed against the starting diff before commit.
 | 0. Name the bill with PIX | Complete | DX12 Timing Capture plus source/counter census; numeric floors pinned before renderer changes |
 | 1. One clip owner | Complete | Contiguous members share one scene scope; rectangular clips are scissor-only; rounded clips retain one mask layer |
 | 2. One reusable geometry arena | Complete | One ordered frame upload; geometric growth only; zero steady-state ordinary-geometry buffer creation |
-| 3. Semantic render-pass scopes | Pending | Pass count reaches the evidenced semantic floor |
+| 3. Semantic render-pass scopes | Complete | 137 descriptive batches became 6 ordered draw passes in the 500px DX12 witness |
 | 4. Reusable popup-host probe and verdict | Pending | Reuse or negative result, never mechanism by assumption |
 | 5. Responsiveness verdict | Pending | Identical before/after matrix and human-eyes confirmation |
 
@@ -197,3 +197,39 @@ formatting, all three application smokes, and diff hygiene passed. The required
 release hardware tier also passed all ten witnesses, including quad and glyph
 AA, direct alpha, group opacity, popup sRGB packing, material-base distinction,
 noise alpha preservation, and shared-shader compilation.
+
+## Checkpoint 3 — passes correspond to semantic scopes
+
+The encoder now treats consecutive shape and text batches as one ordered draw
+run. One render pass spans that run while each consumer reasserts the pipeline,
+vertex storage, bindings, and scissor state it owns. Scene order is unchanged:
+the encoder does not sort opaque or translucent content. A pane requiring
+material/filter work, a clip transition, a group composition, or an output
+target change still terminates the run. Solid panes are ordinary geometry and
+therefore join the surrounding draw stream instead of manufacturing a pane
+boundary.
+
+The live release DX12 witness made the distinction measurable. At the
+500-logical-pixel table height, 242 scene items prepared as 137 descriptive
+batches and 64 glyph batches but encoded through **6 draw passes**. Geometry
+held at 636 vertices / 91,584 upload bytes with zero arena growth. The pass
+count is now a public diagnostic rather than inferred from batch count. The
+same run exposed the next owner honestly: its sampled p95 still included about
+30 ms in batch/text preparation while encode-and-present was about 5 ms. Pass
+fusion removed false GPU boundaries; it did not claim to solve unrelated text
+preparation work.
+
+The first interactive capture also enforced a subtle state law: glyph draws
+may change render-pass state, so a later quad draw restores its scissor along
+with pipeline and vertex buffer. Shared pass lifetime does not imply shared
+state ownership. The user's immediate release-mode field verdict was that the
+large table was already materially faster after this checkpoint.
+
+Boundary result: 958 library tests passed with 10 deliberate ignores; four
+doctests, all-target compilation, formatting, all three application smokes,
+and diff hygiene passed. All ten release hardware witnesses passed again,
+covering AA, glyph coverage, direct and grouped alpha, material transparency,
+noise alpha, popup packing, and shader compilation. The full identical-backend
+latency matrix remains Checkpoint 5's controlled verdict; automated Vulkan
+input was stopped when live user input was detected rather than contaminating
+the comparison.

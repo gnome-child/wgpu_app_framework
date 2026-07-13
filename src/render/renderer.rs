@@ -92,6 +92,7 @@ struct SceneEncoder<'a> {
     base_dirty: bool,
     inside_group: bool,
     text_render_error: &'a mut Option<render::text_renderer::Error>,
+    draw_passes: &'a mut usize,
 }
 
 struct SceneEncoderInput<'a> {
@@ -109,6 +110,7 @@ struct SceneEncoderInput<'a> {
     base_dirty: bool,
     inside_group: bool,
     text_render_error: &'a mut Option<render::text_renderer::Error>,
+    draw_passes: &'a mut usize,
 }
 
 impl Renderer {
@@ -224,6 +226,7 @@ impl Renderer {
         let popup_packer = &self.popup_packer;
         let text_renderer = &mut self.text_renderer;
         let mut text_render_error = None;
+        let mut draw_passes = 0;
 
         let surface_report = if pack_premultiplied_surface {
             canvas.draw(render_context, |encoder, frame| {
@@ -247,6 +250,7 @@ impl Renderer {
                     base_dirty: true,
                     inside_group: false,
                     text_render_error: &mut text_render_error,
+                    draw_passes: &mut draw_passes,
                 });
                 scene_encoder.encode(&prepared_scene.render_batches);
                 if text_render_error.is_some() {
@@ -282,6 +286,7 @@ impl Renderer {
                     base_dirty: true,
                     inside_group: false,
                     text_render_error: &mut text_render_error,
+                    draw_passes: &mut draw_passes,
                 });
                 scene_encoder.encode(&prepared_scene.render_batches);
             })?
@@ -307,6 +312,7 @@ impl Renderer {
                     base_dirty: true,
                     inside_group: false,
                     text_render_error: &mut text_render_error,
+                    draw_passes: &mut draw_passes,
                 });
                 scene_encoder.encode(&prepared_scene.render_batches);
                 if text_render_error.is_some() {
@@ -322,6 +328,7 @@ impl Renderer {
         }
 
         self.text_renderer.trim();
+        stats.draw_passes = draw_passes;
         stats.filter_layer_pool_entries = self.filter_renderer.layer_pool_entries();
         stats.filter_scratch_pool_entries = self.filter_renderer.scratch_pool_entries();
 
@@ -373,7 +380,14 @@ impl Renderer {
                     }
                 }
                 ItemBatch::Pane(pane) => {
-                    render_batches.push(RenderBatch::Pane(self.prepare_pane(viewport, pane)));
+                    let prepared = self.prepare_pane(viewport, pane);
+                    if matches!(pane.material, paint::Material::Solid(_)) {
+                        if let Some(batch) = prepared.base {
+                            render_batches.push(RenderBatch::Shapes(batch));
+                        }
+                    } else {
+                        render_batches.push(RenderBatch::Pane(prepared));
+                    }
                 }
                 ItemBatch::PushClip(clip) => {
                     render_batches.push(RenderBatch::PushClip(**clip));
@@ -603,6 +617,17 @@ fn begin_main_pass<'a>(
     })
 }
 
+fn is_draw_batch(batch: &RenderBatch) -> bool {
+    matches!(batch, RenderBatch::Shapes(_) | RenderBatch::Text { .. })
+}
+
+fn draw_run_end(render_batches: &[RenderBatch], start: usize) -> usize {
+    render_batches[start..]
+        .iter()
+        .position(|batch| !is_draw_batch(batch))
+        .map_or(render_batches.len(), |offset| start + offset)
+}
+
 impl<'a> SceneEncoder<'a> {
     fn new(input: SceneEncoderInput<'a>) -> Self {
         Self {
@@ -623,20 +648,12 @@ impl<'a> SceneEncoder<'a> {
             base_dirty: input.base_dirty,
             inside_group: input.inside_group,
             text_render_error: input.text_render_error,
+            draw_passes: input.draw_passes,
         }
     }
 
     fn encode(&mut self, render_batches: &[RenderBatch]) {
-        for batch in render_batches {
-            match batch {
-                RenderBatch::Shapes(batch) => self.encode_shapes(batch),
-                RenderBatch::Pane(pane) => self.encode_pane(pane),
-                RenderBatch::Text { renderer_index } => self.encode_text(*renderer_index),
-                RenderBatch::PushClip(clip) => self.push_clip(*clip),
-                RenderBatch::PopClip => self.composite_clip_layer(),
-                RenderBatch::Group(group) => self.encode_group(group),
-            }
-        }
+        self.encode_batches(render_batches);
 
         while !self.clip_stack.is_empty() {
             self.composite_clip_layer();
@@ -645,6 +662,73 @@ impl<'a> SceneEncoder<'a> {
         for layer in self.layers.drain(..) {
             self.filter_renderer.recycle_layer(layer);
         }
+    }
+
+    fn encode_batches(&mut self, render_batches: &[RenderBatch]) {
+        let mut index = 0;
+        while index < render_batches.len() {
+            if is_draw_batch(&render_batches[index]) {
+                let end = draw_run_end(render_batches, index);
+                self.encode_draw_run(&render_batches[index..end]);
+                index = end;
+                continue;
+            }
+
+            match &render_batches[index] {
+                RenderBatch::Shapes(_) | RenderBatch::Text { .. } => unreachable!(),
+                RenderBatch::Pane(pane) => self.encode_pane(pane),
+                RenderBatch::PushClip(clip) => self.push_clip(*clip),
+                RenderBatch::PopClip => self.composite_clip_layer(),
+                RenderBatch::Group(group) => self.encode_group(group),
+            }
+            index += 1;
+        }
+    }
+
+    fn encode_draw_run(&mut self, batches: &[RenderBatch]) {
+        let Some(scissor) = current_scissor(
+            &self.clip_stack,
+            self.viewport.physical_area(),
+            self.viewport.scale_factor(),
+        ) else {
+            return;
+        };
+        let Some(target_view) = current_target_view(self.base_view, &self.layers, &self.clip_stack)
+        else {
+            return;
+        };
+        *self.draw_passes += 1;
+        {
+            let mut pass = begin_main_pass(self.encoder, target_view, self.clear_color, false);
+            pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
+
+            for batch in batches {
+                match batch {
+                    RenderBatch::Shapes(batch) => {
+                        pass.set_pipeline(self.quad_pipeline);
+                        pass.set_scissor_rect(
+                            scissor.x(),
+                            scissor.y(),
+                            scissor.width(),
+                            scissor.height(),
+                        );
+                        pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
+                        pass.draw(batch.vertex_range(), 0..1);
+                    }
+                    RenderBatch::Text { renderer_index } => {
+                        if let Err(error) = self.text_renderer.render(*renderer_index, &mut pass) {
+                            *self.text_render_error = Some(error);
+                            break;
+                        }
+                    }
+                    RenderBatch::Pane(_)
+                    | RenderBatch::PushClip(_)
+                    | RenderBatch::PopClip
+                    | RenderBatch::Group(_) => unreachable!(),
+                }
+            }
+        }
+        self.mark_current_dirty();
     }
 
     fn encode_shapes(&mut self, batch: &render::quad::Batch) {
@@ -659,10 +743,11 @@ impl<'a> SceneEncoder<'a> {
         else {
             return;
         };
+        *self.draw_passes += 1;
         {
             let mut pass = begin_main_pass(self.encoder, target_view, self.clear_color, false);
-            pass.set_pipeline(self.quad_pipeline);
             pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
+            pass.set_pipeline(self.quad_pipeline);
             pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
             pass.draw(batch.vertex_range(), 0..1);
         }
@@ -780,44 +865,13 @@ impl<'a> SceneEncoder<'a> {
         }
     }
 
-    fn encode_text(&mut self, renderer_index: usize) {
-        let Some(scissor) = current_scissor(
-            &self.clip_stack,
-            self.viewport.physical_area(),
-            self.viewport.scale_factor(),
-        ) else {
-            return;
-        };
-        let Some(target_view) = current_target_view(self.base_view, &self.layers, &self.clip_stack)
-        else {
-            return;
-        };
-        {
-            let mut pass = begin_main_pass(self.encoder, target_view, self.clear_color, false);
-            pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
-            if let Err(error) = self.text_renderer.render(renderer_index, &mut pass) {
-                *self.text_render_error = Some(error);
-            }
-        }
-        self.mark_current_dirty();
-    }
-
     fn encode_group(&mut self, group: &PreparedGroup) {
         if group.opacity <= 0.0 {
             return;
         }
 
         if self.clip_stack.iter().any(|frame| frame.clip().is_some()) {
-            for batch in &group.render_batches {
-                match batch {
-                    RenderBatch::Shapes(batch) => self.encode_shapes(batch),
-                    RenderBatch::Pane(pane) => self.encode_pane(pane),
-                    RenderBatch::Text { renderer_index } => self.encode_text(*renderer_index),
-                    RenderBatch::PushClip(clip) => self.push_clip(*clip),
-                    RenderBatch::PopClip => self.composite_clip_layer(),
-                    RenderBatch::Group(group) => self.encode_group(group),
-                }
-            }
+            self.encode_batches(&group.render_batches);
             return;
         }
 
@@ -852,6 +906,7 @@ impl<'a> SceneEncoder<'a> {
                 base_dirty: false,
                 inside_group: true,
                 text_render_error: self.text_render_error,
+                draw_passes: self.draw_passes,
             });
             group_encoder.encode(&group.render_batches);
         }
@@ -1080,6 +1135,20 @@ mod tests {
     use crate::text;
 
     use super::*;
+
+    #[test]
+    fn draw_runs_cross_shape_text_pipeline_changes_but_stop_at_semantic_boundaries() {
+        let batches = [
+            RenderBatch::Shapes(render::quad::Batch::from_vertex_range(0..6)),
+            RenderBatch::Text { renderer_index: 1 },
+            RenderBatch::PopClip,
+            RenderBatch::Text { renderer_index: 2 },
+        ];
+
+        assert_eq!(draw_run_end(&batches, 0), 2);
+        assert!(!is_draw_batch(&batches[2]));
+        assert_eq!(draw_run_end(&batches, 3), 4);
+    }
 
     #[test]
     fn clip_scissor_converts_logical_rect_to_physical_pixels() {
@@ -1547,6 +1616,7 @@ mod tests {
             .map_err(|error| error.to_string())?;
         renderer.quad_arena.upload(&context);
         let mut text_render_error = None;
+        let mut draw_passes = 0;
         let mut encoder =
             context
                 .device()
@@ -1571,6 +1641,7 @@ mod tests {
             base_dirty: true,
             inside_group: false,
             text_render_error: &mut text_render_error,
+            draw_passes: &mut draw_passes,
         });
         scene_encoder.encode(&prepared_scene.render_batches);
 
@@ -1726,6 +1797,7 @@ mod tests {
             .map_err(|error| error.to_string())?;
         renderer.quad_arena.upload(&context);
         let mut text_render_error = None;
+        let mut draw_passes = 0;
         let mut encoder =
             context
                 .device()
@@ -1750,6 +1822,7 @@ mod tests {
             base_dirty: true,
             inside_group: false,
             text_render_error: &mut text_render_error,
+            draw_passes: &mut draw_passes,
         });
         scene_encoder.encode(&prepared_scene.render_batches);
         if let Some(error) = text_render_error {
@@ -1895,6 +1968,7 @@ mod tests {
             .map_err(|error| error.to_string())?;
         renderer.quad_arena.upload(&context);
         let mut text_render_error = None;
+        let mut draw_passes = 0;
         let mut encoder =
             context
                 .device()
@@ -1919,6 +1993,7 @@ mod tests {
             base_dirty: true,
             inside_group: false,
             text_render_error: &mut text_render_error,
+            draw_passes: &mut draw_passes,
         });
         scene_encoder.encode(&prepared_scene.render_batches);
 
