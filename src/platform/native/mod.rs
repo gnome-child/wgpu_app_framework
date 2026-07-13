@@ -59,11 +59,60 @@ struct PopupWindow {
     exposed: bool,
     last_presented_scene: Option<crate::paint::Scene>,
     first_present: PopupFirstPresentTrace,
+    material_readiness: PopupMaterialReadiness,
     material: Option<overlay::PopupMaterial>,
     presentation_mode: PopupPresentationMode,
     material_realization: Option<PopupMaterialRealization>,
     #[cfg(target_os = "windows")]
     composition: Option<composition::Host>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PopupMaterialReadiness {
+    NotRequired,
+    Pending(u64),
+    Committed(u64),
+    Ready(u64),
+}
+
+impl PopupMaterialReadiness {
+    fn observe(&mut self, observed: Self) {
+        match observed {
+            Self::NotRequired => *self = Self::NotRequired,
+            Self::Pending(generation) => {
+                if self.generation() != Some(generation) {
+                    *self = Self::Pending(generation);
+                }
+            }
+            Self::Committed(generation) => {
+                if matches!(self, Self::Pending(current) if *current == generation) {
+                    *self = Self::Committed(generation);
+                }
+            }
+            Self::Ready(generation) => {
+                if matches!(self, Self::Committed(current) if *current == generation) {
+                    *self = Self::Ready(generation);
+                }
+            }
+        }
+    }
+
+    fn generation(self) -> Option<u64> {
+        match self {
+            Self::NotRequired => None,
+            Self::Pending(generation) | Self::Committed(generation) | Self::Ready(generation) => {
+                Some(generation)
+            }
+        }
+    }
+
+    fn mark_ready(&mut self, generation: u64) -> bool {
+        if *self != Self::Committed(generation) {
+            return false;
+        }
+        *self = Self::Ready(generation);
+        true
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,7 +175,7 @@ enum PopupFirstPresentState {
 enum PopupFirstPresentAction {
     None,
     RequestRedraw,
-    Expose,
+    ContentReady,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -161,6 +210,7 @@ impl PopupWindow {
             exposed: false,
             last_presented_scene: None,
             first_present: PopupFirstPresentTrace::new(lifecycle_epoch),
+            material_readiness: PopupMaterialReadiness::NotRequired,
             material: None,
             presentation_mode,
             material_realization: None,

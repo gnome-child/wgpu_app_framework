@@ -6,10 +6,10 @@ use windows::Foundation::TimeSpan;
 use windows::System::DispatcherQueueController;
 use windows::UI::Composition::Desktop::DesktopWindowTarget;
 use windows::UI::Composition::{
-    CompositionDropShadowSourcePolicy, CompositionGeometricClip,
-    CompositionRoundedRectangleGeometry, CompositionStretch, CompositionSurfaceBrush,
-    CompositionVisualSurface, Compositor, ContainerVisual, DropShadow, ICompositionSurface,
-    SpriteVisual,
+    CompositionBatchTypes, CompositionCommitBatch, CompositionDropShadowSourcePolicy,
+    CompositionGeometricClip, CompositionRoundedRectangleGeometry, CompositionStretch,
+    CompositionSurfaceBrush, CompositionVisualSurface, Compositor, ContainerVisual, DropShadow,
+    ICompositionSurface, SpriteVisual,
 };
 use windows::Win32::Foundation::{E_HANDLE, E_NOINTERFACE, HWND};
 use windows::Win32::Graphics::DirectComposition::{
@@ -58,6 +58,11 @@ pub(super) struct Host {
     compositor: Compositor,
     host_backdrop_enabled: bool,
     material_regions: HashMap<composition::NodeId, RegionVisual>,
+    material_projection: Vec<(composition::NodeId, ProjectedRegion)>,
+    shadow_projection: Option<ProjectedShadow>,
+    material_generation: u64,
+    material_commit: Option<MaterialCommit>,
+    committed_generation: Option<u64>,
     fade: Option<FadeState>,
     pending_entrance: Option<std::time::Duration>,
 }
@@ -66,6 +71,29 @@ struct RegionVisual {
     visual: SpriteVisual,
     geometry: CompositionRoundedRectangleGeometry,
     _clip: CompositionGeometricClip,
+}
+
+struct MaterialCommit {
+    generation: u64,
+    batch: CompositionCommitBatch,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MaterialReadiness {
+    NotRequired,
+    Pending(u64),
+    Committed(u64),
+}
+
+pub(super) struct MaterialSync {
+    reports: Vec<scene::MaterialRealizationReport>,
+    readiness: MaterialReadiness,
+}
+
+impl MaterialSync {
+    pub(super) fn into_parts(self) -> (Vec<scene::MaterialRealizationReport>, MaterialReadiness) {
+        (self.reports, self.readiness)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -101,6 +129,8 @@ struct FadeState {
     from: f32,
     target: f32,
 }
+
+const PREWARM_OPACITY: f32 = 0.001;
 
 impl FadeState {
     fn opacity_at(self, now: std::time::Instant) -> f32 {
@@ -235,6 +265,11 @@ impl Runtime {
             compositor: self.compositor.clone(),
             host_backdrop_enabled,
             material_regions: HashMap::new(),
+            material_projection: Vec::new(),
+            shadow_projection: None,
+            material_generation: 0,
+            material_commit: None,
+            committed_generation: None,
             fade: None,
             pending_entrance: None,
         })
@@ -253,12 +288,12 @@ impl Host {
             return Ok(());
         }
         self.root.StopAnimation(&HSTRING::from("Opacity"))?;
-        self.root.SetOpacity(0.0)?;
+        self.root.SetOpacity(PREWARM_OPACITY)?;
         self.fade = None;
         self.pending_entrance = Some(duration);
         log::debug!(
             target: "wgpu_l3::native_popup",
-            "composition entrance prepared opacity=0 duration_us={} application_redraws=0 dwm_flushes=0",
+            "composition entrance prepared opacity={PREWARM_OPACITY:.3} duration_us={} application_redraws=0 dwm_flushes=0",
             duration.as_micros()
         );
         Ok(())
@@ -271,12 +306,12 @@ impl Host {
         let key = FadeKey {
             phase: 0,
             duration,
-            from_opacity_bits: 0.0_f32.to_bits(),
+            from_opacity_bits: PREWARM_OPACITY.to_bits(),
         };
-        self.start_fade(key, now, duration, 0.0, 1.0)?;
+        self.start_fade(key, now, duration, PREWARM_OPACITY, 1.0)?;
         log::debug!(
             target: "wgpu_l3::native_popup",
-            "composition entrance started after exposure from=0 target=1 duration_us={} application_redraws=0 dwm_flushes=0",
+            "composition entrance started after exposure from={PREWARM_OPACITY:.3} target=1 duration_us={} application_redraws=0 dwm_flushes=0",
             duration.as_micros()
         );
         Ok(())
@@ -296,7 +331,7 @@ impl Host {
                 FadeKey {
                     phase: 0,
                     duration,
-                    from_opacity_bits: 0.0_f32.to_bits(),
+                    from_opacity_bits: PREWARM_OPACITY.to_bits(),
                 },
                 now.saturating_duration_since(started_at),
                 1.0,
@@ -405,40 +440,60 @@ impl Host {
         ancestor_opacity: f32,
         panel_offset_dips: paint::point::Logical,
         shadow: Option<scene::Shadow>,
-    ) -> Vec<scene::MaterialRealizationReport> {
+    ) -> MaterialSync {
         let started = std::time::Instant::now();
         if !self.host_backdrop_enabled {
             self.clear_material_regions();
-            return Vec::new();
+            return MaterialSync {
+                reports: Vec::new(),
+                readiness: MaterialReadiness::NotRequired,
+            };
+        }
+
+        let desired = requests
+            .iter()
+            .filter_map(|request| {
+                project_region(request, scale_factor, ancestor_opacity, panel_offset_dips)
+                    .map(|projected| (request.id(), projected))
+            })
+            .collect::<Vec<_>>();
+        let desired_shadow = shadow
+            .zip(desired.first().map(|(_, projected)| *projected))
+            .and_then(|(recipe, silhouette)| project_shadow(recipe, silhouette));
+        if desired == self.material_projection && desired_shadow == self.shadow_projection {
+            let readiness = self.poll_material_readiness();
+            return MaterialSync {
+                reports: self.material_reports(),
+                readiness,
+            };
         }
 
         let prior_count = self.material_regions.len();
         let mut created = 0_usize;
         let mut updated = 0_usize;
         let mut retained = HashSet::new();
-        let mut realized = Vec::new();
-        let mut popup_silhouette = None;
+        let mut applied = Vec::new();
         let children = match self.regions.Children() {
             Ok(children) => children,
             Err(error) => {
                 log::warn!(target: "wgpu_l3::native_popup", "cannot access composition material-region collection: {error}");
-                return realized;
+                self.disable_material();
+                return MaterialSync {
+                    reports: Vec::new(),
+                    readiness: MaterialReadiness::NotRequired,
+                };
             }
         };
         if let Err(error) = children.RemoveAll() {
             log::warn!(target: "wgpu_l3::native_popup", "cannot reset composition material-region order: {error}");
-            return realized;
+            self.disable_material();
+            return MaterialSync {
+                reports: Vec::new(),
+                readiness: MaterialReadiness::NotRequired,
+            };
         }
 
-        for request in requests {
-            let Some(projected) =
-                project_region(request, scale_factor, ancestor_opacity, panel_offset_dips)
-            else {
-                log::debug!(target: "wgpu_l3::native_popup", "material region {:?} declined: clip or per-corner geometry is not representable by host frost", request.id());
-                continue;
-            };
-            popup_silhouette.get_or_insert(projected);
-            let id = request.id();
+        for (id, projected) in desired {
             let region = if let Some(region) = self.material_regions.get_mut(&id) {
                 updated += 1;
                 region
@@ -463,16 +518,47 @@ impl Host {
                 continue;
             }
             retained.insert(id);
-            realized.push(scene::MaterialRealizationReport::new(
-                id,
-                scene::RealizedMaterialParts::frost(false),
-            ));
+            applied.push((id, projected));
         }
 
         self.material_regions.retain(|id, _| retained.contains(id));
-        if let Err(error) = self.sync_shadow(shadow, popup_silhouette) {
+        let projected_shadow = shadow
+            .zip(applied.first().map(|(_, projected)| *projected))
+            .and_then(|(recipe, silhouette)| project_shadow(recipe, silhouette));
+        if let Err(error) = self.sync_shadow(projected_shadow) {
             log::warn!(target: "wgpu_l3::native_popup", "cannot synchronize composition popup shadow: {error}");
         }
+        self.material_projection = applied;
+        self.shadow_projection = projected_shadow;
+        let Some(generation) = self.material_generation.checked_add(1) else {
+            log::warn!(target: "wgpu_l3::native_popup", "composition material generation exhausted; using framework fallback");
+            self.disable_material();
+            return MaterialSync {
+                reports: Vec::new(),
+                readiness: MaterialReadiness::NotRequired,
+            };
+        };
+        self.material_generation = generation;
+        self.material_commit = None;
+        self.committed_generation = None;
+        let readiness = if self.material_projection.is_empty() {
+            MaterialReadiness::NotRequired
+        } else {
+            match self
+                .compositor
+                .GetCommitBatch(CompositionBatchTypes::Effect)
+            {
+                Ok(batch) => {
+                    self.material_commit = Some(MaterialCommit { generation, batch });
+                    MaterialReadiness::Pending(generation)
+                }
+                Err(error) => {
+                    log::warn!(target: "wgpu_l3::native_popup", "cannot acquire composition effect receipt; falling back to framework material: {error}");
+                    self.disable_material();
+                    MaterialReadiness::NotRequired
+                }
+            }
+        };
         let removed = prior_count
             .saturating_add(created)
             .saturating_sub(self.material_regions.len());
@@ -480,13 +566,16 @@ impl Host {
             target: "wgpu_l3::native_popup",
             "composition material-region sync requested={} realized={} created={} updated={} removed={} elapsed_us={}",
             requests.len(),
-            realized.len(),
+            self.material_projection.len(),
             created,
             updated,
             removed,
             started.elapsed().as_micros()
         );
-        realized
+        MaterialSync {
+            reports: self.material_reports(),
+            readiness,
+        }
     }
 
     fn clear_material_regions(&mut self) {
@@ -494,18 +583,60 @@ impl Host {
             let _ = children.RemoveAll();
         }
         self.material_regions.clear();
+        self.material_projection.clear();
+        self.shadow_projection = None;
+        self.material_commit = None;
+        self.committed_generation = None;
+        let _ = self.shadow.SetOpacity(0.0);
     }
 
-    fn sync_shadow(
-        &self,
-        recipe: Option<scene::Shadow>,
-        silhouette: Option<ProjectedRegion>,
-    ) -> Result<()> {
-        let (Some(recipe), Some(silhouette)) = (recipe, silhouette) else {
-            self.shadow.SetOpacity(0.0)?;
-            return Ok(());
+    fn disable_material(&mut self) {
+        self.host_backdrop_enabled = false;
+        self.clear_material_regions();
+    }
+
+    pub(super) fn abandon_material(&mut self) {
+        self.disable_material();
+    }
+
+    fn material_reports(&self) -> Vec<scene::MaterialRealizationReport> {
+        self.material_projection
+            .iter()
+            .map(|(id, _)| {
+                scene::MaterialRealizationReport::new(
+                    *id,
+                    scene::RealizedMaterialParts::frost(false),
+                )
+            })
+            .collect()
+    }
+
+    fn poll_material_readiness(&mut self) -> MaterialReadiness {
+        let Some(commit) = self.material_commit.as_ref() else {
+            return self
+                .committed_generation
+                .map(MaterialReadiness::Committed)
+                .unwrap_or(MaterialReadiness::NotRequired);
         };
-        let Some(projected) = project_shadow(recipe, silhouette) else {
+        match commit.batch.IsEnded() {
+            Ok(true) => {
+                let generation = commit.generation;
+                self.material_commit = None;
+                self.committed_generation = Some(generation);
+                log::debug!(target: "wgpu_l3::native_popup", "composition material generation={generation} committed");
+                MaterialReadiness::Committed(generation)
+            }
+            Ok(false) => MaterialReadiness::Pending(commit.generation),
+            Err(error) => {
+                log::warn!(target: "wgpu_l3::native_popup", "composition effect receipt failed; falling back to framework material: {error}");
+                self.disable_material();
+                MaterialReadiness::NotRequired
+            }
+        }
+    }
+
+    fn sync_shadow(&self, projected: Option<ProjectedShadow>) -> Result<()> {
+        let Some(projected) = projected else {
             self.shadow.SetOpacity(0.0)?;
             return Ok(());
         };

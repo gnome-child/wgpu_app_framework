@@ -6,8 +6,8 @@ use crate::{overlay, paint, render, window as app_window};
 use super::window::{InitialSize, Options, Window as NativeWindow};
 use super::{
     ApplyDue, Native, NativeContext, NativeError, PopupFirstPresentAction, PopupFirstPresentState,
-    PopupFirstPresentTrace, PopupGeometry, PopupKey, PopupPresentationMode, PopupWindow,
-    popup_accent_due, popup_border_due, popup_geometry_due,
+    PopupFirstPresentTrace, PopupGeometry, PopupKey, PopupMaterialReadiness, PopupPresentationMode,
+    PopupWindow, popup_accent_due, popup_border_due, popup_geometry_due,
 };
 
 impl Native {
@@ -195,7 +195,7 @@ impl Native {
         }
         let material_region = presentation.scene().legacy_full_window_material_region();
         #[cfg(target_os = "windows")]
-        let mut reports = popup
+        let (mut reports, material_readiness) = popup
             .composition
             .as_mut()
             .map(|composition| {
@@ -204,15 +204,32 @@ impl Native {
                     popup.window.canvas().scale_factor(),
                     true,
                 );
-                composition.sync_material_regions(
-                    presentation.scene().material_regions(),
-                    popup.window.canvas().scale_factor(),
-                    presentation.opacity(),
-                    projection.panel_offset(),
-                    projection.shadow(),
-                )
+                composition
+                    .sync_material_regions(
+                        presentation.scene().material_regions(),
+                        popup.window.canvas().scale_factor(),
+                        presentation.opacity(),
+                        projection.panel_offset(),
+                        projection.shadow(),
+                    )
+                    .into_parts()
             })
-            .unwrap_or_default();
+            .unwrap_or((
+                Vec::new(),
+                super::composition::MaterialReadiness::NotRequired,
+            ));
+        #[cfg(target_os = "windows")]
+        popup.material_readiness.observe(match material_readiness {
+            super::composition::MaterialReadiness::NotRequired => {
+                PopupMaterialReadiness::NotRequired
+            }
+            super::composition::MaterialReadiness::Pending(generation) => {
+                PopupMaterialReadiness::Pending(generation)
+            }
+            super::composition::MaterialReadiness::Committed(generation) => {
+                PopupMaterialReadiness::Committed(generation)
+            }
+        });
         #[cfg(not(target_os = "windows"))]
         let mut reports = Vec::new();
         let tenancy_realized = !reports.is_empty();
@@ -423,27 +440,12 @@ impl Native {
             }
         };
 
-        if action == PopupFirstPresentAction::Expose {
-            popup.window.expose_popup_after_present().map_err(|code| {
-                NativeError::PopupPresentation {
-                    operation: "expose-after-present",
-                    code,
-                }
-            })?;
-            popup.exposed = true;
-            popup.first_present.record_exposed(key);
-            #[cfg(target_os = "windows")]
-            if let Some(composition) = popup.composition.as_mut()
-                && let Err(error) = composition.start_prepared_entrance(Instant::now())
-            {
-                log::warn!(
-                    target: "wgpu_l3::native_popup",
-                    "failed to start prepared popup entrance after exposure: {error}"
-                );
-            }
+        let mut request_redraw = action == PopupFirstPresentAction::RequestRedraw;
+        if !popup.exposed && popup.first_present.is_complete() {
+            request_redraw |= expose_popup_when_ready(popup, key)?;
         }
 
-        Ok(action == PopupFirstPresentAction::RequestRedraw)
+        Ok(request_redraw)
     }
 
     fn ensure_popup_window(
@@ -880,6 +882,157 @@ fn apply_popup_border(key: PopupKey, popup: &mut PopupWindow, reason: ApplyDue) 
     popup.border.mark_applied(border);
 }
 
+fn expose_popup_when_ready(popup: &mut PopupWindow, key: PopupKey) -> Result<bool, NativeError> {
+    match popup.material_readiness {
+        PopupMaterialReadiness::Pending(generation) => {
+            log::debug!(
+                target: "wgpu_l3::native_popup",
+                "popup material generation={generation} awaits effect commit before exposure"
+            );
+            Ok(true)
+        }
+        PopupMaterialReadiness::Committed(generation) => {
+            #[cfg(target_os = "windows")]
+            return expose_committed_material(popup, key, generation);
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = generation;
+                expose_popup_without_material_gate(popup, key)
+            }
+        }
+        readiness @ (PopupMaterialReadiness::NotRequired | PopupMaterialReadiness::Ready(_)) => {
+            debug_assert!(popup_reveal_gate_open(true, readiness));
+            expose_popup_without_material_gate(popup, key)
+        }
+    }
+}
+
+fn expose_popup_without_material_gate(
+    popup: &mut PopupWindow,
+    key: PopupKey,
+) -> Result<bool, NativeError> {
+    popup
+        .window
+        .expose_popup_after_present()
+        .map_err(|code| NativeError::PopupPresentation {
+            operation: "expose-after-present",
+            code,
+        })?;
+    #[cfg(target_os = "windows")]
+    if let Some(composition) = popup.composition.as_mut()
+        && let Err(error) = composition.start_prepared_entrance(Instant::now())
+    {
+        log::warn!(
+            target: "wgpu_l3::native_popup",
+            "failed to start prepared popup entrance after exposure: {error}"
+        );
+    }
+    popup.exposed = true;
+    popup.first_present.record_exposed(key);
+    Ok(false)
+}
+
+#[cfg(target_os = "windows")]
+fn expose_committed_material(
+    popup: &mut PopupWindow,
+    key: PopupKey,
+    generation: u64,
+) -> Result<bool, NativeError> {
+    let started = Instant::now();
+    popup
+        .window
+        .expose_popup_after_present()
+        .map_err(|code| NativeError::PopupPresentation {
+            operation: "begin-material-prewarm",
+            code,
+        })?;
+
+    for barrier in 1..=2 {
+        if let Err(code) = super::sys::synchronize_popup_presentation() {
+            log::warn!(
+                target: "wgpu_l3::native_popup",
+                "popup material generation={generation} host-frame barrier={barrier} failed code={code}; using framework fallback"
+            );
+            return abandon_material_prewarm(popup, key);
+        }
+    }
+
+    let entrance = popup
+        .composition
+        .as_mut()
+        .expect("committed material requires a composition host")
+        .start_prepared_entrance(Instant::now());
+    if let Err(error) = entrance {
+        log::warn!(
+            target: "wgpu_l3::native_popup",
+            "popup material generation={generation} entrance failed after prewarm: {error}; using framework fallback"
+        );
+        return abandon_material_prewarm(popup, key);
+    }
+    if let Err(code) = super::sys::synchronize_popup_presentation() {
+        log::warn!(
+            target: "wgpu_l3::native_popup",
+            "popup material generation={generation} fade-start barrier failed code={code}; using framework fallback"
+        );
+        return abandon_material_prewarm(popup, key);
+    }
+    if !popup.material_readiness.mark_ready(generation) {
+        log::warn!(
+            target: "wgpu_l3::native_popup",
+            "popup material generation={generation} became stale during prewarm; keeping popup concealed"
+        );
+        return abandon_material_prewarm(popup, key);
+    }
+    debug_assert!(popup_reveal_gate_open(
+        popup.first_present.is_complete(),
+        popup.material_readiness
+    ));
+
+    popup.exposed = true;
+    popup.first_present.record_exposed(key);
+    log::debug!(
+        target: "wgpu_l3::native_popup",
+        "popup material generation={generation} ready and exposed elapsed_us={} application_redraws=0 host_frame_barriers=3",
+        started.elapsed().as_micros()
+    );
+    Ok(false)
+}
+
+fn popup_reveal_gate_open(
+    content_presented: bool,
+    material_readiness: PopupMaterialReadiness,
+) -> bool {
+    content_presented
+        && matches!(
+            material_readiness,
+            PopupMaterialReadiness::NotRequired | PopupMaterialReadiness::Ready(_)
+        )
+}
+
+#[cfg(target_os = "windows")]
+fn abandon_material_prewarm(popup: &mut PopupWindow, key: PopupKey) -> Result<bool, NativeError> {
+    popup
+        .window
+        .prepare_popup_first_present()
+        .map_err(|code| NativeError::PopupPresentation {
+            operation: "reconceal-after-material-failure",
+            code,
+        })?;
+    if let Some(composition) = popup.composition.as_mut() {
+        composition.abandon_material();
+    }
+    popup.material_readiness = PopupMaterialReadiness::NotRequired;
+    popup.last_presented_scene = None;
+    log::debug!(
+        target: "wgpu_l3::native_popup",
+        "popup material realization abandoned before exposure popup={:?} parent={:?}",
+        key.id,
+        key.parent
+    );
+    Ok(true)
+}
+
 impl PopupFirstPresentTrace {
     fn record_configured(
         &mut self,
@@ -985,6 +1138,10 @@ impl PopupFirstPresentTrace {
     fn needs_redraw(&self) -> bool {
         self.state != PopupFirstPresentState::Complete
     }
+
+    fn is_complete(&self) -> bool {
+        self.state == PopupFirstPresentState::Complete
+    }
 }
 
 fn first_present_follow_up(
@@ -1003,13 +1160,13 @@ fn first_present_follow_up(
             } else {
                 "synchronized"
             },
-            PopupFirstPresentAction::Expose,
+            PopupFirstPresentAction::ContentReady,
         )
     } else if confirmation {
         (
             PopupFirstPresentState::Complete,
             "confirmation-sync-failed",
-            PopupFirstPresentAction::Expose,
+            PopupFirstPresentAction::ContentReady,
         )
     } else {
         (
@@ -1069,8 +1226,8 @@ mod tests {
 
     use super::{
         PopupFirstPresentAction, PopupFirstPresentState, PopupFirstPresentTrace, PopupKey,
-        first_present_follow_up, popup_is_stale, popup_scene_needs_submission,
-        queue_popup_parent_redraw,
+        PopupMaterialReadiness, first_present_follow_up, popup_is_stale, popup_reveal_gate_open,
+        popup_scene_needs_submission, queue_popup_parent_redraw,
     };
     use crate::{interaction, overlay, paint, window};
 
@@ -1155,7 +1312,7 @@ mod tests {
             (
                 PopupFirstPresentState::Complete,
                 "synchronized",
-                PopupFirstPresentAction::Expose,
+                PopupFirstPresentAction::ContentReady,
             ),
             "a compositor-synchronized present needs no policy confirmation frame"
         );
@@ -1173,7 +1330,7 @@ mod tests {
             (
                 PopupFirstPresentState::Complete,
                 "confirmation-synchronized",
-                PopupFirstPresentAction::Expose,
+                PopupFirstPresentAction::ContentReady,
             )
         );
         assert_eq!(
@@ -1181,7 +1338,7 @@ mod tests {
             (
                 PopupFirstPresentState::Complete,
                 "confirmation-sync-failed",
-                PopupFirstPresentAction::Expose,
+                PopupFirstPresentAction::ContentReady,
             ),
             "a second freshly presented frame ends the bounded fallback without exposing stale content"
         );
@@ -1193,6 +1350,45 @@ mod tests {
         );
         trace.state = PopupFirstPresentState::Complete;
         assert!(!trace.needs_redraw());
+    }
+
+    #[test]
+    fn popup_reveal_gate_consumes_content_and_current_material_receipts_once() {
+        let mut material = PopupMaterialReadiness::Pending(7);
+        assert!(!popup_reveal_gate_open(false, material));
+        assert!(!popup_reveal_gate_open(true, material));
+
+        material.observe(PopupMaterialReadiness::Committed(7));
+        assert!(!popup_reveal_gate_open(true, material));
+        assert!(material.mark_ready(7));
+        assert!(!popup_reveal_gate_open(false, material));
+        assert!(popup_reveal_gate_open(true, material));
+        assert!(!material.mark_ready(7), "a duplicate receipt is inert");
+    }
+
+    #[test]
+    fn material_replacement_invalidates_stale_receipts() {
+        let mut material = PopupMaterialReadiness::Pending(11);
+        material.observe(PopupMaterialReadiness::Committed(11));
+        material.observe(PopupMaterialReadiness::Pending(12));
+        material.observe(PopupMaterialReadiness::Committed(11));
+
+        assert_eq!(material, PopupMaterialReadiness::Pending(12));
+        assert!(!material.mark_ready(11));
+        material.observe(PopupMaterialReadiness::Committed(12));
+        assert!(material.mark_ready(12));
+    }
+
+    #[test]
+    fn popup_without_platform_material_bypasses_effect_receipt() {
+        assert!(popup_reveal_gate_open(
+            true,
+            PopupMaterialReadiness::NotRequired
+        ));
+        assert!(!popup_reveal_gate_open(
+            false,
+            PopupMaterialReadiness::NotRequired
+        ));
     }
 
     #[test]

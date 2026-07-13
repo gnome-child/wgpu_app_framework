@@ -14,7 +14,7 @@ mod windows_probe {
     };
     use windows::Win32::Foundation::{E_FAIL, HWND};
     use windows::Win32::Graphics::Dwm::{
-        DWMWA_BORDER_COLOR, DWMWA_CLOAK, DWMWA_COLOR_NONE, DWMWA_USE_HOSTBACKDROPBRUSH,
+        DWMWA_BORDER_COLOR, DWMWA_CLOAK, DWMWA_COLOR_NONE, DWMWA_USE_HOSTBACKDROPBRUSH, DwmFlush,
         DwmSetWindowAttribute,
     };
     use windows::Win32::Graphics::Gdi::{
@@ -311,12 +311,16 @@ mod windows_probe {
         fn update(&mut self, window: &Window) -> windows::core::Result<bool> {
             if self.committed_at.is_none() && self.commit_batch.IsEnded()? {
                 set_cloaked(window, false)?;
+                for _ in 0..2 {
+                    unsafe { DwmFlush()? };
+                }
                 self.root.SetOpacity(INSPECTION_OPACITY)?;
+                unsafe { DwmFlush()? };
                 let now = Instant::now();
                 self.committed_at = Some(now);
                 log::info!(
                     target: "wgpu_l3::material_shadow_probe",
-                    "effect committed; window immediately uncloaked and root raised from {PREWARM_OPACITY:.3} to {INSPECTION_OPACITY:.3} at +{:?}; post_receipt_barriers=0 delay_constants=0 application_redraws=0",
+                    "effect committed; window uncloaked at {PREWARM_OPACITY:.3}, two host frames consumed, root raised to {INSPECTION_OPACITY:.3}, and visible commit synchronized at +{:?}; post_receipt_barriers=3 delay_constants=0 application_redraws=0",
                     now.duration_since(self.created_at),
                 );
             }

@@ -36,8 +36,8 @@ height edit and is outside this campaign.
 | Checkpoint | State | Evidence |
 |---|---|---|
 | 1. Zero-hold readiness probe | Complete | Controlled static-underlay capture probe; `GetCommitBatch(Effect)` alone was unstable in 1/10 runs at 100 ms (19.607 mean-channel delta). Two imperceptible host frames followed by the visible-root commit were stable in 10/10 runs (maximum 0.104 delta from 100 ms to 1 second). |
-| 2. One logical silhouette, two projections | Code complete; pending final hardware eye | Composition consumes snapped DIPs and a named 48 DIP -> 60 px regression; four campaign scales and the full 948-test library suite are green. |
-| 3. Generation-bound material readiness | Pending | Receipt-order, stale-generation, teardown, and single-reveal witnesses. |
+| 2. One logical silhouette, two projections | Complete | Composition consumes snapped DIPs and a named 48 DIP -> 60 px regression; four campaign scales and the full library suite are green. The screen-space evidence boundary remains the controlled Windows probe rather than swapchain readback. |
+| 3. Generation-bound material readiness | Complete | Content and material receipts meet at one reveal gate; replacement invalidates older generations; duplicates are inert; no-material bypass, honest fallback, and single-root animation are pinned by behavioral and architecture witnesses. |
 
 ## Checkpoint 1 verdict
 
@@ -63,6 +63,13 @@ Production vocabulary therefore remains `Pending -> Committed -> Ready`:
 imperceptible host-frame preparation to finish. The probe's 100 ms capture is
 an observation point only; it is not part of the readiness mechanism.
 
+The retained probe now executes that proven route directly. Its final campaign
+run reached effect commit, consumed two host frames at root opacity `0.001`,
+synchronized the visible-root commit, and completed in 34.673 ms with no
+application redraw. The 101 ms and 1,010 ms screen captures differed by 0.031
+mean channel value inside the frost region and 0.000 outside it; the visible
+frost contrast remained 31.896 versus 31.865.
+
 ## Checkpoint 2 implementation
 
 The scene's logical material region remains the source. The Composition boundary
@@ -76,6 +83,28 @@ The named regression pins the observed arithmetic: at scale 1.25, 48 DIPs land
 at 60 physical pixels; the renderer's already-physical 60 px value cannot feed
 back into Composition as 60 DIPs and land at 75 px. Architecture witnesses also
 forbid `panel_offset_physical` from the Composition module.
+
+## Checkpoint 3 implementation
+
+Material projection changes allocate a new generation and acquire an `Effect`
+commit batch. The current batch is polled from the retained Composition host;
+there is no completion callback that can outlive its popup. Replacement drops
+the prior batch, teardown drops the host, and the popup gate accepts a commit or
+ready transition only when its generation matches the current pending state.
+
+The renderer's first-present state is now named `ContentReady`, not `Expose`.
+When both content and material commit are present, production reproduces the
+probe's evidenced sequence: uncloak at root opacity `0.001`, consume two DWM
+host-frame barriers, begin the one compositor root animation, then synchronize
+that commit. Only that current generation earns `Ready` and logical exposure.
+No material request bypasses the effect gate entirely. Any receipt, barrier, or
+entrance failure re-cloaks the popup, abandons platform material, and forces an
+opaque framework rerender; failure never manufactures readiness or strands a
+transparent residual on screen.
+
+The focused native suite and the full 961-test library run are green. Exposure
+logs now distinguish effect commit from ready/exposed and record the additional
+host-frame cost for the eventual field comparison.
 
 ## Evidence boundary
 

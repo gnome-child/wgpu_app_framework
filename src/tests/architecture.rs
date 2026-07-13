@@ -2683,7 +2683,6 @@ fn composition_popup_closeout_has_one_geometry_edge_and_timeline_owner() {
         .expect("native window source should read");
     let popup = std::fs::read_to_string(root.join("src/platform/native/popup.rs"))
         .expect("native popup source should read");
-
     assert!(
         !renderer.contains("backdrop_layers.is_empty()")
             && renderer.contains("paint::GlassBase::Transparent")
@@ -2698,7 +2697,7 @@ fn composition_popup_closeout_has_one_geometry_edge_and_timeline_owner() {
     );
     assert!(
         composition.contains("project_shadow(recipe, silhouette)")
-            && composition.contains("sync_shadow(shadow, popup_silhouette)")
+            && composition.contains("sync_shadow(projected_shadow)")
             && composition.contains("panel_offset_dips")
             && !composition.contains("panel_offset_physical"),
         "the composition shadow must derive from the DIP material-region silhouette without consuming physical geometry"
@@ -2720,6 +2719,35 @@ fn composition_popup_closeout_has_one_geometry_edge_and_timeline_owner() {
             && !composition.contains("DwmFlush")
             && !composition.contains("synchronize_popup_presentation"),
         "composition animation must target the root without borrowing the first-present barrier as a clock"
+    );
+}
+
+#[test]
+fn composition_popup_readiness_is_receipted_and_generation_bound() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let composition = std::fs::read_to_string(root.join("src/platform/native/composition.rs"))
+        .expect("composition source should read");
+    let popup = std::fs::read_to_string(root.join("src/platform/native/popup.rs"))
+        .expect("native popup source should read");
+    let popup_production = popup
+        .split("#[cfg(test)]")
+        .next()
+        .expect("popup production source should precede tests");
+
+    assert!(
+        composition.contains("GetCommitBatch(CompositionBatchTypes::Effect)")
+            && composition.contains("material_generation")
+            && composition.contains("commit.batch.IsEnded()")
+            && !composition.contains("CompositionBatchTypes::None"),
+        "material readiness must consume the current generation's Effect receipt"
+    );
+    assert!(
+        popup_production.contains("for barrier in 1..=2")
+            && popup_production.contains("material_readiness.mark_ready(generation)")
+            && popup_production.contains("abandon_material_prewarm")
+            && !popup_production.contains("thread::sleep")
+            && !popup_production.contains("from_millis"),
+        "exposure must use evidenced host frames, reject stale generations, and fall back without a readiness delay"
     );
 }
 
