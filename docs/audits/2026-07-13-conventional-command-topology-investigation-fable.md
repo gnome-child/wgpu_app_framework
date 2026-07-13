@@ -584,6 +584,73 @@ anything external uses it (nothing in-repo will after migration).
     load-bearing mechanism already exists, and the music player — the next
     flagship — is the consuming caller for exactly this bar.
 
+## Comparison against Codex's run (the bake-off record)
+
+Codex's ledger (`…-investigation.md`, committed `45e4c7c0`) and this one
+were executed independently against the same brief. **Every load-bearing
+verdict converged**: GO; promote; the New/Open/Save/SaveAs fracture; all
+four case-law cells; stable membership via `state_any` never
+`resolve_candidates`; a third `Candidates<Bar>` policy; typed anchors, no
+numerics, no label merges; duplicate role = configuration error; Delete
+admitted, the same six-role watch list; CloseWindow ≠ Quit; CommandPalette
+unplaced; zero current residents relocate on macOS; the same deletion
+targets (19 conventional rows, 6 separators). Two independent runs, one
+architecture — the strongest GO signal this process can produce.
+
+**Conceded to Codex** (adopt in the campaign):
+
+1. **`CloseWindow` is registered as `Spec::new("Exit")`**
+   (session/service.rs:97) — a live label/role conflation I missed (my
+   sweep even misreported the label). On the Mac profile it would read
+   "Exit · Cmd+W". Checkpoint 1's correction is right; note the label is
+   Windows-coherent single-window pragmatism (File→Exit Alt+F4), which the
+   role system makes honest rather than merely deletes.
+2. **Virtual slots** — standard roles as stable anchors even when
+   unregistered is cleaner than my absent-anchor fall-through rules.
+3. **`Spec::unplaced()`** — deliberate bar suppression; a real gap here.
+4. **macOS File grouping** — Apple's `saveItem` slot (Close, Save,
+   Save As together, Close first) is fetched evidence; my sketch was
+   memory. Adopt Codex's Phase B macOS column.
+5. **Compression metric in operations** (25 deleted recipe operations),
+   not formatter-dependent lines.
+6. **Placement algebra**: `section_before/after` as distinct from
+   `before/after`, and `replace_group_containing(Standard)` — the correct
+   answer to the fact (which both runs found) that group membership is
+   platform data and therefore unnameable in portable public API.
+7. **One entrance**: `Spec::standard(role)` + builder overrides suffices;
+   my `.role()` second entrance demotes to migration sugar at most.
+
+**Retained deltas from this run** (fold into the campaign):
+
+1. **Naming**: `command::MenuPlacement` (Codex's fallback) is exactly the
+   compound the house naming policy avoids. `command::menu::Placement` —
+   namespaced simple noun — resolves the geometric-placement collision
+   without minting a compound. Flag for the same morning review.
+2. **Chord-display policy**: Microsoft marks Exit/Alt+F4 and Delete/Del as
+   "shortcut usually not given" — the role table needs a show-chord field;
+   absent from both the current code and Codex's matrix.
+3. **The Delete three-way divergence named as principle**: Microsoft (own
+   group after Selection) vs macOS (pasteboard group) vs both examples
+   today (clipboard group) — same role, three group answers. Group
+   *membership*, not just order, is platform-template data. Codex's tables
+   embody this; the principle deserves the doctrine sentence.
+4. **Palette ordering receipts** at full precision (provenance sort-key
+   primary, fuzzy score tiebreak within provenance, registration index
+   final — palette.rs:268-280), for the isolation regression pins.
+5. **`Category` is fully free** — zero occurrences in src/, strongest
+   possible naming clearance.
+6. **The opt-in law from glass_tuner**: a command-rich app with no bar is
+   valid; the derived bar must be opt-in, never ambient.
+7. **Fetched-vs-cited labeling** on research claims, kept as process
+   hygiene.
+
+Honest score: Codex's run is the stronger of the two overall — broader
+verified source base (Apple HIG stable-vs-contextual, SwiftUI
+customization precedent) and two concrete catches (the "Exit" label,
+virtual slots). This run's wins are receipt precision and three
+policy-level refinements. The campaign should build on Codex's ledger as
+canonical with the seven retained deltas above folded in.
+
 ## Verification
 
 - Investigation only: no production code changed; working tree untouched
