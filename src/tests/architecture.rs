@@ -2671,6 +2671,57 @@ fn native_popup_presentation_does_not_wait_behind_the_parent_frame() {
 }
 
 #[test]
+fn composition_popup_closeout_has_one_geometry_edge_and_timeline_owner() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let renderer = std::fs::read_to_string(root.join("src/render/renderer.rs"))
+        .expect("renderer source should read");
+    let native_paint = std::fs::read_to_string(root.join("src/platform/native/paint.rs"))
+        .expect("native paint source should read");
+    let composition = std::fs::read_to_string(root.join("src/platform/native/composition.rs"))
+        .expect("composition source should read");
+    let native_window = std::fs::read_to_string(root.join("src/platform/native/window.rs"))
+        .expect("native window source should read");
+    let popup = std::fs::read_to_string(root.join("src/platform/native/popup.rs"))
+        .expect("native popup source should read");
+
+    assert!(
+        !renderer.contains("backdrop_layers.is_empty()")
+            && renderer.contains("paint::GlassBase::Transparent")
+            && renderer.contains("paint::GlassBase::Fallback"),
+        "resolved material truth, not an empty operation list, must select the popup base"
+    );
+    assert!(
+        native_paint.contains("paint::shadow_visual_bounds")
+            && native_paint.contains("paint::union_visual_bounds")
+            && !native_paint.to_ascii_lowercase().contains("shadow_margin"),
+        "popup visual reach must consume shared shadow bounds without an arbitrary margin"
+    );
+    assert!(
+        composition.contains("project_shadow(recipe, silhouette, scale_factor)")
+            && composition.contains("sync_shadow(shadow, popup_silhouette, scale_factor)"),
+        "the composition shadow must derive from the material-region silhouette"
+    );
+    assert!(
+        native_window.contains("with_undecorated_shadow(!composition_backed)")
+            && native_window.contains("CornerPreference::DoNotRound")
+            && popup.contains("suppress_popup_border"),
+        "composition popups must suppress independent DWM shadow, corner, and border realization"
+    );
+    assert_eq!(
+        composition.matches(".StartAnimation(").count(),
+        1,
+        "the composition root must be the only animated popup opacity owner"
+    );
+    assert!(
+        composition.contains("self.root")
+            && composition.contains("HSTRING::from(\"Opacity\")")
+            && !composition.contains("DwmFlush")
+            && !composition.contains("synchronize_popup_presentation"),
+        "composition animation must target the root without borrowing the first-present barrier as a clock"
+    );
+}
+
+#[test]
 fn material_regions_derive_identity_and_provenance_at_pane_emission() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let scene = std::fs::read_to_string(root.join("src").join("scene").join("mod.rs"))

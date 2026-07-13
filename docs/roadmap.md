@@ -16,10 +16,10 @@ No campaign is currently in flight.
 
 ## Pending manual verification
 
-5. Popup fade consistency (after item 2), popup-hosted cursor icon and IME
-   candidate placement, fractional-alpha edge quality after the premultiplied
-   audit, palette query editing feel (selection tint, caret, I-beam) after the
-   scope slice. Tables campaign eyes: ellipsis glyph/cut spacing in both
+5. Popup-hosted cursor icon and IME candidate placement, fractional-alpha edge
+   quality after the premultiplied audit, palette query editing feel (selection
+   tint, caret, I-beam) after the scope slice. Tables campaign eyes: ellipsis
+   glyph/cut spacing in both
    themes, striping and rule weight, sticky-header feel, divider resize feel
    and cursor, selection tint and keyboard-extend feel, editor placement,
    rejection outline presentation, commit/cancel feel. Outstanding: post-fix

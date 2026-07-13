@@ -1,6 +1,6 @@
 # First Frame, Last Frame campaign
 
-Status: in flight. `comparison_open: true`. No push.
+Status: complete. `comparison_open: true`. No push.
 
 Mission: make production native popups reproduce the composition probe's
 visible frost and compositor-only fade through one framework-derived
@@ -68,7 +68,7 @@ silhouette and one opacity owner.
 | 4. One compositor timeline | Complete | Root owns every visible part; retarget is continuous; hide precedes every teardown |
 | 5. Honest redirected fallback | Complete | Native placement and animation split; Vulkan opens/closes with no pseudo-fade or afterlife |
 | 6. Complete open-bill trace | Complete | Semantic-open trace; popup-first presentation; exposure-anchored compositor entrance; measured owner transfer |
-| 7. Resistance and close-out | Pending | Deletion census, hardware eyes, doctrine, roadmap, full ritual |
+| 7. Resistance and close-out | Complete | Deletion census, rebuilt-release hardware eyes, doctrine, roadmap, full ritual |
 
 ## Checkpoint 0 initial receipts
 
@@ -319,6 +319,76 @@ test witnesses, while hardware eyes cover the available 1.25 dark environment.
 
 > Independent surfaces pay for their own fresh frame, not for an unrelated
 > parent presentation; animation begins when visibility begins.
+
+> One framework silhouette defines every popup pixel; the platform realizes
+> declared effects, and one compositor timeline carries them from first frame
+> to last.
+
+## Checkpoint 7 — resistance audit and close-out
+
+The deletion census closes on absence and unique-owner witnesses, not naming
+similarity:
+
+| Suspected duplicate | Close-out receipt |
+| --- | --- |
+| Opaque base above realized frost | `Renderer::encode_pane` switches only on explicit `GlassBase`; `Transparent` emits no base |
+| Empty-backdrop inference | zero production `backdrop_layers.is_empty()` sites in the renderer |
+| Composition DWM edge | composition construction disables undecorated shadow and DWM rounding; border application calls `suppress_popup_border` |
+| Second rounded silhouette | frost and shadow both consume projected material-region geometry |
+| Duplicate DWM/composition shadow | `with_undecorated_shadow(!composition_backed)` leaves only the framework-declared composition shadow on tenancy |
+| Application fade loop | exactly one production `StartAnimation`, targeting root `Opacity` |
+| Vulkan pseudo-fade | `immediate_native_popup_skips_both_pseudo_fades_and_afterlife` pins full-opacity entry and immediate departure |
+| Arbitrary shadow margin | zero production `shadow_margin`/`SHADOW_MARGIN` sites; `PopupProjection` calls shared `shadow_visual_bounds` and `union_visual_bounds` |
+| Popup-local reach arithmetic | the native adapter is a caller of the paint-owned visual-reach projection, not a second solver |
+| Second opacity owner | one root animation; region and shadow opacity are recipe/effective-opacity synchronization, not clocks |
+| `DwmFlush` animation loop | one production call at the Windows first-presentation barrier; none in composition animation |
+
+The architecture witness
+`composition_popup_closeout_has_one_geometry_edge_and_timeline_owner` freezes
+those resistance facts together. Existing geometry witnesses were widened to
+run the production popup envelope, one-physical-pixel edge, and shadow mask
+under both light and dark recipes at 1.0, 1.25, 1.5, and 2.0.
+
+### Pending-eyes result
+
+The rebuilt release DX12 gallery, full-height comparison, dark theme, and 1.25
+scale visibly showed patterned table content diffused beneath both the menu and
+command palette. Frost, tint, content, the single edge, rounded corners, and
+shadow read as one object; the shadow remained unclipped; entrance and exit
+matched the probe's continuous compositor motion; dismissal left no border or
+shadow tail. Editing the command-palette query from empty to `wrap` updated the
+live popup, proving the narrowed stable-scene submission rule does not freeze
+mutable text.
+
+A menu dismissal followed 25 ms later by the command-palette shortcut produced
+one fresh palette over the retiring interval, with no duplicate popup, stale
+menu, parent ghost, or chrome tail. This distinguishes semantic retargeting
+from a pointer aimed through a still-retiring visual envelope. The explicit
+Vulkan release witness from checkpoint 5 remains the fallback comparison:
+first-frame full content and immediate disappearance, with no WinRT runtime,
+DX12 device, or 80/90 ms afterlife. The only later production change affecting
+its stable path broadened when mutable scenes submit; it cannot introduce a
+pseudo-fade, and the immediate-lifecycle test remains green.
+
+Hardware eyes cover the available dark 1.25 environment. Both-theme and
+four-scale agreement are deterministic projection witnesses. Resize and DPI
+consume `PopupProjection` and the popup geometry scale chain; surface loss
+rebuilds the configuration epoch and skips one frame; close/reopen and rapid
+retargeting are pinned by overlay, composition, and hardware witnesses.
+
+### Final boundary
+
+- formatting and diff hygiene: clean;
+- all-target compilation: clean;
+- library suite: 956 total, 947 passed, 9 deliberate GPU/acceptance ignores;
+- doctests: four passed, including three compile-fail contracts;
+- `text_editor`, `control_gallery`, and `glass_tuner` smokes: passed;
+- protected 136-to-500 gallery comparison: still unstaged and untouched;
+- master design: one silhouette, visual reach, one visible edge, presentation
+  causality, one opacity owner, and honest redirected lifecycle recorded;
+- roadmap: popup fade consistency pruned; the measured DX12 popup draw delta
+  remains transferred to renderer-economics item 14;
+- push: deliberately not performed.
 
 > One framework silhouette defines every popup pixel; the platform realizes
 > declared effects, and one compositor timeline carries them from first frame

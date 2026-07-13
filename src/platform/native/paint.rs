@@ -600,54 +600,55 @@ mod tests {
 
     #[test]
     fn popup_projection_reuses_shadow_reach_and_translates_every_painted_consumer() {
-        let theme = Theme::dark();
-        let view = view::View::new(
-            view::Node::root()
-                .child(view::Node::floating_panel("panel").child(view::Node::label("Row"))),
-        );
-        let mut engine = layout::Engine::new();
-        let layout = layout::Layout::compose_with_theme(
-            &view,
-            geometry::Size::new(240, 160),
-            &mut engine,
-            &theme,
-        );
-        let source = scene::Scene::paint_with_theme(&layout, &theme);
-        assert_eq!(source.shadows().len(), 1);
-
-        for scale in [1.0, 1.25, 1.5, 2.0] {
-            let panel_only = PopupProjection::resolve(&source, scale, false);
-            let expanded = PopupProjection::resolve(&source, scale, true);
-            assert!(expanded.logical_area().width() > panel_only.logical_area().width());
-            assert!(expanded.logical_area().height() > panel_only.logical_area().height());
-
-            let (offset_x, offset_y) = expanded.panel_offset_physical();
-            assert!(offset_x > 0 && offset_y > 0);
-            let translated = expanded.translate_scene(to_paint_scene_at_scale(&source, scale));
-            let pane = translated
-                .items()
-                .iter()
-                .find_map(|item| match item {
-                    paint::Item::Pane(pane) => Some(pane),
-                    _ => None,
-                })
-                .expect("floating panel should remain in translated paint");
-            assert_eq!(
-                (
-                    (pane.rect.origin.x() * scale).round() as i32,
-                    (pane.rect.origin.y() * scale).round() as i32,
-                ),
-                (offset_x, offset_y),
+        for theme in [Theme::light(), Theme::dark()] {
+            let view = view::View::new(
+                view::Node::root()
+                    .child(view::Node::floating_panel("panel").child(view::Node::label("Row"))),
             );
-            let outline = translated
-                .items()
-                .iter()
-                .find_map(|item| match item {
-                    paint::Item::Outline(outline) => Some(outline),
-                    _ => None,
-                })
-                .expect("floating panel should retain its one painted border");
-            assert!((outline.width * scale - 1.0).abs() <= f32::EPSILON);
+            let mut engine = layout::Engine::new();
+            let layout = layout::Layout::compose_with_theme(
+                &view,
+                geometry::Size::new(240, 160),
+                &mut engine,
+                &theme,
+            );
+            let source = scene::Scene::paint_with_theme(&layout, &theme);
+            assert_eq!(source.shadows().len(), 1);
+
+            for scale in [1.0, 1.25, 1.5, 2.0] {
+                let panel_only = PopupProjection::resolve(&source, scale, false);
+                let expanded = PopupProjection::resolve(&source, scale, true);
+                assert!(expanded.logical_area().width() > panel_only.logical_area().width());
+                assert!(expanded.logical_area().height() > panel_only.logical_area().height());
+
+                let (offset_x, offset_y) = expanded.panel_offset_physical();
+                assert!(offset_x > 0 && offset_y > 0);
+                let translated = expanded.translate_scene(to_paint_scene_at_scale(&source, scale));
+                let pane = translated
+                    .items()
+                    .iter()
+                    .find_map(|item| match item {
+                        paint::Item::Pane(pane) => Some(pane),
+                        _ => None,
+                    })
+                    .expect("floating panel should remain in translated paint");
+                assert_eq!(
+                    (
+                        (pane.rect.origin.x() * scale).round() as i32,
+                        (pane.rect.origin.y() * scale).round() as i32,
+                    ),
+                    (offset_x, offset_y),
+                );
+                let outline = translated
+                    .items()
+                    .iter()
+                    .find_map(|item| match item {
+                        paint::Item::Outline(outline) => Some(outline),
+                        _ => None,
+                    })
+                    .expect("floating panel should retain its one painted border");
+                assert!((outline.width * scale - 1.0).abs() <= f32::EPSILON);
+            }
         }
     }
 

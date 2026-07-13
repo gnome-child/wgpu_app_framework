@@ -689,7 +689,7 @@ mod tests {
     use super::*;
     use crate::{geometry, layout, theme::Theme, view};
 
-    fn production_shadow() -> scene::Shadow {
+    fn production_shadow(theme: &Theme) -> scene::Shadow {
         let tree = view::View::new(
             view::Node::root()
                 .child(view::Node::floating_panel("panel").child(view::Node::label("row"))),
@@ -699,9 +699,9 @@ mod tests {
             &tree,
             geometry::Size::new(240, 160),
             &mut engine,
-            &Theme::dark(),
+            theme,
         );
-        scene::Scene::paint_with_theme(&layout, &Theme::dark()).shadows()[0].to_owned()
+        scene::Scene::paint_with_theme(&layout, theme).shadows()[0].to_owned()
     }
 
     #[test]
@@ -740,25 +740,27 @@ mod tests {
 
     #[test]
     fn production_shadow_projects_from_the_same_rounded_silhouette_at_all_scales() {
-        let recipe = production_shadow();
-        for scale in [1.0, 1.25, 1.5, 2.0] {
-            let silhouette = project_geometry(
-                geometry::Rect::new(0, 0, 240, 160),
-                scene::Rounding::fixed(10.0),
-                1.0,
-                scale,
-            )
-            .expect("uniform popup silhouette should project");
-            let shadow =
-                project_shadow(recipe, silhouette, scale).expect("production shadow is visible");
-            let spread = recipe.spread() * scale;
-            assert_eq!(shadow.mask_offset.X, silhouette.offset.X - spread);
-            assert_eq!(shadow.mask_offset.Y, silhouette.offset.Y - spread);
-            assert_eq!(shadow.mask_size.X, silhouette.size.X + spread * 2.0);
-            assert_eq!(shadow.mask_size.Y, silhouette.size.Y + spread * 2.0);
-            assert_eq!(shadow.mask_radius, silhouette.radius + spread);
-            assert_eq!(shadow.blur_radius, recipe.blur() * scale);
-            assert_eq!(shadow.offset.Y, recipe.offset().y() * scale);
+        for theme in [Theme::light(), Theme::dark()] {
+            let recipe = production_shadow(&theme);
+            for scale in [1.0, 1.25, 1.5, 2.0] {
+                let silhouette = project_geometry(
+                    geometry::Rect::new(0, 0, 240, 160),
+                    scene::Rounding::fixed(10.0),
+                    1.0,
+                    scale,
+                )
+                .expect("uniform popup silhouette should project");
+                let shadow = project_shadow(recipe, silhouette, scale)
+                    .expect("production shadow is visible");
+                let spread = recipe.spread() * scale;
+                assert_eq!(shadow.mask_offset.X, silhouette.offset.X - spread);
+                assert_eq!(shadow.mask_offset.Y, silhouette.offset.Y - spread);
+                assert_eq!(shadow.mask_size.X, silhouette.size.X + spread * 2.0);
+                assert_eq!(shadow.mask_size.Y, silhouette.size.Y + spread * 2.0);
+                assert_eq!(shadow.mask_radius, silhouette.radius + spread);
+                assert_eq!(shadow.blur_radius, recipe.blur() * scale);
+                assert_eq!(shadow.offset.Y, recipe.offset().y() * scale);
+            }
         }
     }
 
