@@ -10,6 +10,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         size: geometry::Size,
         point: geometry::Point,
     ) -> std::result::Result<input::Outcome, Error> {
+        self.session.set_pointer_position(window, Some(point));
         if self
             .session
             .interaction(window)
@@ -46,6 +47,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         point: geometry::Point,
         modifiers: input::Modifiers,
     ) -> std::result::Result<input::Outcome, Error> {
+        self.session.set_pointer_position(window, Some(point));
         let Some(hit) = self.hit_test(window, size, point) else {
             self.set_pointer_cursor(window, pointer::Cursor::Default);
             return self.clear_pointer_focus(window);
@@ -195,6 +197,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         size: geometry::Size,
         point: geometry::Point,
     ) -> std::result::Result<input::Outcome, Error> {
+        self.session.set_pointer_position(window, Some(point));
         let hit = self.hit_test(window, size, point);
         self.set_cursor_for_hit(window, hit.as_ref());
         let target = hit.as_ref().and_then(|hit| hit.target().cloned());
@@ -217,6 +220,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         _size: geometry::Size,
         point: geometry::Point,
     ) -> std::result::Result<input::Outcome, Error> {
+        self.session.set_pointer_position(window, Some(point));
         self.session.cancel_click_sequence(window);
         let Some(layout) = self.presented_layout(window) else {
             return Ok(input::Outcome::ignored());
@@ -302,6 +306,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         point: geometry::Point,
         delta: interaction::ScrollDelta,
     ) -> std::result::Result<input::Outcome, Error> {
+        self.session.set_pointer_position(window, Some(point));
         let Some(layout) = self.presented_layout(window) else {
             return Ok(input::Outcome::ignored());
         };
@@ -389,26 +394,28 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 
 impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     fn set_cursor_for_hit(&mut self, window: window::Id, hit: Option<&layout::Hit>) {
-        let cursor = hit
-            .map(|hit| {
-                if hit_promises_text_edit(hit) {
-                    pointer::Cursor::Text
-                } else if hit
-                    .target()
-                    .is_some_and(|target| target.kind() == interaction::Kind::TableDivider)
-                {
-                    pointer::Cursor::ResizeHorizontal
-                } else {
-                    pointer::Cursor::Default
-                }
-            })
-            .unwrap_or(pointer::Cursor::Default);
-        self.set_pointer_cursor(window, cursor);
+        self.set_pointer_cursor(window, pointer_cursor_for_hit(hit));
     }
 
     fn set_pointer_cursor(&mut self, window: window::Id, cursor: pointer::Cursor) {
         self.session.set_cursor(window, cursor);
     }
+}
+
+pub(super) fn pointer_cursor_for_hit(hit: Option<&layout::Hit>) -> pointer::Cursor {
+    hit.map(|hit| {
+        if hit_promises_text_edit(hit) {
+            pointer::Cursor::Text
+        } else if hit
+            .target()
+            .is_some_and(|target| target.kind() == interaction::Kind::TableDivider)
+        {
+            pointer::Cursor::ResizeHorizontal
+        } else {
+            pointer::Cursor::Default
+        }
+    })
+    .unwrap_or(pointer::Cursor::Default)
 }
 
 fn hit_promises_text_edit(hit: &layout::Hit) -> bool {

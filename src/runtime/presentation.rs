@@ -280,6 +280,21 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         Some(())
     }
 
+    fn interaction_projected_for_layout(
+        &self,
+        window: window::Id,
+        layout: &layout::Layout,
+    ) -> Option<interaction::Interaction> {
+        let mut interaction = self.session.interaction(window)?.clone();
+        let hovered = interaction
+            .pointer()
+            .position()
+            .and_then(|point| layout.hit_test(point))
+            .and_then(|hit| hit.target().cloned());
+        interaction.project_pointer_hover(hovered);
+        Some(interaction)
+    }
+
     fn update_virtual_projections(&mut self, window: window::Id, layout: &layout::Layout) -> bool {
         let mut next_materializations = self
             .virtual_materializations
@@ -813,7 +828,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         self.apply_layout_feedback(window, &layout);
         let epoch = self.session.window(window)?.desired_presentation_epoch();
         let assembly_started_at = Instant::now();
-        let interaction = self.session.interaction(window).cloned();
+        let interaction = self.interaction_projected_for_layout(window, &layout);
         let visual_update =
             self.visual_animations
                 .update_window(window, &layout, interaction.as_ref(), theme, now);

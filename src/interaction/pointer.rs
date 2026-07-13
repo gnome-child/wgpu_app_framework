@@ -4,6 +4,7 @@ use std::time::Instant;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Pointer {
+    pub(super) position: Option<Point>,
     pub(super) hovered: Option<Target>,
     pub(super) pressed: Option<Target>,
     pub(super) capture: Option<Capture>,
@@ -76,6 +77,10 @@ impl Pointer {
 
     pub(crate) fn hovered(&self) -> Option<&Target> {
         self.hovered.as_ref()
+    }
+
+    pub(crate) fn position(&self) -> Option<Point> {
+        self.position
     }
 
     pub(crate) fn pressed(&self) -> Option<&Target> {

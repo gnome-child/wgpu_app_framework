@@ -1,6 +1,5 @@
 #[cfg(test)]
 use super::super::composition;
-#[cfg(test)]
 use super::super::pointer;
 use super::super::{
     clipboard::Clipboard,
@@ -53,6 +52,10 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         cursor: pointer::Cursor,
     ) -> bool {
         self.session.set_cursor(window, cursor)
+    }
+
+    pub(crate) fn take_cursor_updates(&mut self) -> Vec<pointer::Update> {
+        self.session.take_cursor_updates()
     }
 
     pub fn clipboard(&self) -> &Clipboard {
@@ -213,6 +216,15 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                         layout: std::sync::Arc::new(layout.clone()),
                     },
                 );
+                let hit = self
+                    .session
+                    .interaction(window)
+                    .and_then(|interaction| interaction.pointer().position())
+                    .and_then(|point| layout.hit_test(point));
+                let hovered = hit.as_ref().and_then(|hit| hit.target().cloned());
+                self.session.project_pointer_hover(window, hovered);
+                self.session
+                    .set_cursor(window, super::pointer::pointer_cursor_for_hit(hit.as_ref()));
             }
         } else {
             self.session.retry_invalidation(window, invalidation);

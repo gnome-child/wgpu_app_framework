@@ -280,3 +280,37 @@ all pass through the same presented-geometry source.
 Checkpoint boundary: 934 library tests passed with 8 deliberate ignores; all
 4 doctests, three application smokes, formatting, all-target compilation, and
 diff hygiene passed. The protected 500-pixel gallery edit remains untouched.
+
+## Checkpoint 4 — pointer position is truth; hover is projection
+
+Per-window interaction now retains the last parent-logical pointer position.
+Move, press, release, drag, and wheel adapters update that truth; departure
+clears both position and hover while preserving the established capture law.
+Popup physical coordinates continue to enter through the existing adapter and
+therefore retain the same parent-logical currency.
+
+Frame preparation derives a candidate hover from the final refined layout and
+the retained point. That projection is applied to the candidate's visual and
+scrollbar animation pass before scene painting, without mutating retained
+interaction. A skipped surface attempt therefore leaks neither geometry nor
+hover. A successful receipt promotes the layout, re-hits the same retained
+point, commits hover and cursor together, and emits any resulting backend
+cursor update after the receipt. No corrective redraw is requested: the frame
+being acknowledged already painted the derived target.
+
+The ordinary hover projection remains independent of capture. Gesture routing
+continues to address the captured target, while hover and cursor describe the
+visible geometry under the pointer.
+
+Named reductions prove: a horizontally scrolled sortable header paints its
+replacement hover in the candidate frame; a skipped candidate retains the old
+hover; the successful retry commits the new target without a second frame;
+stationary row hover transfers as virtual table rows scroll beneath it; a
+sticky header keeps hover while only the body scrolls; a moved divider commits
+hover at its new boundary; and pointer departure clears retained position and
+hover. Existing clipping, popup-coordinate, capture, and cursor-deduplication
+witnesses remain green.
+
+Checkpoint boundary: 938 library tests passed with 8 deliberate ignores; all
+4 doctests, three application smokes, formatting, all-target compilation, and
+diff hygiene passed. The protected 500-pixel gallery edit remains untouched.

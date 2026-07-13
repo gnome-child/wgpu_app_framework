@@ -1282,6 +1282,240 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
 }
 
 #[test]
+fn stationary_pointer_reprojects_header_hover_in_the_presented_scroll_frame() {
+    let mut state = control_gallery::State::default();
+    state.show_advanced = false;
+    let mut app = control_gallery::app(state);
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(300, 700);
+    let initial = app
+        .show_scene(window, size)
+        .expect("gallery table should render");
+    let table_viewport = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.role() == view::Role::Scroll && frame.table_projection().is_some())
+        .and_then(layout::Frame::viewport)
+        .expect("table should expose horizontal viewport");
+    assert!(table_viewport.max_scroll().x() > 0);
+    let header = initial
+        .layout()
+        .frames()
+        .iter()
+        .filter(|frame| frame.table_header_cell().is_some() && frame.target().is_some())
+        .filter(|frame| frame.rect().right() <= table_viewport.visible_frame().right())
+        .max_by_key(|frame| frame.rect().right())
+        .expect("a visible sortable header should exist");
+    let point = frame_point_at(header.rect());
+    let original = header.target().expect("sortable header target").clone();
+    let horizontal = initial
+        .layout()
+        .scroll_target_at(point, interaction::ScrollDelta::horizontal(10_000))
+        .expect("header point should resolve the table horizontal viewport");
+
+    app.pointer_move_at(window, size, point)
+        .expect("header hover should be handled");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().hovered()),
+        Some(&original)
+    );
+    app.handle_input(
+        window,
+        Input::scroll(horizontal, interaction::ScrollDelta::horizontal(10_000)),
+    )
+    .expect("horizontal table scroll should be handled");
+
+    let skipped = app
+        .render_scene(window, size)
+        .expect("scrolled candidate should prepare");
+    let projected = skipped
+        .layout()
+        .hit_test(point)
+        .expect("stationary point should hit the scrolled header");
+    let projected_target = projected
+        .target()
+        .expect("scrolled header should expose a target")
+        .clone();
+    assert_ne!(projected_target, original);
+    assert!(projected.frame().table_header_cell().is_some());
+    assert!(skipped.scene().quads().iter().any(|quad| {
+        quad.rect() == projected.frame().rect()
+            && quad.fill() == Theme::default().table().header_hover_tint
+    }));
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().hovered()),
+        Some(&original),
+        "candidate hover paints locally but remains uncommitted"
+    );
+    app.finish_render_report(
+        window,
+        skipped.epoch(),
+        skipped.invalidation(),
+        skipped.layout(),
+        diagnostics::RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now())
+            .with_presented(false),
+    );
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().hovered()),
+        Some(&original),
+        "skipped geometry must not leak into retained hover"
+    );
+
+    let shown = app
+        .show_scene(window, size)
+        .expect("scrolled frame should retry and present");
+    let shown_target = shown
+        .layout()
+        .hit_test(point)
+        .and_then(|hit| hit.target().cloned())
+        .expect("presented header target");
+    assert_eq!(shown_target, projected_target);
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().hovered()),
+        Some(&projected_target)
+    );
+    assert!(
+        !app.session().window(window).unwrap().redraw_requested(),
+        "the presented frame already contains the corrected hover"
+    );
+}
+
+#[test]
+fn stationary_pointer_transfers_hover_as_virtual_table_rows_scroll_beneath_it() {
+    let mut state = control_gallery::State::default();
+    state.show_advanced = false;
+    let mut app = control_gallery::app(state);
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 700);
+    let initial = app
+        .show_scene(window, size)
+        .expect("gallery table should render");
+    let cell = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(1)
+                    && cell.column() == interaction::Id::new("record")
+            })
+        })
+        .expect("second visible record cell");
+    let point = frame_point_at(cell.rect());
+    let original = initial
+        .layout()
+        .hit_test(point)
+        .and_then(|hit| hit.target().cloned())
+        .expect("record cell should be interactive");
+    app.pointer_move_at(window, size, point)
+        .expect("record hover should be handled");
+
+    app.scroll_at(window, size, point, interaction::ScrollDelta::vertical(48))
+        .expect("table body should scroll beneath the stationary point");
+    let shown = app
+        .show_scene(window, size)
+        .expect("scrolled table should present");
+    let projected = shown
+        .layout()
+        .hit_test(point)
+        .and_then(|hit| hit.target().cloned())
+        .expect("stationary point should hit a replacement row");
+
+    assert_ne!(projected, original);
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().hovered()),
+        Some(&projected)
+    );
+    assert!(
+        !app.session().window(window).unwrap().redraw_requested(),
+        "row-hover transfer is part of the scrolled frame"
+    );
+}
+
+#[test]
+fn sticky_header_keeps_stationary_hover_while_only_the_body_scrolls() {
+    let mut state = control_gallery::State::default();
+    state.show_advanced = false;
+    let mut app = control_gallery::app(state);
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 700);
+    let initial = app
+        .show_scene(window, size)
+        .expect("gallery table should render");
+    let header = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_header_cell().is_some_and(|cell| {
+                cell.column() == interaction::Id::new("count") && frame.target().is_some()
+            })
+        })
+        .expect("Count header should be sortable");
+    let point = frame_point_at(header.rect());
+    let target = header.target().expect("Count header target").clone();
+    let body = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(1)
+                    && cell.column() == interaction::Id::new("count")
+            })
+        })
+        .expect("Count body cell");
+    let vertical = initial
+        .layout()
+        .scroll_target_at(
+            frame_point_at(body.rect()),
+            interaction::ScrollDelta::vertical(48),
+        )
+        .expect("body should resolve its vertical viewport");
+
+    app.pointer_move_at(window, size, point)
+        .expect("Count header hover should be handled");
+    app.handle_input(
+        window,
+        Input::scroll(vertical, interaction::ScrollDelta::vertical(48)),
+    )
+    .expect("body should scroll without moving the pointer");
+    let shown = app
+        .show_scene(window, size)
+        .expect("scrolled body should present");
+    let shown_header = shown
+        .layout()
+        .hit_test(point)
+        .expect("sticky header should remain under the pointer");
+
+    assert_eq!(shown_header.target(), Some(&target));
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().hovered()),
+        Some(&target)
+    );
+    assert!(shown.scene().quads().iter().any(|quad| {
+        quad.rect() == shown_header.frame().rect()
+            && quad.fill() == Theme::default().table().header_hover_tint
+    }));
+}
+
+#[test]
 fn table_keyboard_navigation_reveals_current_cell_across_horizontal_overflow() {
     let mut app = Runtime::new(SourceState::default())
         .started(|cx| {
@@ -1967,6 +2201,19 @@ fn held_count_enabled_boundary_moves_with_the_pointer_without_reallocating_other
         assert_eq!(
             count.rule_rect().x() + count.rule_rect().width() / 2,
             pointer.x()
+        );
+        let projected_divider = rendered
+            .layout()
+            .hit_test(pointer)
+            .and_then(|hit| hit.target().cloned())
+            .expect("moved divider should remain under the pointer");
+        assert_eq!(projected_divider.kind(), interaction::Kind::TableDivider);
+        assert_eq!(
+            app.session()
+                .interaction(window)
+                .and_then(|interaction| interaction.pointer().hovered()),
+            Some(&projected_divider),
+            "successful resize frames must not leave hover on old boundary geometry"
         );
 
         for column in ["record", "detail", "note"] {

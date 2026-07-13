@@ -172,6 +172,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             .iter()
             .map(shell::Presentation::window)
             .collect::<Vec<_>>();
+        let mut cursor_updates = work.cursor_updates().to_vec();
         for presentation in work.presentations() {
             let report = self.backend.present(context, presentation)?;
             let retry = self.host.shell_mut().runtime_mut().finish_render_report(
@@ -186,6 +187,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
                     .request_redraw(context, presentation.window())?;
             }
         }
+        cursor_updates.extend(self.host.shell_mut().runtime_mut().take_cursor_updates());
         if let Some(popup_presentations) = work.popup_presentations() {
             self.backend.present_overlay_popups(
                 context,
@@ -198,7 +200,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             self.backend.set_ime(context, *update)?;
         }
 
-        self.sync_cursors(context, work.cursor_updates())?;
+        self.sync_cursors(context, &cursor_updates)?;
         self.sync_requests(context, work.requests())?;
         self.sync_poll(context, work.needs_poll())?;
         self.animation_schedule = work.animation_schedule();

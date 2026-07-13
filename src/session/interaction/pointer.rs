@@ -3,6 +3,24 @@ use crate::{interaction, window as app_window};
 use super::super::Session;
 
 impl Session {
+    pub(crate) fn set_pointer_position(
+        &mut self,
+        id: app_window::Id,
+        position: Option<crate::geometry::Point>,
+    ) -> bool {
+        self.window_mut(id)
+            .is_some_and(|window| window.interaction.set_pointer_position(position))
+    }
+
+    pub(crate) fn project_pointer_hover(
+        &mut self,
+        id: app_window::Id,
+        target: Option<interaction::Target>,
+    ) -> bool {
+        self.window_mut(id)
+            .is_some_and(|window| window.interaction.project_pointer_hover(target))
+    }
+
     pub(crate) fn classify_click(
         &mut self,
         id: app_window::Id,

@@ -180,6 +180,21 @@ impl Interaction {
         changed
     }
 
+    pub(crate) fn set_pointer_position(
+        &mut self,
+        position: Option<crate::geometry::Point>,
+    ) -> bool {
+        let changed = self.pointer.position != position;
+        self.pointer.position = position;
+        changed
+    }
+
+    pub(crate) fn project_pointer_hover(&mut self, target: Option<Target>) -> bool {
+        let changed = self.pointer.hovered != target;
+        self.pointer.hovered = target;
+        changed
+    }
+
     pub(super) fn pointer_down(&mut self, target: Target, intent: PressIntent) -> bool {
         let changed = self.pointer.hovered.as_ref() != Some(&target)
             || self.pointer.pressed.as_ref() != Some(&target)
@@ -220,8 +235,10 @@ impl Interaction {
     }
 
     pub(super) fn pointer_left(&mut self) -> bool {
-        let changed = self.pointer.hovered.is_some()
+        let changed = self.pointer.position.is_some()
+            || self.pointer.hovered.is_some()
             || (self.pointer.capture.is_none() && self.pointer.pressed.is_some());
+        self.pointer.position = None;
         self.pointer.hovered = None;
         if self.pointer.capture.is_none() {
             self.pointer.pressed = None;

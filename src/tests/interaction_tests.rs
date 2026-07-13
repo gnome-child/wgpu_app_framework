@@ -993,6 +993,36 @@ fn pointer_left_preserves_captured_text_area_until_release() {
 }
 
 #[test]
+fn pointer_departure_clears_retained_position_and_hover() {
+    let mut app = text_editor::app(text_editor::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(480, 180);
+    let shown = app
+        .show_scene(window, size)
+        .expect("text editor should present");
+    let menu = shown
+        .layout()
+        .find_role(view::Role::Menu)
+        .into_iter()
+        .next()
+        .expect("menu should be laid out");
+    let point = frame_point(menu);
+
+    app.pointer_move_at(window, size, point)
+        .expect("pointer move should be handled");
+    let pointer = app.session().interaction(window).unwrap().pointer();
+    assert_eq!(pointer.position(), Some(point));
+    assert!(pointer.hovered().is_some());
+
+    app.pointer_left_at(window)
+        .expect("pointer departure should be handled");
+    let pointer = app.session().interaction(window).unwrap().pointer();
+    assert_eq!(pointer.position(), None);
+    assert_eq!(pointer.hovered(), None);
+}
+
+#[test]
 fn cancel_input_clears_pointer_capture_before_clearing_focus() {
     let mut app = text_editor::app(text_editor::State::default());
 
