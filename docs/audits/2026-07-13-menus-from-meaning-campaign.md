@@ -1,6 +1,6 @@
 # Menus From Meaning — one population owner
 
-Status: in flight. `comparison_open: true`. No push during the campaign.
+Status: complete. `comparison_open: true`. No push during the campaign.
 
 ## Mission
 
@@ -63,7 +63,7 @@ Scope does not contain topology.
 | 3. Cultural topology | Complete | `command::menu::{Category, Placement}`, virtual slots, platform reuse, custom categories, shortcut visibility, pure topology witnesses |
 | 4. Automatic bar | Complete | `ui.standard_menu_bar()` emits ordinary nodes with stable disabled membership and no ambient UI |
 | 5. Authored deviations | Complete | Static metadata and typed dynamic/replacement extensions coexist with unchanged authored bars |
-| 6. Migration and closeout | In progress | Examples delete duplicated culture; full witness matrix and ritual green; item 30 pruned |
+| 6. Migration and closeout | Complete | Examples delete duplicated culture; full witness matrix and ritual green; item 30 pruned |
 
 ## Checkpoint 0 — census and behavioral pins
 
@@ -299,3 +299,62 @@ role, and topology behavior remains untouched at this boundary.
   evidence-gated honorable retreat.
 
 No deletion is credited until its replacement is explicit and witnessed.
+
+## Checkpoint 6 — migration and closeout
+
+- Text Editor and Control Gallery now request one `ui.standard_menu_bar()` each.
+  Their view code contains no authored menu, row, or separator topology.
+  Standard roles supply conventional rows; eight application-specific unit
+  commands declare typed static placement at registration. Control Gallery's
+  Controls category has marker-type identity registered once. Glass Tuner
+  deliberately remains bar-free.
+- The deletion account is satisfied exactly: 19 hand-authored conventional
+  binding rows and six hand-authored separators left the two example views;
+  the four New/Open/Save/Save As literal chord declarations were replaced by
+  standard roles in checkpoint 1; repeated standard labels now derive from the
+  same roles. The eight remaining authored static rows moved from view
+  construction to placement metadata rather than being mistaken for culture.
+- `menu_population_has_one_owner_and_examples_declare_only_meaning` pins the
+  sole population owner, its three policy adapters, absence of the superseded
+  `command::surface`, continued availability of the authored bar API, exact
+  example opt-in, absence of re-authored topology, and Glass Tuner's no-bar
+  choice. `migrated_examples_derive_complete_bars_from_registered_meaning`
+  pins the projected File/Edit/View/Controls vocabulary through real example
+  runtimes.
+- Delete now follows the real shortcut-icon route: the keymap produces
+  `ShortcutRun::Icon(Delete)`, scene paint resolves the Phosphor delete-key
+  glyph, and `⌦` is only the text fallback. Focused tests pin both the typed run
+  and the resolvable font glyph.
+- Master doctrine now records the single population owner with distinct
+  policies, Task-versus-Inspection traversal, cultural topology's independence
+  from responder scope, conventional meaning as the owner of its projections,
+  opt-in derivation, ordinary-node termination, and authored escape hatches.
+  Roadmap item 30 is pruned at the completed boundary.
+
+### API review
+
+- New public vocabulary retained: `Spec::{standard,role,placement,unplaced,
+  show_menu_shortcut}`, `Standard::Delete`, `command::menu::{Category,
+  Placement}`, `Registry::menu_category`, `Ui::{standard_menu_bar,
+  standard_menu_bar_with}`, and `widget::StandardMenuBar` typed extensions.
+- Deliberate non-merges retained: bar, context, and palette policies; cultural
+  topology and responder traversal; static metadata and dynamic authored
+  extensions; command-menu placement and popup geometry placement; fully
+  authored and derived bars.
+- Watch roles remain unbuilt until callers exist: About, Settings, Quit, Print,
+  Find, and Help. Localization and mnemonic policy remain separate future
+  concepts rather than fields added on speculation.
+
+### Closeout validation
+
+- Focused migration, architecture, keymap, icon-resolution, activation,
+  file-menu, and redraw witnesses pass.
+- The ordinary library suite passes 1,025 tests with the 10 deep-tier witnesses
+  intentionally ignored; all four doctests pass; every target compiles.
+- The release deep tier passes all 10 witnesses, including popup color packing,
+  premultiplied coverage and opacity, resolved-glass alpha ownership, and shared
+  silhouette shader compilation.
+- Text Editor, Control Gallery, and Glass Tuner all pass their application smoke
+  runs. The comparison witness remains open and its protected 500-pixel gallery
+  table, 0.40 Glass Tuner tint, and `comparison_open: true` state remain intact.
+- Formatting and diff hygiene pass. No push occurred during the campaign.

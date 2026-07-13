@@ -6,13 +6,6 @@ is next.
 
 ## In flight
 
-30. **Menus From Meaning — one population owner.** Promote
-    `command::Standard` into the conventional-command vocabulary; centralize
-    automatic command population without collapsing bar, context, and palette
-    policies; derive an opt-in conventional bar from registered meaning while
-    preserving fully authored menus. Campaign ledger:
-    `docs/audits/2026-07-13-menus-from-meaning-campaign.md`.
-
 ## Specced and ready
 
 ## Pending manual verification

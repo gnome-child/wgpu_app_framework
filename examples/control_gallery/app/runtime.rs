@@ -10,19 +10,40 @@ use super::{
 };
 use wgpu_l3::{Runtime, View, command, document, window};
 
+struct ControlsMenu;
+
 pub fn app(state: State) -> Runtime<State, (), View> {
     Runtime::new(state)
         .commands(|commands| {
             commands
                 .install(document::Editing::standard())
-                .register::<IncrementClicks>(command::Spec::new("Click").shortcut("Primary+K"))
-                .register::<ToggleWrap>(command::Spec::new("Wrap text"))
-                .register::<ToggleGrid>(command::Spec::new("Show grid"))
+                .menu_category(command::menu::Category::new::<ControlsMenu>("Controls"))
+                .register::<IncrementClicks>(
+                    command::Spec::new("Click").shortcut("Primary+K").placement(
+                        command::menu::Placement::category(command::menu::Category::of::<
+                            ControlsMenu,
+                        >()),
+                    ),
+                )
+                .register::<ToggleWrap>(command::Spec::new("Wrap text").placement(
+                    command::menu::Placement::category(command::menu::Category::VIEW),
+                ))
+                .register::<ToggleGrid>(command::Spec::new("Show grid").placement(
+                    command::menu::Placement::category(command::menu::Category::VIEW),
+                ))
                 .register::<SelectMode>(command::Spec::new("Select mode"))
                 .register::<SetLevel>(command::Spec::new("Set level"))
                 .register::<SubmitQuery>(command::Spec::new("Submit query"))
-                .register::<ToggleAdvanced>(command::Spec::new("Advanced"))
-                .register::<ResetControls>(command::Spec::new("Reset").shortcut("Primary+R"))
+                .register::<ToggleAdvanced>(command::Spec::new("Advanced").placement(
+                    command::menu::Placement::category(command::menu::Category::VIEW),
+                ))
+                .register::<ResetControls>(
+                    command::Spec::new("Reset").shortcut("Primary+R").placement(
+                        command::menu::Placement::category(command::menu::Category::of::<
+                            ControlsMenu,
+                        >()),
+                    ),
+                )
                 .register::<wgpu_l3::table::SortBy>(command::Spec::new("Sort table"))
                 .register::<EditRecordNote>(command::Spec::new("Edit record note"))
                 .register::<EditRecordCount>(command::Spec::new("Edit record count"))

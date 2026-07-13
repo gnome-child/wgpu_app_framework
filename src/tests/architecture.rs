@@ -3383,6 +3383,70 @@ fn windows_accent_bridge_is_absent_from_composition_tenancy() {
 }
 
 #[test]
+fn menu_population_has_one_owner_and_examples_declare_only_meaning() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let population = std::fs::read_to_string(root.join("src/command/population.rs"))
+        .expect("population owner should read");
+    let palette = std::fs::read_to_string(root.join("src/runtime/palette.rs"))
+        .expect("palette adapter should read");
+    let context = std::fs::read_to_string(root.join("src/runtime/context_menu.rs"))
+        .expect("context adapter should read");
+    let presentation = std::fs::read_to_string(root.join("src/runtime/presentation.rs"))
+        .expect("presentation adapter should read");
+    let widget_ui = std::fs::read_to_string(root.join("src/widget/ui.rs"))
+        .expect("widget UI source should read");
+
+    assert!(
+        population.contains("pub(crate) struct Population")
+            && population.contains("fn palette_candidates")
+            && population.contains("fn context_candidates")
+            && population.contains("fn bar_candidates")
+            && population.contains("fn standard_bar"),
+        "one population owner must hold the shared discovery and resolution machinery"
+    );
+    assert!(
+        palette.contains("population.palette_candidates()")
+            && context.contains("population.context_candidates(binding, targets)")
+            && presentation.contains("population.standard_bar("),
+        "palette, context, and bar must remain policy adapters into the same owner"
+    );
+    assert!(
+        !root.join("src/command/surface.rs").exists(),
+        "the superseded parallel population owner must remain absent"
+    );
+    assert!(
+        widget_ui.contains("pub fn menu_bar(") && widget_ui.contains("pub fn standard_menu_bar("),
+        "automatic population removes required authorship without removing the authored escape hatch"
+    );
+
+    for relative in [
+        "examples/text_editor/app/view.rs",
+        "examples/control_gallery/app/view.rs",
+    ] {
+        let source = std::fs::read_to_string(root.join(relative))
+            .unwrap_or_else(|_| panic!("{relative} should read"));
+        assert_eq!(
+            source.matches("ui.standard_menu_bar();").count(),
+            1,
+            "{relative} should opt in exactly once"
+        );
+        for authored in ["ui.menu_bar(", "ui.menu(", "ui.separator()"] {
+            assert!(
+                !source.contains(authored),
+                "{relative} must not re-author conventional topology with {authored}"
+            );
+        }
+    }
+
+    let tuner = std::fs::read_to_string(root.join("examples/glass_tuner/app/view.rs"))
+        .expect("glass tuner view should read");
+    assert!(
+        !tuner.contains("standard_menu_bar"),
+        "registration must not create ambient bars in an application that did not opt in"
+    );
+}
+
+#[test]
 fn deferred_tasks_have_one_worker_execution_path() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let executor = std::fs::read_to_string(root.join("src/task/executor.rs"))

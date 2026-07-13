@@ -22,9 +22,15 @@ pub fn runtime(state: State) -> Runtime<State, Event> {
                     command::Standard::SaveAs,
                 ))
                 .register::<document::SaveToPath>(command::Spec::new("Save To Path"))
-                .register::<LoadStressText>(command::Spec::new("Load Stress Text"))
-                .register::<ToggleWrapText>(command::Spec::new("Wrap text"))
-                .register::<ToggleDebugPanel>(command::Spec::new("Debug panel"));
+                .register::<LoadStressText>(command::Spec::new("Load Stress Text").placement(
+                    command::menu::Placement::section_after(command::Standard::SaveAs),
+                ))
+                .register::<ToggleWrapText>(command::Spec::new("Wrap text").placement(
+                    command::menu::Placement::category(command::menu::Category::VIEW),
+                ))
+                .register::<ToggleDebugPanel>(command::Spec::new("Debug panel").placement(
+                    command::menu::Placement::category(command::menu::Category::VIEW),
+                ));
         })
         .responders(|responders| {
             responders

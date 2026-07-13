@@ -1,20 +1,13 @@
 use std::path::Path;
 
-use super::{
-    State,
-    command::{LoadStressText, ToggleDebugPanel, ToggleWrapText},
-};
+use super::State;
 use wgpu_l3::{
-    View, document, geometry, interaction, scene, session,
+    View, geometry, interaction, scene, session,
     text::Overflow,
-    timeline,
     view::{Context as ViewContext, Wrap},
     widget,
 };
 
-const FILE_MENU: interaction::Id = interaction::Id::new("menu.file");
-const EDIT_MENU: interaction::Id = interaction::Id::new("menu.edit");
-const VIEW_MENU: interaction::Id = interaction::Id::new("menu.view");
 const DOCUMENT_FOCUS: interaction::Id = interaction::Id::new("document");
 
 pub const WINDOW_TITLE: &str = "wgpu_l3 Notepad";
@@ -107,33 +100,7 @@ pub fn view(state: &State, cx: ViewContext) -> View {
 
     widget::view(|ui| {
         ui.column(|ui| {
-            ui.menu_bar(|ui| {
-                ui.menu(FILE_MENU, "File", |ui| {
-                    ui.add(widget::Binding::<document::NewFile>::menu());
-                    ui.add(widget::Binding::<document::OpenFile>::menu());
-                    ui.add(widget::Binding::<document::SaveFile>::menu());
-                    ui.add(widget::Binding::<document::SaveAsFile>::menu());
-                    ui.separator();
-                    ui.add(widget::Binding::<LoadStressText>::menu());
-                    ui.separator();
-                    ui.add(widget::Binding::<session::CloseWindow>::menu());
-                });
-                ui.menu(EDIT_MENU, "Edit", |ui| {
-                    ui.add(widget::Binding::<timeline::Undo>::menu());
-                    ui.add(widget::Binding::<timeline::Redo>::menu());
-                    ui.separator();
-                    ui.add(widget::Binding::<document::Cut>::menu());
-                    ui.add(widget::Binding::<document::Copy>::menu());
-                    ui.add(widget::Binding::<document::Paste>::menu());
-                    ui.add(widget::Binding::<document::Delete>::menu());
-                    ui.separator();
-                    ui.add(widget::Binding::<document::SelectAll>::menu());
-                });
-                ui.menu(VIEW_MENU, "View", |ui| {
-                    ui.add(widget::Binding::<ToggleWrapText>::menu());
-                    ui.add(widget::Binding::<ToggleDebugPanel>::menu());
-                });
-            });
+            ui.standard_menu_bar();
             ui.text_area(
                 widget::TextArea::from_document(&state.document)
                     .wrap(wrap)

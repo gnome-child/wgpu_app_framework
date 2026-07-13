@@ -8,14 +8,11 @@ use super::{
     state::{RECORD_COUNT, RecordOrder},
 };
 use wgpu_l3::{
-    Table, View, document, geometry, interaction, scene, table, text, timeline,
+    Table, View, geometry, interaction, scene, table, text,
     view::{Align, Context as ViewContext, Dimension, Padding},
     virtual_list, widget, window,
 };
 
-const MENU_CONTROLS: interaction::Id = interaction::Id::new("control_gallery.menu.controls");
-const MENU_EDIT: interaction::Id = interaction::Id::new("control_gallery.menu.edit");
-const MENU_VIEW: interaction::Id = interaction::Id::new("control_gallery.menu.view");
 pub(super) const QUERY_FOCUS: interaction::Id = interaction::Id::new("control_gallery.query");
 
 pub const WINDOW_TITLE: &str = "wgpu_l3 Control Gallery";
@@ -56,28 +53,7 @@ fn record_at(index: usize, descending: bool, order: Option<&RecordOrder>) -> usi
 pub fn view(state: &State, _: ViewContext) -> View {
     widget::view(|ui| {
         ui.column(|ui| {
-            ui.menu_bar(|ui| {
-                ui.menu(MENU_CONTROLS, "Controls", |ui| {
-                    ui.add(widget::Binding::<IncrementClicks>::menu());
-                    ui.add(widget::Binding::<ResetControls>::menu());
-                });
-                ui.menu(MENU_EDIT, "Edit", |ui| {
-                    ui.add(widget::Binding::<timeline::Undo>::menu());
-                    ui.add(widget::Binding::<timeline::Redo>::menu());
-                    ui.separator();
-                    ui.add(widget::Binding::<document::Cut>::menu());
-                    ui.add(widget::Binding::<document::Copy>::menu());
-                    ui.add(widget::Binding::<document::Paste>::menu());
-                    ui.add(widget::Binding::<document::Delete>::menu());
-                    ui.separator();
-                    ui.add(widget::Binding::<document::SelectAll>::menu());
-                });
-                ui.menu(MENU_VIEW, "View", |ui| {
-                    ui.add(widget::Binding::<ToggleWrap>::menu());
-                    ui.add(widget::Binding::<ToggleGrid>::menu());
-                    ui.add(widget::Binding::<ToggleAdvanced>::menu());
-                });
-            });
+            ui.standard_menu_bar();
 
             ui.add(
                 widget::Element::new()

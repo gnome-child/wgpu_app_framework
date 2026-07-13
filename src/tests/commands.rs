@@ -226,6 +226,72 @@ fn standard_menu_bar_derives_ordinary_live_menu_bindings_on_explicit_request() {
     assert_eq!(app.state().sources, vec![context::Source::Menu]);
 }
 
+#[test]
+fn migrated_examples_derive_complete_bars_from_registered_meaning() {
+    let mut editor =
+        text_editor::app(text_editor::State::default()).keymap(keymap::Profile::windows());
+    editor.start();
+    let editor_window = editor.session().windows()[0].id();
+    let editor_view = editor
+        .present(editor_window)
+        .expect("text editor should present");
+    let editor_bar = find_view_node(editor_view.root(), view::Role::MenuBar)
+        .expect("text editor should request a conventional bar");
+    assert_eq!(
+        editor_bar
+            .children()
+            .iter()
+            .filter_map(view::Node::label_text)
+            .collect::<Vec<_>>(),
+        vec!["File", "Edit", "View"]
+    );
+    for command in [
+        document::NewFile::NAME,
+        document::SaveFile::NAME,
+        document::Delete::NAME,
+        text_editor::LoadStressText::NAME,
+        text_editor::ToggleWrapText::NAME,
+    ] {
+        assert!(
+            editor_view
+                .bindings()
+                .iter()
+                .any(|binding| binding.command_name() == command),
+            "derived text-editor bar should contain {command}"
+        );
+    }
+
+    let mut gallery =
+        control_gallery::app(control_gallery::State::default()).keymap(keymap::Profile::windows());
+    gallery.start();
+    let gallery_window = gallery.session().windows()[0].id();
+    let gallery_view = gallery
+        .present(gallery_window)
+        .expect("control gallery should present");
+    let gallery_bar = find_view_node(gallery_view.root(), view::Role::MenuBar)
+        .expect("control gallery should request a conventional bar");
+    assert_eq!(
+        gallery_bar
+            .children()
+            .iter()
+            .filter_map(view::Node::label_text)
+            .collect::<Vec<_>>(),
+        vec!["File", "Edit", "View", "Controls"],
+        "standard categories and the typed custom category should share cultural ordering"
+    );
+
+    let mut tuner = glass_tuner::app(glass_tuner::State::default());
+    tuner.start();
+    let tuner_window = tuner.session().windows()[0].id();
+    let tuner_view = tuner
+        .present(tuner_window)
+        .expect("glass tuner should present");
+    assert!(
+        find_view_node(tuner_view.root(), view::Role::MenuBar).is_none(),
+        "command-rich applications remain bar-free until they explicitly opt in"
+    );
+}
+
 struct ReviewMenu;
 
 #[test]

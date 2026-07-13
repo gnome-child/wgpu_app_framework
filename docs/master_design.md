@@ -855,11 +855,13 @@ scale factor.
 Shortcut display is presentation. Theme may choose whether shortcuts render as
 symbolic controls or text, but it must not change which key event a shortcut
 means. Symbolic display uses real scene icon primitives for recognizable keys
-such as Control, Shift, Option/Alt, and Command, separated by `+`; weak or
-platform-specific keys without a clear icon stay textual. The default shortcut
-display is house grammar on every platform: icon modifiers with separators are
-a deliberate departure from OS-native menu grammar, while key resolution stays
-platform-truthful.
+such as Control, Shift, Option/Alt, Command, and Delete, separated by `+` where
+a chord has multiple parts; weak or platform-specific keys without a clear icon
+stay textual. A Unicode symbol may be an accessibility or plain-text fallback,
+but it is not a substitute for the icon primitive in rendered shortcut chrome.
+The default shortcut display is house grammar on every platform: icon
+modifiers with separators are a deliberate departure from OS-native menu
+grammar, while key resolution stays platform-truthful.
 
 `session` and `interaction`
 
@@ -911,6 +913,25 @@ broad-to-exact, and presents each nonempty layer as an ordinary menu section.
 Both consume one private erased command projection. Public construction remains
 typed, and candidate-provider types keep global and contextual discovery
 unsubstitutable.
+
+One command-population owner supplies discovery, erased triggers, registry
+metadata lookup, responder resolution, and state composition. Surface policy is
+an explicit input to that owner, not duplicated orchestration and not a claim
+that all surfaces mean the same thing. A conventional bar keeps registered
+unclaimed commands visible but disabled and resolves against the live Task
+chain. A context menu consumes claims from its captured semantic path and keeps
+the captured invocation route. The palette keeps enabled captured-task claims
+and orders them by provenance, relevance, then registration. Sharing mechanics
+must never collapse these membership, traversal, ordering, or freshness laws.
+
+A menu orders by what it is about. An inspection menu is about an object, so
+its `responder::Path` orders sections broad-to-exact (or Task traversal from an
+active editor). A conventional menu bar is about a culturally familiar command
+vocabulary, so platform topology data orders its categories and groups.
+Responder scope determines who acts; conventional role determines where people
+look. Undo and Copy may both resolve at Focused scope while remaining separated
+as History and Clipboard, proving that scope does not contain cultural
+topology.
 
 Traversal names the question rather than a geometric direction. `Task` serves
 an active task exact-to-broad; keyboard input and the command palette use it.
@@ -988,6 +1009,19 @@ modifier, not the physical Control key, and standard roles such as Undo, Redo,
 Copy, Save, CloseWindow, and CommandPalette name user intent before platform
 resolution. A standard role may resolve to multiple concrete chords; the first
 is the display chord and all chords match input.
+
+`command::Standard` is conventional meaning, not merely a shortcut alias.
+Label, chord, menu category, section, slot, shortcut visibility, and
+platform-specific relocation are projections of that meaning. Registration is
+the persistent vocabulary of an opt-in conventional bar; the current responder
+chain supplies live state and actor without reordering the cultural topology.
+An application requests that projection with `ui.standard_menu_bar()` and
+declares static deviations through typed placement metadata. Dynamic or
+argument-bearing deviations use the typed mixed-bar builder. Fully authored
+`ui.menu_bar(...)` remains the escape hatch; registration alone never creates
+ambient UI. All three forms terminate in the same ordinary MenuBar, Menu,
+Separator, and Binding nodes and therefore share layout, focus, paint, popup,
+and activation behavior.
 
 `notification`
 

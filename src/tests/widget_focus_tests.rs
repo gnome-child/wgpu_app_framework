@@ -11,9 +11,10 @@ fn tab_key_moves_focus_through_control_gallery_widgets() {
         .expect("control gallery should render before tab navigation");
 
     let expected = [
-        (view::Role::Menu, Some("Controls")),
+        (view::Role::Menu, Some("File")),
         (view::Role::Menu, Some("Edit")),
         (view::Role::Menu, Some("View")),
+        (view::Role::Menu, Some("Controls")),
         (view::Role::Button, Some("Click")),
         (view::Role::Button, Some("Reset")),
         (view::Role::Checkbox, Some("Wrap text")),
@@ -63,11 +64,13 @@ fn focused_menu_opens_with_enter_and_tabs_within_popup() {
     app.show_scene(window, size)
         .expect("control gallery should render before menu focus");
 
-    app.handle_input(
-        window,
-        Input::key_down(input::Key::Tab, input::Modifiers::default()),
-    )
-    .expect("tab should focus Controls menu");
+    for _ in 0..4 {
+        app.handle_input(
+            window,
+            Input::key_down(input::Key::Tab, input::Modifiers::default()),
+        )
+        .expect("tab should follow cultural menu order to Controls");
+    }
     let menu_focus = app
         .session()
         .focused(window)
@@ -137,11 +140,13 @@ fn focused_menu_title_outline_paints_below_open_floating_menu() {
     app.show_scene(window, size)
         .expect("control gallery should render before menu focus");
 
-    app.handle_input(
-        window,
-        Input::key_down(input::Key::Tab, input::Modifiers::default()),
-    )
-    .expect("tab should focus Controls menu");
+    for _ in 0..4 {
+        app.handle_input(
+            window,
+            Input::key_down(input::Key::Tab, input::Modifiers::default()),
+        )
+        .expect("tab should follow cultural menu order to Controls");
+    }
     app.handle_input(
         window,
         Input::key_down(input::Key::Enter, input::Modifiers::default()),
