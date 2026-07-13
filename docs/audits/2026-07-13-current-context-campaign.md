@@ -1,6 +1,6 @@
 # Current Context — one path, one realization, one generation
 
-Status: in flight.
+Status: complete. `comparison_open: true`. No push during the campaign.
 
 ## Mission
 
@@ -83,12 +83,12 @@ after their existing delta has been preserved and censused.
 | Checkpoint | State | Acceptance boundary |
 |---|---|---|
 | 0. Census and named reductions | Complete | Seven transition/placement reductions, dismissal grammar, capture lifetime, and complete ownership census |
-| 1. One popup realization | Pending | One resolved host geometry consumed by paint, input, IME, accessibility, material, and context anchoring |
-| 2. Current popup generations | Pending | Birth, resize, retarget, reuse, scale, and material transitions expose no stale or hybrid generation |
-| 3. Directional responder traversal | Pending | `Task` and `Inspection` explicitly select claim and section order without changing authored menu bars |
-| 4. Table selection context domain | Pending | Existing bounded keyed multiselect owns canonical `SelectAll`; focal remains distinct |
-| 5. Automatic facets and grouped context | Pending | Semantic path derives table/member/facet groups, pins dematerialized focal rows, and dismisses removed subjects |
-| 6. Gallery and closeout | Pending | Comparison, doctrine, deletions, complete ritual, and pending-eyes closure |
+| 1. One popup realization | Complete | One resolved host geometry consumed by paint, input, IME, accessibility, material, and context anchoring |
+| 2. Current popup generations | Complete | Content/geometry updates are atomic; a generation-bound WinRT commit receipt now gates cold entrance exposure, confirmed by the one-second reduction and restored 100 ms pass |
+| 3. Directional responder traversal | Complete | `Task` and `Inspection` explicitly select claim and section order without changing authored menu bars |
+| 4. Table selection context domain | Complete | Existing bounded keyed multiselect owns canonical `SelectAll`; focal remains distinct |
+| 5. Automatic facets and grouped context | Complete | Semantic path derives table/member/facet groups, pins dematerialized focal rows, and dismisses removed subjects |
+| 6. Gallery and closeout | Complete | Comparison, doctrine, deletions, complete ritual, and pending-eyes closure |
 
 ## Checkpoint 0 — census cells
 
@@ -96,13 +96,13 @@ after their existing delta has been preserved and censused.
 
 | ID | Reduction | Evidence required | State |
 |---|---|---|---|
-| R-01 | Native visual placement flips against monitor bounds while retained hit geometry keeps the in-frame resolution. | Deterministic geometry witness plus event-source hit witness | Open |
-| R-02 | The visible menu and its abandoned compensating location can both hover. | Parent-surface and popup-surface hit probes for one layer | Open |
-| R-03 | DX12 command-palette result-height changes intermittently expose a smaller/stale frame. | Generation/geometry/content trace plus screen capture | Open |
-| R-04 | Context A to context B briefly displays A's layout in B's host. | Same-live-id retarget trace plus screen capture | Open |
-| R-05 | Menu-bar File to Edit retarget must not expose prior content. | Different-menu-id retarget trace plus screen capture | Open |
-| R-06 | Menu-bar to context-menu switching must not expose the prior surface. | Cross-species host trace plus screen capture | Open |
-| R-07 | Rapid A to B to A must reject both earlier generations' receipts. | Deterministic delayed-receipt state-machine witness | Open |
+| R-01 | Native visual placement flips against monitor bounds while retained hit geometry keeps the in-frame resolution. | `native_popup_frames_are_interactive_only_on_their_realized_surface` plus live edge-placement acceptance | Closed |
+| R-02 | The visible menu and its abandoned compensating location can both hover. | Four consecutive parent/popup-surface hit probes and live hover acceptance | Closed |
+| R-03 | DX12 command-palette result-height changes intermittently expose a smaller/stale frame. | Atomic content/geometry state witnesses plus live DX12 update acceptance | Closed |
+| R-04 | Context A to context B briefly displays A's layout in B's host. | `contextual_retarget_reuses_the_authored_menu_lifecycle` plus live retarget acceptance | Closed |
+| R-05 | Menu-bar File to Edit retarget must not expose prior content. | Shared authored/context retirement lifecycle and live menu-bar acceptance | Closed |
+| R-06 | Menu-bar to context-menu switching must not expose the prior surface. | Menu/palette exclusivity, fresh contextual identity, and live cross-surface acceptance | Closed |
+| R-07 | Rapid A to B to A must reject both earlier generations' receipts. | `popup_receipts_are_bound_to_their_exact_generation` and prepared-entrance receipt witnesses | Closed |
 
 ### Ownership census
 
@@ -183,7 +183,177 @@ scroll-away survives through one bounded pin; provider deletion dismisses.
 - All seven native defects have named deterministic state or event-order
   reductions. Screen-output captures for R-01 through R-06 remain hardware
   acceptance evidence at their owning checkpoints; R-07 is a pure delayed-
-  receipt state-machine witness owned by checkpoint 2.
+receipt state-machine witness owned by checkpoint 2.
+
+## Checkpoint 1 — one popup realization
+
+Native surface ownership is now a constituent of `Layout` birth rather than a
+late annotation. Consumers cannot observe a layout whose popup frames have not
+yet been assigned to `InFrame` or `Native`, and consecutive-frame witnesses pin
+that ownership. The native host resolves placement and visual reach into one
+`popup::Realization`; paint translation, popup-local hit testing, pointer-event
+translation, IME routing, material projection, clipping, and retained popup
+identity read that same value.
+
+The field reduction exposed one additional consumer: the composition HWND's
+non-client hit test. Visual bounds include the framework-declared shadow, but
+interactive bounds remain the panel. `WM_NCHITTEST` now derives its client hit
+rectangle from the current realization and returns `HTTRANSPARENT` in visual-
+reach-only margins. This removed the menu-bar hover dead zone without shrinking
+or duplicating the painted shadow. The user confirmed menu-bar retargeting was
+restored.
+
+## Checkpoint 2 — current popup generations
+
+The first implementation incorrectly borrowed the parent window's presentation
+epoch as popup content identity. Parent fades, hover frames, and palette edits
+therefore manufactured popup staleness and repeatedly re-entered concealment.
+That clock was deleted from popup identity. A popup-local content serial now
+advances only when its source scene or captured responder-path fingerprint
+changes; parent activity produces zero popup exposure work.
+
+Content revision and concealment are separate axes. Same-geometry content
+updates receive a fresh generation and one atomic swapchain present without
+cloaking. Resolved native geometry is the sole geometry-change detector: while
+a replacement extent or position is prepared, the last complete realization
+remains visible; the new swapchain extent is rendered first, then the HWND and
+its hit rectangle commit before the compositor-pickup barrier promotes the
+pending realization. A missed acquire retries the same generation, and a
+same-sized move is covered just as a resize is. Material and scale changes keep
+the concealed gate because one present cannot make those contracts atomic.
+Field testing confirmed that palette result-list changes no longer blink.
+
+The remaining first-entry-only blink had two owners. A slow initial material
+receipt could outlive the overlay's nominal entrance duration, so logical
+`Stable` updates once overwrote the concealed compositor root's prepared opacity
+with `1.0`. After that overwrite was removed, the one-second reduction exposed
+the deeper transition: a warm host's prior root opacity could be sampled after
+uncloak before the queued `SetOpacity(0.001)` reached a WinRT Composition commit
+cycle. The old opacity briefly faded out, then the intended entrance faded in.
+
+A prepared entrance now owns root opacity until exposure **and** carries a
+`RequestCommitAsync` receipt bound to the popup generation. Exposure continues
+requesting work while that receipt is pending; only its exact generation may
+start the entrance. Stale receipts from an earlier warm-host tenant are inert.
+The user confirmed a clean monotonic fade with the diagnostic duration extended
+to one second; the theme was restored to 100 ms and the production trace showed
+the prepared-root receipt completing before exposure. Pure state-machine tests
+pin current/stale receipt behavior, the stability test pins prepared-opacity
+ownership, and an architecture witness keeps the receipt connected to the
+exposure gate.
+
+## Checkpoints 3–5 — semantic context
+
+`responder::Path` captures command-owning semantic layers independently from
+the descriptive `subject::Path`. `responder::Traversal::{Task, Inspection}`
+selects direction explicitly; the same ordered walk drives claim consumption,
+menu section order, targeting, and separators. Disabled ownership consumes;
+absence falls through. Palette/task routing remains exact-to-broad, resting
+context inspection is broad-to-exact, and an active editor naturally restores
+task traversal.
+
+Tables reuse their existing keyed `Selection` and `Membership::AllExcept` for
+multiselect and canonical `SelectAll`; no selection representation was added.
+The table owns the broad command, the focal row remains distinct from the
+selected member set and selection anchor, and exact text or Boolean facets add
+only commands not consumed by broader layers. Right-click selection semantics,
+provider-key reconciliation, focal pinning across dematerialization, dismissal
+on provider deletion, standard text/Boolean/control participation, and the
+removal of redundant per-column context wiring are pinned by focused tests.
+
+## Checkpoint 6 — gallery and closeout
+
+### Behavior matrix
+
+The control gallery now exercises the complete composition rather than a
+special context-menu scene. At rest, a text cell is inspected table to row to
+facet: the table's canonical Select All appears once, the focal row action
+follows, and unconsumed text commands form the exact section. A Boolean cell
+uses the same first two sections and contributes its toggle at the facet. Empty
+table space contributes only the table domain. Secondary-clicking a selected
+row preserves the multiselection; clicking an unselected row makes it the sole
+selection. Shift+arrow range extension and contraction continue using stable
+provider keys.
+
+An active editor changes the question rather than adding an exception. Its
+keyboard focus declares the task frame, so Task traversal starts at the editor,
+Select All targets the draft, the focal row remains a broader section, and the
+table selection is unchanged. Input-source edit commit bindings are not
+mistaken for contextual control actions; ordinary button and Boolean bindings
+remain automatic participants. Explicit widget context remains an escape hatch,
+not the default path.
+
+Dematerialization and deletion stay distinct. A contextual virtual row retains
+one bounded focal pin while scrolled away; provider deletion dismisses the
+session and invalidates late receipts. Authored menu-bar panels and contextual
+panels consume the same overlay retirement, z-order, entrance, and exit
+lifecycle. A retiring panel keeps paint geometry for its fade but has an empty
+hit region, while its entering replacement is the only interactive surface.
+
+The existing semantic roles, stable row/cell identities, selected-row state,
+and selectable table model remain the accessibility seam. Platform AccessKit
+export is roadmap item 11 and was not smuggled into this campaign; the original
+acceptance wording is narrowed to preservation of that seam rather than a claim
+of a platform integration that does not yet exist.
+
+### Deletion and API census
+
+- The nearest marked-owner climb and `context_owner_for_node` were replaced by
+  one captured responder path.
+- Parallel reversal/rank arithmetic was deleted; `Path::ordinals` now owns both
+  claim precedence and section order.
+- `TypedColumn::context_menu` and the gallery's redundant text/checkbox wrappers
+  were deleted; ordinary semantic participation derives from existing cells.
+- Parent-window presentation epochs no longer stand in for popup content
+  identity. Popup-local content serials and exact generation receipts own it.
+- Popup pooling retains `PopupHost` infrastructure, never a semantic
+  `PopupWindow` session. Retiring sessions are visual-only.
+- Placement intent, host geometry, panel hit geometry, popup event translation,
+  and non-client hit testing no longer re-resolve independent outcomes.
+- Automatic control discovery excludes text-edit `Source::Input` bindings;
+  explicit context bindings and ordinary button-source actions remain honest
+  candidates.
+
+The only public table API deletion is `TypedColumn::context_menu`, superseded by
+automatic participation. `context_rows` remains the explicit, typed seam for
+an application row action. `popup::Realization`, `popup::Generation`,
+`responder::Path`, traversal, and table context services remain internal
+vocabulary; no parallel public responder, selection, or popup API was added.
+
+### Verification and pending eyes
+
+- `cargo fmt --all -- --check` passed.
+- `cargo check --all-targets` passed without warnings.
+- `cargo test --lib` passed: 1,002 tests, with 10 deliberate hardware-tier
+  ignores.
+- `cargo test --doc` passed all four doctests, including three compile-fail API
+  witnesses.
+- The `text_editor`, `control_gallery`, and `glass_tuner` smoke binaries passed.
+- `cargo test --release --lib -- --ignored` passed all 10 deep-tier witnesses,
+  including premultiplied alpha, sRGB packing, silhouette compilation, and the
+  alpha-preserving material-noise regression.
+- `comparison_open: true`, the accepted 500px gallery table, and the final 0.40
+  panel tint remain intact.
+
+Live Windows acceptance supplied the screen-output half of the native contract:
+edge-placed menus paint and hit at one location, menu-bar hover retargets,
+context menus remain clickable, each menu has its own monotonic entrance/exit,
+palette result changes do not blink, cold entrance no longer flashes, and
+context-to-context replacement follows the same authored-menu choreography.
+The deterministic event/state witnesses supply the complementary ordering
+evidence, including four consecutive steady frames, exact generation receipts,
+same-size movement, scale/material concealment, and visual-only retirement.
+
+### Commit accounting
+
+The code did not land as five independently green checkpoint commits. Hardware
+reductions repeatedly crossed the protected native-popup ancestry, and exact
+hunk separation was no longer reconstructable without inventing history.
+Checkpoint 0 remains independently committed; checkpoints 1–5 and the already
+accepted popup/material ancestry were consolidated at `c3bb7673`. This is a
+recorded protocol deviation, not retroactive checkpoint theater. The boundary
+was formatted, all-target compiled, fully tested, and deep-tier green before
+commit. No push occurred.
 
 ## Exclusions
 

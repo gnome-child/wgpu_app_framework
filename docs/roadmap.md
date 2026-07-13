@@ -6,17 +6,9 @@ is next.
 
 ## In flight
 
-14. **Pay Once — renderer economics and warm popup hosts** — execution of the
-    renderer-economics item established by the presentation-clock campaign.
-    PIX names CPU encoding, GPU execution, pass, allocation, clip, and popup
-    preparation costs before code changes. Then one-owner clip realization,
-    reusable geometry storage, semantic render-pass scopes, and a probe-gated
-    bounded popup-host pool remove work that does not represent a real visual
-    boundary. Retained/damage layers and custom presentation remain excluded.
-    Ledger: `docs/audits/2026-07-13-renderer-economics-campaign.md`.
+None.
 
 ## Specced and ready
-
 
 ## Pending manual verification
 
@@ -110,6 +102,13 @@ is next.
     DX12-HWND matrix acquits `DxgiFromVisual`; DX12 amplifies the remaining
     renderer cost but does not own it. Ledger:
     `docs/audits/2026-07-13-presentation-clock-campaign.md`.
+29. **Current Context — COMPLETE** (`c3bb7673`, 2026-07-13; 1,002 ordinary
+    tests and 10 deep-tier witnesses). One popup realization owns presentation
+    and interaction geometry; popup-local generations expose only current
+    content; directional responder paths derive grouped table context over the
+    existing keyed multiselection, focal row, and exact facet. Authored and
+    contextual menus share one retirement/z-order lifecycle. Ledger:
+    `docs/audits/2026-07-13-current-context-campaign.md`.
 
 ## Deferred until a caller or hardware appears
 

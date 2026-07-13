@@ -171,3 +171,29 @@ capture subsystem without another design pass.
 No new material recipe, Vulkan composition work, split frost/content entrance,
 readiness sleep, third coordinate system, public widget/table API, or unrelated
 border/shadow redesign.
+
+## Post-close field correction — desktop Composition is device-space
+
+The first live menu after closeout falsified the checkpoint-2 coordinate
+verdict. At scale 1.25 the host frost occupied about 232 by 210 physical pixels
+behind a 290 by 263 physical-pixel panel, and its inset missed by the same
+factor. Those are the authored logical dimensions appearing unscaled on the
+desktop target. The earlier probe's 60-to-75 observation did not isolate this
+boundary and must not be treated as its unit contract.
+
+The corrected law is narrower: the logical silhouette remains the source, but
+the Win32-hosted `DesktopWindowTarget` tenant consumes the same snapped
+device-space projection as the popup surface. Region offset, size, rounding,
+shadow reach, and the retained panel inset cross that boundary in physical
+pixels. The renderer still derives independently from the logical source; a
+post-realization scene may not re-derive visual bounds after its platform-owned
+shadow has been stripped. A four-scale projection witness and the live 1.25
+capture pin both parts of the correction.
+
+The same field pass also separated geometry from appearance: native frost
+removes the renderer's opaque fallback base, while the dark built-in recipe
+retains its framework-owned tint and noise. The alpha path is translucent; its
+tint strength is a theme decision, not a coordinate or realization repair. A
+subsequent visual experiment lowered the dark tint from 0.88. The final
+accepted value after live comparison is 0.40, preserved by the theme and
+gallery witnesses.

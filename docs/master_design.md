@@ -626,15 +626,40 @@ removes the cloak. The first user-visible pixels therefore follow a current
 present; stale or empty swapchain content is never the mechanism used to make
 the window presentable.
 
+Birth, resize, retarget, host reuse, scale change, and material change are all
+show cycles. Each native popup configuration receives a fresh monotonic
+generation. Its content and material receipts are valid only for that exact
+generation; earlier receipts are inert. A visible host keeps its complete
+current generation while replacement pixels and resolved geometry are staged;
+after the replacement present, its HWND geometry and hit region commit before
+the compositor-pickup barrier promotes the pending realization. Same-geometry
+content changes use the same generation discipline without moving or cloaking
+the host. Material and scale changes retain the concealed reconfiguration gate
+because one present cannot make those contracts atomic. Geometry is resolved
+once by the selected host into a retained popup realization; paint, hit testing,
+event translation, IME, accessibility, clipping, and material projection
+consume that same fact. Placement intent is never reused as realized geometry.
+
+Windows are different presentation clocks. Parent-window presents, hover
+frames, and fades cannot make a popup stale; popup currentness advances only
+from popup-local content, geometry, scale, material, or semantic identity.
+Parameter animation does not mint a content generation. Concealment is reserved
+for transitions one whole present cannot make atomic; ordinary same-geometry
+content changes present directly under a new serial. Absence is a lifecycle
+state as well: a retiring popup may keep visual geometry for its exit, but owns
+no hit region, input route, IME authority, or semantic session.
+
 The latency epoch begins at retained overlay appearance, not at native-window
 construction. Popup scene preparation reports rebuild, layout, and assembly
 separately from HWND, surface, material, draw, acquire, synchronization, and
 exposure work. An independently presentable popup is submitted before its
 parent window's frame: popup visibility does not pay for unrelated parent
-rendering. Composition prepares an entering root at zero while concealed and
-starts the full entrance animation only after exposure. A retained transition
-to stable state that requests identical popup pixels updates the compositor
-timeline without another swapchain submission.
+rendering. Composition prepares an entering root at imperceptible opacity while
+concealed and starts the full entrance animation only after exposure. Until
+then, the prepared entrance owns root opacity: a logical transition to stable
+cannot overwrite it merely because material readiness outlived the nominal fade
+duration. A retained transition to stable state that requests identical popup
+pixels updates the compositor timeline without another swapchain submission.
 
 `PopupFirstPresentTrace` records timestamped created, configured,
 prepared-concealed, acquire outcome, present, synchronization, and exposed
@@ -881,11 +906,21 @@ a description does not include the act of describing.
 
 A command surface has three separate stages: candidate discovery, live command
 resolution, and presentation. The palette discovers globally and presents
-search results; a context menu stops at the nearest explicitly contextual
-owner and presents the resulting actions as ordinary menu rows. Both consume
-one private erased command projection. Public construction remains typed, and
-candidate-provider types keep global and nearest-owner discovery
+search results. A context menu captures one semantic `responder::Path`, stored
+broad-to-exact, and presents each nonempty layer as an ordinary menu section.
+Both consume one private erased command projection. Public construction remains
+typed, and candidate-provider types keep global and contextual discovery
 unsubstitutable.
+
+Traversal names the question rather than a geometric direction. `Task` serves
+an active task exact-to-broad; keyboard input and the command palette use it.
+`Inspection` examines a containing object broad-to-exact; a resting context
+menu uses it. The first claim consumes a command identity in either traversal,
+including a disabled claim. Absence permits fallthrough. Claim precedence,
+menu ordering, separators, and invocation routing therefore consume one path
+instead of parallel ranks. An active table editor makes its text task frame the
+context root, so its Select All consumes before the table; the same cell at rest
+is inspected table-to-row-to-facet and the table consumes Select All.
 
 Context identity is not keyboard focus. A contextual scope may name an exact
 responder and an optional text focus independently; opening a context menu
@@ -895,11 +930,30 @@ invocation, so a disappearing local owner cannot fall through to a broader
 target. Sessions retain owner and anchor, never command availability; state is
 re-resolved while the menu remains open.
 
-Generated virtual rows may capture one typed context-only command from their
-stable key. That command is erased only after capture and does not become an
-ordinary primary-click binding. Generated table cells opt in through the same
-column wrapper and preserve their existing widget binding, making a marked
-cell the honest nearest owner above its marked row.
+Tables contribute their existing keyed selection domain, the focal provider
+row, and the exact cell facet to that path. Secondary-clicking an unselected row
+makes it the sole selection; secondary-clicking a selected row preserves the
+whole multiselection. Canonical Select All is owned by the table's bounded
+provider domain and uses the existing all-except representation. The focal row
+is distinct from selection anchor, active key, and membership. It remains
+pinned while merely dematerialized and dismisses the context session when the
+provider deletes it.
+
+Standard bindings, text boxes, table rows, and Boolean cells derive contextual
+participation from the semantic path they already contribute. Generated rows
+may still capture an explicit typed row action from their stable key, but no
+wrapper is required merely to expose ordinary text or control commands.
+
+An ordinary binding becomes an automatic context action only when its source is
+an honest button-like interaction; text-input commit bindings are editing
+mechanics, not menu candidates. Explicit context bindings remain available when
+an application deliberately chooses a different contextual action.
+
+Authored menu-bar panels and contextual panels share one overlay lifecycle and
+z-order grammar. Retargeting retires the prior visual-only panel and enters a
+fresh interactive panel; host infrastructure may be reused, but popup sessions,
+captured paths, generation receipts, input authority, and fades are never
+reused as infrastructure.
 
 Menu placement is one geometry projection shared by authored and contextual
 menus. An anchor and intrinsic size resolve against availability supplied by
