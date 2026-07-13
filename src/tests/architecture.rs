@@ -2797,9 +2797,11 @@ fn native_popup_fade_uses_common_composition_owner_when_earned() {
     let popup = std::fs::read_to_string(root.join("src/platform/native/popup.rs"))
         .expect("native popup source should read");
     assert!(
-        presentation.contains("with_material_opacity(layer.opacity())")
-            && overlay.contains("opacity: f32"),
-        "native presentation must retain one overlay opacity source alongside the intact request"
+        presentation.contains("let popup_scene = local.scene().clone()")
+            && presentation.contains("layer.opacity()")
+            && overlay.contains("opacity: f32")
+            && !presentation.contains("with_material_opacity"),
+        "native presentation must retain one root opacity source without baking it into material regions"
     );
     assert!(
         overlay.contains("struct RetiringPopup")
@@ -2829,7 +2831,8 @@ fn actual_material_reports_alone_authorize_residual_subtraction() {
 
     assert!(
         runtime.contains("native_popup_request(layer.bounds())")
-            && runtime.contains("with_material_opacity(layer.opacity())")
+            && runtime.contains("let popup_scene = local.scene().clone()")
+            && !runtime.contains("with_material_opacity")
             && !runtime.contains("opaque_fallback_scene"),
         "runtime must submit one intact localized request rather than forecast-filtered scenes"
     );

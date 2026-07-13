@@ -208,7 +208,6 @@ impl Native {
                     .sync_material_regions(
                         presentation.scene().material_regions(),
                         popup.window.canvas().scale_factor(),
-                        presentation.opacity(),
                         projection.panel_offset(),
                         projection.shadow(),
                     )

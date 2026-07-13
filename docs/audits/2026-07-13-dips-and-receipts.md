@@ -106,6 +106,30 @@ The focused native suite and the full 961-test library run are green. Exposure
 logs now distinguish effect commit from ready/exposed and record the additional
 host-frame cost for the eventual field comparison.
 
+## Production field acceptance
+
+The release DX12 gallery was exercised at the available 1.25 display scale.
+Screen capture showed framework content, frost silhouette, border, and shadow
+coincident after the DIP correction. An immediate dismissal capture retained
+content and silhouette together during the compositor exit fade; a capture 180
+ms later contained neither, confirming atomic teardown rather than a border
+tail.
+
+The timing log also caught a final one-truth violation before closeout. The
+first presentation generated material generation 1, then invalidated it with
+generation 2 because overlay entrance opacity was baked into each material
+region and divided back out at the Composition boundary. At zero opacity the
+intrinsic region opacity was unrecoverable. This delayed the observed exposure
+to 258.938 ms and made the root and region compete for the same meaning.
+
+The correction is deletion-shaped: native popup material regions now retain
+their intrinsic scene opacity unchanged, while `PopupPresentation::opacity`
+remains the sole entrance/exit source at the compositor root (or at the legacy
+renderer boundary). `Scene::with_material_opacity` and the Composition
+ancestor-division parameter were deleted. Architecture witnesses now forbid
+that duplicate path. A final production timing rerun remains the last closeout
+witness.
+
 ## Evidence boundary
 
 Swapchain readback ends before Windows Composition. It cannot prove backdrop,

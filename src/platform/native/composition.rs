@@ -437,7 +437,6 @@ impl Host {
         &mut self,
         requests: &[scene::MaterialRegion],
         scale_factor: f32,
-        ancestor_opacity: f32,
         panel_offset_dips: paint::point::Logical,
         shadow: Option<scene::Shadow>,
     ) -> MaterialSync {
@@ -453,7 +452,7 @@ impl Host {
         let desired = requests
             .iter()
             .filter_map(|request| {
-                project_region(request, scale_factor, ancestor_opacity, panel_offset_dips)
+                project_region(request, scale_factor, panel_offset_dips)
                     .map(|projected| (request.id(), projected))
             })
             .collect::<Vec<_>>();
@@ -735,7 +734,6 @@ impl RegionVisual {
 fn project_region(
     request: &scene::MaterialRegion,
     scale_factor: f32,
-    ancestor_opacity: f32,
     panel_offset_dips: paint::point::Logical,
 ) -> Option<ProjectedRegion> {
     if !matches!(request.material(), scene::Material::Glass(_))
@@ -746,11 +744,7 @@ fn project_region(
     let mut projected = project_geometry(
         request.rect(),
         request.rounding(),
-        if ancestor_opacity > f32::EPSILON {
-            request.opacity() / ancestor_opacity
-        } else {
-            0.0
-        },
+        request.opacity(),
         scale_factor,
     )?;
     projected.offset.X += panel_offset_dips.x();

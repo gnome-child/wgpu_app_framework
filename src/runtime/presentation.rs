@@ -1159,7 +1159,7 @@ fn append_or_present_overlay_layer(
                 layer.lifecycle_epoch().elapsed().as_micros()
             );
             let local = layer.scene().native_popup_request(layer.bounds());
-            let popup_scene = local.scene().with_material_opacity(layer.opacity());
+            let popup_scene = local.scene().clone();
             popup_presentations.push(crate::overlay::PopupPresentation::new(
                 window,
                 layer.id(),

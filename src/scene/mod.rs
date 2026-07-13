@@ -188,16 +188,6 @@ impl Scene {
         self.append_scene_with_opacity_mode(scene, opacity, true);
     }
 
-    pub(crate) fn with_material_opacity(&self, opacity: f32) -> Self {
-        let mut projected = self.clone();
-        projected.material_regions = projected
-            .material_regions
-            .iter()
-            .map(|region| region.with_parent_opacity(opacity))
-            .collect();
-        projected
-    }
-
     fn append_scene_with_opacity_mode(&mut self, scene: &Scene, opacity: f32, force_group: bool) {
         let opacity = opacity.clamp(0.0, 1.0);
         if opacity <= 0.0 {
