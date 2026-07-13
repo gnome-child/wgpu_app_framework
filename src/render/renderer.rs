@@ -41,10 +41,30 @@ struct PreparedGroup {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct ClipFrame {
-    clip: paint::Clip,
-    layer_index: usize,
-    dirty: bool,
+enum ClipFrame {
+    PassThrough,
+    Scissor(paint::Clip),
+    Layer {
+        clip: paint::Clip,
+        layer_index: usize,
+        dirty: bool,
+    },
+}
+
+impl ClipFrame {
+    fn clip(self) -> Option<paint::Clip> {
+        match self {
+            Self::PassThrough => None,
+            Self::Scissor(clip) | Self::Layer { clip, .. } => Some(clip),
+        }
+    }
+
+    fn layer_index(self) -> Option<usize> {
+        match self {
+            Self::Layer { layer_index, .. } => Some(layer_index),
+            Self::PassThrough | Self::Scissor(_) => None,
+        }
+    }
 }
 
 struct SceneEncoder<'a> {
@@ -735,7 +755,7 @@ impl<'a> SceneEncoder<'a> {
             return;
         }
 
-        if !self.clip_stack.is_empty() {
+        if self.clip_stack.iter().any(|frame| frame.clip().is_some()) {
             for batch in &group.render_batches {
                 match batch {
                     RenderBatch::Shapes(batch) => self.encode_shapes(batch),
@@ -806,6 +826,21 @@ impl<'a> SceneEncoder<'a> {
     }
 
     fn push_clip(&mut self, clip: paint::Clip) {
+        if clip_is_full_target(clip, self.viewport)
+            || self
+                .clip_stack
+                .last()
+                .is_some_and(|frame| frame.clip() == Some(clip))
+        {
+            self.clip_stack.push(ClipFrame::PassThrough);
+            return;
+        }
+
+        if clip_is_rectangular(clip) {
+            self.clip_stack.push(ClipFrame::Scissor(clip));
+            return;
+        }
+
         let layer = self.filter_renderer.create_layer(
             self.render_context,
             self.output_target,
@@ -815,7 +850,7 @@ impl<'a> SceneEncoder<'a> {
         let layer_index = self.layers.len() - 1;
         self.filter_renderer
             .clear_layer(self.encoder, &self.layers[layer_index]);
-        self.clip_stack.push(ClipFrame {
+        self.clip_stack.push(ClipFrame::Layer {
             clip,
             layer_index,
             dirty: false,
@@ -826,7 +861,13 @@ impl<'a> SceneEncoder<'a> {
         let Some(frame) = self.clip_stack.pop() else {
             return;
         };
-        let Some(source) = self.layers.get(frame.layer_index) else {
+        let ClipFrame::Layer {
+            clip, layer_index, ..
+        } = frame
+        else {
+            return;
+        };
+        let Some(source) = self.layers.get(layer_index) else {
             return;
         };
         let Some(output) = current_target_view(self.base_view, &self.layers, &self.clip_stack)
@@ -841,10 +882,10 @@ impl<'a> SceneEncoder<'a> {
                 source,
                 output,
                 target: self.output_target,
-                clip: frame.clip,
+                clip,
                 source_rect: None,
                 scissor: clip_scissor(
-                    frame.clip.rect,
+                    clip.rect,
                     self.viewport.physical_area(),
                     self.viewport.scale_factor(),
                 ),
@@ -855,17 +896,23 @@ impl<'a> SceneEncoder<'a> {
 
     fn current_target_dirty(&self) -> bool {
         self.clip_stack
-            .last()
-            .map(|frame| frame.dirty)
+            .iter()
+            .rev()
+            .find_map(|frame| match frame {
+                ClipFrame::Layer { dirty, .. } => Some(*dirty),
+                ClipFrame::PassThrough | ClipFrame::Scissor(_) => None,
+            })
             .unwrap_or(self.base_dirty)
     }
 
     fn mark_current_dirty(&mut self) {
-        if let Some(frame) = self.clip_stack.last_mut() {
-            frame.dirty = true;
-        } else {
-            self.base_dirty = true;
+        for frame in self.clip_stack.iter_mut().rev() {
+            if let ClipFrame::Layer { dirty, .. } = frame {
+                *dirty = true;
+                return;
+            }
         }
+        self.base_dirty = true;
     }
 }
 
@@ -878,11 +925,12 @@ fn current_target_view<'a>(
     layers: &'a [render::filter::Layer],
     clip_stack: &[ClipFrame],
 ) -> Option<&'a wgpu::TextureView> {
-    if let Some(frame) = clip_stack.last() {
-        Some(layers.get(frame.layer_index)?.view())
-    } else {
-        Some(base_view)
+    for frame in clip_stack.iter().rev() {
+        if let Some(layer_index) = frame.layer_index() {
+            return Some(layers.get(layer_index)?.view());
+        }
     }
+    Some(base_view)
 }
 
 fn current_scissor(
@@ -897,14 +945,36 @@ fn current_scissor(
         physical_area.height().max(1),
     )?;
 
-    for clip in clips {
+    for frame in clips {
+        let Some(clip) = frame.clip() else {
+            continue;
+        };
         scissor = intersect_scissor(
             scissor,
-            clip_scissor(clip.clip.rect, physical_area, scale_factor)?,
+            clip_scissor(clip.rect, physical_area, scale_factor)?,
         )?;
     }
 
     Some(scissor)
+}
+
+fn clip_is_rectangular(clip: paint::Clip) -> bool {
+    clip.rect
+        .rounding
+        .resolve(clip.rect.area)
+        .iter()
+        .all(|radius| radius.abs() <= f32::EPSILON)
+}
+
+fn clip_is_full_target(clip: paint::Clip, viewport: render::Viewport) -> bool {
+    if !clip_is_rectangular(clip) {
+        return false;
+    }
+    let area = viewport.logical_area();
+    clip.rect.origin.x() <= 0.0
+        && clip.rect.origin.y() <= 0.0
+        && clip.rect.origin.x() + clip.rect.area.width() >= area.width()
+        && clip.rect.origin.y() + clip.rect.area.height() >= area.height()
 }
 
 fn clip_scissor(
@@ -979,9 +1049,7 @@ mod tests {
     #[test]
     fn current_scissor_intersects_nested_clip_stack() {
         let clips = vec![
-            ClipFrame {
-                layer_index: 0,
-                dirty: false,
+            ClipFrame::Layer {
                 clip: paint::Clip {
                     rect: Rect::rounded(
                         paint::point::logical(2.0, 2.0),
@@ -989,17 +1057,15 @@ mod tests {
                         paint::Rounding::relative(0.5),
                     ),
                 },
-            },
-            ClipFrame {
-                layer_index: 1,
+                layer_index: 0,
                 dirty: false,
-                clip: paint::Clip {
-                    rect: Rect::new(
-                        paint::point::logical(10.0, 0.0),
-                        paint::area::logical(20.0, 12.0),
-                    ),
-                },
             },
+            ClipFrame::Scissor(paint::Clip {
+                rect: Rect::new(
+                    paint::point::logical(10.0, 0.0),
+                    paint::area::logical(20.0, 12.0),
+                ),
+            }),
         ];
         let scissor = current_scissor(&clips, paint::area::physical(100, 80), 1.0)
             .expect("nested clips should intersect");
@@ -1011,11 +1077,9 @@ mod tests {
     }
 
     #[test]
-    fn clip_frames_track_layer_stack_in_lifo_order() {
+    fn clip_frames_keep_scissors_out_of_the_layer_stack() {
         let mut clips = vec![
-            ClipFrame {
-                layer_index: 0,
-                dirty: false,
+            ClipFrame::Layer {
                 clip: paint::Clip {
                     rect: Rect::rounded(
                         paint::point::logical(2.0, 2.0),
@@ -1023,26 +1087,24 @@ mod tests {
                         paint::Rounding::relative(0.5),
                     ),
                 },
-            },
-            ClipFrame {
-                layer_index: 1,
+                layer_index: 0,
                 dirty: false,
-                clip: paint::Clip {
-                    rect: Rect::new(
-                        paint::point::logical(10.0, 0.0),
-                        paint::area::logical(20.0, 12.0),
-                    ),
-                },
             },
+            ClipFrame::Scissor(paint::Clip {
+                rect: Rect::new(
+                    paint::point::logical(10.0, 0.0),
+                    paint::area::logical(20.0, 12.0),
+                ),
+            }),
         ];
 
-        assert_eq!(clips.last().map(|frame| frame.layer_index), Some(1));
-        assert_eq!(clips.pop().map(|frame| frame.layer_index), Some(1));
-        assert_eq!(clips.last().map(|frame| frame.layer_index), Some(0));
+        assert_eq!(clips.last().and_then(|frame| frame.layer_index()), None);
+        assert_eq!(clips.pop().and_then(ClipFrame::layer_index), None);
+        assert_eq!(clips.last().and_then(|frame| frame.layer_index()), Some(0));
     }
 
     #[test]
-    fn clip_scissor_keeps_rounded_clip_metadata_as_optimization_only() {
+    fn rounded_clip_keeps_mask_geometry_and_a_bounding_scissor() {
         let clip = paint::Clip {
             rect: Rect::rounded(
                 paint::point::logical(4.0, 4.0),
@@ -1054,6 +1116,7 @@ mod tests {
             .expect("clip should produce scissor");
 
         assert_eq!(clip.rect.rounding.resolve(clip.rect.area)[0], 6.0);
+        assert!(!clip_is_rectangular(clip));
         assert_eq!(scissor.x(), 4);
         assert_eq!(scissor.y(), 4);
         assert_eq!(scissor.width(), 18);

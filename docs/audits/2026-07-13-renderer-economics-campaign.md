@@ -64,8 +64,8 @@ reviewed against the starting diff before commit.
 
 | Checkpoint | State | Evidence / decision |
 | --- | --- | --- |
-| 0. Name the bill with PIX | In progress | Release DX12 timing and GPU captures; Vulkan framework comparison |
-| 1. One clip owner | Pending | One logical viewport clip, one necessary realization |
+| 0. Name the bill with PIX | Complete | DX12 Timing Capture plus source/counter census; numeric floors pinned before renderer changes |
+| 1. One clip owner | Complete | Contiguous members share one scene scope; rectangular clips are scissor-only; rounded clips retain one mask layer |
 | 2. One reusable geometry arena | Pending | Zero steady-state ordinary-geometry buffer creation |
 | 3. Semantic render-pass scopes | Pending | Pass count reaches the evidenced semantic floor |
 | 4. Reusable popup-host probe and verdict | Pending | Reuse or negative result, never mechanism by assumption |
@@ -99,3 +99,73 @@ before production optimization begins.
 - The current renderer opens main passes per prepared shape/text batch and
   realizes every pushed clip through an offscreen layer. The PIX census will
   determine their actual contribution before either mechanism changes.
+
+## Checkpoint 0 — causal bill and pinned thresholds
+
+The release DX12 control-gallery process was attached through PIX 2603.25. The
+saved baseline Timing Capture is
+`target/pix/pay-once-baseline-dx12.wpix` (capture artifacts remain ignored build
+output, not repository history). The identical workload exercised the
+500-logical-pixel table, repeated wheel movement, and repeated menu exposure.
+A second 29.56-second GPU-timed run reported 19.91 frames/s and 50.43 ms between
+presents during the interaction window. GPU process utilization remained about
+23%, while the source census proved one command encoder and one queue submit per
+frame. The dominant structural bill is therefore not 677 submissions: it is
+CPU-side construction of hundreds of passes, transient vertex buffers, and
+clip layers before that single submission, with DX12 making the waste more
+visible than Vulkan.
+
+The source/counter census supplied the causal counts PIX does not name in the
+application vocabulary:
+
+- every prepared ordinary-shape batch created its own `Quad Vertex Buffer`;
+- every shape and text batch began a fresh load/store render pass;
+- every `PushClip`, including ordinary rectangular table viewports, allocated,
+  cleared, and later composited a full-target clip layer;
+- scene painting emitted the same inherited table clip around each frame and
+  each track rule independently;
+- surface presentation already used one encoder, one submission, and one
+  present, so additional submit coalescing is not an available mechanism.
+
+Numeric success floors were fixed before production edits:
+
+- rectangular viewport clip-layer realizations: **zero**;
+- one clip command pair per contiguous equal scene scope, with nested distinct
+  scopes intersecting once at their owner boundary;
+- steady-state ordinary-geometry GPU buffer creation: **zero**, with one
+  bounded frame upload and geometric growth only when capacity is exceeded;
+- ordinary table draw passes: one per contiguous target/clip scope, plus only
+  documented group, filter, pack, and presentation transitions;
+- 500-pixel DX12 interaction: sustain the 60 Hz budget where presentation is
+  available (p95 <= 16.7 ms), or name the remaining owner if hardware/present
+  cadence prevents it;
+- warm composition-backed menu exposure p95: at or below the prior present-only
+  61–65 ms baseline, without weakening atomic frost readiness.
+
+GPU-capture replay time is excluded from these thresholds. GPU captures are
+used only to confirm pass/resource topology and pixel output.
+
+## Checkpoint 1 — one clip owner
+
+The first duplication existed on both sides of the paint boundary. Scene
+painting wrapped every clipped frame and every table-track rule independently,
+even when adjacent members inherited the identical viewport. Contiguous frames
+and tracks now share one clip command pair; a clip transition, rather than a
+member boundary, owns the scope.
+
+At encode time, clips are classified by the geometry they actually require.
+Axis-aligned rectangular clips remain on the clip stack and intersect through
+the existing scissor calculation without allocating a texture. Full-target and
+immediately duplicated clips become pass-through stack entries so ordering and
+balanced pop semantics remain intact without realizing another scope. Rounded
+clips keep the existing offscreen mask/composite path, and nested rectangular
+clips inside a rounded owner draw into that owner's one layer.
+
+The distinction is structural rather than a table special case: the same path
+serves scroll viewports, table rules, popup-hosted content, focus chrome, and
+scrollbar chrome. Named witnesses cover equal-scope coalescing, nested scissor
+intersection, scale conversion, rounded-mask retention, and mixed scissor/layer
+LIFO behavior. Boundary result: 955 library tests passed with 10 deliberate
+ignores; four doctests, all-target compilation, formatting, all three
+application smokes, and diff hygiene passed. The protected comparison state and
+preexisting DIPs/alpha work remain untouched.

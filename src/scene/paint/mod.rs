@@ -29,21 +29,25 @@ pub(super) fn paint_layout_with_theme(
     for layer in [Layer::Base, Layer::Chrome] {
         let mut late_chrome = Vec::new();
 
-        for frame in layout
-            .frames()
-            .iter()
-            .filter(|frame| layer_for(frame) == layer)
-        {
-            paint_frame_with_clip(frame, scene, theme, visuals, &mut late_chrome);
-        }
+        paint_frames_with_shared_clip(
+            layout
+                .frames()
+                .iter()
+                .filter(|frame| layer_for(frame) == layer),
+            scene,
+            theme,
+            visuals,
+            &mut late_chrome,
+        );
 
-        for track in layout
-            .table_tracks()
-            .iter()
-            .filter(|track| table_track_layer_for(track) == layer)
-        {
-            paint_table_track(track, scene, theme);
-        }
+        paint_table_tracks_with_shared_clip(
+            layout
+                .table_tracks()
+                .iter()
+                .filter(|track| table_track_layer_for(track) == layer),
+            scene,
+            theme,
+        );
 
         for chrome in layout
             .chrome()
@@ -72,22 +76,26 @@ fn paint_overlay_entries(
             let mut scene = Scene::new_with_clear(layout.size(), clear);
             let mut late_chrome = Vec::new();
 
-            for frame in layout
-                .frames()
-                .iter()
-                .filter(|frame| layer_for(frame) == Layer::Floating)
-                .filter(|frame| frame_belongs_to_panel(frame, panel))
-            {
-                paint_frame_with_clip(frame, &mut scene, theme, visuals, &mut late_chrome);
-            }
+            paint_frames_with_shared_clip(
+                layout
+                    .frames()
+                    .iter()
+                    .filter(|frame| layer_for(frame) == Layer::Floating)
+                    .filter(|frame| frame_belongs_to_panel(frame, panel)),
+                &mut scene,
+                theme,
+                visuals,
+                &mut late_chrome,
+            );
 
-            for track in layout
-                .table_tracks()
-                .iter()
-                .filter(|track| table_track_belongs_to_panel(layout, track, panel))
-            {
-                paint_table_track(track, &mut scene, theme);
-            }
+            paint_table_tracks_with_shared_clip(
+                layout
+                    .table_tracks()
+                    .iter()
+                    .filter(|track| table_track_belongs_to_panel(layout, track, panel)),
+                &mut scene,
+                theme,
+            );
 
             for chrome in layout
                 .chrome()
@@ -183,10 +191,6 @@ fn table_track_layer_for(track: &layout::TableTrack) -> Layer {
 }
 
 fn paint_table_track(track: &layout::TableTrack, scene: &mut Scene, theme: &Theme) {
-    if let Some(clip) = track.clip() {
-        scene.push_clip(Clip::new(clip.rect()).with_rounding(clip.rounding()));
-    }
-
     let rule = match track.axis() {
         layout::TableTrackAxis::Column => {
             super::Rule::vertical(track.rule_rect(), theme.menu().separator, 1)
@@ -196,30 +200,85 @@ fn paint_table_track(track: &layout::TableTrack, scene: &mut Scene, theme: &Them
         }
     };
     scene.push_rule(rule);
-
-    if track.clip().is_some() {
-        scene.pop_clip();
-    }
 }
 
-fn paint_frame_with_clip(
-    frame: &layout::Frame,
+fn paint_frames_with_shared_clip<'a>(
+    frames: impl IntoIterator<Item = &'a layout::Frame>,
     scene: &mut Scene,
     theme: &Theme,
     visuals: &Visuals,
     late_chrome: &mut Vec<viewport_chrome::Projection>,
 ) {
-    let clip = frame
-        .clip()
-        .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
-    if let Some(clip) = clip {
-        scene.push_clip(clip);
+    let mut active_clip = None;
+    for frame in frames {
+        let clip = frame
+            .clip()
+            .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
+        switch_clip_scope(scene, &mut active_clip, clip);
+        paint_frame(frame, scene, theme, visuals, late_chrome, clip);
     }
+    switch_clip_scope(scene, &mut active_clip, None);
+}
 
-    paint_frame(frame, scene, theme, visuals, late_chrome, clip);
+fn paint_table_tracks_with_shared_clip<'a>(
+    tracks: impl IntoIterator<Item = &'a layout::TableTrack>,
+    scene: &mut Scene,
+    theme: &Theme,
+) {
+    let mut active_clip = None;
+    for track in tracks {
+        let clip = track
+            .clip()
+            .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
+        switch_clip_scope(scene, &mut active_clip, clip);
+        paint_table_track(track, scene, theme);
+    }
+    switch_clip_scope(scene, &mut active_clip, None);
+}
 
-    if clip.is_some() {
+fn switch_clip_scope(scene: &mut Scene, active: &mut Option<Clip>, next: Option<Clip>) {
+    if *active == next {
+        return;
+    }
+    if active.take().is_some() {
         scene.pop_clip();
+    }
+    if let Some(clip) = next {
+        scene.push_clip(clip);
+        *active = Some(clip);
+    }
+}
+
+#[cfg(test)]
+mod clip_scope_tests {
+    use super::*;
+
+    #[test]
+    fn identical_contiguous_members_share_one_clip_scope() {
+        let mut scene = Scene::new(geometry::Size::new(100, 80));
+        let clip = Clip::new(geometry::Rect::new(0, 0, 50, 40));
+        let mut active = None;
+
+        switch_clip_scope(&mut scene, &mut active, Some(clip));
+        switch_clip_scope(&mut scene, &mut active, Some(clip));
+        switch_clip_scope(&mut scene, &mut active, None);
+
+        assert_eq!(
+            scene
+                .primitives()
+                .iter()
+                .filter(|item| matches!(item, super::super::Primitive::Clip(_)))
+                .count(),
+            1
+        );
+        assert_eq!(
+            scene
+                .primitives()
+                .iter()
+                .filter(|item| matches!(item, super::super::Primitive::PopClip))
+                .count(),
+            1
+        );
     }
 }
 
