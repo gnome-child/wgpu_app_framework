@@ -35,9 +35,33 @@ height edit and is outside this campaign.
 
 | Checkpoint | State | Evidence |
 |---|---|---|
-| 1. Zero-hold readiness probe | Pending | Repeated cold-run timings and first-visible screen-space captures. |
+| 1. Zero-hold readiness probe | Complete | Controlled static-underlay capture probe; `GetCommitBatch(Effect)` alone was unstable in 1/10 runs at 100 ms (19.607 mean-channel delta). Two imperceptible host frames followed by the visible-root commit were stable in 10/10 runs (maximum 0.104 delta from 100 ms to 1 second). |
 | 2. One logical silhouette, two projections | Pending | Four-scale arithmetic tests plus current-hardware screen-space agreement. |
 | 3. Generation-bound material readiness | Pending | Receipt-order, stale-generation, teardown, and single-reveal witnesses. |
+
+## Checkpoint 1 verdict
+
+The first uncontrolled capture series was invalidated: HostBackdrop sampled the
+live Codex window, which changed while tool output arrived. The final probe owns
+a separate static patterned HWND beneath the material window and samples the
+DWM-composed screen with GDI. This removes both external background motion and
+the swapchain-readback blind spot.
+
+The evidence distinguishes three meanings:
+
+- `GetCommitBatch(Effect)` proves the effect batch is **Committed**. It does not
+  prove that HostBackdrop has sampled a visible host frame.
+- `DwmFlush` while the popup remains cloaked does not supply that sample; two of
+  five controlled attempts still changed after reveal.
+- A composition-backed popup may uncloak at opacity `0.001`, consume two real
+  DWM frame barriers, commit its visible root, and then enter on the compositor
+  timeline. That sequence had no delay constant, no application redraw, and
+  was stable in all ten controlled cold runs.
+
+Production vocabulary therefore remains `Pending -> Committed -> Ready`:
+`Committed` is the effect receipt, while `Ready` requires the generation's
+imperceptible host-frame preparation to finish. The probe's 100 ms capture is
+an observation point only; it is not part of the readiness mechanism.
 
 ## Evidence boundary
 
