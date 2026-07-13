@@ -20,8 +20,6 @@ None.
    and cursor, selection tint and keyboard-extend feel, editor placement,
    rejection outline presentation, commit/cancel feel. Outstanding: post-fix
    `key -> present` panel reading from the Mac latency incident.
-6. Local visual-test edits in `examples/glass_tuner/app/state.rs` — revert
-   when tuning sessions end.
 
 ## Decisions awaiting product taste
 
