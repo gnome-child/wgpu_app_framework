@@ -3,6 +3,7 @@ const COMMAND_REGISTRY: &str = include_str!("../command/registry.rs");
 const COMMAND_SURFACE: &str = include_str!("../command/surface.rs");
 const CONTEXT_RUNTIME: &str = include_str!("../runtime/context_menu.rs");
 const PALETTE_RUNTIME: &str = include_str!("../runtime/palette.rs");
+const TEXT_SERVICE: &str = include_str!("../runtime/services/text/mod.rs");
 const INTERACTION_MENU: &str = include_str!("../interaction/menu.rs");
 const MENU_SESSION: &str = include_str!("../session/interaction/menu.rs");
 const LAYOUT_ALGORITHM: &str = include_str!("../layout/algorithm.rs");
@@ -54,4 +55,25 @@ fn platform_hosts_supply_bounds_without_owning_menu_policy() {
     assert!(!NATIVE_POPUP.contains("TrackPopupMenu"));
     assert!(!WINDOWS_SYS.contains("TrackPopupMenu"));
     assert!(!WINDOWS_SYS.contains("CreatePopupMenu"));
+}
+
+#[test]
+fn focused_text_history_and_transfer_share_one_claim_scope_without_sharing_meaning() {
+    let targets = TEXT_SERVICE
+        .split("fn targets")
+        .nth(1)
+        .expect("focused text target inventory should exist");
+    assert!(targets.contains("for_provider::<document::Copy>()"));
+    assert!(targets.contains("for_provider::<timeline::Undo>()"));
+
+    let claim = TEXT_SERVICE
+        .split("pub(super) fn claim")
+        .nth(1)
+        .and_then(|source| source.split("pub(super) fn owns_command").next())
+        .expect("focused text claim projection should exist");
+    assert!(claim.contains("responder::Claim::service(scope_kind"));
+    assert!(
+        !claim.contains("document::Copy") && !claim.contains("timeline::Undo"),
+        "one incoming scope kind applies to both capabilities; it cannot encode their menu groups"
+    );
 }

@@ -643,6 +643,51 @@ mod tests {
     }
 
     #[test]
+    fn every_standard_role_keeps_its_cross_platform_chord_projection() {
+        use Standard::{
+            CloseWindow, CommandPalette, Copy, Cut, New, Open, Paste, Redo, Save, SaveAs,
+            SelectAll, Undo,
+        };
+
+        let cases = [
+            (Undo, "Ctrl+Z", "Command+Z", 1, 1),
+            (Redo, "Ctrl+Y", "Shift+Command+Z", 2, 1),
+            (Cut, "Ctrl+X", "Command+X", 1, 1),
+            (Copy, "Ctrl+C", "Command+C", 1, 1),
+            (Paste, "Ctrl+V", "Command+V", 1, 1),
+            (SelectAll, "Ctrl+A", "Command+A", 1, 1),
+            (New, "Ctrl+N", "Command+N", 1, 1),
+            (Open, "Ctrl+O", "Command+O", 1, 1),
+            (Save, "Ctrl+S", "Command+S", 1, 1),
+            (SaveAs, "Ctrl+Shift+S", "Shift+Command+S", 1, 1),
+            (CloseWindow, "Alt+F4", "Command+W", 1, 1),
+            (CommandPalette, "Ctrl+Shift+P", "Shift+Command+P", 1, 1),
+        ];
+
+        for (standard, windows, mac, windows_count, mac_count) in cases {
+            let chord = KeyChord::standard(standard);
+            assert_eq!(
+                Profile::windows().display(chord, DisplayStyle::Default),
+                windows,
+                "Windows display for {standard:?}"
+            );
+            assert_eq!(
+                Profile::linux().display(chord, DisplayStyle::Default),
+                windows,
+                "Linux display for {standard:?}"
+            );
+            assert_eq!(
+                Profile::mac().display(chord, DisplayStyle::Default),
+                mac,
+                "macOS display for {standard:?}"
+            );
+            assert_eq!(Profile::windows().chords(chord).len(), windows_count);
+            assert_eq!(Profile::linux().chords(chord).len(), windows_count);
+            assert_eq!(Profile::mac().chords(chord).len(), mac_count);
+        }
+    }
+
+    #[test]
     fn mac_formatting_uses_canonical_symbol_order() {
         let redo = KeyChord::standard(Standard::Redo);
         assert_eq!(

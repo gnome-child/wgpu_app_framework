@@ -513,3 +513,47 @@ fn push_unique_command_types(target: &mut Vec<TypeId>, source: &[TypeId]) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct First;
+    struct Second;
+
+    impl Command for First {
+        type Args = ();
+        type Output = ();
+
+        const NAME: &'static str = "test.first";
+    }
+
+    impl Command for Second {
+        type Args = ();
+        type Output = ();
+
+        const NAME: &'static str = "test.second";
+    }
+
+    #[test]
+    fn global_candidate_enumeration_keeps_first_registration_order() {
+        let mut registry = Registry::default();
+        registry
+            .register::<Second>(Spec::new("Second"))
+            .register::<First>(Spec::new("First"))
+            .register::<Second>(Spec::new("Second replacement"));
+
+        let command_types = registry
+            .global_candidates()
+            .into_entries()
+            .into_iter()
+            .map(|candidate| candidate.trigger().command_type())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            command_types,
+            vec![TypeId::of::<Second>(), TypeId::of::<First>()],
+            "re-registration may replace metadata but must not move discovery order"
+        );
+    }
+}

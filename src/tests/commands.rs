@@ -39,6 +39,90 @@ fn standard_editing_is_an_enumerable_declinable_set() {
 }
 
 #[test]
+fn authored_menu_bars_keep_explicit_order_while_command_registration_stays_nonvisual() {
+    let mut authored = Runtime::new(SourceState::default())
+        .commands(|commands| {
+            commands
+                .register::<RecordSource>(command::Spec::new("First"))
+                .register::<DisabledRecordSource>(command::Spec::new("Second"));
+        })
+        .responders(|responders| {
+            responders
+                .app()
+                .target::<RecordSource>()
+                .target::<DisabledRecordSource>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Authored menu"));
+        })
+        .view(|_, _| {
+            widget::view(|ui| {
+                ui.menu_bar(|ui| {
+                    ui.menu("menu.file", "File", |ui| {
+                        ui.add(widget::Binding::<RecordSource>::menu());
+                        ui.separator();
+                        ui.add(widget::Binding::<DisabledRecordSource>::menu());
+                    });
+                    ui.menu("menu.edit", "Edit", |_| {});
+                });
+            })
+        });
+
+    authored.start();
+    let window = authored.session().windows()[0].id();
+    let projected = authored
+        .present(window)
+        .expect("authored bar should project");
+    let bar = find_view_node(projected.root(), view::Role::MenuBar)
+        .expect("explicit authoring should create one menu bar");
+    assert_eq!(
+        bar.children()
+            .iter()
+            .map(view::Node::label_text)
+            .collect::<Vec<_>>(),
+        vec![Some("File"), Some("Edit")]
+    );
+    assert_eq!(
+        bar.children()[0]
+            .children()
+            .iter()
+            .map(view::Node::role)
+            .collect::<Vec<_>>(),
+        vec![
+            view::Role::Binding,
+            view::Role::Separator,
+            view::Role::Binding,
+        ]
+    );
+
+    let mut no_bar = Runtime::new(SourceState::default())
+        .commands(|commands| {
+            commands.register::<RecordSource>(command::Spec::new("Registered"));
+        })
+        .responders(|responders| {
+            responders.app().target::<RecordSource>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("No ambient menu"));
+        })
+        .view(|_, _| {
+            widget::view(|ui| {
+                ui.label("Content only");
+            })
+        });
+
+    no_bar.start();
+    let window = no_bar.session().windows()[0].id();
+    let projected = no_bar
+        .present(window)
+        .expect("content-only view should project");
+    assert!(
+        find_view_node(projected.root(), view::Role::MenuBar).is_none(),
+        "registration alone must never create ambient menu UI"
+    );
+}
+
+#[test]
 fn typing_history_group_carries_the_text_owned_coalesce_window() {
     let typing =
         <document::ApplyEdit as Command>::history_group(&text::edit::Edit::Insert("a".to_owned()))
@@ -554,6 +638,15 @@ fn collect_selected_palette_labels<'a>(node: &'a view::Node, labels: &mut Vec<&'
     for child in node.children() {
         collect_selected_palette_labels(child, labels);
     }
+}
+
+fn find_view_node(node: &view::Node, role: view::Role) -> Option<&view::Node> {
+    if node.role() == role {
+        return Some(node);
+    }
+    node.children()
+        .iter()
+        .find_map(|child| find_view_node(child, role))
 }
 
 #[test]
