@@ -82,7 +82,7 @@ after their existing delta has been preserved and censused.
 
 | Checkpoint | State | Acceptance boundary |
 |---|---|---|
-| 0. Census and named reductions | In progress | Seven transition/placement reductions, dismissal grammar, capture lifetime, and complete ownership census |
+| 0. Census and named reductions | Complete | Seven transition/placement reductions, dismissal grammar, capture lifetime, and complete ownership census |
 | 1. One popup realization | Pending | One resolved host geometry consumed by paint, input, IME, accessibility, material, and context anchoring |
 | 2. Current popup generations | Pending | Birth, resize, retarget, reuse, scale, and material transitions expose no stale or hybrid generation |
 | 3. Directional responder traversal | Pending | `Task` and `Inspection` explicitly select claim and section order without changing authored menu bars |
@@ -153,9 +153,10 @@ capture changes:
   releases the pin, and makes late generation receipts inert.
 
 Existing witnesses pin every inherited dismissal item except menu/palette
-session exclusivity as a direct behavioral test; the implementation already
-closes the palette in `Session::open_menu` and `toggle_menu`. Add the missing
-two-direction behavioral witness before checkpoint 2 changes session staging.
+session exclusivity as a direct behavioral test. The new
+`opening_command_palette_replaces_an_open_menu_session` and
+`opening_a_menu_replaces_an_open_command_palette_session` witnesses pin both
+directions before checkpoint 2 changes session staging.
 
 The current table context witness treats `state.visible = false` as "virtual
 row removal" and expects dismissal. It does not distinguish viewport
@@ -172,6 +173,17 @@ scroll-away survives through one bounded pin; provider deletion dismisses.
 - `popup::Generation` is the monotonic serial; typed receipts prove facts bound
   to it; `popup::Realization` is the resolved host outcome.
 - `focal` is retained without synonym.
+
+### Checkpoint 0 boundary
+
+- `cargo fmt --all -- --check` passed.
+- Both new menu/palette exclusivity witnesses passed.
+- The complete interaction-test baseline and the two popup event-transfer
+  characterizations passed before production work.
+- All seven native defects have named deterministic state or event-order
+  reductions. Screen-output captures for R-01 through R-06 remain hardware
+  acceptance evidence at their owning checkpoints; R-07 is a pure delayed-
+  receipt state-machine witness owned by checkpoint 2.
 
 ## Exclusions
 

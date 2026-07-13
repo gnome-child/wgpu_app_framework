@@ -730,6 +730,67 @@ fn text_editor_menu_open_state_is_framework_owned_interaction() {
 }
 
 #[test]
+fn opening_command_palette_replaces_an_open_menu_session() {
+    let mut app = text_editor::app(text_editor::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let projected = app.present(window).expect("window should have a view");
+    let file = projected
+        .menus()
+        .into_iter()
+        .find(|menu| menu.label_text() == Some("File"))
+        .expect("file menu should be in the view");
+    app.handle_view(
+        window,
+        file.menu_action().expect("menu should expose an action"),
+    )
+    .expect("menu action should be handled");
+
+    app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
+        .expect("palette shortcut should dispatch");
+
+    let interaction = app
+        .session()
+        .interaction(window)
+        .expect("window should retain interaction state");
+    assert_eq!(interaction.open_menu(), None);
+    assert!(interaction.command_palette().is_some());
+}
+
+#[test]
+fn opening_a_menu_replaces_an_open_command_palette_session() {
+    let mut app = text_editor::app(text_editor::State::default());
+
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let projected = app.present(window).expect("window should have a view");
+    let file = projected
+        .menus()
+        .into_iter()
+        .find(|menu| menu.label_text() == Some("File"))
+        .expect("file menu should be in the view");
+    let action = file.menu_action().expect("menu should expose an action");
+    app.handle_input(window, Input::shortcut("Ctrl+Shift+P"))
+        .expect("palette shortcut should dispatch");
+
+    app.handle_view(window, action)
+        .expect("menu action should be handled");
+
+    let interaction = app
+        .session()
+        .interaction(window)
+        .expect("window should retain interaction state");
+    assert_eq!(
+        interaction.open_menu().map(|menu| menu.label()),
+        Some("File")
+    );
+    assert!(interaction.command_palette().is_none());
+}
+
+#[test]
 fn hovering_another_menu_title_switches_open_menu() {
     let mut app = text_editor::app(text_editor::State::default());
 
