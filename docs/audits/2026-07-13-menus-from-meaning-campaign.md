@@ -61,8 +61,8 @@ Scope does not contain topology.
 | 1. Promote standard meaning | Complete | Role lives on `Spec`; Delete admitted; CloseWindow corrected; defaults/overrides and uniqueness proven; authored menus unchanged |
 | 2. One population owner | Complete | Shared primitives/policies with live bar targeting and captured context targeting; no observable context/palette drift |
 | 3. Cultural topology | Complete | `command::menu::{Category, Placement}`, virtual slots, platform reuse, custom categories, shortcut visibility, pure topology witnesses |
-| 4. Automatic bar | In progress | `ui.standard_menu_bar()` emits ordinary nodes with stable disabled membership and no ambient UI |
-| 5. Authored deviations | Pending | Static metadata and typed dynamic/replacement extensions coexist with unchanged authored bars |
+| 4. Automatic bar | Complete | `ui.standard_menu_bar()` emits ordinary nodes with stable disabled membership and no ambient UI |
+| 5. Authored deviations | In progress | Static metadata and typed dynamic/replacement extensions coexist with unchanged authored bars |
 | 6. Migration and closeout | Pending | Examples delete duplicated culture; full witness matrix and ritual green; item 30 pruned |
 
 ## Checkpoint 0 — census and behavioral pins
@@ -212,6 +212,37 @@ role, and topology behavior remains untouched at this boundary.
   checkpoint-4 dead-code allowance until its first UI projection consumes it.
 - Validation: 1,020 library tests passed, 10 ignored; all targets compile and
   all doctests pass. Formatting and diff checks are clean.
+
+## Checkpoint 4 — one call derives an ordinary bar
+
+- `ui.standard_menu_bar()` is the sole opt-in request. It enters the authored
+  view as an ordinary `MenuBar` placeholder; after authored command resolution,
+  the runtime replaces only that placeholder's children with ordinary `Menu`,
+  `Separator`, and menu-dressed `Binding` nodes. No role, popup, layout, focus,
+  paint, or activation species was added.
+- `command::Population::standard_bar` is the join owner for registered
+  vocabulary, cultural topology, current Task-chain state, and shortcut
+  visibility. View projection only translates that complete result into the
+  existing widget grammar.
+- Derived bindings reuse the established erased trigger. Their projected state
+  is registered-stable (`unclaimed = disabled`), while activation routes through
+  the current menu focus and live responder chain. No claim or target survives
+  the projection.
+- Cultural sections insert separators only between nonempty projected groups.
+  Standard and typed custom category identities supply retained menu ids;
+  visible labels remain presentation metadata and never become identity.
+- Registration still creates no ambient bar, authored `ui.menu_bar(...)`
+  remains byte-for-byte in control of its children, and Command Palette remains
+  absent because it has no conventional slot.
+- The scoped checkpoint-2/3 dead-code allowances are deleted. The topology and
+  bar policy now have their first production consumer.
+- API flag: `Ui::standard_menu_bar` is the single new public convenience at
+  this boundary.
+- Validation: 1,021 library tests passed, 10 deep-tier tests ignored; all
+  doctests, all-target checking, formatting, and diff checks pass. The named
+  integration witness proves ordinary node roles, topology-owned separators,
+  enabled/disabled stable membership, the unplaced role exclusion, and live
+  menu-source activation.
 
 ## Platform contract
 

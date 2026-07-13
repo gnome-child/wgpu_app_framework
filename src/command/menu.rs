@@ -1,8 +1,3 @@
-#![allow(
-    dead_code,
-    reason = "pure topology is consumed by the derived bar in checkpoint 4"
-)]
-
 use std::{
     any::TypeId,
     cmp::Ordering,
@@ -106,17 +101,33 @@ pub(in crate::command) struct TopologyEntry {
 }
 
 impl Category {
-    pub const FILE: Self = Self::standard(CategoryIdentity::File, "File");
-    pub const EDIT: Self = Self::standard(CategoryIdentity::Edit, "Edit");
-    pub const VIEW: Self = Self::standard(CategoryIdentity::View, "View");
-    pub const TOOLS: Self = Self::standard(CategoryIdentity::Tools, "Tools");
-    pub const WINDOW: Self = Self::standard(CategoryIdentity::Window, "Window");
-    pub const HELP: Self = Self::standard(CategoryIdentity::Help, "Help");
+    pub const FILE: Self =
+        Self::standard(CategoryIdentity::File, "wgpu_l3.command.menu.file", "File");
+    pub const EDIT: Self =
+        Self::standard(CategoryIdentity::Edit, "wgpu_l3.command.menu.edit", "Edit");
+    pub const VIEW: Self =
+        Self::standard(CategoryIdentity::View, "wgpu_l3.command.menu.view", "View");
+    pub const TOOLS: Self = Self::standard(
+        CategoryIdentity::Tools,
+        "wgpu_l3.command.menu.tools",
+        "Tools",
+    );
+    pub const WINDOW: Self = Self::standard(
+        CategoryIdentity::Window,
+        "wgpu_l3.command.menu.window",
+        "Window",
+    );
+    pub const HELP: Self =
+        Self::standard(CategoryIdentity::Help, "wgpu_l3.command.menu.help", "Help");
 
-    const fn standard(identity: CategoryIdentity, label: &'static str) -> Self {
+    const fn standard(
+        identity: CategoryIdentity,
+        identity_name: &'static str,
+        label: &'static str,
+    ) -> Self {
         Self {
             identity,
-            identity_name: label,
+            identity_name,
             label: Some(label),
             position: CategoryPosition::Standard,
         }
@@ -306,6 +317,11 @@ impl Topology {
 }
 
 impl TopologyCategory {
+    pub(in crate::command) fn id(&self) -> &'static str {
+        self.category.identity_name
+    }
+
+    #[cfg(test)]
     pub(in crate::command) fn category(&self) -> Category {
         self.category
     }

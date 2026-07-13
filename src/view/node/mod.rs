@@ -102,6 +102,7 @@ pub struct Node {
     table_edit_error: Option<String>,
     participation: Option<Participation>,
     context_menu: bool,
+    standard_menu_bar: bool,
     children: Vec<Node>,
 }
 

@@ -47,6 +47,14 @@ impl Ui {
         self.add(MenuBar::new().children(children))
     }
 
+    /// Builds the conventional menu bar from registered command meaning.
+    ///
+    /// The bar is opt-in: registering commands alone never creates UI.
+    pub fn standard_menu_bar(&mut self) -> &mut Self {
+        self.nodes.push(view::Node::standard_menu_bar());
+        self
+    }
+
     pub fn menu(
         &mut self,
         id: impl Into<interaction::Id>,

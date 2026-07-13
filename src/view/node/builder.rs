@@ -22,6 +22,12 @@ impl Node {
         Self::new(Role::MenuBar)
     }
 
+    pub(crate) fn standard_menu_bar() -> Self {
+        let mut node = Self::menu_bar();
+        node.standard_menu_bar = true;
+        node
+    }
+
     pub fn menu(id: impl Into<interaction::Id>, label: impl Into<String>) -> Self {
         Self::new(Role::Menu).with_id(id).with_label(label)
     }
@@ -58,6 +64,10 @@ impl Node {
 
     pub(crate) fn resolved_menu_action(action: command::ResolvedAction) -> Self {
         Self::new(Role::Binding).with_binding(Binding::from_resolved(action, Source::Menu))
+    }
+
+    pub(crate) fn resolved_bar_action(action: &command::BarAction, show_shortcut: bool) -> Self {
+        Self::new(Role::Binding).with_binding(Binding::from_bar_action(action, show_shortcut))
     }
 
     pub fn separator() -> Self {
@@ -452,6 +462,7 @@ impl Node {
             table_edit_error: None,
             participation: None,
             context_menu: false,
+            standard_menu_bar: false,
             children: Vec::new(),
         }
     }

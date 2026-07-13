@@ -15,6 +15,39 @@ use crate::{
 use std::collections::HashMap;
 
 impl Node {
+    pub(in crate::view) fn has_standard_menu_bar(&self) -> bool {
+        self.standard_menu_bar || self.children.iter().any(Node::has_standard_menu_bar)
+    }
+
+    pub(in crate::view) fn project_standard_menu_bar(
+        &mut self,
+        projection: &command::BarProjection,
+    ) {
+        if self.standard_menu_bar {
+            self.children.clear();
+            for category in projection.categories() {
+                let mut menu = Node::menu(category.id(), category.label());
+                for (section_index, section) in category.sections().iter().enumerate() {
+                    if section_index > 0 {
+                        menu.push_child(Node::separator());
+                    }
+                    for entry in section {
+                        menu.push_child(Node::resolved_bar_action(
+                            entry.action(),
+                            entry.show_shortcut(),
+                        ));
+                    }
+                }
+                self.children.push(menu);
+            }
+            return;
+        }
+
+        for child in &mut self.children {
+            child.project_standard_menu_bar(projection);
+        }
+    }
+
     pub(in crate::view) fn context_path_retained(
         &self,
         retained: &composition::Node,

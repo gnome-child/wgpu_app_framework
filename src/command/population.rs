@@ -1,4 +1,4 @@
-use std::{any::TypeId, marker::PhantomData};
+use std::{any::TypeId, collections::HashMap, marker::PhantomData};
 
 use super::{AnyTrigger, HistoryGroup, Listing, Registry, Standard, State};
 use crate::{context as command_context, responder, state};
@@ -10,7 +10,6 @@ pub(crate) enum Palette {}
 pub(crate) enum Context {}
 
 /// Stable registered-standard discovery for a live task chain.
-#[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
 pub(crate) enum Bar {}
 
 /// The single command-population owner. Surface markers select policy without
@@ -48,19 +47,34 @@ pub(crate) struct ResolvedAction {
     route: responder::Route,
 }
 
-#[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
 pub(crate) struct BarActions {
     entries: Vec<BarAction>,
 }
 
 #[derive(Clone)]
-#[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
 pub(crate) struct BarAction {
-    registration_index: usize,
     command_type: TypeId,
     standard: Option<Standard>,
     trigger: AnyTrigger,
     state: State,
+}
+
+/// Complete conventional-bar projection. It contains ordinary command
+/// actions, grouped by the platform topology, but no view vocabulary.
+pub(crate) struct BarProjection {
+    categories: Vec<BarCategory>,
+}
+
+pub(crate) struct BarCategory {
+    id: &'static str,
+    label: &'static str,
+    sections: Vec<Vec<BarEntry>>,
+}
+
+#[derive(Clone)]
+pub(crate) struct BarEntry {
+    action: BarAction,
+    show_shortcut: bool,
 }
 
 impl<'a> Population<'a> {
@@ -131,7 +145,6 @@ impl<'a> Population<'a> {
         Candidates::new(entries)
     }
 
-    #[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
     pub(crate) fn bar_candidates(&self) -> Candidates<Bar> {
         Candidates::new(
             self.registry
@@ -155,7 +168,6 @@ impl<'a> Population<'a> {
         )
     }
 
-    #[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
     pub(in crate::command) fn menu_topology(
         &self,
         platform: crate::keymap::Platform,
@@ -227,7 +239,6 @@ impl<'a> Population<'a> {
         ResolvedActions::new(entries)
     }
 
-    #[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
     pub(crate) fn resolve_bar(
         &self,
         candidates: Candidates<Bar>,
@@ -252,7 +263,6 @@ impl<'a> Population<'a> {
                     cx,
                 );
                 Some(BarAction {
-                    registration_index: candidate.registration_index(),
                     command_type: command.command_type,
                     standard,
                     trigger: candidate.into_trigger(),
@@ -262,6 +272,53 @@ impl<'a> Population<'a> {
             .collect();
 
         BarActions { entries }
+    }
+
+    pub(crate) fn standard_bar(
+        &self,
+        platform: crate::keymap::Platform,
+        chain: &mut responder::Chain<'_, impl state::State>,
+        cx: &command_context::Context,
+    ) -> BarProjection {
+        let topology = self.menu_topology(platform);
+        let actions = self
+            .resolve_bar(self.bar_candidates(), chain, cx)
+            .into_iter()
+            .map(|action| (action.command_type(), action))
+            .collect::<HashMap<_, _>>();
+
+        let categories = topology
+            .categories()
+            .iter()
+            .filter_map(|category| {
+                let sections = category
+                    .sections()
+                    .iter()
+                    .filter_map(|section| {
+                        let entries = section
+                            .iter()
+                            .filter_map(|entry| {
+                                actions.get(&entry.command_type()).cloned().map(|action| {
+                                    debug_assert_eq!(entry.standard(), action.standard());
+                                    BarEntry {
+                                        action,
+                                        show_shortcut: entry.show_shortcut(),
+                                    }
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                        (!entries.is_empty()).then_some(entries)
+                    })
+                    .collect::<Vec<_>>();
+                (!sections.is_empty()).then_some(BarCategory {
+                    id: category.id(),
+                    label: category.label(),
+                    sections,
+                })
+            })
+            .collect();
+
+        BarProjection { categories }
     }
 }
 
@@ -390,7 +447,6 @@ impl ResolvedAction {
     }
 }
 
-#[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
 impl IntoIterator for BarActions {
     type Item = BarAction;
     type IntoIter = std::vec::IntoIter<BarAction>;
@@ -400,12 +456,7 @@ impl IntoIterator for BarActions {
     }
 }
 
-#[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
 impl BarAction {
-    pub(crate) fn registration_index(&self) -> usize {
-        self.registration_index
-    }
-
     pub(crate) fn command_type(&self) -> TypeId {
         self.command_type
     }
@@ -420,6 +471,36 @@ impl BarAction {
 
     pub(crate) fn state(&self) -> &State {
         &self.state
+    }
+}
+
+impl BarProjection {
+    pub(crate) fn categories(&self) -> &[BarCategory] {
+        &self.categories
+    }
+}
+
+impl BarCategory {
+    pub(crate) fn id(&self) -> &'static str {
+        self.id
+    }
+
+    pub(crate) fn label(&self) -> &'static str {
+        self.label
+    }
+
+    pub(crate) fn sections(&self) -> &[Vec<BarEntry>] {
+        &self.sections
+    }
+}
+
+impl BarEntry {
+    pub(crate) fn action(&self) -> &BarAction {
+        &self.action
+    }
+
+    pub(crate) fn show_shortcut(&self) -> bool {
+        self.show_shortcut
     }
 }
 

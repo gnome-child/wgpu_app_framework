@@ -12,7 +12,7 @@ use std::time::Duration;
 
 pub use observer::Observation;
 pub(crate) use observer::Observers;
-pub(crate) use population::{Population, ResolvedAction};
+pub(crate) use population::{BarAction, BarProjection, Population, ResolvedAction};
 pub use registry::Registry;
 pub use set::{Member, Set};
 pub(crate) use spec::KeyChordKind;

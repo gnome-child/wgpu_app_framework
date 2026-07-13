@@ -149,6 +149,84 @@ fn authored_menu_bars_keep_explicit_order_while_command_registration_stays_nonvi
 }
 
 #[test]
+fn standard_menu_bar_derives_ordinary_live_menu_bindings_on_explicit_request() {
+    let mut app = Runtime::new(SourceState::default())
+        .keymap(keymap::Profile::windows())
+        .commands(|commands| {
+            commands
+                .register::<RecordSource>(command::Spec::standard(command::Standard::New))
+                .register::<Ping>(command::Spec::standard(command::Standard::Open))
+                .register::<DisabledRecordSource>(command::Spec::standard(command::Standard::Save));
+        })
+        .responders(|responders| {
+            responders
+                .app()
+                .target::<RecordSource>()
+                .target::<DisabledRecordSource>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Derived menu"));
+        })
+        .view(|_, _| {
+            widget::view(|ui| {
+                ui.standard_menu_bar();
+                ui.label("Content");
+            })
+        });
+
+    app.start();
+    let window = app.session().windows()[0].id();
+    let projected = app.present(window).expect("derived bar should project");
+    let bar = find_view_node(projected.root(), view::Role::MenuBar)
+        .expect("the explicit request should create one ordinary menu bar");
+    let file = bar
+        .children()
+        .iter()
+        .find(|node| node.label_text() == Some("File"))
+        .expect("registered File roles should derive a File menu");
+
+    assert_eq!(file.role(), view::Role::Menu);
+    assert_eq!(
+        file.children()
+            .iter()
+            .map(view::Node::role)
+            .collect::<Vec<_>>(),
+        vec![
+            view::Role::Binding,
+            view::Role::Binding,
+            view::Role::Binding,
+            view::Role::Separator,
+            view::Role::Binding,
+        ],
+        "the platform topology alone should insert the section separator"
+    );
+    let binding = |name| {
+        file.children()
+            .iter()
+            .filter_map(view::Node::binding)
+            .find(|binding| binding.command_name() == name)
+            .expect("registered role should remain in the bar")
+    };
+    assert!(binding(RecordSource::NAME).is_enabled());
+    assert!(
+        !binding(Ping::NAME).is_enabled(),
+        "an unclaimed registered role remains visible but disabled"
+    );
+    assert!(!binding(DisabledRecordSource::NAME).is_enabled());
+    assert!(
+        projected
+            .bindings()
+            .iter()
+            .all(|binding| binding.command_name() != session::OpenCommandPalette::NAME),
+        "the palette role has no conventional-bar slot"
+    );
+
+    app.activate_in(window, binding(RecordSource::NAME))
+        .expect("derived bindings should invoke through the live menu route");
+    assert_eq!(app.state().sources, vec![context::Source::Menu]);
+}
+
+#[test]
 fn typing_history_group_carries_the_text_owned_coalesce_window() {
     let typing =
         <document::ApplyEdit as Command>::history_group(&text::edit::Edit::Insert("a".to_owned()))

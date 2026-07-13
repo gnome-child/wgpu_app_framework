@@ -105,6 +105,14 @@ impl View {
         &self.root
     }
 
+    pub(crate) fn has_standard_menu_bar(&self) -> bool {
+        self.root.has_standard_menu_bar()
+    }
+
+    pub(crate) fn project_standard_menu_bar(&mut self, projection: &command::BarProjection) {
+        self.root.project_standard_menu_bar(projection);
+    }
+
     pub(crate) fn materialize_virtual_lists(
         &mut self,
         requests: &HashMap<interaction::Id, crate::virtual_list::Materialization>,

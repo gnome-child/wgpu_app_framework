@@ -675,6 +675,23 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 
             view.resolve_commands(&self.registry, &mut chain, &cx);
         }
+        if view.has_standard_menu_bar() {
+            let live_scope = responder::Scope::focused(command_focus);
+            let services = Services::new(
+                &mut self.timeline,
+                &mut self.session,
+                &mut self.composition,
+                Some(window),
+                live_scope,
+            );
+            let mut chain = self
+                .responders
+                .chain_for_scope(&mut self.store, live_scope)
+                .with_service(services);
+            let population = self.registry.population();
+            let bar = population.standard_bar(self.keymap.platform(), &mut chain, &cx);
+            view.project_standard_menu_bar(&bar);
+        }
         if let Some(interaction) = interaction.as_ref() {
             view.project_surfaces(interaction);
         }

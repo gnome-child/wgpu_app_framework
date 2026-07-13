@@ -112,6 +112,21 @@ impl Binding {
         }
     }
 
+    pub(crate) fn from_bar_action(action: &command::BarAction, show_shortcut: bool) -> Self {
+        let mut state = action.state().clone();
+        if !show_shortcut {
+            state.shortcut = None;
+        }
+        Self {
+            trigger: action.trigger(),
+            state,
+            source: Source::Menu,
+            route: responder::Route::Chain,
+            slider_trigger: None,
+            text_trigger: None,
+        }
+    }
+
     pub(crate) fn action(&self) -> Action {
         Action::activate(self)
     }
