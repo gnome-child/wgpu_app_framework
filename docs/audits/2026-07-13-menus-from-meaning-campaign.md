@@ -60,8 +60,8 @@ Scope does not contain topology.
 | 0. Freeze sealed policies | Complete | Authored bar, context capture/traversal, palette membership/order, chords, registry order, same-scope case, ordinary nodes, and opt-in behavior pinned |
 | 1. Promote standard meaning | Complete | Role lives on `Spec`; Delete admitted; CloseWindow corrected; defaults/overrides and uniqueness proven; authored menus unchanged |
 | 2. One population owner | Complete | Shared primitives/policies with live bar targeting and captured context targeting; no observable context/palette drift |
-| 3. Cultural topology | In progress | `command::menu::{Category, Placement}`, virtual slots, platform reuse, custom categories, shortcut visibility, pure topology witnesses |
-| 4. Automatic bar | Pending | `ui.standard_menu_bar()` emits ordinary nodes with stable disabled membership and no ambient UI |
+| 3. Cultural topology | Complete | `command::menu::{Category, Placement}`, virtual slots, platform reuse, custom categories, shortcut visibility, pure topology witnesses |
+| 4. Automatic bar | In progress | `ui.standard_menu_bar()` emits ordinary nodes with stable disabled membership and no ambient UI |
 | 5. Authored deviations | Pending | Static metadata and typed dynamic/replacement extensions coexist with unchanged authored bars |
 | 6. Migration and closeout | Pending | Examples delete duplicated culture; full witness matrix and ritual green; item 30 pruned |
 
@@ -176,6 +176,42 @@ role, and topology behavior remains untouched at this boundary.
   disappear when `standard_menu_bar` lands.
 - Validation: 1,011 library tests passed, 10 ignored, zero failures; warning-free
   library checking and formatting pass.
+
+## Checkpoint 3 — cultural topology is pure data
+
+- `command::menu::{Category, Placement}` is the public vocabulary. Category
+  identity is a standard constant or application marker type; visible labels
+  are metadata and are never identity, merge keys, or ordering keys.
+- Custom categories register identity, label, and a typed standard-category
+  anchor once through `Registry::menu_category`. Their default band is between
+  View and Tools. No public rank or string category key exists.
+- `Spec::placement`, `Spec::unplaced`, and `Spec::show_menu_shortcut` are
+  independent of role, label, and chord. A standard role uses its cultural
+  slot unless explicitly moved or suppressed; Command Palette has no default
+  slot.
+- Windows/initial-Linux and macOS templates are data over the existing
+  `keymap::Platform`. Windows groups File as Document then Persistence and Edit
+  as History, Clipboard, Selection, Deletion. macOS groups File as New/Open
+  then Save Item and Edit as History then Pasteboard.
+- Standard slots remain in the resolver when their command is absent, so
+  before/after and section-before/after anchors do not drift. Empty sections
+  and categories are removed only after projection.
+- Delete's Windows/initial-Linux menu chord is hidden by policy while its key
+  interaction remains registered; macOS shows it. Spec metadata can override
+  visibility without changing the chord.
+- Static placement on a non-unit command is rejected at registration. Missing
+  custom categories, conflicting category declarations, and anchors with no
+  virtual slot are rejected before exposure.
+- Pure witnesses pin both platform templates, shuffled registration order,
+  virtual absent anchors, custom category order and identity, equal-label
+  non-merge, shortcut visibility, and the configuration errors above. The
+  private widget `Placement` was renamed `Form`, leaving placement one meaning
+  per namespace.
+- API flags: the namespaced vocabulary, registry category declaration, and
+  three Spec builders are new. Internal topology currently carries a scoped
+  checkpoint-4 dead-code allowance until its first UI projection consumes it.
+- Validation: 1,020 library tests passed, 10 ignored; all targets compile and
+  all doctests pass. Formatting and diff checks are clean.
 
 ## Platform contract
 

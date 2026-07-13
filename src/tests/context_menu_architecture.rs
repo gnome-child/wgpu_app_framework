@@ -1,6 +1,7 @@
 const COMMAND_MOD: &str = include_str!("../command/mod.rs");
 const COMMAND_REGISTRY: &str = include_str!("../command/registry.rs");
 const COMMAND_POPULATION: &str = include_str!("../command/population.rs");
+const WIDGET_BINDING: &str = include_str!("../widget/binding.rs");
 const CONTEXT_RUNTIME: &str = include_str!("../runtime/context_menu.rs");
 const PALETTE_RUNTIME: &str = include_str!("../runtime/palette.rs");
 const TEXT_SERVICE: &str = include_str!("../runtime/services/text/mod.rs");
@@ -27,17 +28,23 @@ fn command_surfaces_share_one_private_erased_resolution_boundary() {
     assert!(COMMAND_POPULATION.contains("claim: responder::Claim"));
     assert!(!COMMAND_POPULATION.contains("claim: Option<responder::Claim>"));
     let bar_entry = COMMAND_POPULATION
-        .split("pub(crate) struct BarAction")
+        .split("pub(crate) struct BarAction {")
         .nth(1)
         .and_then(|source| source.split("impl<'a> Population").next())
         .expect("bar entry projection should exist");
-    assert!(bar_entry.contains("standard: Standard"));
+    assert!(bar_entry.contains("standard: Option<Standard>"));
     assert!(!bar_entry.contains("claim:"));
     assert!(!COMMAND_REGISTRY.contains("fn palette_candidates"));
     assert!(!COMMAND_REGISTRY.contains("fn context_candidates"));
     assert!(!COMMAND_REGISTRY.contains("fn bar_candidates"));
     assert!(COMMAND_MOD.contains("pub(crate) use trigger::{AnyTrigger, AnyValueTrigger}"));
     assert!(!COMMAND_MOD.contains("pub use trigger::{AnyTrigger"));
+}
+
+#[test]
+fn menu_topology_placement_does_not_collide_with_widget_participation_form() {
+    assert!(WIDGET_BINDING.contains("enum Form"));
+    assert!(!WIDGET_BINDING.contains("enum Placement"));
 }
 
 #[test]

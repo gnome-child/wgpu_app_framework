@@ -1,3 +1,5 @@
+pub mod menu;
+
 mod observer;
 mod population;
 mod registry;

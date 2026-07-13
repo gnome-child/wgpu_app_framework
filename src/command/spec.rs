@@ -1,4 +1,5 @@
 use super::super::{input, keymap};
+use super::menu;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KeyChord {
     declared: &'static str,
@@ -125,6 +126,9 @@ pub struct Spec {
     pub(in crate::command) shortcut: Option<KeyChord>,
     pub(in crate::command) listing: Listing,
     pub(in crate::command) standard: Option<Standard>,
+    pub(in crate::command) menu_placement: Option<menu::Placement>,
+    pub(in crate::command) menu_suppressed: bool,
+    pub(in crate::command) menu_shortcut_visibility: Option<bool>,
 }
 
 /// Whether a command may appear in surfaces that describe the current command world.
@@ -143,6 +147,9 @@ impl Spec {
             shortcut: None,
             listing: Listing::Included,
             standard: None,
+            menu_placement: None,
+            menu_suppressed: false,
+            menu_shortcut_visibility: None,
         }
     }
 
@@ -153,6 +160,9 @@ impl Spec {
             shortcut: Some(KeyChord::standard(standard)),
             listing: Listing::Included,
             standard: Some(standard),
+            menu_placement: None,
+            menu_suppressed: false,
+            menu_shortcut_visibility: None,
         }
     }
 
@@ -182,6 +192,26 @@ impl Spec {
         self
     }
 
+    /// Places this command in a conventional menu topology.
+    pub fn placement(mut self, placement: menu::Placement) -> Self {
+        self.menu_placement = Some(placement);
+        self.menu_suppressed = false;
+        self
+    }
+
+    /// Suppresses automatic bar placement while preserving role, label, and chord projections.
+    pub fn unplaced(mut self) -> Self {
+        self.menu_placement = None;
+        self.menu_suppressed = true;
+        self
+    }
+
+    /// Overrides whether a shortcut is painted beside this command in a menu.
+    pub fn show_menu_shortcut(mut self, visible: bool) -> Self {
+        self.menu_shortcut_visibility = Some(visible);
+        self
+    }
+
     pub fn display_name(&self) -> &'static str {
         self.display_name
     }
@@ -192,6 +222,12 @@ impl Spec {
 
     pub fn standard_role(&self) -> Option<Standard> {
         self.standard
+    }
+
+    pub(in crate::command) fn participates_in_standard_menu(&self) -> bool {
+        !self.menu_suppressed
+            && (self.menu_placement.is_some()
+                || self.standard.is_some_and(menu::standard_is_placed))
     }
 }
 

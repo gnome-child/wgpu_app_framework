@@ -17,10 +17,12 @@ pub struct Registry {
     shortcuts: HashMap<KeyChord, Vec<TypeId>>,
     standard_roles: HashMap<Standard, TypeId>,
     pub(in crate::command) order: Vec<TypeId>,
+    pub(in crate::command) menu_categories: HashMap<super::menu::Category, super::menu::Category>,
 }
 
 pub(crate) struct AnyCommand {
     pub(in crate::command) command_name: &'static str,
+    pub(in crate::command) command_type_name: &'static str,
     pub(in crate::command) command_type: TypeId,
     args_type: TypeId,
     history: History,
@@ -76,6 +78,11 @@ impl Registry {
     {
         let shortcut = spec.shortcut;
         let command_type = TypeId::of::<C>();
+        assert!(
+            TypeId::of::<C::Args>() == TypeId::of::<()>() || !spec.participates_in_standard_menu(),
+            "menu placement requires a unit-argument command: {}",
+            C::NAME
+        );
         self.assert_standard_role_available::<C>(spec.standard);
         self.remove_shortcuts_for(command_type);
         self.remove_standard_role_for(command_type);
@@ -89,6 +96,7 @@ impl Registry {
             command_type,
             AnyCommand {
                 command_name: C::NAME,
+                command_type_name: std::any::type_name::<C>(),
                 command_type,
                 args_type: TypeId::of::<C::Args>(),
                 history: C::HISTORY,
@@ -100,6 +108,23 @@ impl Registry {
             self.bind_shortcut(shortcut, command_type);
         }
 
+        self
+    }
+
+    /// Registers the stable identity, label, and top-level position of a custom menu category.
+    pub fn menu_category(&mut self, category: super::menu::Category) -> &mut Self {
+        assert!(
+            category.is_custom_declaration(),
+            "custom menu categories require Category::new::<T>(label)"
+        );
+        if let Some(existing) = self.menu_categories.get(&category) {
+            assert!(
+                existing.same_declaration(category),
+                "custom menu category identity was registered with conflicting metadata"
+            );
+            return self;
+        }
+        self.menu_categories.insert(category, category);
         self
     }
 

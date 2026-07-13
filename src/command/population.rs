@@ -57,7 +57,8 @@ pub(crate) struct BarActions {
 #[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
 pub(crate) struct BarAction {
     registration_index: usize,
-    standard: Standard,
+    command_type: TypeId,
+    standard: Option<Standard>,
     trigger: AnyTrigger,
     state: State,
 }
@@ -139,19 +140,47 @@ impl<'a> Population<'a> {
                 .enumerate()
                 .filter_map(|(registration_index, command_type)| {
                     let command = self.registry.commands.get(command_type)?;
-                    (command.accepts_shortcut_args() && command.spec.standard.is_some()).then(
-                        || {
-                            Candidate::new(
-                                registration_index,
-                                command.unit_trigger(),
-                                command.spec.listing,
-                                responder::Route::Chain,
-                            )
-                        },
-                    )
+                    (command.accepts_shortcut_args()
+                        && command.spec.participates_in_standard_menu())
+                    .then(|| {
+                        Candidate::new(
+                            registration_index,
+                            command.unit_trigger(),
+                            command.spec.listing,
+                            responder::Route::Chain,
+                        )
+                    })
                 })
                 .collect(),
         )
+    }
+
+    #[allow(dead_code, reason = "consumed by the derived bar in checkpoint 4")]
+    pub(in crate::command) fn menu_topology(
+        &self,
+        platform: crate::keymap::Platform,
+    ) -> super::menu::Topology {
+        let items = self
+            .bar_candidates()
+            .into_entries()
+            .into_iter()
+            .filter_map(|candidate| {
+                let command = self
+                    .registry
+                    .commands
+                    .get(&candidate.trigger().command_type())?;
+                Some(super::menu::Item {
+                    command_type: command.command_type,
+                    command_name: command.command_name,
+                    command_type_name: command.command_type_name,
+                    standard: command.spec.standard,
+                    placement: command.spec.menu_placement,
+                    suppressed: command.spec.menu_suppressed,
+                    shortcut_visibility: command.spec.menu_shortcut_visibility,
+                })
+            })
+            .collect();
+        super::menu::Topology::resolve(platform, &self.registry.menu_categories, items)
     }
 
     pub(crate) fn resolve_claimed<P>(
@@ -213,7 +242,7 @@ impl<'a> Population<'a> {
                     .registry
                     .commands
                     .get(&candidate.trigger().command_type())?;
-                let standard = command.spec.standard?;
+                let standard = command.spec.standard;
                 let state = self.registry.state_any_on(
                     candidate.route(),
                     command.command_type,
@@ -224,6 +253,7 @@ impl<'a> Population<'a> {
                 );
                 Some(BarAction {
                     registration_index: candidate.registration_index(),
+                    command_type: command.command_type,
                     standard,
                     trigger: candidate.into_trigger(),
                     state,
@@ -376,7 +406,11 @@ impl BarAction {
         self.registration_index
     }
 
-    pub(crate) fn standard(&self) -> Standard {
+    pub(crate) fn command_type(&self) -> TypeId {
+        self.command_type
+    }
+
+    pub(crate) fn standard(&self) -> Option<Standard> {
         self.standard
     }
 
@@ -432,7 +466,7 @@ mod tests {
             &CommandContext::default(),
         );
         let action = actions.into_iter().next().expect("registered role remains");
-        assert_eq!(action.standard(), Standard::Copy);
+        assert_eq!(action.standard(), Some(Standard::Copy));
         assert!(!action.state().is_enabled());
         drop(chain);
 
