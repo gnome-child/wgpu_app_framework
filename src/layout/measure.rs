@@ -27,10 +27,8 @@ pub(in crate::layout) fn intrinsic_width(
         .unwrap_or_default();
 
     match node.role() {
-        view::Role::MenuBar => {
-            menu_title_width(node, engine, theme).saturating_mul(node.children().len() as i32)
-        }
-        view::Role::Menu => menu_intrinsic_width(node, engine, theme),
+        view::Role::MenuBar => menu_bar_intrinsic_width(node, engine, theme),
+        view::Role::Menu => menu_title_width(node, engine, theme),
         view::Role::FloatingPanel => floating_panel_width(node, engine, theme, profile),
         view::Role::Scroll => scroll_intrinsic_width(node, engine, theme, profile),
         view::Role::Binding if control::is_menu_panel_row(node) => {
@@ -148,7 +146,10 @@ pub(in crate::layout) fn intrinsic_height_for_width(
         }
         _ => intrinsic_height(node, theme),
     };
-    if matches!(node.participation(), Some(view::Participation::Table(_))) {
+    if matches!(
+        node.participation(),
+        Some(view::Participation::Table(part)) if part != view::TablePart::HeaderBand
+    ) {
         height.saturating_add(theme.table().cell_padding.max(0).saturating_mul(2))
     } else {
         height
@@ -556,7 +557,7 @@ pub(in crate::layout) fn shortcut_icon_extent(theme: &theme::Theme) -> i32 {
         .max(1.0) as i32
 }
 
-pub(in crate::layout) fn menu_title_width(
+fn menu_bar_intrinsic_width(
     node: &view::Node,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
@@ -564,12 +565,11 @@ pub(in crate::layout) fn menu_title_width(
     node.children()
         .iter()
         .filter(|child| child.role() == view::Role::Menu)
-        .map(|child| menu_intrinsic_width(child, engine, theme))
-        .max()
-        .unwrap_or_default()
+        .map(|child| menu_title_width(child, engine, theme))
+        .fold(0, i32::saturating_add)
 }
 
-fn menu_intrinsic_width(
+pub(in crate::layout) fn menu_title_width(
     node: &view::Node,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
@@ -584,15 +584,21 @@ fn menu_intrinsic_width(
         })
         .unwrap_or_default();
     let content_width = if has_single_character_label(node) {
-        label_width.max(control::control_content_extent(
-            theme.menu().bar_height,
-            theme,
-        ))
+        let padding = theme.menu().padding.max(0);
+        label_width.max(
+            theme
+                .menu()
+                .bar_height
+                .max(0)
+                .saturating_sub(padding.saturating_mul(2)),
+        )
     } else {
         label_width
     };
 
-    control::padded_control_extent(content_width, theme)
+    content_width
+        .max(0)
+        .saturating_add(theme.menu().padding.max(0).saturating_mul(2))
 }
 
 fn menu_row_width(

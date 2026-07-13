@@ -266,6 +266,11 @@ impl Node {
         self
     }
 
+    pub(crate) fn with_table_header_band(mut self) -> Self {
+        self.participation = Some(Participation::Table(TablePart::HeaderBand));
+        self
+    }
+
     pub(crate) fn with_table_header_presentation(
         mut self,
         presentation: crate::table::HeaderPresentation,

@@ -1008,6 +1008,71 @@ fn table_internal_scroll_uses_a_subject_instead_of_a_painted_label() {
 }
 
 #[test]
+fn table_header_band_fills_the_scroll_surface_beyond_its_columns() {
+    let provider = MillionTableProvider {
+        cell_calls: Rc::new(Cell::new(0)),
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Table header band"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::Table::new(
+                    "header.band.records",
+                    20,
+                    [crate::table::Column::new(
+                        "name",
+                        "Name",
+                        view::Dimension::fixed(80),
+                    )],
+                    provider.clone(),
+                )
+                .width(view::Dimension::grow())
+                .height(view::Dimension::fixed(108)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 108);
+    let rendered = app
+        .show_scene(window, size)
+        .expect("narrow table tracks should render in a wider viewport");
+    let header_band = rendered
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_part() == Some(view::TablePart::HeaderBand))
+        .expect("table should expose one full-width header band");
+    let last_header = rendered
+        .layout()
+        .frames()
+        .iter()
+        .filter(|frame| frame.table_header_cell().is_some())
+        .map(layout::Frame::rect)
+        .max_by_key(|rect| rect.right())
+        .expect("table should expose its column header");
+    let horizontal = rendered
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.role() == view::Role::Scroll && frame.table_projection().is_some())
+        .expect("table should expose its horizontal viewport");
+    let visible_right = horizontal
+        .viewport()
+        .expect("horizontal table viewport")
+        .visible_content()
+        .right();
+
+    assert_eq!(header_band.rect().right(), visible_right);
+    assert!(header_band.rect().right() > last_header.right());
+    assert!(rendered.scene().quads().iter().any(|quad| {
+        quad.rect() == header_band.rect()
+            && quad.fill() == Theme::default().table().header_background
+    }));
+}
+
+#[test]
 fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together() {
     let provider = MillionTableProvider {
         cell_calls: Rc::new(Cell::new(0)),
@@ -4532,7 +4597,7 @@ fn text_editor_view_composes_to_layout_without_runtime_mutation() {
 }
 
 #[test]
-fn menu_bar_buttons_share_largest_label_width() {
+fn menu_bar_titles_use_their_own_padded_label_widths_without_gaps() {
     let view = View::new(
         view::Node::root().child(
             view::Node::menu_bar()
@@ -4546,13 +4611,14 @@ fn menu_bar_buttons_share_largest_label_width() {
     let menus = layout.find_role(view::Role::Menu);
 
     assert_eq!(menus.len(), 3);
-    assert_eq!(menus[0].rect().width(), menus[1].rect().width());
-    assert_eq!(menus[1].rect().width(), menus[2].rect().width());
-    assert!(menus[0].rect().width() > Theme::default().menu().bar_height);
+    assert!(menus[1].rect().width() > menus[0].rect().width());
+    assert!(menus[0].rect().width() > menus[2].rect().width());
+    assert_eq!(menus[0].rect().right(), menus[1].rect().x());
+    assert_eq!(menus[1].rect().right(), menus[2].rect().x());
 }
 
 #[test]
-fn single_character_menu_titles_are_square_from_control_padding() {
+fn single_character_menu_titles_are_square_from_menu_padding() {
     let view = View::new(
         view::Node::root().child(
             view::Node::menu_bar()

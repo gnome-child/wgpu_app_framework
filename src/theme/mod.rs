@@ -300,7 +300,7 @@ impl Theme {
                 row_height: 22,
                 separator_line_height: 1,
                 panel_min_width: 220,
-                padding: 4,
+                padding: 12,
             },
             choice: Choice {
                 background: scene::Color::rgba(0, 0, 0, 0),
@@ -583,7 +583,10 @@ impl Theme {
             header_hover_tint: self.control.hover_tint,
             header_pressed_tint: self.control.pressed_tint,
             cell_background: scene::Color::rgba(0, 0, 0, 0),
-            alternate_row_tint: self.menu.row_hover_tint,
+            alternate_row_tint: match self.variant {
+                Variant::Dark => scene::Color::rgba(255, 255, 255, 4),
+                Variant::Light => scene::Color::rgba(20, 22, 25, 4),
+            },
             passive_indicator: self.text.muted,
             cell_padding: self.control.padding,
         }

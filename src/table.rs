@@ -961,11 +961,13 @@ impl widget::Widget for Table {
     fn into_node(self) -> view::Node {
         let model = Model::new(self.id, self.columns);
         let header = model.columns.borrow().iter().fold(
-            view::Node::stack(view::Axis::Horizontal).with_style(
-                view::Style::new()
-                    .with_width(view::Dimension::grow())
-                    .with_height(view::Dimension::fixed(self.header_height)),
-            ),
+            view::Node::stack(view::Axis::Horizontal)
+                .with_style(
+                    view::Style::new()
+                        .with_width(view::Dimension::grow())
+                        .with_height(view::Dimension::fixed(self.header_height)),
+                )
+                .with_table_header_band(),
             |header, column| header.child(column.header_node(self.id, self.sort)),
         );
         let rows = Rows {

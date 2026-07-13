@@ -1265,10 +1265,10 @@ fn layout_menu_bar(
     ctx: &mut LayoutContext<'_>,
 ) {
     let mut x = rect.x;
-    let width = menu_title_width(node, ctx.engine, ctx.theme);
     let height = rect.height.min(ctx.theme.menu().bar_height);
 
     for (index, child) in node.children().iter().enumerate() {
+        let width = menu_title_width(child, ctx.engine, ctx.theme);
         let child_rect = Rect::new(x, rect.y, width, height);
         let frame = ctx.frame(
             child,

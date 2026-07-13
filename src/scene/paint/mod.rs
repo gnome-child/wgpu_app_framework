@@ -420,9 +420,9 @@ fn role_fill(frame: &layout::Frame, theme: &Theme) -> Option<super::Color> {
         && part != view::TablePart::Action
     {
         return match part {
-            view::TablePart::Header | view::TablePart::HeaderControl => {
-                visible_fill(theme.table().header_background)
-            }
+            view::TablePart::HeaderBand
+            | view::TablePart::Header
+            | view::TablePart::HeaderControl => visible_fill(theme.table().header_background),
             view::TablePart::Cell
             | view::TablePart::Editor
             | view::TablePart::PassiveToggle
@@ -803,7 +803,8 @@ fn visual_tint_for(
             };
         }
         Some(
-            view::TablePart::Header
+            view::TablePart::HeaderBand
+            | view::TablePart::Header
             | view::TablePart::Cell
             | view::TablePart::Editor
             | view::TablePart::PassiveToggle
@@ -920,6 +921,7 @@ fn paint_table_sort_indicator(frame: &layout::Frame, scene: &mut Scene, theme: &
 fn text_rect_for(frame: &layout::Frame, theme: &Theme) -> geometry::Rect {
     if let Some(part) = frame.table_part() {
         return match part {
+            view::TablePart::HeaderBand => frame.rect(),
             view::TablePart::PassiveToggle | view::TablePart::Toggle => {
                 layout::table_choice_label_rect(frame.rect(), theme)
             }

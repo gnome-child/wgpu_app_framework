@@ -47,6 +47,7 @@ pub(crate) enum Participation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TablePart {
+    HeaderBand,
     Header,
     HeaderControl,
     Cell,
