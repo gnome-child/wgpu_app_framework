@@ -82,7 +82,9 @@ is next.
     (`composition::Changes::removed_elements`, subject labels, roles,
     active-item concept). The widget grammar audit added the missing field
     concept: semantic label/description/error association (`label-for`),
-    demonstrated by the compound labeled-field experiment.
+    demonstrated by the compound labeled-field experiment. Feedback reserves
+    direct Description, DescribedBy, Invalid, ErrorMessage, and future Live
+    projections without making accessibility depend on panel visibility.
 12. **Music player** (flagship one) — remaining framework blockers: image /
     texture primitive, file drag-and-drop, media keys / SMTC. Cleared: task
     executor, native menus, async atomic saves, virtualized editable tables
@@ -117,6 +119,16 @@ is next.
     conventional rows, 6 separators, and 4 literal chords across the
     examples; authored menus remain, derivation is opt-in. Ledger:
     `docs/audits/2026-07-13-menus-from-meaning-campaign.md`.
+31. **Feedback — COMPLETE** (`fc4927a0`, 2026-07-13; 1,041 library tests +
+    10 deep-tier witnesses). Stable command descriptions, contextual hints,
+    severity-ranked runtime facts, table rejection reasons, and confirmed
+    text overflow now resolve independently into one auxiliary-panel policy.
+    Every resulting panel consumes the existing placement, host, receipt,
+    fade, and exposure path; noninteractive policies are focus-free and
+    hit-transparent. `OverflowProjection` owns eligibility without
+    remeasurement, and rejected edits rebuild their explanatory panel on the
+    rejecting input itself. Ledger:
+    `docs/audits/2026-07-13-feedback-campaign.md`.
 
 ## Deferred until a caller or hardware appears
 
