@@ -578,6 +578,18 @@ impl Frame {
         }
     }
 
+    pub(crate) fn text_is_selectable(&self) -> bool {
+        match &self.content {
+            FrameContent::Text(TextContent::Area { model, input, .. }) => input
+                .as_ref()
+                .map(view::TextBox::mode)
+                .unwrap_or_else(|| model.mode())
+                .is_selectable(),
+            FrameContent::Text(TextContent::Field { model, .. }) => model.mode().is_selectable(),
+            _ => false,
+        }
+    }
+
     pub(crate) fn focus_visible(&self) -> bool {
         self.focus_visible
     }

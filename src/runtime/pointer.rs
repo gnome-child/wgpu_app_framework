@@ -134,7 +134,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 },
             )
         });
-        let cursor_after_release = hit
+        let hit_cursor = hit
             .as_ref()
             .map(|hit| {
                 if !hit.is_chrome()
@@ -142,6 +142,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                         .target()
                         .is_none_or(|target| target.kind() != interaction::Kind::Indicator)
                     && hit.frame().is_enabled()
+                    && hit.frame().text_is_selectable()
                     && matches!(
                         hit.frame().role(),
                         view::Role::TextArea | view::Role::TextBox
@@ -158,6 +159,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 }
             })
             .unwrap_or(pointer::Cursor::Default);
+        let cursor_after_release = if admission == PressAdmission::Target {
+            hit_cursor
+        } else {
+            pointer::Cursor::Default
+        };
         let cursor = self
             .session
             .interaction(window)

@@ -67,7 +67,7 @@ and pointer execution consume that one result.
 | 1. Name and migrate one resolved press | Complete | Private `ResolvedPress` / `PressAdmission`; current behavior preserved; scattered cursor helpers retired |
 | 2. Pointer execution consumes the resolved press | Complete | Target, task focus, row gesture, admission, intent, overlay relationship, and capture share the one answer |
 | 3. Modifiers become pointer truth | Complete | Retained modifiers and stationary parent/popup re-resolution without presentation |
-| 4. Cursor consumes press admission | Pending | Selection-only rows project Default; focal admitted selectable text projects Text |
+| 4. Cursor consumes press admission | Complete | Selection-only rows project Default; focal admitted selectable text projects Text |
 | 5. Future seam, doctrine, and closure | Pending | Architecture witnesses, master doctrine, full ritual, roadmap close-out |
 
 ## Checkpoint 0 reductions
@@ -172,6 +172,30 @@ and pointer execution consume that one result.
 - All-target compilation passed without warnings. The cursor difference under
   selection modifiers becomes observable at Checkpoint 4 when cursor projection
   starts consuming the already-resolved admission.
+
+### Checkpoint 4 receipts
+
+- The behavioral assignment is one admission projection: only
+  `PressAdmission::Target` may expose the hit's specialized cursor; `Inert` and
+  `SelectionOnly` expose Default. There is no table-specific cursor predicate.
+- The focal-row journey now proves non-focal Default, first-click selection
+  only, stationary Default-to-Text after successful presentation, focal Text,
+  Shift/Ctrl/Super Default while held, Text on stationary release, and
+  selected-but-not-focal Default.
+- Pointer-down continues to consume the same admission, so cursor and execution
+  cannot disagree about whether the exact member participates. Existing rapid
+  click-chain and rejected-departure witnesses remain the execution witnesses.
+- `FieldMode::is_selectable` and `Frame::text_is_selectable` distinguish the
+  actual text criterion: editable and read-only selectable surfaces use Text;
+  disabled text uses Default. Mutation capability alone is not consulted.
+- Invalid owning text remains Text while its exact indicator target is Default;
+  both still resolve the shared explanatory hover panel.
+- Captured text and divider journeys retain their resolved cursor outside the
+  original hit zone. Overlay clipping and physical popup hosting remain on the
+  existing presented-hit and native host paths.
+- Parent and popup winit modifier events now have explicit adapter witnesses.
+  Stationary modifier projection proves no redraw request and cursor-update
+  deduplication remains session-owned.
 
 ## Structural-absence contract
 

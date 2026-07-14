@@ -2293,6 +2293,11 @@ fn table_column_resize_uses_capture_and_stays_window_local() {
         .expect("divider press should capture");
     app.pointer_move_at(first_window, size, dragged)
         .expect("captured divider should resize beyond its old bounds");
+    assert_eq!(
+        app.session().window(first_window).expect("window").cursor(),
+        crate::pointer::Cursor::ResizeHorizontal,
+        "capture preserves the resolved divider cursor outside its old hit zone"
+    );
     app.pointer_up_at(first_window, size, dragged)
         .expect("divider release should finish resize");
 
@@ -3302,6 +3307,11 @@ fn invalid_text_box_and_indicator_hover_share_the_error_tip() {
 
     app.pointer_move_at(window, size, box_point)
         .expect("invalid TextBox surface should become hover-eligible");
+    assert_eq!(
+        app.session().window(window).expect("window").cursor(),
+        pointer::Cursor::Text,
+        "the owning admitted text surface still promises selection"
+    );
     let before_delay = app
         .show_scene(window, size)
         .expect("TextBox hover dwell should schedule");
@@ -3383,6 +3393,11 @@ fn invalid_text_box_and_indicator_hover_share_the_error_tip() {
 
     app.pointer_move_at(window, size, indicator_point)
         .expect("the exact indicator target should expose the same error");
+    assert_eq!(
+        app.session().window(window).expect("window").cursor(),
+        pointer::Cursor::Default,
+        "the explanatory glyph is not itself a text-selection surface"
+    );
     app.show_scene(window, size)
         .expect("indicator dwell should schedule");
     let crate::animation::Schedule::At(deadline) = app.animation_schedule() else {
@@ -6829,6 +6844,155 @@ fn scrolled_out_content_is_not_interactive() {
 }
 
 #[test]
+fn table_text_cursor_follows_row_press_admission_without_pointer_motion() {
+    let mut app = editable_table_app(EditableTableState {
+        records: vec![
+            EditableRecord {
+                key: 7,
+                name: "Ada".to_owned(),
+                count: 4,
+            },
+            EditableRecord {
+                key: 8,
+                name: "Grace".to_owned(),
+                count: 8,
+            },
+        ],
+    });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 124);
+    let table = interaction::Id::new("editable.table");
+    let row7 = crate::table::Cell::new(
+        table,
+        crate::virtual_list::Key::new(7),
+        interaction::Id::new("name"),
+    );
+    let row8 = crate::table::Cell::new(
+        table,
+        crate::virtual_list::Key::new(8),
+        interaction::Id::new("name"),
+    );
+    let initial = app
+        .show_scene(window, size)
+        .expect("table cursor rows should render");
+    let point_for = |cell| {
+        initial
+            .layout()
+            .frames()
+            .iter()
+            .find(|frame| frame.table_cell() == Some(cell))
+            .map(frame_point)
+            .expect("table text cell should materialize")
+    };
+    let row7_point = point_for(row7);
+    let row8_point = point_for(row8);
+    drop(initial);
+
+    app.pointer_move_at(window, size, row7_point)
+        .expect("non-focal text hover should resolve");
+    assert_eq!(
+        app.session().window(window).expect("window").cursor(),
+        pointer::Cursor::Default,
+        "a selection-only row must not advertise text participation"
+    );
+    assert!(app.take_cursor_updates().is_empty());
+
+    app.pointer_down_at(window, size, row7_point)
+        .expect("first text press should select only");
+    app.pointer_up_at(window, size, row7_point)
+        .expect("selection-only text press should release");
+    assert_eq!(active_text_table_cell(app.session(), window), None);
+    app.show_scene(window, size)
+        .expect("focal row should present under the stationary pointer");
+    assert_eq!(
+        app.session().window(window).expect("window").cursor(),
+        pointer::Cursor::Text,
+        "successful presentation of focality re-resolves the stationary pointer"
+    );
+    assert_eq!(
+        app.take_cursor_updates()
+            .last()
+            .map(|update| update.cursor()),
+        Some(pointer::Cursor::Text)
+    );
+
+    for modifiers in [
+        input::Modifiers::new(true, false, false, false),
+        input::Modifiers::new(false, true, false, false),
+        input::Modifiers::new(false, false, false, true),
+    ] {
+        app.pointer_modifiers_changed(window, modifiers)
+            .expect("stationary selection modifier should resolve");
+        assert_eq!(
+            app.session().window(window).expect("window").cursor(),
+            pointer::Cursor::Default
+        );
+        assert!(
+            !app.session()
+                .window(window)
+                .expect("window")
+                .redraw_requested(),
+            "cursor-only modifier projection must not request a frame"
+        );
+        assert_eq!(
+            app.take_cursor_updates()
+                .last()
+                .map(|update| update.cursor()),
+            Some(pointer::Cursor::Default)
+        );
+
+        app.pointer_modifiers_changed(window, input::Modifiers::default())
+            .expect("modifier release should resolve");
+        assert_eq!(
+            app.session().window(window).expect("window").cursor(),
+            pointer::Cursor::Text
+        );
+        assert_eq!(
+            app.take_cursor_updates()
+                .last()
+                .map(|update| update.cursor()),
+            Some(pointer::Cursor::Text)
+        );
+    }
+
+    let shift = input::Modifiers::new(true, false, false, false);
+    app.pointer_down_at_with_modifiers(window, size, row8_point, shift)
+        .expect("shift press should extend selection only");
+    app.pointer_up_at(window, size, row8_point)
+        .expect("shift selection should release");
+    app.show_scene(window, size)
+        .expect("range selection should reproject");
+    assert_eq!(
+        app.session().window(window).expect("window").cursor(),
+        pointer::Cursor::Default,
+        "a held selection modifier still suppresses the newly focal member"
+    );
+
+    app.pointer_modifiers_changed(window, input::Modifiers::default())
+        .expect("shift release should admit focal text");
+    assert_eq!(
+        app.session().window(window).expect("window").cursor(),
+        pointer::Cursor::Text
+    );
+    app.take_cursor_updates();
+
+    app.pointer_move_at(window, size, row7_point)
+        .expect("selected non-focal text hover should resolve");
+    assert_eq!(
+        app.session().window(window).expect("window").cursor(),
+        pointer::Cursor::Default,
+        "membership alone does not admit a selected-but-not-focal row member"
+    );
+    app.pointer_move_at(window, size, row8_point)
+        .expect("focal text hover should resolve");
+    assert_eq!(
+        app.session().window(window).expect("window").cursor(),
+        pointer::Cursor::Text
+    );
+}
+
+#[test]
 fn pointer_cursor_uses_text_for_editable_text_regions() {
     let text_box_focus = session::Focus::text("cursor.box");
     let text_area_focus = session::Focus::text("cursor.area");
@@ -6883,6 +7047,61 @@ fn pointer_cursor_uses_text_for_editable_text_regions() {
         cursor_after_move(&mut app, window, size, rect_bottom_point(text_area.rect())),
         Some(pointer::Cursor::Text),
         "text area tail space still places a caret"
+    );
+}
+
+#[test]
+fn pointer_cursor_uses_text_for_read_only_selectable_text_but_not_disabled_text() {
+    let read_only_focus = session::Focus::text("cursor.read-only");
+    let disabled_focus = session::Focus::text("cursor.disabled-area");
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Cursor Text Modes"));
+        })
+        .view(move |_, _| {
+            View::new(
+                view::Node::root().child(
+                    view::Node::stack(view::Axis::Vertical)
+                        .child(
+                            view::Node::text_area_state(
+                                view::TextArea::new("selectable")
+                                    .with_focus(read_only_focus)
+                                    .read_only(),
+                            )
+                            .with_style(view::Style::new().with_height(view::Dimension::fixed(80))),
+                        )
+                        .child(
+                            view::Node::text_area_state(
+                                view::TextArea::new("unavailable")
+                                    .with_focus(disabled_focus)
+                                    .with_mode(text::edit::FieldMode::Disabled),
+                            )
+                            .with_style(view::Style::new().with_height(view::Dimension::fixed(80))),
+                        ),
+                ),
+            )
+        });
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(280, 180);
+    let rendered = app
+        .show_scene(window, size)
+        .expect("text mode cursor test should render");
+    let frames = rendered.layout().find_role(view::Role::TextArea);
+    assert_eq!(frames.len(), 2);
+
+    assert_eq!(
+        cursor_after_move(&mut app, window, size, frame_point(frames[0])),
+        Some(pointer::Cursor::Text),
+        "selectability, not mutation, earns the I-beam"
+    );
+    app.pointer_move_at(window, size, frame_point(frames[1]))
+        .expect("disabled text hover should resolve");
+    assert_eq!(
+        app.session().window(window).expect("window").cursor(),
+        pointer::Cursor::Default,
+        "disabled text admits no caret or selection gesture"
     );
 }
 

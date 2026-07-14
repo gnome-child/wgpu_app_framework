@@ -51,8 +51,8 @@ fn platform_events_translate_winit_window_events_to_host_events() {
     use winit::{
         dpi::{PhysicalPosition, PhysicalSize},
         event::{
-            DeviceId, ElementState, Ime, MouseButton, MouseScrollDelta, TouchPhase,
-            WindowEvent as WinitWindowEvent,
+            DeviceId, ElementState, Ime, Modifiers as WinitModifiers, MouseButton,
+            MouseScrollDelta, TouchPhase, WindowEvent as WinitWindowEvent,
         },
     };
 
@@ -100,6 +100,20 @@ fn platform_events_translate_winit_window_events_to_host_events() {
         _ => panic!("expected pointer move event"),
     }
     assert_eq!(events.pointer(window), geometry::Point::new(11, 16));
+
+    let modifiers_changed = events
+        .window_event(
+            window,
+            &WinitWindowEvent::ModifiersChanged(WinitModifiers::default()),
+        )
+        .expect("modifier state should reach the host");
+    assert!(matches!(
+        modifiers_changed,
+        host::Event::Window {
+            window: event_window,
+            event: host::WindowEvent::ModifiersChanged { modifiers },
+        } if event_window == window && modifiers == input::Modifiers::default()
+    ));
 
     let pressed = events
         .window_event(
@@ -459,7 +473,10 @@ fn popup_ime_events_route_to_parent_text_input() {
 fn popup_window_event_adapter_forwards_non_left_buttons() {
     use winit::{
         dpi::PhysicalPosition,
-        event::{DeviceId, ElementState, MouseButton, WindowEvent as WinitWindowEvent},
+        event::{
+            DeviceId, ElementState, Modifiers as WinitModifiers, MouseButton,
+            WindowEvent as WinitWindowEvent,
+        },
     };
 
     let parent = window::Id::new(8);
@@ -476,6 +493,24 @@ fn popup_window_event_adapter_forwards_non_left_buttons() {
             },
         )
         .expect("popup cursor move should establish pointer position");
+
+    let modifiers_changed = events
+        .popup_window_event(
+            realization,
+            2.0,
+            &WinitWindowEvent::ModifiersChanged(WinitModifiers::default()),
+        )
+        .expect("popup modifier state should reach the parent session");
+    assert!(matches!(
+        modifiers_changed,
+        host::Event::Popup {
+            parent: event_parent,
+            popup,
+            event: host::WindowEvent::ModifiersChanged { modifiers },
+        } if event_parent == parent
+            && popup == realization.popup()
+            && modifiers == input::Modifiers::default()
+    ));
 
     for (mouse, expected) in [
         (MouseButton::Middle, pointer::Button::Middle),
