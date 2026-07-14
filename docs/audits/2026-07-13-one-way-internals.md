@@ -1,257 +1,496 @@
-# One-Way Internals — Seams Before Crates (umbrella ledger)
+# One-Way Internals — Seams Before Crates
 
-Status: arc open. Campaign destination from the
-[crate-seams investigation](2026-07-13-crate-seams-investigation.md);
-method is the ten-step loop; this document is the operating ledger for the
-whole arc — gauge, wave map, virtual-crate table, forbidden-edge allowlist,
-cell queue, and cell records. No file moves into crates during this arc.
+Status: **in flight**. Ignited from clean production baseline `1d7278c1`; the
+only pre-ignition changes were this finalized formulation and its roadmap sync.
+This is the canonical operating ledger
+for the full cleanup campaign. The campaign runs its examination loop until
+the exit theorem is satisfied. It does not stop after one cell, one rung, or
+the exhaustion of the initial queue.
 
-## Destination and exit theorem
+The [crate-seams investigation](2026-07-13-crate-seams-investigation.md) is a
+useful census and source of hypotheses. It is not the architectural direction.
+The live framework, `master_design.md`, established case law, and evidence
+produced by this campaign decide which seams survive, move, merge, or disappear.
 
-Make the monolith behave as if the crates already existed. The arc reaches
-fixed point when:
+No files move into member crates during this campaign.
 
-- the virtual crate graph is a DAG (zero forbidden edges);
-- text and ui do not depend on renderer or platform;
-- command retains no concrete UI/runtime services;
-- runtime and renderer are peers; platform is the only OS dependency sink;
-- every future cross-crate API is already deliberate (named consumer,
-  disposition for every crossing);
-- no unresolved test or visibility workaround remains.
+## Mission
 
-Then the crate split is packaging, not architecture.
+Make the current monolith practice an honest one-way internal architecture
+before Cargo is asked to enforce one.
+
+Trace the framework broadly enough to find misplaced ownership, upward
+dependencies, unnecessary translations and intermediate types, repeated
+semantic decisions, hidden service coupling, unjustified visibility, and
+module housing that contradicts the Examen. Correct each admitted finding at
+its lowest honest owner, delete the displaced path, and ratchet the result.
+
+At closure, the accepted virtual-crate graph is already a DAG; its crossings
+are narrow, deliberate library contracts; and a later physical split is
+packaging rather than architectural discovery.
+
+## Authority
+
+In descending order:
+
+1. observed user-visible behavior and already-settled product decisions;
+2. `docs/master_design.md` and narrower standing doctrine;
+3. practiced case law in behavioral and architecture witnesses;
+4. the live ownership, dependency, state, and lifecycle graph;
+5. findings admitted by this campaign;
+6. prior audits, proposed crate maps, industry precedent, and aesthetic
+   preference.
+
+The lower items may reveal a question. They may not overrule the higher items
+without evidence that the higher account is stale or internally contradictory.
+
+## Constitution
+
+### Seams are discovered, not imposed
+
+A candidate seam is a question until it survives tracing and admission. The
+campaign may confirm the investigation's proposed foundation, text, command,
+UI, renderer, runtime, platform, and facade seams; it is equally authorized to
+move, merge, split, or reject them when the resulting contract would otherwise
+be broader or less truthful than the coupling it replaces.
+
+The campaign goal is not eight crates. It is a coherent one-way graph whose
+eventual crates each have a stable sentence of ownership.
+
+### One truth has one lowest honest owner
+
+Every authoritative fact has one owner. Other layers consume a projection or
+receipt; they do not recompute, shadow, or retain competing truth. Runtime may
+coordinate several owners without absorbing their domain decisions.
+
+### Types earn their existence by preserving meaning
+
+A type survives when it makes a distinction structural: identity, authority,
+lifecycle, clock, coordinate space, unit, fallibility, capability, or an
+otherwise invalid state. A type that only transports the same facts between
+adjacent owners is a reduction candidate.
+
+Removing a type is not progress when its invariant merely reappears as
+booleans, conventions, widened visibility, or duplicated checks.
+
+### Repetition is judged by meaning
+
+Centralize repeated semantic decisions only when they have the same owner,
+inputs, outcomes, failure rules, and lifecycle. Similar syntax is not enough.
+An admitted common concept must let the old local decisions be deleted; a
+miscellaneous helper does not qualify.
+
+Standing intentional non-merges remain case law. Reopening one requires new
+evidence, not a fresh preference.
+
+### Dependency inversion must remain honest
+
+No generic service locator, callback smuggling, or trait whose sole purpose is
+concealing a dependency arrow. Erasure does not erase ownership. A lower
+contract is admitted only when it names a real capability and has a coherent
+failure and lifetime model.
+
+### Public surface is a budget
+
+Rust's lack of workspace visibility makes every eventual cross-crate `pub` a
+real design decision. No blanket visibility widening, public test-support
+escape hatch, or broad state bag is permitted to make a proposed seam compile.
+Reject or redraw the seam instead.
+
+### Naming follows the established house law
+
+- Names describe the domain concept, not its implementation trick.
+- No new `core`, `common`, `types`, `util`, `helper`, or `manager` bucket.
+- Moving or re-housing a concept does not authorize renaming it.
+- Existing overloaded-name cleanup remains under its established census and
+  is not opportunistically folded into this campaign.
+- A rename is admitted only by a concrete collision, stale meaning, or newly
+  clarified axis—not by crate fashion.
+- Package and feature names are deferred until their charters and scopes are
+  proven. Feature names, when later admitted, describe positive capability.
+
+### Behavior and optionality are frozen
+
+This is a behavior-preserving internal campaign. It introduces neither Cargo
+member crates nor feature gates. It may identify and prepare honest feature
+seams, including native realization and text mutation, but optional behavior
+belongs to a later campaign after default-on extraction is proven.
+
+## Operating mandate
+
+The loop is the campaign's engine, not a planning exercise.
+
+After a cell is independently green, append its receipt, commit it where
+authorized, select the next highest-value cell, and continue. A zero-change
+cell updates the ledger and continues. Completing a rung triggers its full
+re-census and then the next rung. Do not yield merely because one correction,
+one module, or the seeded queue is complete.
+
+The campaign stops only when:
+
+- the exit theorem is proven by the final fixed-point sweep; or
+- progress requires a product decision, external authority, unavailable
+  hardware, or other genuine blocker that safe in-scope investigation cannot
+  resolve.
+
+Feature campaigns such as Typed Stacking Contexts may consume the resulting
+seams after closure. They are not inserted between rungs unless the user
+explicitly reprioritizes the campaign.
 
 ## Scales
 
 | Scale | Purpose |
 |---|---|
-| Virtual-crate graph | Architectural destination |
-| Campaign wave | Bounded subsystem territory |
-| Ledger cell | Unit of investigation |
-| Loop | Method of correction |
-| Ratchet | Durable evidence of progress |
-| Exit theorem | Arc completion criterion |
+| Campaign goal | One-way internals and split readiness |
+| Rung | A dependency frontier to purify and re-census |
+| Ledger cell | One bounded ownership or seam question |
+| Loop | The method applied to every cell |
+| Ratchet | Durable evidence preventing restoration of the displaced shape |
+| Fixed-point sweep | Proof that no further admissible correction remains |
 
-Two repetitions: the **inner loop** works one cell to fixed point; the
-**outer loop** re-censuses the graph and selects the next cell until the
-exit theorem holds.
+There are two repetitions. The inner loop works one cell to fixed point. The
+outer loop re-censuses the framework and selects cells until the campaign exit
+theorem holds.
 
 ## The loop
 
 **Select → Trace → Model → Challenge → Admit → Reduce → Rewire → Prove →
 Ratchet → Re-scan.**
 
-1. **Select** one cell: a forbidden edge, disputed owner, duplicated
-   policy, visibility leak, or candidate seam. One named seam question.
-2. **Trace** every relevant entrance, outcome, lifecycle transition,
-   backend, and failure path within the slice — success, absence,
-   rejection, cancellation, staleness, replacement, retry.
-3. **Model** ownership, identity, clocks, coordinate spaces, state
-   authority, fallibility, dependencies, witnesses, intended virtual crate.
-4. **Challenge** intermediates, duplicated decisions, misplaced ownership,
-   dependency direction — with the standing questions below.
-5. **Admit** only on concrete evidence. Structural taste alone is
-   insufficient. A proven forbidden dependency or cross-seam cycle is
-   sufficient evidence even without a user-visible bug (the broadened
-   Examen authorization). Zero-change outcomes are valid and recorded.
-6. **Reduce** — remove machinery that carries no invariant.
-7. **Rewire** — relocate machinery that is real but owned by the wrong
-   seam. One coherent correction.
-8. **Prove** — behavior, architecture, dependency-graph, renderer-topology,
-   and performance witnesses proportional to the change. Behavior-preserving
-   means failure, absence, ordering, and cleanup identical — not merely the
-   happy path.
-9. **Ratchet** — encode the result so the old structure cannot silently
-   return: allowlist entry burned, forbidden-import witness, unique-owner
-   assertion, tombstone, charter, narrowed visibility, relocated test,
-   ledger receipt (old path, new owner, deletion).
-10. **Re-scan** the slice; repeat to fixed point; return to the queue.
+1. **Select** one bounded cell: a forbidden dependency, disputed owner,
+   repeated policy, suspicious intermediate, visibility leak, optional-field
+   state cluster, bridge leak, module-housing question, test seam, or feature
+   candidate. State one named seam question.
+2. **Trace** every relevant entrance, outcome, lifecycle transition, consumer,
+   backend, and failure path within the slice. Exhaustiveness is bounded by
+   the selected question, not by an arbitrary file count.
+3. **Model** the current owners, identities, authorities, clocks, coordinate
+   spaces, units, fallibility, external dependencies, visibility, witnesses,
+   and candidate virtual homes. Name both the current and proposed dependency
+   graph.
+4. **Challenge** every translation, intermediate type, recomputation,
+   duplicate decision, upward import, optional field, boolean protocol,
+   compatibility path, broad API, and misplaced test encountered by the
+   trace. Consult the sweep lenses below.
+5. **Admit** a correction only on concrete evidence. A user-visible defect is
+   sufficient but not required: a proven forbidden dependency, cross-seam
+   cycle, competing authority, false public surface, or dependency-weight leak
+   is also evidence. Structural taste alone is insufficient. Record resistance
+   and intentional non-merges as real outcomes.
+6. **Reduce** machinery that carries no invariant. Delete unnecessary wrappers,
+   translations, cached copies, states, aliases, compatibility paths, and
+   repeated computation without erasing a real distinction.
+7. **Rewire** the machinery that is real but owned at the wrong seam. Make one
+   coherent ownership correction and delete or demote the old route.
+8. **Prove** behavior, state transitions, absence, failure, cleanup, dependency
+   direction, visibility, renderer topology, and performance in proportion to
+   the correction. Behavior preservation includes negative and stale paths,
+   not only the happy path.
+9. **Ratchet** the finding with the cheapest durable mechanism justified by
+   its recurrence risk: type/privacy boundary, narrowed API, unique-owner
+   assertion, focused forbidden-import witness, tombstone, relocated test,
+   charter, or ledger receipt. Do not build a global bureaucracy merely to
+   count debt.
+10. **Re-scan** the changed slice and its immediate consumers. Repeat the cell
+    until fixed point, update the global gauge, and select the next cell.
 
-### Standing Challenge questions
+### Trace matrix
 
-A type survives when it encodes identity, lifecycle, units, coordinate
-space, authority, or failure — when it makes invalid states
-unrepresentable. If it has no invariant, no lifecycle/clock/space/identity
-distinction, no multiple real producers or consumers, and removing it does
-not increase coupling or visibility, it is transport scaffolding: Reduce.
+For each cell, explicitly consider:
 
-Repeated code centralizes only when it is the same semantic decision with
-the same inputs and failure rules — never for shared syntax. Deliberate
-non-merges (roadmap item 22 and every campaign-ledger non-merge) enter this
-step as already-answered case law; a cell may not re-litigate one without
-new evidence.
+- entrances: public API, internal callers, event paths, commands, tests;
+- outcomes: success, absence, decline, rejection, failure, cancellation;
+- time: creation, steady state, replacement, retry, staleness, retirement;
+- identity: creation, lookup, reuse, removal, eviction, destruction;
+- hosts: in-frame, native, headless/test, platform-specific paths;
+- presentation: candidate, prepared, submitted, presented, committed;
+- performance: invalidation, allocation, shaping, batching/pass fusion,
+  rebuild, and compile dependency cost where relevant.
 
-A seam is admitted per the
-[seam admission law](2026-07-13-crate-seams-investigation.md) — and
-withdrawn if its contract would be larger or less coherent than the
-coupling it replaces. No generic service locator; no trait whose only
-purpose is concealing a dependency arrow; an edge hidden behind
-`Box<dyn Fn>` is still an edge.
+Not every axis applies to every cell. The record states which were inapplicable
+rather than silently omitting them.
 
-## Constitutional rails
+## Sweep lenses
 
-- No user-visible behavior changes; no feature gating during the arc.
-- No generic `core`/`common`/`types`/`util`/`manager` buckets.
-- No renaming established concepts merely because they move.
-- No blanket visibility widening; hoists keep `pub(crate)`.
-- One ownership correction per commit where practical; land on main; no
-  long-lived refactor branch.
-- Every correction retires or narrows a ledger entry; every accepted
-  boundary gains a witness.
-- One cell fits one session, Prove step closed — a cell that cannot close
-  in-session is two cells.
-- Cells yield to in-flight behavioral campaigns: a cell whose slice
-  intersects a hot campaign re-queues.
-- Success metrics: forbidden edges, ambiguous ownership, unjustified
-  visibility, services crossing semantic seams, direct witness path-reads.
-  Non-goals: total modules, imports, types, intra-slot cycles, line count.
+The loop examines more than import arrows:
 
-## Gauge
+1. **Ownership and authority** — duplicated truth, state at the wrong altitude,
+   runtime answering instead of coordinating.
+2. **Dependencies and cycles** — upward imports, peer cycles, callback-hidden
+   edges, heavy external dependencies pulled downward.
+3. **State shape** — boolean protocols, related `Option` clusters, invalid
+   combinations, authority split across stores.
+4. **Intermediates and translations** — wrappers or erased forms with no
+   invariant, repeated conversion, bridge details escaping their edge.
+5. **Repeated logic** — common semantic decisions waiting for a lower honest
+   owner; deliberate duplication whose meanings only look alike.
+6. **Failure and lifecycle** — `panic!`/`expect` standing in for agreement,
+   ignored absence, incomplete cleanup, stale receipts, cancellation gaps.
+7. **Identity, time, and space** — raw/stringly identity, collapsed clocks,
+   logical/physical or owner/local coordinate confusion, repeated boundary
+   conversions.
+8. **Visibility and API compression** — unjustified `pub(crate)`, future
+   cross-crate surfaces, broad data bags, APIs with no named consumer.
+9. **Tests and witnesses** — white-box tests housed with the wrong owner,
+   architecture reads tied to one source root, duplicated production
+   algorithms in tests, missing negative witnesses.
+10. **External dependencies and optional capability** — single-owner
+    dependencies, platform/renderer leakage, credible feature boundaries and
+    their honest feature-off behavior.
+11. **Renderer and runtime economics** — paint order, pass/batch fusion,
+    presentation clocks, invalidation, cache ownership, and compile-time cost.
+12. **Housing, names, and doctrine** — modules organized around owners,
+    declared charters matching live code, stale docs, and naming debt routed to
+    its existing owner rather than casually renamed.
+13. **Dead and compatibility structure** — retired aliases, parallel paths,
+    allowances without owners/expiry, and scaffolding receiving new behavior.
 
-Updated per cell. Initial values from the census; Wave 0 regenerates
-mechanically.
+## Admission law
 
-| Metric | Now | Target |
-|---|---|---|
-| Forbidden virtual-crate edges (allowlist size) | 13 seeded (see below; Wave 0 recount is authoritative) | 0 |
-| Cross-slot cycles | 4 named knots + SCC seam crossings | 0 |
-| Concrete services crossing semantic seams | 3 known (context clipboard/task/text-layout) | 0 |
-| Unresolved cross-seam `pub(crate)` sites | uncounted — Wave 0 counts | 0 |
-| White-box tests depending on another slot's internals | uncounted — Wave 0 counts | 0 |
-| Architecture-test direct path reads | 98 | 0 (one workspace helper) |
-| `#[allow(...)]` without owner / expiry | uncounted — Wave 1 inventory | 0 |
+A virtual crate seam survives only when all of these are true:
 
-## Wave map
+1. it has one sentence of ownership and a short forbidden-dependency list;
+2. its crossing API is smaller and more stable than its implementation;
+3. the resulting graph is acyclic without concealed callbacks or services;
+4. it has an independent consumer, isolates meaningful dependency/compile
+   weight, or establishes an honest optional-capability boundary;
+5. its tests can live with the owner or observe the same contract as
+   production; and
+6. proving it deletes coupling, competing policy, or a private convention.
 
-- **Wave 0 — virtual crates and the ratchet** (infrastructure; acceptance
-  below).
-- **Wave 1 — purify the bottom**: animation/winit, pointer/double-click
-  metrics, document/file-replacement FFI, icon identity vs pack, task and
-  state vocabulary vs machinery, error back to command. Plus the
-  inventories: `panic!`/`expect` (witnessed invariant or typed
-  fallibility), `#[allow]` audit (the Menus dead-code allowance carried an
-  expiry — check first), dead `pub(crate)`.
-- **Wave 2 — text/geometry/paint ownership**: renderer-neutral coordinates
-  down; text layout off paint vocabulary; read-only selection/caret
-  projection separated from mutation/history; renderer keeps
-  `paint::Scene`; text-editing boundary established, not gated.
-- **Wave 3 — command meaning freed from concrete services**: smallest
-  honest contracts for clipboard/task/text-layout access; reject the seam
-  rather than manufacture an ugly abstraction. Also the command-slot
-  upward edges: `input → {session, interaction}`,
-  `responder → {session, interaction, table}`.
-- **Wave 4 — semantic presentation vs physical realization**:
-  scene-to-paint lowering out of `platform::native::paint` into renderer
-  ownership; renderer and runtime become peers (already true by import
-  graph — keep it true); diagnostics inversion; presentation clock
-  preserved exactly.
-- **Wave 5 — reassess the UI knot**: `{scene, view, table, interaction,
-  session, composition, virtual_list}` stays together unless a back-edge
-  crosses a seam, creates competing authority, drags heavy deps downward,
-  forces exposure, or blocks a feature boundary. Zero intra-slot cycles is
-  a non-goal.
-- **Wave 6 — visibility and test readiness**: every crossing has a
-  disposition; white-box tests have owning future crates; journeys use
-  real contracts; the workspace source-reading helper replaces all 98
-  path reads; no public test-support escape hatch. Then — and only then —
-  the workspace split ignites as its own campaign.
+A seam that fails admission is merged, redrawn, or recorded as resistance. The
+campaign does not preserve it to match the investigation ledger.
 
-Stacking sequencing: Typed Stacking Contexts flies after Wave 1's
-foundation purification and becomes that seam's first real consumer
-(`stack::Key` vocabulary born low, strata with their owners).
+## Gauge and ratchet
 
-## Wave 0 seed
+Global dependency census is a gauge, not a suite gate. It guides selection and
+measures progress without encouraging import laundering or freezing a
+provisional map. Rung 0 makes the gauge trustworthy and establishes its
+baseline.
 
-### Virtual crate slots
+Track at least:
 
-| Slot | Modules |
-|---|---|
-| `foundation` | geometry, color, animation†, subject, feedback†, icon†, state†, task† |
-| `text` | text (editing boundary marked within) |
-| `command` | command, responder, context†, response, target, timeline, notification, keymap, input, error |
-| `ui` | scene, view, widget, layout, composition, interaction, session, table, virtual_list, selection, draft, popup, overlay, theme, pointer† |
-| `render` | render, paint† |
-| `runtime` | runtime, shell, host, ime, document†, clipboard, diagnostics |
-| `platform` | platform (and every OS/FFI projection relocated by Wave 1) |
-| `facade` | lib.rs re-exports; `tests/` pending Wave 6 disposition |
+- accepted-seam forbidden edges;
+- cross-seam cycles and concealed service edges;
+- concrete services crossing semantic seams;
+- unresolved cross-seam `pub(crate)` uses;
+- white-box tests depending on another proposed owner;
+- direct architecture-witness source-root reads;
+- external dependencies owned below their honest boundary;
+- `#[allow(...)]`, panic paths, and compatibility structures lacking a named
+  owner and disposition.
 
-† split-pending per Codex's review rulings: the module's *vocabulary* and
-its *machinery* may take different slots (icon identity vs iconflow pack;
-task/state/feedback vocabulary vs executor/store/stacks; animation minus
-its winit projection; pointer minus its windows-sys metrics; document
-semantics vs file-replacement FFI; paint coordinates vs render-ready
-scene; context contract vs service realizations). Each † is a queue cell.
+The global counts may rise when a more truthful map reveals debt. Progress is
+the retirement of admitted confusion, not a monotonically flattering number.
+Each completed cell receives a narrow ratchet only when justified by the
+finding and its recurrence risk.
 
-### Allowed directions
+## Rungs
 
-`foundation` → nothing. `text` → foundation. `command` → foundation, text.
-`ui` → foundation, text, command. `render` → foundation, text (paint).
-`runtime` → foundation, text, command, ui, render-as-peer-forbidden.
-`platform` → everything. `runtime` and `render` are peers: neither imports
-the other (already true; the witness keeps it true). Facade re-exports all.
+Rungs establish search order, not predetermined conclusions. Each ends with a
+full re-census, updated candidate map, receipts, and a green repository. New
+evidence may reorder later cells.
 
-### Forbidden-edge allowlist (seed — Wave 0's witness recount is authoritative)
+### Rung 0 — Establish the instruments and provisional map
 
-| # | Edge | Wave | Receipt |
-|---|---|---|---|
-| 1 | animation → winit (`ControlFlow`) | 1 (pilot) | census: animation returns winit type |
-| 2 | pointer → windows_sys (double-click metrics) | 1 | pointer/mod.rs:47 |
-| 3 | document → windows_sys (file replacement) | 1 | census TASK 4 |
-| 4 | icon → iconflow (pack realization in identity module) | 1 | census |
-| 5 | error → (command vocabulary living in foundation position) | 1 | Codex review ruling |
-| 6 | text → paint | 2 | paint/mod.rs:2 \| text/edit/view.rs:3 |
-| 7 | context → layout (`TextService`) | 3 | context/mod.rs:5 |
-| 8 | context → clipboard, context → task (concrete services) | 3 | census edges |
-| 9 | input → session | 3 | input/mod.rs:5 |
-| 10 | input → interaction | 3 | census |
-| 11 | responder → session / interaction / table | 3 | responder/builder.rs:4 etc. |
-| 12 | render → diagnostics | 4 | census |
-| 13 | layout → diagnostics | 4 | census |
-| 14 | widget → document (`TextArea::from_document`) | 3/5 | census; the compression constructor needs an owner ruling |
+- Verify the clean boundary and protected user state.
+- Pin the current behavior and full verification ritual.
+- Build or validate a workspace-aware dependency/source census as a reporting
+  tool, including grouped imports, `crate::`/`super::` resolution, cfg/test
+  separation, external dependencies, visibility, and test ownership.
+- Record clean and incremental compile baselines.
+- Assign every module and split-pending responsibility a provisional owner,
+  explicitly marking disputed placements.
+- Turn the investigation's proposed edges into revalidated candidates, not an
+  inherited allowlist.
+- Establish the cell queue and ledger record format.
 
-This list is **gauge information, not a suite gate** (ruling: an
-allowlist-as-failing-test would moderate exploration and reward laundering
-edges past the parser through erasure — the failure mode worse than
-re-tangling). The census parser runs as a report at cell and wave
-boundaries; the ledger records the count. Enforcement is per-cell: each
-completed cell's Ratchet step adds a narrow structural-absence tombstone
-for the specific structure it burned (the established house pattern —
-pinning the past, never gating the future). If an area demonstrably
-re-tangles across audits, that evidence admits a narrow witness there —
-enforcement obeys the same admission law as everything else.
+This rung changes no production behavior.
 
-### Wave 0 acceptance
+### Rung 1 — Purify the lowest vocabulary
 
-- The census parser is productionized as a **gauge tool** (same sweep
-  rules validated this session: `crate::`/`super::` resolution, grouped
-  uses, `cfg(test)` separation), keyed to the slot and direction tables
-  above, producing the forbidden-edge report on demand — not wired into
-  the suite.
-- The recount replaces the seed list above (order-of-15 expected; the
-  metric is forbidden edges, not the 24 raw mutual pairs — intra-slot
-  cycles are lawful).
-- Cross-slot `pub(crate)` count and white-box-test count measured and
-  entered in the gauge.
-- Compile-time baselines recorded (clean + incremental) for later receipt.
-- The queue below is confirmed against in-flight campaign territory.
+Start with high-confidence leaks that exercise the whole loop cheaply:
 
-## Cell record template
+- platform-neutral scheduling versus winit `ControlFlow`;
+- pointer grammar versus OS double-click metrics;
+- document semantics versus platform file replacement;
+- icon identity versus icon-pack realization;
+- task/state/feedback vocabulary versus stores, stacks, and executors;
+- command-owned failure versus generic low-level values.
 
-1. traced slice; 2. current owner graph; 3. candidate; 4. admission
-evidence; 5. displaced path; 6. correction commit; 7. dependency/API
-delta; 8. verification; 9. fixed-point result (including zero-change).
+Also inventory dead visibility, unowned allowances, panic/expect paths, and
+compatibility scaffolding encountered in these slices. Do not bulk-move every
+syntactic leaf into a foundation bucket.
 
-## Queue (initial)
+### Rung 2 — Untangle text, geometry, and paint
 
-1. **Pilot: `animation::Schedule → winit::ControlFlow`** — small,
-   unambiguous, exercises all ten steps, burns allowlist #1, produces the
-   first dependency-direction ratchet.
-2. Allowlist #2–#5 (Wave 1 leaks), then the Wave 1 inventories.
-3. Flag-sourced candidates: Examen unresolved R-flags; roadmap 25/26
-   (Panel contract, semantic leaf openness) as ownership questions;
-   pending-eyes entries where a trace is cheap while the slice is open.
-4. Wave 2 knot (`text ↔ paint`) once Wave 1 closes.
+- place renderer-neutral geometry at the lowest honest owner;
+- remove renderer paint vocabulary from text layout and shaping;
+- distinguish read-only selection/caret projection from mutation, history,
+  draft, and IME machinery without gating it;
+- keep renderer-ready scene grammar with its actual consumer;
+- preserve shaping, hit testing, selection, overflow, snapping, and renderer
+  topology exactly.
 
-Cell records append below as the arc runs.
+The rung establishes whether a low text library and a later text-mutation
+capability are honest seams. It does not assume either result.
 
----
+### Rung 3 — Free command meaning from concrete services
+
+Trace command context, responders, input, keymap, target, clipboard, task, text
+layout, timeline, notification, and effects end to end.
+
+Find the smallest honest capability contracts, relocate service realization,
+and delete compensating routes. Reject a standalone command seam if it requires
+a service locator, an incoherent callback surface, or UI/runtime state exposed
+as command vocabulary.
+
+### Rung 4 — Separate semantic presentation from physical realization
+
+- place semantic-scene lowering with the renderer rather than the OS adapter;
+- keep renderer and runtime as peers if the live graph supports that law;
+- make platform the top adapter for OS windows, event loops, native surfaces,
+  dialogs, clipboard bridges, and physical cursor/IME realization;
+- invert diagnostics so owners publish their own facts to observers;
+- preserve candidate/prepared/submitted/presented/committed clocks and every
+  native-popup lifecycle state;
+- verify unchanged batching, pass fusion, invalidation, and frame economics.
+
+### Rung 5 — Reassess the UI knot
+
+Trace scene, view, widget, layout, composition, interaction, session, table,
+virtualization, selection, draft, popup, overlay, theme, and pointer as one
+connected territory before deciding its internal seams.
+
+Break only edges that cross an admitted owner boundary, create competing
+authority, drag heavy dependencies downward, force unjustified exposure, or
+block a real capability seam. Intra-owner collaboration and cycles are not
+failures. Organize modules around the resulting owners in accordance with the
+Examen; do not split a state machine merely to improve browsing.
+
+### Rung 6 — Visibility, tests, and feature-seam readiness
+
+- give every accepted crossing a named consumer and visibility disposition;
+- house white-box tests with their future owner;
+- make cross-layer journeys use production contracts;
+- replace direct source-root assumptions with one workspace-aware witness
+  seam;
+- prove no public test-support escape hatch is needed;
+- audit external dependency ownership and compile isolation;
+- formulate, but do not activate, positive feature seams and feature-off
+  semantics for text mutation, native runner, native popup realization,
+  system clipboard, dialogs, theme files, accessibility integration, and any
+  additional capability admitted by evidence.
+
+### Rung 7 — Final fixed-point sweep and closure
+
+Re-run the loop bidirectionally across every accepted owner:
+
+- doctrine to code;
+- code to doctrine;
+- each crossing in both directions;
+- every external dependency to its owner;
+- each public and cross-seam item to a named consumer;
+- tests and witnesses to their owning contract;
+- all recorded resistance, flags, intentional non-merges, and feature seams.
+
+Reopen any cell contradicted by the final graph. Continue correcting and
+re-sweeping until no admissible finding remains.
+
+## Initial hypotheses and queue
+
+The investigation suggests foundation, text, command, UI, renderer, runtime,
+platform, and facade as a useful first map. The campaign owes none of them
+survival. Its first question for each is whether the live crossing contract is
+smaller and more coherent than keeping the concepts together.
+
+Initial cells, subject to Rung 0 revalidation:
+
+1. pilot: platform-neutral scheduling versus `winit::ControlFlow`;
+2. the remaining high-confidence lower-boundary leaks in Rung 1;
+3. cross-seam visibility, test, allowance, and panic findings encountered by
+   those traces;
+4. the text/paint/geometry knot;
+5. concrete services crossing the command boundary;
+6. semantic-scene lowering and diagnostics observation;
+7. the UI knot only after the lower contracts are stable.
+
+Queue priority is: clearest ownership contradiction, highest downward
+dependency weight, smallest independently provable correction, then the
+correction that unlocks the most later cells.
+
+## Cell record
+
+Every cell records:
+
+1. question and selected bounds;
+2. traced entrances/outcomes/lifecycles/backends;
+3. current owner and dependency graph;
+4. proposed owner or resistance ruling;
+5. admission evidence;
+6. displaced or deliberately retained path;
+7. implementation and deletion;
+8. dependency, visibility, API, test, and performance delta;
+9. verification and commit receipt;
+10. fixed-point result and next unlocked cells.
+
+## Verification and commit discipline
+
+- Preserve unrelated working-tree changes and protected example state.
+- One coherent ownership correction per commit where practical.
+- Each production cell is independently green and reviewable.
+- Run focused behavioral and architecture witnesses during the cell.
+- Run the full library/examples/format/diff ritual at every rung boundary and
+  whenever a cross-cutting owner changes.
+- Run deep-tier GPU/native/performance witnesses when the changed seam can
+  affect their law; unavailable hardware remains an explicit caveat, never a
+  fabricated guarantee.
+- Record hashes, counts, deleted paths, graph deltas, compile receipts, and
+  zero-change rulings in this ledger.
+- No mid-campaign push unless explicitly requested.
+
+## Non-goals
+
+- physically creating workspace member crates;
+- introducing feature gates or changing default capability;
+- changing user-visible behavior;
+- minimizing module, type, import, or line counts;
+- eliminating lawful cycles within one cohesive owner;
+- conforming to the Fable 5 candidate map;
+- opportunistically completing unrelated naming or feature campaigns;
+- preserving a proposed seam by widening or obscuring its API.
+
+## Exit theorem
+
+The campaign is complete only when all of the following are evidenced:
+
+1. Every module and split responsibility has one admitted virtual owner and a
+   short charter stating what it owns and must not depend on.
+2. The accepted virtual-crate graph is a DAG with zero prohibited crossings or
+   concealed service/callback back-edges.
+3. Every crossing is a deliberate, named library contract with an identified
+   consumer, failure model, lifecycle, and visibility disposition.
+4. Lower owners do not import higher reasons for existence. Renderer-specific
+   dependencies live with rendering; OS/window-system dependencies live at the
+   platform edge; any exception is explicitly justified by the accepted graph.
+5. Authoritative facts, identities, clocks, coordinates, and cleanup lifetimes
+   have one owner; displaced computations and parallel paths are deleted or
+   reduced to witnesses.
+6. No proposed seam depends on a generic service locator, callback smuggling,
+   broad state exposure, blanket visibility widening, or public test-support.
+7. Tests and architecture witnesses are housed for the future workspace and
+   observe real contracts; direct single-crate source-root assumptions are
+   retired behind one workspace-aware seam.
+8. Optional-capability candidates have evidence-backed boundaries and honest
+   absent-capability semantics recorded, without gates being introduced here.
+9. Behavior, renderer topology, presentation clocks, and measured performance
+   remain equivalent to the campaign baseline except for explicitly recorded
+   and authorized internal economics improvements.
+10. A complete final bidirectional sweep finds no further admissible ownership,
+    dependency, visibility, state-shape, repetition, housing, or seam
+    correction.
+
+At that point, and not before, a separately authorized workspace campaign may
+choose package names, create member crates, preserve the facade, and introduce
+feature gates one at a time. The architecture will already have been decided
+and practiced inside the monolith.

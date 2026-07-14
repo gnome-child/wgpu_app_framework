@@ -98,15 +98,16 @@ is next.
     (campaign closed at `bc4df416`), meaning-derived menu bars (`33ab1cc4`).
 13. **Trading terminal** (flagship two) — charts primitive domain, real-time
     invalidation stress, tabular figures, kiosk-scoped BSD session.
-35. **One-Way Internals — Seams Before Crates** (arc OPEN) — long-running
-    cleanup: make the monolith behave as if the crates already existed.
-    Ten-step loop over bounded ledger cells; machine-held forbidden-edge
-    ratchet; waves from foundation purification through the UI knot to
-    visibility/test readiness; file moves deferred until the virtual graph
-    is a DAG. Typed Stacking Contexts flies after Wave 1 as the foundation
-    seam's first consumer; the workspace split ignites only after Wave 6.
-    Operating ledger: `docs/audits/2026-07-13-one-way-internals.md`;
-    destination census: `docs/audits/2026-07-13-crate-seams-investigation.md`.
+35. **One-Way Internals — Seams Before Crates** (IN FLIGHT) — long-running
+    cleanup: make the monolith practice an evidence-derived one-way
+    architecture before any physical split. A ten-step loop runs continuously
+    over bounded cells and seven rungs to a final fixed-point sweep; the live
+    framework and constitution may confirm, redraw, merge, or reject every
+    proposed seam. Global dependency census is a gauge and each admitted
+    correction receives a proportionate ratchet. File moves and feature gates
+    belong to later campaigns. Operating ledger:
+    `docs/audits/2026-07-13-one-way-internals.md`; candidate census, not
+    direction: `docs/audits/2026-07-13-crate-seams-investigation.md`.
 28. **Presentation Clock — COMPLETE** (`20c31cae`, 2026-07-13; 939 tests at
     the last behavioral boundary). Events update truth immediately; redraw is
     the frame boundary; successful presentation receipts alone promote visible
