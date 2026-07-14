@@ -3713,6 +3713,12 @@ fn deferred_tasks_have_one_worker_execution_path() {
         "task module must own execution on named worker threads"
     );
     assert!(
+        executor.contains("(!workers.is_empty()).then_some(sender)")
+            && executor.contains("Err(error)")
+            && !executor.contains("worker executor thread should start"),
+        "worker startup failure must leave an honest rejecting executor rather than panic or strand jobs"
+    );
+    assert!(
         task.contains("pub fn future(")
             && task.contains("pollster::block_on(future)")
             && !task.contains("winit")
@@ -3722,8 +3728,10 @@ fn deferred_tasks_have_one_worker_execution_path() {
     );
     assert!(
         native.contains("executor.spawn(move ||")
-            && native.contains("proxy.send_event(RunnerEvent::TaskCompleted"),
-        "native runner must send worker results through its event-loop proxy"
+            && native.contains("proxy.send_event(RunnerEvent::TaskCompleted")
+            && native.contains("if !scheduled")
+            && native.contains("cancel_task(id)"),
+        "native runner must send worker results through its event-loop proxy and cancel rejected work"
     );
     assert!(
         handler.contains("runtime.accept_task_completion(id, event)")
