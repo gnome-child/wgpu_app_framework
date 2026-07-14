@@ -282,6 +282,14 @@ visible text, bindings, focus/selection projection, provided/table identity,
 participation, context-menu eligibility, and children remain on the common
 envelope because live nodes combine them independently of role.
 
+Floating-panel attachment is one species: geometry may optionally carry the
+available rectangle in which it must resolve, while pointer and element
+attachments cannot. Panel policy is likewise structural. An interactive panel
+carries no auxiliary explanation; a hover tip or window-feedback panel owns
+the `Hint` it communicates and is hit-transparent. Policy and hint never travel
+as independent fields, so communication panels cannot accidentally admit
+focus or input.
+
 A view binding owns one trigger species. Ordinary and resolved actions carry a
 fixed trigger; a slider-change binding carries its current value-derived
 trigger together with the value-trigger factory that can derive its successor.
@@ -453,6 +461,9 @@ answer "can this command run?" or "what side effect should happen?"
 typed `FrameContent`. The content discriminant is the frame's role truth and
 owns mutually exclusive choice, text, slider, scroll, and unit-role payloads;
 there is no independent copied role or parallel optional leaf-payload cluster.
+Its floating-panel payload owns popup placement and context, material and group
+preferences, and the same structural panel policy; those facts do not occupy
+ordinary frames.
 Bound presentation remains a common typed optional because ordinary Elements,
 controls, menu bindings, and palette Labels can all truthfully carry commands.
 Its measurement contract is constraints down and size hints up: hints are

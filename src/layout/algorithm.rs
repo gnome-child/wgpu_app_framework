@@ -656,7 +656,7 @@ fn root_floating_panel_rect(
     profile: keymap::Profile,
 ) -> (Rect, Option<geometry::PlacementRequest>) {
     let attachment = floating_panel_attachment(node, frames, theme);
-    let anchor = attachment.map(|(anchor, _)| anchor);
+    let anchor = attachment.map(|(anchor, _, _)| anchor);
     let width = match node.style().width() {
         Some(_) => resolved_width(node, root.width, engine, theme, profile),
         None if anchor.is_some() => floating_panel_width(node, engine, theme, profile),
@@ -682,10 +682,12 @@ fn root_floating_panel_rect(
     );
 
     if let Some(anchor) = anchor {
-        let clearance = attachment.map_or(0, |(_, clearance)| clearance);
+        let clearance = attachment.map_or(0, |(_, clearance, _)| clearance);
         let request = geometry::PlacementRequest::new(anchor, Size::new(width, height))
             .with_clearance(clearance);
-        let available = node.placement_available().unwrap_or(root);
+        let available = attachment
+            .and_then(|(_, _, available)| available)
+            .unwrap_or(root);
         return (request.resolve(available), Some(request));
     }
 
@@ -717,16 +719,17 @@ fn floating_panel_attachment(
     node: &view::Node,
     frames: &[Frame],
     theme: &theme::Theme,
-) -> Option<(geometry::PlacementAnchor, i32)> {
+) -> Option<(geometry::PlacementAnchor, i32, Option<Rect>)> {
     match node.panel_attachment()? {
-        view::PanelAttachment::Geometry(anchor) => Some((anchor, 0)),
+        view::PanelAttachment::Geometry { anchor, available } => Some((anchor, 0, available)),
         view::PanelAttachment::Pointer(point) => Some((
             geometry::PlacementAnchor::Point(point),
             theme.auxiliary_panel().pointer_clearance,
+            None,
         )),
         view::PanelAttachment::Element(id) => frames.iter().find_map(|frame| {
             (frame.target().and_then(interaction::Target::element_id) == Some(id))
-                .then(|| (geometry::PlacementAnchor::Rect(frame.rect()), 0))
+                .then(|| (geometry::PlacementAnchor::Rect(frame.rect()), 0, None))
         }),
     }
 }

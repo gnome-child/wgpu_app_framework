@@ -6,6 +6,8 @@ use super::super::{
 use super::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node, PanelPolicy, Role};
 use crate::{interaction, subject};
 
+static INTERACTIVE_PANEL_POLICY: PanelPolicy = PanelPolicy::Interactive;
+
 impl Node {
     pub(crate) fn role(&self) -> Role {
         self.content.role()
@@ -29,24 +31,20 @@ impl Node {
         self.content.panel().and_then(|panel| panel.attachment)
     }
 
-    pub(crate) fn placement_available(&self) -> Option<crate::geometry::Rect> {
-        self.content.panel().and_then(|panel| panel.available)
-    }
-
     pub(crate) fn popup_context(&self) -> Option<crate::popup::ContextFingerprint> {
         self.content.panel().and_then(|panel| panel.popup_context)
     }
 
-    pub(crate) fn panel_policy(&self) -> PanelPolicy {
+    pub(crate) fn panel_policy(&self) -> &PanelPolicy {
         self.content
             .panel()
-            .map_or(PanelPolicy::Interactive, |panel| panel.policy)
+            .map_or(&INTERACTIVE_PANEL_POLICY, |panel| &panel.policy)
     }
 
     pub(crate) fn auxiliary_hint(&self) -> Option<&super::super::Hint> {
         self.content
             .panel()
-            .and_then(|panel| panel.auxiliary_hint.as_ref())
+            .and_then(|panel| panel.policy.auxiliary_hint())
     }
 
     pub(crate) fn force_overlay_group(&self) -> bool {

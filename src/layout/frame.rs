@@ -53,7 +53,7 @@ enum FrameContent {
     Slider(SliderContent),
     Scroll(ScrollContent),
     VirtualList(VirtualListContent),
-    FloatingPanel,
+    FloatingPanel(FloatingPanelContent),
 }
 
 #[derive(Clone, Copy)]
@@ -129,6 +129,15 @@ struct VirtualGeometry {
 }
 
 #[derive(Clone)]
+struct FloatingPanelContent {
+    force_overlay_group: bool,
+    native_popup_material_preference: view::NativePopupMaterialPreference,
+    popup_placement: Option<crate::geometry::PlacementRequest>,
+    popup_context: Option<crate::popup::ContextFingerprint>,
+    policy: view::PanelPolicy,
+}
+
+#[derive(Clone)]
 struct BoundContent {
     binding: view::Binding,
     shortcut_width: Option<i32>,
@@ -163,12 +172,6 @@ pub(crate) struct Frame {
     table_projection: Option<table::Projection>,
     input_parts: Option<control::InputParts>,
     participation: Option<view::Participation>,
-    force_overlay_group: bool,
-    native_popup_material_preference: view::NativePopupMaterialPreference,
-    popup_placement: Option<crate::geometry::PlacementRequest>,
-    popup_context: Option<crate::popup::ContextFingerprint>,
-    panel_policy: view::PanelPolicy,
-    auxiliary_hint: Option<view::Hint>,
     overflow_projection: Option<text::Selectable>,
     floating_layer: bool,
     background: Option<scene::Brush>,
@@ -410,12 +413,6 @@ impl Frame {
             table_projection: None,
             input_parts,
             participation: node.participation(),
-            force_overlay_group: node.force_overlay_group(),
-            native_popup_material_preference: node.native_popup_material_preference(),
-            popup_placement: None,
-            popup_context: node.popup_context(),
-            panel_policy: node.panel_policy(),
-            auxiliary_hint: node.auxiliary_hint().cloned(),
             overflow_projection: text_area_projection.or(label_projection),
             floating_layer,
             background: node.style().background(),
@@ -438,7 +435,14 @@ impl Frame {
         &mut self,
         placement: Option<crate::geometry::PlacementRequest>,
     ) {
-        self.popup_placement = placement;
+        if let FrameContent::FloatingPanel(content) = &mut self.content {
+            content.popup_placement = placement;
+        } else {
+            debug_assert!(
+                false,
+                "only FloatingPanel frame content accepts popup placement"
+            );
+        }
     }
 
     pub(super) fn with_table_projection(mut self, projection: table::Projection) -> Self {
@@ -658,27 +662,41 @@ impl Frame {
     }
 
     pub(crate) fn force_overlay_group(&self) -> bool {
-        self.force_overlay_group
+        self.content
+            .floating_panel()
+            .is_some_and(|content| content.force_overlay_group)
     }
 
     pub(crate) fn native_popup_material_preference(&self) -> view::NativePopupMaterialPreference {
-        self.native_popup_material_preference
+        self.content
+            .floating_panel()
+            .map_or(view::NativePopupMaterialPreference::System, |content| {
+                content.native_popup_material_preference
+            })
     }
 
     pub(crate) fn popup_placement(&self) -> Option<crate::geometry::PlacementRequest> {
-        self.popup_placement
+        self.content
+            .floating_panel()
+            .and_then(|content| content.popup_placement)
     }
 
     pub(crate) fn popup_context(&self) -> Option<crate::popup::ContextFingerprint> {
-        self.popup_context
+        self.content
+            .floating_panel()
+            .and_then(|content| content.popup_context)
     }
 
     pub(crate) fn panel_accepts_input(&self) -> bool {
-        self.panel_policy.accepts_input()
+        self.content
+            .floating_panel()
+            .is_none_or(|content| content.policy.accepts_input())
     }
 
     pub(crate) fn auxiliary_hint(&self) -> Option<&view::Hint> {
-        self.auxiliary_hint.as_ref()
+        self.content
+            .floating_panel()
+            .and_then(|content| content.policy.auxiliary_hint())
     }
 
     pub(crate) fn is_floating_layer(&self) -> bool {
@@ -1148,7 +1166,13 @@ impl FrameContent {
                     .clone(),
             }),
             view::Role::Panel => Self::Structural(StructuralRole::Panel),
-            view::Role::FloatingPanel => Self::FloatingPanel,
+            view::Role::FloatingPanel => Self::FloatingPanel(FloatingPanelContent {
+                force_overlay_group: node.force_overlay_group(),
+                native_popup_material_preference: node.native_popup_material_preference(),
+                popup_placement: None,
+                popup_context: node.popup_context(),
+                policy: node.panel_policy().clone(),
+            }),
             view::Role::SectionHeader => Self::Text(TextContent::SectionHeader),
             view::Role::Label => Self::Text(TextContent::Label {
                 world_overflow: world_text_overflow,
@@ -1177,9 +1201,16 @@ impl FrameContent {
             Self::Text(TextContent::Field { .. }) => view::Role::TextBox,
             Self::Scroll(_) => view::Role::Scroll,
             Self::VirtualList(_) => view::Role::VirtualList,
-            Self::FloatingPanel => view::Role::FloatingPanel,
+            Self::FloatingPanel(_) => view::Role::FloatingPanel,
             Self::Text(TextContent::SectionHeader) => view::Role::SectionHeader,
             Self::Text(TextContent::Label { .. }) => view::Role::Label,
+        }
+    }
+
+    fn floating_panel(&self) -> Option<&FloatingPanelContent> {
+        match self {
+            Self::FloatingPanel(content) => Some(content),
+            _ => None,
         }
     }
 }

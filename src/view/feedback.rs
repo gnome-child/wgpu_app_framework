@@ -4,6 +4,11 @@ use crate::{feedback, geometry, interaction};
 const WINDOW_FEEDBACK_PANEL: &str = "feedback.window";
 const HOVER_TIP_PANEL: &str = "feedback.hover";
 
+enum Auxiliary {
+    HoverTip,
+    WindowFeedback,
+}
+
 impl View {
     pub(crate) fn hover_tip_eligible(
         &self,
@@ -27,7 +32,7 @@ impl View {
                 auxiliary_panel(
                     WINDOW_FEEDBACK_PANEL,
                     Hint::from_feedback(severity, text),
-                    PanelPolicy::WindowFeedback,
+                    Auxiliary::WindowFeedback,
                 )
                 .with_panel_anchor(geometry::PlacementAnchor::Point(
                     geometry::Point::new(12, 12),
@@ -45,7 +50,7 @@ impl View {
     ) -> bool {
         if let Some(hint) = self.root.input_hint_for_target(target) {
             self.push_floating_panel(
-                auxiliary_panel(HOVER_TIP_PANEL, hint, PanelPolicy::HoverTip)
+                auxiliary_panel(HOVER_TIP_PANEL, hint, Auxiliary::HoverTip)
                     .with_pointer_panel_anchor(pointer_anchor),
             );
             return true;
@@ -61,19 +66,20 @@ impl View {
         };
 
         self.push_floating_panel(
-            auxiliary_panel(HOVER_TIP_PANEL, hint, PanelPolicy::HoverTip)
+            auxiliary_panel(HOVER_TIP_PANEL, hint, Auxiliary::HoverTip)
                 .with_pointer_panel_anchor(pointer_anchor),
         );
         true
     }
 }
 
-fn auxiliary_panel(id: impl Into<interaction::Id>, hint: Hint, policy: PanelPolicy) -> Node {
+fn auxiliary_panel(id: impl Into<interaction::Id>, hint: Hint, kind: Auxiliary) -> Node {
     let description = hint.description().to_owned();
-    Node::floating_panel(id)
-        .with_panel_policy(policy)
-        .with_auxiliary_hint(hint)
-        .child(
-            Node::wrapped_world_text(description, Wrap::Word).with_auxiliary_text_participation(),
-        )
+    let policy = match kind {
+        Auxiliary::HoverTip => PanelPolicy::HoverTip(hint),
+        Auxiliary::WindowFeedback => PanelPolicy::WindowFeedback(hint),
+    };
+    Node::floating_panel(id).with_panel_policy(policy).child(
+        Node::wrapped_world_text(description, Wrap::Word).with_auxiliary_text_participation(),
+    )
 }

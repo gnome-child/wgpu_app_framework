@@ -5,7 +5,7 @@ use super::{
 use crate::{interaction, popup, table, virtual_list};
 
 use super::super::{
-    Hint, TextCommit,
+    TextCommit,
     control::{Button, Checkbox, Radio, Slider, TextArea, TextBox},
 };
 
@@ -59,10 +59,8 @@ pub(super) enum Scroll {
 pub(super) struct Panel {
     pub(super) placement: FloatingPlacement,
     pub(super) attachment: Option<PanelAttachment>,
-    pub(super) available: Option<crate::geometry::Rect>,
     pub(super) popup_context: Option<popup::ContextFingerprint>,
     pub(super) policy: PanelPolicy,
-    pub(super) auxiliary_hint: Option<Hint>,
     pub(super) force_overlay_group: bool,
     pub(super) native_material: NativePopupMaterialPreference,
 }
@@ -228,10 +226,8 @@ impl Panel {
         Self {
             placement: FloatingPlacement::Default,
             attachment: None,
-            available: None,
             popup_context: None,
             policy: PanelPolicy::Interactive,
-            auxiliary_hint: None,
             force_overlay_group: false,
             native_material: NativePopupMaterialPreference::System,
         }

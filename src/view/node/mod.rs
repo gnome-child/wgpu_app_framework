@@ -74,16 +74,23 @@ pub enum NativePopupMaterialPreference {
 }
 
 /// Behavioral policy applied to content that shares the floating-panel path.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PanelPolicy {
     Interactive,
-    HoverTip,
-    WindowFeedback,
+    HoverTip(super::Hint),
+    WindowFeedback(super::Hint),
 }
 
 impl PanelPolicy {
-    pub(crate) const fn accepts_input(self) -> bool {
+    pub(crate) const fn accepts_input(&self) -> bool {
         matches!(self, Self::Interactive)
+    }
+
+    pub(crate) fn auxiliary_hint(&self) -> Option<&super::Hint> {
+        match self {
+            Self::Interactive => None,
+            Self::HoverTip(hint) | Self::WindowFeedback(hint) => Some(hint),
+        }
     }
 }
 
@@ -93,7 +100,10 @@ impl PanelPolicy {
 /// panel; this value answers only where the shared placement request begins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PanelAttachment {
-    Geometry(crate::geometry::PlacementAnchor),
+    Geometry {
+        anchor: crate::geometry::PlacementAnchor,
+        available: Option<crate::geometry::Rect>,
+    },
     Pointer(crate::geometry::Point),
     Element(interaction::Id),
 }

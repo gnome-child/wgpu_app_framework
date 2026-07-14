@@ -1639,6 +1639,75 @@ fn view_node_content_is_the_single_role_payload_representation() {
 }
 
 #[test]
+fn floating_panel_state_is_structural_through_view_and_layout() {
+    let node = include_str!("../view/node/mod.rs");
+    let content = include_str!("../view/node/content.rs");
+    let access = include_str!("../view/node/access.rs");
+    let builder = include_str!("../view/node/builder.rs");
+    let feedback = include_str!("../view/feedback.rs");
+    let frame = include_str!("../layout/frame.rs");
+    let algorithm = include_str!("../layout/algorithm.rs");
+    let panel_fields = content
+        .split("pub(super) struct Panel {")
+        .nth(1)
+        .expect("view panel content should exist")
+        .split("\n}")
+        .next()
+        .expect("view panel fields should end");
+    let frame_fields = frame
+        .split("pub(crate) struct Frame {")
+        .nth(1)
+        .expect("Frame declaration should exist")
+        .split("\n}")
+        .next()
+        .expect("Frame fields should end");
+
+    assert!(
+        node.contains("HoverTip(super::Hint)")
+            && node.contains("WindowFeedback(super::Hint)")
+            && node.contains("Self::HoverTip(hint) | Self::WindowFeedback(hint)")
+            && node.contains("Geometry {")
+            && node.contains("available: Option<crate::geometry::Rect>"),
+        "panel policy must own auxiliary hints and geometry must own availability"
+    );
+    assert!(panel_fields.contains("attachment: Option<PanelAttachment>"));
+    assert!(panel_fields.contains("policy: PanelPolicy"));
+    assert!(!panel_fields.contains("available:"));
+    assert!(!panel_fields.contains("auxiliary_hint:"));
+    assert!(!access.contains("fn placement_available("));
+    assert!(!builder.contains("fn with_auxiliary_hint("));
+    assert!(
+        feedback.contains("PanelPolicy::HoverTip(hint)")
+            && feedback.contains("PanelPolicy::WindowFeedback(hint)")
+            && !feedback.contains("with_auxiliary_hint")
+    );
+    assert!(
+        algorithm.contains("PanelAttachment::Geometry { anchor, available }")
+            && !algorithm.contains("node.placement_available()")
+    );
+
+    assert!(
+        frame.contains("FloatingPanel(FloatingPanelContent)")
+            && frame.contains("struct FloatingPanelContent {")
+            && frame.contains("policy: view::PanelPolicy")
+            && frame.contains("Self::FloatingPanel(content) => Some(content)")
+    );
+    for displaced in [
+        "force_overlay_group:",
+        "native_popup_material_preference:",
+        "popup_placement:",
+        "popup_context:",
+        "panel_policy:",
+        "auxiliary_hint:",
+    ] {
+        assert!(
+            !frame_fields.contains(displaced),
+            "floating-only fact must stay out of ordinary Frame storage: {displaced}"
+        );
+    }
+}
+
+#[test]
 fn demo_apps_do_not_leak_into_framework_source_or_public_api() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let examples_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
@@ -2241,6 +2310,12 @@ fn frame_content_is_the_single_role_payload_representation() {
         "viewport: Option<Viewport>",
         "shortcut_display: Option<Vec<ShortcutPart>>",
         "shortcut_width: Option<i32>",
+        "force_overlay_group:",
+        "native_popup_material_preference:",
+        "popup_placement:",
+        "popup_context:",
+        "panel_policy:",
+        "auxiliary_hint:",
     ] {
         assert!(
             !fields.contains(displaced),

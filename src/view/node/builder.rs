@@ -334,8 +334,10 @@ impl Node {
         available: crate::geometry::Rect,
     ) -> Self {
         if let Some(panel) = self.content.panel_mut() {
-            panel.attachment = Some(super::PanelAttachment::Geometry(anchor));
-            panel.available = Some(available);
+            panel.attachment = Some(super::PanelAttachment::Geometry {
+                anchor,
+                available: Some(available),
+            });
         } else {
             debug_assert!(false, "panel placement requires a floating panel");
         }
@@ -344,7 +346,10 @@ impl Node {
 
     pub(crate) fn with_panel_anchor(mut self, anchor: crate::geometry::PlacementAnchor) -> Self {
         if let Some(panel) = self.content.panel_mut() {
-            panel.attachment = Some(super::PanelAttachment::Geometry(anchor));
+            panel.attachment = Some(super::PanelAttachment::Geometry {
+                anchor,
+                available: None,
+            });
         } else {
             debug_assert!(false, "panel anchor requires a floating panel");
         }
@@ -383,14 +388,6 @@ impl Node {
         debug_assert_eq!(self.role(), Role::FloatingPanel);
         if let Some(panel) = self.content.panel_mut() {
             panel.policy = policy;
-        }
-        self
-    }
-
-    pub(crate) fn with_auxiliary_hint(mut self, hint: super::super::Hint) -> Self {
-        debug_assert_eq!(self.role(), Role::FloatingPanel);
-        if let Some(panel) = self.content.panel_mut() {
-            panel.auxiliary_hint = Some(hint);
         }
         self
     }
