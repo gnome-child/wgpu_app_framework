@@ -100,20 +100,21 @@ Reject or redraw the seam instead.
 ### Naming follows the established house law
 
 - Names describe the domain concept, not its implementation trick.
-- A declaration takes the canonical name exposed by the public API. If a type
-  declared as `CompoundName` would be re-exported as `Name`, rename the
-  declaration itself to `Name`; an `as Name` re-export may not preserve the
-  compound declaration. This law applies at every projection layer, including
-  parent modules: re-export `module::Name`, never
-  `module::CompoundName as Name`.
-- When a public module and its central public type have the same name, the
-  parent publicly re-exports only that namesake type. Supporting types keep
-  simple declarations inside the module and are not flattened into the parent
-  namespace.
-- Call sites import the module and its namesake type together with
-  `use parent::{module, Module};`, then refer to supporting types as
-  `module::Type`. Call-site collisions are resolved by module qualification,
-  not by compound declarations or aliased parent projections.
+- **Canonical declaration spelling.** A type is declared with the simple name
+  by which the API exposes it. If any projection would otherwise spell
+  `CompoundName as Name`, collapse the declaration itself to `Name`. This is
+  required at every re-export layer, including immediate and higher parent
+  modules: write `pub use module::Name`, never
+  `pub use module::CompoundName as Name`.
+- **Namesake parent projection.** When public module `module` owns the central
+  public type `Module`, its parent publicly re-exports only `Module` from that
+  module. Supporting declarations keep simple names inside `module` and are
+  not flattened into any parent namespace.
+- **Call-site qualification.** Call sites that need both import them as
+  `use parent::{module, Module};`. They use `Module` for the central type and
+  `module::Type` for every supporting type. Name collisions are solved by that
+  module qualification; they never justify compound declarations, aliased
+  projections, or flattened supporting re-exports.
 - No new `core`, `common`, `types`, `util`, `helper`, or `manager` bucket.
 - Moving or re-housing a concept does not authorize renaming it.
 - Existing overloaded-name cleanup remains under its established census and
