@@ -4581,6 +4581,67 @@ Status: **complete; asserted optional-presence protocol removed**. Correction
    remaining layout lifecycles, and the complete visibility/failure/
    intermediate inventories; this cell does not close Rung 5.
 
+### R5-41 — session command-scope and window-state resistance
+
+Status: **complete resistance ruling; no production correction admitted**.
+
+1. **Question and complete trace.** The reverse session sweep traced focused,
+   transient, captured, and contextual `CommandScope` construction through
+   responder-chain routing, text and table service claims/invocation, command
+   palette query and captured worlds, context-menu path frames, standard-menu
+   live state, typed and erased command transactions, and programmatic dispatch.
+   It also traced window focus, menu restoration, palette capture, active text
+   target, invalidation, projected revision, desired/acknowledged presentation
+   epochs, dialogs, feedback, selection snapshots, restore, pruning, and
+   destruction.
+2. **Scope alignment ruling.** `CommandScope` is not a transport-only wrapper.
+   Its lower `responder::Scope` is consumed by path traversal, while its focus,
+   table, and route kind are consumed repeatedly by higher text/table service
+   realization. Focused, transient, captured, and contextual constructors mint
+   those facts together; table identity is derived once from table-cell focus
+   when an explicit contextual table is absent. Removing the type would force
+   every consumer to reconstruct alignment, while moving focus/table into
+   responder would restore the Rung 3 upward dependency.
+3. **Window-state product ruling.** Live focus, optional menu restoration,
+   optional palette-captured focus, and active text target have separately
+   witnessed combinations and precedence. A menu or palette may capture no
+   prior focus; live focus changes while a command surface remains open; text
+   drafts may outlive activation; outside dismissal intentionally does not
+   restore. Likewise invalidation, projected revision, desired epoch,
+   acknowledged epoch, file-dialog request, feedback stack, and interaction
+   state each have independent creation, drain, retry, snapshot, or cleanup
+   clocks. No correlated option cluster or boolean protocol is present.
+4. **Boundary and naming ruling.** Session remains the honest owner of the
+   higher alignment receipt and focus-restoration lifecycles; responder remains
+   route-only and interaction remains command-surface identity. The private
+   `CommandScope` name is not aliased or re-exported, and no parent projection
+   or supporting public type is added. Existing namesake and call-site
+   qualification laws therefore remain satisfied without naming churn.
+5. **Rejected alternatives.** A generic service context would expose a state
+   bag; callbacks would conceal the same route-to-service dependency; an enum
+   duplicating all four scope constructors would repeat the same payloads
+   without deleting a valid state; nesting session `Focus` inside interaction
+   menus would reverse owner direction; and merging the window clocks would
+   contradict skipped-presentation, retry, and restoration witnesses. No
+   correction passes admission.
+6. **Behavior and economics.** Command precedence, exact and broad routing,
+   active-text priority, table service selection, palette invocation against
+   captured rather than query focus, menu restoration, context pruning,
+   snapshots, allocation, layout, scene order, renderer topology, invalidation,
+   and presentation clocks remain byte-for-byte unchanged.
+7. **Proof and gauge.** The responder-scope architecture witness, both captured-
+   focus palette journeys, and pointer-opened menu focus journey passed
+   directly. The R5-40 full proof remains the unchanged production boundary:
+   1,113 passed, 10 ignored, 0 failed; all targets/examples, census, format,
+   diff, and protected-state checks passed. Every gauge remains unchanged,
+   including zero forbidden/external/SCC findings and 86 production expects.
+8. **Fixed point and next frontier.** Session scope alignment and window state
+   remain intentional, evidenced non-merges; no consumer-local fallback,
+   competing authority, or invalid combination was found. The reverse sweep
+   continues with theme patch absence and material species, then remaining
+   layout lifecycles and the complete visibility/failure/intermediate
+   inventories; this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
