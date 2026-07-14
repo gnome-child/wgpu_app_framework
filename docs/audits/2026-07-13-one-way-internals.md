@@ -3418,6 +3418,51 @@ Correction `b44ff406` (`Make table track species valid`).
    and the remaining lifecycle and intermediate inventories; this cell does not
    close Rung 5.
 
+### R5-21 — valid runtime visual-scalar species
+
+Status: **complete; moving and resting scalar state separated**. Correction
+`910b0518` (`Make visual scalar species valid`).
+
+1. **Question and complete trace.** The reverse scene-animation sweep traced
+   slider hover/press desire through runtime transition creation, retargeting,
+   eased sampling, schedule continuation, visual storage and sanitization,
+   scene transform/scale-motion projection, layout-to-paint snapping, renderer
+   movement admission, and the slider and moving-geometry witnesses.
+2. **Invalid state and derived facts.** `scene::visual::Scalar` stored value,
+   endpoints, progress, and `Motion` independently. Its sole producer admitted
+   only a moving transition with all four scalar facts or a resting value whose
+   endpoints equal that value, progress is complete, and motion is resting. The
+   struct also represented every disagreement among those facts.
+3. **Correction.** `Scalar` itself is now
+   `Moving { value, from, target, progress } | Resting { value }`. Existing
+   value/endpoint/progress/motion queries derive the same downstream values, and
+   sanitization preserves the species while sanitizing only its owned fields.
+   The parallel motion field and redundant resting endpoint/progress storage are
+   deleted without adding an intermediate type.
+4. **Boundary and naming ruling.** The existing private-housing `Scalar` and its
+   crate-private scene projection remain unchanged; the cell introduces no
+   public name, parent projection, alias, or visibility change. In particular,
+   no compound declaration is exposed under a simpler spelling.
+5. **Behavior and economics.** Desire, transition endpoints, eased progress,
+   current scale, sanitization, redraw scheduling, final resting pose, scene
+   transforms, device snapping, subpixel motion, allocation, batching/pass
+   fusion, and presentation clocks are unchanged. The resting species stores
+   one scalar instead of five fields and all projections remain constant-time.
+6. **Doctrine and witness.** Master design now names the moving and resting
+   scalar species and their derived resting facts. The architecture witness pins
+   the sum and tombstones an independently stored motion field on the scalar.
+7. **Proof and gauge delta from R5-20.** The focused architecture witness and
+   slider hover-animation witness passed; the full library discovered 1,103
+   tests and passed 1,093 with 10 ignored; all targets compiled without warnings.
+   All nine census parser witnesses, the full census, formatting, diff, and
+   protected-state checks passed. Every graph, visibility, test-edge,
+   source-root, filesystem, allowance, panic, and expect gauge remains unchanged.
+8. **Fixed point and next frontier.** Runtime scalar visuals now carry only valid
+   transition species from sampling through renderer admission. The reverse
+   sweep continues through view/layout role facts, widget/session/theme state,
+   popup/overlay lifecycle, and the complete visibility/failure inventories;
+   this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
