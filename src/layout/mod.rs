@@ -31,7 +31,6 @@ pub(crate) use control::{
 pub(crate) use engine::Engine;
 pub(crate) use frame::Frame;
 pub(crate) use hit::Hit;
-pub(crate) use text::Area as TextArea;
 pub use text::Text;
 pub(crate) use typography::{
     label_style_for, section_header_text, shortcut_run_gap, shortcut_text_style,

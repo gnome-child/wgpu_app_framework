@@ -336,13 +336,11 @@ fn paint_frame(
             slider::paint(frame, scene, theme, visuals);
         }
         view::Role::TextArea => {
-            if let Some(text_area) = frame.text_area_layout() {
-                text_area::paint(frame, text_area, scene, theme, visuals);
-            }
+            text_area::paint(frame, scene, theme, visuals);
         }
         view::Role::TextBox => {
-            if let Some(text_area) = frame.text_area_layout() {
-                text_area::paint(frame, text_area, scene, theme, visuals);
+            if frame.text_area_layout().is_some() {
+                text_area::paint(frame, scene, theme, visuals);
             } else {
                 text_box::paint_selection(frame, scene, theme);
             }

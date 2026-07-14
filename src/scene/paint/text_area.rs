@@ -3,13 +3,10 @@ use crate::{layout, theme::Theme};
 use super::super::{Quad, Scene, TextViewport, Visuals};
 use super::text_surface;
 
-pub(super) fn paint(
-    frame: &layout::Frame,
-    text_area: &layout::TextArea,
-    scene: &mut Scene,
-    theme: &Theme,
-    visuals: &Visuals,
-) {
+pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme, visuals: &Visuals) {
+    let Some(text_area) = frame.text_area_layout() else {
+        return;
+    };
     let rect = frame.text_area_text_rect();
     for span in text_area.layout().selection_spans() {
         if let Some(span) =
